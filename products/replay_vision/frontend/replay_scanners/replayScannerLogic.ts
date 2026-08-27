@@ -67,10 +67,10 @@ import {
 import { clampDurationFilter, durationFilterError } from './durationBounds'
 import {
     ExperimentScannerContext,
+    buildExperimentTargeting,
     parseExperimentScannerParams,
     prefillScannerForExperiment,
-    reconcileVariantKeys,
-    replaceExperimentExposureFilter,
+    reconcileVariantKey,
 } from './experimentTargeting'
 import { consumeGoalDraftIntent } from './goalDraftIntent'
 import { clearScannerDraft, readScannerDraft, writeScannerDraft } from './scannerDraft'
@@ -363,6 +363,9 @@ export interface replayScannerLogicActions {
     appendClassifierTags: (tags: string[]) => {
         tags: string[]
     }
+    clearClassifierTags: () => {
+        value: true
+    }
     clearObservationFilters: () => {
         value: true
     }
@@ -457,6 +460,9 @@ export interface replayScannerLogicActions {
         tagSuggestions: TagSuggestionApi[]
         payload?: any
     }
+    rebuildExperimentContext: () => {
+        value: true
+    }
     refreshObservations: () => {
         value: true
     }
@@ -543,8 +549,8 @@ export interface replayScannerLogicActions {
     setExperimentContext: (context: ExperimentScannerContext | null) => {
         context: ExperimentScannerContext | null
     }
-    setExperimentVariantKeys: (variantKeys: string[]) => {
-        variantKeys: string[]
+    setExperimentVariant: (variantKey: string | null) => {
+        variantKey: string | null
     }
     setGoalDraftInput: (goal: string) => {
         goal: string
@@ -713,8 +719,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         // originalScanner, and submitIntent, and can refire the observation loads.
         scannerWatermarkRefreshed: (scanner: ReplayScanner) => ({ scanner }),
         setExperimentContext: (context: ExperimentScannerContext | null) => ({ context }),
-        setExperimentVariantKeys: (variantKeys: string[]) => ({ variantKeys }),
+        setExperimentVariant: (variantKey: string | null) => ({ variantKey }),
         detachExperimentContext: true,
+        rebuildExperimentContext: true,
         saveAffectedCohort: (tag?: string) => ({ tag }),
         setScannerType: (scannerType: ScannerType) => ({ scannerType }),
         startFromTemplate: (templateKey: string | null) => ({ templateKey }),
@@ -723,6 +730,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         // Fired only after an actual API write, unlike submitScannerSuccess (which the advance path emits too).
         scannerSaved: (scanner: ScannerFormValues) => ({ scanner }),
         appendClassifierTags: (tags: string[]) => ({ tags }),
+        clearClassifierTags: true,
         acceptTagSuggestion: (tag: string) => ({ tag }),
         acceptAllTagSuggestions: true,
         dismissTagSuggestions: true,
@@ -1007,7 +1015,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             null as ExperimentScannerContext | null,
             {
                 setExperimentContext: (_, { context }) => context,
-                setExperimentVariantKeys: (state, { variantKeys }) => (state ? { ...state, variantKeys } : state),
+                setExperimentVariant: (state, { variantKey }) => (state ? { ...state, variantKey } : state),
                 detachExperimentContext: () => null,
             },
         ],
@@ -1521,8 +1529,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     }
                     if (experimentParams) {
                         delete nextParams.experiment
-                        delete nextParams.variants
-                        delete nextParams.exposure
+                        delete nextParams.variant
                     }
                     if (nextParams.goal !== undefined) {
                         delete nextParams.goal
@@ -1539,8 +1546,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                             const experiment = await api.experiments.get(experimentParams.experimentId)
                             const context: ExperimentScannerContext = {
                                 experiment,
-                                variantKeys: reconcileVariantKeys(experiment, experimentParams.variantKeys),
-                                useExposureFallback: experimentParams.useExposureFallback,
+                                variantKey: reconcileVariantKey(experiment, experimentParams.variantKey),
                             }
                             const prefilled = prefillScannerForExperiment(newScanner(templateKey, teamName), context)
                             // Set the context only after the prefill is built, so a throw inside it
@@ -1563,6 +1569,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         if (draft) {
                             actions.setScannerValues(draft.scanner)
                             actions.setScannerDraftSavedAt(draft.savedAt)
+                            // A draft made from an experiment prefill carries targeting the
+                            // loadScannerSuccess above (a bare newScanner) didn't see.
+                            actions.rebuildExperimentContext()
                         }
                     } finally {
                         cache.restoringDraft = false
@@ -1606,19 +1615,51 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     actions.loadObservations()
                     actions.loadObservationStats()
                 }
+                actions.rebuildExperimentContext()
             },
 
-            // The reducer has already stored the new keys; recompile only the managed exposure
-            // filter so filters the user added by hand survive a variant change.
-            setExperimentVariantKeys: () => {
+            // Rebuilds the targeting card from the form's current targeting — a loaded scanner or a
+            // restored draft — so the variant picker and detach stay usable wherever it came from.
+            // The API nulls experiment_targeting for viewers denied the experiment, so this never
+            // fetches an experiment the viewer can't see. Fails soft: without the card the scanner
+            // still edits normally.
+            rebuildExperimentContext: async () => {
+                const targeting = values.scanner?.experiment_targeting
+                if (!targeting?.experiment_id || values.experimentContext) {
+                    return
+                }
+                try {
+                    const experiment = await api.experiments.get(targeting.experiment_id)
+                    // The form's targeting can change while this request is in flight (a template pick or
+                    // draft discard resets it), so re-check before installing the card. Otherwise a late
+                    // response restores a card for targeting the scanner no longer carries, which a later
+                    // variant change would then re-persist.
+                    const current = values.scanner?.experiment_targeting
+                    if (current?.experiment_id !== targeting.experiment_id || values.experimentContext) {
+                        return
+                    }
+                    actions.setExperimentContext({ experiment, variantKey: current.variant ?? null })
+                } catch {
+                    // The card simply doesn't render; targeting stays intact on the scanner.
+                }
+            },
+
+            // The reducer has already stored the new key; targeting lives in its own field, so a
+            // variant change never touches `query` and filters the user added by hand survive.
+            setExperimentVariant: () => {
                 const context = values.experimentContext
                 if (!context) {
                     return
                 }
-                actions.setScannerValue(
-                    'query',
-                    replaceExperimentExposureFilter(values.scanner?.query ?? null, context)
-                )
+                actions.setScannerValue('experiment_targeting', buildExperimentTargeting(context))
+            },
+
+            // Clearing the context alone would leave the persisted targeting silently filtering to
+            // exposed persons with nothing in the Triggers UI able to show or remove it.
+            detachExperimentContext: () => {
+                if (values.scanner?.experiment_targeting) {
+                    actions.setScannerValue('experiment_targeting', null)
+                }
             },
 
             // Changing type keeps the rest of the form: it spreads `current`, so an experiment
@@ -1707,6 +1748,16 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
             },
 
+            clearClassifierTags: () => {
+                const scanner = values.scanner
+                if (!scanner || scanner.scanner_type !== 'classifier') {
+                    return
+                }
+                if ((scanner.scanner_config.tags ?? []).length > 0) {
+                    actions.setScannerValue(['scanner_config', 'tags'], [])
+                }
+            },
+
             acceptTagSuggestion: ({ tag }) => actions.appendClassifierTags([tag]),
             acceptAllTagSuggestions: () => {
                 // Read the suggestions before dismiss clears them.
@@ -1778,6 +1829,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 try {
                     const response = await visionScannersEstimateCreate(String(teamId), {
                         query: scanner.query ?? undefined,
+                        // Sent alongside the query so the preview counts the same exposed-person
+                        // population the scan will, instead of every eligible session.
+                        experiment_targeting: scanner.experiment_targeting ?? null,
                         sampling_rate: scanner.sampling_rate,
                         // The proposed model prices the credit estimate.
                         model: scanner.model,
@@ -1822,6 +1876,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     await visionScannersPartialUpdate(String(teamId), props.id, { enabled: next })
                     actions.toggleEnabledSuccess(next)
                     refreshVisionQuota()
+                    lemonToast.success(`Scanner ${next ? 'enabled' : 'disabled'}`)
                 } catch (error: any) {
                     actions.setScannerValue('enabled', !next)
                     const verb = next ? 'enable' : 'disable'

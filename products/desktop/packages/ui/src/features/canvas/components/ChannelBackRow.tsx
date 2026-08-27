@@ -1,4 +1,4 @@
-import { StarIcon, XIcon } from "@phosphor-icons/react";
+import { ArrowUUpLeftIcon, StarIcon } from "@phosphor-icons/react";
 import {
   Button,
   cn,
@@ -83,7 +83,7 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
                   surface: "sidebar",
                   channel_id: channelId,
                 });
-                showChannelList();
+                showChannelList({ animate: true });
               }}
               // Quill's own height and radius, so this reads as one of the rows
               // under it rather than a control sitting on top. The right padding
@@ -100,8 +100,8 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
               {/* The way out of a space, in the brand's own colour: a muted
                   caret read as decoration on a header rather than the control
                   it is, and people could not find their way back to the list. */}
-              <XIcon
-                size={14}
+              <ArrowUUpLeftIcon
+                size={12}
                 weight="bold"
                 className="shrink-0 text-primary"
               />
@@ -128,7 +128,7 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
               {/* Same key as the search box's hint: from inside a space it is
                   the way back to the list, which is what this row does. */}
               <Kbd className="mr-0! shrink-0 opacity-50">
-                {formatHotkey(SHORTCUTS.FOCUS_SPACE_SEARCH)}
+                {formatHotkey(SHORTCUTS.FOCUS_SIDEBAR_SEARCH)}
               </Kbd>
               {/* The star's well. Its height is unconditional — it is what
                   sets the row's height, and a row that changed height between a

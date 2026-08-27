@@ -1,3 +1,4 @@
+import { taskFeedResultsQueryRoot } from "@posthog/ui/features/canvas/hooks/useTaskFeedResults";
 import { reportKeys } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useAuthenticatedMutation } from "@posthog/ui/hooks/useAuthenticatedMutation";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -44,6 +45,10 @@ export function useInboxRestoreReport() {
           queryKey: reportKeys.all,
           exact: false,
         });
+        await queryClient.invalidateQueries({
+          queryKey: taskFeedResultsQueryRoot,
+          exact: false,
+        });
         toast.success("Report restored to inbox");
       },
       onError: async (error) => {
@@ -52,6 +57,10 @@ export function useInboxRestoreReport() {
           // rather than reporting a failure for an action that was moot.
           await queryClient.invalidateQueries({
             queryKey: reportKeys.all,
+            exact: false,
+          });
+          await queryClient.invalidateQueries({
+            queryKey: taskFeedResultsQueryRoot,
             exact: false,
           });
           toast.info(error.message);

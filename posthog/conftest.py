@@ -190,6 +190,15 @@ def reset_clickhouse_tables():
     run_clickhouse_statement_in_parallel(list(CREATE_DATA_QUERIES()))
 
 
+def _sqlx_error_output(error: subprocess.CalledProcessError) -> str:
+    output = "\n".join(
+        stream.decode(errors="replace") if isinstance(stream, bytes) else stream
+        for stream in (error.stdout, error.stderr)
+        if stream
+    )
+    return output or str(error)
+
+
 def run_persons_sqlx_migrations(keepdb: bool = False):
     """Run sqlx migrations for persons tables in separate test_posthog_persons database.
 
@@ -204,6 +213,11 @@ def run_persons_sqlx_migrations(keepdb: bool = False):
     db_config = settings.DATABASES["default"]
     # Use separate persons database name to mirror production
     persons_db_name = db_config["NAME"] + "_persons"
+    if not persons_db_name.startswith("test_"):
+        raise RuntimeError(
+            f"Refusing to run persons migrations against '{persons_db_name}', which is not a test database. "
+            "Add a pytest.mark.django_db marker to the test module."
+        )
     db_user = db_config["USER"]
     db_password = db_config["PASSWORD"]
     db_host = db_config["HOST"]
@@ -246,7 +260,7 @@ def run_persons_sqlx_migrations(keepdb: bool = False):
         if not keepdb:
             raise RuntimeError(
                 f"Failed to create test database with sqlx. "
-                f"Ensure sqlx-cli is installed. Error: {e.stderr.decode() if e.stderr else str(e)}"
+                f"Ensure sqlx-cli is installed. Error: {_sqlx_error_output(e)}"
             ) from e
 
     # Run migrations (idempotent - sqlx tracks which migrations have run)
@@ -259,7 +273,7 @@ def run_persons_sqlx_migrations(keepdb: bool = False):
         )
     except subprocess.CalledProcessError as e:
         raise RuntimeError(
-            f"Failed to run sqlx migrations from {migrations_path}. Error: {e.stderr.decode() if e.stderr else str(e)}"
+            f"Failed to run sqlx migrations from {migrations_path}. Error: {_sqlx_error_output(e)}"
         ) from e
 
 
@@ -488,6 +502,22 @@ def mock_code_based_verifier(request, mocker):
     mocker.patch(
         "posthog.helpers.two_factor_session.CodeBasedVerifier.should_send_code_based_verification",
         return_value=CodeBasedVerificationCheckResult(should_send=False),
+    )
+
+
+@pytest.fixture(autouse=True)
+def mock_email_code_verification(request, mocker):
+    """
+    Keep the pre-existing email-verification tests on the link flow. Codes are the default and
+    would bypass every mock of the link-email sender. Code-flow tests opt out with
+    @pytest.mark.disable_mock_email_code_verification.
+    """
+    if "disable_mock_email_code_verification" in request.keywords:
+        return
+
+    mocker.patch(
+        "posthog.api.email_verification.EmailVerifier.use_verification_code",
+        return_value=False,
     )
 
 

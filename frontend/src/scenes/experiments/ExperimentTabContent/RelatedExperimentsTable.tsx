@@ -6,17 +6,15 @@ import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTa
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import type { LemonTableColumn } from 'lib/lemon-ui/LemonTable/types'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { getExperimentStatus } from 'scenes/experiments/experimentStatus'
 import { urls } from 'scenes/urls'
 
-import {
-    getExperimentStatus,
-    getShippedVariantKey,
-    isSingleVariantShipped,
-} from '~/scenes/experiments/experimentsLogic'
 import { StatusTag } from '~/scenes/experiments/ExperimentView/StatusTag'
 import { isLegacyExperiment } from '~/scenes/experiments/utils'
 import type { Experiment } from '~/types'
 import { ExperimentStatus } from '~/types'
+
+import { getShippedVariantKey, isSingleVariantShipped } from 'products/experiments/frontend/scenes/experimentsLogic'
 
 type RelatedExperimentsTableProps = {
     relatedExperiments: Experiment[]
@@ -128,7 +126,9 @@ export const RelatedExperimentsTable = ({
                                 ? dayjs().diff(dayjs(experiment.start_date), 'day')
                                 : undefined
 
-                            if (remainingDays === undefined || remainingDays === null) {
+                            // A negative stored estimate isn't a real duration, so read it as "no estimate"
+                            // rather than "~-N days remaining" (records saved before the persist guard can still hold one).
+                            if (remainingDays === undefined || remainingDays === null || remainingDays < 0) {
                                 return (
                                     <Tooltip title="Remaining time will be calculated once the experiment has enough data">
                                         <div className="w-full">

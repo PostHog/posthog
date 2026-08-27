@@ -82,7 +82,7 @@ def create_traced_scorer_clients(posthog_client: Posthog) -> TracedClients:
             kwargs.setdefault(k, v)
         return await original_openai_create(*args, **kwargs)
 
-    openai_client.chat.completions.create = patched_openai_create  # type: ignore
+    openai_client.chat.completions.create = patched_openai_create
 
     class _TracedLLMClient(LLMClient):
         def __post_init__(self):

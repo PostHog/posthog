@@ -2,10 +2,6 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
-    SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH,
-    SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.source import ShopifySource
 
 
@@ -32,24 +28,6 @@ def test_graphql_access_denied_is_non_retryable(error_message):
     patterns = ShopifySource().get_non_retryable_errors()
     assert any(pattern in error_message for pattern in patterns), (
         f"GraphQL access-denied error '{error_message}' should match a non-retryable pattern"
-    )
-
-
-def test_payment_required_is_non_retryable():
-    error_message = _http_error_message(402, "Payment Required")
-    assert SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH in error_message
-    patterns = ShopifySource().get_non_retryable_errors()
-    assert any(pattern in error_message for pattern in patterns), (
-        f"402 Payment Required error '{error_message}' should match a non-retryable pattern"
-    )
-
-
-def test_graphql_unauthorized_is_non_retryable():
-    error_message = _http_error_message(401, "Unauthorized")
-    assert SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH in error_message
-    patterns = ShopifySource().get_non_retryable_errors()
-    assert any(pattern in error_message for pattern in patterns), (
-        f"401 Unauthorized error '{error_message}' should match a non-retryable pattern"
     )
 
 

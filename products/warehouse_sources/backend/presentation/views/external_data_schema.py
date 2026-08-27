@@ -21,9 +21,10 @@ from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.permissions import AccessControlPermission, is_service_auth
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin, access_level_satisfied_for_resource
 from posthog.utils import str_to_bool
 
+from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
+from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.data_warehouse.backend.facade.api import (
     cancel_external_data_workflow,
     create_and_register_webhook,
@@ -57,6 +58,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     WebhookSource,
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
+    purge_buffer_prefix,
     source_type_supports_cdc,
     validate_and_coerce_row_filters,
 )
@@ -92,6 +94,25 @@ def source_supports_row_filters(source_type: str) -> bool:
         return False
     # `bool()` guards against test mocks whose attribute access returns a Mock — orjson can't serialize.
     return bool(source.supports_row_filters)
+
+
+def source_requires_exact_column_metadata(source_type: str) -> bool:
+    """Whether enabled column names are interpolated into a source-side query.
+
+    These sources require exact source identifiers. Warehouse table columns have already
+    passed through dlt normalization, so they are not a safe fallback for configuration.
+
+    This is intentionally narrower than ``source_supports_column_selection``: the latter
+    also includes sources whose columns are projected generically after extraction.
+    """
+    try:
+        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+    except Exception as e:
+        capture_exception(e)
+        # Unknown source types already fail the broader column-selection check. Keep the
+        # read path available so a registry failure does not also blank column descriptions.
+        return False
+    return bool(source.supports_column_selection)
 
 
 _CDC_WRITE_TARGETS_BY_TABLE_MODE: dict[str, frozenset[str]] = {
@@ -366,6 +387,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         "source-side schema discovered via `refresh_schemas`; for other sources (and once synced) it falls back "
         "to the synced table's columns. Empty only before the first successful sync/refresh.",
     )
+    source_column_metadata_available = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="Whether exact source-side column metadata is available for safe source-query projection.",
+    )
     # `source` shadows DRF's reserved `Field.source` attribute, so mypy flags the assignment;
     # the runtime behaviour (a read-only SerializerMethodField backed by get_source) is correct.
     source = serializers.SerializerMethodField(  # type: ignore[assignment]
@@ -400,6 +425,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "enabled_columns",
             "row_filters",
             "available_columns",
+            "source_column_metadata_available",
             "source",
             "api_version",
             "api_version_deprecation",
@@ -416,6 +442,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "status",
             "description",
             "available_columns",
+            "source_column_metadata_available",
             "source",
             "api_version_deprecation",
             "user_access_level",
@@ -458,6 +485,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         table = schema.table
         return table.get_user_facing_columns() if table is not None else []
 
+    def get_source_column_metadata_available(self, schema: ExternalDataSchema) -> bool:
+        metadata = schema.schema_metadata or {}
+        return isinstance(metadata.get("columns"), list) if isinstance(metadata, dict) else False
+
     @extend_schema_field(
         {
             "type": "object",
@@ -468,6 +499,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 "access_method": {"type": "string"},
                 "supports_column_selection": {"type": "boolean"},
                 "supports_row_filters": {"type": "boolean"},
+                "requires_exact_column_metadata": {"type": "boolean"},
                 "user_access_level": {"type": "string", "nullable": True},
                 "api_version": {"type": "string", "nullable": True},
                 "supported_api_versions": {"type": "array", "items": {"type": "string"}},
@@ -500,6 +532,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "access_method": source.access_method,
             "supports_column_selection": source_supports_column_selection(source.source_type),
             "supports_row_filters": source_supports_row_filters(source.source_type),
+            "requires_exact_column_metadata": source_requires_exact_column_metadata(source.source_type),
             "user_access_level": user_access_level,
             "api_version": source_api_version,
             "supported_api_versions": supported_api_versions,
@@ -679,6 +712,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         validated_data.pop("primary_key_columns", None)
         validated_data.pop("cdc_table_mode", None)
 
+        enabled_columns_changed = "enabled_columns" in validated_data and (
+            validated_data["enabled_columns"] != instance.enabled_columns
+        )
+
         if "enabled_columns" in validated_data:
             enabled_columns = validated_data["enabled_columns"]
             if enabled_columns is not None:
@@ -702,6 +739,14 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                             f"Unknown columns in enabled_columns: {sorted(unknown)}. "
                             "Run `Pull new schemas` to refresh available columns."
                         )
+                elif (
+                    enabled_columns_changed
+                    and enabled_columns
+                    and source_requires_exact_column_metadata(instance.source.source_type)
+                ):
+                    raise ValidationError(
+                        "Column metadata is unavailable. Run `Pull new schemas` before selecting source columns."
+                    )
 
         # Validate against the schema's columns; raw filters are persisted as-is and re-coerced at sync time.
         if "row_filters" in validated_data and validated_data["row_filters"] is not None:
@@ -982,10 +1027,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             validated_data.setdefault("sync_type_config", instance.sync_type_config)
             validated_data["sync_type_config"]["reset_pipeline"] = True
             trigger_refresh = True
-
-        enabled_columns_changed = "enabled_columns" in validated_data and (
-            validated_data["enabled_columns"] != instance.enabled_columns
-        )
 
         if source.is_direct_query:
             direct_engine_adapter = get_direct_query_engine(source.direct_engine)
@@ -1500,6 +1541,23 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if instance.table:
             instance.table.soft_delete()
         instance.soft_delete()
+
+        # CDC teardown, both best-effort: leaving the table in the publication makes the
+        # customer's WAL carry its changes forever, and the buffer files are raw change data
+        # nothing will consume — otherwise they sit until the 14-day lifecycle expiry.
+        if instance.sync_type == ExternalDataSchema.SyncType.CDC:
+            try:
+                source = instance.source
+                adapter = get_cdc_adapter(source)
+                _, db_schema, source_table_name = get_postgres_source_location(
+                    schema_name=instance.name,
+                    schema_metadata=instance.schema_metadata,
+                    default_schema=(source.job_inputs or {}).get("schema"),
+                )
+                adapter.remove_table(source, db_schema, source_table_name)
+            except Exception:
+                logger.exception("Failed to remove deleted CDC schema from publication", schema_id=str(instance.id))
+            purge_buffer_prefix(self.team_id, str(instance.id), logger)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 
