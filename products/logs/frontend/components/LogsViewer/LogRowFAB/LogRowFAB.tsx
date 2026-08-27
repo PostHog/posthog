@@ -13,6 +13,7 @@ import {
 import { LemonButton } from '@posthog/lemon-ui'
 
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
@@ -20,7 +21,6 @@ import { cn } from 'lib/utils/css-classes'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { logsMetricRuleQuickCreateLogic } from 'products/logs/frontend/components/LogsMetricRules/logsMetricRuleQuickCreateLogic'
-import { useLogsMetricRulesEnabled } from 'products/logs/frontend/components/LogsMetricRules/logsMetricRulesGate'
 import { buildMetricRuleSeedFromLog } from 'products/logs/frontend/components/LogsMetricRules/metricRuleSeed'
 import { CopyLogButton } from 'products/logs/frontend/components/LogsViewer/CopyLogButton'
 import { LogContextSelector } from 'products/logs/frontend/components/LogsViewer/LogContextSelector/LogContextSelector'
@@ -58,7 +58,7 @@ export function LogRowFAB({
     const { openWithSeed } = useActions(logsMetricRuleQuickCreateLogic)
     const { startScrolling, stopScrolling } = useCellScrollControls({ id, cellKey: 'message' })
     const sessionId = getSessionIdFromLogAttributes(log.attributes, log.resource_attributes, configuredSessionIdKeys)
-    const metricRulesEnabled = useLogsMetricRulesEnabled()
+    const metricRulesEnabled = useFeatureFlag('METRICS')
     const metricsEditorDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Metrics,
         AccessControlLevel.Editor

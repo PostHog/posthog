@@ -2,16 +2,16 @@ import { BindLogic, useActions, useValues } from 'kea'
 
 import { LemonButton, LemonSwitch, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 
 import { LogsMetricRuleApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { LogsMetricRuleModal } from './LogsMetricRuleModal'
-import { useLogsMetricRulesEnabled } from './logsMetricRulesGate'
 import { logsMetricRulesSectionLogic } from './logsMetricRulesSectionLogic'
 
 export function LogsMetricRulesSection(): JSX.Element | null {
-    const enabled = useLogsMetricRulesEnabled()
+    const enabled = useFeatureFlag('METRICS')
     if (!enabled) {
         return null
     }
