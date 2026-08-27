@@ -27,10 +27,21 @@ use uuid::Uuid;
 use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
 use ingestion_consumer::discovery::reconcile_membership;
 use ingestion_consumer::dispatcher::Dispatcher;
+use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
 use ingestion_consumer::order_sentinel::SentinelContext;
 use ingestion_consumer::transport::HttpTransport;
+use ingestion_consumer::transports::Transport;
 use ingestion_consumer::types::{IngestBatchRequest, IngestBatchResponse, SerializedKafkaMessage};
-use ingestion_consumer::worker_registry::{WorkerId, WorkerRegistry, WorkerRegistryConfig};
+use ingestion_consumer::worker_registry::{
+    WorkerId, WorkerRegistry, WorkerRegistryConfig, WorkerState,
+};
+use ingestion_worker_proto::ingestion::worker::v1::worker_ingest_server::{
+    WorkerIngest as WorkerIngestService, WorkerIngestServer,
+};
+use ingestion_worker_proto::ingestion::worker::v1::{
+    ingest_stream_request, ingest_stream_response, IngestStreamRequest, IngestStreamResponse,
+    StreamReady, SubBatchAck, SubBatchStatus,
+};
 
 const KAFKA_BROKERS: &str = "localhost:9092";
 
@@ -315,10 +326,47 @@ impl FakeWorker {
             // Like the real Express worker, inflate gzipped request bodies.
             .layer(tower_http::decompression::RequestDecompressionLayer::new());
 
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        // Bind HTTP on an ephemeral port and gRPC on that port + 1, so the
+        // gRPC transport's OffsetFromHttp mode can address each worker.
+        // Rebind both if the adjacent port happens to be taken.
+        let (listener, grpc_listener) = loop {
+            let http = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let Some(grpc_port) = http.local_addr().unwrap().port().checked_add(1) else {
+                continue;
+            };
+            match TcpListener::bind(("127.0.0.1", grpc_port)).await {
+                Ok(grpc) => break (http, grpc),
+                Err(_) => continue,
+            }
+        };
         let addr = listener.local_addr().unwrap();
         let url = format!("http://127.0.0.1:{}", addr.port());
         let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let grpc_service = FakeWorkerGrpc {
+            received: Arc::clone(&received),
+            healthy: Arc::clone(&healthy),
+            ingest_ok: Arc::clone(&ingest_ok),
+            ack_lost_once: Arc::clone(&ack_lost_once),
+            reject_4xx: Arc::clone(&reject_4xx),
+            underreport_once: Arc::clone(&underreport_once),
+            arrived: Arc::clone(&arrived),
+            gate: Arc::clone(&gate),
+            delivery_log,
+        };
+        tokio::spawn(async move {
+            tonic::transport::Server::builder()
+                .add_service(
+                    WorkerIngestServer::new(grpc_service)
+                        .accept_compressed(tonic::codec::CompressionEncoding::Gzip)
+                        .send_compressed(tonic::codec::CompressionEncoding::Gzip),
+                )
+                .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(
+                    grpc_listener,
+                ))
+                .await
+                .unwrap();
+        });
 
         Self {
             url,
@@ -363,6 +411,125 @@ impl FakeWorker {
             .filter(|(did, _)| did == distinct_id)
             .map(|(_, seq)| *seq)
             .collect()
+    }
+}
+
+/// The FakeWorker's WorkerIngest implementation, sharing the HTTP handler's
+/// state and knobs so gRPC scenarios drive the same failure modes. Per the
+/// protocol, any failure ends the stream (a nack means the worker stream is dead).
+struct FakeWorkerGrpc {
+    received: Arc<Mutex<Vec<(String, usize)>>>,
+    healthy: Arc<AtomicBool>,
+    ingest_ok: Arc<AtomicBool>,
+    ack_lost_once: Arc<AtomicBool>,
+    reject_4xx: Arc<AtomicBool>,
+    underreport_once: Arc<AtomicBool>,
+    arrived: Arc<AtomicUsize>,
+    gate: Arc<tokio::sync::Mutex<()>>,
+    delivery_log: Option<DeliveryLog>,
+}
+
+#[tonic::async_trait]
+impl WorkerIngestService for FakeWorkerGrpc {
+    type IngestStreamStream = tokio_stream::wrappers::UnboundedReceiverStream<
+        Result<IngestStreamResponse, tonic::Status>,
+    >;
+
+    async fn ingest_stream(
+        &self,
+        request: tonic::Request<tonic::Streaming<IngestStreamRequest>>,
+    ) -> Result<tonic::Response<Self::IngestStreamStream>, tonic::Status> {
+        let mut inbound = request.into_inner();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let received = Arc::clone(&self.received);
+        let healthy = Arc::clone(&self.healthy);
+        let ingest_ok = Arc::clone(&self.ingest_ok);
+        let ack_lost_once = Arc::clone(&self.ack_lost_once);
+        let reject_4xx = Arc::clone(&self.reject_4xx);
+        let underreport_once = Arc::clone(&self.underreport_once);
+        let arrived = Arc::clone(&self.arrived);
+        let gate = Arc::clone(&self.gate);
+        let delivery_log = self.delivery_log.clone();
+
+        tokio::spawn(async move {
+            // Mirror the real worker: greet with `ready` so response headers
+            // flush; the worker stream must ignore it.
+            let _ = tx.send(Ok(IngestStreamResponse {
+                msg: Some(ingest_stream_response::Msg::Ready(StreamReady {})),
+            }));
+            let nack = |tx: &tokio::sync::mpsc::UnboundedSender<
+                Result<IngestStreamResponse, tonic::Status>,
+            >,
+                        seq: u64,
+                        reason: &str| {
+                let _ = tx.send(Ok(IngestStreamResponse {
+                    msg: Some(ingest_stream_response::Msg::Ack(SubBatchAck {
+                        seq,
+                        status: SubBatchStatus::Failed as i32,
+                        accepted: 0,
+                        error: reason.to_string(),
+                    })),
+                }));
+            };
+            while let Ok(Some(frame)) = inbound.message().await {
+                let Some(ingest_stream_request::Msg::SubBatch(sub_batch)) = frame.msg else {
+                    continue;
+                };
+                arrived.fetch_add(1, Ordering::SeqCst);
+                // Block here while a test holds the gate (slow worker).
+                let _hold = gate.lock().await;
+                if !healthy.load(Ordering::Relaxed) || !ingest_ok.load(Ordering::Relaxed) {
+                    nack(&tx, sub_batch.seq, "worker unhealthy");
+                    return;
+                }
+                if reject_4xx.load(Ordering::SeqCst) {
+                    nack(&tx, sub_batch.seq, "poison batch");
+                    return;
+                }
+                let entries: Vec<(String, usize)> = sub_batch
+                    .messages
+                    .iter()
+                    .map(|msg| {
+                        let did = msg.headers.get("distinct_id").cloned().unwrap_or_default();
+                        let seq = msg
+                            .value
+                            .as_deref()
+                            .and_then(|v| serde_json::from_str::<serde_json::Value>(v).ok())
+                            .and_then(|v| v["seq"].as_u64())
+                            .unwrap_or(0) as usize;
+                        (did, seq)
+                    })
+                    .collect();
+                received.lock().unwrap().extend(entries.iter().cloned());
+                if let Some(log) = &delivery_log {
+                    log.lock().unwrap().extend(entries);
+                }
+                // Work done and recorded, but the ACK is lost: fail the stream
+                // so the consumer fences and replays.
+                if ack_lost_once.swap(false, Ordering::SeqCst) {
+                    nack(&tx, sub_batch.seq, "ack lost");
+                    return;
+                }
+                let accepted = sub_batch.messages.len() as u32;
+                let reported = if underreport_once.swap(false, Ordering::SeqCst) {
+                    accepted.saturating_sub(1)
+                } else {
+                    accepted
+                };
+                let _ = tx.send(Ok(IngestStreamResponse {
+                    msg: Some(ingest_stream_response::Msg::Ack(SubBatchAck {
+                        seq: sub_batch.seq,
+                        status: SubBatchStatus::Ok as i32,
+                        accepted: reported,
+                        error: String::new(),
+                    })),
+                }));
+            }
+        });
+
+        Ok(tonic::Response::new(
+            tokio_stream::wrappers::UnboundedReceiverStream::new(rx),
+        ))
     }
 }
 
@@ -418,7 +585,7 @@ fn make_kafka_consumer(
 /// 1s keeps test scenarios responsive.)
 fn spawn_reaper(
     registry: Arc<WorkerRegistry>,
-    transport: Arc<HttpTransport>,
+    transport: Arc<Transport>,
     dispatcher: Arc<Dispatcher>,
     token: CancellationToken,
 ) {
@@ -458,6 +625,7 @@ impl Harness {
             deferred_flush_timeout,
             registry_config,
             0,
+            false,
             ComponentOptions::new(),
         )
         .await
@@ -478,6 +646,7 @@ impl Harness {
             deferred_flush_timeout,
             fast_registry_config(),
             0,
+            false,
             ComponentOptions::new()
                 .with_liveness_deadline(liveness_deadline)
                 .with_stall_threshold(stall_threshold),
@@ -497,6 +666,32 @@ impl Harness {
             Duration::from_secs(60),
             fast_registry_config(),
             batch_size_bytes,
+            false,
+            ComponentOptions::new(),
+        )
+        .await
+    }
+
+    /// Like `start`, but the consumer sends over WorkerIngest gRPC worker streams
+    /// (`GrpcPort::OffsetFromHttp(1)` — each FakeWorker serves gRPC on its
+    /// HTTP port + 1).
+    async fn start_grpc(
+        topic: &str,
+        partitions: i32,
+        worker_count: usize,
+        max_in_flight: usize,
+        deferred_flush_timeout: Duration,
+        registry_config: WorkerRegistryConfig,
+    ) -> Self {
+        Self::start_inner(
+            topic,
+            partitions,
+            worker_count,
+            max_in_flight,
+            deferred_flush_timeout,
+            registry_config,
+            0,
+            true,
             ComponentOptions::new(),
         )
         .await
@@ -511,6 +706,7 @@ impl Harness {
         deferred_flush_timeout: Duration,
         registry_config: WorkerRegistryConfig,
         batch_size_bytes: usize,
+        grpc: bool,
         component_options: ComponentOptions,
     ) -> Self {
         create_topic(topic, partitions).await;
@@ -529,14 +725,24 @@ impl Harness {
         let dispatcher = Arc::new(Dispatcher::new(Arc::clone(&registry)));
         let registry_for_test = Arc::clone(&registry);
         let dispatcher_for_test = Arc::clone(&dispatcher);
-        let transport = Arc::new(HttpTransport::new(
-            Duration::from_secs(5),
-            0, // no retries — errors surface immediately for health tracking
-            None,
-            &worker_urls,
-            1,
-            true,
-        ));
+        let transport = Arc::new(if grpc {
+            // Short ack timeout so a stalled scenario fences within a test's
+            // patience rather than production's 60s.
+            Transport::Grpc(Arc::new(GrpcTransport::new(
+                GrpcPort::OffsetFromHttp(1),
+                1,
+                Duration::from_secs(10),
+            )))
+        } else {
+            Transport::Http(Arc::new(HttpTransport::new(
+                Duration::from_secs(5),
+                0, // no retries — errors surface immediately for health tracking
+                None,
+                &worker_urls,
+                1,
+                true,
+            )))
+        });
         spawn_reaper(
             Arc::clone(&registry),
             Arc::clone(&transport),
@@ -611,14 +817,14 @@ impl Harness {
         let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config));
         Arc::clone(&registry).start_probing(self._probe_token.clone());
         let dispatcher = Arc::new(Dispatcher::new(Arc::clone(&registry)));
-        let transport = Arc::new(HttpTransport::new(
+        let transport = Arc::new(Transport::Http(Arc::new(HttpTransport::new(
             Duration::from_secs(5),
             0,
             None,
             &worker_urls,
             1,
             true,
-        ));
+        ))));
         spawn_reaper(
             Arc::clone(&registry),
             Arc::clone(&transport),
@@ -922,6 +1128,38 @@ async fn failing_worker_triggers_rerouting() {
         "batch-2 messages for user-1 missing or out-of-order on live worker: {live_seqs:?}"
     );
 
+    harness.stop().await;
+}
+
+/// A worker whose sends fail (5xx through every retry) is a fault for passive
+/// health, not backpressure: the failed sends must degrade it even though the
+/// readiness probe keeps passing.
+#[tokio::test]
+async fn failed_sends_degrade_passive_health() {
+    let topic = format!("e2e-passive-fault-{}", Uuid::new_v4());
+    let harness = Harness::start(
+        &topic,
+        1,
+        1,
+        1,
+        Duration::from_secs(60),
+        fast_registry_config(),
+    )
+    .await;
+    let producer = make_producer();
+
+    harness.workers[0].ingest_ok.store(false, Ordering::SeqCst);
+    produce(&producer, &topic, 0, "tok", "user-1", 0).await;
+
+    let worker = harness.workers[0].url.clone();
+    wait_until(
+        Duration::from_secs(10),
+        "failed sends to degrade the worker",
+        || harness.registry.state(&worker) != WorkerState::Healthy,
+    )
+    .await;
+
+    harness.workers[0].ingest_ok.store(true, Ordering::SeqCst);
     harness.stop().await;
 }
 
@@ -2371,14 +2609,14 @@ async fn second_consumer_joining_the_group_preserves_all_messages() {
     let probe2 = CancellationToken::new();
     Arc::clone(&registry2).start_probing(probe2.clone());
     let dispatcher2 = Arc::new(Dispatcher::new(Arc::clone(&registry2)));
-    let transport2 = Arc::new(HttpTransport::new(
+    let transport2 = Arc::new(Transport::Http(Arc::new(HttpTransport::new(
         Duration::from_secs(5),
         0,
         None,
         &worker_urls,
         1,
         true,
-    ));
+    ))));
     let mut manager2 = Manager::builder("e2e-c2").with_trap_signals(false).build();
     let handle2 = manager2.register("consumer", ComponentOptions::new());
     let shutdown2 = handle2.shutdown_token();
@@ -2447,14 +2685,14 @@ async fn fenced_static_member_exits_on_fatal_error() {
     let probe = CancellationToken::new();
     Arc::clone(&registry).start_probing(probe.clone());
     let dispatcher = Arc::new(Dispatcher::new(Arc::clone(&registry)));
-    let transport = Arc::new(HttpTransport::new(
+    let transport = Arc::new(Transport::Http(Arc::new(HttpTransport::new(
         Duration::from_secs(5),
         0,
         None,
         &urls,
         1,
         true,
-    ));
+    ))));
     let mut manager = Manager::builder("e2e-fenced")
         .with_trap_signals(false)
         .build();
@@ -2755,4 +2993,101 @@ async fn flapping_worker_does_not_pin_batch_past_flush_timeout() {
         0,
         "nothing should be delivered (target only errors; other is down)"
     );
+}
+
+// ── gRPC transport (WorkerIngest worker streams) ────────────────────────────────────
+
+/// The full Kafka → assign → worker stream → stream → ack → commit loop over the gRPC
+/// transport: every message arrives exactly once, and each distinct_id's
+/// messages arrive in order on whichever worker its worker stream delivered them to.
+#[tokio::test]
+async fn grpc_messages_per_distinct_id_arrive_in_order() {
+    let topic = format!("e2e-grpc-ordering-{}", Uuid::new_v4());
+    let harness = Harness::start_grpc(
+        &topic,
+        3,
+        2,
+        1,
+        Duration::from_secs(60),
+        fast_registry_config(),
+    )
+    .await;
+
+    let producer = make_producer();
+    for seq in 0..8usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+        produce(&producer, &topic, 1, "tok", "user-2", seq).await;
+        produce(&producer, &topic, 2, "tok", "user-3", seq).await;
+    }
+
+    harness.wait_for(24, Duration::from_secs(15)).await;
+
+    let total: usize = harness.workers.iter().map(|w| w.count()).sum();
+    assert_eq!(total, 24, "expected 24 messages total, got {total}");
+
+    for worker in &harness.workers {
+        for user in ["user-1", "user-2", "user-3"] {
+            let seqs = worker.seqs_for(user);
+            assert!(
+                seqs.windows(2).all(|w| w[0] < w[1]),
+                "{user} arrived out of order on a worker: {seqs:?}"
+            );
+        }
+    }
+
+    harness.stop().await;
+}
+
+/// A worker that nacks fences its worker stream: the fenced messages fail back into
+/// the deferral path with nothing lost, and once the worker leaves the pool
+/// the keys re-route to the survivor in order — the same recovery contract
+/// the HTTP transport gets from its request errors.
+#[tokio::test]
+async fn grpc_nacking_worker_fences_worker_stream_and_reroutes_in_order() {
+    let topic = format!("e2e-grpc-fence-{}", Uuid::new_v4());
+    let harness = Harness::start_grpc(
+        &topic,
+        2,
+        2,
+        1,
+        Duration::from_secs(60),
+        fast_registry_config(),
+    )
+    .await;
+
+    let producer = make_producer();
+
+    for seq in 0..4usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+        produce(&producer, &topic, 1, "tok", "user-2", seq).await;
+    }
+    harness.wait_for(8, Duration::from_secs(10)).await;
+
+    // Take down the worker that owns user-1: its stream nacks (fencing the
+    // worker stream) and its /_ready fails (dropping it from the pool and its pins).
+    let dead_idx = if !harness.workers[0].seqs_for("user-1").is_empty() {
+        0
+    } else {
+        1
+    };
+    let live_idx = 1 - dead_idx;
+    harness.workers[dead_idx]
+        .healthy
+        .store(false, Ordering::Relaxed);
+    tokio::time::sleep(Duration::from_millis(600)).await;
+
+    for seq in 4..8usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+    }
+    harness.wait_for(12, Duration::from_secs(15)).await;
+
+    let live_seqs = harness.workers[live_idx].seqs_for("user-1");
+    let batch2_seqs: Vec<usize> = live_seqs.iter().copied().filter(|&s| s >= 4).collect();
+    assert_eq!(
+        batch2_seqs,
+        vec![4, 5, 6, 7],
+        "post-fence messages for user-1 missing or out-of-order on the live worker: {live_seqs:?}"
+    );
+
+    harness.stop().await;
 }

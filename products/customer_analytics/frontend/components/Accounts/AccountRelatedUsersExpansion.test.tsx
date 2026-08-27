@@ -52,6 +52,7 @@ describe('AccountRelatedUsersExpansion', () => {
         )
 
         expect(await screen.findByText('Owner')).toBeInTheDocument()
+        expect(screen.getByPlaceholderText('Search users by name or email...')).toHaveAttribute('maxLength', '200')
         const impersonateButton = await screen.findByText('Impersonate')
         expect(impersonateButton.closest('a')).toHaveAttribute('href', 'http://localhost/admin/posthog/user/42/change/')
     })

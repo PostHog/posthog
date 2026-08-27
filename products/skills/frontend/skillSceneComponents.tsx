@@ -27,6 +27,61 @@ export function openArchiveSkillDialog(onConfirm: () => void): void {
     })
 }
 
+interface PublishToCommunityOptions {
+    display_name?: string
+    tags?: string[]
+    author_handle?: string
+}
+
+/** Collect the publish fields, then hand them to `onPublish`. Shared so the list view and the
+ * single-skill view open the identical dialog. */
+export function openPublishToCommunityDialog({
+    skillName,
+    githubLogin,
+    onPublish,
+}: {
+    skillName: string
+    githubLogin: string | null
+    onPublish: (skillName: string, options: PublishToCommunityOptions) => void
+}): void {
+    LemonDialog.openForm({
+        title: 'Publish to community',
+        description:
+            "Publishing commits the skill's instructions and every bundled file to a public GitHub repo, then opens a pull request for a maintainer to review. The contents are public from the moment you submit, so don't include credentials or internal details.",
+        initialValues: {
+            display_name: skillName.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+            tags: '',
+            // Prefill with the user's resolved GitHub handle when we have one; the field stays
+            // editable so users without a linked GitHub identity can still type one (free-text fallback).
+            author_handle: githubLogin ?? '',
+        },
+        content: (
+            <div className="flex flex-col gap-2">
+                <LemonField name="display_name" label="Display name">
+                    <LemonInput data-attr="llma-publish-display-name" autoFocus />
+                </LemonField>
+                <LemonField name="tags" label="Tags (comma-separated)">
+                    <LemonInput data-attr="llma-publish-tags" placeholder="web-analytics, triage" />
+                </LemonField>
+                <LemonField name="author_handle" label="Your GitHub handle (optional)">
+                    <LemonInput data-attr="llma-publish-author-handle" placeholder="octocat" />
+                </LemonField>
+            </div>
+        ),
+        onSubmit: ({ display_name, tags, author_handle }) =>
+            onPublish(skillName, {
+                display_name: display_name?.trim() || undefined,
+                tags: tags
+                    ? tags
+                          .split(',')
+                          .map((t: string) => t.trim())
+                          .filter(Boolean)
+                    : undefined,
+                author_handle: author_handle?.trim() || undefined,
+            }),
+    })
+}
+
 interface FileChanges {
     added: string[]
     removed: string[]
