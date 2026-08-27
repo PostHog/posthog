@@ -63,6 +63,22 @@ from products.notebooks.backend.analytics import (
     notebook_node_count,
 )
 from products.notebooks.backend.collab import submit_steps
+from products.notebooks.backend.facade.widgets import (
+    WidgetConflictError,
+    WidgetError,
+    WidgetRateLimitError,
+    cancel_widget_generation,
+    get_widget_source,
+    get_widget_status,
+    infer_widget_inputs,
+    inspect_widget_inputs,
+    list_widget_versions,
+    read_widget_frame,
+    reconcile_widget_instances,
+    revert_widget_version,
+    save_widget_source,
+    start_widget_generation,
+)
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.notebooks.backend.presentation.widget_serializers import (
@@ -124,21 +140,6 @@ from products.notebooks.backend.sql_v2_variables import (
 )
 from products.notebooks.backend.temporal.client import start_sql_v2_run_workflow
 from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput
-from products.notebooks.backend.widgets import (
-    WidgetConflictError,
-    WidgetError,
-    WidgetRateLimitError,
-    cancel_widget_generation,
-    get_widget_source,
-    get_widget_status,
-    infer_widget_inputs,
-    inspect_widget_inputs,
-    list_widget_versions,
-    read_widget_frame,
-    revert_widget_version,
-    save_widget_source,
-    start_widget_generation,
-)
 from products.tasks.backend.facade.exceptions import SandboxProvisionError
 from products.tasks.backend.facade.sandbox import SandboxStatus
 
@@ -418,6 +419,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
 
                 updated_notebook = super().update(locked_instance, validated_data)
                 if should_publish_update:
+                    reconcile_widget_instances(updated_notebook)
                     notify_team_id = updated_notebook.team_id
                     notify_notebook_id = str(updated_notebook.short_id)
                     notify_version = updated_notebook.version
@@ -2033,6 +2035,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 last_modified_by=request.user,
             )
             notebook.refresh_from_db()
+            reconcile_widget_instances(notebook)
 
             # Snapshot diffs into the activity logs for history
             changes = changes_between("Notebook", previous=notebook_before, current=notebook)
@@ -2164,6 +2167,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                             "last_modified_by",
                         ]
                     )
+                    reconcile_widget_instances(locked_notebook)
 
         if result.status == "accepted":
             changes = changes_between("Notebook", previous=notebook_before, current=locked_notebook)

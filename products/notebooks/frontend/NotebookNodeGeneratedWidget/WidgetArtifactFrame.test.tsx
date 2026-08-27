@@ -86,10 +86,8 @@ describe('WidgetArtifactFrame', () => {
         expect(onArtifactUnavailable).toHaveBeenCalledTimes(1)
     })
 
-    it('connects cached artifacts that predate the notebook bootstrap port', () => {
-        const hostPort = new TestMessagePort()
-        const artifactPort = new TestMessagePort()
-        const messageChannel = jest.fn(() => ({ port1: hostPort, port2: artifactPort }))
+    it('does not give a parent-created bridge to artifacts without the trusted bootstrap', () => {
+        const messageChannel = jest.fn()
         Object.defineProperty(globalThis, 'MessageChannel', {
             configurable: true,
             value: messageChannel,
@@ -106,8 +104,8 @@ describe('WidgetArtifactFrame', () => {
 
         fireEvent.load(screen.getByTitle('Generated widget'))
 
-        expect(hostPort.start).toHaveBeenCalledTimes(1)
-        expect(postMessage).toHaveBeenCalledWith({ channel: 'posthog-canvas', type: 'connect' }, '*', [artifactPort])
+        expect(messageChannel).not.toHaveBeenCalled()
+        expect(postMessage).not.toHaveBeenCalled()
     })
 
     it('reports an unavailable artifact when the trusted runtime does not render in time', () => {

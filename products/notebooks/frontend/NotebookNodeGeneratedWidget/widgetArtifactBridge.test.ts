@@ -16,25 +16,42 @@ const frame: WidgetFrameApi = {
 describe('widgetArtifactBridge', () => {
     it('serves bounded pages for dataframes allowed by the widget version', async () => {
         const loadFrame = jest.fn().mockResolvedValue(frame)
+        const signal = new AbortController().signal
 
         await expect(
-            readWidgetFrame(['pandas_df'], loadFrame, {
-                key: `${NOTEBOOK_FRAME_KEY_PREFIX}pandas_df:10:250`,
-            })
+            readWidgetFrame(
+                ['pandas_df'],
+                loadFrame,
+                {
+                    key: `${NOTEBOOK_FRAME_KEY_PREFIX}pandas_df:10:250`,
+                },
+                signal
+            )
         ).resolves.toBe(frame)
-        expect(loadFrame).toHaveBeenCalledWith('pandas_df', 10, 250)
+        expect(loadFrame).toHaveBeenCalledWith('pandas_df', 10, 250, signal)
         await expect(
-            readWidgetFrame(['pandas_df'], loadFrame, {
-                key: `${NOTEBOOK_FRAME_KEY_PREFIX}private_df:0:100`,
-            })
+            readWidgetFrame(
+                ['pandas_df'],
+                loadFrame,
+                {
+                    key: `${NOTEBOOK_FRAME_KEY_PREFIX}private_df:0:100`,
+                },
+                signal
+            )
         ).rejects.toThrow('not available')
     })
 
     it('rejects invalid page sizes', async () => {
+        const signal = new AbortController().signal
         await expect(
-            readWidgetFrame(['pandas_df'], jest.fn(), {
-                key: `${NOTEBOOK_FRAME_KEY_PREFIX}pandas_df:0:501`,
-            })
+            readWidgetFrame(
+                ['pandas_df'],
+                jest.fn(),
+                {
+                    key: `${NOTEBOOK_FRAME_KEY_PREFIX}pandas_df:0:501`,
+                },
+                signal
+            )
         ).rejects.toThrow('page is invalid')
     })
 
@@ -55,7 +72,12 @@ describe('widgetArtifactBridge', () => {
         const responses: Record<string, unknown>[] = []
         const route = createWidgetHostMessageRouter(
             (message) => responses.push(message),
-            () => ({ onDataRequest: () => new Promise(() => undefined) })
+            () => ({
+                onDataRequest: (_method, _payload, signal) =>
+                    new Promise((_, reject) => {
+                        signal.addEventListener('abort', () => reject(new Error('Request aborted')))
+                    }),
+            })
         )
 
         const routing = route({

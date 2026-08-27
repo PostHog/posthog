@@ -92,7 +92,7 @@ export function NotebookNodeGeneratedWidgetSettings({
     const modalDescription =
         generationModalOperation === 'improve'
             ? 'Describe one change. The generator will update the current source and preserve everything else.'
-            : 'Edit the complete instructions below. This creates a new widget from scratch and keeps the existing versions.'
+            : 'Edit the complete instructions below. This creates a new version from scratch and keeps existing versions.'
     const sourceIsEditable = isEditable && isCurrentVersion
     const submitGenerationDraft = (prompt: string): void => {
         if (
@@ -212,7 +212,7 @@ export function NotebookNodeGeneratedWidgetSettings({
                                 {workingStatus.timing}
                             </span>
                         </div>
-                        {status?.active_job ? (
+                        {status?.active_job && isEditable ? (
                             <LemonButton onClick={cancelGeneration} loading={cancellationInFlight}>
                                 Cancel
                             </LemonButton>
@@ -236,20 +236,22 @@ export function NotebookNodeGeneratedWidgetSettings({
                         <LemonButton onClick={openSourceEditor}>
                             {sourceIsEditable ? 'View or edit source' : 'View source'}
                         </LemonButton>
-                        <LemonButton
-                            onClick={runWidget}
-                            loading={dataRunInFlight}
-                            disabledReason={
-                                isCellChainRunning
-                                    ? 'Wait for the running cells to finish'
-                                    : isNotebookBusy
-                                      ? 'Wait for the current notebook operation to finish'
-                                      : undefined
-                            }
-                            data-attr="widget-reload-data"
-                        >
-                            Run
-                        </LemonButton>
+                        {isEditable ? (
+                            <LemonButton
+                                onClick={runWidget}
+                                loading={dataRunInFlight}
+                                disabledReason={
+                                    isCellChainRunning
+                                        ? 'Wait for the running cells to finish'
+                                        : isNotebookBusy
+                                          ? 'Wait for the current notebook operation to finish'
+                                          : undefined
+                                }
+                                data-attr="widget-reload-data"
+                            >
+                                Run
+                            </LemonButton>
+                        ) : null}
                     </>
                 ) : (
                     <LemonButton

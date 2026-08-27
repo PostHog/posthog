@@ -1,4 +1,5 @@
-import { LogicWrapper, MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { LogicWrapper, MakeLogicType, actions, connect, kea, listeners, path, reducers } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -57,7 +58,10 @@ export const generatedWidgetsLogic: LogicWrapper<generatedWidgetsLogicType> = ke
         setSearch: (search: string) => ({ search }),
     }),
     reducers({
-        count: [0, { loadWidgetsSuccess: (_, { count }) => count }],
+        count: [
+            0,
+            { loadWidgets: (count, { reset }) => (reset ? 0 : count), loadWidgetsSuccess: (_, { count }) => count },
+        ],
         error: [
             null as string | null,
             {
@@ -76,6 +80,7 @@ export const generatedWidgetsLogic: LogicWrapper<generatedWidgetsLogicType> = ke
         nextOffset: [
             null as number | null,
             {
+                loadWidgets: (nextOffset, { reset }) => (reset ? null : nextOffset),
                 loadWidgetsSuccess: (_, { nextOffset }) => nextOffset,
             },
         ],
@@ -83,6 +88,7 @@ export const generatedWidgetsLogic: LogicWrapper<generatedWidgetsLogicType> = ke
         widgets: [
             [] as WidgetCatalogApi[],
             {
+                loadWidgets: (widgets, { reset }) => (reset ? [] : widgets),
                 loadWidgetsSuccess: (current, { widgets, reset }) => (reset ? widgets : [...current, ...widgets]),
             },
         ],
@@ -98,14 +104,18 @@ export const generatedWidgetsLogic: LogicWrapper<generatedWidgetsLogicType> = ke
                 actions.loadWidgetsSuccess([], 0, null, true)
                 return
             }
+            const teamId = values.currentTeamId
             const offset = reset ? 0 : (values.nextOffset ?? values.widgets.length)
             try {
-                const page = await notebookWidgetsList(String(values.currentTeamId), {
+                const page = await notebookWidgetsList(String(teamId), {
                     limit: PAGE_SIZE,
                     offset,
                     search: values.search || undefined,
                 })
                 breakpoint()
+                if (values.currentTeamId !== teamId) {
+                    return
+                }
                 actions.loadWidgetsSuccess(
                     page.results,
                     page.count,
@@ -122,5 +132,7 @@ export const generatedWidgetsLogic: LogicWrapper<generatedWidgetsLogicType> = ke
             actions.loadWidgets(true)
         },
     })),
-    afterMount(({ actions }) => actions.loadWidgets(true)),
+    subscriptions(({ actions }) => ({
+        currentTeamId: () => actions.loadWidgets(true),
+    })),
 ])

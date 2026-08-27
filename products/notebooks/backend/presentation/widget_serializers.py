@@ -4,8 +4,7 @@ from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 
-from products.notebooks.backend.models import GeneratedWidget
-from products.notebooks.backend.widget_models import DEFAULT_WIDGET_MODEL, WIDGET_MODEL_CHOICES
+from products.notebooks.backend.facade.widgets import DEFAULT_WIDGET_MODEL, WIDGET_MODEL_CHOICES, GeneratedWidget
 
 
 class WidgetGenerateRequestSerializer(serializers.Serializer):

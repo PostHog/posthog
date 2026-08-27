@@ -42,6 +42,7 @@ import type {
 import { DEFAULT_WIDGET_MODEL, WIDGET_MODEL_INFO, isWidgetModel, type WidgetModel } from './widgetModels'
 
 const STATUS_POLL_INTERVAL_MS = 2_000
+const STATUS_POLL_MAX_INTERVAL_MS = 30_000
 const VERSION_PAGE_SIZE = 25
 const DATAFRAME_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
 
@@ -171,6 +172,7 @@ export interface notebookNodeGeneratedWidgetLogicValues {
     statusLoading: boolean
     versions: WidgetVersionApi[]
     versionsCount: number
+    versionsError: string | null
     versionsLoading: boolean
     versionsNextOffset: number | null
     workingStatus: WidgetWorkingStatus | null
@@ -178,6 +180,7 @@ export interface notebookNodeGeneratedWidgetLogicValues {
 
 export interface notebookNodeGeneratedWidgetLogicActions {
     artifactAvailable: () => { value: true }
+    artifactRefreshReady: () => { value: true }
     artifactUnavailable: () => { value: true }
     cancelGeneration: () => { value: true }
     cancellationFailed: (error: string) => { error: string }
@@ -296,15 +299,15 @@ export function getWidgetWorkingStatus({
 }): WidgetWorkingStatus {
     if (phase === 'queued') {
         return {
-            detail: 'Waiting for an available generation worker. You can leave this page and come back later.',
+            detail: 'Waiting for generation capacity. You can leave this page and come back later.',
             isOverEstimate: false,
             label: hasVersions ? 'Queued to regenerate widget…' : 'Queued to generate widget…',
-            timing: 'Generation time starts after the worker picks up the job.',
+            timing: 'Timing starts when generation begins.',
         }
     }
     if (phase.startsWith('publishing')) {
         return {
-            detail: 'The source is ready. Building and publishing the interactive preview.',
+            detail: 'Preparing the interactive preview.',
             isOverEstimate: false,
             label: 'Publishing widget…',
             timing: 'The preview build usually takes less than a minute.',
@@ -318,7 +321,7 @@ export function getWidgetWorkingStatus({
         isOverEstimate,
         label: hasVersions ? 'Regenerating widget…' : 'Generating widget…',
         timing: isOverEstimate
-            ? `Typical: ${modelInfo.estimateLabel} · ${formatWidgetElapsed(secondsFromEstimate)} longer than usual. The job is still active.`
+            ? `Typical: ${modelInfo.estimateLabel} · ${formatWidgetElapsed(secondsFromEstimate)} longer than usual. Generation is still in progress.`
             : `Typical: ${modelInfo.estimateLabel} · Estimated remaining: ${formatWidgetElapsed(
                   modelInfo.estimatedSeconds - elapsedSeconds
               )}`,
@@ -332,13 +335,21 @@ export async function loadWidgetFrame(
     versionId: string,
     frameName: string,
     offset: number,
-    limit: number
+    limit: number,
+    signal: AbortSignal
 ): Promise<WidgetFrameApi> {
-    return await notebooksWidgetFrame(projectId, notebookShortId, nodeId, frameName, {
-        version_id: versionId,
-        offset,
-        limit,
-    })
+    return await notebooksWidgetFrame(
+        projectId,
+        notebookShortId,
+        nodeId,
+        frameName,
+        {
+            version_id: versionId,
+            offset,
+            limit,
+        },
+        { signal }
+    )
 }
 
 export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGeneratedWidgetLogicType> =
@@ -362,6 +373,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
         })),
         actions({
             artifactAvailable: true,
+            artifactRefreshReady: true,
             artifactUnavailable: true,
             cancelGeneration: true,
             cancellationFailed: (error: string) => ({ error }),
@@ -433,8 +445,8 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                 false,
                 {
                     artifactAvailable: () => false,
+                    artifactRefreshReady: () => false,
                     artifactUnavailable: () => true,
-                    refreshData: () => false,
                     selectVersion: () => false,
                     statusReceived: (unavailable, { status }) => (status.artifact_url ? false : unavailable),
                 },
@@ -458,7 +470,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
             frameRevision: [
                 0,
                 {
-                    refreshData: (revision) => revision + 1,
+                    artifactRefreshReady: (revision) => revision + 1,
                     sourceSaved: (revision) => revision + 1,
                 },
             ],
@@ -474,6 +486,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     generateWidget: () => null,
                     generationCanceled: () => null,
                     generationFailed: (_, { error }) => error,
+                    cancellationFailed: (_, { error }) => error,
                     restoreFailed: (_, { error }) => error,
                     restoreStarted: () => null,
                 },
@@ -505,7 +518,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                 {
                     setRuntimeError: (_, { error }) => error,
                     dataRunStarted: () => null,
-                    refreshData: () => null,
+                    artifactRefreshReady: () => null,
                     selectVersion: () => null,
                 },
             ],
@@ -580,6 +593,14 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                 },
             ],
             versionsCount: [0, { versionsReceived: (_, { count }) => count }],
+            versionsError: [
+                null as string | null,
+                {
+                    loadVersions: () => null,
+                    versionsFailed: (_, { error }) => error,
+                    versionsReceived: () => null,
+                },
+            ],
             versionsLoading: [
                 false,
                 { loadVersions: () => true, versionsFailed: () => false, versionsReceived: () => false },
@@ -622,8 +643,13 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
         listeners(({ actions, values, props, cache }) => {
             const scheduleStatusPoll = (): void => {
                 cache.disposables.dispose('statusPoll')
+                if (document.hidden) {
+                    return
+                }
+                const failureCount = Number(cache.statusPollFailures ?? 0)
+                const delay = Math.min(STATUS_POLL_INTERVAL_MS * 2 ** failureCount, STATUS_POLL_MAX_INTERVAL_MS)
                 cache.disposables.add(() => {
-                    const timeoutId = window.setTimeout(() => actions.loadStatus(), STATUS_POLL_INTERVAL_MS)
+                    const timeoutId = window.setTimeout(() => actions.loadStatus(), delay)
                     return () => window.clearTimeout(timeoutId)
                 }, 'statusPoll')
             }
@@ -655,7 +681,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                 },
                 cancelGeneration: async () => {
                     const generationId = values.status?.active_job?.id
-                    if (!generationId || !values.currentTeamId || values.cancellationInFlight) {
+                    if (!props.isEditable || !generationId || !values.currentTeamId || values.cancellationInFlight) {
                         return
                     }
                     actions.cancellationStarted()
@@ -726,6 +752,24 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         actions.loadVersions(false)
                     }
                 },
+                refreshData: async () => {
+                    if (!values.currentTeamId) {
+                        actions.statusFailed('The current project is unavailable. Refresh and try again.')
+                        return
+                    }
+                    try {
+                        actions.statusReceived(
+                            await notebooksWidgetStatus(
+                                String(values.currentTeamId),
+                                props.notebookShortId,
+                                props.nodeId
+                            )
+                        )
+                        actions.artifactRefreshReady()
+                    } catch (error) {
+                        actions.statusFailed(errorMessage(error))
+                    }
+                },
                 loadStatus: async () => {
                     if (!values.currentTeamId) {
                         return
@@ -748,6 +792,9 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         return
                     }
                     if (cache.versionsRequestInFlight) {
+                        if (reset) {
+                            cache.versionsResetPending = true
+                        }
                         return
                     }
                     cache.versionsRequestInFlight = true
@@ -764,6 +811,10 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         actions.versionsFailed(errorMessage(error))
                     } finally {
                         cache.versionsRequestInFlight = false
+                        if (cache.versionsResetPending) {
+                            cache.versionsResetPending = false
+                            actions.loadVersions(true)
+                        }
                     }
                 },
                 openGenerationModal: async ({ operation }) => {
@@ -923,6 +974,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     }
                 },
                 statusReceived: ({ status }) => {
+                    cache.statusPollFailures = 0
                     cache.disposables.dispose('statusPoll')
                     if (status.has_versions && (!values.versions.length || !values.selectedVersionId)) {
                         actions.loadVersions(true)
@@ -952,10 +1004,24 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                 },
                 statusFailed: () => {
                     if (shouldPoll(values.status)) {
+                        cache.statusPollFailures = Number(cache.statusPollFailures ?? 0) + 1
                         scheduleStatusPoll()
                     }
                 },
             }
         }),
-        afterMount(({ actions }) => actions.loadStatus()),
+        afterMount(({ actions, cache }) => {
+            cache.disposables.add(() => {
+                const handleVisibilityChange = (): void => {
+                    if (document.hidden) {
+                        cache.disposables.dispose('statusPoll')
+                    } else {
+                        actions.loadStatus()
+                    }
+                }
+                document.addEventListener('visibilitychange', handleVisibilityChange)
+                return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+            }, 'visibilityChange')
+            actions.loadStatus()
+        }),
     ])

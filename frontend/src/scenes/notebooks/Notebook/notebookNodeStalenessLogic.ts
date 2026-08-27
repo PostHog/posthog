@@ -356,7 +356,13 @@ export const notebookNodeStalenessLogic = kea<notebookNodeStalenessLogicType>([
                 const queue = values.chainQueue.slice(1)
                 actions.setChainQueue(queue)
                 if (queue.length) {
-                    actions.dispatchChainRun(queue[0])
+                    if (values.mountedNodeIds[queue[0]]) {
+                        actions.dispatchChainRun(queue[0])
+                    } else {
+                        actions.setChainQueue([])
+                        actions.setChainRequest(null)
+                        actions.cellChainFinished(requestId, false)
+                    }
                 } else {
                     actions.setChainRequest(null)
                     actions.cellChainFinished(requestId, true)
@@ -425,6 +431,15 @@ export const notebookNodeStalenessLogic = kea<notebookNodeStalenessLogicType>([
             actions.setChainRequest(requestId)
             actions.setChainQueue(queue)
             actions.dispatchChainRun(queue[0])
+        },
+        unregisterChainNode: ({ nodeId }) => {
+            if (!values.chainRequestId || !values.chainQueue.includes(nodeId)) {
+                return
+            }
+            const requestId = values.chainRequestId
+            actions.setChainQueue([])
+            actions.setChainRequest(null)
+            actions.cellChainFinished(requestId, false)
         },
         variablesChanged: ({ variableNames, content }) => {
             if (!variableNames.length || !content) {

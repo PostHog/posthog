@@ -308,6 +308,7 @@ class GeneratedWidgetVersion(TeamScopedRootMixin, UUIDModel):
     title = models.CharField(max_length=80, blank=True, default="")
     operation = models.CharField(choices=Operation, max_length=16)
     prompt_delta = models.TextField()
+    prompt_history: JSONField = JSONField(default=list)
     model = models.CharField(max_length=64, blank=True, default="")
     generator_version = models.CharField(max_length=32)
     input_contract: JSONField = JSONField(default=list)
@@ -363,7 +364,7 @@ class NotebookWidgetInstance(TeamScopedRootMixin, UUIDModel):
             ),
         ]
         indexes = [
-            models.Index(fields=["team", "widget"], name="nb_widget_instance_widget"),
+            models.Index(fields=["team", "widget", "-updated_at"], name="nb_widget_instance_recent"),
         ]
 
 

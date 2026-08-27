@@ -151,6 +151,20 @@ describe('notebookNodeStalenessLogic', () => {
         expect(stalenessLogic.values.chainRequestId).toBeNull()
     })
 
+    it('fails an explicit cell chain when a queued cell unmounts', async () => {
+        mountNode('a')
+        const queuedLogic = mountNode('b')
+        const finishedSpy = jest.spyOn(stalenessLogic.actions, 'cellChainFinished')
+
+        stalenessLogic.actions.runCellChain(['a', 'b'], 'widget-run')
+        queuedLogic.unmount()
+        await expectLogic(stalenessLogic).toFinishAllListeners()
+
+        expect(finishedSpy).toHaveBeenCalledWith('widget-run', false)
+        expect(stalenessLogic.values.chainQueue).toEqual([])
+        expect(stalenessLogic.values.chainRequestId).toBeNull()
+    })
+
     it('skips a stale cell with no mounted logic instead of wedging the chain', async () => {
         // A dispatch to an unmounted cell is picked up by nobody: without the mounted-cell
         // filter the queue would sit at ['c'] forever, blocking any further stale-cell run.

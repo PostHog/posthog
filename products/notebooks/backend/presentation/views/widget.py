@@ -10,8 +10,8 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
 
+from products.notebooks.backend.facade.widgets import list_widgets
 from products.notebooks.backend.presentation.widget_serializers import WidgetCatalogSerializer
-from products.notebooks.backend.widgets import list_widgets
 
 
 class WidgetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

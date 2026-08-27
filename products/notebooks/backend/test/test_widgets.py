@@ -16,9 +16,11 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.canvas.backend.models import Canvas
 from products.canvas.backend.notebook_integration import (
     CanvasGenerationState,
     NotebookCanvasVersion,
+    _source_project,
     validate_notebook_canvas_source,
 )
 from products.notebooks.backend.models import (
@@ -49,12 +51,14 @@ from products.notebooks.backend.widgets import (
     WidgetInputInspection,
     WidgetStatus,
     _cancellation_key,
+    _extend_prompt_history,
     _materialize_effective_prompt,
     get_widget_status,
     infer_widget_inputs,
     inspect_widget_inputs,
     normalize_widget_inputs as normalize_inputs,
     read_widget_frame,
+    reconcile_widget_instances,
     run_widget_generation_job,
     start_widget_generation,
 )
@@ -310,6 +314,9 @@ class TestWidgetGeneration(SimpleTestCase):
             ("location_assignment", 'window.location = "https://example.com"'),
             ("location_method", 'location.replace("https://example.com")'),
             ("window_open", 'window.open("https://example.com")'),
+            ("created_anchor", 'document.createElement("a").click()'),
+            ("computed_location", 'globalThis["loc" + "ation"] = "https://example.com"'),
+            ("anchor_element", 'return <a href="https://example.com">Leave</a>'),
         ]
     )
     def test_canvas_validation_rejects_navigation(self, _name: str, statement: str) -> None:
@@ -320,6 +327,14 @@ class TestWidgetGeneration(SimpleTestCase):
 
         error_codes = {item.get("code") for item in diagnostics if item.get("severity") == "error"}
         assert "notebook_navigation_not_allowed" in error_codes
+
+    def test_canvas_runtime_blocks_navigation_before_generated_source(self) -> None:
+        project = _source_project("export default function Canvas() { return <div /> }")
+        source = project["files"]["src/canvas.tsx"]
+
+        assert source.index('globalThis.navigation?.addEventListener("navigate"') < source.index("export default")
+        assert 'document.addEventListener("click"' in source
+        assert 'document.addEventListener("submit"' in source
 
     def test_infers_dataframe_context_from_the_notebook(self) -> None:
         notebook = cast(
@@ -552,6 +567,9 @@ class TestWidgetData(APIBaseTest):
         self._mapping()
         self.notebook.content = markdown_content('<PythonV2 nodeId="source" returnVariable="locations_df" />')
         self.notebook.save(update_fields=["content"])
+        reconcile_widget_instances(self.notebook)
+
+        assert not NotebookWidgetInstance.objects.for_team(self.team.id).filter(notebook=self.notebook).exists()
 
         with self.assertRaises(WidgetError) as error:
             read_widget_frame(
@@ -562,6 +580,25 @@ class TestWidgetData(APIBaseTest):
                 user=self.user,
             )
         assert error.exception.code == "node_not_found"
+
+    def test_frame_rejects_a_single_row_over_the_response_limit(self) -> None:
+        columns = [[f"column_{index}", "string"] for index in range(150)]
+        self._run()
+        run = NotebookNodeRun.objects.for_team(self.team.id).filter(notebook=self.notebook).latest("created_at")
+        run.envelope = {"types": columns, "first_page": [["\\" * 4_096 for _ in columns]], "row_count": 1}
+        run.save(update_fields=["envelope"])
+        self._mapping()
+
+        with self.assertRaises(WidgetError) as error:
+            read_widget_frame(
+                notebook=self.notebook,
+                node_id=self.NODE_ID,
+                frame_name=self.INPUT_NAME,
+                authorize_run=lambda _run: None,
+                user=self.user,
+            )
+
+        assert error.exception.code == "frame_row_too_large"
 
     def test_status_endpoint_does_not_generate(self) -> None:
         url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widgets/{self.NODE_ID}/status/"
@@ -727,6 +764,56 @@ class TestWidgetData(APIBaseTest):
         assert job.operation == GeneratedWidgetVersion.Operation.INITIAL
         start_workflow.assert_called_once_with(str(generation_id))
 
+    def test_new_widget_canvas_is_hidden_from_legacy_canvas_queries(self) -> None:
+        generation_id = uuid4()
+
+        with (
+            patch("products.notebooks.backend.widgets._is_ai_usage_limited", return_value=False),
+            patch("products.notebooks.backend.widgets.start_widget_generation_workflow"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            start_widget_generation(
+                notebook=self.notebook,
+                node_id=self.NODE_ID,
+                prompt="Render a globe",
+                user_id=self.user.id,
+                inspection=WidgetInputInspection(resolved_inputs=[]),
+                model="claude-sonnet-4-6",
+                generation_id=generation_id,
+                operation=GeneratedWidgetVersion.Operation.INITIAL,
+            )
+
+        widget = GeneratedWidget.objects.for_team(self.team.id).get(generation_jobs__id=generation_id)
+        canvas = Canvas.objects.unscoped().get(id=widget.canvas_id)
+        assert canvas.deleted is True
+        assert canvas.source_policy == Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET
+
+    def test_dispatch_failure_marks_the_job_failed(self) -> None:
+        generation_id = uuid4()
+
+        with (
+            patch("products.notebooks.backend.widgets._is_ai_usage_limited", return_value=False),
+            patch(
+                "products.notebooks.backend.widgets.start_widget_generation_workflow",
+                side_effect=RuntimeError("dispatch failed"),
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            start_widget_generation(
+                notebook=self.notebook,
+                node_id=self.NODE_ID,
+                prompt="Render a globe",
+                user_id=self.user.id,
+                inspection=WidgetInputInspection(resolved_inputs=[]),
+                model="claude-sonnet-4-6",
+                generation_id=generation_id,
+                operation=GeneratedWidgetVersion.Operation.INITIAL,
+            )
+
+        job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).get(id=generation_id)
+        assert job.status == GeneratedWidgetGenerationJob.Status.FAILED
+        assert job.error_code == "generation_dispatch_failed"
+
     def test_generation_identifier_is_idempotent_and_payload_bound(self) -> None:
         generation_id = uuid4()
         instance = self._mapping()
@@ -834,13 +921,22 @@ class TestWidgetData(APIBaseTest):
             created_by=self.user,
         )
 
-        effective_prompt = _materialize_effective_prompt(source_edit)
+        with self.assertNumQueries(2):
+            effective_prompt = _materialize_effective_prompt(source_edit)
 
         assert "Render a globe" in effective_prompt
         assert "Make the globe lighter" in effective_prompt
         assert "Keep the hand-edited legend placement" in effective_prompt
         assert "Replace the globe with a table" not in effective_prompt
         assert "Restored an earlier version" not in effective_prompt
+
+    def test_prompt_history_keeps_the_base_and_newest_complete_change(self) -> None:
+        base = "b" * 20_000
+        newest = "n" * 20_000
+
+        history = _extend_prompt_history([base, "o" * 20_000], newest)
+
+        assert history == [base, newest]
 
     def test_status_reconciles_an_abandoned_job(self) -> None:
         instance = self._mapping()
@@ -928,6 +1024,9 @@ class TestWidgetData(APIBaseTest):
         assert response.status_code == 204
         key = _cancellation_key(self.team.id, generation_id)
         assert cache.get(key) is True
+        job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).get(id=generation_id)
+        assert job.status == GeneratedWidgetGenerationJob.Status.CANCELED
+        assert job.finished_at is not None
 
     def test_query_restricted_member_cannot_generate(self) -> None:
         self.organization.available_product_features = [

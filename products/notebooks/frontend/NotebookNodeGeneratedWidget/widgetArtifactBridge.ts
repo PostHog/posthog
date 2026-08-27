@@ -17,8 +17,9 @@ type ArtifactMessage = {
 
 export async function readWidgetFrame(
     allowedFrames: string[],
-    loadFrame: (name: string, offset: number, limit: number) => Promise<WidgetFrameApi>,
-    payload: unknown
+    loadFrame: (name: string, offset: number, limit: number, signal: AbortSignal) => Promise<WidgetFrameApi>,
+    payload: unknown,
+    signal: AbortSignal
 ): Promise<WidgetFrameApi> {
     const key =
         typeof payload === 'object' && payload !== null && typeof (payload as { key?: unknown }).key === 'string'
@@ -35,11 +36,11 @@ export async function readWidgetFrame(
     if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 500) {
         throw new Error('The dataframe page is invalid')
     }
-    return await loadFrame(name, offset, limit)
+    return await loadFrame(name, offset, limit, signal)
 }
 
 export type WidgetHostCallbacks = {
-    onDataRequest: (method: string, payload: unknown) => Promise<unknown> | unknown
+    onDataRequest: (method: string, payload: unknown, signal: AbortSignal) => Promise<unknown> | unknown
     onError?: () => void
     onRendered?: () => void
 }
@@ -98,13 +99,19 @@ export function createWidgetHostMessageRouter(
         }
 
         activeRequests += 1
+        const controller = new AbortController()
         let timeoutId: ReturnType<typeof setTimeout> | undefined
-        const request = Promise.resolve().then(() => callbacks().onDataRequest('stateGet', message.payload))
+        const request = Promise.resolve().then(() =>
+            callbacks().onDataRequest('stateGet', message.payload, controller.signal)
+        )
         try {
             const result = await Promise.race([
                 request,
                 new Promise<never>((_, reject) => {
-                    timeoutId = setTimeout(() => reject(new Error('Widget data request timed out')), REQUEST_TIMEOUT_MS)
+                    timeoutId = setTimeout(() => {
+                        controller.abort()
+                        reject(new Error('Widget data request timed out'))
+                    }, REQUEST_TIMEOUT_MS)
                 }),
             ])
             post({ channel: CANVAS_CHANNEL, type: 'data-response', id: message.id, ok: true, result })
@@ -120,7 +127,7 @@ export function createWidgetHostMessageRouter(
             if (timeoutId !== undefined) {
                 clearTimeout(timeoutId)
             }
-            void request.catch(() => undefined)
+            await request.catch(() => undefined)
             activeRequests -= 1
         }
     }

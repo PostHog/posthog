@@ -20,6 +20,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 
 from .models import Notebook, ResourceNotebook
 from .sql_v2_state import validate_cell_count
+from .widgets import reconcile_widget_instances
 
 
 def _base_queryset(team_id: int, *, include_deleted: bool = False) -> Any:
@@ -81,6 +82,7 @@ async def aupdate_notebook_content(
         last_modified_at=timezone.now(),
     )
     await notebook.arefresh_from_db()
+    await sync_to_async(reconcile_widget_instances)(notebook)
     return notebook
 
 
@@ -120,6 +122,7 @@ async def aupsert_notebook(
             notebook.text_content = text_content
             update_fields.append("text_content")
         await notebook.asave(update_fields=update_fields)
+        await sync_to_async(reconcile_widget_instances)(notebook)
     return notebook, created
 
 

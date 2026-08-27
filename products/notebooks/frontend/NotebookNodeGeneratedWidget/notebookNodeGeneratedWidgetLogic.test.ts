@@ -134,6 +134,74 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         expect(logic.values.versionsLoading).toBe(false)
     })
 
+    it('reloads versions after a reset arrives during an in-flight request', async () => {
+        const initialVersion: WidgetVersionApi = {
+            id: '00000000-0000-0000-0000-000000000002',
+            parent_version_id: null,
+            version: 1,
+            operation: 'initial',
+            prompt_delta: 'Render a globe',
+            model: 'claude-sonnet-4-6',
+            created_at: '2026-08-26T12:00:00Z',
+            build_status: 'ready',
+            artifact_url: 'https://example.com/widget-v1.html',
+            frame_names: [],
+            is_current: true,
+        }
+        const currentVersion: WidgetVersionApi = {
+            ...initialVersion,
+            id: '00000000-0000-0000-0000-000000000003',
+            version: 2,
+            artifact_url: 'https://example.com/widget-v2.html',
+        }
+        let resolveInitialRequest: (page: WidgetVersionPageApi) => void = () => undefined
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(
+            status({
+                lifecycle_status: 'ready',
+                artifact_url: initialVersion.artifact_url,
+                current_version_id: initialVersion.id,
+                has_versions: true,
+            })
+        )
+        jest.mocked(notebooksWidgetVersions)
+            .mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        resolveInitialRequest = resolve
+                    })
+            )
+            .mockResolvedValueOnce({ results: [currentVersion], count: 1, next_offset: null })
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['statusReceived', 'loadVersions'])
+
+        logic.actions.loadVersions(true)
+        resolveInitialRequest({ results: [initialVersion], count: 1, next_offset: null })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(notebooksWidgetVersions).toHaveBeenCalledTimes(2)
+        expect(logic.values.versions).toEqual([currentVersion])
+    })
+
+    it('refreshes the signed preview URL before reloading the frame', async () => {
+        jest.mocked(notebooksWidgetStatus)
+            .mockResolvedValueOnce(
+                status({ lifecycle_status: 'ready', artifact_url: 'https://example.com/widget-old.html' })
+            )
+            .mockResolvedValueOnce(
+                status({ lifecycle_status: 'ready', artifact_url: 'https://example.com/widget-new.html' })
+            )
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.refreshData()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.status?.artifact_url).toBe('https://example.com/widget-new.html')
+        expect(logic.values.frameRevision).toBe(1)
+    })
+
     it('keeps status errors separate from paid generation', async () => {
         jest.mocked(notebooksWidgetStatus).mockRejectedValue(new Error('offline'))
         logic = notebookNodeGeneratedWidgetLogic(props)
@@ -243,6 +311,30 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         expect(notebooksWidgetCancel).toHaveBeenCalledWith(String(MOCK_TEAM_ID), 'notebook-1', 'globe', {
             generation_id: active.active_job?.id,
         })
+    })
+
+    it('does not cancel generation from a read-only widget', async () => {
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(
+            status({
+                lifecycle_status: 'generating',
+                active_job: {
+                    id: '00000000-0000-0000-0000-000000000001',
+                    status: 'generating',
+                    phase: 'generating',
+                    model: 'claude-sonnet-4-6',
+                    created_at: '2026-08-26T12:00:00Z',
+                    started_at: '2026-08-26T12:00:01Z',
+                },
+            })
+        )
+        logic = notebookNodeGeneratedWidgetLogic({ ...props, isEditable: false })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.cancelGeneration()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(notebooksWidgetCancel).not.toHaveBeenCalled()
     })
 
     it('runs stale prerequisites and the current frame producer before reloading the widget', async () => {

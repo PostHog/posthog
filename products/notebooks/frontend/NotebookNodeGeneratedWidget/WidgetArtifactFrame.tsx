@@ -10,7 +10,7 @@ import { createWidgetHostMessageRouter, readWidgetFrame } from './widgetArtifact
 export type WidgetArtifactFrameProps = {
     artifactUrl: string
     allowedFrames: string[]
-    onReadFrame: (name: string, offset: number, limit: number) => Promise<WidgetFrameApi>
+    onReadFrame: (name: string, offset: number, limit: number, signal: AbortSignal) => Promise<WidgetFrameApi>
     onArtifactUnavailable?: () => void
     onError?: () => void
     onRendered?: () => void
@@ -48,12 +48,15 @@ export function WidgetArtifactFrame({
     }
 
     const connect = (port: MessagePort): void => {
+        if (renderTimeoutRef.current !== null) {
+            window.clearTimeout(renderTimeoutRef.current)
+        }
         artifactPortRef.current = port
         const route = createWidgetHostMessageRouter(
             (message) => port.postMessage(message),
             () => ({
-                onDataRequest: (_method, payload) =>
-                    readWidgetFrame(latest.current.allowedFrames, latest.current.onReadFrame, payload),
+                onDataRequest: (_method, payload, signal) =>
+                    readWidgetFrame(latest.current.allowedFrames, latest.current.onReadFrame, payload, signal),
                 onError: () => latest.current.onError?.(),
                 onRendered: () => {
                     if (renderTimeoutRef.current !== null) {
@@ -96,6 +99,7 @@ export function WidgetArtifactFrame({
         }
         window.addEventListener('message', receiveNotebookPort)
         iframe.src = themedArtifactHref
+        renderTimeoutRef.current = window.setTimeout(() => latest.current.onArtifactUnavailable?.(), 20_000)
         return () => {
             window.removeEventListener('message', receiveNotebookPort)
             clearConnection()
@@ -122,13 +126,6 @@ export function WidgetArtifactFrame({
                     return
                 }
                 hasLoadedRef.current = true
-                if (!artifactPortRef.current && iframeRef.current?.contentWindow) {
-                    const legacyChannel = new MessageChannel()
-                    connect(legacyChannel.port1)
-                    iframeRef.current.contentWindow.postMessage({ channel: 'posthog-canvas', type: 'connect' }, '*', [
-                        legacyChannel.port2,
-                    ])
-                }
             }}
             onError={() => onArtifactUnavailable?.()}
         />

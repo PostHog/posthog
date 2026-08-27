@@ -19,13 +19,14 @@ from uuid import UUID
 
 from django.conf import settings
 from django.core import signing
+from django.db.models import Q
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseNotModified
 from django.views.decorators.clickjacking import xframe_options_exempt
 
 from posthog.storage import object_storage
 
 from products.canvas.backend.contract import artifact_csp
-from products.canvas.backend.models import CanvasBuild
+from products.canvas.backend.models import Canvas, CanvasBuild
 
 ARTIFACT_TOKEN_SALT = "posthog.canvas.artifact.v1"
 # Tokens embed a coarse time bucket instead of a per-second timestamp, so the
@@ -112,7 +113,8 @@ def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> Htt
         raise Http404 from None
     build = (
         CanvasBuild.objects.for_team(team_id)
-        .filter(id=build_id, canvas_id=canvas_id, canvas__deleted=False, status=CanvasBuild.STATUS_READY)
+        .filter(id=build_id, canvas_id=canvas_id, status=CanvasBuild.STATUS_READY)
+        .filter(Q(canvas__deleted=False) | Q(canvas__source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET))
         .first()
     )
     if build is None or not build.artifact_object_prefix or not isinstance(build.manifest, dict):

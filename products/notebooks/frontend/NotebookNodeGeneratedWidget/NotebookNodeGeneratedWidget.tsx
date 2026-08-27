@@ -65,6 +65,7 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeGeneratedWidget
         status,
         statusLoadError,
         statusLoading,
+        versionsError,
         versionsLoading,
         workingStatus,
     } = useValues(logic)
@@ -74,6 +75,7 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeGeneratedWidget
         cancelGeneration,
         generateWidget,
         loadStatus,
+        loadVersions,
         openGenerationModal,
         refreshData,
         setRuntimeError,
@@ -158,7 +160,7 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeGeneratedWidget
                         key={`${selectedArtifactUrl}-${frameRevision}`}
                         artifactUrl={selectedArtifactUrl}
                         allowedFrames={activeFrameNames}
-                        onReadFrame={(name, offset, limit) =>
+                        onReadFrame={(name, offset, limit, signal) =>
                             loadWidgetFrame(
                                 String(currentTeamId),
                                 notebookShortId,
@@ -166,7 +168,8 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeGeneratedWidget
                                 selectedVersionId,
                                 name,
                                 offset,
-                                limit
+                                limit,
+                                signal
                             )
                         }
                         onArtifactUnavailable={markArtifactUnavailable}
@@ -244,7 +247,17 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeGeneratedWidget
         )
     }
 
-    if (status?.has_versions && (versionsLoading || !selectedVersion)) {
+    if (status?.has_versions && versionsError && !versionsLoading && !selectedVersion) {
+        return (
+            <EmptyState>
+                <div className="flex flex-col items-center gap-3">
+                    <div>We couldn't load this widget version.</div>
+                    <LemonButton onClick={() => loadVersions(true)}>Retry</LemonButton>
+                </div>
+            </EmptyState>
+        )
+    }
+    if (status?.has_versions && versionsLoading) {
         return (
             <EmptyState>
                 <div className="flex items-center gap-2">
