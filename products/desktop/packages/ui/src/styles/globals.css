@@ -399,6 +399,54 @@ body:has(.rt-DialogOverlay[data-state="open"]) [data-quill-portal] {
   animation: zen-float 3.5s ease-in-out infinite;
 }
 
+/* Loading logo: one 2.4s timeline. The spines hop in a wave (LoadingLogo.tsx
+   staggers their delays), and the eyelid (a head-colored disc over the eye
+   hole) closes as the wave lands on the head, so the blink keyframes sit just
+   after the last spine's delay. */
+@keyframes loading-logo-hop {
+  0%,
+  18%,
+  100% {
+    transform: translateY(0);
+    animation-timing-function: ease-out;
+  }
+  9% {
+    transform: translateY(-3px);
+    animation-timing-function: ease-in;
+  }
+}
+
+.loading-logo-spine {
+  animation: loading-logo-hop 2.4s infinite;
+}
+
+@keyframes loading-logo-blink {
+  0%,
+  22%,
+  29%,
+  100% {
+    transform: scaleY(0);
+  }
+  24.5%,
+  26.5% {
+    transform: scaleY(1);
+  }
+}
+
+.loading-logo-eyelid {
+  transform: scaleY(0);
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: loading-logo-blink 2.4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-logo-spine,
+  .loading-logo-eyelid {
+    animation: none;
+  }
+}
+
 /* Braille-dots spinner: 10 stacked frames, each held for 10% of the cycle.
    step-end holds each keyframe value so frames swap hard instead of fading.
    Pure CSS so spinners cost no JS timers, React renders or DOM mutations
