@@ -2660,10 +2660,13 @@ class TestDownstreamCTEClassifier(APIBaseTest):
         assert plan.reject_reason is None
         assert plan.shape == DownstreamCTEShape.DISTINCT
 
-    def test_multi_join_shape(self):
+    @parameterized.expand(
+        ["CROSS JOIN base2", "JOIN base2 ON base.x = base2.x", "GLOBAL INNER JOIN base2 ON base.x = base2.x"]
+    )
+    def test_multi_join_shape(self, join_clause):
         expr = self._get_cte(
             "WITH base AS (SELECT 1 AS x), base2 AS (SELECT 1 AS x), "
-            "combined AS (SELECT base.x FROM base CROSS JOIN base2) "
+            f"combined AS (SELECT base.x FROM base {join_clause}) "
             "SELECT * FROM combined",
             "combined",
         )
@@ -2682,27 +2685,44 @@ class TestDownstreamCTEClassifier(APIBaseTest):
         assert plan.shape == DownstreamCTEShape.UNION_ALL
         assert len(plan.leg_plans) == 2
 
-    def test_left_join_rejected(self):
+    @parameterized.expand(
+        [
+            ("LEFT JOIN base2 ON base.x = base2.x", "LEFT JOIN"),
+            ("FULL OUTER JOIN base2 ON base.x = base2.x", "FULL OUTER JOIN"),
+            ("GLOBAL LEFT JOIN base2 ON base.x = base2.x", "LEFT JOIN"),
+        ]
+    )
+    def test_outer_join_between_propagating_ctes_rejected(self, join_clause, expected_fragment):
         expr = self._get_cte(
             "WITH base AS (SELECT 1 AS x), base2 AS (SELECT 1 AS x), "
-            "combined AS (SELECT base.x FROM base LEFT JOIN base2 ON base.x = base2.x) "
+            f"combined AS (SELECT base.x FROM base {join_clause}) "
             "SELECT * FROM combined",
             "combined",
         )
         plan = _classify_downstream_cte("combined", expr, {"base", "base2", "combined"}, ["event_name"])
         assert plan.reject_reason is not None
-        assert "LEFT JOIN" in plan.reject_reason
+        assert expected_fragment in plan.reject_reason
 
-    def test_full_outer_join_rejected(self):
+    @parameterized.expand(["UNION DISTINCT", "INTERSECT", "EXCEPT"])
+    def test_non_union_all_set_operator_rejected(self, set_operator):
         expr = self._get_cte(
-            "WITH base AS (SELECT 1 AS x), base2 AS (SELECT 1 AS x), "
-            "combined AS (SELECT base.x FROM base FULL OUTER JOIN base2 ON base.x = base2.x) "
-            "SELECT * FROM combined",
-            "combined",
+            f"WITH base AS (SELECT 1 AS x), u AS (SELECT x FROM base {set_operator} SELECT x FROM base) "
+            "SELECT * FROM u",
+            "u",
         )
-        plan = _classify_downstream_cte("combined", expr, {"base", "base2", "combined"}, ["event_name"])
+        plan = _classify_downstream_cte("u", expr, {"base", "u"}, ["event_name"])
+        assert plan.reject_reason == "Only UNION ALL is supported for propagation across set operations"
+
+    def test_window_function_downstream_rejected(self):
+        expr = self._get_cte(
+            "WITH base AS (SELECT 1 AS x), "
+            "ranked AS (SELECT x, row_number() OVER win AS rn FROM base WINDOW win AS (ORDER BY x)) "
+            "SELECT * FROM ranked",
+            "ranked",
+        )
+        plan = _classify_downstream_cte("ranked", expr, {"base", "ranked"}, ["event_name"])
         assert plan.reject_reason is not None
-        assert "FULL OUTER JOIN" in plan.reject_reason
+        assert "Window functions" in plan.reject_reason
 
     def test_nested_subquery_reference_rejected(self):
         expr = self._get_cte(
@@ -2838,14 +2858,28 @@ class TestDownstreamCTEClassifier(APIBaseTest):
         assert plan.reject_reason is not None
         assert "collides with existing column" in plan.reject_reason
 
-    def test_union_leg_unable_to_propagate_rejected(self):
-        expr = self._get_cte(
-            "WITH base AS (SELECT 1 AS x), u AS (SELECT x FROM base UNION ALL SELECT 1 AS x) SELECT * FROM u",
-            "u",
-        )
+    @parameterized.expand(
+        [
+            (
+                "leg_without_propagating_source",
+                "WITH base AS (SELECT 1 AS x), u AS (SELECT x FROM base UNION ALL SELECT 1 AS x) SELECT * FROM u",
+                "does not read from any propagating CTE",
+            ),
+            (
+                "nested_set_query_leg",
+                "WITH base AS (SELECT 1 AS x), "
+                "u AS ((SELECT x FROM base UNION ALL SELECT x FROM base) UNION ALL SELECT x FROM base) "
+                "SELECT * FROM u",
+                "nested set queries are not supported",
+            ),
+        ]
+    )
+    def test_union_leg_unable_to_propagate_rejected(self, _name, query_str, expected_fragment):
+        expr = self._get_cte(query_str, "u")
         plan = _classify_downstream_cte("u", expr, {"base", "u"}, ["event_name"])
         assert plan.reject_reason is not None
         assert "UNION leg" in plan.reject_reason
+        assert expected_fragment in plan.reject_reason
 
 
 class TestDownstreamAnalysisRejections(APIBaseTest):

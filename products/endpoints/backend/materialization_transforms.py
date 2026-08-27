@@ -297,168 +297,239 @@ def analyze_variables_for_materialization(
     if not finder.variable_placeholders:
         return False, "No variables found", []
 
-    variables_dict = hogql_query.get("variables", {})
-    result_vars: list[MaterializableVariable] = []
-    seen_code_names: set[str] = set()
-
-    for placeholder in finder.variable_placeholders:
-        if not placeholder.chain or len(placeholder.chain) < 2:
-            return False, "Invalid variable placeholder format", []
-
-        code_name = str(placeholder.chain[1])
-        if code_name in seen_code_names:
-            continue
-        seen_code_names.add(code_name)
-
-        try:
-            all_usages = find_all_variable_usages(ast_node, placeholder)
-        except VariableInHavingClauseError:
-            return False, "Variable used in HAVING clause are not supported for materialization.", []
-        except VariableComparedToPlaceholderExprError:
-            return (
-                False,
-                "Variable compared against an expression containing another variable is not supported for materialization",
-                [],
-            )
-        except ValueError as e:
-            capture_exception(e)
-            return False, "Invalid variable usage in WHERE clause.", []
-
-        if not all_usages:
-            return False, "Variable not used in WHERE clause", []
-
-        # A variable nested in an OR can't be lifted into a single materialized key column:
-        # removing its predicate (as the transform does) would change the result set.
-        if any(usage.in_or for _, usage in all_usages):
-            return False, "Variables in OR conditions are not supported for materialization", []
-
-        # A variable compared against more than one column has no single bucket key to
-        # materialize on (the transform would silently keep only the first usage).
-        distinct_columns = {
-            tuple(usage.column_chain) if usage.column_chain else usage.column_expression for _, usage in all_usages
-        }
-        if len(distinct_columns) > 1:
-            return False, "Variable compared against multiple columns is not supported for materialization", []
-
-        # Determine CTE context for this variable
-        cte_names = {cte_name for cte_name, _ in all_usages}
-        if len(cte_names) > 1:
-            # Variable used in multiple different locations (e.g. two CTEs, or CTE + top-level)
-            has_top_level = None in cte_names
-            has_cte = any(n is not None for n in cte_names)
-            if has_top_level and has_cte:
-                return False, "Variable used in both CTE and top-level query is not yet supported", []
-            return False, "Variable used in multiple CTEs is not yet supported", []
-
-        cte_name = next(iter(cte_names))
-        # Use the first usage for column info (all usages of the same variable should be consistent)
-        variable_usage = all_usages[0][1]
-
-        if variable_usage.operator not in SUPPORTED_MATERIALIZATION_OPS:
-            return (
-                False,
-                f"Unsupported operator {variable_usage.operator}, supported: =, >=, >, <, <=",
-                [],
-            )
-
-        variable_id = next(
-            (var_id for var_id, var_data in variables_dict.items() if var_data.get("code_name") == code_name),
-            None,
-        )
-
-        if not variable_id:
-            return False, "Variable metadata not found", []
-
-        result_vars.append(
-            MaterializableVariable(
-                variable_id=variable_id,
-                code_name=code_name,
-                column_chain=variable_usage.column_chain,
-                column_expression=variable_usage.column_expression,
-                operator=variable_usage.operator,
-                column_ast=variable_usage.column_ast,
-                value_wrapper_fns=variable_usage.value_wrapper_fns,
-                cte_name=cte_name,
-            )
-        )
+    result_vars, reason = _collect_materializable_variables(
+        ast_node, finder.variable_placeholders, hogql_query.get("variables", {})
+    )
+    if reason is not None:
+        return False, reason, []
 
     # Detect range variables and set bucket_fn for bucketed materialization.
     # Single-bound ranges (e.g., just >= start) are supported — we materialize all data
     # bucketed and filter at read time with the user's value.
     _detect_range_variables(result_vars, bucket_overrides=bucket_overrides)
 
-    # If range variables exist, ALL aggregate functions must be re-aggregatable
-    has_range_vars = any(v.bucket_fn is not None for v in result_vars)
-    if has_range_vars and isinstance(ast_node, ast.SelectQuery) and ast_node.select:
-        for expr in ast_node.select:
-            agg_name = _extract_aggregate_name(expr)
-            if agg_name and get_reaggregation(agg_name) is None:
-                return (
-                    False,
-                    f"Aggregate function '{agg_name}' cannot be re-aggregated for range variable materialization",
-                    [],
-                )
-
-    # Safety check: CTE variables + top-level JOINs produce wrong results.
-    # Removing a CTE's WHERE changes its row cardinality, which changes JOIN
-    # output. Filtering after materialization can't recover the original semantics
-    # (e.g. LEFT JOIN non-matches get NULL for the variable column and are lost).
-    has_cte_vars = any(v.cte_name is not None for v in result_vars)
-    if has_cte_vars and isinstance(ast_node, ast.SelectQuery) and _has_joins(ast_node):
-        return False, "CTE variables with JOINs in the top-level query are not supported for materialization", []
-
-    # Propagation planning: for each CTE-bound variable, classify every downstream
-    # CTE so the transformer can rewrite SELECT / GROUP BY / WHERE to carry the
-    # variable column from the variable-carrying CTE to the terminal CTE.
-    if has_cte_vars and isinstance(ast_node, ast.SelectQuery) and ast_node.ctes:
-        graph = _build_cte_read_graph(ast_node)
-        all_code_names = [v.code_name for v in result_vars if v.cte_name is not None]
-        for var in result_vars:
-            if var.cte_name is None:
-                continue
-            downstream = _downstream_ctes(graph, var.cte_name)
-            propagating = downstream | {var.cte_name}
-
-            # Propagation adds a column + GROUP BY to propagating CTEs, breaking any
-            # top-level scalar usage of them (`WHERE x = (SELECT col FROM cte)` ends up
-            # returning N rows × 2 cols). No correct rewrite exists — ClickHouse doesn't
-            # support correlated subqueries. Hide the outer WITH so the finder doesn't
-            # treat propagating CTEs as shadowed by their own definitions.
-            original_ctes = ast_node.ctes
-            ast_node.ctes = None
-            try:
-                has_unsafe_reference = _body_has_non_top_from_propagating_reference(ast_node, propagating)
-            finally:
-                ast_node.ctes = original_ctes
-            if has_unsafe_reference:
-                return (
-                    False,
-                    (
-                        "Scalar subquery in top-level query references a CTE downstream of "
-                        "the variable-carrying CTE; the transformer cannot rewrite it to "
-                        "carry the variable column. Move the reference to the top-level FROM."
-                    ),
-                    [],
-                )
-
-            plans: dict[str, DownstreamCTEPlan] = {}
-            for d_cte_name in _topological_order(graph, downstream):
-                d_cte = ast_node.ctes[d_cte_name]
-                plan = _classify_downstream_cte(d_cte_name, d_cte.expr, propagating, all_code_names)
-                if plan.reject_reason:
-                    return False, plan.reject_reason, []
-                plans[d_cte_name] = plan
-            var.downstream_plans = plans
-
-    # A variable whose code_name collides with a SELECT alias for a different expression
-    # can't be materialized (the table would need two columns of that name). This is the one
-    # limitation only the transform could detect, so reject it here — sharing the check with
-    # the transformer — instead of letting enable_materialization fail mid-transform.
-    conflict_reason = _find_alias_conflict(ast_node, result_vars)
-    if conflict_reason is not None:
-        return False, conflict_reason, []
+    # Whole-query gates, in the order their messages should win. Each returns the reason
+    # the query as a whole can't be materialized, or None. Propagation planning also fills
+    # in each CTE-bound variable's downstream_plans as a side effect.
+    rejection = (
+        _reaggregation_rejection(ast_node, result_vars)
+        or _cte_join_rejection(ast_node, result_vars)
+        or _cte_propagation_rejection(ast_node, result_vars)
+        or _find_alias_conflict(ast_node, result_vars)
+    )
+    if rejection is not None:
+        return False, rejection, []
 
     return True, "OK", result_vars
+
+
+def _collect_materializable_variables(
+    ast_node: ast.SelectQuery | ast.SelectSetQuery,
+    placeholders: list[ast.Placeholder],
+    variables_dict: dict[str, Any],
+) -> tuple[list[MaterializableVariable], Optional[str]]:
+    """One MaterializableVariable per distinct variable, or the first reason one can't be built."""
+    result_vars: list[MaterializableVariable] = []
+    seen_code_names: set[str] = set()
+
+    for placeholder in placeholders:
+        if not placeholder.chain or len(placeholder.chain) < 2:
+            return [], "Invalid variable placeholder format"
+
+        code_name = str(placeholder.chain[1])
+        if code_name in seen_code_names:
+            continue
+        seen_code_names.add(code_name)
+
+        var, reason = _materializable_variable(ast_node, placeholder, code_name, variables_dict)
+        if var is None:
+            return [], reason
+        result_vars.append(var)
+
+    return result_vars, None
+
+
+def _materializable_variable(
+    ast_node: ast.SelectQuery | ast.SelectSetQuery,
+    placeholder: ast.Placeholder,
+    code_name: str,
+    variables_dict: dict[str, Any],
+) -> tuple[Optional[MaterializableVariable], Optional[str]]:
+    """Build one variable's materialization info, or the reason it can't be materialized."""
+    all_usages, reason = _variable_usages(ast_node, placeholder)
+    if reason is not None:
+        return None, reason
+
+    cte_names = {cte for cte, _ in all_usages}
+    reason = _usage_rejection(all_usages) or _context_rejection(cte_names)
+    if reason is not None:
+        return None, reason
+
+    cte_name = next(iter(cte_names))
+    # Use the first usage for column info (all usages of the same variable should be consistent)
+    variable_usage = all_usages[0][1]
+
+    if variable_usage.operator not in SUPPORTED_MATERIALIZATION_OPS:
+        return None, f"Unsupported operator {variable_usage.operator}, supported: =, >=, >, <, <="
+
+    variable_id = next(
+        (var_id for var_id, var_data in variables_dict.items() if var_data.get("code_name") == code_name),
+        None,
+    )
+    if not variable_id:
+        return None, "Variable metadata not found"
+
+    return (
+        MaterializableVariable(
+            variable_id=variable_id,
+            code_name=code_name,
+            column_chain=variable_usage.column_chain,
+            column_expression=variable_usage.column_expression,
+            operator=variable_usage.operator,
+            column_ast=variable_usage.column_ast,
+            value_wrapper_fns=variable_usage.value_wrapper_fns,
+            cte_name=cte_name,
+        ),
+        None,
+    )
+
+
+def _variable_usages(
+    ast_node: ast.SelectQuery | ast.SelectSetQuery, placeholder: ast.Placeholder
+) -> tuple[list[tuple[Optional[str], VariableUsageInWhere]], Optional[str]]:
+    """Every WHERE usage of one variable, or the reason its usage can't be read."""
+    try:
+        return find_all_variable_usages(ast_node, placeholder), None
+    except VariableInHavingClauseError:
+        return [], "Variable used in HAVING clause are not supported for materialization."
+    except VariableComparedToPlaceholderExprError:
+        return (
+            [],
+            "Variable compared against an expression containing another variable is not supported for materialization",
+        )
+    except ValueError as e:
+        capture_exception(e)
+        return [], "Invalid variable usage in WHERE clause."
+
+
+def _usage_rejection(all_usages: list[tuple[Optional[str], VariableUsageInWhere]]) -> Optional[str]:
+    """Reasons a variable's WHERE usages can't collapse into one materialized key column."""
+    if not all_usages:
+        return "Variable not used in WHERE clause"
+
+    # A variable nested in an OR can't be lifted into a single materialized key column:
+    # removing its predicate (as the transform does) would change the result set.
+    if any(usage.in_or for _, usage in all_usages):
+        return "Variables in OR conditions are not supported for materialization"
+
+    # A variable compared against more than one column has no single bucket key to
+    # materialize on (the transform would silently keep only the first usage).
+    distinct_columns = {
+        tuple(usage.column_chain) if usage.column_chain else usage.column_expression for _, usage in all_usages
+    }
+    if len(distinct_columns) > 1:
+        return "Variable compared against multiple columns is not supported for materialization"
+
+    return None
+
+
+def _context_rejection(cte_names: set[Optional[str]]) -> Optional[str]:
+    """Reject a variable used in more than one place (two CTEs, or a CTE and the top level)."""
+    if len(cte_names) <= 1:
+        return None
+    if None in cte_names:
+        return "Variable used in both CTE and top-level query is not yet supported"
+    return "Variable used in multiple CTEs is not yet supported"
+
+
+def _reaggregation_rejection(
+    ast_node: ast.SelectQuery | ast.SelectSetQuery, result_vars: list[MaterializableVariable]
+) -> Optional[str]:
+    """With range variables the table is bucketed, so every SELECT aggregate must re-aggregate."""
+    if not any(v.bucket_fn is not None for v in result_vars):
+        return None
+    if not isinstance(ast_node, ast.SelectQuery):
+        return None
+
+    for expr in ast_node.select or []:
+        agg_name = _extract_aggregate_name(expr)
+        if agg_name and get_reaggregation(agg_name) is None:
+            return f"Aggregate function '{agg_name}' cannot be re-aggregated for range variable materialization"
+    return None
+
+
+def _cte_join_rejection(
+    ast_node: ast.SelectQuery | ast.SelectSetQuery, result_vars: list[MaterializableVariable]
+) -> Optional[str]:
+    """CTE variables + top-level JOINs produce wrong results.
+
+    Removing a CTE's WHERE changes its row cardinality, which changes JOIN
+    output. Filtering after materialization can't recover the original semantics
+    (e.g. LEFT JOIN non-matches get NULL for the variable column and are lost).
+    """
+    if not any(v.cte_name is not None for v in result_vars):
+        return None
+    if isinstance(ast_node, ast.SelectQuery) and _has_joins(ast_node):
+        return "CTE variables with JOINs in the top-level query are not supported for materialization"
+    return None
+
+
+def _cte_propagation_rejection(
+    ast_node: ast.SelectQuery | ast.SelectSetQuery, result_vars: list[MaterializableVariable]
+) -> Optional[str]:
+    """Fill in each CTE-bound variable's downstream plans, or return why they can't be built.
+
+    For every CTE-bound variable, classify each downstream CTE so the transformer can
+    rewrite SELECT / GROUP BY / WHERE to carry the variable column from the
+    variable-carrying CTE to the terminal CTE.
+    """
+    if not any(v.cte_name is not None for v in result_vars):
+        return None
+    if not isinstance(ast_node, ast.SelectQuery) or not ast_node.ctes:
+        return None
+
+    ctes = ast_node.ctes
+    graph = _build_cte_read_graph(ast_node)
+    all_code_names = [v.code_name for v in result_vars if v.cte_name is not None]
+
+    for var in result_vars:
+        if var.cte_name is None:
+            continue
+        downstream = _downstream_ctes(graph, var.cte_name)
+        propagating = downstream | {var.cte_name}
+
+        if _top_level_reads_propagating_cte_outside_from(ast_node, propagating):
+            return (
+                "Scalar subquery in top-level query references a CTE downstream of "
+                "the variable-carrying CTE; the transformer cannot rewrite it to "
+                "carry the variable column. Move the reference to the top-level FROM."
+            )
+
+        plans: dict[str, DownstreamCTEPlan] = {}
+        for d_cte_name in _topological_order(graph, downstream):
+            plan = _classify_downstream_cte(d_cte_name, ctes[d_cte_name].expr, propagating, all_code_names)
+            if plan.reject_reason:
+                return plan.reject_reason
+            plans[d_cte_name] = plan
+        var.downstream_plans = plans
+
+    return None
+
+
+def _top_level_reads_propagating_cte_outside_from(ast_node: ast.SelectQuery, propagating: set[str]) -> bool:
+    """Whether the top-level query reads a propagating CTE anywhere but its own FROM chain.
+
+    Propagation adds a column + GROUP BY to propagating CTEs, breaking any top-level scalar
+    usage of them (`WHERE x = (SELECT col FROM cte)` ends up returning N rows × 2 cols). No
+    correct rewrite exists — ClickHouse doesn't support correlated subqueries. Hide the outer
+    WITH so the finder doesn't treat propagating CTEs as shadowed by their own definitions.
+    """
+    original_ctes = ast_node.ctes
+    ast_node.ctes = None
+    try:
+        return _body_has_non_top_from_propagating_reference(ast_node, propagating)
+    finally:
+        ast_node.ctes = original_ctes
 
 
 def _alias_conflict_reason(code_name: str) -> str:
@@ -519,7 +590,13 @@ def _find_alias_conflict(
     ast_node: ast.SelectQuery | ast.SelectSetQuery, result_vars: list[MaterializableVariable]
 ) -> Optional[str]:
     """Pre-flight equivalent of the transformer's per-context alias-conflict check: group
-    variables by their context and run the shared conflict check on each."""
+    variables by their context and run the shared conflict check on each.
+
+    A variable whose code_name collides with a SELECT alias for a different expression
+    can't be materialized (the table would need two columns of that name). This is the one
+    limitation only the transform could detect, so reject it here — sharing the check with
+    the transformer — instead of letting enable_materialization fail mid-transform.
+    """
     contexts: dict[Optional[str], list[MaterializableVariable]] = {}
     for var in result_vars:
         contexts.setdefault(var.cte_name, []).append(var)
@@ -707,35 +784,38 @@ def _collect_propagating_sources_top_level(
     return sources, None
 
 
+class _NestedPropagatingReferenceFinder(TraversingVisitor):
+    """Follow only FROM chains, so it reports propagating CTEs a subquery actually reads from."""
+
+    def __init__(self, propagating: set[str]) -> None:
+        super().__init__()
+        self.propagating = propagating
+        self.found = False
+
+    def visit_select_query(self, n: ast.SelectQuery) -> None:
+        if n.select_from is not None:
+            self.visit(n.select_from)
+
+    def visit_select_set_query(self, n: ast.SelectSetQuery) -> None:
+        for leg in n.select_queries():
+            self.visit(leg)
+
+    def visit_join_expr(self, n: ast.JoinExpr) -> None:
+        if isinstance(n.table, ast.Field) and len(n.table.chain) == 1:
+            if str(n.table.chain[0]) in self.propagating:
+                self.found = True
+                return
+        if isinstance(n.table, ast.SelectQuery | ast.SelectSetQuery):
+            self.visit(n.table)
+        if n.next_join is not None:
+            self.visit(n.next_join)
+
+
 def _has_nested_propagating_reference(node: Optional[ast.Expr], propagating: set[str]) -> bool:
     """Detect a propagating-CTE reference inside a subquery (e.g. ``FROM (SELECT * FROM prop)``)."""
     if node is None:
         return False
-
-    class _Finder(TraversingVisitor):
-        def __init__(self) -> None:
-            super().__init__()
-            self.found = False
-
-        def visit_select_query(self, n: ast.SelectQuery) -> None:
-            if n.select_from is not None:
-                self.visit(n.select_from)
-
-        def visit_select_set_query(self, n: ast.SelectSetQuery) -> None:
-            for leg in n.select_queries():
-                self.visit(leg)
-
-        def visit_join_expr(self, n: ast.JoinExpr) -> None:
-            if isinstance(n.table, ast.Field) and len(n.table.chain) == 1:
-                if str(n.table.chain[0]) in propagating:
-                    self.found = True
-                    return
-            if isinstance(n.table, ast.SelectQuery | ast.SelectSetQuery):
-                self.visit(n.table)
-            if n.next_join is not None:
-                self.visit(n.next_join)
-
-    finder = _Finder()
+    finder = _NestedPropagatingReferenceFinder(propagating)
     finder.visit(node)
     return finder.found
 
@@ -825,6 +905,14 @@ def _emits_column(select_query: ast.SelectQuery, column_name: str) -> bool:
     return False
 
 
+def _rejected_plan(
+    cte_name: str,
+    reason: str,
+    shape: DownstreamCTEShape = DownstreamCTEShape.PROJECTION,
+) -> DownstreamCTEPlan:
+    return DownstreamCTEPlan(cte_name=cte_name, shape=shape, reject_reason=reason)
+
+
 def _classify_downstream_cte(
     cte_name: str,
     cte_expr: ast.Expr,
@@ -832,128 +920,133 @@ def _classify_downstream_cte(
     code_names: list[str],
 ) -> DownstreamCTEPlan:
     """Classify a downstream CTE's shape; produce a plan or a rejection reason."""
-
     if isinstance(cte_expr, ast.SelectSetQuery):
-        non_union_legs = [node.set_operator for node in cte_expr.subsequent_select_queries]
-        if any(op != "UNION ALL" for op in non_union_legs):
-            return DownstreamCTEPlan(
-                cte_name=cte_name,
-                shape=DownstreamCTEShape.UNION_ALL,
-                reject_reason="Only UNION ALL is supported for propagation across set operations",
-            )
-
-        leg_plans: list[DownstreamCTEPlan] = []
-        for i, leg in enumerate(cte_expr.select_queries()):
-            if not isinstance(leg, ast.SelectQuery):
-                return DownstreamCTEPlan(
-                    cte_name=cte_name,
-                    shape=DownstreamCTEShape.UNION_ALL,
-                    reject_reason=(f"Variable propagation failed on UNION leg: nested set queries are not supported"),
-                )
-            leg_plan = _classify_downstream_cte(f"{cte_name}#leg{i}", leg, propagating, code_names)
-            if leg_plan.reject_reason:
-                return DownstreamCTEPlan(
-                    cte_name=cte_name,
-                    shape=DownstreamCTEShape.UNION_ALL,
-                    reject_reason=f"Variable propagation failed on UNION leg: {leg_plan.reject_reason}",
-                )
-            if not leg_plan.propagating_sources and leg_plan.shape != DownstreamCTEShape.UNION_ALL:
-                return DownstreamCTEPlan(
-                    cte_name=cte_name,
-                    shape=DownstreamCTEShape.UNION_ALL,
-                    reject_reason=("Variable propagation failed on UNION leg: leg has no propagating CTE source"),
-                )
-            leg_plans.append(leg_plan)
-
-        return DownstreamCTEPlan(
-            cte_name=cte_name,
-            shape=DownstreamCTEShape.UNION_ALL,
-            leg_plans=leg_plans,
-        )
+        return _classify_union_cte(cte_name, cte_expr, propagating, code_names)
 
     if not isinstance(cte_expr, ast.SelectQuery):
-        return DownstreamCTEPlan(
-            cte_name=cte_name,
-            shape=DownstreamCTEShape.PROJECTION,
-            reject_reason=f"Unsupported CTE body type: {type(cte_expr).__name__}",
-        )
+        return _rejected_plan(cte_name, f"Unsupported CTE body type: {type(cte_expr).__name__}")
 
-    if cte_expr.window_exprs:
-        return DownstreamCTEPlan(
-            cte_name=cte_name,
-            shape=DownstreamCTEShape.PROJECTION,
-            reject_reason="Window functions in downstream CTEs of a variable CTE are not yet supported for materialization",
-        )
-
-    sources, reject = _collect_propagating_sources_top_level(cte_expr.select_from, propagating)
-    if reject:
-        return DownstreamCTEPlan(
-            cte_name=cte_name,
-            shape=DownstreamCTEShape.PROJECTION,
-            reject_reason=reject,
-        )
-
-    if _select_from_has_nested_reference(cte_expr.select_from, propagating):
-        return DownstreamCTEPlan(
-            cte_name=cte_name,
-            shape=DownstreamCTEShape.PROJECTION,
-            reject_reason="CTE variable propagation requires top-level FROM references; nested subquery reference not supported",
-        )
-
-    if _body_has_non_top_from_propagating_reference(cte_expr, propagating):
-        return DownstreamCTEPlan(
-            cte_name=cte_name,
-            shape=DownstreamCTEShape.PROJECTION,
-            reject_reason=(
-                "CTE variable propagation requires top-level FROM references; "
-                "scalar subquery reading from a propagating CTE not supported"
-            ),
-        )
-
-    if not sources:
-        return DownstreamCTEPlan(
-            cte_name=cte_name,
-            shape=DownstreamCTEShape.PROJECTION,
-            reject_reason="Downstream CTE does not read from any propagating CTE",
-        )
-
-    for code_name in code_names:
-        if _emits_column(cte_expr, code_name):
-            return DownstreamCTEPlan(
-                cte_name=cte_name,
-                shape=DownstreamCTEShape.PROJECTION,
-                reject_reason=f"Variable code_name '{code_name}' collides with existing column in downstream CTE {cte_name}",
-            )
-
-    if len(sources) >= 2:
-        shape = DownstreamCTEShape.MULTI_JOIN
-    elif cte_expr.distinct:
-        shape = DownstreamCTEShape.DISTINCT
-    elif cte_expr.group_by or _select_has_aggregate(cte_expr):
-        shape = DownstreamCTEShape.AGGREGATION
-    else:
-        shape = DownstreamCTEShape.PROJECTION
+    sources, reject = _propagating_sources_or_rejection(cte_name, cte_expr, propagating, code_names)
+    if reject is not None:
+        return _rejected_plan(cte_name, reject)
 
     return DownstreamCTEPlan(
         cte_name=cte_name,
-        shape=shape,
+        shape=_downstream_shape(cte_expr, sources),
         propagating_sources=sources,
     )
 
 
+def _classify_union_cte(
+    cte_name: str,
+    cte_expr: ast.SelectSetQuery,
+    propagating: set[str],
+    code_names: list[str],
+) -> DownstreamCTEPlan:
+    """Classify each leg of a set query; every leg has to carry the variable column itself."""
+    if any(node.set_operator != "UNION ALL" for node in cte_expr.subsequent_select_queries):
+        return _rejected_plan(
+            cte_name,
+            "Only UNION ALL is supported for propagation across set operations",
+            DownstreamCTEShape.UNION_ALL,
+        )
+
+    leg_plans: list[DownstreamCTEPlan] = []
+    for i, leg in enumerate(cte_expr.select_queries()):
+        leg_plan, reject = _classify_union_leg(f"{cte_name}#leg{i}", leg, propagating, code_names)
+        if leg_plan is None:
+            return _rejected_plan(
+                cte_name,
+                f"Variable propagation failed on UNION leg: {reject}",
+                DownstreamCTEShape.UNION_ALL,
+            )
+        leg_plans.append(leg_plan)
+
+    return DownstreamCTEPlan(cte_name=cte_name, shape=DownstreamCTEShape.UNION_ALL, leg_plans=leg_plans)
+
+
+def _classify_union_leg(
+    leg_name: str,
+    leg: ast.Expr,
+    propagating: set[str],
+    code_names: list[str],
+) -> tuple[Optional[DownstreamCTEPlan], Optional[str]]:
+    """Plan for one UNION leg, or the reason that leg blocks propagation."""
+    if not isinstance(leg, ast.SelectQuery):
+        return None, "nested set queries are not supported"
+
+    leg_plan = _classify_downstream_cte(leg_name, leg, propagating, code_names)
+    if leg_plan.reject_reason:
+        return None, leg_plan.reject_reason
+    # Backstop: a leg the transformer can't source the variable column from would silently
+    # emit rows without it, so refuse rather than produce a table missing the key.
+    if not leg_plan.propagating_sources and leg_plan.shape != DownstreamCTEShape.UNION_ALL:
+        return None, "leg has no propagating CTE source"
+    return leg_plan, None
+
+
+def _propagating_sources_or_rejection(
+    cte_name: str,
+    cte_expr: ast.SelectQuery,
+    propagating: set[str],
+    code_names: list[str],
+) -> tuple[list[tuple[str, str]], Optional[str]]:
+    """The propagating CTEs this SELECT reads, or the first reason it can't carry the column."""
+    if cte_expr.window_exprs:
+        return [], "Window functions in downstream CTEs of a variable CTE are not yet supported for materialization"
+
+    sources, reject = _collect_propagating_sources_top_level(cte_expr.select_from, propagating)
+    if reject:
+        return [], reject
+
+    if _select_from_has_nested_reference(cte_expr.select_from, propagating):
+        return (
+            [],
+            "CTE variable propagation requires top-level FROM references; nested subquery reference not supported",
+        )
+
+    if _body_has_non_top_from_propagating_reference(cte_expr, propagating):
+        return [], (
+            "CTE variable propagation requires top-level FROM references; "
+            "scalar subquery reading from a propagating CTE not supported"
+        )
+
+    if not sources:
+        return [], "Downstream CTE does not read from any propagating CTE"
+
+    collision = next((code_name for code_name in code_names if _emits_column(cte_expr, code_name)), None)
+    if collision is not None:
+        return [], f"Variable code_name '{collision}' collides with existing column in downstream CTE {cte_name}"
+
+    return sources, None
+
+
+def _downstream_shape(cte_expr: ast.SelectQuery, sources: list[tuple[str, str]]) -> DownstreamCTEShape:
+    """Pick the rewrite shape from the CTE's own structure."""
+    if len(sources) >= 2:
+        return DownstreamCTEShape.MULTI_JOIN
+    if cte_expr.distinct:
+        return DownstreamCTEShape.DISTINCT
+    if cte_expr.group_by or _select_has_aggregate(cte_expr):
+        return DownstreamCTEShape.AGGREGATION
+    return DownstreamCTEShape.PROJECTION
+
+
+class _AggregateFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+
+    def visit_call(self, n: ast.Call) -> None:
+        if _is_aggregate(n.name):
+            self.found = True
+            return
+        super().visit_call(n)
+
+
 def _select_has_aggregate(node: ast.SelectQuery) -> bool:
-    class _AggFinder(TraversingVisitor):
-        def __init__(self) -> None:
-            super().__init__()
-            self.found = False
-
-        def visit_call(self, n: ast.Call) -> None:
-            if _is_aggregate(n.name):
-                self.found = True
-                return
-            super().visit_call(n)
-
-    finder = _AggFinder()
+    """Check if any SELECT expression uses an aggregate function (sum, count, avg, etc.)."""
+    finder = _AggregateFinder()
     for expr in node.select or []:
         finder.visit(expr)
         if finder.found:
@@ -1447,7 +1540,7 @@ class MaterializationTransformer(CloningVisitor):
         if select_additions:
             node.select = [*list(node.select or []), *select_additions]
 
-        if vars_to_add and (node.group_by is not None or self._has_aggregate_functions(node)):
+        if vars_to_add and (node.group_by is not None or _select_has_aggregate(node)):
             self._add_group_by(node, vars_to_add)
 
         if node.where:
@@ -1461,30 +1554,8 @@ class MaterializationTransformer(CloningVisitor):
         else:
             node.select = passthrough_additions
 
-        if node.group_by is not None or self._has_aggregate_functions(node):
+        if node.group_by is not None or _select_has_aggregate(node):
             self._add_group_by(node, cte_vars, use_field_ref=True)
-
-    @staticmethod
-    def _has_aggregate_functions(node: ast.SelectQuery) -> bool:
-        """Check if any SELECT expression uses an aggregate function (sum, count, avg, etc.)."""
-
-        class AggFinder(TraversingVisitor):
-            def __init__(self):
-                super().__init__()
-                self.found = False
-
-            def visit_call(self, node: ast.Call):
-                if _is_aggregate(node.name):
-                    self.found = True
-                else:
-                    super().visit_call(node)
-
-        finder = AggFinder()
-        for expr in node.select or []:
-            finder.visit(expr)
-            if finder.found:
-                return True
-        return False
 
     def _vars_for_current_context(self) -> list[MaterializableVariable]:
         """Return variables that apply to the current CTE/top-level context."""
