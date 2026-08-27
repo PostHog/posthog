@@ -2398,6 +2398,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         saved_query = version.saved_query
         saved_query.sync_frequency_interval = None  # migration cleanup nulls this on v2 teams
         saved_query.last_run_at = timezone.now() - timedelta(days=3)
+        saved_query.status = None
         saved_query.save()
         DataModelingJob.objects.create(
             team=self.team,
