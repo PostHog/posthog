@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
+import { useComponentPanelState } from 'lib/components/MarkdownNotebook/componentPanelContext'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
@@ -34,6 +35,7 @@ function EmptyState({ children }: { children: ReactNode }): JSX.Element {
 
 function Component({ attributes }: NotebookNodeProps<NotebookNodeGeneratedWidgetAttributes>): JSX.Element | null {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
+    const componentPanelState = useComponentPanelState()
     const { expanded, isEditable, notebookLogic } = useValues(nodeLogic)
     const notebookShortId = notebookLogic.props.shortId
     const logic = notebookNodeGeneratedWidgetLogic({
@@ -123,7 +125,7 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeGeneratedWidget
     if (selectedArtifactUrl && selectedVersionId && currentTeamId) {
         return (
             <div className="flex h-full min-h-0 w-full flex-col">
-                {isWorking && workingStatus ? (
+                {isWorking && workingStatus && !componentPanelState?.showEditPanel ? (
                     <div className="flex flex-wrap items-center gap-2 border-b p-2 text-sm">
                         <span className="flex items-center gap-2" role="status" aria-live="polite">
                             <Spinner />
@@ -189,6 +191,9 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeGeneratedWidget
     }
 
     if (isWorking) {
+        if (componentPanelState?.showEditPanel) {
+            return null
+        }
         return (
             <EmptyState>
                 <div className="flex max-w-lg flex-col items-center gap-3">

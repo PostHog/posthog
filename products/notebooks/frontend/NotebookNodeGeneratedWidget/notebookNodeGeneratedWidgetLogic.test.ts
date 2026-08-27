@@ -13,6 +13,7 @@ import { initKeaTests } from '~/test/init'
 import {
     notebooksWidgetCancel,
     notebooksWidgetGenerate,
+    notebooksWidgetSource,
     notebooksWidgetStatus,
     notebooksWidgetVersions,
     notebooksSqlV2StateRetrieve,
@@ -70,6 +71,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         initKeaTests()
         jest.mocked(notebooksWidgetCancel).mockReset()
         jest.mocked(notebooksWidgetGenerate).mockReset()
+        jest.mocked(notebooksWidgetSource).mockReset()
         jest.mocked(notebooksWidgetStatus).mockReset()
         jest.mocked(notebooksWidgetVersions).mockReset().mockResolvedValue(emptyVersions)
         jest.mocked(notebooksSqlV2StateRetrieve).mockReset()
@@ -285,6 +287,32 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             jest.mocked(notebooksWidgetGenerate).mock.calls[0][3].generation_id
         )
         expect(logic.values.status?.active_job?.status).toBe('queued')
+    })
+
+    it('uses the notebook tag prompt when migrated source is unavailable', async () => {
+        const versionId = '00000000-0000-0000-0000-000000000002'
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(
+            status({
+                lifecycle_status: 'ready',
+                current_version_id: versionId,
+                has_versions: true,
+            })
+        )
+        jest.mocked(notebooksWidgetSource).mockRejectedValue(
+            new ApiError('Unavailable', 404, undefined, {
+                code: 'source_unavailable',
+                detail: 'The widget source is unavailable. Try again.',
+            })
+        )
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.openGenerationModal('regenerate')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.generationDraftPrompt).toBe(props.prompt)
+        expect(logic.values.generationError).toBeNull()
     })
 
     it('cancels the shared durable job from its status identifier', async () => {

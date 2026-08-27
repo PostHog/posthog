@@ -818,7 +818,8 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     }
                 },
                 openGenerationModal: async ({ operation }) => {
-                    actions.setGenerationDraftPrompt('')
+                    const fallbackPrompt = operation === 'regenerate' ? props.prompt : ''
+                    actions.setGenerationDraftPrompt(fallbackPrompt)
                     actions.setGenerationDraftModel(
                         isWidgetModel(values.selectedVersion?.model) ? values.selectedVersion.model : props.model
                     )
@@ -833,9 +834,13 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                             props.nodeId,
                             { version_id: values.selectedVersionId }
                         )
-                        actions.setGenerationDraftPrompt(source.effective_prompt)
+                        if (source.effective_prompt.trim()) {
+                            actions.setGenerationDraftPrompt(source.effective_prompt)
+                        }
                     } catch (error) {
-                        actions.generationFailed(errorMessage(error))
+                        if (!fallbackPrompt.trim()) {
+                            actions.generationFailed(errorMessage(error))
+                        }
                     } finally {
                         actions.setGenerationDraftLoading(false)
                     }
