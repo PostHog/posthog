@@ -1,6 +1,8 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { flattenSelectOptions } from "@posthog/ui/features/sessions/sessionStore";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import { track } from "@posthog/ui/shell/analytics";
 import { useCallback, useState } from "react";
 
 export interface PendingModelSwitch {
@@ -22,8 +24,10 @@ interface UsePendingModelSwitchInput {
    * before any prompt, so this must track conversation content, not raw events.
    */
   hasConversationStarted: boolean;
+  contextTokens?: number;
   /** Applies the queued switch unchanged once the dialog is confirmed. */
-  onApply: (configId: string, value: string) => void;
+  onApply: (configId: string, value: string) => Promise<void>;
+  onCompactAndApply: (configId: string, value: string) => Promise<boolean>;
 }
 
 interface UsePendingModelSwitchResult {
@@ -33,7 +37,8 @@ interface UsePendingModelSwitchResult {
    * the change was intercepted, so the caller must not apply it itself.
    */
   interceptModelSwitch: (configId: string, value: string) => boolean;
-  confirmModelSwitch: () => void;
+  confirmModelSwitch: () => Promise<void>;
+  compactAndConfirmModelSwitch: () => Promise<boolean>;
   cancelModelSwitch: () => void;
 }
 
@@ -46,7 +51,9 @@ export function usePendingModelSwitch({
   taskId,
   sessionModelOption,
   hasConversationStarted,
+  contextTokens,
   onApply,
+  onCompactAndApply,
 }: UsePendingModelSwitchInput): UsePendingModelSwitchResult {
   const warnOnMidSessionModelSwitch = useSettingsStore(
     (state) => state.warnOnMidSessionModelSwitch,
@@ -77,33 +84,80 @@ export function usePendingModelSwitch({
       const nameOf = (modelValue: string) =>
         modelOptions.find((option) => option.value === modelValue)?.name ??
         modelValue;
-      setPendingModelSwitch({
+      const nextSwitch = {
         configId,
         value,
         label: nameOf(value),
         fromValue: sessionModelOption.currentValue,
         fromLabel: nameOf(sessionModelOption.currentValue),
+      };
+      setPendingModelSwitch(nextSwitch);
+      track(ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_SHOWN, {
+        task_id: taskId,
+        from_model: nextSwitch.fromValue,
+        to_model: nextSwitch.value,
+        context_tokens: contextTokens,
       });
       return true;
     },
-    [warnOnMidSessionModelSwitch, hasConversationStarted, sessionModelOption],
+    [
+      warnOnMidSessionModelSwitch,
+      hasConversationStarted,
+      sessionModelOption,
+      taskId,
+      contextTokens,
+    ],
   );
 
-  const confirmModelSwitch = useCallback(() => {
-    if (pendingModelSwitch) {
-      onApply(pendingModelSwitch.configId, pendingModelSwitch.value);
-    }
+  const confirmModelSwitch = useCallback(async () => {
+    if (!pendingModelSwitch) return;
+    await onApply(pendingModelSwitch.configId, pendingModelSwitch.value);
+    track(ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_ACTION, {
+      task_id: taskId,
+      from_model: pendingModelSwitch.fromValue,
+      to_model: pendingModelSwitch.value,
+      context_tokens: contextTokens,
+      action: "switch_now",
+    });
     setPendingModelSwitch(null);
-  }, [pendingModelSwitch, onApply]);
+  }, [pendingModelSwitch, onApply, taskId, contextTokens]);
+
+  const compactAndConfirmModelSwitch = useCallback(async () => {
+    if (!pendingModelSwitch) return false;
+    const succeeded = await onCompactAndApply(
+      pendingModelSwitch.configId,
+      pendingModelSwitch.value,
+    );
+    track(ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_ACTION, {
+      task_id: taskId,
+      from_model: pendingModelSwitch.fromValue,
+      to_model: pendingModelSwitch.value,
+      context_tokens: contextTokens,
+      action: "compact_and_switch",
+      result: succeeded ? "succeeded" : "failed",
+    });
+    if (succeeded) setPendingModelSwitch(null);
+    return succeeded;
+  }, [pendingModelSwitch, onCompactAndApply, taskId, contextTokens]);
 
   const cancelModelSwitch = useCallback(() => {
+    if (pendingModelSwitch) {
+      track(ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_ACTION, {
+        task_id: taskId,
+        from_model: pendingModelSwitch.fromValue,
+        to_model: pendingModelSwitch.value,
+        context_tokens: contextTokens,
+        action: "cancel",
+      });
+    }
     setPendingModelSwitch(null);
-  }, []);
+  }, [pendingModelSwitch, taskId, contextTokens]);
 
   return {
     pendingModelSwitch,
     interceptModelSwitch,
     confirmModelSwitch,
+    compactAndConfirmModelSwitch,
     cancelModelSwitch,
   };
 }

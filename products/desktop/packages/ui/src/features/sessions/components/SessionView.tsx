@@ -1,6 +1,9 @@
 import { Pause, Spinner, Warning } from "@phosphor-icons/react";
 import type { FileAttachment } from "@posthog/core/message-editor/content";
-import { hasSessionPromptEvent } from "@posthog/core/sessions/sessionEvents";
+import {
+  getCompactionOutcome,
+  hasSessionPromptEvent,
+} from "@posthog/core/sessions/sessionEvents";
 import {
   createLatestPlanTracker,
   SESSION_SERVICE,
@@ -11,7 +14,13 @@ import {
   FAST_MODE_OPTION_CATEGORY,
 } from "@posthog/core/task-detail/previewConfig";
 import { useService } from "@posthog/di/react";
-import { type AcpMessage, FAST_MODE_FLAG } from "@posthog/shared";
+import {
+  type AcpMessage,
+  ASSISTED_MODEL_SWITCH_FLAG,
+  FAST_MODE_FLAG,
+  sessionSupportsSideQuestion,
+} from "@posthog/shared";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task, TaskRunStatus } from "@posthog/shared/domain-types";
 import {
   spendStopMessage,
@@ -64,6 +73,7 @@ import { useCancelQueuedMessageEdit } from "@posthog/ui/features/sessions/hooks/
 import { useSessionEventsResidency } from "@posthog/ui/features/sessions/hooks/useSessionEventsResidency";
 import { useToggleMessagingMode } from "@posthog/ui/features/sessions/hooks/useToggleMessagingMode";
 import {
+  sessionStoreSetters,
   useAdapterForTask,
   useConfigOptionForTask,
   useModeConfigOptionForTask,
@@ -82,6 +92,7 @@ import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useIsWorkspaceCloudRun } from "@posthog/ui/features/workspace/useWorkspace";
 import { useConnectivity } from "@posthog/ui/hooks/useConnectivity";
 import { toast } from "@posthog/ui/primitives/toast";
+import { captureException, track } from "@posthog/ui/shell/analytics";
 import {
   pendingTaskPromptStoreApi,
   usePendingTaskPrompt,
@@ -140,6 +151,8 @@ interface SessionViewProps {
 const DEFAULT_ERROR_MESSAGE =
   "Failed to resume this session. The working directory may have been deleted. Please start a new session.";
 
+const HANDOFF_SUMMARY_PROMPT = `Create a concise handoff summary for another coding agent. Include the user's goal, constraints, decisions, current progress, relevant files, commands and tests, remaining work, and blockers. Do not continue the task. Return only the handoff summary.`;
+
 export function SessionView({
   events,
   taskId,
@@ -186,6 +199,8 @@ export function SessionView({
   const sessionModelOption = useModelConfigOptionForTask(taskId);
   const adapter = useAdapterForTask(taskId);
   const fastModeFlagEnabled = useFeatureFlag(FAST_MODE_FLAG);
+  const assistedModelSwitchEnabled =
+    useFeatureFlag(ASSISTED_MODEL_SWITCH_FLAG) || import.meta.env.DEV;
   const liveFastModeOption = useConfigOptionForTask(
     taskId,
     FAST_MODE_OPTION_CATEGORY,
@@ -248,31 +263,105 @@ export function SessionView({
     [taskId, thoughtOption, sessionService],
   );
 
+  const contextUsage = useContextUsage(events);
+  const canCopyHandoffSummary = useSessionSelector(taskId, (session) =>
+    session ? sessionSupportsSideQuestion(session) : false,
+  );
+
   const applyConfigOption = useCallback(
-    (configId: string, value: string) => {
+    async (_configId: string, value: string): Promise<void> => {
       if (!taskId) return;
-      sessionService.setSessionConfigOption(taskId, configId, value);
+      await sessionService.setSessionConfigOptionByCategory(
+        taskId,
+        "model",
+        value,
+      );
     },
     [taskId, sessionService],
+  );
+
+  const compactAndApplyConfigOption = useCallback(
+    async (configId: string, value: string): Promise<boolean> => {
+      if (!taskId) return false;
+      const startingEventCount =
+        sessionStoreSetters.getSessionByTaskId(taskId)?.events.length ?? 0;
+      if (!(await onSendPrompt("/compact"))) return false;
+
+      const latestEvents =
+        sessionStoreSetters.getSessionByTaskId(taskId)?.events ?? [];
+      if (
+        getCompactionOutcome(latestEvents, startingEventCount) !== "succeeded"
+      ) {
+        toast.error("Could not compact the conversation", {
+          description:
+            "The model was not switched. Try again or switch without compacting.",
+        });
+        return false;
+      }
+
+      await applyConfigOption(configId, value);
+      return true;
+    },
+    [taskId, onSendPrompt, applyConfigOption],
   );
 
   const {
     pendingModelSwitch,
     interceptModelSwitch,
     confirmModelSwitch,
+    compactAndConfirmModelSwitch,
     cancelModelSwitch,
   } = usePendingModelSwitch({
     taskId,
     sessionModelOption,
     hasConversationStarted: hasSessionPromptEvent(events),
+    contextTokens: contextUsage?.used,
     onApply: applyConfigOption,
+    onCompactAndApply: compactAndApplyConfigOption,
   });
+
+  const handleCopyHandoffSummary = useCallback(async (): Promise<void> => {
+    if (!taskId || !pendingModelSwitch) return;
+    try {
+      const summary = await sessionService.askSideQuestion(
+        taskId,
+        HANDOFF_SUMMARY_PROMPT,
+      );
+      await navigator.clipboard.writeText(summary);
+      track(ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_ACTION, {
+        task_id: taskId,
+        from_model: pendingModelSwitch.fromValue,
+        to_model: pendingModelSwitch.value,
+        context_tokens: contextUsage?.used,
+        action: "copy_handoff_summary",
+        result: "succeeded",
+      });
+      toast.success("Handoff summary copied");
+    } catch (error) {
+      const caughtError =
+        error instanceof Error ? error : new Error("Handoff summary failed");
+      captureException(caughtError, {
+        feature: "model_switch_handoff_summary",
+      });
+      track(ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_ACTION, {
+        task_id: taskId,
+        from_model: pendingModelSwitch.fromValue,
+        to_model: pendingModelSwitch.value,
+        context_tokens: contextUsage?.used,
+        action: "copy_handoff_summary",
+        result: "failed",
+      });
+      toast.error("Could not copy a handoff summary", {
+        description: "Try again, or continue without a summary.",
+      });
+    }
+  }, [taskId, pendingModelSwitch, sessionService, contextUsage?.used]);
 
   const handleConfigOptionChange = useCallback(
     (configId: string, value: string) => {
       if (!taskId) return;
       if (interceptModelSwitch(configId, value)) return;
-      applyConfigOption(configId, value);
+      void applyConfigOption(configId, value);
     },
     [taskId, interceptModelSwitch, applyConfigOption],
   );
@@ -301,7 +390,6 @@ export function SessionView({
 
   const isCloudRun = useIsWorkspaceCloudRun(taskId);
   const editorRef = useRef<PromptInputHandle>(null);
-  const contextUsage = useContextUsage(events);
   const isCompacting = useSessionSelector(
     taskId,
     (session) => session?.isCompacting ?? false,
@@ -889,7 +977,23 @@ export function SessionView({
         fromModelLabel={pendingModelSwitch?.fromLabel ?? ""}
         toModelId={pendingModelSwitch?.value ?? ""}
         toModelLabel={pendingModelSwitch?.label ?? ""}
+        contextTokens={contextUsage?.used}
+        sessionCostUsd={
+          contextUsage?.cost?.currency === "USD"
+            ? contextUsage.cost.amount
+            : undefined
+        }
         onConfirm={confirmModelSwitch}
+        onCompactAndConfirm={
+          assistedModelSwitchEnabled && !isPromptPending && !isCompacting
+            ? compactAndConfirmModelSwitch
+            : undefined
+        }
+        onCopyHandoffSummary={
+          assistedModelSwitchEnabled && canCopyHandoffSummary
+            ? handleCopyHandoffSummary
+            : undefined
+        }
         onCancel={cancelModelSwitch}
       />
       <ContextMenu.Content size="1">

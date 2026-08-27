@@ -382,6 +382,32 @@ export function convertStoredEntriesToEvents(
   return collapseSupersededToolCallUpdates(events);
 }
 
+export type CompactionOutcome = "failed" | "succeeded" | "unknown";
+
+export function getCompactionOutcome(
+  events: AcpMessage[],
+  startIndex = 0,
+): CompactionOutcome {
+  for (let index = events.length - 1; index >= startIndex; index -= 1) {
+    const message = events[index].message;
+    if (
+      "method" in message &&
+      isNotification(message.method, POSTHOG_NOTIFICATIONS.COMPACT_BOUNDARY)
+    ) {
+      return "succeeded";
+    }
+    if (
+      "method" in message &&
+      isNotification(message.method, POSTHOG_NOTIFICATIONS.STATUS) &&
+      "params" in message
+    ) {
+      const params = message.params as { status?: string } | undefined;
+      if (params?.status === "compacting_failed") return "failed";
+    }
+  }
+  return "unknown";
+}
+
 /**
  * Extract available commands from session events.
  * Scans backwards to find the most recent available_commands_update.

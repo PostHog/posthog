@@ -10,7 +10,11 @@ const meta: Meta<typeof ModelSwitchCacheDialog> = {
     fromModelLabel: "Claude Opus 5",
     toModelId: "claude-haiku-4-5",
     toModelLabel: "Claude Haiku 4.5",
-    onConfirm: () => {},
+    contextTokens: 84_000,
+    sessionCostUsd: 1.42,
+    onConfirm: async () => {},
+    onCompactAndConfirm: async () => true,
+    onCopyHandoffSummary: async () => {},
     onCancel: () => {},
   },
 };
@@ -35,5 +39,14 @@ export const UnknownPricing: Story = {
     fromModelLabel: "Custom model A",
     toModelId: "custom-model-b",
     toModelLabel: "Custom model B",
+  },
+};
+
+export const SwitchOnly: Story = {
+  args: {
+    contextTokens: undefined,
+    sessionCostUsd: undefined,
+    onCompactAndConfirm: undefined,
+    onCopyHandoffSummary: undefined,
   },
 };
