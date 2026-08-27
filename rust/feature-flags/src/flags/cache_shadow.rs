@@ -143,10 +143,13 @@ fn fingerprint(
         built.map(|v| v.to_string()),
         cached.map(|v| v.to_string()),
     ] {
-        // The marker byte separates the parts and also tells an absent part from
-        // an empty one. Neither marker can occur inside a part, because JSON
-        // escapes control characters, so two different inputs cannot hash the
-        // same byte sequence.
+        // The marker byte separates the parts and tells an absent part from an
+        // empty one. It is not an escape: `subject` is a formatted string that
+        // carries whatever bytes a flag key carries, so a part can contain a
+        // marker byte and the encoding is not self-delimiting. The part count is
+        // fixed at three, which is what keeps distinct disagreements apart in
+        // practice. A collision would need a contrived flag key, and would cost
+        // one wrongly paired confirmation for one team.
         match part {
             Some(part) => {
                 hasher.update([0x01]);
@@ -435,9 +438,13 @@ impl TrackerStoreOp {
 }
 
 /// Redis key for a team's pending mismatch. The `posthog:1:` prefix is how
-/// django-redis addresses keys in this tier (see `warm_run_status`), and
-/// `feature_flags/shadow_mismatch/` keeps these keys clear of the cache entries
-/// the serve path reads, which are `posthog:1:cache/teams/{team}/flags/...`.
+/// django-redis addresses keys in this tier (see `warm_run_status`). The
+/// `feature_flags/shadow_mismatch/` path keeps these keys clear of the cache
+/// entries the serve path reads, which are
+/// `posthog:1:cache/teams/{team}/feature_flags/flags.json` (see
+/// `HYPERCACHE_NAMESPACE` and `HYPERCACHE_OBJECT_NAME` in `cache_writer`): those
+/// hold `cache/` in the segment where these hold `feature_flags/`, and Python's
+/// hypercache scans match on the `cache/` form.
 fn pending_key(team_id: TeamId) -> String {
     format!("posthog:1:feature_flags/shadow_mismatch/{team_id}")
 }
@@ -448,6 +455,20 @@ fn pending_key(team_id: TeamId) -> String {
 /// it. The client's own response timeout cannot carry this, because it is
 /// configurable and `FLAGS_REDIS_RESPONSE_TIMEOUT_MS=0` disables it entirely.
 const STORE_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// Cap on the fingerprints stored for one team. The state shadow mode exists to
+/// find is a systematic builder bug, which makes every flag on every team
+/// disagree at once, and the whole set would then be written, held for the TTL,
+/// and read back on the team's next build, against the Redis tier the serve path
+/// reads from. Past the cap a team confirms only the disagreements that fit, which
+/// is the right trade: a team with hundreds of confirmed diffs has already told
+/// you what you needed to know. The confirmed log line is capped for the same
+/// reason.
+///
+/// `diff_live_entry` returns its diffs in a stable order, so the same
+/// disagreement keeps the same place in the set and a truncated set still
+/// confirms. A cap over an unordered set would silently never confirm.
+const MAX_STORED_FINGERPRINTS: usize = 256;
 
 /// Bound one tracker call and report an elapsed timer as the client's own timeout
 /// error, so callers have a single error type to handle.
@@ -562,7 +583,11 @@ impl MismatchTracker {
         key: String,
         diffs: &[ShadowDiff],
     ) -> Result<(), CustomRedisError> {
-        let fingerprints: Vec<u64> = diffs.iter().map(|d| d.fingerprint).collect();
+        let fingerprints: Vec<u64> = diffs
+            .iter()
+            .take(MAX_STORED_FINGERPRINTS)
+            .map(|d| d.fingerprint)
+            .collect();
         let payload = serde_json::to_string(&fingerprints)
             .map_err(|e| CustomRedisError::ParseError(e.to_string()))?;
         with_timeout(self.redis.setex(key, payload, self.ttl.as_secs())).await
