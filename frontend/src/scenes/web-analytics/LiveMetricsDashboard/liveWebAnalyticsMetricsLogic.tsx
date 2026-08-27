@@ -754,7 +754,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             if (cache.isPaused) {
                 return
             }
-            actions.loadInitialData()
+            actions.loadInitialData(true)
         },
         updateConnection: () => {
             cache.eventsConnection?.abort()
