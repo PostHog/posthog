@@ -3,6 +3,7 @@ import { cn, Separator } from "@posthog/quill";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { usePendingTabViewState } from "@posthog/ui/features/browser-tabs/usePendingTabViewState";
 import { ActivityFeedList } from "@posthog/ui/features/canvas/components/ActivityFeedList";
+import { CanvasesPane } from "@posthog/ui/features/canvas/components/CanvasesPane";
 import { ChannelItemPreviewCardProvider } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
 import { ChannelSidebar } from "@posthog/ui/features/canvas/components/ChannelSidebar";
 import { ChannelsFab } from "@posthog/ui/features/canvas/components/ChannelsFab";
@@ -201,7 +202,7 @@ export function ChannelsSidebar() {
   // Browsing the list is view state, not navigation: you stay in the channel
   // (route and main pane unchanged) while you look around. With no channel to
   // slide to there's only the list.
-  const { showsActivityDetail } = useRailSurface();
+  const { pane: railPane, showsActivityDetail } = useRailSurface();
   const selectedActivityId = useActivitySelection()?.id;
   const { feedId } = useParams({ strict: false });
   const pane = useChannelPaneStore((s) => s.pane);
@@ -259,6 +260,8 @@ export function ChannelsSidebar() {
                 onActivate={selectActivityItem}
                 onReportActivate={selectActivityReport}
               />
+            ) : railPane === "canvases" ? (
+              <CanvasesPane className="min-h-0 flex-1" />
             ) : feedId ? (
               <TaskFeedPane feedId={feedId} className="min-h-0 flex-1" />
             ) : (

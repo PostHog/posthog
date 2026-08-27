@@ -9,6 +9,8 @@ description: >
 
 # Authoring CI workflows
 
+Before you propose a change to CI, check [things already tried](../../../docs/internal/ci-things-already-tried.md) for the idea. It records what was measured, and why some good-sounding changes were reverted or rejected.
+
 Conventions for `.github/workflows/**` and `.github/actions/**`.
 The linters own the mechanical rules (below); this skill is the **judgment calls** they can't enforce.
 

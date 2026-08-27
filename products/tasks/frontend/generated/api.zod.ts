@@ -10,16 +10,6 @@
 import * as zod from 'zod'
 
 /**
- * Redeem a PostHog Desktop invite code to enable legacy access.
- * @summary Redeem invite code
- */
-export const codeInvitesRedeemCreateBodyCodeMax = 50
-
-export const CodeInvitesRedeemCreateBody = /* @__PURE__ */ zod.object({
-    code: zod.string().max(codeInvitesRedeemCreateBodyCodeMax),
-})
-
-/**
  * API for managing loops — named, cloud-executed agent automations triggered by
  * schedule, GitHub events or authenticated API calls. See `products/tasks/docs/LOOPS.md`.
  * @summary Create a loop
