@@ -1,7 +1,24 @@
-import { Lightbulb, MagnifyingGlass, Plus } from "@phosphor-icons/react";
+import {
+  CaretDownIcon,
+  Lightbulb,
+  MagnifyingGlass,
+  Plus,
+} from "@phosphor-icons/react";
 import { analyzeSkills } from "@posthog/core/skills/analyzeSkills";
-import { Tabs, TabsList, TabsTrigger } from "@posthog/quill";
-import type { SkillInfo, SkillSource } from "@posthog/shared";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  Tabs,
+  TabsList,
+  TabsTrigger,
+} from "@posthog/quill";
+import {
+  PI_HARNESS_FLAG,
+  type SkillInfo,
+  type SkillSource,
+} from "@posthog/shared";
 import {
   Box,
   Button,
@@ -12,6 +29,15 @@ import {
 } from "@radix-ui/themes";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ResizableSidebar } from "../../primitives/ResizableSidebar";
+import type { AgentFlowModelOption } from "../agent-flows/AgentFlowEditor";
+import {
+  FlowEditorPanel,
+  type FlowEditorState,
+} from "../agent-flows/FlowEditorPanel";
+import { FlowSkillCard } from "../agent-flows/FlowSkillCard";
+import { useAgentFlows } from "../agent-flows/useAgentFlows";
+import { useFeatureFlag } from "../feature-flags/useFeatureFlag";
+import { usePiModelCatalog } from "../pi-sessions/usePiModelCatalog";
 import { MarketplaceBrowse } from "./MarketplaceBrowse";
 import { NewSkillDialog } from "./NewSkillDialog";
 import { SkillSection, SOURCE_CONFIG } from "./SkillCard";
@@ -46,7 +72,23 @@ export function SkillsView() {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [scrollToPath, setScrollToPath] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [sourceFilter, setSourceFilter] = useState<SkillSource | "all">("all");
   const [newSkillOpen, setNewSkillOpen] = useState(false);
+  const [flowEditor, setFlowEditor] = useState<FlowEditorState | null>(null);
+
+  const flowsEnabled = useFeatureFlag(PI_HARNESS_FLAG, import.meta.env.DEV);
+  const { flows } = useAgentFlows();
+  const flowModelQuery = usePiModelCatalog(flowsEnabled);
+  const flowModels = (flowModelQuery.data ?? []) as AgentFlowModelOption[];
+  const flowPaths = useMemo(
+    () => new Set(flows.map((flow) => flow.skillPath)),
+    [flows],
+  );
+  const visibleFlows = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return flows;
+    return flows.filter((flow) => flow.name.toLowerCase().includes(query));
+  }, [flows, searchQuery]);
 
   const { data: teamListing } = useTeamSkills(skills);
   const teamAvailable = teamListing?.available ?? false;
@@ -67,6 +109,7 @@ export function SkillsView() {
   }, [skills, selectedPath]);
 
   const handleSelect = useCallback((path: string) => {
+    setFlowEditor(null);
     setSelectedPath((prev) => (prev === path ? null : path));
   }, []);
 
@@ -99,6 +142,9 @@ export function SkillsView() {
     }
     const query = searchQuery.trim().toLowerCase();
     for (const skill of skills) {
+      if (flowPaths.has(skill.path)) {
+        continue;
+      }
       if (
         query &&
         !skill.name.toLowerCase().includes(query) &&
@@ -112,7 +158,15 @@ export function SkillsView() {
       }
     }
     return map;
-  }, [skills, searchQuery]);
+  }, [skills, searchQuery, flowPaths]);
+
+  const sourceCounts = useMemo(() => {
+    const counts = new Map<SkillSource, number>();
+    for (const [source, items] of grouped) {
+      counts.set(source, items.length);
+    }
+    return counts;
+  }, [grouped]);
 
   return (
     <Flex direction="column" height="100%" className="overflow-hidden">
@@ -143,12 +197,9 @@ export function SkillsView() {
         <TeamSkillsTab skills={teamListing?.skills ?? []} />
       ) : (
         <Flex className="min-h-0 flex-1">
-          <Box flexGrow="1" className="min-w-0">
-            <ScrollArea
-              type="auto"
-              className="scroll-area-constrain-width h-full"
-            >
-              <Box px="4" py="3">
+          <Box flexGrow="1" className="flex min-w-0 flex-col">
+            <Box className="shrink-0 border-b border-b-(--gray-4)">
+              <Box px="4" pt="3" className="mx-auto w-full max-w-5xl">
                 <Flex pb="3" gap="2" align="center">
                   <Box flexGrow="1">
                     <TextField.Root
@@ -163,15 +214,86 @@ export function SkillsView() {
                       </TextField.Slot>
                     </TextField.Root>
                   </Box>
-                  <Button
-                    size="2"
-                    variant="soft"
-                    onClick={() => setNewSkillOpen(true)}
-                  >
-                    <Plus size={14} />
-                    New skill
-                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button size="2" variant="soft">
+                          <Plus size={14} />
+                          New
+                          <CaretDownIcon size={10} />
+                        </Button>
+                      }
+                    />
+                    <DropdownMenuContent align="end" className="min-w-[260px]">
+                      <DropdownMenuItem onClick={() => setNewSkillOpen(true)}>
+                        Blank skill
+                      </DropdownMenuItem>
+                      {flowsEnabled ? (
+                        <DropdownMenuItem
+                          disabled={flowModels.length === 0}
+                          onClick={() =>
+                            setFlowEditor({
+                              key: crypto.randomUUID(),
+                              name: "",
+                              roles: ["planner", "executor"],
+                            })
+                          }
+                        >
+                          Agent flow
+                        </DropdownMenuItem>
+                      ) : null}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </Flex>
+                <Flex gap="1" pb="3" className="flex-wrap">
+                  {(
+                    [
+                      ["all", "All"] as const,
+                      ...SOURCE_ORDER.filter(
+                        (source) => (sourceCounts.get(source) ?? 0) > 0,
+                      ).map(
+                        (source) =>
+                          [source, SOURCE_CONFIG[source].sectionTitle] as const,
+                      ),
+                    ] as Array<[SkillSource | "all", string]>
+                  ).map(([value, label]) => {
+                    const isActive = sourceFilter === value;
+                    const count =
+                      value === "all"
+                        ? (visibleFlows.length ? visibleFlows.length : 0) +
+                          [...sourceCounts.values()].reduce(
+                            (sum, item) => sum + item,
+                            0,
+                          )
+                        : (sourceCounts.get(value) ?? 0);
+                    return (
+                      <button
+                        key={value}
+                        type="button"
+                        className={`rounded-full border px-2.5 py-1 text-[12px] transition-colors ${
+                          isActive
+                            ? "border-accent-8 bg-accent-3 text-accent-11"
+                            : "border-gray-5 bg-gray-1 text-gray-11 hover:bg-gray-3"
+                        }`}
+                        onClick={() => setSourceFilter(value)}
+                      >
+                        {label}
+                        <span
+                          className={`ml-1 ${isActive ? "text-accent-10" : "text-gray-8"}`}
+                        >
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </Flex>
+              </Box>
+            </Box>
+            <ScrollArea
+              type="auto"
+              className="scroll-area-constrain-width min-h-0 flex-1"
+            >
+              <Box px="4" pb="3" className="mx-auto w-full max-w-5xl">
                 {skills.length === 0 && !isLoading ? (
                   <Flex
                     align="center"
@@ -189,7 +311,68 @@ export function SkillsView() {
                   </Flex>
                 ) : (
                   <Flex direction="column" gap="5">
+                    {(sourceFilter === "all"
+                      ? [...sourceCounts.values()].reduce(
+                          (sum, item) => sum + item,
+                          0,
+                        ) + visibleFlows.length
+                      : (sourceCounts.get(sourceFilter) ?? 0)) === 0 ? (
+                      <Flex
+                        direction="column"
+                        align="center"
+                        gap="2"
+                        className="rounded-lg border border-gray-5 border-dashed py-8"
+                      >
+                        <Text className="text-[13px] text-gray-10">
+                          No skills match your search.
+                        </Text>
+                        <Button
+                          size="1"
+                          variant="soft"
+                          onClick={() => {
+                            setSearchQuery("");
+                            setSourceFilter("all");
+                          }}
+                        >
+                          Clear search and filters
+                        </Button>
+                      </Flex>
+                    ) : null}
+                    {flowsEnabled &&
+                    visibleFlows.length > 0 &&
+                    (sourceFilter === "all" || sourceFilter === "user") ? (
+                      <Flex direction="column" gap="1">
+                        <Flex align="center" gap="2" className="mb-1">
+                          <Text className="font-medium text-[12px] text-gray-9 uppercase tracking-wider">
+                            Flows
+                          </Text>
+                          <Text className="text-[11px] text-gray-8">
+                            {visibleFlows.length}
+                          </Text>
+                        </Flex>
+                        <Flex direction="column" gap="1">
+                          {visibleFlows.map((flow) => (
+                            <FlowSkillCard
+                              key={flow.skillPath}
+                              flow={flow}
+                              onClick={() => {
+                                setSelectedPath(null);
+                                setFlowEditor({
+                                  key: crypto.randomUUID(),
+                                  flow,
+                                  name: flow.name,
+                                  roles: flow.steps.map((step) => step.role),
+                                });
+                              }}
+                            />
+                          ))}
+                        </Flex>
+                      </Flex>
+                    ) : null}
                     {SOURCE_ORDER.map((source) => {
+                      if (sourceFilter !== "all" && sourceFilter !== source) {
+                        return null;
+                      }
                       const items = grouped.get(source);
                       if (!items || items.length === 0) return null;
                       const config = SOURCE_CONFIG[source];
@@ -197,6 +380,7 @@ export function SkillsView() {
                       return (
                         <SkillSection
                           key={source}
+                          hideHeader={sourceFilter === source}
                           title={config.sectionTitle}
                           skills={items}
                           selectedPath={selectedSkill?.path ?? null}
@@ -214,14 +398,27 @@ export function SkillsView() {
           </Box>
 
           <ResizableSidebar
-            open={!!selectedSkill}
+            open={!!selectedSkill || !!flowEditor}
             width={sidebarWidth}
             setWidth={setSidebarWidth}
             isResizing={isResizing}
             setIsResizing={setIsResizing}
             side="right"
           >
-            {selectedSkill && (
+            {flowEditor ? (
+              <FlowEditorPanel
+                key={flowEditor.key}
+                state={flowEditor}
+                models={flowModels}
+                canPublish={!!teamListing?.available}
+                onClose={() => setFlowEditor(null)}
+                onOpenFiles={(skillPath) => {
+                  setFlowEditor(null);
+                  setSelectedPath(skillPath);
+                  setScrollToPath(skillPath);
+                }}
+              />
+            ) : selectedSkill ? (
               <SkillDetailPanel
                 key={selectedSkill.path}
                 skill={selectedSkill}
@@ -229,7 +426,7 @@ export function SkillsView() {
                 canPublish={!!teamListing?.available}
                 onClose={handleCloseSidebar}
               />
-            )}
+            ) : null}
           </ResizableSidebar>
         </Flex>
       )}

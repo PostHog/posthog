@@ -34,12 +34,6 @@ export const CUSTOMIZABLE_NAV_ITEMS = [
     defaultVisible: true,
   },
   {
-    id: "flows",
-    label: "Flows",
-    analyticsId: "flows",
-    defaultVisible: true,
-  },
-  {
     id: "command-center",
     label: "Command Center",
     analyticsId: "command_center",

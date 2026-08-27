@@ -16,7 +16,6 @@ export type AppViewType =
   | "inbox"
   | "agents"
   | "loops"
-  | "flows"
   | "archived"
   | "command-center"
   | "context"
@@ -73,8 +72,6 @@ function deriveFromMatches(matches: Match[]): AppView {
       return { type: "agents" };
     case "/loops":
       return { type: "loops" };
-    case "/flows":
-      return { type: "flows" };
     case "/archived":
       return { type: "archived" };
     case "/command-center":

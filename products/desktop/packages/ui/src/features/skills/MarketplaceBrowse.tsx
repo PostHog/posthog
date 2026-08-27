@@ -1,4 +1,8 @@
-import { MagnifyingGlass, Storefront } from "@phosphor-icons/react";
+import {
+  DownloadSimple,
+  MagnifyingGlass,
+  Storefront,
+} from "@phosphor-icons/react";
 import { useDebouncedValue } from "@posthog/ui/primitives/hooks/useDebouncedValue";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import {
@@ -40,7 +44,7 @@ export function MarketplaceBrowse() {
     <Flex className="min-h-0 flex-1">
       <Box flexGrow="1" className="min-w-0">
         <ScrollArea type="auto" className="scroll-area-constrain-width h-full">
-          <Box px="4" py="3">
+          <Box px="4" py="3" className="mx-auto w-full max-w-5xl">
             <Box pb="3">
               <TextField.Root
                 size="2"
@@ -95,7 +99,11 @@ export function MarketplaceBrowse() {
                             Installed
                           </Badge>
                         )}
-                        <Text className="shrink-0 text-[12px] text-gray-9 tabular-nums">
+                        <Text
+                          className="flex shrink-0 items-center gap-1 text-[12px] text-gray-9 tabular-nums"
+                          title={`${installsFormatter.format(result.installs)} installs`}
+                        >
+                          <DownloadSimple size={12} />
                           {installsFormatter.format(result.installs)}
                         </Text>
                       </>

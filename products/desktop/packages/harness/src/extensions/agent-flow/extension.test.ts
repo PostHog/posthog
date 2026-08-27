@@ -53,6 +53,7 @@ function runResult(text: string, failed = false): StepSessionResult {
 function harness(
   runStepResult: (options: { task: string }) => Promise<StepSessionResult>,
   revise?: (feedback: string) => Promise<StepSessionResult>,
+  flowSkills: Array<{ flow: AgentFlowDefinition; dirName: string }> = [],
 ) {
   const runStep = async (options: { task: string }) => ({
     result: await runStepResult(options),
@@ -61,6 +62,17 @@ function harness(
   });
   const sentMessages: SentMessage[] = [];
   const commands = new Map<string, CommandHandler>();
+  type RegisteredTool = {
+    name: string;
+    execute: (
+      id: string,
+      params: { name: string; task: string },
+      signal: undefined,
+      onUpdate: undefined,
+      ctx: unknown,
+    ) => Promise<{ content: Array<{ type: string; text: string }> }>;
+  };
+  const tools = new Map<string, RegisteredTool>();
   const inputHandlers: InputHandler[] = [];
   const notifications: string[] = [];
   const confirm = vi.fn(async () => true);
@@ -71,6 +83,9 @@ function harness(
     },
     registerCommand: (name: string, options: { handler: CommandHandler }) => {
       commands.set(name, options.handler);
+    },
+    registerTool: (tool: RegisteredTool) => {
+      tools.set(tool.name, tool);
     },
     sendMessage: (message: SentMessage) => {
       sentMessages.push(message);
@@ -86,7 +101,16 @@ function harness(
     },
   };
 
-  createAgentFlowExtension({ runStep: runStep as never })(pi as never);
+  createAgentFlowExtension({
+    runStep: runStep as never,
+    findFlow: (query: string) =>
+      flowSkills.find(
+        (skill) =>
+          skill.dirName === query.toLowerCase() ||
+          skill.flow.name.toLowerCase() === query.toLowerCase(),
+      ) ?? null,
+    listFlows: () => flowSkills,
+  })(pi as never);
 
   const run = (
     prompt = "Make the game theme green",
@@ -100,9 +124,15 @@ function harness(
   const respond = (args: string) =>
     commands.get("agent-flow-respond")?.(args, ctx) as Promise<void>;
 
+  const runTool = (name: string, task = "Make the game theme green") =>
+    tools
+      .get("run_agent_flow")
+      ?.execute("t1", { name, task }, undefined, undefined, { cwd: "/x" });
+
   return {
     run,
     respond,
+    runTool,
     sentMessages,
     inputHandlers,
     notifications,
@@ -264,6 +294,34 @@ describe("createAgentFlowExtension", () => {
     await h.run();
 
     expect(h.notifications[0]).toContain("already running");
+    firstStep.resolve(runResult("<handoff>plan</handoff>"));
+    await vi.waitFor(() => expect(h.lastStatus()).toBe("completed"));
+  });
+
+  it("starts a saved flow from the run_agent_flow tool and refuses overlaps", async () => {
+    const firstStep = deferred<StepSessionResult>();
+    let calls = 0;
+    const h = harness(
+      () => {
+        calls += 1;
+        return calls === 1
+          ? firstStep.promise
+          : Promise.resolve(runResult("<handoff>done</handoff>"));
+      },
+      undefined,
+      [{ flow: flowDefinition(), dirName: "plan-and-build" }],
+    );
+
+    const missing = await h.runTool("nope");
+    expect(missing?.content[0]?.text).toContain("No saved flow");
+
+    const started = await h.runTool("plan-and-build");
+    expect(started?.content[0]?.text).toContain("Started");
+    expect(h.sentMessages[0]?.details?.status).toBe("running");
+
+    const overlap = await h.runTool("plan-and-build");
+    expect(overlap?.content[0]?.text).toContain("already running");
+
     firstStep.resolve(runResult("<handoff>plan</handoff>"));
     await vi.waitFor(() => expect(h.lastStatus()).toBe("completed"));
   });

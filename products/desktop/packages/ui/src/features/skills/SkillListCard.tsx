@@ -5,9 +5,13 @@ interface SkillListCardProps {
   /** Forwarded to the row element (e.g. for scroll-into-view). */
   cardRef?: Ref<HTMLDivElement>;
   icon: ReactNode;
+  /** Tailwind classes for the icon chip; defaults to the neutral gray chip. */
+  iconClass?: string;
   title: string;
   subtitle?: string;
   isSelected: boolean;
+  /** Renders the row muted (e.g. a switched-off skill). */
+  dimmed?: boolean;
   onClick: () => void;
   /** Badges or counts rendered after the text block. */
   trailing?: ReactNode;
@@ -17,9 +21,11 @@ interface SkillListCardProps {
 export function SkillListCard({
   cardRef,
   icon,
+  iconClass,
   title,
   subtitle,
   isSelected,
+  dimmed,
   onClick,
   trailing,
 }: SkillListCardProps) {
@@ -37,11 +43,17 @@ export function SkillListCard({
       }`}
       onClick={onClick}
     >
-      <Box className="flex shrink-0 items-center justify-center rounded bg-gray-4 p-1.5">
+      <Box
+        className={`flex shrink-0 items-center justify-center rounded p-1.5 ${iconClass ?? "bg-gray-4 text-gray-11"} ${dimmed ? "opacity-40" : ""}`}
+      >
         {icon}
       </Box>
 
-      <Flex direction="column" gap="0" className="min-w-0 flex-1">
+      <Flex
+        direction="column"
+        gap="0"
+        className={`min-w-0 flex-1 ${dimmed ? "opacity-40" : ""}`}
+      >
         <Text className="truncate font-medium text-[13px] text-gray-12">
           {title}
         </Text>

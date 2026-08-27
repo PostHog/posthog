@@ -102,6 +102,7 @@ export default defineConfig({
     "src/extensions/background-jobs/render.ts",
     "src/extensions/agent-flow/extension.ts",
     "src/extensions/agent-flow/flow-input.ts",
+    "src/extensions/agent-flow/flow-skills.ts",
     "src/extensions/agent-flow/index.ts",
     "src/extensions/agent-flow/step-events.ts",
     "src/extensions/agent-flow/step-session.ts",

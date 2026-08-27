@@ -37,6 +37,9 @@ vi.mock("@posthog/ui/features/settings/settingsStore", () => ({
 vi.mock("../../skills/useSkills", () => ({
   useSkills: () => ({ data: [] }),
 }));
+vi.mock("../../agent-flows/useAgentFlows", () => ({
+  useAgentFlows: () => ({ flows: [] }),
+}));
 
 vi.mock("../draftStore", () => ({
   useDraftStore: Object.assign(

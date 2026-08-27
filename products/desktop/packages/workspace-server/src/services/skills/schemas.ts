@@ -18,6 +18,7 @@ export const skillInfo = z.object({
   editable: z.boolean(),
   skillMdBytes: z.number(),
   disableModelInvocation: z.boolean().optional(),
+  enabled: z.boolean().optional(),
 });
 
 export const listSkillsOutput = z.array(skillInfo);
@@ -82,6 +83,11 @@ export const deleteSkillFileInput = z.object({
 
 export const deleteSkillInput = z.object({
   skillPath: z.string(),
+});
+
+export const setSkillEnabledInput = z.object({
+  skillPath: z.string(),
+  enabled: z.boolean(),
 });
 
 export const exportSkillInput = z.object({

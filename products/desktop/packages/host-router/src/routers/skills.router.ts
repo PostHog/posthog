@@ -18,6 +18,7 @@ import {
   resolveSkillDependenciesOutput,
   saveSkillFileInput,
   saveSkillManifestInput,
+  setSkillEnabledInput,
   skillContentsInput,
   skillContentsOutput,
   skillPathOutput,
@@ -110,6 +111,13 @@ export const skillsRouter = router({
       ctx.container
         .get<SkillsService>(SKILLS_SERVICE)
         .deleteSkill(input.skillPath),
+    ),
+  setEnabled: publicProcedure
+    .input(setSkillEnabledInput)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<SkillsService>(SKILLS_SERVICE)
+        .setSkillEnabled(input.skillPath, input.enabled),
     ),
   export: publicProcedure
     .input(exportSkillInput)

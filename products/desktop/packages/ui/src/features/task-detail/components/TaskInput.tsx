@@ -14,7 +14,6 @@ import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import { ButtonGroup } from "@posthog/quill";
 import {
-  type AgentFlowDefinition,
   type AgentRuntime,
   ANALYTICS_EVENTS,
   PI_HARNESS_FLAG,
@@ -59,8 +58,8 @@ import { toast } from "../../../primitives/toast";
 import { useActiveRepoStore } from "../../../shell/activeRepoStore";
 import { FOCUSABLE_SELECTOR } from "../../../utils/overlay";
 import { AgentFlowSelector } from "../../agent-flows/AgentFlowSelector";
-import { useAgentFlowStore } from "../../agent-flows/agentFlowStore";
-import { getAuthIdentity, useAuthStateValue } from "../../auth/store";
+import { useAgentFlows } from "../../agent-flows/useAgentFlows";
+import { useAuthStateValue } from "../../auth/store";
 import { AutoresearchComposerControls } from "../../autoresearch/AutoresearchComposerControls";
 import {
   autoresearchPendingRun,
@@ -226,8 +225,6 @@ export function TaskInput({
   spaceSelector,
 }: TaskInputProps = {}) {
   const cloudRegion = useAuthStateValue((s) => s.cloudRegion);
-  const authIdentity = useAuthStateValue(getAuthIdentity);
-  const storedAgentFlows = useAgentFlowStore((state) => state.flows);
   const trpc = useHostTRPC();
   const hostClient = useHostTRPCClient();
   const gitWriteClient = useMemo(
@@ -781,20 +778,12 @@ export function TaskInput({
   const effectiveWorkspaceMode = workspaceMode;
 
   useEffect(() => {
-    if (effectiveWorkspaceMode === "cloud") {
+    if (effectiveWorkspaceMode === "cloud" || runtime !== "pi") {
       setSelectedAgentFlowId(null);
     }
-  }, [effectiveWorkspaceMode]);
+  }, [effectiveWorkspaceMode, runtime]);
 
-  const agentFlows = useMemo<AgentFlowDefinition[]>(
-    () =>
-      authIdentity
-        ? storedAgentFlows
-            .filter((flow) => flow.identity === authIdentity)
-            .map(({ id, name, steps }) => ({ id, name, steps }))
-        : [],
-    [authIdentity, storedAgentFlows],
-  );
+  const { flows: agentFlows } = useAgentFlows();
   const selectedAgentFlow =
     agentFlows.find((flow) => flow.id === selectedAgentFlowId) ?? null;
 
@@ -1486,6 +1475,7 @@ export function TaskInput({
                   </div>
                 )}
                 <PromptInput
+                  runtime={runtime}
                   ref={editorRef}
                   sessionId={promptSessionId}
                   placeholder={
@@ -1571,6 +1561,11 @@ export function TaskInput({
                             disabled={
                               isCreatingTask ||
                               (runtime === "pi" && isPiConfigLoading)
+                            }
+                            disabledReason={
+                              runtime === "pi"
+                                ? undefined
+                                : "Flows run only on the Pi runtime. Switch the model to Pi to use a flow."
                             }
                             onChange={handleAgentFlowChange}
                           />

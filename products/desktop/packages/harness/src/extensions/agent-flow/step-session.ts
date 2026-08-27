@@ -28,6 +28,8 @@ export type StepStreamEvent =
       toolCallId: string;
       toolName: string;
       title?: string;
+      path?: string;
+      diff?: { path: string; oldText?: string | null; newText: string };
     }
   | {
       kind: "tool_end";
@@ -83,6 +85,42 @@ function summarizeToolInput(toolName: string, args: unknown): string {
     }
   }
   return toolName;
+}
+
+const DIFF_SIDE_CAP = 20_000;
+
+function toolInputPath(args: unknown): string | undefined {
+  if (!args || typeof args !== "object") return undefined;
+  const record = args as Record<string, unknown>;
+  const path = record.path ?? record.file_path;
+  return typeof path === "string" && path.trim() ? path.trim() : undefined;
+}
+
+/** Edit/write args carry the change itself; surface it as a native diff. */
+function toolInputDiff(
+  toolName: string,
+  args: unknown,
+): { path: string; oldText?: string | null; newText: string } | undefined {
+  const path = toolInputPath(args);
+  if (!path || !args || typeof args !== "object") return undefined;
+  const record = args as Record<string, unknown>;
+  if (toolName === "edit") {
+    const oldText = record.oldText ?? record.old_text;
+    const newText = record.newText ?? record.new_text;
+    if (typeof newText !== "string") return undefined;
+    return {
+      path,
+      oldText:
+        typeof oldText === "string" ? oldText.slice(0, DIFF_SIDE_CAP) : null,
+      newText: newText.slice(0, DIFF_SIDE_CAP),
+    };
+  }
+  if (toolName === "write") {
+    const content = record.content ?? record.text;
+    if (typeof content !== "string") return undefined;
+    return { path, oldText: null, newText: content.slice(0, DIFF_SIDE_CAP) };
+  }
+  return undefined;
 }
 
 function previewToolResult(result: unknown): string | undefined {
@@ -230,6 +268,8 @@ export async function runStepSession(
         toolCallId: event.toolCallId,
         toolName: event.toolName,
         title: summarizeToolInput(event.toolName, event.args),
+        path: toolInputPath(event.args),
+        diff: toolInputDiff(event.toolName, event.args),
       });
       return;
     }

@@ -38,7 +38,11 @@ export function TeamSkillsTab({ skills }: TeamSkillsTabProps) {
     <Flex className="min-h-0 flex-1">
       <Box flexGrow="1" className="min-w-0">
         <ScrollArea type="auto" className="scroll-area-constrain-width h-full">
-          <Box px="4" py="3">
+          <Box px="4" py="3" className="mx-auto w-full max-w-5xl">
+            <Text className="block pb-2 text-[12px] text-gray-10">
+              Skills your team published to PostHog. Install one to use it in
+              your agents.
+            </Text>
             <Box pb="3">
               <TextField.Root
                 size="2"

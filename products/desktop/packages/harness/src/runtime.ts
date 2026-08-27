@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   type Credential,
@@ -124,6 +125,12 @@ export async function createHarnessRuntime(
         }),
       resourceLoaderOptions: {
         ...runtimeOptions.resourceLoaderOptions,
+        // The desktop app manages user skills (including saved agent flows)
+        // in the Claude Code skill root; make pi discover them too.
+        additionalSkillPaths: [
+          join(homedir(), ".claude", "skills"),
+          ...(runtimeOptions.resourceLoaderOptions?.additionalSkillPaths ?? []),
+        ],
         extensionFactories: [
           ...(runtimeOptions.resourceLoaderOptions?.extensionFactories ?? []),
           ...harnessExtensions(options),

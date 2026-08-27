@@ -905,6 +905,55 @@ describe("createPiConversationTranslator", () => {
     ]);
   });
 
+  it("gives file children native locations and diffs", () => {
+    const translator = createPiConversationTranslator();
+    const stream = (event: Record<string, unknown>) =>
+      translator.translateEvent({
+        type: "posthog_flow_step_event",
+        flowId: "flow-1",
+        stepIndex: 0,
+        timestamp: 10,
+        event,
+      } as never);
+
+    const read = stream({
+      kind: "tool_start",
+      toolCallId: "t1",
+      toolName: "read",
+      title: "read: src/App.jsx",
+      path: "src/App.jsx",
+    });
+    expect(read[0]?.type).toBe("tool_call_started");
+    expect((read[0] as { toolCall: { locations?: unknown } }).toolCall).toEqual(
+      expect.objectContaining({ locations: [{ path: "src/App.jsx" }] }),
+    );
+
+    const edit = stream({
+      kind: "tool_start",
+      toolCallId: "t2",
+      toolName: "edit",
+      path: "src/App.jsx",
+      diff: { path: "src/App.jsx", oldText: "a", newText: "b" },
+    });
+    expect((edit[0] as { toolCall: { content?: unknown } }).toolCall).toEqual(
+      expect.objectContaining({
+        content: [
+          { type: "diff", path: "src/App.jsx", oldText: "a", newText: "b" },
+        ],
+      }),
+    );
+
+    const editEnd = stream({
+      kind: "tool_end",
+      toolCallId: "t2",
+      toolName: "edit",
+      outputPreview: "ok",
+    });
+    expect(
+      (editEnd[0] as { toolCall: { content?: unknown } }).toolCall.content,
+    ).toBeUndefined();
+  });
+
   it("renders handoff reviews as question cards and reopens the step on revision", () => {
     const translator = createPiConversationTranslator();
     const flowMessage = (

@@ -1,8 +1,4 @@
-import {
-  LOOPS_FLAG,
-  PI_HARNESS_FLAG,
-  PROJECT_BLUEBIRD_FLAG,
-} from "@posthog/shared";
+import { LOOPS_FLAG, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import {
   ANALYTICS_EVENTS,
   type SidebarNavItem,
@@ -26,7 +22,6 @@ import {
   navigateToActivity,
   navigateToCommandCenter,
   navigateToContext,
-  navigateToFlows,
   navigateToInbox,
   navigateToLoops,
   navigateToSpacesContext,
@@ -42,7 +37,6 @@ import { ActivityItem } from "./items/ActivityItem";
 import { CommandCenterItem } from "./items/CommandCenterItem";
 import { ConfigureItem } from "./items/ConfigureItem";
 import { ContextItem } from "./items/ContextItem";
-import { FlowsItem } from "./items/FlowsItem";
 import { InboxItem } from "./items/InboxItem";
 import { LoopsItem } from "./items/LoopsItem";
 import { NewTaskItem } from "./items/NewTaskItem";
@@ -74,9 +68,6 @@ export function SidebarNavSection({
   // Loops stays behind the loops flag; default on in dev so local builds
   // keep the nav item. Also gates the per-channel Loops tab (see ChannelTabs).
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
-  // Flows run through the Pi harness, so the nav item follows the same flag
-  // as the Pi runtime in the task composer; default on in dev like Loops.
-  const flowsEnabled = useFeatureFlag(PI_HARNESS_FLAG, import.meta.env.DEV);
   // Channels stay behind project-bluebird, including channel-only nav items.
   const bluebirdEnabled = useFeatureFlag(
     PROJECT_BLUEBIRD_FLAG,
@@ -101,7 +92,6 @@ export function SidebarNavSection({
   const isActivityActive = view.type === "activity";
   const isInboxActive = view.type === "inbox";
   const isLoopsActive = view.type === "loops";
-  const isFlowsActive = view.type === "flows";
   const isCommandCenterActive = view.type === "command-center";
   const isContextActive = view.type === "context";
 
@@ -156,7 +146,6 @@ export function SidebarNavSection({
     activity: bluebirdEnabled,
     configure: true,
     loops: loopsEnabled,
-    flows: flowsEnabled,
   };
 
   // One renderer per customizable item, used for both the top level (depth 0)
@@ -209,15 +198,6 @@ export function SidebarNavSection({
         isActive={isLoopsActive}
         onClick={withNavTrack("loops", navigateToLoops, depth, {
           href: "/loops",
-        })}
-      />
-    ),
-    flows: (depth) => (
-      <FlowsItem
-        depth={depth}
-        isActive={isFlowsActive}
-        onClick={withNavTrack("flows", navigateToFlows, depth, {
-          href: "/flows",
         })}
       />
     ),

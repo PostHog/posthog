@@ -24,6 +24,7 @@ import {
   useState,
 } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
+import { useAgentFlows } from "../../agent-flows/useAgentFlows";
 import { useSkills } from "../../skills/useSkills";
 import { skillToEditorCommand } from "../commands";
 import { ModeSelector } from "../components/ModeSelector";
@@ -71,6 +72,8 @@ export interface PromptInputProps {
   // capabilities
   enableBashMode?: boolean;
   enableCommands?: boolean;
+  /** The runtime the composed prompt will run on; gates Pi-only commands like flows. */
+  runtime?: string;
   // toolbar slots
   modelSelector?: React.ReactElement | null | false;
   reasoningSelector?: React.ReactElement | null | false;
@@ -153,6 +156,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
       autoresearch,
       enableBashMode = false,
       enableCommands = true,
+      runtime,
       modelSelector,
       reasoningSelector,
       messagingModeToggle,
@@ -188,6 +192,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
     const clearFocusRequest = useDraftStore((s) => s.actions.clearFocusRequest);
     const slotMachineMode = useSettingsStore((s) => s.slotMachineMode);
     const { data: skills } = useSkills();
+    const { flows: agentFlows } = useAgentFlows();
     // Seeded at the send button's own width so the first paint already clears
     // it, rather than laying the text out full-width and reflowing it.
     const [submitClusterWidth, setSubmitClusterWidth] = useState(40);
@@ -300,13 +305,25 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
     // only the built-in /good /bad /feedback commands.
     useEffect(() => {
       if (!enableCommands || !skills) return;
-      useDraftStore
-        .getState()
-        .actions.setCommands(sessionId, skills.map(skillToEditorCommand));
+      const flowPaths = new Set(agentFlows.map((flow) => flow.skillPath));
+      useDraftStore.getState().actions.setCommands(
+        sessionId,
+        skills.map((skill) => {
+          const command = skillToEditorCommand(skill);
+          if (!flowPaths.has(skill.path)) return command;
+          return {
+            ...command,
+            piOnly: true,
+            ...(runtime && runtime !== "pi"
+              ? { disabledReason: "Runs only on the Pi runtime." }
+              : {}),
+          };
+        }),
+      );
       return () => {
         useDraftStore.getState().actions.clearCommands(sessionId);
       };
-    }, [sessionId, enableCommands, skills]);
+    }, [sessionId, enableCommands, skills, agentFlows, runtime]);
 
     useHotkeys(
       "escape",

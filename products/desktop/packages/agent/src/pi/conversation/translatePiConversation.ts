@@ -160,12 +160,29 @@ function flowStepStreamEvents(
             ? TOOL_KIND_BY_NAME[stepEvent.toolName]
             : "other",
           status: "in_progress",
+          ...(stepEvent.path ? { locations: [{ path: stepEvent.path }] } : {}),
+          ...(stepEvent.diff
+            ? {
+                content: [
+                  {
+                    type: "diff",
+                    path: stepEvent.diff.path,
+                    oldText: stepEvent.diff.oldText ?? null,
+                    newText: stepEvent.diff.newText,
+                  },
+                ],
+              }
+            : {}),
         },
       },
     ];
   }
 
   if (stepEvent.kind === "tool_end") {
+    // Edit/write children already carry their diff from tool_start; a text
+    // preview here would replace it.
+    const keepsDiff =
+      stepEvent.toolName === "edit" || stepEvent.toolName === "write";
     return [
       {
         type: "tool_call_updated",
@@ -173,7 +190,7 @@ function flowStepStreamEvents(
         toolCall: {
           id: `${cardId}:${stepEvent.toolCallId}`,
           status: stepEvent.isError ? "failed" : "completed",
-          ...(stepEvent.outputPreview
+          ...(stepEvent.outputPreview && !keepsDiff
             ? {
                 content: [
                   {

@@ -20,6 +20,7 @@ import { useDraftStore } from "../draftStore";
 import { searchGithubRefs } from "../hostApi";
 import type {
   CommandSuggestionItem,
+  EditorAvailableCommand,
   FileSuggestionItem,
   IssueSuggestionItem,
 } from "../types";
@@ -130,8 +131,17 @@ export function getCommandSuggestions(
   const codeCommands = supportsSideQuestion
     ? CODE_COMMANDS
     : CODE_COMMANDS.filter((cmd) => cmd.name !== BTW_COMMAND_NAME);
-  const commands = mergeCommands(codeCommands, agentCommands);
-  const filtered = searchCommands(commands, query);
+  // Flow-skill commands only run on the Pi runtime; a Claude or Codex
+  // session can read the skill but cannot execute the flow.
+  const gated = mergeCommands(codeCommands, agentCommands).map(
+    (cmd: EditorAvailableCommand) =>
+      cmd.piOnly &&
+      !cmd.disabledReason &&
+      (adapter === "claude" || adapter === "codex")
+        ? { ...cmd, disabledReason: "Runs only on the Pi runtime." }
+        : cmd,
+  );
+  const filtered = searchCommands(gated, query);
 
   return shapeCommandSuggestions(filtered);
 }

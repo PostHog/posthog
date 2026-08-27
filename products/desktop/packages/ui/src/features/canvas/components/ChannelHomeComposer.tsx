@@ -441,6 +441,7 @@ export const ChannelHomeComposer = forwardRef<
       />
 
       <PromptInput
+        runtime={runtime}
         ref={editorRef}
         sessionId={sessionId}
         placeholder="What do you want to ship?"

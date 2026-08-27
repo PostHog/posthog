@@ -7,10 +7,12 @@
  * `posthog-agent-flow` custom messages, which the desktop translator turns
  * into chat output and turn-completion signals.
  */
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ExtensionFactory,
+import {
+  defineTool,
+  type ExtensionAPI,
+  type ExtensionCommandContext,
+  type ExtensionContext,
+  type ExtensionFactory,
 } from "@earendil-works/pi-coding-agent";
 import {
   AGENT_FLOW_MESSAGE_TYPE,
@@ -21,9 +23,11 @@ import {
   parseAgentFlowRespondArgs,
   parseAgentFlowRunPayload,
 } from "@posthog/shared";
+import { Type } from "typebox";
 import { findBundledAgent } from "../subagent/agents";
 import { truncateForModel } from "../subagent/format";
 import { setFlowInputRouter } from "./flow-input";
+import { findFlowSkill, listFlowSkills } from "./flow-skills";
 import { emitFlowStepEvent } from "./step-events";
 import { runStepSession as defaultRunStepSession } from "./step-session";
 
@@ -60,6 +64,9 @@ interface ActiveFlow {
 export interface AgentFlowExtensionOptions {
   /** Test seam: replaces the in-process step runner. */
   runStep?: RunStepFn;
+  /** Test seam: replaces the on-disk flow skill lookup. */
+  findFlow?: typeof findFlowSkill;
+  listFlows?: typeof listFlowSkills;
 }
 
 function flowMessage(
@@ -155,7 +162,7 @@ function startMessage(
 
 async function executeFlow(options: {
   pi: ExtensionAPI;
-  ctx: ExtensionCommandContext;
+  ctx: ExtensionContext;
   flow: AgentFlowDefinition;
   prompt: string;
   active: ActiveFlow;
@@ -342,6 +349,8 @@ export function createAgentFlowExtension(
   options: AgentFlowExtensionOptions = {},
 ): ExtensionFactory {
   const runStep = options.runStep ?? defaultRunStepSession;
+  const findFlow = options.findFlow ?? findFlowSkill;
+  const listFlows = options.listFlows ?? listFlowSkills;
 
   return (pi: ExtensionAPI) => {
     let active: ActiveFlow | null = null;
@@ -410,6 +419,122 @@ export function createAgentFlowExtension(
       },
     });
 
+    const startFlow = (
+      flow: AgentFlowDefinition,
+      prompt: string,
+      ctx: ExtensionContext,
+    ): string | null => {
+      if (active) {
+        return "A flow is already running in this task. Wait for it to finish or stop the task.";
+      }
+
+      const controller = new AbortController();
+      const pendingApprovals = new Map<
+        string,
+        (response: ApprovalResponse) => void
+      >();
+      const current: ActiveFlow = {
+        flow,
+        controller,
+        pendingGuidance: [],
+        steerCurrentStep: null,
+        currentStepName: null,
+        pendingApprovals,
+        awaitApproval(approvalId) {
+          return new Promise<ApprovalResponse>((resolve) => {
+            if (controller.signal.aborted) {
+              resolve({ approved: false, aborted: true });
+              return;
+            }
+            pendingApprovals.set(approvalId, resolve);
+            controller.signal.addEventListener(
+              "abort",
+              () => {
+                if (pendingApprovals.delete(approvalId)) {
+                  resolve({ approved: false, aborted: true });
+                }
+              },
+              { once: true },
+            );
+          });
+        },
+      };
+      active = current;
+      setFlowInputRouter(routeFlowInput);
+
+      pi.sendMessage(startMessage(flow, prompt));
+
+      // Intentionally not awaited: the caller (a command handler or a tool
+      // call) must return before pi acknowledges its RPC; the flow executes
+      // in the background and reports through custom messages.
+      void executeFlow({
+        pi,
+        ctx,
+        flow,
+        prompt,
+        active: current,
+        runStep,
+      }).finally(() => {
+        setFlowInputRouter(null);
+        if (active === current) {
+          active = null;
+        }
+      });
+      return null;
+    };
+
+    pi.registerTool(
+      defineTool({
+        name: "run_agent_flow",
+        label: "Run agent flow",
+        description:
+          "Run a saved PostHog agent flow: an ordered sequence of subagent steps, each with its own model and reasoning effort. The flow executes deterministically in the background and posts its progress, handoff reviews, and result into this chat. Use it when the user asks to run a saved flow, or when a flow skill tells you to. After it starts, end your turn; do not do the task yourself.",
+        parameters: Type.Object({
+          name: Type.String({
+            description:
+              "The flow to run: its skill folder name or display name",
+          }),
+          task: Type.String({
+            description: "The user's task for the flow, stated in full",
+          }),
+        }),
+        async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+          const found = findFlow(params.name, ctx.cwd);
+          if (!found) {
+            const names = listFlows(ctx.cwd)
+              .map((skill) => skill.dirName)
+              .join(", ");
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `No saved flow matches "${params.name}". ${names ? `Available flows: ${names}.` : "There are no saved flows."}`,
+                },
+              ],
+              details: {},
+            };
+          }
+          const error = startFlow(found.flow, params.task, ctx);
+          if (error) {
+            return {
+              content: [{ type: "text" as const, text: error }],
+              details: {},
+            };
+          }
+          const chain = found.flow.steps.map((step) => step.name).join(" -> ");
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Started the "${found.flow.name}" flow (${chain}). Each step runs as its own agent session with its configured model and effort; progress and reviews appear in this chat. End your turn now.`,
+              },
+            ],
+            details: {},
+          };
+        },
+      }),
+    );
+
     pi.registerCommand("agent-flow-run", {
       description: "Run a saved PostHog agent flow",
       handler: async (args: string, ctx: ExtensionCommandContext) => {
@@ -426,67 +551,10 @@ export function createAgentFlowExtension(
           return;
         }
 
-        if (active) {
-          ctx.ui.notify(
-            "A flow is already running in this task. Wait for it to finish or stop the task.",
-            "warning",
-          );
-          return;
+        const refusal = startFlow(payload.flow, payload.prompt, ctx);
+        if (refusal) {
+          ctx.ui.notify(refusal, "warning");
         }
-
-        const { flow, prompt } = payload;
-        const controller = new AbortController();
-        const pendingApprovals = new Map<
-          string,
-          (response: ApprovalResponse) => void
-        >();
-        const current: ActiveFlow = {
-          flow,
-          controller,
-          pendingGuidance: [],
-          steerCurrentStep: null,
-          currentStepName: null,
-          pendingApprovals,
-          awaitApproval(approvalId) {
-            return new Promise<ApprovalResponse>((resolve) => {
-              if (controller.signal.aborted) {
-                resolve({ approved: false, aborted: true });
-                return;
-              }
-              pendingApprovals.set(approvalId, resolve);
-              controller.signal.addEventListener(
-                "abort",
-                () => {
-                  if (pendingApprovals.delete(approvalId)) {
-                    resolve({ approved: false, aborted: true });
-                  }
-                },
-                { once: true },
-              );
-            });
-          },
-        };
-        active = current;
-        setFlowInputRouter(routeFlowInput);
-
-        pi.sendMessage(startMessage(flow, prompt));
-
-        // Intentionally not awaited: the command handler must return before
-        // pi acknowledges the prompt RPC, or the whole flow runs inside the
-        // request and trips the client's response timeout.
-        void executeFlow({
-          pi,
-          ctx,
-          flow,
-          prompt,
-          active: current,
-          runStep,
-        }).finally(() => {
-          setFlowInputRouter(null);
-          if (active === current) {
-            active = null;
-          }
-        });
       },
     });
   };

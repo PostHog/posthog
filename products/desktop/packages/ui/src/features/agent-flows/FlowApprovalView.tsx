@@ -4,10 +4,11 @@ import type { PiSessionController } from "@posthog/core/pi-runtime/piSessionCont
 import { useService } from "@posthog/di/react";
 import { Button, Textarea } from "@posthog/quill";
 import { buildAgentFlowRespondCommand } from "@posthog/shared";
-import { PlanContent } from "@posthog/ui/features/permissions/PlanContent";
 import type { ToolViewProps } from "@posthog/ui/features/sessions/components/session-update/toolCallUtils";
 import { useSessionTaskId } from "@posthog/ui/features/sessions/useSessionTaskId";
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 /** The approval id is the tail of `agent-flow:<flowId>:approval:<approvalId>`. */
 function approvalIdFromCardId(cardId: string): string | undefined {
@@ -85,13 +86,19 @@ export function FlowApprovalView({ toolCall }: ToolViewProps) {
 
   return (
     <div className="my-3 flex flex-col gap-3 rounded-lg border border-gray-5 bg-gray-2 p-3">
-      {text ? (
-        <PlanContent id={toolCall.toolCallId} plan={text} />
-      ) : (
-        <span className="text-[13px] text-gray-12">
-          Review the handoff above to continue the flow.
+      <div className="flex flex-col gap-1">
+        <span className="font-medium text-[12px] text-gray-11">
+          Handoff ready for review
         </span>
-      )}
+        <span className="text-[12px] text-gray-10">
+          Approve it to continue the flow, or send it back with feedback.
+        </span>
+      </div>
+      {text ? (
+        <div className="chat-markdown max-h-[50vh] overflow-y-auto rounded-md border border-gray-4 bg-gray-1 px-3 py-2 text-[13px] text-gray-12">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+        </div>
+      ) : null}
       {showFeedback ? (
         <>
           <Textarea

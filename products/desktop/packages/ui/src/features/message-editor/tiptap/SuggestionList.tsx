@@ -39,8 +39,14 @@ const CONTAINER_CLASS =
 
 function DefaultRow({ item }: { item: SuggestionItem }) {
   const isFolder = item.chipType === "folder";
+  const description = item.disabled
+    ? (item.disabledReason ?? item.description)
+    : item.description;
   return (
-    <Item size="xs" className="border-0 p-0">
+    <Item
+      size="xs"
+      className={`border-0 p-0 ${item.disabled ? "opacity-50" : ""}`}
+    >
       {item.filename && (
         <ItemMedia variant="icon" className="mt-0.5 self-start">
           {isFolder ? (
@@ -52,9 +58,9 @@ function DefaultRow({ item }: { item: SuggestionItem }) {
       )}
       <ItemContent variant="menuItem" className="p-0">
         <ItemTitle className="truncate text-left">{item.label}</ItemTitle>
-        {item.description && (
+        {description && (
           <ItemDescription className="truncate text-left">
-            {item.description}
+            {description}
           </ItemDescription>
         )}
       </ItemContent>
@@ -93,8 +99,11 @@ export const SuggestionList = forwardRef<
         return true;
       }
       if (event.key === "Enter" || event.key === "Tab") {
-        if (items[selectedIndex]) {
-          command(items[selectedIndex]);
+        const item = items[selectedIndex];
+        if (item) {
+          if (!item.disabled) {
+            command(item);
+          }
           return true;
         }
         return false;
@@ -133,7 +142,9 @@ export const SuggestionList = forwardRef<
             // focus these rows never take (the caret stays in the editor).
             role="option"
             aria-selected={index === selectedIndex}
-            onClick={() => command(item)}
+            onClick={() => {
+              if (!item.disabled) command(item);
+            }}
             onMouseEnter={() => hasMouseMoved && setSelectedIndex(index)}
             className="w-full text-left aria-selected:bg-fill-selected"
           >

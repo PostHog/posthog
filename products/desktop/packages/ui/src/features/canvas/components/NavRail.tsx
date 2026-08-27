@@ -10,11 +10,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@posthog/quill";
-import {
-  DESKTOP_HOME_FLAG,
-  LOOPS_FLAG,
-  PI_HARNESS_FLAG,
-} from "@posthog/shared";
+import { DESKTOP_HOME_FLAG, LOOPS_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useOpenBrowserTab } from "@posthog/ui/features/browser-tabs/useOpenBrowserTab";
 import { ActivityHoverCard } from "@posthog/ui/features/canvas/components/ActivityHoverCard";
@@ -189,7 +185,6 @@ function ActivityNavItem({
 export function NavRail() {
   const homeEnabled = useFeatureFlag(DESKTOP_HOME_FLAG);
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
-  const flowsEnabled = useFeatureFlag(PI_HARNESS_FLAG, import.meta.env.DEV);
   const contextEnabled = useContextLayerFlag();
   const tabsEnabled = useSpacesTabs();
   const openBrowserTab = useOpenBrowserTab();
@@ -216,7 +211,6 @@ export function NavRail() {
     order: navItemOrder,
     home: homeEnabled,
     loops: loopsEnabled,
-    flows: flowsEnabled,
     context: contextEnabled,
   });
   const settingsVisible = isNavItemVisible(navItemOverrides, "configure");

@@ -2,7 +2,6 @@ import {
   BellIcon,
   BookOpenTextIcon,
   EnvelopeSimple,
-  FlowArrowIcon,
   HouseSimple,
   type IconProps,
   Lightning,
@@ -32,7 +31,6 @@ import {
   navigateToActivity,
   navigateToChannel,
   navigateToCommandCenter,
-  navigateToFlows,
   navigateToHome,
   navigateToInbox,
   navigateToLoops,
@@ -69,7 +67,6 @@ export interface RailDestination {
   enabled?: (flags: {
     home: boolean;
     loops: boolean;
-    flows: boolean;
     context: boolean;
   }) => boolean;
 }
@@ -206,16 +203,6 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     enabled: (flags) => flags.loops,
   },
   {
-    pane: "flows",
-    customizableId: "flows",
-    label: "Flows",
-    analyticsId: "flows",
-    Icon: FlowArrowIcon,
-    href: "/flows",
-    onPick: () => navigateToFlows(),
-    enabled: (flags) => flags.flows,
-  },
-  {
     pane: "context",
     customizableId: "contexts",
     label: "Context",
@@ -234,19 +221,17 @@ export function visibleRailDestinations({
   order,
   home,
   loops,
-  flows,
   context,
 }: {
   overrides: NavItemOverrides;
   order: readonly CustomizableNavItemId[];
   home: boolean;
   loops: boolean;
-  flows: boolean;
   context: boolean;
 }): readonly RailDestination[] {
   const shown = RAIL_DESTINATIONS.filter(
     ({ customizableId, enabled }) =>
-      (enabled?.({ home, loops, flows, context }) ?? true) &&
+      (enabled?.({ home, loops, context }) ?? true) &&
       (!customizableId || isNavItemVisible(overrides, customizableId)),
   );
   if (order.length === 0) return shown;

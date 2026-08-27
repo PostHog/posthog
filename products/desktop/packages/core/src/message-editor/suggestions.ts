@@ -9,6 +9,8 @@ export interface CommandLike {
     source: Exclude<SkillSource, "bundled">;
     path: string;
   };
+  /** Present when the command cannot run in the current session; shown and blocks selection. */
+  disabledReason?: string;
 }
 
 export interface FileItemLike {
@@ -35,6 +37,8 @@ export interface CommandSuggestionShape<T extends CommandLike> {
   skillPath?: string;
   skillSource?: Exclude<SkillSource, "bundled">;
   skillName?: string;
+  disabled?: boolean;
+  disabledReason?: string;
   command: T;
 }
 
@@ -89,6 +93,9 @@ export function shapeCommandSuggestions<T extends CommandLike>(
     skillPath: cmd.localSkill?.path,
     skillSource: cmd.localSkill?.source,
     skillName: cmd.localSkill?.name,
+    ...(cmd.disabledReason
+      ? { disabled: true, disabledReason: cmd.disabledReason }
+      : {}),
     command: cmd,
   }));
 }

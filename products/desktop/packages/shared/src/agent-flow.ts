@@ -203,6 +203,14 @@ export const agentFlowStepStreamEventSchema = z.object({
       toolCallId: z.string().min(1),
       toolName: z.string().min(1),
       title: z.string().optional(),
+      path: z.string().optional(),
+      diff: z
+        .object({
+          path: z.string(),
+          oldText: z.string().nullable().optional(),
+          newText: z.string(),
+        })
+        .optional(),
     }),
     z.object({
       kind: z.literal("tool_end"),
@@ -231,4 +239,77 @@ export function buildAgentFlowRunCommand(
 
 export function parseAgentFlowRunPayload(value: string): AgentFlowRunPayload {
   return agentFlowRunPayloadSchema.parse(JSON.parse(decodeURIComponent(value)));
+}
+
+/**
+ * A saved flow is a skill directory: SKILL.md (manifest read by agent
+ * harnesses) plus this JSON file, the machine-readable flow definition that
+ * the deterministic runner executes.
+ */
+export const AGENT_FLOW_SKILL_FILE = "flow.json";
+
+export function parseAgentFlowSkillFile(
+  content: string,
+): AgentFlowDefinition | null {
+  try {
+    return agentFlowDefinitionSchema.parse(JSON.parse(content));
+  } catch {
+    return null;
+  }
+}
+
+export function serializeAgentFlowSkillFile(flow: AgentFlowDefinition): string {
+  return `${JSON.stringify(flow, null, 2)}\n`;
+}
+
+/** Skill directory name for a flow: lowercase, hyphenated, max 64 chars. */
+export function agentFlowSkillSlug(name: string): string {
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64)
+    .replace(/-+$/g, "");
+  return slug || "flow";
+}
+
+export function buildAgentFlowSkillDescription(
+  flow: AgentFlowDefinition,
+): string {
+  const chain = flow.steps.map((step) => step.name).join(", then ");
+  return `Multi-agent flow: ${chain}. Use when the user asks to run the "${flow.name}" flow.`;
+}
+
+/**
+ * The SKILL.md body. In the desktop app the deterministic runner executes
+ * flow.json directly; in other harnesses the model reads this body and
+ * follows the steps itself, so it spells them out.
+ */
+export function buildAgentFlowSkillBody(flow: AgentFlowDefinition): string {
+  const steps = flow.steps
+    .map((step, index) => {
+      const lines = [
+        `${index + 1}. **${step.name}** (${step.role}) — model \`${step.model.name}\`, effort ${step.effort}.`,
+      ];
+      if (step.instructions) {
+        lines.push(`   Instructions: ${step.instructions}`);
+      }
+      if (step.approvalAfter) {
+        lines.push(
+          "   Stop after this step. Show the handoff and wait for the user to approve it before you continue.",
+        );
+      }
+      return lines.join("\n");
+    })
+    .join("\n");
+  return `This is a saved agent flow. The machine-readable definition is in [flow.json](flow.json).
+
+If the \`run_agent_flow\` tool is available, call it now with \`name: "${agentFlowSkillSlug(flow.name)}"\` and the user's task stated in full, then end your turn. The flow runs each step as its own agent session and reports back in this chat. Do not run the steps yourself.
+
+Only if the \`run_agent_flow\` tool is not available, run the task as a sequence of steps yourself, in order. Each step is one focused agent turn. Pass each step's result to the next step as its input.
+
+## Steps
+
+${steps}
+`;
 }
