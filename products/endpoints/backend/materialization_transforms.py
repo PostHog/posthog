@@ -719,13 +719,7 @@ def _reads_from(graph: dict[str, set[str]], source: str, target: str, visited: s
 
 def _downstream_ctes(graph: dict[str, set[str]], start: str) -> set[str]:
     """Return every CTE that transitively reads from ``start`` (excludes ``start`` itself)."""
-    result: set[str] = set()
-    for name in graph:
-        if name == start:
-            continue
-        if _reads_from(graph, name, start, set()):
-            result.add(name)
-    return result
+    return {name for name in graph if name != start and _reads_from(graph, name, start, set())}
 
 
 def _topological_order(graph: dict[str, set[str]], subset: set[str]) -> list[str]:
@@ -748,11 +742,7 @@ def _topological_order(graph: dict[str, set[str]], subset: set[str]) -> list[str
 
 def _normalize_join_type(join_type: Optional[str]) -> Optional[str]:
     """Strip a leading ``GLOBAL `` prefix so classification keys match the base join type."""
-    if join_type is None:
-        return None
-    if join_type.startswith("GLOBAL "):
-        return join_type.removeprefix("GLOBAL ")
-    return join_type
+    return join_type.removeprefix("GLOBAL ") if join_type is not None else None
 
 
 def _select_column_name(expr: ast.Expr) -> Optional[str]:
@@ -776,22 +766,17 @@ def _collect_propagating_sources_top_level(
     sources: list[PropagatingSource] = []
     cur = select_from
     while cur is not None:
-        is_prop = False
-        cte_name: Optional[str] = None
         if isinstance(cur.table, ast.Field) and len(cur.table.chain) == 1:
-            name = str(cur.table.chain[0])
-            if name in propagating:
-                is_prop = True
-                cte_name = name
-        if is_prop and cte_name is not None:
-            join_type = _normalize_join_type(cur.join_type)
-            if join_type not in _SAFE_PROPAGATION_JOIN_TYPES:
-                return (
-                    [],
-                    f"CTE variable propagation requires CROSS/INNER joins between propagating CTEs; "
-                    f"{cur.join_type} not supported",
-                )
-            sources.append(PropagatingSource(alias=cur.alias or cte_name, cte_name=cte_name))
+            cte_name = str(cur.table.chain[0])
+            if cte_name in propagating:
+                join_type = _normalize_join_type(cur.join_type)
+                if join_type not in _SAFE_PROPAGATION_JOIN_TYPES:
+                    return (
+                        [],
+                        f"CTE variable propagation requires CROSS/INNER joins between propagating CTEs; "
+                        f"{cur.join_type} not supported",
+                    )
+                sources.append(PropagatingSource(alias=cur.alias or cte_name, cte_name=cte_name))
         cur = cur.next_join
     return sources, None
 
@@ -915,11 +900,7 @@ def _body_has_non_top_from_propagating_reference(
 
 
 def _emits_column(select_query: ast.SelectQuery, column_name: str) -> bool:
-    for expr in select_query.select or []:
-        name = _select_column_name(expr)
-        if name == column_name:
-            return True
-    return False
+    return any(_select_column_name(expr) == column_name for expr in select_query.select or [])
 
 
 def _rejected_plan(
@@ -970,7 +951,17 @@ def _classify_union_cte(
 
     leg_plans: list[DownstreamCTEPlan] = []
     for i, leg in enumerate(cte_expr.select_queries()):
-        leg_plan = _classify_union_leg(f"{cte_name}#leg{i}", leg, propagating, code_names)
+        leg_name = f"{cte_name}#leg{i}"
+        if not isinstance(leg, ast.SelectQuery):
+            leg_plan = _rejected_plan(leg_name, "nested set queries are not supported")
+        else:
+            leg_plan = _classify_downstream_cte(leg_name, leg, propagating, code_names)
+            # Unreachable today: a SELECT leg with no source is already rejected one level down.
+            # Kept because a leg the transformer can't source the column from would silently emit
+            # rows without it, and that failure is invisible until the read-time filter drops data.
+            if not leg_plan.reject_reason and not leg_plan.propagating_sources:
+                leg_plan = _rejected_plan(leg_name, "leg has no propagating CTE source")
+
         if leg_plan.reject_reason:
             return _rejected_plan(
                 cte_name,
@@ -980,27 +971,6 @@ def _classify_union_cte(
         leg_plans.append(leg_plan)
 
     return DownstreamCTEPlan(cte_name=cte_name, shape=DownstreamCTEShape.UNION_ALL, leg_plans=leg_plans)
-
-
-def _classify_union_leg(
-    leg_name: str,
-    leg: ast.Expr,
-    propagating: set[str],
-    code_names: list[str],
-) -> DownstreamCTEPlan:
-    """Plan for one UNION leg, or a plan carrying the reason that leg blocks propagation."""
-    if not isinstance(leg, ast.SelectQuery):
-        return _rejected_plan(leg_name, "nested set queries are not supported")
-
-    leg_plan = _classify_downstream_cte(leg_name, leg, propagating, code_names)
-    if leg_plan.reject_reason:
-        return leg_plan
-    # Unreachable today: a SELECT leg with no source is already rejected one level down.
-    # Kept because a leg the transformer can't source the column from would silently emit
-    # rows without it, and that failure is invisible until the read-time filter drops data.
-    if not leg_plan.propagating_sources and leg_plan.shape != DownstreamCTEShape.UNION_ALL:
-        return _rejected_plan(leg_name, "leg has no propagating CTE source")
-    return leg_plan
 
 
 def _propagating_sources_or_rejection(

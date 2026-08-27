@@ -10,7 +10,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 
 from products.endpoints.backend.logic.strategies import apply_where_filter
 from products.endpoints.backend.materialization_transforms import (
@@ -20,6 +20,7 @@ from products.endpoints.backend.materialization_transforms import (
     _build_cte_read_graph,
     _classify_downstream_cte,
     _downstream_ctes,
+    _extract_aggregate_name,
     _strip_combinators,
     _topological_order,
     analyze_variables_for_materialization,
@@ -348,11 +349,7 @@ class TestDownstreamCTEClassifier(SimpleTestCase):
         ]
     )
     def test_extract_aggregate_name_canonicalizes_count_distinct(self, src, expected):
-        from posthog.hogql.parser import parse_expr as _parse_expr
-
-        from products.endpoints.backend.materialization_transforms import _extract_aggregate_name as _extract
-
-        assert _extract(_parse_expr(src)) == expected
+        assert _extract_aggregate_name(parse_expr(src)) == expected
 
     @parameterized.expand(
         [
@@ -364,11 +361,7 @@ class TestDownstreamCTEClassifier(SimpleTestCase):
         ]
     )
     def test_extract_aggregate_name_canonicalizes_base_aggregates(self, src, expected):
-        from posthog.hogql.parser import parse_expr as _parse_expr
-
-        from products.endpoints.backend.materialization_transforms import _extract_aggregate_name as _extract
-
-        assert _extract(_parse_expr(src)) == expected
+        assert _extract_aggregate_name(parse_expr(src)) == expected
 
     def test_nested_subquery_shadowing_does_not_flag_as_bypass(self):
         expr = self._get_cte(
