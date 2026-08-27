@@ -224,6 +224,7 @@ export class Agent {
               ...codexGatewayAuth,
               binaryPath: options.codexBinaryPath,
               codexHome: options.codexHome,
+              useMachineAuth: codexSubscription,
               model: sanitizedModel,
               reasoningEffort: options.reasoningEffort,
               developerInstructions: options.developerInstructions,

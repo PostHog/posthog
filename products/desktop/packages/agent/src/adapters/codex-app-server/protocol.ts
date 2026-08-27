@@ -14,6 +14,7 @@ export const APP_SERVER_METHODS = {
   INITIALIZE: "initialize",
   ACCOUNT_READ: "account/read",
   ACCOUNT_LOGIN_START: "account/login/start",
+  ACCOUNT_LOGIN_CANCEL: "account/login/cancel",
   ACCOUNT_LOGOUT: "account/logout",
   THREAD_START: "thread/start",
   THREAD_RESUME: "thread/resume",
@@ -32,6 +33,7 @@ export const APP_SERVER_METHODS = {
 
 export const APP_SERVER_NOTIFICATIONS = {
   INITIALIZED: "initialized",
+  ACCOUNT_LOGIN_COMPLETED: "account/login/completed",
   THREAD_STARTED: "thread/started",
   // Carries the active turn id — precondition for turn/steer + turn/interrupt.
   TURN_STARTED: "turn/started",

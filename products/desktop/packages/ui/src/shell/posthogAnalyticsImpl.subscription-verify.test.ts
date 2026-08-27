@@ -101,11 +101,11 @@ describe("subscription analytics evidence", () => {
       (e) => e.event === ANALYTICS_EVENTS.TASK_RUN,
     );
     expect(runEvents).toHaveLength(1);
-    expect(runEvents[0]!.properties["codex_model_access"]).toBe(
+    expect(runEvents[0]?.properties.codex_model_access).toBe(
       "own-subscription",
     );
-    expect(runEvents[0]!.properties["codex_subscription_connected"]).toBe(true);
-    expect(runEvents[0]!.properties["task_id"]).toBe("task-evidence-1");
+    expect(runEvents[0]?.properties.codex_subscription_connected).toBe(true);
+    expect(runEvents[0]?.properties.task_id).toBe("task-evidence-1");
   });
 
   it("gateway runs are tracked too, with their own billing value", async () => {
@@ -126,8 +126,6 @@ describe("subscription analytics evidence", () => {
       (e) => e.event === ANALYTICS_EVENTS.TASK_RUN,
     );
     expect(runEvents).toHaveLength(1);
-    expect(runEvents[0]!.properties["codex_model_access"]).toBe(
-      "posthog-gateway",
-    );
+    expect(runEvents[0]?.properties.codex_model_access).toBe("posthog-gateway");
   });
 });

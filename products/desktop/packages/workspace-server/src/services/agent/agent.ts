@@ -14,7 +14,6 @@ import {
 } from "@agentclientprotocol/sdk";
 import {
   detectRtkBinary,
-  findOnPath,
   isMcpToolReadOnly,
   isNotification,
   POSTHOG_METHODS,
@@ -24,6 +23,7 @@ import type { McpToolApprovals } from "@posthog/agent/adapters/claude/mcp/tool-m
 import { hydrateSessionJsonl } from "@posthog/agent/adapters/claude/session/jsonl-hydration";
 import {
   type CodexLoginSession,
+  hasCodexChatgptLogin,
   signOutCodexChatgpt,
   startCodexChatgptLogin,
 } from "@posthog/agent/adapters/codex-app-server/subscription-login";
@@ -96,15 +96,9 @@ import { isScratchPath } from "../workspace/scratch";
 import type { AgentAuthAdapter, McpToolInstallations } from "./auth-adapter";
 import {
   cleanupCodexHome,
-  getCodexSubscriptionHomeDir,
+  getCodexHomeDir,
   prepareCodexHome,
-  writeBackSubscriptionLogin,
 } from "./codex-home";
-import {
-  clearSubscriptionLogin,
-  detectCodexSubscriptionStatus,
-  hasSubscriptionLogin,
-} from "./codex-subscription";
 import { prepareContextWiki } from "./context-wiki";
 import { discoverExternalPlugins } from "./discover-plugins";
 import {
@@ -525,39 +519,22 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     return this.bundledResources.resolve(`.vite/build/codex-acp/${binary}`);
   }
 
-  /** In-flight ChatGPT sign-in; the app-server hosts the OAuth callback. */
   private codexLogin?: CodexLoginSession;
+  private codexAuthGeneration = 0;
 
-  // Serializes store mutations so a write-back cannot interleave with a sign-out.
-  private subscriptionStoreQueue: Promise<unknown> = Promise.resolve();
-
-  private enqueueSubscriptionStoreOp<T>(op: () => Promise<T>): Promise<T> {
-    const run = this.subscriptionStoreQueue.then(op, op) as Promise<T>;
-    this.subscriptionStoreQueue = run.catch(() => {});
-    return run;
+  async getCodexSubscriptionStatus(): Promise<CodexSubscriptionStatus> {
+    if (this.codexLogin) return { appLoggedIn: false };
+    return {
+      appLoggedIn: await hasCodexChatgptLogin({
+        binaryPath: this.getCodexBinaryPath(),
+      }),
+    };
   }
 
-  getCodexSubscriptionStatus(): CodexSubscriptionStatus {
-    return detectCodexSubscriptionStatus({
-      env: process.env,
-      homeDir: homedir(),
-      subscriptionHomeDir: getCodexSubscriptionHomeDir(
-        this.storagePaths.appDataPath,
-      ),
-      findOnPath,
-    });
-  }
-
-  /** Starts Codex's own sign-in. Completion shows in getCodexSubscriptionStatus. */
   async startCodexSubscriptionLogin(): Promise<{ authUrl: string }> {
-    this.codexLogin?.cancel();
-    const codexHome = getCodexSubscriptionHomeDir(
-      this.storagePaths.appDataPath,
-    );
-    await fs.promises.mkdir(codexHome, { recursive: true });
+    await this.prepareCodexAccountChange();
     const login = await startCodexChatgptLogin({
       binaryPath: this.getCodexBinaryPath(),
-      codexHome,
     });
     this.codexLogin = login;
     void login.completed.then((loggedIn) => {
@@ -568,25 +545,31 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   }
 
   async signOutCodexSubscription(): Promise<void> {
-    this.codexLogin?.cancel();
-    this.codexLogin = undefined;
-    const codexHome = getCodexSubscriptionHomeDir(
-      this.storagePaths.appDataPath,
-    );
-    await this.enqueueSubscriptionStoreOp(async () => {
-      // account/logout revokes the token at the issuer: every seeded copy of
-      // it dies server-side, not only the store file.
-      const revoked = await signOutCodexChatgpt({
-        binaryPath: this.getCodexBinaryPath(),
-        codexHome,
-      });
-      if (!revoked) {
-        this.log.warn(
-          "Codex sign-out could not reach the issuer; cleared the local login only",
-        );
-      }
-      await clearSubscriptionLogin(codexHome);
+    await this.prepareCodexAccountChange();
+    await signOutCodexChatgpt({
+      binaryPath: this.getCodexBinaryPath(),
     });
+  }
+
+  private async prepareCodexAccountChange(): Promise<void> {
+    this.codexAuthGeneration += 1;
+    const currentLogin = this.codexLogin;
+    this.codexLogin = undefined;
+    await Promise.all([
+      currentLogin?.cancel(),
+      this.stopCodexSubscriptionSessions(),
+    ]);
+  }
+
+  private async stopCodexSubscriptionSessions(): Promise<void> {
+    const sessionIds = [...this.sessions.entries()]
+      .filter(
+        ([, session]) => session.config.codexModelAccess === "own-subscription",
+      )
+      .map(([taskRunId]) => taskRunId);
+    await Promise.all(
+      sessionIds.map((taskRunId) => this.cleanupSession(taskRunId)),
+    );
   }
 
   /**
@@ -1011,34 +994,22 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
         this.posthogPluginService.getPluginPath(),
         "skills",
       );
-
-      // Without a stored login, fall back to the gateway, never to ~/.codex.
-      let codexSubscription =
-        adapter === "codex" &&
-        config.codexModelAccess === "own-subscription" &&
-        hasSubscriptionLogin(
-          getCodexSubscriptionHomeDir(this.storagePaths.appDataPath),
-        );
+      const codexSubscription =
+        adapter === "codex" && config.codexModelAccess === "own-subscription";
+      const codexAuthGeneration = this.codexAuthGeneration;
 
       let codexHome: string | undefined;
       if (adapter === "codex") {
-        try {
+        if (codexSubscription) {
+          codexHome = getCodexHomeDir(this.storagePaths.appDataPath, taskRunId);
+          await fs.promises.mkdir(codexHome, { recursive: true });
+        } else {
           codexHome = await prepareCodexHome({
             appDataPath: this.storagePaths.appDataPath,
             taskRunId,
-            subscription: codexSubscription,
             bundledSkillsDir,
             log: this.log,
-            queueStoreOp: this.enqueueSubscriptionStoreOp.bind(this),
           });
-        } catch (err) {
-          // A skills-prep failure must not kill the session; Codex falls back
-          // to its default home and the user's own ~/.agents/skills.
-          this.log.warn("Failed to prepare codex home", {
-            error: err instanceof Error ? err.message : String(err),
-          });
-          // Without the prepared home, codex reads ~/.codex.
-          codexSubscription = false;
         }
       }
 
@@ -1361,6 +1332,13 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
       };
 
       this.sessions.set(taskRunId, session);
+      if (
+        codexSubscription &&
+        codexAuthGeneration !== this.codexAuthGeneration
+      ) {
+        await this.cleanupSession(taskRunId);
+        throw new Error("The Codex account changed during task setup.");
+      }
       this.recordActivity(taskRunId);
 
       if (isRetry) {
@@ -1846,7 +1824,7 @@ For git operations while detached:
 
   @preDestroy()
   async cleanupAll(): Promise<void> {
-    this.codexLogin?.cancel();
+    await this.codexLogin?.cancel();
     this.codexLogin = undefined;
     for (const { handle } of this.idleTimeouts.values()) clearTimeout(handle);
     this.idleTimeouts.clear();
@@ -1897,27 +1875,9 @@ For git operations while detached:
         this.log.debug("Agent cleanup failed", { taskRunId });
       }
 
-      let discardHome = true;
-      if (session.config.codexModelAccess === "own-subscription") {
-        discardHome = await this.enqueueSubscriptionStoreOp(() =>
-          writeBackSubscriptionLogin({
-            appDataPath: this.storagePaths.appDataPath,
-            taskRunId,
-            log: this.log,
-          }),
-        );
-      }
-
-      if (discardHome) {
-        await cleanupCodexHome(this.storagePaths.appDataPath, taskRunId).catch(
-          () => this.log.debug("Codex home cleanup failed", { taskRunId }),
-        );
-      } else {
-        // A failed write-back keeps the home: it holds the newest login.
-        this.log.warn("Kept codex home after a failed login write-back", {
-          taskRunId,
-        });
-      }
+      await cleanupCodexHome(this.storagePaths.appDataPath, taskRunId).catch(
+        () => this.log.debug("Codex home cleanup failed", { taskRunId }),
+      );
 
       this.sessions.delete(taskRunId);
       this.lastNoListenerWarnAt.delete(taskRunId);

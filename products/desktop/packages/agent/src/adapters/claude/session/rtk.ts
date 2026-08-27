@@ -84,10 +84,7 @@ export function rewriteBashForRtk(
   return `${quotedPrefix} ${trimmed}`;
 }
 
-export function findOnPath(
-  bin: string,
-  env: NodeJS.ProcessEnv,
-): string | undefined {
+function findOnPath(bin: string, env: NodeJS.ProcessEnv): string | undefined {
   const pathVar = env.PATH ?? env.Path ?? "";
   const exts =
     process.platform === "win32" ? [".exe", ".cmd", ".bat", ""] : [""];

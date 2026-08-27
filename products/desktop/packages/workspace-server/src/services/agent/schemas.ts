@@ -290,12 +290,7 @@ export const rtkStatusOutput = z.object({
 
 export type RtkStatus = z.infer<typeof rtkStatusOutput>;
 
-/** All fields are existence checks. No credential is read. */
 export const codexSubscriptionStatusOutput = z.object({
-  cliInstalled: z.boolean(),
-  /** `~/.codex/auth.json` exists. */
-  credentialFilePresent: z.boolean(),
-  /** The app's subscription CODEX_HOME has a completed ChatGPT login. */
   appLoggedIn: z.boolean(),
 });
 

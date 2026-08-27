@@ -31,7 +31,9 @@ export interface CodexOptions {
    * directory that contains it (see `nativeCodexBinaryPath`).
    */
   binaryPath?: string;
+  /** Private state root. Machine-auth runs use it only for SQLite state. */
   codexHome?: string;
+  useMachineAuth?: boolean;
   /** Extra codex `-c key=value` config overrides. */
   configOverrides?: Record<string, string | number>;
   /**
@@ -49,12 +51,10 @@ export interface CodexAppServerProcessOptions {
   cwd?: string;
   apiBaseUrl?: string;
   apiKey?: string;
-  /**
-   * Private CODEX_HOME for this run (skills + config). Without it codex falls
-   * back to the user's ~/.codex, whose ambient plugins/MCP servers can stall
-   * every turn (a broken plugin MCP blocks turn/start for its full timeout).
-   */
+  /** Private state root. Machine-auth runs use it only for SQLite state. */
   codexHome?: string;
+  /** Use the login from the normal local Codex installation. */
+  useMachineAuth?: boolean;
   /** Guidance appended to Codex's base prompt via `developer_instructions`. */
   developerInstructions?: string;
   /**
@@ -108,15 +108,24 @@ export function buildAppServerArgs(
   // servers PostHog injects, so disable the plugin system outright.
   args.push("-c", "features.plugins=false");
 
-  // Codex defaults to the OS keychain for CLI auth, MCP OAuth tokens, and its
-  // secrets encryption key — on macOS that means permission prompts for our
-  // bundled binary (keychain ACLs are signature-bound, so grants to a user's
-  // standalone codex don't cover ours and don't stick across releases). Model
-  // auth is injected via POSTHOG_GATEWAY_API_KEY, so codex's own credential
-  // stores are unused: keep them on plain files inside the private CODEX_HOME
-  // and never touch the keychain.
-  args.push("-c", `cli_auth_credentials_store="file"`);
-  args.push("-c", `mcp_oauth_credentials_store="file"`);
+  // PostHog owns these integrations. Do not run user hooks or send task data
+  // to telemetry exporters from the user's Codex config.
+  args.push("-c", "mcp_servers={}");
+  args.push("-c", "hooks={}");
+  args.push("-c", "notify=[]");
+  args.push("-c", `otel.exporter="none"`);
+  args.push("-c", `otel.metrics_exporter="none"`);
+  args.push("-c", `otel.trace_exporter="none"`);
+  args.push("-c", "otel.log_user_prompt=false");
+
+  if (options.useMachineAuth) {
+    args.push("-c", `model_provider="openai"`);
+    args.push("-c", `forced_login_method="chatgpt"`);
+    args.push("-c", `history.persistence="none"`);
+  } else {
+    args.push("-c", `cli_auth_credentials_store="file"`);
+    args.push("-c", `mcp_oauth_credentials_store="file"`);
+  }
 
   // OS sandbox gated on platform (= availability): macOS Seatbelt → workspace-write
   // (keeps the sandbox engaged so a per-turn readOnly can tighten it and block
@@ -210,11 +219,20 @@ export function spawnCodexAppServerProcess(
   const env: NodeJS.ProcessEnv = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.ELECTRON_NO_ASAR;
+  delete env.POSTHOG_GATEWAY_API_KEY;
+  if (options.useMachineAuth) {
+    delete env.CODEX_ACCESS_TOKEN;
+    delete env.CODEX_API_KEY;
+    delete env.OPENAI_API_KEY;
+    delete env.OPENAI_API_BASE;
+    delete env.OPENAI_BASE_URL;
+  }
   if (options.apiKey) {
     env.POSTHOG_GATEWAY_API_KEY = options.apiKey;
   }
   if (options.codexHome) {
-    env.CODEX_HOME = options.codexHome;
+    if (!options.useMachineAuth) env.CODEX_HOME = options.codexHome;
+    env.CODEX_SQLITE_HOME = options.codexHome;
   }
   applyContextWikiEnv(env, options.contextWiki);
   env.PATH = `${dirname(options.binaryPath)}${delimiter}${env.PATH ?? ""}`;

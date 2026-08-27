@@ -13,8 +13,6 @@ import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { useQuery } from "@tanstack/react-query";
 
 export interface CodexSubscriptionStatus {
-  cliInstalled: boolean;
-  credentialFilePresent: boolean;
   appLoggedIn: boolean;
 }
 

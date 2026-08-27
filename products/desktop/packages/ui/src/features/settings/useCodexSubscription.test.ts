@@ -6,8 +6,6 @@ import {
 } from "./useCodexSubscription";
 
 const status = (appLoggedIn: boolean) => ({
-  cliInstalled: false,
-  credentialFilePresent: false,
   appLoggedIn,
 });
 

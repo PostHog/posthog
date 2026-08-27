@@ -1,121 +1,128 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AppServerRpc } from "./app-server-client";
-import { waitForCodexAccount } from "./subscription-login";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { APP_SERVER_METHODS, APP_SERVER_NOTIFICATIONS } from "./protocol";
 
-function fakeRpc(request: (method: string) => Promise<unknown>): AppServerRpc {
+const state = vi.hoisted(() => ({
+  account: null as { type: string } | null,
+  failLogout: false,
+  kill: vi.fn(),
+  onExit: undefined as (() => void) | undefined,
+  onNotification: undefined as
+    | ((method: string, params: unknown) => void)
+    | undefined,
+  requests: [] as string[],
+  spawnOptions: undefined as { useMachineAuth?: boolean } | undefined,
+}));
+
+vi.mock("./spawn", async () => {
+  const { PassThrough } = await import("node:stream");
   return {
-    request: request as AppServerRpc["request"],
-    notify: () => {},
-    close: async () => {},
+    spawnCodexAppServerProcess: (options: { useMachineAuth?: boolean }) => {
+      state.spawnOptions = options;
+      return {
+        process: {
+          once: (_event: string, callback: () => void) => {
+            state.onExit = callback;
+          },
+        },
+        stdout: new PassThrough(),
+        stdin: new PassThrough(),
+        kill: state.kill,
+      };
+    },
   };
-}
-
-describe("waitForCodexAccount", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it("keeps polling while account is null and resolves true once it appears", async () => {
-    let reads = 0;
-    const rpc = fakeRpc(async () => {
-      reads += 1;
-      return { account: reads >= 3 ? { plan: "plus" } : null };
-    });
-
-    const result = waitForCodexAccount(rpc, {
-      pollIntervalMs: 1000,
-      timeoutMs: 60_000,
-    });
-    await vi.advanceTimersByTimeAsync(5000);
-
-    await expect(result).resolves.toBe(true);
-    expect(reads).toBe(3);
-  });
-
-  it("resolves false when the app-server dies mid-login instead of hanging", async () => {
-    const rpc = fakeRpc(async () => {
-      throw new Error("codex app-server stream closed");
-    });
-
-    await expect(
-      waitForCodexAccount(rpc, { pollIntervalMs: 1000, timeoutMs: 60_000 }),
-    ).resolves.toBe(false);
-  });
-
-  it("resolves false at the timeout when the user never finishes signing in", async () => {
-    const rpc = fakeRpc(async () => ({ account: null }));
-
-    const result = waitForCodexAccount(rpc, {
-      pollIntervalMs: 1000,
-      timeoutMs: 3000,
-    });
-    await vi.advanceTimersByTimeAsync(4000);
-
-    await expect(result).resolves.toBe(false);
-  });
 });
 
-describe("signOutCodexChatgpt", () => {
-  async function setup() {
-    vi.resetModules();
-    const requests: Array<{ method: string }> = [];
-    let failLogout = false;
-    const rpc = {
-      request: async (raw: unknown) => {
-        const method =
-          typeof raw === "string" ? raw : (raw as { method: string }).method;
-        requests.push({ method });
-        if (method === "account/logout" && failLogout) {
-          throw new Error("logout failed");
-        }
-        return {};
+vi.mock("./app-server-client", () => ({
+  AppServerClient: class {
+    constructor(
+      _streams: unknown,
+      handlers: {
+        onNotification?: (method: string, params: unknown) => void;
       },
-      notify: () => {},
-      close: async () => {},
-    };
-    vi.doMock("./spawn", () => ({
-      spawnCodexAppServerProcess: () => ({
-        stdout: { on: () => {} },
-        stdin: { on: () => {} },
-        kill: () => {},
-      }),
-    }));
-    vi.doMock("./app-server-client", () => ({
-      AppServerClient: function () {
-        return rpc;
-      },
-    }));
-    const mod = await import("./subscription-login");
-    return {
-      requests,
-      setFailLogout: (v: boolean) => {
-        failLogout = v;
-      },
-      signOut: (opts: { binaryPath: string; codexHome: string }) =>
-        mod.signOutCodexChatgpt(opts),
-    };
-  }
+    ) {
+      state.onNotification = handlers.onNotification;
+    }
 
-  it("initializes and calls account/logout, returning true on success", async () => {
-    const { requests, signOut } = await setup();
-    await expect(
-      signOut({ binaryPath: "/sbin/codex", codexHome: "/home" }),
-    ).resolves.toBe(true);
-    expect(requests.map((r) => r.method)).toEqual([
-      "initialize",
-      "account/logout",
+    async request(method: string): Promise<unknown> {
+      state.requests.push(method);
+      if (method === APP_SERVER_METHODS.ACCOUNT_READ) {
+        return { account: state.account };
+      }
+      if (method === APP_SERVER_METHODS.ACCOUNT_LOGIN_START) {
+        return {
+          authUrl: "https://chatgpt.com/login",
+          loginId: "login-1",
+        };
+      }
+      if (method === APP_SERVER_METHODS.ACCOUNT_LOGOUT && state.failLogout) {
+        throw new Error("Logout failed");
+      }
+      return {};
+    }
+
+    notify(): void {}
+
+    async close(): Promise<void> {}
+  },
+}));
+
+import {
+  hasCodexChatgptLogin,
+  signOutCodexChatgpt,
+  startCodexChatgptLogin,
+} from "./subscription-login";
+
+const options = { binaryPath: "/bundle/codex" };
+
+beforeEach(() => {
+  state.account = null;
+  state.failLogout = false;
+  state.kill.mockClear();
+  state.onExit = undefined;
+  state.onNotification = undefined;
+  state.requests = [];
+  state.spawnOptions = undefined;
+});
+
+describe("Codex account", () => {
+  it("uses the normal machine login and accepts only ChatGPT accounts", async () => {
+    state.account = { type: "chatgpt" };
+
+    await expect(hasCodexChatgptLogin(options)).resolves.toBe(true);
+    expect(state.spawnOptions?.useMachineAuth).toBe(true);
+
+    state.account = { type: "apiKey" };
+    await expect(hasCodexChatgptLogin(options)).resolves.toBe(false);
+  });
+
+  it("finishes login from the app-server notification", async () => {
+    const login = await startCodexChatgptLogin(options);
+
+    expect(login.authUrl).toBe("https://chatgpt.com/login");
+    state.onNotification?.(APP_SERVER_NOTIFICATIONS.ACCOUNT_LOGIN_COMPLETED, {
+      loginId: "login-1",
+      success: true,
+    });
+
+    await expect(login.completed).resolves.toBe(true);
+    expect(state.requests).toEqual([
+      APP_SERVER_METHODS.INITIALIZE,
+      APP_SERVER_METHODS.ACCOUNT_LOGIN_START,
     ]);
   });
 
-  it("returns false, without throwing, when the logout request fails", async () => {
-    const { setFailLogout, signOut } = await setup();
-    setFailLogout(true);
-    await expect(
-      signOut({ binaryPath: "/sbin/codex", codexHome: "/home" }),
-    ).resolves.toBe(false);
+  it("cancels the active Codex login", async () => {
+    const login = await startCodexChatgptLogin(options);
+
+    await login.cancel();
+
+    await expect(login.completed).resolves.toBe(false);
+    expect(state.requests).toContain(APP_SERVER_METHODS.ACCOUNT_LOGIN_CANCEL);
+  });
+
+  it("reports a logout failure", async () => {
+    state.failLogout = true;
+
+    await expect(signOutCodexChatgpt(options)).rejects.toThrow("Logout failed");
   });
 });

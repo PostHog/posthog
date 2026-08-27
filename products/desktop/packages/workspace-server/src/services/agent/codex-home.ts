@@ -1,4 +1,3 @@
-import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -23,14 +22,6 @@ export function getCodexHomeDir(
     throw new Error(`Unsafe taskRunId: ${JSON.stringify(taskRunId)}`);
   }
   return path.join(appDataPath, "codex-home", taskRunId);
-}
-
-/**
- * Holds only the ChatGPT login (`auth.json`). Each session copies it into its
- * own CODEX_HOME. Never use this dir as a session's CODEX_HOME.
- */
-export function getCodexSubscriptionHomeDir(appDataPath: string): string {
-  return path.join(appDataPath, "codex-home-subscription");
 }
 
 /**
@@ -65,11 +56,8 @@ export async function cleanupCodexHome(
 export async function prepareCodexHome(options: {
   appDataPath: string;
   taskRunId: string;
-  subscription?: boolean;
   bundledSkillsDir: string;
   log: AgentScopedLogger;
-  /** Serializes the salvage write-back with sign-out and cleanup write-backs. */
-  queueStoreOp?: <T>(op: () => Promise<T>) => Promise<T>;
 }): Promise<string> {
   const codexHome = getCodexHomeDir(options.appDataPath, options.taskRunId);
   const skillsDir = path.join(codexHome, "skills");
@@ -108,122 +96,7 @@ export async function prepareCodexHome(options: {
     }
   }
 
-  if (options.subscription) {
-    const storedLogin = path.join(
-      getCodexSubscriptionHomeDir(options.appDataPath),
-      "auth.json",
-    );
-    if (!fs.existsSync(storedLogin)) {
-      throw new Error("Subscription login not found");
-    }
-    // A retried or reconnected run reuses its taskRunId, so its home may still
-    // hold a token codex rotated after the store was last written (a crash skips
-    // cleanup's write-back). Salvage that newer token into the store before the
-    // overwrite below, so re-seeding does not discard it. The queue keeps the
-    // salvage from interleaving with a sign-out.
-    const queue =
-      options.queueStoreOp ?? ((op: () => Promise<unknown>) => op());
-    await queue(() =>
-      writeBackSubscriptionLogin({
-        appDataPath: options.appDataPath,
-        taskRunId: options.taskRunId,
-        log: options.log,
-      }),
-    );
-    const login = await fs.promises.readFile(storedLogin);
-    const runLogin = path.join(codexHome, "auth.json");
-    await fs.promises.writeFile(runLogin, login, { mode: 0o600 });
-    // writeFile sets the mode only when it creates the file. A retry overwrites it.
-    await fs.promises.chmod(runLogin, 0o600);
-    // Records the login generation that seeded this run.
-    await fs.promises.writeFile(
-      path.join(codexHome, SEED_HASH_FILE),
-      sha256(login),
-      { mode: 0o600 },
-    );
-  }
-
   return codexHome;
-}
-
-const SEED_HASH_FILE = ".auth-seed.sha256";
-
-function sha256(contents: Buffer): string {
-  return crypto.createHash("sha256").update(contents).digest("hex");
-}
-
-/**
- * Copies a run's refreshed login back into the store before cleanup deletes
- * the run's home. Codex rotates OAuth tokens during a run and saves them in
- * its CODEX_HOME. Without this copy the stored login goes stale.
- *
- * Skip the write when the stored login is gone (sign-out) or when it changed
- * since seeding (a new sign-in or another run's refresh).
- *
- * Returns false when the write failed, so the caller keeps the run's home.
- */
-export async function writeBackSubscriptionLogin(options: {
-  appDataPath: string;
-  taskRunId: string;
-  log: AgentScopedLogger;
-}): Promise<boolean> {
-  const runHome = getCodexHomeDir(options.appDataPath, options.taskRunId);
-  const runLogin = path.join(runHome, "auth.json");
-  const seedHashFile = path.join(runHome, SEED_HASH_FILE);
-  const storedLogin = path.join(
-    getCodexSubscriptionHomeDir(options.appDataPath),
-    "auth.json",
-  );
-  try {
-    if (!fs.existsSync(runLogin) || !fs.existsSync(storedLogin)) {
-      return true;
-    }
-    const seedHash = await fs.promises
-      .readFile(seedHashFile, "utf-8")
-      .catch(() => undefined);
-    if (seedHash === undefined) {
-      return true;
-    }
-    const stored = await fs.promises.readFile(storedLogin);
-    if (sha256(stored) !== seedHash) {
-      options.log.info(
-        "Skipping subscription login write-back: the stored login changed since this run started",
-        { taskRunId: options.taskRunId },
-      );
-      return true;
-    }
-    const refreshed = await fs.promises.readFile(runLogin);
-    if (refreshed.equals(stored)) {
-      return true;
-    }
-    // A temp file and rename protect readers from a half-written login.
-    const tempLogin = path.join(
-      path.dirname(storedLogin),
-      `.auth.json.${process.pid}.tmp`,
-    );
-    await fs.promises.writeFile(tempLogin, refreshed, { mode: 0o600 });
-    // The codex login process writes the store outside our queue. Recheck the
-    // generation before the rename so a finished sign-in is never overwritten.
-    const current = await fs.promises
-      .readFile(storedLogin)
-      .catch(() => undefined);
-    if (current === undefined || sha256(current) !== seedHash) {
-      await fs.promises.rm(tempLogin, { force: true });
-      options.log.info(
-        "Skipping subscription login write-back: the stored login changed during the write",
-        { taskRunId: options.taskRunId },
-      );
-      return true;
-    }
-    await fs.promises.rename(tempLogin, storedLogin);
-    return true;
-  } catch (err) {
-    options.log.warn("Failed to write back refreshed subscription login", {
-      taskRunId: options.taskRunId,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return false;
-  }
 }
 
 const MCP_SERVERS_HEADER = /^\[\[?\s*mcp_servers\s*(?:[.\]])/;

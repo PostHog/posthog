@@ -122,13 +122,20 @@ describe("buildAppServerArgs", () => {
     },
   );
 
-  it("emits no gateway provider without apiBaseUrl, so codex uses its own login", () => {
+  it("uses the machine account without gateway or user integrations", () => {
     const args = buildAppServerArgs({
       binaryPath: "/bundle/codex",
-      codexHome: "/appdata/codex-home/run-1",
+      useMachineAuth: true,
     });
 
-    expect(args.some((arg) => arg.startsWith("model_provider"))).toBe(false);
+    expect(args).toContain('model_provider="openai"');
+    expect(args).toContain('forced_login_method="chatgpt"');
+    expect(args).toContain('history.persistence="none"');
+    expect(args).toContain("mcp_servers={}");
+    expect(args).toContain("hooks={}");
+    expect(args).toContain("notify=[]");
+    expect(args).toContain('otel.exporter="none"');
+    expect(args).not.toContain('cli_auth_credentials_store="file"');
     expect(args.some((arg) => arg.includes("POSTHOG_GATEWAY_API_KEY"))).toBe(
       false,
     );
@@ -250,28 +257,46 @@ describe("spawnCodexAppServerProcess", () => {
     }
   });
 
-  it("sets POSTHOG_GATEWAY_API_KEY only when an apiKey is given", () => {
-    const saved = process.env.POSTHOG_GATEWAY_API_KEY;
-    delete process.env.POSTHOG_GATEWAY_API_KEY;
+  it("separates machine login variables from gateway login variables", () => {
+    const saved = {
+      access: process.env.CODEX_ACCESS_TOKEN,
+      gateway: process.env.POSTHOG_GATEWAY_API_KEY,
+      openai: process.env.OPENAI_API_KEY,
+      sqliteHome: process.env.CODEX_SQLITE_HOME,
+    };
+    process.env.CODEX_ACCESS_TOKEN = "old-access-token";
+    process.env.POSTHOG_GATEWAY_API_KEY = "old-gateway-key";
+    process.env.OPENAI_API_KEY = "old-openai-key";
     mockSpawn.mockReturnValue(fakeChild() as never);
     try {
       spawnCodexAppServerProcess({
         binaryPath: BINARY_PATH,
+        codexHome: "/appdata/codex/run-1",
+        useMachineAuth: true,
         logger: silentLogger,
       });
       const subscriptionEnv = mockSpawn.mock.lastCall?.[2]
         .env as NodeJS.ProcessEnv;
       expect(subscriptionEnv.POSTHOG_GATEWAY_API_KEY).toBeUndefined();
+      expect(subscriptionEnv.OPENAI_API_KEY).toBeUndefined();
+      expect(subscriptionEnv.CODEX_ACCESS_TOKEN).toBeUndefined();
+      expect(subscriptionEnv.CODEX_SQLITE_HOME).toBe("/appdata/codex/run-1");
 
       spawnCodexAppServerProcess({
         binaryPath: BINARY_PATH,
         apiKey: "phk",
+        codexHome: "/appdata/codex/run-2",
         logger: silentLogger,
       });
       const gatewayEnv = mockSpawn.mock.lastCall?.[2].env as NodeJS.ProcessEnv;
       expect(gatewayEnv.POSTHOG_GATEWAY_API_KEY).toBe("phk");
+      expect(gatewayEnv.CODEX_HOME).toBe("/appdata/codex/run-2");
+      expect(gatewayEnv.CODEX_SQLITE_HOME).toBe("/appdata/codex/run-2");
     } finally {
-      restoreEnv("POSTHOG_GATEWAY_API_KEY", saved);
+      restoreEnv("CODEX_ACCESS_TOKEN", saved.access);
+      restoreEnv("POSTHOG_GATEWAY_API_KEY", saved.gateway);
+      restoreEnv("OPENAI_API_KEY", saved.openai);
+      restoreEnv("CODEX_SQLITE_HOME", saved.sqliteHome);
     }
   });
 

@@ -1,3 +1,4 @@
+import type { ProcessSpawnedCallback } from "../../types";
 import type { Logger } from "../../utils/logger";
 import {
   nodeReadableToWebReadable,
@@ -9,137 +10,176 @@ import {
   APP_SERVER_NOTIFICATIONS,
   CODEX_CLIENT_INFO,
 } from "./protocol";
-import { spawnCodexAppServerProcess } from "./spawn";
+import {
+  type CodexAppServerProcess,
+  spawnCodexAppServerProcess,
+} from "./spawn";
 
 const LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
-const LOGIN_POLL_INTERVAL_MS = 2_000;
+const REQUEST_TIMEOUT_MS = 10_000;
+
+interface CodexAccountOptions {
+  binaryPath: string;
+  logger?: Logger;
+  processCallbacks?: ProcessSpawnedCallback;
+}
+
+interface CodexAccountClient {
+  process: CodexAppServerProcess;
+  rpc: AppServerRpc;
+  close: () => void;
+}
 
 export interface CodexLoginSession {
   authUrl: string;
-  /** True when an account is signed in; false on timeout, cancel, or exit. */
   completed: Promise<boolean>;
-  cancel: () => void;
+  cancel: () => Promise<void>;
 }
 
-// account/read is the stable auth check across codex versions.
-export async function waitForCodexAccount(
-  rpc: AppServerRpc,
-  options: {
-    pollIntervalMs?: number;
-    timeoutMs?: number;
-    signal?: AbortSignal;
-  } = {},
+export async function hasCodexChatgptLogin(
+  options: CodexAccountOptions,
 ): Promise<boolean> {
-  const pollIntervalMs = options.pollIntervalMs ?? LOGIN_POLL_INTERVAL_MS;
-  const timeoutMs = options.timeoutMs ?? LOGIN_TIMEOUT_MS;
-  const deadline = Date.now() + timeoutMs;
-
-  while (Date.now() < deadline && !options.signal?.aborted) {
-    try {
-      const result = await rpc.request<{ account?: unknown }>(
-        APP_SERVER_METHODS.ACCOUNT_READ,
-        {},
-      );
-      if (result?.account) return true;
-    } catch {
-      // The app-server exited or closed the stream.
-      return false;
-    }
-    await sleep(pollIntervalMs, options.signal);
-  }
-  return false;
-}
-
-// Sign-out revokes the token at the issuer (`account/logout`), which kills
-// every seeded copy of it, not just the store file. Codex clears the store
-// itself; failure here means only the server-side part did not happen.
-export async function signOutCodexChatgpt(options: {
-  binaryPath: string;
-  codexHome: string;
-  logger?: Logger;
-}): Promise<boolean> {
-  const proc = spawnCodexAppServerProcess({
-    binaryPath: options.binaryPath,
-    codexHome: options.codexHome,
-    logger: options.logger,
-  });
-  const rpc = new AppServerClient(
-    {
-      readable: nodeReadableToWebReadable(proc.stdout),
-      writable: nodeWritableToWebWritable(proc.stdin),
-    },
-    { logger: options.logger },
-  );
+  const client = openCodexAccountClient(options);
   try {
-    await rpc.request(APP_SERVER_METHODS.INITIALIZE, {
-      clientInfo: CODEX_CLIENT_INFO,
-    });
-    rpc.notify(APP_SERVER_NOTIFICATIONS.INITIALIZED, {});
-    await rpc.request(APP_SERVER_METHODS.ACCOUNT_LOGOUT, {});
-    return true;
-  } catch {
-    return false;
+    await initialize(client.rpc);
+    const result = await requestWithTimeout<{
+      account?: { type?: string } | null;
+    }>(client.rpc, APP_SERVER_METHODS.ACCOUNT_READ, { refreshToken: false });
+    return result.account?.type === "chatgpt";
   } finally {
-    void rpc.close();
-    proc.kill();
+    client.close();
   }
 }
 
-// The app-server hosts the OAuth callback. Keep it alive until `completed` settles.
-export async function startCodexChatgptLogin(options: {
-  binaryPath: string;
-  codexHome: string;
-  logger?: Logger;
-}): Promise<CodexLoginSession> {
-  const proc = spawnCodexAppServerProcess({
+export async function signOutCodexChatgpt(
+  options: CodexAccountOptions,
+): Promise<void> {
+  const client = openCodexAccountClient(options);
+  try {
+    await initialize(client.rpc);
+    await requestWithTimeout(client.rpc, APP_SERVER_METHODS.ACCOUNT_LOGOUT, {});
+  } finally {
+    client.close();
+  }
+}
+
+export async function startCodexChatgptLogin(
+  options: CodexAccountOptions,
+): Promise<CodexLoginSession> {
+  let loginId: string | undefined;
+  let settled = false;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let resolveCompleted: (value: boolean) => void = () => {};
+
+  const completed = new Promise<boolean>((resolve) => {
+    resolveCompleted = resolve;
+  });
+  const client = openCodexAccountClient(options, (method, params) => {
+    if (method !== APP_SERVER_NOTIFICATIONS.ACCOUNT_LOGIN_COMPLETED) return;
+    if (params === null || typeof params !== "object") return;
+    const completedLoginId = Reflect.get(params, "loginId");
+    const success = Reflect.get(params, "success");
+    if (typeof completedLoginId !== "string" || typeof success !== "boolean") {
+      return;
+    }
+    if (loginId !== undefined && completedLoginId !== loginId) return;
+    finish(success);
+  });
+
+  function finish(success: boolean): void {
+    if (settled) return;
+    settled = true;
+    if (timeout) clearTimeout(timeout);
+    resolveCompleted(success);
+    client.close();
+  }
+
+  client.process.process.once("exit", () => finish(false));
+
+  try {
+    await initialize(client.rpc);
+    const login = await requestWithTimeout<{
+      authUrl: string;
+      loginId: string;
+    }>(client.rpc, APP_SERVER_METHODS.ACCOUNT_LOGIN_START, {
+      type: "chatgpt",
+      useHostedLoginSuccessPage: true,
+      appBrand: "chatgpt",
+    });
+    loginId = login.loginId;
+    if (!settled) timeout = setTimeout(() => finish(false), LOGIN_TIMEOUT_MS);
+
+    return {
+      authUrl: login.authUrl,
+      completed,
+      cancel: async (): Promise<void> => {
+        if (settled) return;
+        await requestWithTimeout(
+          client.rpc,
+          APP_SERVER_METHODS.ACCOUNT_LOGIN_CANCEL,
+          { loginId },
+        ).catch(() => undefined);
+        finish(false);
+      },
+    };
+  } catch (error) {
+    finish(false);
+    throw error;
+  }
+}
+
+function openCodexAccountClient(
+  options: CodexAccountOptions,
+  onNotification?: (method: string, params: unknown) => void,
+): CodexAccountClient {
+  const process = spawnCodexAppServerProcess({
     binaryPath: options.binaryPath,
-    codexHome: options.codexHome,
     logger: options.logger,
+    processCallbacks: options.processCallbacks,
+    useMachineAuth: true,
   });
   const rpc = new AppServerClient(
     {
-      readable: nodeReadableToWebReadable(proc.stdout),
-      writable: nodeWritableToWebWritable(proc.stdin),
+      readable: nodeReadableToWebReadable(process.stdout),
+      writable: nodeWritableToWebWritable(process.stdin),
     },
-    { logger: options.logger },
+    { logger: options.logger, onNotification },
   );
-
-  const abort = new AbortController();
-  let disposed = false;
-  const dispose = () => {
-    if (disposed) return;
-    disposed = true;
-    abort.abort();
-    void rpc.close();
-    proc.kill();
+  let closed = false;
+  return {
+    process,
+    rpc,
+    close: (): void => {
+      if (closed) return;
+      closed = true;
+      void rpc.close();
+      process.kill();
+    },
   };
-
-  try {
-    await rpc.request(APP_SERVER_METHODS.INITIALIZE, {
-      clientInfo: CODEX_CLIENT_INFO,
-    });
-    rpc.notify(APP_SERVER_NOTIFICATIONS.INITIALIZED, {});
-    const login = await rpc.request<{ authUrl: string }>(
-      APP_SERVER_METHODS.ACCOUNT_LOGIN_START,
-      { type: "chatgpt" },
-    );
-    const completed = waitForCodexAccount(rpc, { signal: abort.signal });
-    void completed.finally(dispose);
-    return { authUrl: login.authUrl, completed, cancel: dispose };
-  } catch (err) {
-    dispose();
-    throw err;
-  }
 }
 
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(done, ms);
-    function done() {
-      signal?.removeEventListener("abort", done);
-      clearTimeout(timer);
-      resolve();
-    }
-    signal?.addEventListener("abort", done, { once: true });
+async function initialize(rpc: AppServerRpc): Promise<void> {
+  await requestWithTimeout(rpc, APP_SERVER_METHODS.INITIALIZE, {
+    clientInfo: CODEX_CLIENT_INFO,
   });
+  rpc.notify(APP_SERVER_NOTIFICATIONS.INITIALIZED, {});
+}
+
+async function requestWithTimeout<T = unknown>(
+  rpc: AppServerRpc,
+  method: string,
+  params: unknown,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error("The Codex account request timed out.")),
+      REQUEST_TIMEOUT_MS,
+    );
+  });
+  try {
+    return await Promise.race([rpc.request<T>(method, params), timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
