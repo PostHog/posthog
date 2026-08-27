@@ -242,7 +242,11 @@ export function GatewayAddServer({
               {isAdmin && (
                 <ToggleRow
                   title="Enabled for your organization"
-                  description="Anyone in your organization can find and use this server. Each person connects with their own account."
+                  description={
+                    values.teamEnabled
+                      ? "Anyone in your organization can find and use this server. Each person connects with their own account."
+                      : "This server is turned off for everyone in your organization."
+                  }
                   checked={values.teamEnabled}
                   onChange={(checked) => set("teamEnabled", checked)}
                 />
