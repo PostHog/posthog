@@ -23,6 +23,7 @@ import type {
     CommentApi,
     CommentSlackThreadApi,
     CommentsListParams,
+    DiagnosticReportApi,
     ListParams,
     MembersListParams,
     OrganizationAIAccessRequestResponseApi,
@@ -45,10 +46,13 @@ import type {
     PatchedOrganizationApi,
     PatchedOrganizationMemberApi,
     PatchedPinnedSceneTabsApi,
+    PatchedProxyRecordUpdateApi,
     PatchedRoleApi,
     PatchedUserFacetSettingsApi,
     PersonalApiKeysListParams,
     PinnedSceneTabsApi,
+    ProxyRecordApi,
+    ProxyRecordListResponseApi,
     RoleApi,
     RoleMembershipApi,
     RolesListParams,
@@ -361,6 +365,132 @@ export const personalApiKeysList = async (
     return apiMutator<PaginatedOrganizationPersonalAPIKeyListApi>(getPersonalApiKeysListUrl(organizationId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getProxyRecordsListUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/proxy_records/`
+}
+
+/**
+ * List all reverse proxies configured for the organization. Returns proxy records along with the maximum number allowed by the current plan.
+ */
+export const proxyRecordsList = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<ProxyRecordListResponseApi> => {
+    return apiMutator<ProxyRecordListResponseApi>(getProxyRecordsListUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getProxyRecordsCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/proxy_records/`
+}
+
+/**
+ * Create a new managed reverse proxy. Provide the domain you want to proxy through. The response includes the CNAME target you need to add as a DNS record. Once the CNAME is configured, the proxy will be automatically verified and provisioned.
+ */
+export const proxyRecordsCreate = async (
+    organizationId: string,
+    proxyRecordApi: NonReadonly<ProxyRecordApi>,
+    options?: RequestInit
+): Promise<ProxyRecordApi> => {
+    return apiMutator<ProxyRecordApi>(getProxyRecordsCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(proxyRecordApi),
+    })
+}
+
+export const getProxyRecordsRetrieveUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/proxy_records/${id}/`
+}
+
+/**
+ * Get details of a specific reverse proxy by ID. Returns the full configuration including domain, CNAME target, and current provisioning status.
+ */
+export const proxyRecordsRetrieve = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ProxyRecordApi> => {
+    return apiMutator<ProxyRecordApi>(getProxyRecordsRetrieveUrl(organizationId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getProxyRecordsPartialUpdateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/proxy_records/${id}/`
+}
+
+/**
+ * Set or clear the HTTPS redirect for requests to the managed proxy domain root.
+ */
+export const proxyRecordsPartialUpdate = async (
+    organizationId: string,
+    id: string,
+    patchedProxyRecordUpdateApi?: PatchedProxyRecordUpdateApi,
+    options?: RequestInit
+): Promise<ProxyRecordApi> => {
+    return apiMutator<ProxyRecordApi>(getProxyRecordsPartialUpdateUrl(organizationId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedProxyRecordUpdateApi),
+    })
+}
+
+export const getProxyRecordsDestroyUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/proxy_records/${id}/`
+}
+
+/**
+ * Delete a reverse proxy. For proxies in 'waiting', 'erroring', or 'timed_out' status, the record is deleted immediately. For active proxies, a deletion workflow is started to clean up the provisioned infrastructure.
+ */
+export const proxyRecordsDestroy = async (organizationId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getProxyRecordsDestroyUrl(organizationId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getProxyRecordsDiagnoseCreateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/proxy_records/${id}/diagnose/`
+}
+
+/**
+ * Run a deep diagnostic on a reverse proxy. Inspects DNS CNAME alignment, the certificate provider's hostname state, CAA records walked up the customer's DNS tree, HTTP-01 challenge reachability, a live event probe, and certificate expiry. Returns a structured report with each check's status and concrete remediation steps (e.g. exact DNS records to add). Use this to debug why a proxy is stuck or erroring.
+ */
+export const proxyRecordsDiagnoseCreate = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DiagnosticReportApi> => {
+    return apiMutator<DiagnosticReportApi>(getProxyRecordsDiagnoseCreateUrl(organizationId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getProxyRecordsRetryCreateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/proxy_records/${id}/retry/`
+}
+
+/**
+ * Retry provisioning a failed reverse proxy. Only available for proxies in 'erroring' or 'timed_out' status. Resets the proxy to 'waiting' status and restarts the provisioning workflow.
+ */
+export const proxyRecordsRetryCreate = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ProxyRecordApi> => {
+    return apiMutator<ProxyRecordApi>(getProxyRecordsRetryCreateUrl(organizationId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
