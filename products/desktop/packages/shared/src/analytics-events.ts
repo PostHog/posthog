@@ -275,6 +275,7 @@ export type SidebarNavItem =
   | "command_center"
   | "contexts"
   | "activity"
+  | "canvases"
   | "configure"
   | "loops"
   | "more";
@@ -976,7 +977,8 @@ export type ChannelsSurface =
   | "context"
   | "thread_panel"
   | "activity_panel"
-  | "activity";
+  | "activity"
+  | "canvases_pane";
 
 export type ChannelActionType =
   | "enter_space"
