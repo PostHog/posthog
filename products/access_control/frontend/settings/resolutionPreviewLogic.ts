@@ -79,6 +79,7 @@ export const resolutionPreviewLogic = kea<resolutionPreviewLogicType>([
             null as ResolutionPreviewResponse | null,
             {
                 loadPreview: async () =>
+                    // nosemgrep: prefer-codegen-api — the endpoint is excluded from the OpenAPI schema (temporary migration surface), so no generated client exists
                     await api.get<ResolutionPreviewResponse>('api/projects/@current/access_control_resolution_preview'),
             },
         ],
