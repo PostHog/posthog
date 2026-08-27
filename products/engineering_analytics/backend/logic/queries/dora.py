@@ -81,40 +81,45 @@ _DEPLOYS_CTE = """
     )
 """
 
-_HEADLINE_SELECT = """
-    SELECT
-        countIf(first_success_at IS NOT NULL AND __CUR_SUCCESS__) AS deployment_count,
-        countIf(first_success_at IS NOT NULL AND __PREV_SUCCESS__) AS deployment_count_prev,
-        countIf(first_failure_at IS NOT NULL AND __CUR_FAILURE__) AS failed_count,
-        countIf(first_failure_at IS NOT NULL AND __PREV_FAILURE__) AS failed_count_prev,
-        countIf((first_success_at IS NOT NULL AND __CUR_SUCCESS__)
-            OR (first_failure_at IS NOT NULL AND __CUR_FAILURE__)) AS outcome_count,
-        countIf((first_success_at IS NOT NULL AND __PREV_SUCCESS__)
-            OR (first_failure_at IS NOT NULL AND __PREV_FAILURE__)) AS outcome_count_prev
-    FROM deploys
-"""
-
-# Recovery per failed deployment: the next successful deployment in the SAME environment. The
-# self-join fans out and the min collapses it back to one row per failure; deploy tables are small
-# (per-repo, windowed) so the quadratic pairing stays cheap. __DATE_TO_RECOVERY__ bounds the
-# recovery to the requested horizon, so a historical report's "no recovery" doesn't flip to
-# recovered once a later, out-of-range deployment succeeds.
-_RESTORE_SELECT = """
-    SELECT
-        quantileIf(0.5)(recovery_seconds, __CUR_FAILURE__) AS median_cur,
-        quantileIf(0.5)(recovery_seconds, __PREV_FAILURE__) AS median_prev
-    FROM (
+# Outcome counts and the restore proxy in ONE round trip: both halves aggregate the same deploys
+# rollup to a single row each, so the CROSS JOIN just glues the two rows side by side and the CTE
+# is scanned once instead of twice.
+#
+# The restore half measures recovery per failed deployment: the next successful deployment in the
+# SAME environment. The self-join fans out and the min collapses it back to one row per failure;
+# deploy tables are small (per-repo, windowed) so the quadratic pairing stays cheap.
+# __DATE_TO_RECOVERY__ bounds the recovery to the requested horizon, so a historical report's
+# "no recovery" doesn't flip to recovered once a later, out-of-range deployment succeeds.
+_OUTCOMES_SELECT = """
+    SELECT * FROM (
         SELECT
-            f.first_failure_at AS first_failure_at,
-            dateDiff('second', f.first_failure_at, min(r.first_success_at)) AS recovery_seconds
-        FROM deploys AS f
-        INNER JOIN deploys AS r ON r.environment = f.environment
-        WHERE f.first_failure_at IS NOT NULL
-            AND r.first_success_at IS NOT NULL
-            AND r.first_success_at >= f.first_failure_at
-            __DATE_TO_RECOVERY__
-        GROUP BY f.id, f.first_failure_at
-    )
+            countIf(first_success_at IS NOT NULL AND __CUR_SUCCESS__) AS deployment_count,
+            countIf(first_success_at IS NOT NULL AND __PREV_SUCCESS__) AS deployment_count_prev,
+            countIf(first_failure_at IS NOT NULL AND __CUR_FAILURE__) AS failed_count,
+            countIf(first_failure_at IS NOT NULL AND __PREV_FAILURE__) AS failed_count_prev,
+            countIf((first_success_at IS NOT NULL AND __CUR_SUCCESS__)
+                OR (first_failure_at IS NOT NULL AND __CUR_FAILURE__)) AS outcome_count,
+            countIf((first_success_at IS NOT NULL AND __PREV_SUCCESS__)
+                OR (first_failure_at IS NOT NULL AND __PREV_FAILURE__)) AS outcome_count_prev
+        FROM deploys
+    ) AS outcomes
+    CROSS JOIN (
+        SELECT
+            quantileIf(0.5)(recovery_seconds, __CUR_FAILURE__) AS restore_median_cur,
+            quantileIf(0.5)(recovery_seconds, __PREV_FAILURE__) AS restore_median_prev
+        FROM (
+            SELECT
+                f.first_failure_at AS first_failure_at,
+                dateDiff('second', f.first_failure_at, min(r.first_success_at)) AS recovery_seconds
+            FROM deploys AS f
+            INNER JOIN deploys AS r ON r.environment = f.environment
+            WHERE f.first_failure_at IS NOT NULL
+                AND r.first_success_at IS NOT NULL
+                AND r.first_success_at >= f.first_failure_at
+                __DATE_TO_RECOVERY__
+            GROUP BY f.id, f.first_failure_at
+        )
+    ) AS restore
 """
 
 _FREQUENCY_SERIES_SELECT = """
@@ -213,14 +218,6 @@ class _EnvironmentScope:
 
 
 @frozen
-class _CurPrev:
-    """One optional metric over the current window and its previous-window twin."""
-
-    current: float | None
-    previous: float | None
-
-
-@frozen
 class _DoraScan:
     """One request's bound scan state — the curated handle, the environment-scoped deploys CTE,
     the shared placeholder registry, and the window — composed by every deploy sub-query."""
@@ -292,7 +289,8 @@ def _empty_overview(
 
 @frozen
 class _DeployOutcomes:
-    """Deploy outcome counts over the window pair, straight off the deploys rollup."""
+    """Deploy outcome counts and the restore-proxy medians over the window pair, straight off
+    the deploys rollup."""
 
     deployment_count: int
     deployment_count_prev: int
@@ -300,6 +298,9 @@ class _DeployOutcomes:
     failed_count_prev: int
     outcome_count: int
     outcome_count_prev: int
+    # Median failed-deploy-to-next-success seconds (the restore proxy); None when nothing recovered.
+    restore_median_seconds: float | None
+    restore_median_seconds_prev: float | None
 
     @property
     def failed_share(self) -> float | None:
@@ -314,14 +315,15 @@ def _query_deploy_outcomes(scan: _DoraScan) -> _DeployOutcomes:
     success = window_pair_predicates("first_success_at", date_to=scan.date_to)
     failure = window_pair_predicates("first_failure_at", date_to=scan.date_to)
     sql = f"WITH {scan.deploys_cte} " + (
-        _HEADLINE_SELECT.replace("__CUR_SUCCESS__", success.current)
+        _OUTCOMES_SELECT.replace("__CUR_SUCCESS__", success.current)
         .replace("__PREV_SUCCESS__", success.previous)
         .replace("__CUR_FAILURE__", failure.current)
         .replace("__PREV_FAILURE__", failure.previous)
+        .replace("__DATE_TO_RECOVERY__", scan.date_to_filter("r.first_success_at"))
     )
     response = scan.run(sql, query_type="engineering_analytics.dora_deploys")
-    deploy_count, deploy_count_prev, failed, failed_prev, outcome, outcome_prev = (
-        response.results[0] if response.results else (0, 0, 0, 0, 0, 0)
+    deploy_count, deploy_count_prev, failed, failed_prev, outcome, outcome_prev, restore_cur, restore_prev = (
+        response.results[0] if response.results else (0, 0, 0, 0, 0, 0, None, None)
     )
     return _DeployOutcomes(
         deployment_count=int(deploy_count or 0),
@@ -330,20 +332,9 @@ def _query_deploy_outcomes(scan: _DoraScan) -> _DeployOutcomes:
         failed_count_prev=int(failed_prev or 0),
         outcome_count=int(outcome or 0),
         outcome_count_prev=int(outcome_prev or 0),
+        restore_median_seconds=opt_float(restore_cur),
+        restore_median_seconds_prev=opt_float(restore_prev),
     )
-
-
-def _query_restore(scan: _DoraScan) -> _CurPrev:
-    """Median failed-deploy-to-next-success seconds over the window pair (the restore proxy)."""
-    failure = window_pair_predicates("first_failure_at", date_to=scan.date_to)
-    sql = f"WITH {scan.deploys_cte} " + (
-        _RESTORE_SELECT.replace("__CUR_FAILURE__", failure.current)
-        .replace("__PREV_FAILURE__", failure.previous)
-        .replace("__DATE_TO_RECOVERY__", scan.date_to_filter("r.first_success_at"))
-    )
-    response = scan.run(sql, query_type="engineering_analytics.dora_restore")
-    current, previous = response.results[0] if response.results else (None, None)
-    return _CurPrev(current=opt_float(current), previous=opt_float(previous))
 
 
 def _query_frequency_series(scan: _DoraScan) -> list[DeploymentFrequencyBucket]:
@@ -426,13 +417,12 @@ def query_dora_overview(
     github_team: str | None = None,
 ) -> DoraOverview:
     granularity = pick_granularity(date_from, date_to)
-    deployments_source = curated.deployments_source()
-    statuses_source = curated.deployment_statuses_source()
+    deploy_sources = curated.deploy_sources()
     members_source = curated.members_source()
     has_membership_data = members_source is not None
     github_teams = _query_github_teams(curated, members_source)
 
-    if deployments_source is None or statuses_source is None:
+    if deploy_sources is None:
         return _empty_overview(
             deploy_data_available=False,
             environment_scope=environment or "persistent",
@@ -455,6 +445,7 @@ def query_dora_overview(
     if date_to is not None:
         placeholders["date_to"] = ast.Constant(value=date_to)
 
+    deployments_source, statuses_source = deploy_sources
     environments = _query_environments(
         curated,
         deployments_source,
@@ -478,7 +469,6 @@ def query_dora_overview(
         granularity=granularity,
     )
     outcomes = _query_deploy_outcomes(scan)
-    restore = _query_restore(scan)
     lead = _query_lead_time(scan, github_team=github_team, members_source=members_source)
 
     return DoraOverview(
@@ -501,8 +491,8 @@ def query_dora_overview(
         failed_deployment_count_prev=outcomes.failed_count_prev,
         failed_deployment_share=outcomes.failed_share,
         failed_deployment_share_prev=outcomes.failed_share_prev,
-        median_failed_deploy_to_next_success_seconds=restore.current,
-        median_failed_deploy_to_next_success_seconds_prev=restore.previous,
+        median_failed_deploy_to_next_success_seconds=outcomes.restore_median_seconds,
+        median_failed_deploy_to_next_success_seconds_prev=outcomes.restore_median_seconds_prev,
         deployment_frequency_series=_query_frequency_series(scan),
         merge_to_deploy_series=lead.series,
         series_granularity=granularity,

@@ -93,13 +93,13 @@ Shortening ready-for-review-to-merge is the headline metric this serves.
 
 ## The data boundary
 
-| Question                                                                     | Substrate                                                            |
-| ---------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| CI and job durations, queue time, cost, failure logs, flaky and broken tests | Warehouse + Logs + Traces                                            |
-| Open to merge time (coarse: `open_to_merge_seconds`)                         | PR snapshot                                                          |
-| Ready to merge time (`ready_to_merge_seconds`), draft/ready transitions      | Warehouse `github_issue_events` (bounded window, grows forward)      |
-| Time-in-review, approvals                                                    | PR lifecycle events (webhooks to events, PR as group type): deferred |
-| Deploys and DORA                                                             | Warehouse `github_deployments` + `github_deployment_statuses`        |
+| Question                                                                     | Substrate                                                                         |
+| ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| CI and job durations, queue time, cost, failure logs, flaky and broken tests | Warehouse + Logs + Traces                                                         |
+| Open to merge time (coarse: `open_to_merge_seconds`)                         | PR snapshot                                                                       |
+| Ready to merge time (`ready_to_merge_seconds`), draft/ready transitions      | Warehouse `github_issue_events` (bounded window, grows forward)                   |
+| Time-in-review, approvals                                                    | Warehouse `github_reviews` (synced; reads deferred until a wedge tool needs them) |
+| Deploys and DORA                                                             | Warehouse `github_deployments` + `github_deployment_statuses`                     |
 
 The warehouse snapshots overwrite state on update, so transition timing is unrecoverable from them.
 Immutable lifecycle events are the only thing the deferred events destination is for.

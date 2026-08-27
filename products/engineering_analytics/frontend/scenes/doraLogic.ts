@@ -11,9 +11,6 @@ import { engineeringAnalyticsLogic, formatBucket, type WorkflowGranularity } fro
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
-const bucketLabel = (bucketStart: string, granularity: string): string =>
-    formatBucket(bucketStart, granularity as WorkflowGranularity)
-
 export interface DoraScopeOption {
     value: string | null
     label: string
@@ -148,7 +145,10 @@ export const doraLogic = kea<doraLogicType>([
             (s) => [s.dora],
             (dora: DoraOverviewApi | null): BoxPlotBucket[] =>
                 (dora?.merge_to_deploy_series ?? []).map((bucket) => ({
-                    label: bucketLabel(bucket.bucket_start, dora?.series_granularity ?? 'day'),
+                    label: formatBucket(
+                        bucket.bucket_start,
+                        (dora?.series_granularity ?? 'day') as WorkflowGranularity
+                    ),
                     count: bucket.deployed_pr_count,
                     minSeconds: bucket.min_seconds,
                     p25Seconds: bucket.p25_seconds,
