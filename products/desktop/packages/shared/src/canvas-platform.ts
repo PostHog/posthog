@@ -98,16 +98,14 @@ export const CANVAS_PLATFORM_MANIFEST = {
   },
 } as const;
 
-// The platform-provided canvas SDK: `import { ph } from "@posthog/canvas-sdk"`.
-// Not a CDN dependency — the cloud builder inlines the module at build time and
-// the preview sandbox rewrites the import to a blob module, so it has no
-// import-map entry or per-dependency version pin (the project-wide
-// canvasSdkVersion governs it).
+// The platform-provided canvas SDK. It carries no CDN pin because neither tier
+// fetches it: the builder inlines the module and the preview sandbox serves it
+// from a blob, so the project-wide canvasSdkVersion governs it.
 export const CANVAS_SDK_SPECIFIER = "@posthog/canvas-sdk";
 
-// Vendored from products/canvas/packages/canvas_builder/canvas-sdk.mjs (the
-// builder's inlined copy), comments elided. When that file changes, update
-// this constant to match — same convention as the manifest above.
+// Vendored from products/canvas/packages/canvas_builder/canvas-sdk.mjs with its
+// comments elided. Copied rather than imported because the builder ships inside
+// its own build image and cannot reach this workspace.
 export const CANVAS_SDK_MODULE_SOURCE = `export const ph = globalThis.ph
 export default globalThis.ph
 `;

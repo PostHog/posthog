@@ -12,10 +12,11 @@ description: >
 # Querying canvas data
 
 The `ph` bridge is the only way a canvas talks to PostHog. Import it with
-`import { ph } from "@posthog/canvas-sdk"` (preferred; typed surface in
-`products/canvas/packages/canvas_builder/canvas-sdk.d.ts`) — the same object is also installed as
-the `window.ph` global, which existing canvases use. Never initialize it: credentials stay in the
-host, and `fetch()`, posthog-js, and hand-rolled clients cannot reach PostHog from the sandbox.
+`import { ph } from "@posthog/canvas-sdk"` — a platform-provided module, so it needs no
+`dependencies` entry. The same object is also installed as the `window.ph` global, which existing
+canvases use; prefer the import in new code. Its typed surface is
+[references/canvas-sdk.d.ts](references/canvas-sdk.d.ts). Never initialize it: credentials stay in
+the host, and `fetch()`, posthog-js, and hand-rolled clients cannot reach PostHog from the sandbox.
 External requests and resources require a non-PostHog origin declared in
 `capabilities.network.origins`, and work only in the published canvas — the edit-mode preview
 blocks all direct network access. This includes external stylesheets; remote scripts remain

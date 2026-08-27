@@ -12,7 +12,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.canvas.backend.build_service import node_executable, run_cloud_builder, validate_builder_output
-from products.canvas.backend.contract import allowed_import_specifiers, platform_dependencies
+from products.canvas.backend.contract import allowed_import_specifiers, canvas_sdk_version, platform_dependencies
 from products.canvas.backend.presentation.serializers import CanvasSourceProjectSerializer
 from products.canvas.backend.source import synthetic_source_project, validate_source_project
 
@@ -78,7 +78,7 @@ class TestCanvasCloudBuilder(SimpleTestCase):
             },
             "entryHtml": "index.html",
             "dependencies": {},
-            "canvasSdkVersion": "0.1.0",
+            "canvasSdkVersion": canvas_sdk_version(),
         }
 
     def test_builds_vanilla_typescript_with_the_shared_contract(self) -> None:
@@ -121,28 +121,26 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         javascript = "\n".join(file["content"] for file in result["files"] if file["path"].endswith(".js"))
         self.assertIn("globalThis.ph", javascript)
 
-    def test_builds_sources_persisted_before_the_sdk_version_bump(self) -> None:
+    @parameterized.expand(
+        [
+            ("persisted_before_the_bump", "0.1.0", "ready", []),
+            ("never_issued", "0.0.1", "failed", ["unsupported_sdk"]),
+        ]
+    )
+    def test_sdk_version_admission(
+        self, _name: str, version: str, expected_status: str, expected_codes: list[str]
+    ) -> None:
         # Stored sources keep the canvasSdkVersion they were scaffolded with, so
         # every version the platform ever issued must keep building.
         payload = {
-            **synthetic_source_project('import React from "react"; export default () => <div>old</div>'),
-            "canvasSdkVersion": "0.1.0",
-        }
-
-        result = run_cloud_builder(payload)
-
-        self.assertEqual(result["status"], "ready", result["diagnostics"])
-
-    def test_rejects_an_unsupported_sdk_version(self) -> None:
-        payload = {
             **synthetic_source_project('import React from "react"; export default () => <div/>'),
-            "canvasSdkVersion": "0.0.1",
+            "canvasSdkVersion": version,
         }
 
         result = run_cloud_builder(payload)
 
-        self.assertEqual(result["status"], "failed")
-        self.assertEqual([entry["code"] for entry in result["diagnostics"]], ["unsupported_sdk"])
+        self.assertEqual(result["status"], expected_status, result["diagnostics"])
+        self.assertEqual([entry["code"] for entry in result["diagnostics"]], expected_codes)
 
     def test_runtime_uses_the_document_bound_message_port(self) -> None:
         result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))

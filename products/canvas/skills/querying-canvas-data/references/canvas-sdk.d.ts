@@ -1,15 +1,17 @@
-// Typed surface of `@posthog/canvas-sdk` — the documented contract of the `ph`
-// bridge for canvas authors and authoring agents. The implementation is
-// canvas-sdk.mjs (a facade over the runtime-installed `window.ph`); the methods
-// here are served by the host over postMessage, so this file describes the
-// protocol, it does not implement it.
+// Typed surface of `@posthog/canvas-sdk`, the `ph` bridge, for canvas authors
+// and authoring agents. Reference only: nothing type-checks against it, and the
+// methods are served by the host over postMessage, so this describes the
+// protocol rather than implementing it. The implementation is
+// products/canvas/packages/canvas_builder/canvas-sdk.mjs.
 //
-// The host enforces `project.capabilities` at runtime for published canvases:
-// every insight short id, capture event name, state scope, and action verb a
-// canvas uses must be declared, and `inlineQueries: true` is required for
-// ad-hoc `ph.query` use.
+// A published canvas is held to `project.capabilities` at runtime: every insight
+// short id, capture event name, state scope, and action verb must be declared,
+// and ad-hoc `ph.query` needs `inlineQueries: true`.
 
-/** One trends-style series from an insight query (`results` when `columns` is empty). */
+/**
+ * One trends-style series. `ph.loadInsight` and a typed query node return these
+ * as `results` (see CanvasDataResult), so cast when you know the query kind.
+ */
 export interface CanvasSeriesResult {
     /** Per-interval values, aligned with `days`. */
     data: number[]
@@ -17,7 +19,7 @@ export interface CanvasSeriesResult {
     days: string[]
     /** Human labels for each interval. */
     labels: string[]
-    /** Sum across the window — the usual KPI total. */
+    /** Sum across the window, which is the usual KPI total. */
     count?: number
     /** Single-value total for aggregated displays. */
     aggregated_value?: number
@@ -28,15 +30,16 @@ export interface CanvasSeriesResult {
 }
 
 /**
- * Result of `ph.loadInsight` and `ph.query`. Two shapes share it:
- * - Trends-style (insight query types): `results` is `CanvasSeriesResult[]`
- *   and `columns` is empty.
- * - SQL: `results` is an array of rows (each an array of cell values in
- *   `columns` order).
+ * Result of `ph.loadInsight` and `ph.query`. The element shape depends on the
+ * query kind, which is why `results` is not narrowed here:
+ * - Trends-style (typed insight nodes): series objects, so cast to
+ *   `CanvasSeriesResult[]`. `columns` is empty.
+ * - SQL: rows, each an array of cell values in `columns` order.
+ * Funnels, retention, and paths return their own PostHog-native shapes.
  */
 export interface CanvasDataResult {
     columns: string[]
-    results: CanvasSeriesResult[] | unknown[][]
+    results: unknown[]
 }
 
 export interface CanvasDateRange {
@@ -84,22 +87,28 @@ export interface CanvasState {
 
 export interface CanvasActions {
     /**
-     * Write into PostHog as the viewer. Every verb must be declared in
-     * `capabilities.posthog.actions`; wire invocations to explicit user gestures
-     * (a button), never to load or render.
+     * Write into PostHog as the viewer; the result shape depends on the verb.
+     * Every verb must be declared in `capabilities.posthog.actions`, and calls
+     * belong on an explicit user gesture (a button), never on load or render.
      */
     invoke(verb: string, payload?: Record<string, unknown>): Promise<unknown>
+}
+
+export interface CanvasAgentRequestResult {
+    requestOutcome: 'signaled' | 'new_run' | 'already_queued' | 'reported'
+    taskId: string
 }
 
 export interface CanvasAgent {
     /**
      * Ask the canvas's authoring agent for a change. The host shows the exact
      * prompt and asks the viewer to approve before anything is dispatched.
+     * Requires `capabilities.posthog.agentRequests`.
      */
-    request(prompt: string): Promise<unknown>
+    request(prompt: string): Promise<CanvasAgentRequestResult>
 }
 
-/** In-app navigation. Only these four targets exist; available in the preview runtime. */
+/** In-app navigation. Only these four targets exist. */
 export interface CanvasNavigate {
     toTask(taskId: string): void
     toNewTask(): void
@@ -114,7 +123,7 @@ export interface CanvasSdk {
      */
     loadInsight(shortId: string, options?: CanvasLoadInsightOptions): Promise<CanvasDataResult>
     /**
-     * Run a typed query node (`{ kind: "TrendsQuery", … }`, preferred — numbers
+     * Run a typed query node (`{ kind: "TrendsQuery", … }`, preferred, because numbers
      * match the PostHog UI) or an inline HogQL string (escape hatch). Requires
      * `capabilities.posthog.inlineQueries` in a published canvas.
      */
@@ -128,7 +137,7 @@ export interface CanvasSdk {
      * each event name in `capabilities.posthog.captureEvents`.
      */
     capture(event: string, properties?: Record<string, unknown>, distinctId?: string): Promise<{ ok: boolean }>
-    /** Open a PostHog URL externally — https://posthog.com / *.posthog.com only. */
+    /** Open a PostHog URL externally. https://posthog.com / *.posthog.com only. */
     openExternal(url: string): void
     state: CanvasState
     actions: CanvasActions
@@ -142,7 +151,10 @@ export interface CanvasSdk {
     navigate?: CanvasNavigate
 }
 
-/** The canvas's PostHog bridge — same object as the `window.ph` global. */
+/**
+ * The canvas's PostHog bridge, the same object as the `window.ph` global. Both
+ * are installed on the document, so a `?worker` bundle cannot reach them.
+ */
 export declare const ph: CanvasSdk
 declare const defaultPh: CanvasSdk
 export default defaultPh

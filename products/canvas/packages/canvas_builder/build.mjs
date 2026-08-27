@@ -16,10 +16,8 @@ const admitted = Object.fromEntries(
 )
 const runtimeImports = contract.runtimeImports
 const csp = contract.csp
-// `@posthog/canvas-sdk` is platform-provided, not an npm dependency: the bare
-// import is inlined from this source at build time (the preview sandbox does
-// the same from its vendored copy), and its version is governed by the
-// project-wide canvasSdkVersion rather than a per-dependency pin.
+// Platform-provided, so it is inlined here rather than admitted as a pinned
+// dependency; the preview sandbox serves the same source from a blob.
 const canvasSdkSpecifier = '@posthog/canvas-sdk'
 const canvasSdkModule = readFileSync(new URL('./canvas-sdk.mjs', import.meta.url), 'utf8')
 const builderDirectory = path.dirname(fileURLToPath(import.meta.url))
@@ -343,9 +341,8 @@ async function buildPlatformStyles(project) {
 function validate(project) {
     const diagnostics = []
     // Sources persist the SDK version they were authored against, so every
-    // version ever scaffolded must keep building — the list only grows.
-    const supportedSdkVersions = contract.supportedSdkVersions ?? [contract.canvasSdkVersion]
-    if (!supportedSdkVersions.includes(project.canvasSdkVersion)) {
+    // version ever scaffolded must keep building, so the list only grows.
+    if (!contract.supportedSdkVersions.includes(project.canvasSdkVersion)) {
         diagnostics.push(diagnostic('unsupported_sdk', 'Canvas SDK version is unavailable'))
     }
     for (const [name, version] of Object.entries(project.dependencies ?? {})) {

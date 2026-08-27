@@ -1,9 +1,6 @@
-import {
-  CANVAS_PLATFORM_MANIFEST,
-  CANVAS_SDK_SPECIFIER,
-} from "@posthog/shared";
+import { CANVAS_PLATFORM_MANIFEST } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
-import { checkFreeformImports, FREEFORM_WHITELIST } from "./freeformWhitelist";
+import { FREEFORM_WHITELIST } from "./freeformWhitelist";
 
 function isSubpathSpecifier(name: string): boolean {
   const segments = name.split("/");
@@ -28,17 +25,39 @@ describe("freeform whitelist ↔ platform dependency registry", () => {
     expect(whitelist).toEqual(registry);
   });
 
-  // The canvas SDK has no import-map entry (the sandbox and builder inline it),
-  // so it must be admitted by BOTH the client import check and the vendored
-  // platform contract — one without the other means a canvas that previews
-  // fails to publish, or the reverse.
-  it("admits the canvas SDK specifier on both sides", () => {
-    expect(CANVAS_PLATFORM_MANIFEST.allowedImportSpecifiers).toContain(
-      CANVAS_SDK_SPECIFIER,
+  // CANVAS_PLATFORM_MANIFEST is a hand-vendored copy of the builder's
+  // manifest.json, so it can silently fall behind. Drift in the fields below
+  // ships, because the client reads them: admit an import specifier or bump the
+  // SDK version server-side without copying it here, and a canvas previews
+  // against one contract but publishes against another. `csp` and `limits` are
+  // vendored but unread, and are deliberately left out of this comparison.
+  it("matches the builder's manifest on the fields the client reads", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const manifest = JSON.parse(
+      await readFile(
+        new URL(
+          "../../../../../canvas/packages/canvas_builder/manifest.json",
+          import.meta.url,
+        ).pathname,
+        "utf8",
+      ),
     );
-    expect(
-      checkFreeformImports(`import { ph } from "${CANVAS_SDK_SPECIFIER}";`).ok,
-    ).toBe(true);
+
+    expect(CANVAS_PLATFORM_MANIFEST.canvasSdkVersion).toEqual(
+      manifest.canvasSdkVersion,
+    );
+    expect(CANVAS_PLATFORM_MANIFEST.supportedSdkVersions).toEqual(
+      manifest.supportedSdkVersions,
+    );
+    expect(CANVAS_PLATFORM_MANIFEST.allowedImportSpecifiers).toEqual(
+      manifest.allowedImportSpecifiers,
+    );
+    expect(CANVAS_PLATFORM_MANIFEST.dependencies).toEqual(
+      manifest.dependencies,
+    );
+    expect(CANVAS_PLATFORM_MANIFEST.runtimeImports).toEqual(
+      manifest.runtimeImports,
+    );
   });
 
   it("covers every whitelisted subpath specifier with a runtime import", () => {
