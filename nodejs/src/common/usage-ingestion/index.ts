@@ -58,9 +58,10 @@ export function createUsageIngestionClient(
 }
 
 /**
- * The batch every event pipeline bills through. Shared so a new pipeline host cannot
- * half-wire it: a client built without an address reports nothing, and that silence is
- * indistinguishable from a working collector with no traffic.
+ * The batch every event pipeline bills through, one per batch and one client per process,
+ * because each client owns a transport. Shared so a new pipeline host cannot half-wire it:
+ * a client built without an address reports nothing, and that silence is indistinguishable
+ * from a working collector with no traffic.
  *
  * `events` is the unit the meters an event pipeline bills share; a record for a meter
  * counted in something else passes its own unit to {@link UsageRecordBatch.add}.
