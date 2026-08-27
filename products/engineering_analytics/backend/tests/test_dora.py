@@ -273,6 +273,31 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         assert result.environments == ["prod-us"]
         assert result.deployment_count == 1
 
+    def test_deploy_scan_slack_bounds_prewindow_deployments(self):
+        # A deployment created before the scan window still counts when its success lands inside
+        # it, up to the 7-day slack; beyond the slack it is excluded even with an in-window success.
+        curated = self._curated(
+            self.team,
+            deployment_rows=[
+                # Created 3 days before prev_from (2025-12-31): inside the slack.
+                _deployment_row(1, "sha-a", "prod", "2025-12-28 09:00:00", production=True),
+                # Created 9 days before prev_from: outside the slack, excluded from every read.
+                _deployment_row(2, "sha-b", "prod", "2025-12-22 09:00:00", production=True),
+            ],
+            status_rows=[
+                _status_row(11, 1, "success", "prod", "2026-01-12 10:00:00"),
+                _status_row(21, 2, "success", "prod", "2026-01-13 10:00:00"),
+            ],
+            pr_rows=[_pr_row(1, "alice", "open", 0, "2026-01-11 08:00:00")],
+        )
+        result = query_dora_overview(
+            curated=curated,
+            date_from=datetime(2026, 1, 10, tzinfo=UTC),
+            date_to=datetime(2026, 1, 20, tzinfo=UTC),
+        )
+
+        assert result.deployment_count == 1
+
     def test_exact_environment_scope(self):
         curated = self._seeded_curated(member_rows=None)
         result = query_dora_overview(
