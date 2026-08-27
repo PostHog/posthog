@@ -35,7 +35,6 @@ import {
     confirmDeleteExperiment,
 } from 'scenes/experiments/experimentActions'
 import { getExperimentStatus } from 'scenes/experiments/experimentStatus'
-import { ExperimentVelocityStats } from 'scenes/experiments/ExperimentVelocityStats'
 import MaxTool from 'scenes/max/MaxTool'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -57,6 +56,7 @@ import {
     ExperimentsTabs,
 } from '~/types'
 
+import { ExperimentVelocityStats } from 'products/experiments/frontend/components/ExperimentVelocityStats'
 import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
 import { experimentsEmptyState } from 'products/experiments/frontend/emptyState/experimentsEmptyState'
 /**
