@@ -12,7 +12,12 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.exports.types import ExportAssetActivityInputs, ExportAssetResult
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.exports.backend.tasks.failure_handler import SYSTEM_ERROR_NAMES, TIMEOUT_ERROR_NAMES, ExportCancelled
+from products.exports.backend.tasks.failure_handler import (
+    SYSTEM_ERROR_NAMES,
+    TIMEOUT_ERROR_NAMES,
+    ExportCancelled,
+    export_slo_failure_details,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -62,6 +67,7 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
             raise ApplicationError(
                 truncate_for_temporal_payload(str(e), MAX_ERROR_MESSAGE_CHARS),
                 truncate_for_temporal_payload(error_trace, MAX_ERROR_TRACE_CHARS),
+                export_slo_failure_details(e),
                 type=exception_class,
                 non_retryable=exception_class not in RETRYABLE_ERROR_NAMES,
             ) from e

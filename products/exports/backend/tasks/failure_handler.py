@@ -56,6 +56,23 @@ FAILURE_TYPE_RENDERER_UNKNOWN = "renderer_unknown"
 FAILURE_TYPE_OTHER = "other"
 FAILURE_TYPE_UNKNOWN = "unknown"
 
+# Low-cardinality dimensions for SLO events. Keep these stable: they are intended
+# for breakdowns and alerts, unlike exception messages or stack traces.
+SLO_FAILURE_CATEGORY_RENDERER_RATE_LIMITED = "renderer_rate_limited"
+SLO_FAILURE_CATEGORY_RENDERER_UNAVAILABLE = "renderer_unavailable"
+SLO_FAILURE_CATEGORY_RENDERER_TIMEOUT = "renderer_timeout"
+SLO_FAILURE_CATEGORY_QUERY = "query"
+SLO_FAILURE_CATEGORY_QUERY_CAPACITY = "query_capacity"
+SLO_FAILURE_CATEGORY_STORAGE = "storage"
+SLO_FAILURE_CATEGORY_TRANSIENT_DEPENDENCY = "transient_dependency"
+SLO_FAILURE_CATEGORY_APPLICATION = "application"
+
+SLO_FAILURE_COMPONENT_BROWSERLESS = "browserless"
+SLO_FAILURE_COMPONENT_QUERY = "query"
+SLO_FAILURE_COMPONENT_STORAGE = "object_storage"
+SLO_FAILURE_COMPONENT_DEPENDENCY = "dependency"
+SLO_FAILURE_COMPONENT_EXPORTER = "exporter"
+
 # Video renders fail with a code from the recording rasterizer rather than a Python exception, so they
 # classify by code (RASTERIZATION_ERROR_CODES in
 # nodejs/src/session-replay/recording-rasterizer/errors.ts). A code absent here classifies as
@@ -247,3 +264,67 @@ def is_user_query_error_type(exception_type: str | None) -> bool:
     if exception_type is None:
         return False
     return classify_failure_type(exception_type) == FAILURE_TYPE_USER
+
+
+def export_slo_failure_details(exception: Exception | str) -> dict[str, str | bool]:
+    """Return safe, low-cardinality SLO dimensions for an export failure.
+
+    This deliberately does not include the exception message. It is emitted on
+    every failed export/subscription SLO and must be safe to aggregate broadly.
+    """
+
+    exception_type = type(exception).__name__ if isinstance(exception, Exception) else exception
+    message = str(exception).lower() if isinstance(exception, Exception) else ""
+
+    if exception_type == BrowserlessUnavailable.__name__:
+        if any(marker in message for marker in ("429", "too many requests", "rate limit", "rate_limited")):
+            return {
+                "failure_category": SLO_FAILURE_CATEGORY_RENDERER_RATE_LIMITED,
+                "failure_component": SLO_FAILURE_COMPONENT_BROWSERLESS,
+                "failure_retryable": True,
+            }
+        return {
+            "failure_category": SLO_FAILURE_CATEGORY_RENDERER_UNAVAILABLE,
+            "failure_component": SLO_FAILURE_COMPONENT_BROWSERLESS,
+            "failure_retryable": True,
+        }
+
+    if exception_type in TIMEOUT_ERROR_NAMES:
+        return {
+            "failure_category": SLO_FAILURE_CATEGORY_RENDERER_TIMEOUT,
+            "failure_component": SLO_FAILURE_COMPONENT_BROWSERLESS,
+            "failure_retryable": exception_type != ExportCancelled.__name__,
+        }
+
+    if exception_type == ConcurrencyLimitExceeded.__name__:
+        return {
+            "failure_category": SLO_FAILURE_CATEGORY_QUERY_CAPACITY,
+            "failure_component": SLO_FAILURE_COMPONENT_QUERY,
+            "failure_retryable": True,
+        }
+
+    if exception_type == ObjectStorageError.__name__ or "s3" in exception_type.lower():
+        return {
+            "failure_category": SLO_FAILURE_CATEGORY_STORAGE,
+            "failure_component": SLO_FAILURE_COMPONENT_STORAGE,
+            "failure_retryable": True,
+        }
+
+    failure_type = classify_failure_type(exception)
+    if failure_type == FAILURE_TYPE_USER:
+        return {
+            "failure_category": SLO_FAILURE_CATEGORY_QUERY,
+            "failure_component": SLO_FAILURE_COMPONENT_QUERY,
+            "failure_retryable": False,
+        }
+    if failure_type == FAILURE_TYPE_SYSTEM:
+        return {
+            "failure_category": SLO_FAILURE_CATEGORY_TRANSIENT_DEPENDENCY,
+            "failure_component": SLO_FAILURE_COMPONENT_DEPENDENCY,
+            "failure_retryable": True,
+        }
+    return {
+        "failure_category": SLO_FAILURE_CATEGORY_APPLICATION,
+        "failure_component": SLO_FAILURE_COMPONENT_EXPORTER,
+        "failure_retryable": False,
+    }

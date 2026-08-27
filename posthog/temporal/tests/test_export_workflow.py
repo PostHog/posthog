@@ -203,3 +203,12 @@ async def test_export_failure_emits_slo_outcome(
     assert props["error_type"] == expected_exception_class
     assert props["error_message"] == expected_error_msg
     assert "Traceback" in props["error_trace"]
+    assert props["failure_stage"] == "asset_generation"
+    if expected_exception_class == "CHQueryErrorS3Error":
+        assert props["failure_category"] == "storage"
+        assert props["failure_component"] == "object_storage"
+        assert props["failure_retryable"] is True
+    elif expected_exception_class == "RuntimeError":
+        assert props["failure_category"] == "application"
+        assert props["failure_component"] == "exporter"
+        assert props["failure_retryable"] is False

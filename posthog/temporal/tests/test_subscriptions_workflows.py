@@ -2001,6 +2001,15 @@ async def test_partial_export_failure_delivers_successful_assets(
         assert props["error_message"] == expected_error_msg
         assert len(props["asset_errors"]) == 1
         assert "Traceback" in props["asset_errors"][0]["error_trace"]
+        assert props["asset_errors"][0]["failure_category"] == "application"
+        assert props["asset_errors"][0]["failure_component"] == "exporter"
+        assert props["asset_errors"][0]["failure_retryable"] is False
+        assert props["failure_stage"] == "asset_generation"
+        assert props["failure_category"] == "application"
+        assert props["failure_component"] == "exporter"
+        assert props["failed_asset_count"] == 1
+        assert props["failure_category_count"] == 1
+        assert props["failure_retryable"] is False
     else:
         assert "error_type" not in props
         assert props["asset_errors"] == []

@@ -10,7 +10,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.errors import resolve_exception_class
 from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.exports.retry_policy import EXPORT_RETRY_POLICY
-from posthog.temporal.exports.types import ExportAssetActivityInputs
+from posthog.temporal.exports.types import ExportAssetActivityInputs, extract_error_details
 
 from products.exports.backend.tasks.failure_handler import is_user_query_error_type
 
@@ -47,6 +47,13 @@ class ExportAssetWorkflow(PostHogWorkflow):
             )
         except Exception as e:
             # User-query failures aren't an SLO breach -> reclassify as SUCCESS
-            if inputs.slo and is_user_query_error_type(resolve_exception_class(e)):
-                inputs.slo.outcome = SloOutcome.SUCCESS
+            if inputs.slo:
+                exception_class = resolve_exception_class(e)
+                if is_user_query_error_type(exception_class):
+                    inputs.slo.outcome = SloOutcome.SUCCESS
+                else:
+                    failure = extract_error_details(e)
+                    if failure:
+                        inputs.slo.completion_properties.update(failure.failure_details)
+                    inputs.slo.completion_properties["failure_stage"] = "asset_generation"
             raise

@@ -10,7 +10,14 @@ from products.exports.backend.tasks.failure_handler import (
     FAILURE_TYPE_TIMEOUT_GENERATION,
     FAILURE_TYPE_UNKNOWN,
     FAILURE_TYPE_USER,
+    SLO_FAILURE_CATEGORY_APPLICATION,
+    SLO_FAILURE_CATEGORY_QUERY_CAPACITY,
+    SLO_FAILURE_CATEGORY_RENDERER_RATE_LIMITED,
+    SLO_FAILURE_CATEGORY_RENDERER_TIMEOUT,
+    SLO_FAILURE_CATEGORY_STORAGE,
+    BrowserlessUnavailable,
     classify_failure_type,
+    export_slo_failure_details,
     is_user_query_error_type,
 )
 
@@ -102,3 +109,34 @@ class TestClassifyFailureType(TestCase):
     def test_name_string_classification_is_unchanged_for_backfill(self) -> None:
         # Stored rows only carry the class name, so the string path stays purely name-based.
         assert classify_failure_type("ValidationError") == FAILURE_TYPE_USER
+
+
+class TestExportSloFailureDetails(TestCase):
+    @parameterized.expand(
+        [
+            (
+                "browserless_rate_limit",
+                BrowserlessUnavailable("Browserless returned 429 Too Many Requests"),
+                SLO_FAILURE_CATEGORY_RENDERER_RATE_LIMITED,
+                "browserless",
+                True,
+            ),
+            ("render_timeout", "TimeoutError", SLO_FAILURE_CATEGORY_RENDERER_TIMEOUT, "browserless", True),
+            ("query_capacity", "ConcurrencyLimitExceeded", SLO_FAILURE_CATEGORY_QUERY_CAPACITY, "query", True),
+            ("storage", "CHQueryErrorS3Error", SLO_FAILURE_CATEGORY_STORAGE, "object_storage", True),
+            ("unknown", "RuntimeError", SLO_FAILURE_CATEGORY_APPLICATION, "exporter", False),
+        ]
+    )
+    def test_returns_safe_breakdown_dimensions(
+        self,
+        _name: str,
+        exception: Exception | str,
+        category: str,
+        component: str,
+        retryable: bool,
+    ) -> None:
+        assert export_slo_failure_details(exception) == {
+            "failure_category": category,
+            "failure_component": component,
+            "failure_retryable": retryable,
+        }

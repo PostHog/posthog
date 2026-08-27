@@ -14,6 +14,7 @@ class ExportAssetActivityInputs:
 class ExportError:
     exception_class: str
     error_trace: str = ""
+    failure_details: dict[str, str | bool] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass
@@ -27,4 +28,9 @@ def extract_error_details(exc: BaseException) -> ExportError | None:
     cause = unwrap_temporal_cause(exc)
     if cause is None or not cause.type:
         return None
-    return ExportError(exception_class=cause.type, error_trace=resolve_error_trace(exc))
+    failure_details = cause.details[2] if len(cause.details) > 2 and isinstance(cause.details[2], dict) else {}
+    return ExportError(
+        exception_class=cause.type,
+        error_trace=resolve_error_trace(exc),
+        failure_details=failure_details,
+    )

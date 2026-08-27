@@ -102,6 +102,24 @@ def _build_outcome_assets(
     return outcome_assets, successful_asset_ids
 
 
+def _summarize_export_failure_details(errors: list[ExportError]) -> dict[str, str | int | bool]:
+    """Summarize per-asset failure dimensions onto one subscription SLO event."""
+
+    details = [error.failure_details for error in errors if error.failure_details]
+    categories = {str(detail["failure_category"]) for detail in details if "failure_category" in detail}
+    components = {str(detail["failure_component"]) for detail in details if "failure_component" in detail}
+    retryable_values = {detail["failure_retryable"] for detail in details if "failure_retryable" in detail}
+
+    return {
+        "failure_stage": "asset_generation",
+        "failure_category": next(iter(categories)) if len(categories) == 1 else "mixed",
+        "failure_component": next(iter(components)) if len(components) == 1 else "mixed",
+        "failed_asset_count": len(errors),
+        "failure_category_count": len(categories),
+        "failure_retryable": next(iter(retryable_values)) if len(retryable_values) == 1 else False,
+    }
+
+
 @temporalio.workflow.defn(name="schedule-all-subscriptions")
 class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
     @staticmethod
@@ -364,6 +382,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     "error_message",
                     f"{len(non_user_errors)} export(s) failed: {', '.join(distinct_classes)}",
                 )
+                inputs.slo.completion_properties.update(_summarize_export_failure_details(non_user_errors))
 
             # Generate LLM change summary (best-effort, skip if not enabled).
             # Reads content_snapshot back from Postgres — persisted inline by
@@ -511,7 +530,11 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                         "assets_with_content": assets_with_content,
                         "total_assets": total_assets,
                         "asset_errors": [
-                            {"error_type": e.exception_class, "error_trace": e.error_trace}
+                            {
+                                "error_type": e.exception_class,
+                                "error_trace": e.error_trace,
+                                **e.failure_details,
+                            }
                             for e in asset_errors
                             if not is_user_query_error_type(e.exception_class)
                         ],
