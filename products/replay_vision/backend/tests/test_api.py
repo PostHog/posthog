@@ -2885,14 +2885,25 @@ class TestSessionReplayObservationViewSet(_VisionAPITestCase):
         )
 
     def test_list_returns_observations_from_every_scanner_for_the_session(self) -> None:
+        inline_scanner = self._create_scanner(name="one-off", origin=ScannerOrigin.INLINE, inline_key="one-off")
         self._create_observation(self.scanner_a, "sess-target")
         self._create_observation(self.scanner_b, "sess-target")
+        self._create_observation(inline_scanner, "sess-target")
         self._create_observation(self.scanner_a, "sess-other")
 
         resp = self.client.get(f"{self.session_observations_url}?session_id=sess-target")
         self.assertEqual(resp.status_code, 200)
         results = resp.json()["results"]
-        self.assertEqual({r["scanner_id"] for r in results}, {str(self.scanner_a.id), str(self.scanner_b.id)})
+        self.assertEqual(
+            {r["scanner_id"] for r in results},
+            {str(self.scanner_a.id), str(self.scanner_b.id), str(inline_scanner.id)},
+        )
+        # This endpoint feeds the dock, seekbar and sidebar, where a one-off scan used to render a
+        # blank label, so the origin has to survive the trip here and not only on the scanner route.
+        self.assertEqual(
+            {r["scanner_id"]: r["scanner_origin"] for r in results}[str(inline_scanner.id)],
+            "inline",
+        )
 
     def test_list_requires_session_id(self) -> None:
         resp = self.client.get(self.session_observations_url)

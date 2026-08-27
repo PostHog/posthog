@@ -148,13 +148,16 @@ class TestRankObservationsQuery(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestFetchRankedObservations(APIBaseTest):
-    def _observation(self, scanner_name: str) -> ReplayObservation:
+    def _observation(self, scanner_name: str, origin: ScannerOrigin = ScannerOrigin.CONFIGURED) -> ReplayObservation:
         scanner = ReplayScanner.objects.create(
             team=self.team,
             name=scanner_name,
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "did the user check out?"},
             model=ScannerModel.GEMINI_3_7_FLASH,
+            origin=origin,
+            # A check constraint pairs the two: an inline scanner owes a key, a configured one owes none.
+            inline_key=scanner_name if origin == ScannerOrigin.INLINE else "",
         )
         return ReplayObservation.objects.create(
             team=self.team,
@@ -166,11 +169,14 @@ class TestFetchRankedObservations(APIBaseTest):
             scanner_snapshot=snapshot_for(scanner),
         )
 
-    def test_hydrated_rows_carry_their_scanner(self) -> None:
+    @parameterized.expand([("configured", ScannerOrigin.CONFIGURED), ("inline", ScannerOrigin.INLINE)])
+    def test_hydrated_rows_carry_their_scanner(self, _name: str, origin: ScannerOrigin) -> None:
         # The serializer reads `scanner.origin` on every row to tell a saved scanner from a one-off
         # scan. Without the join that is one query per result on a page of up to 50, and nothing else
         # in this suite counts queries, so a dropped `select_related` would go unnoticed.
-        observations = [self._observation("first"), self._observation("second")]
+        # Inline is covered too because the default manager serves configured scanners only, so a
+        # join that stopped using the base manager would drop exactly the rows this branch fixes.
+        observations = [self._observation("first", origin), self._observation("second", origin)]
         access = UserAccessControl(user=self.user, team=self.team)
 
         rows = fetch_ranked_observations(
@@ -182,4 +188,4 @@ class TestFetchRankedObservations(APIBaseTest):
 
         self.assertEqual(len(rows), 2)
         with self.assertNumQueries(0):
-            self.assertEqual([row.scanner.origin for row in rows], [ScannerOrigin.CONFIGURED] * 2)
+            self.assertEqual([row.scanner.origin for row in rows], [origin] * 2)

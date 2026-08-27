@@ -142,7 +142,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                 <SceneTitleSection name="Observation not found" resourceType={{ type: 'replay_vision' }} />
                 <p className="text-muted">
                     This observation either doesn't exist or you don't have access to it.{' '}
-                    <Link to={urls.replayVision()}>Back to scanners</Link>.
+                    <Link to={urls.replayVision()}>Go to Replay vision</Link>.
                 </p>
             </SceneContent>
         )

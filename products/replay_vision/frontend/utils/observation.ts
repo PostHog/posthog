@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import { type ReplayObservationApi, ScannerOriginEnumApi } from '../generated/api.schemas'
+import { type ReplayObservationApi, ScannerOriginEnumApi, ScannerTypeEnumApi } from '../generated/api.schemas'
 import { citedTextToPlainText, parseCitedSegments } from './citations'
 
 /**
@@ -37,7 +37,7 @@ export function scannerLabel(obs: Pick<ReplayObservationApi, 'scanner_origin' | 
     if (!isOneOffScan(obs)) {
         return obs.scanner_snapshot?.name || 'Scanner'
     }
-    return obs.scanner_snapshot?.scanner_type === 'summarizer' ? 'Quick summary' : 'One-off scan'
+    return obs.scanner_snapshot?.scanner_type === ScannerTypeEnumApi.Summarizer ? 'Quick summary' : 'One-off scan'
 }
 
 export function readModelOutput(obs: ReplayObservationApi): Record<string, unknown> | null {
