@@ -1,4 +1,7 @@
+import { TIMESTAMP_REF_PREFIX } from 'lib/lemon-ui/LemonMarkdown'
 import { colonDelimitedDuration } from 'lib/utils/durations'
+
+import { defangMarkdownLinks } from './markdown'
 
 // `uuid` is legacy (only old event-uuid citations carry it). Timestamp citations use `timestamp_ms` alone.
 export type Segment = { kind: 'text'; value: string } | { kind: 'chip'; timestamp_ms: number; uuid?: string }
@@ -54,6 +57,36 @@ export function parseCitedSegments(text: string, segments: unknown): Segment[] {
         return splitLeakedCitations(text)
     }
     return persisted.flatMap((segment) => (segment.kind === 'text' ? splitLeakedCitations(segment.value) : [segment]))
+}
+
+/**
+ * Markdown source for a cited field, with each citation chip written back as a `t:<ms>` link target
+ * LemonMarkdown hands to `renderTimestampRef`.
+ *
+ * The chips were split out of the prose at scan time, so a renderer that parses the text as markdown has
+ * to see one string, not a segment list — a bullet or a bold run that spans a citation would otherwise be
+ * cut in half and parsed as two documents.
+ *
+ * Defanging runs on the prose only, before the citations go in, so the `t:` targets this writes are the
+ * one kind of link that survives.
+ */
+export function citedMarkdown(text: string, segments: unknown): string {
+    const list = parseCitedSegments(text, segments)
+    if (list.length === 0) {
+        return defangMarkdownLinks(text)
+    }
+    let out = ''
+    for (const segment of list) {
+        if (segment.kind === 'text') {
+            out += defangMarkdownLinks(segment.value)
+            continue
+        }
+        // Glued to the preceding word, matching how the chips render outside markdown — except after a
+        // `!`, where gluing a link turns the pair into an image. One space there reads as normal prose.
+        const label = colonDelimitedDuration(Math.max(0, Math.floor(segment.timestamp_ms / 1000)), null)
+        out += `${out.endsWith('!') ? ' ' : ''}[${label}](${TIMESTAMP_REF_PREFIX}${segment.timestamp_ms})`
+    }
+    return out
 }
 
 /** Plain-text rendering of a cited field for the clipboard: citation chips become readable `(mm:ss)` timestamps. */

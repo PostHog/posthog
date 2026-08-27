@@ -2,6 +2,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { type ReplayObservationApi, ScannerOriginEnumApi, ScannerTypeEnumApi } from '../generated/api.schemas'
 import { citedTextToPlainText, parseCitedSegments } from './citations'
+import { flattenMarkdownToLine } from './markdown'
 
 /** The dock's built-in prompt and the observations it produces have to answer to one name. */
 export const BUILT_IN_SUMMARY_LABEL = 'Quick summary'
@@ -131,16 +132,18 @@ export interface ObservationSeekbarMark {
 const SNIPPET_MAX_LENGTH = 160
 
 function lastSentence(text: string): string | null {
-    const trimmed = text.trim()
-    if (!trimmed) {
+    // Flattened first: a seekbar mark has room for one line, so markdown syntax would reach the reader as
+    // literal `**` and `-`, and a bullet's marker would read as the start of the sentence.
+    const flat = flattenMarkdownToLine(text)
+    if (!flat) {
         return null
     }
     // No lookbehind regex, it breaks chunk parsing on older browsers.
     let start = 0
-    for (const match of trimmed.matchAll(/[.!?]+\s+/g)) {
+    for (const match of flat.matchAll(/[.!?]+\s+/g)) {
         start = match.index + match[0].length
     }
-    const last = trimmed
+    const last = flat
         .slice(start)
         .replace(/[.!?]+$/, '')
         .trim()
