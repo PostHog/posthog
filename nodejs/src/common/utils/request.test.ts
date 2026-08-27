@@ -208,10 +208,10 @@ describe('fetch', () => {
             await expect(fetch(`http://example.com`)).rejects.toThrow(new SecureRequestError(`Hostname is not allowed`))
         })
 
-        it('keeps DNS validation enabled for HTTP/2 requests', async () => {
+        it('uses secure DNS lookup when HTTP/2 is enabled', async () => {
             jest.mocked(dns.lookup).mockResolvedValue([{ address: '10.0.0.1', family: 4 }] as any)
 
-            await expect(fetch('http://example.com', { allowH2: true })).rejects.toThrow(
+            await expect(fetch('https://example.com', { allowH2: true })).rejects.toThrow(
                 new SecureRequestError('Hostname is not allowed')
             )
         })

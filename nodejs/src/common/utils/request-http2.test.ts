@@ -1,18 +1,14 @@
-import { execFile } from 'node:child_process'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import http from 'node:http'
 import http2 from 'node:http2'
 import https from 'node:https'
 import net, { AddressInfo } from 'node:net'
-import os from 'node:os'
-import path from 'node:path'
 import tls from 'node:tls'
-import { promisify } from 'node:util'
+
+import { TestTlsIdentity, createTestTlsIdentity } from '~/tests/helpers/tls'
 
 type RequestModule = typeof import('./request')
 
 const proxyEnvironmentNames = ['HTTPS_PROXY', 'HTTP_PROXY', 'https_proxy', 'http_proxy'] as const
-const execFileAsync = promisify(execFile)
 
 function serverPort(server: http.Server | http2.Http2SecureServer | https.Server): number {
     return (server.address() as AddressInfo).port
@@ -29,20 +25,13 @@ function close(server: http.Server | http2.Http2SecureServer | https.Server): Pr
     return new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())))
 }
 
-async function readGeneratedFiles(directory: string): Promise<[Buffer, Buffer]> {
-    return await Promise.all([
-        readFile(path.join(directory, 'origin.key')),
-        readFile(path.join(directory, 'origin.crt')),
-    ])
-}
-
 describe('secure HTTP/2 requests', () => {
     let requestModule: RequestModule
     let http2Origin: http2.Http2SecureServer
     let http1Origin: https.Server
     let connectProxy: http.Server
     let tlsConnectSpy: jest.SpyInstance
-    let tlsFixtureDirectory: string
+    let tlsIdentity: TestTlsIdentity | undefined
     const originalExternalRequestConnections = process.env.EXTERNAL_REQUEST_CONNECTIONS
     const originalProxyEnvironment = Object.fromEntries(
         proxyEnvironmentNames.map((name) => [name, process.env[name]])
@@ -56,34 +45,13 @@ describe('secure HTTP/2 requests', () => {
     const pendingConcurrentResponses: Array<() => void> = []
 
     beforeAll(async () => {
-        tlsFixtureDirectory = await mkdtemp(path.join(os.tmpdir(), 'posthog-request-http2-'))
-        const privateKeyPath = path.join(tlsFixtureDirectory, 'origin.key')
-        const certificatePath = path.join(tlsFixtureDirectory, 'origin.crt')
-        await execFileAsync('openssl', [
-            'req',
-            '-x509',
-            '-newkey',
-            'ec',
-            '-pkeyopt',
-            'ec_paramgen_curve:P-256',
-            '-nodes',
-            '-keyout',
-            privateKeyPath,
-            '-out',
-            certificatePath,
-            '-days',
-            '1',
-            '-subj',
-            '/CN=origin.test',
-            '-addext',
-            'subjectAltName=DNS:origin.test',
-        ])
-        const generatedFiles = await readGeneratedFiles(tlsFixtureDirectory)
+        const generatedTlsIdentity = await createTestTlsIdentity('origin.test')
+        tlsIdentity = generatedTlsIdentity
 
         http2Origin = http2.createSecureServer({
             allowHTTP1: true,
-            cert: generatedFiles[1],
-            key: generatedFiles[0],
+            cert: generatedTlsIdentity.certificate,
+            key: generatedTlsIdentity.privateKey,
         })
         http2Origin.on('request', (request, response) => {
             http2OriginProtocols.push(request.httpVersion)
@@ -107,11 +75,14 @@ describe('secure HTTP/2 requests', () => {
         })
         await listen(http2Origin)
 
-        http1Origin = https.createServer({ cert: generatedFiles[1], key: generatedFiles[0] }, (request, response) => {
-            http1OriginProtocols.push(request.httpVersion)
-            response.writeHead(200, { 'content-type': 'text/plain' })
-            response.end(request.url)
-        })
+        http1Origin = https.createServer(
+            { cert: generatedTlsIdentity.certificate, key: generatedTlsIdentity.privateKey },
+            (request, response) => {
+                http1OriginProtocols.push(request.httpVersion)
+                response.writeHead(200, { 'content-type': 'text/plain' })
+                response.end(request.url)
+            }
+        )
         await listen(http1Origin)
 
         connectProxy = http.createServer()
@@ -141,7 +112,10 @@ describe('secure HTTP/2 requests', () => {
         tlsConnectSpy = jest
             .spyOn(tls, 'connect')
             .mockImplementation(((options: tls.ConnectionOptions, callback?: () => void) =>
-                connectWithSystemTrust({ ...options, ca: generatedFiles[1] }, callback)) as typeof tls.connect)
+                connectWithSystemTrust(
+                    { ...options, ca: generatedTlsIdentity.certificate },
+                    callback
+                )) as typeof tls.connect)
         process.env.HTTPS_PROXY = `http://127.0.0.1:${serverPort(connectProxy)}`
         process.env.EXTERNAL_REQUEST_CONNECTIONS = '2'
         delete process.env.HTTP_PROXY
@@ -177,7 +151,7 @@ describe('secure HTTP/2 requests', () => {
         http1Origin.closeAllConnections()
         connectProxy.closeAllConnections()
         await Promise.all([close(http2Origin), close(http1Origin), close(connectProxy)])
-        await rm(tlsFixtureDirectory, { recursive: true, force: true })
+        await tlsIdentity?.cleanup()
     })
 
     it('negotiates, reuses, runs concurrently, defaults, and falls back through a CONNECT proxy', async () => {
