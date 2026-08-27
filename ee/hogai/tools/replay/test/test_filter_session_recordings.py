@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 
 from freezegun import freeze_time
-from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
+from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, flush_persons_and_events
 
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
@@ -9,6 +9,7 @@ from parameterized import parameterized
 from posthog.schema import (
     MaxInnerUniversalFiltersGroup,
     MaxOuterUniversalFiltersGroup,
+    MaxRecordingEventFilter,
     MaxRecordingUniversalFilters,
     PropertyOperator,
     RecordingDurationFilter,
@@ -104,6 +105,56 @@ class TestFilterSessionRecordingsTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         self.assertIn("No recordings found", result_text)
         self.assertIsNone(artifact)
+
+    def _event_filters(self, event: str) -> MaxRecordingUniversalFilters:
+        return MaxRecordingUniversalFilters(
+            filter_group=MaxOuterUniversalFiltersGroup(
+                type="AND",
+                values=[
+                    MaxInnerUniversalFiltersGroup(type="AND", values=[MaxRecordingEventFilter(id=event)]),
+                ],
+            ),
+            duration=[],
+            date_from="-7d",
+        )
+
+    @parameterized.expand(
+        [
+            ("unlinked", {}, "cannot match any recording", "Replay Vision scanner"),
+            ("linked", {"$session_id": str(uuid7())}, "filters are simply too narrow", None),
+        ]
+    )
+    async def test_diagnoses_why_an_event_search_found_no_recordings(
+        self, _name: str, properties: dict[str, str], expected: str, expected_offer: str | None
+    ):
+        for _ in range(20):
+            _create_event(
+                team=self.team,
+                event="paywall_shown",
+                distinct_id="user_1",
+                timestamp=datetime(2025, 1, 15, 10, 0, 0),
+                properties=properties,
+            )
+        flush_persons_and_events()
+
+        tool = await self._create_tool()
+
+        result_text, _ = await tool._arun_impl(recordings_filters=self._event_filters("paywall_shown"))
+
+        self.assertIn("No recordings found", result_text)
+        self.assertIn(expected, result_text)
+        if expected_offer:
+            self.assertIn(expected_offer, result_text)
+        else:
+            self.assertIn("Do not offer a Replay Vision scanner", result_text)
+
+    async def test_diagnoses_an_event_the_project_never_sent(self):
+        tool = await self._create_tool()
+
+        result_text, _ = await tool._arun_impl(recordings_filters=self._event_filters("paywall_shown"))
+
+        self.assertIn("received no `paywall_shown` events", result_text)
+        self.assertIn("Do not offer a Replay Vision scanner", result_text)
 
     async def test_returns_single_recording_with_metadata(self):
         base_time = datetime(2025, 1, 15, 10, 0, 0)
