@@ -8,6 +8,7 @@ __all__ = [
     "INELIGIBLE_SESSION_ERROR_TYPE",
     "SCANNER_ADMISSION_BUSY_ERROR_TYPE",
     "SCANNER_FAILURE_ERROR_TYPE",
+    "SCANNER_WATERMARK_BUSY_ERROR_TYPE",
     "ConsentWithdrawnError",
     "FailureKind",
     "IneligibleSessionError",
@@ -21,6 +22,8 @@ INELIGIBLE_SESSION_ERROR_TYPE = "IneligibleSession"
 SCANNER_FAILURE_ERROR_TYPE = "ScannerFailure"
 # Always retryable: the create activity's backoff spreads contenders that Postgres would otherwise queue.
 SCANNER_ADMISSION_BUSY_ERROR_TYPE = "ScannerAdmissionBusy"
+# Always retryable: a watermark write that lost its brush with the row defers to the activity backoff.
+SCANNER_WATERMARK_BUSY_ERROR_TYPE = "ScannerWatermarkBusy"
 
 
 class _KindedApplicationError(ApplicationError):
