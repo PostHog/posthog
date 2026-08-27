@@ -3120,19 +3120,19 @@ Note: The Flexmail public API is contact-management only - it exposes no campaig
 
 ## FloatApp — gaps
 
-Today (18): `accounts`, `clients`, `deleted_logged_time`, `deleted_tasks`, `deleted_timeoffs`, `departments`, `holidays`, `logged_time`, `milestones`, `people`, `phases`, `project_tasks`, `projects`, `roles`, `status`, `tasks`, `timeoff_types`, `timeoffs`
+Today (20): `accounts`, `clients`, `currencies`, `deleted_logged_time`, `deleted_tasks`, `deleted_timeoffs`, `departments`, `holidays`, `logged_time`, `milestones`, `people`, `phases`, `project_tasks`, `projects`, `rate_cards`, `roles`, `status`, `tasks`, `timeoff_types`, `timeoffs`
 
 Diffed against: <https://developer.float.com/swagger-api-v3.yaml>
 
 - [ ] `/project-stages` — lookup table resolving the stage IDs carried on the projects we already sync (high)
-- [ ] `/rate-cards` — lookup for the rate card IDs on people/projects; required to turn logged hours into billable value (high)
+- [x] `/rate-cards` — lookup for the rate card IDs on people/projects; required to turn logged hours into billable value (high)
 - [ ] `/reports/people` — Float's headline utilization/capacity report per person, pre-aggregated (high)
 - [ ] `/reports/projects` — per-project scheduled vs logged vs billable breakdown (medium)
 - [ ] `/project-expenses` — non-labor project cost, needed for true project margin alongside logged_time (medium)
 - [ ] `/public-holidays` — region public holidays; distinct from the team /holidays table already synced, needed for correct capacity math (medium)
-- [ ] `/currencies` — lookup for currency codes on rate cards and project budgets (low)
+- [x] `/currencies` — lookup for currency codes on rate cards and project budgets (low)
 
-Note: Machine-readable OpenAPI at /swagger-api-v3.yaml enumerates 26 resources; PostHog covers 18. /project-templates was excluded as config.
+Note: Machine-readable OpenAPI at /swagger-api-v3.yaml enumerates 26 resources; PostHog covers 20. /project-templates was excluded as config.
 
 ## Flowlu — **thin**
 
