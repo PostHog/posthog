@@ -96,7 +96,7 @@ export function TerminalSettings() {
       {showCustomInput && (
         <SettingsCardRow
           label="Custom font family"
-          description="Any CSS font-family value. Example: Fira Code, Cascadia Code"
+          description="Any CSS font-family value; example: Fira Code, Cascadia Code"
         >
           <Flex direction="column" align="end" gap="1">
             <TextField.Root
@@ -115,7 +115,7 @@ export function TerminalSettings() {
 
       <SettingsCardRow
         label="GPU rendering"
-        description="Render the terminal with WebGL for smoother output under heavy load. Disable if you hit graphical glitches."
+        description="Render the terminal with WebGL for smoother output under heavy load; disable if you hit graphical glitches"
       >
         <Switch
           checked={terminalGpuRendering}

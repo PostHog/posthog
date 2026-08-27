@@ -126,7 +126,7 @@ export function PlanUsageContent({
       {billingEnabled && (
         <SettingsSubsection
           title="Organization usage"
-          description="Combined token and cloud-compute spend counts toward your organization's shared allowance and limit."
+          description="Combined token and cloud-compute spend counts toward your organization's shared allowance and limit"
           actions={
             <Button
               size="1"
@@ -321,7 +321,7 @@ function PersonalSpendDisclosure({ children }: { children: ReactNode }) {
   return (
     <SettingsSubsection
       title="Your spend"
-      description="Near-real-time analysis of your activity, separate from organization billing."
+      description="Near-real-time analysis of your activity, separate from organization billing"
       actions={
         <Button
           size="1"

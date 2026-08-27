@@ -67,7 +67,7 @@ export function DiscordPresencePreview({
   return (
     <SettingsSection
       label="Preview"
-      description="What your Discord profile shows while you work."
+      description="What your Discord profile shows while you work"
       action={
         <SettingsSegmented
           value={running ? "running" : "idle"}

@@ -37,7 +37,7 @@ export function SlackSettings() {
     <div className="flex flex-col gap-7">
       <SettingsSection
         label="Workspace connection"
-        description="Connect a Slack workspace so reports can post to channels, reviewers get pinged, and you can kick off tasks from Slack."
+        description="Connect a Slack workspace so reports can post to channels, reviewers get pinged, and you can kick off tasks from Slack"
         action={
           !isLoading && hasSlackIntegration ? (
             <Button

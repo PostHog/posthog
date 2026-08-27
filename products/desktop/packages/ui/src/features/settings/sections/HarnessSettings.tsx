@@ -110,7 +110,7 @@ export function HarnessSettings() {
     <div className="flex flex-col gap-7">
       <SettingsSection
         label="Claude Code"
-        description="Configuration that lives with the Claude Code harness. Run these commands in a terminal to change it."
+        description="Configuration that lives with the Claude Code harness; run these commands in a terminal to change it"
       >
         <SettingsCard>
           <SettingsCardRow
@@ -165,7 +165,7 @@ export function HarnessSettings() {
 
       <SettingsSection
         label="Codex"
-        description="Configuration that lives with the Codex harness."
+        description="Configuration that lives with the Codex harness"
       >
         <SettingsCard>
           <SettingsCardRow
@@ -208,7 +208,7 @@ export function HarnessSettings() {
             label="Hooks"
             description={
               <SettingDescription
-                text="Execute commands at specific points in Codex's lifecycle, defined in .codex/hooks.json or config.toml. Review them with /hooks inside a session"
+                text="Execute commands at specific points in Codex's lifecycle, defined in .codex/hooks.json or config.toml; review them with /hooks inside a session"
                 docsUrl="https://learn.chatgpt.com/docs/hooks"
               />
             }
@@ -220,12 +220,12 @@ export function HarnessSettings() {
 
       <SettingsSection
         label="Permissions"
-        description="What agents can do without asking you first."
+        description="What agents can do without asking you first"
       >
         <SettingsCard>
           <SettingsCardRow
             label="Claude permission rules"
-            description="Tool permissions from your Claude settings. Allowed tools run without prompting. Denied tools are always blocked. Codex keeps its own rules in config.toml"
+            description="Tool permissions from your Claude settings; allowed tools run without prompting; denied tools are always blocked; Codex keeps its own rules in config.toml"
           >
             <CopyableCommand command="claude config" />
           </SettingsCardRow>
@@ -234,7 +234,7 @@ export function HarnessSettings() {
 
           <SettingsCardRow
             label="Allow bypass permissions mode"
-            description="Adds bypass permissions to the mode menu so you can pick it per session. Sessions keep asking for approval until you pick it. This also unlocks Full access in Codex"
+            description="Adds bypass permissions to the mode menu so you can pick it per session; sessions keep asking for approval until you pick it; this also unlocks Full access in Codex"
           >
             <Switch
               checked={allowBypassPermissions}

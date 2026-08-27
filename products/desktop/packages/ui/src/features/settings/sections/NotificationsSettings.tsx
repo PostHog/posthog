@@ -234,7 +234,7 @@ export function NotificationsSettings() {
 
       <SettingsSection
         label="Alerts"
-        description="How agents get your attention when they finish or need you."
+        description="How agents get your attention when they finish or need you"
         action={
           <Button
             type="button"
@@ -287,7 +287,7 @@ export function NotificationsSettings() {
 
       <SettingsSection
         label="Sound"
-        description="What plays when an agent finishes or needs you."
+        description="What plays when an agent finishes or needs you"
       >
         <SettingsCard>
           <SettingsCardRow
@@ -378,7 +378,7 @@ export function NotificationsSettings() {
           {customSounds.length > 0 && (
             <SettingsCardRow
               label="Custom sounds"
-              description="Your own sound files, available in the completion sound list."
+              description="Your own sound files, available in the completion sound list"
               stacked
             >
               <div className="flex w-full flex-col gap-1.5">
@@ -399,7 +399,7 @@ export function NotificationsSettings() {
             <>
               <SettingsCardRow
                 label="Volume"
-                description="How loud alert sounds play."
+                description="How loud alert sounds play"
               >
                 <div className="flex items-center gap-3">
                   <Slider
@@ -537,7 +537,7 @@ function VoiceSection() {
   return (
     <SettingsSection
       label="Voice"
-      description="The agent says a short line out loud, so you catch it across parallel tasks without watching the screen."
+      description="The agent says a short line out loud, so you catch it across parallel tasks without watching the screen"
     >
       <SettingsCard>
         <SettingsCardRow
@@ -592,7 +592,7 @@ function VoiceSection() {
 
             <SettingsCardRow
               label="When to speak"
-              description="Which sessions get spoken narration."
+              description="Which sessions get spoken narration"
             >
               <SettingsSelect
                 ariaLabel="When to speak"
@@ -622,8 +622,8 @@ function VoiceSection() {
             label="ElevenLabs voice"
             description={
               elevenLabsKeyConfigured
-                ? "Key saved. The expressive Eleven v3 voice is on."
-                : "Optional. Add an API key for an expressive voice; otherwise your system voice is used."
+                ? "Key saved; the expressive Eleven v3 voice is on"
+                : "Optional; add an API key for an expressive voice; otherwise your system voice is used"
             }
           >
             {elevenLabsKeyConfigured ? (
@@ -817,7 +817,7 @@ function TestSection({
   return (
     <SettingsSection
       label="Test"
-      description="Send yourself an alert to check the channels above."
+      description="Send yourself an alert to check the channels above"
     >
       <SettingsCard>
         <SettingsCardRow

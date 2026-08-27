@@ -155,7 +155,7 @@ export function WorktreesSettings() {
         </SettingsCardRow>
         <SettingsCardRow
           label="Automatically suspend stale worktrees"
-          description="Suspend stale worktrees to save disk space. Suspended worktrees can be restored at any time. Only disable if you prefer to manage worktrees manually."
+          description="Suspend stale worktrees to save disk space; suspended worktrees can be restored at any time; only disable if you prefer to manage worktrees manually"
         >
           <Switch
             checked={settings.autoSuspendEnabled}

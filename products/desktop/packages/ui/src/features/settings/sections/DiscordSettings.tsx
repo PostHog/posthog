@@ -112,7 +112,7 @@ export function DiscordSettings() {
       {enabled ? (
         <SettingsSection
           label="Privacy"
-          description="What the Rich Presence card reveals about your session."
+          description="What the Rich Presence card reveals about your session"
         >
           <SettingsCard>
             <SettingsCardRow

@@ -159,8 +159,8 @@ export function QuickAskShortcutSetting({
       label="Ask PostHog anywhere"
       description={
         state.active && !state.registered
-          ? "Another app owns this shortcut. Record a different one."
-          : "Click, then press the keys you want to summon the panel with."
+          ? "Another app owns this shortcut; record a different one"
+          : "Click, then press the keys you want to summon the panel with"
       }
     >
       <ShortcutRecorder

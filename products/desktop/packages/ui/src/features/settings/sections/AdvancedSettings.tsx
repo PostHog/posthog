@@ -56,7 +56,7 @@ export function AdvancedSettings() {
         </SettingsCardRow>
         <SettingsCardRow
           label="Compress command output"
-          description="Route eligible shell commands through rtk so their verbose output is compressed before it reaches the model, reducing token usage. Local covers local and worktree sessions"
+          description="Route eligible shell commands through rtk so their verbose output is compressed before it reaches the model, reducing token usage; Local covers local and worktree sessions"
         >
           <Flex direction="column" gap="1" align="end">
             <Flex gap="4" align="center">

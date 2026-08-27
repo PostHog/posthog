@@ -30,7 +30,7 @@ export function TipsSection() {
   return (
     <SettingsSection
       label="Tips"
-      description="Short pointers that appear the first time a part of the app matters."
+      description="Short pointers that appear the first time a part of the app matters"
     >
       <SettingsCard>
         <SettingsCardRow

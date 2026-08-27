@@ -39,7 +39,7 @@ export function PersonalizationSettingsView({
   return (
     <SettingsSection
       label="Custom instructions"
-      description="Included in every agent session."
+      description="Included in every agent session"
     >
       <SettingsCard>
         <SettingsCardRow
@@ -219,7 +219,7 @@ function FunSection() {
   return (
     <SettingsSection
       label="Fun"
-      description="Extras that make the app a bit more playful."
+      description="Extras that make the app a bit more playful"
     >
       <SettingsCard>
         <SettingsCardRow
@@ -235,7 +235,7 @@ function FunSection() {
 
         <SettingsCardRow
           label="Slot machine mode 🎰"
-          description="A pull-able lever while a task runs. Every run is a gamble."
+          description="A pull-able lever while a task runs; every run is a gamble"
         >
           <Switch
             size="sm"

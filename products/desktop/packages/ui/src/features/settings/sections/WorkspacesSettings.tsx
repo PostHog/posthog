@@ -104,7 +104,7 @@ export function WorkspacesSettings() {
       </SettingsCard>
       <SettingsSection
         label="Default folders for new chats"
-        description="Folders the agent can access in every new chat on your device."
+        description="Folders the agent can access in every new chat on your device"
       >
         <div className="flex flex-col gap-2">
           {defaults.length === 0 && (

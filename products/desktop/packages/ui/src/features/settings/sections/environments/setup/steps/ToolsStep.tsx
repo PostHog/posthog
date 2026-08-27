@@ -52,7 +52,7 @@ export function ToolsStep({ plan, onChange }: ToolsStepProps) {
   return (
     <StepBody
       title="Tools on the image"
-      description="Tools an agent reaches for on most runs. Each one is listed with the reason it is here."
+      description="Tools an agent reaches for on most runs; each one is listed with the reason it is here"
     >
       <div className="flex w-full items-center gap-3">
         <div className="relative flex-1">

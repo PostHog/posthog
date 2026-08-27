@@ -33,7 +33,7 @@ export function ReviewStep({
     : [];
 
   return (
-    <StepBody title="Review" description="This is what gets created.">
+    <StepBody title="Review" description="This is what gets created">
       <dl className="flex flex-col gap-2 text-[12.5px]">
         {plan.scope === "image" ? (
           <>
