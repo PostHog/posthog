@@ -74,6 +74,12 @@ In cloud background mode, permissions are always auto-approved. In interactive m
 
 Cloud provisioning can pass `--posthogExecPermissionRegex <regex>` to require one-time client approval for matching PostHog MCP `exec` sub-tools in every interactive cloud Claude and Codex permission mode. Non-matching sub-tools never prompt. Locally, hands-off modes stay hands-off: Claude `auto` and `bypassPermissions`, and Codex `auto` and `full-access`, auto-approve matching sub-tools; other local modes prompt. Matching is case-insensitive against the delegated name in `call [--json] <sub-tool> ...`. These prompts offer Claude users an always-allow choice remembered in local repository settings; Codex approvals remain one-time. An invalid or empty regex is logged and falls back to the default. Background runs keep their existing auto-approval behavior. The default is `(^|-)(partial-update|update|patch|delete|destroy)(-|$)`.
 
+### Agent feedback
+
+Shared agent guidance tells every runtime to report concrete PostHog product, tool, capability, and instruction friction through the PostHog MCP `agent-feedback` capability. This includes an expected tool being unavailable. Agents report the exact surface and task impact without secrets or sensitive task content, then continue the user's work.
+
+The MCP server captures these reports as structured `mcp feedback submitted` events. Its standard MCP context identifies PostHog Code consumers, so downstream Signals scouts can aggregate recurring themes without a second Desktop telemetry path. If the feedback capability is unavailable, the agent surfaces that failure to the user instead of silently dropping it.
+
 ## ACP connection layer
 
 `createAcpConnection()` in `src/adapters/acp-connection.ts` is the heart of the package. It's a factory that returns a `{ clientStreams, cleanup }` object — a pair of ndJson `ReadableStream`/`WritableStream` that the caller uses to speak ACP.

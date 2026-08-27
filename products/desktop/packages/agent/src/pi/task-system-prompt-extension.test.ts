@@ -3,6 +3,7 @@ import type {
   SessionEntry,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
+import { AGENT_FEEDBACK_PROMPT } from "@posthog/shared/product-engineer-prompt";
 import { describe, expect, it, vi } from "vitest";
 import { buildTaskSystemPrompt, type TaskContext } from "./task-system-prompt";
 import {
@@ -75,7 +76,7 @@ describe("Pi task system prompt", () => {
     expect(appendCustomEntry).not.toHaveBeenCalled();
   });
 
-  it("renders and appends the task prompt before each agent run", () => {
+  it("appends task and feedback guidance before each agent run", () => {
     const handlers = new Map<string, unknown>();
     createPiTaskSystemPromptExtension(taskContext).factory({
       on: (event: string, handler: unknown) => handlers.set(event, handler),
@@ -85,7 +86,7 @@ describe("Pi task system prompt", () => {
     }) => { systemPrompt: string };
 
     expect(beforeAgentStart({ systemPrompt: "Pi instructions" })).toEqual({
-      systemPrompt: `Pi instructions\n\n${buildTaskSystemPrompt(taskContext)}`,
+      systemPrompt: `Pi instructions\n\n${buildTaskSystemPrompt(taskContext)}\n\n${AGENT_FEEDBACK_PROMPT}`,
     });
   });
 });

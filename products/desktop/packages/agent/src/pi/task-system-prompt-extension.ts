@@ -4,6 +4,7 @@ import type {
   SessionEntry,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
+import { appendAgentFeedbackPrompt } from "@posthog/shared/product-engineer-prompt";
 import { buildTaskSystemPrompt, type TaskContext } from "./task-system-prompt";
 
 export const POSTHOG_PI_TASK_CONTEXT_ENTRY_TYPE = "posthog.pi.task-context";
@@ -100,7 +101,9 @@ export function createPiTaskSystemPromptExtension(
         return;
       }
       pi.on("before_agent_start", (event) => ({
-        systemPrompt: `${event.systemPrompt}\n\n${buildTaskSystemPrompt(context)}`,
+        systemPrompt: appendAgentFeedbackPrompt(
+          `${event.systemPrompt}\n\n${buildTaskSystemPrompt(context)}`,
+        ),
       }));
     },
   };
