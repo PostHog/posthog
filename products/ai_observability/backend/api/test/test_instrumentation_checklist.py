@@ -16,12 +16,11 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.instrumentation_checklist.grading import VOLUME_FLOOR, ChecklistStats
 from products.ai_observability.backend.instrumentation_checklist.stats import WINDOW_DAYS
 from products.ai_observability.backend.models.instrumentation_checklist import AIObservabilityChecklistItemState
 from products.ai_observability.backend.models.review_queues import ReviewQueue
-
-from ee.models.rbac.access_control import AccessControl
 
 CHECK_FIELDS = {"key", "status", "title", "detail", "docs_url", "stats"}
 

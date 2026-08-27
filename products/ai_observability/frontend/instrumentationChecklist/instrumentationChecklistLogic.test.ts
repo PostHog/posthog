@@ -16,7 +16,11 @@ import {
     InstrumentationCheckStatusEnumApi,
     InstrumentationChecklistApi,
 } from '../generated/api.schemas'
-import { InstrumentationChecklistCardState, instrumentationChecklistLogic } from './instrumentationChecklistLogic'
+import {
+    InstrumentationChecklistCardState,
+    clearCachedChecklistVerdict,
+    instrumentationChecklistLogic,
+} from './instrumentationChecklistLogic'
 
 jest.mock('../generated/api', () => ({
     aiObservabilityInstrumentationChecklistRetrieve: jest.fn(),
@@ -73,6 +77,9 @@ describe('instrumentationChecklistLogic', () => {
 
     beforeEach(() => {
         jest.clearAllMocks()
+        // The verdict cache is module state, so it outlives a logic unmount by design and would
+        // otherwise carry one test's checklist into the next.
+        clearCachedChecklistVerdict()
         mockRetrieve.mockResolvedValue(ALL_OK)
         initKeaTests()
         featureFlagLogic.mount()
@@ -82,6 +89,23 @@ describe('instrumentationChecklistLogic', () => {
     afterEach(() => {
         logic?.unmount()
         featureFlagLogic.unmount()
+    })
+
+    it('reuses a fresh verdict instead of refetching on every remount', async () => {
+        // The trace view mounts this logic once per trace opened, and the read behind it is an
+        // uncached 30 day aggregate, so a remount has to reuse the verdict rather than refire it.
+        logic = instrumentationChecklistLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadInstrumentationChecklistSuccess'])
+        expect(mockRetrieve).toHaveBeenCalledTimes(1)
+        logic.unmount()
+
+        logic = instrumentationChecklistLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadInstrumentationChecklistSuccess'])
+
+        expect(mockRetrieve).toHaveBeenCalledTimes(1)
+        expect(logic.values.checklistCardState).toBe('passing')
     })
 
     it('loads the checklist on mount and exposes the graded checks', async () => {

@@ -21,7 +21,7 @@ import {
     InstrumentationChecklistApi,
 } from '../generated/api.schemas'
 import { InstrumentationChecklistCard } from './InstrumentationChecklistCard'
-import { instrumentationChecklistLogic } from './instrumentationChecklistLogic'
+import { clearCachedChecklistVerdict, instrumentationChecklistLogic } from './instrumentationChecklistLogic'
 
 jest.mock('../generated/api', () => ({
     aiObservabilityInstrumentationChecklistRetrieve: jest.fn(),
@@ -95,6 +95,8 @@ function renderCard(): void {
 describe('InstrumentationChecklistCard', () => {
     beforeEach(() => {
         jest.clearAllMocks()
+        // Module state by design, so it outlives an unmount and would carry one case into the next.
+        clearCachedChecklistVerdict()
         initKeaTests()
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], {
