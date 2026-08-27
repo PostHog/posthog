@@ -1940,7 +1940,7 @@ export interface featureFlagLogicMeta {
             featureFlag: FeatureFlagType,
             flagStatus: FeatureFlagStatusResponseApi | null,
             flagStatusLoading: boolean,
-            props: FeatureFlagLogicProps
+            props: any
         ) => boolean
         isDraftExperiment: (experiment: any) => boolean
         properties: (featureFlag: FeatureFlagType) => AnyPropertyFilter[]
