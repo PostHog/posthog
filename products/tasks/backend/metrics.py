@@ -312,8 +312,6 @@ CodeUsageGateOutcome = Literal["checked_allowed", "checked_blocked", "fail_open"
 ComputeQuotaOutcome = Literal["checked_allowed", "checked_blocked", "fail_open"]
 DesktopAccessOutcome = Literal[
     "allowed",
-    "legacy_allowed",
-    "legacy_denied",
     "startup_plan",
     "prepaid_credits",
     "override",
