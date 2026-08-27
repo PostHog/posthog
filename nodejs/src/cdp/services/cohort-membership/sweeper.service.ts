@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
+import { retryIfRetriable } from '~/common/utils/retries'
 import { UUIDT } from '~/common/utils/utils'
 
 /**
@@ -81,6 +82,27 @@ type ClaimableRun = {
     threshold: string | null
     claim_token: string | null
 }
+
+/**
+ * The rule for which runs may be swept, shared by the tick scan and the claim UPDATE so the two
+ * cannot drift: only the copy inside the claim actually protects the delete.
+ *
+ * A run with no snapshot minimum is never claimable. Marker stamps alone cannot bound the
+ * snapshot: a fast partition finishes and stamps its marker while a slower one is still emitting
+ * rows, so the earliest marker can sit above rows the run asserted. Sweeping there would delete
+ * live members. Such a run waits for abandonment instead. This also excludes a run whose snapshot
+ * was legitimately empty (a cohort edited so nobody matches): it can never prove a snapshot
+ * minimum, so its stale rows outlive every reconcile until they are cleaned up out of band.
+ */
+function claimablePredicate(intervalParam: string): string {
+    return `min_snapshot_version IS NOT NULL
+                  AND (status = 'ready'
+                       OR (status = 'sweeping' AND claimed_at < CURRENT_TIMESTAMP - ${intervalParam}::interval))`
+}
+
+const CLAIMABLE_PROJECTION = `run_id, cohort_id, team_id, membership_hwms,
+                       membership_cluster, membership_topic,
+                       LEAST(min_snapshot_version, min_marker_version) AS threshold, claim_token`
 
 const markersConsumed = new Counter({
     name: 'cdp_cohort_membership_markers_consumed',
@@ -185,40 +207,82 @@ export class CohortMembershipSweeper {
     }
 
     /**
-     * Folding a marker in is a bit union, so redelivery changes nothing. This path runs inside the
-     * marker consumer's batch, whose offsets commit whether or not each fold landed, so a failed
-     * fold is caught and counted rather than rethrown: a rethrow would take the membership consumer
-     * in the same process down with it. A lost fold leaves the run one bit short until it ages into
-     * abandonment, which `sweepsAbandoned` surfaces, and the next reconcile heals the cohort.
+     * The bits are a union and the version stamp is a minimum, so a batch folds per run in memory
+     * first: one statement per (run_id, cohort_id) instead of one per marker, and a full batch of
+     * one run's markers is a single write. Redelivery changes nothing either way.
+     *
+     * This path runs inside the marker consumer's batch, whose offsets commit whether or not each
+     * fold landed, so a failed fold is retried and then counted rather than rethrown: a rethrow
+     * would take the membership consumer in the same process down with it. A lost fold leaves the
+     * run short until it ages into abandonment, which `sweepsAbandoned` surfaces, and the next
+     * reconcile heals the cohort.
      */
     public async applyMarkers(markers: ReconcileCompleteMarker[]): Promise<void> {
+        type FoldedMarkers = {
+            runId: string
+            cohortId: number
+            teamId: number
+            bits: bigint
+            minVersion: string
+            partitions: number[]
+        }
+        const folded = new Map<string, FoldedMarkers>()
+
         for (const marker of markers) {
+            const key = `${marker.run_id}:${marker.cohort_id}`
+            const existing = folded.get(key)
+
+            if (!existing) {
+                folded.set(key, {
+                    runId: marker.run_id,
+                    cohortId: marker.cohort_id,
+                    teamId: marker.team_id,
+                    bits: BigInt(1) << BigInt(marker.partition),
+                    minVersion: marker.last_updated,
+                    partitions: [marker.partition],
+                })
+                continue
+            }
+
+            existing.bits |= BigInt(1) << BigInt(marker.partition)
+            existing.partitions.push(marker.partition)
+            if (marker.last_updated < existing.minVersion) {
+                existing.minVersion = marker.last_updated
+            }
+        }
+
+        for (const entry of folded.values()) {
+            // Postgres bigint is signed, so the last partition's bit has to fold to the sign bit.
+            const bits = BigInt.asIntN(64, entry.bits).toString()
+
             try {
-                await this.postgres.query(
-                    PostgresUse.BEHAVIORAL_COHORTS_RW,
-                    `
-                        INSERT INTO cohort_membership_sweeps
-                            (run_id, cohort_id, team_id, marker_bits, min_marker_version)
-                        VALUES ($1, $2, $3, (1::bigint << $4), $5::timestamp)
-                        ON CONFLICT (run_id, cohort_id)
-                        DO UPDATE SET
-                            marker_bits = cohort_membership_sweeps.marker_bits | (1::bigint << $4),
-                            min_marker_version = LEAST(
-                                cohort_membership_sweeps.min_marker_version,
-                                EXCLUDED.min_marker_version
-                            ),
-                            updated_at = CURRENT_TIMESTAMP
-                    `,
-                    [marker.run_id, marker.cohort_id, marker.team_id, marker.partition, marker.last_updated],
-                    'applyCohortReconcileMarker'
+                await retryIfRetriable(() =>
+                    this.postgres.query(
+                        PostgresUse.BEHAVIORAL_COHORTS_RW,
+                        `
+                            INSERT INTO cohort_membership_sweeps
+                                (run_id, cohort_id, team_id, marker_bits, min_marker_version)
+                            VALUES ($1, $2, $3, $4::bigint, $5::timestamp)
+                            ON CONFLICT (run_id, cohort_id)
+                            DO UPDATE SET
+                                marker_bits = cohort_membership_sweeps.marker_bits | $4::bigint,
+                                min_marker_version = LEAST(
+                                    cohort_membership_sweeps.min_marker_version,
+                                    EXCLUDED.min_marker_version
+                                ),
+                                updated_at = CURRENT_TIMESTAMP
+                        `,
+                        [entry.runId, entry.cohortId, entry.teamId, bits, entry.minVersion],
+                        'applyCohortReconcileMarker'
+                    )
                 )
             } catch (error) {
-                markersConsumed.inc({ outcome: 'apply_failed' })
-                logger.error('Failed to apply a reconcile marker', {
+                markersConsumed.inc({ outcome: 'apply_failed' }, entry.partitions.length)
+                logger.error('Failed to apply reconcile markers', {
                     error: String(error),
-                    run_id: marker.run_id,
-                    cohort_id: marker.cohort_id,
-                    partition: marker.partition,
+                    run_id: entry.runId,
+                    cohort_id: entry.cohortId,
+                    partitions: entry.partitions,
                 })
             }
         }
@@ -330,27 +394,16 @@ export class CohortMembershipSweeper {
 
     /**
      * Runs that hold every marker, plus runs whose claiming pod died. Re-sweeping is harmless: the
-     * delete only ever removes rows below a threshold that does not move.
-     *
-     * A run with no snapshot minimum is never claimable. Marker stamps alone cannot bound the
-     * snapshot: a fast partition finishes and stamps its marker while a slower one is still
-     * emitting rows, so the earliest marker can sit above rows the run asserted. Sweeping there
-     * would delete live members. Such a run waits for abandonment instead. This also excludes a
-     * run whose snapshot was legitimately empty (a cohort edited so nobody matches): it can never
-     * prove a snapshot minimum, so its stale rows outlive every reconcile until they are cleaned
-     * up out of band.
+     * delete only ever removes rows below a threshold that does not move. See claimablePredicate
+     * for why a run with no snapshot minimum is excluded.
      */
     private async claimableRuns(): Promise<ClaimableRun[]> {
         const result = await this.postgres.query<ClaimableRun>(
             PostgresUse.BEHAVIORAL_COHORTS_RW,
             `
-                SELECT run_id, cohort_id, team_id, membership_hwms,
-                       membership_cluster, membership_topic,
-                       LEAST(min_snapshot_version, min_marker_version) AS threshold, claim_token
+                SELECT ${CLAIMABLE_PROJECTION}
                 FROM cohort_membership_sweeps
-                WHERE min_snapshot_version IS NOT NULL
-                  AND (status = 'ready'
-                       OR (status = 'sweeping' AND claimed_at < CURRENT_TIMESTAMP - $1::interval))
+                WHERE ${claimablePredicate('$1')}
                 ORDER BY created_at
                 LIMIT ${MAX_CANDIDATES_PER_TICK}
             `,
@@ -444,12 +497,8 @@ export class CohortMembershipSweeper {
                 SET status = 'sweeping', claimed_at = CURRENT_TIMESTAMP, claim_token = $4,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE run_id = $1 AND cohort_id = $2
-                  AND min_snapshot_version IS NOT NULL
-                  AND (status = 'ready'
-                       OR (status = 'sweeping' AND claimed_at < CURRENT_TIMESTAMP - $3::interval))
-                RETURNING run_id, cohort_id, team_id, membership_hwms,
-                          membership_cluster, membership_topic,
-                          LEAST(min_snapshot_version, min_marker_version) AS threshold, claim_token
+                  AND ${claimablePredicate('$3')}
+                RETURNING ${CLAIMABLE_PROJECTION}
             `,
             [
                 run.run_id,
@@ -466,32 +515,49 @@ export class CohortMembershipSweeper {
     /** Returns the deleted row count, or null when the run was refused rather than swept. */
     private async sweep(run: ClaimableRun): Promise<number | null> {
         if (!run.threshold) {
-            // Unreachable while claim() requires a snapshot minimum; kept so a future claim change
-            // cannot silently delete below no bound. Abandoning gives the row a terminal state
-            // instead of leaving it wedged in 'sweeping'.
-            logger.error('Refusing to sweep a run with no threshold', {
-                run_id: run.run_id,
-                cohort_id: run.cohort_id,
-            })
-            await this.postgres.query(
-                PostgresUse.BEHAVIORAL_COHORTS_RW,
-                `
-                    UPDATE cohort_membership_sweeps
-                    SET status = 'abandoned', claimed_at = NULL, claim_token = NULL,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE run_id = $1 AND cohort_id = $2 AND status = 'sweeping' AND claim_token = $3
-                `,
-                [run.run_id, run.cohort_id, run.claim_token],
-                'abandonThresholdlessCohortMembershipSweep'
-            )
-            sweepsAbandoned.inc({ reason: 'no_threshold' })
-            return null
+            return await this.abandonThresholdless(run)
         }
 
-        // The threshold string was parsed to millisecond precision on the way out of Postgres, so
-        // it can sit up to 999 microseconds below the stored minimum. Truncation only ever lowers
-        // it, which makes the sweep under-delete, never over-delete; the next reconcile deletes
-        // the sliver it leaves behind.
+        const { deleted, claimLost, interrupted } = await this.deleteStaleRowsInPages(run)
+        rowsSwept.inc(deleted)
+        if (claimLost) {
+            // The new claim owner finishes the run and writes its terminal ledger row.
+            return deleted
+        }
+
+        const finished = !interrupted && (await this.noRowsBelowThreshold(run))
+        await this.finishSweep(run, deleted, finished)
+        return deleted
+    }
+
+    /**
+     * Unreachable while claim() requires a snapshot minimum; kept so a future claim change cannot
+     * silently delete below no bound. Abandoning gives the row a terminal state instead of
+     * leaving it wedged in 'sweeping'.
+     */
+    private async abandonThresholdless(run: ClaimableRun): Promise<null> {
+        logger.error('Refusing to sweep a run with no threshold', {
+            run_id: run.run_id,
+            cohort_id: run.cohort_id,
+        })
+        await this.postgres.query(
+            PostgresUse.BEHAVIORAL_COHORTS_RW,
+            `
+                UPDATE cohort_membership_sweeps
+                SET status = 'abandoned', claimed_at = NULL, claim_token = NULL,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE run_id = $1 AND cohort_id = $2 AND status = 'sweeping' AND claim_token = $3
+            `,
+            [run.run_id, run.cohort_id, run.claim_token],
+            'abandonThresholdlessCohortMembershipSweep'
+        )
+        sweepsAbandoned.inc({ reason: 'no_threshold' })
+        return null
+    }
+
+    private async deleteStaleRowsInPages(
+        run: ClaimableRun
+    ): Promise<{ deleted: number; claimLost: boolean; interrupted: boolean }> {
         let deleted = 0
         let lastBatch = 0
         // Keyset cursor over the (team_id, cohort_id, version) index order. Deleted index entries
@@ -510,6 +576,11 @@ export class CohortMembershipSweeper {
             // re-checks it against the newest row version, so a row a concurrent upsert just
             // refreshed past the threshold is left alone instead of deleted anyway. A refreshed
             // row also leaves the cursor range entirely, so skipping past it loses nothing.
+            //
+            // The threshold bound into `version < $3` was parsed to millisecond precision on the
+            // way out of Postgres, so it can sit up to 999 microseconds below the stored minimum.
+            // Truncation only ever lowers it, which makes the sweep under-delete, never
+            // over-delete; the next reconcile deletes the sliver it leaves behind.
             const result = await this.postgres.query<{ version: string; id: string }>(
                 PostgresUse.BEHAVIORAL_COHORTS_RW,
                 `
@@ -571,34 +642,38 @@ export class CohortMembershipSweeper {
                         cohort_id: run.cohort_id,
                         rows: deleted,
                     })
-                    rowsSwept.inc(deleted)
-                    return deleted
+                    return { deleted, claimLost: true, interrupted: false }
                 }
             }
         } while (lastBatch > 0 && !this.stopping)
 
-        let finished = false
-        if (this.stopping && lastBatch > 0) {
-            // Interrupted by shutdown; the run goes back to 'ready' and resumes on the next claim.
-            finished = false
-        } else {
-            // A zero-delete iteration means either nothing is left or SKIP LOCKED skipped
-            // everything. Only the first is finished; calling the second `swept` would retire the
-            // run with stale rows still in place, and nothing revisits a swept run.
-            const remaining = await this.postgres.query(
-                PostgresUse.BEHAVIORAL_COHORTS_RW,
-                `SELECT 1 FROM cohort_membership
-                 WHERE team_id = $1 AND cohort_id = $2 AND version < $3::timestamp
-                 LIMIT 1`,
-                [run.team_id, run.cohort_id, run.threshold],
-                'checkCohortMembershipSweepComplete'
-            )
-            finished = remaining.rows.length === 0
-        }
+        // Interrupted by shutdown; the run goes back to 'ready' and resumes on the next claim.
+        return { deleted, claimLost: false, interrupted: this.stopping && lastBatch > 0 }
+    }
 
-        // The claim token fences stragglers: a pod whose claim timed out and was reclaimed no
-        // longer matches, so it cannot overwrite the new owner's state nor resurrect a run that
-        // was abandoned in between. swept_rows accumulates across partial passes.
+    /**
+     * A zero-delete iteration means either nothing is left or SKIP LOCKED skipped everything.
+     * Only the first is finished; calling the second `swept` would retire the run with stale rows
+     * still in place, and nothing revisits a swept run.
+     */
+    private async noRowsBelowThreshold(run: ClaimableRun): Promise<boolean> {
+        const remaining = await this.postgres.query(
+            PostgresUse.BEHAVIORAL_COHORTS_RW,
+            `SELECT 1 FROM cohort_membership
+             WHERE team_id = $1 AND cohort_id = $2 AND version < $3::timestamp
+             LIMIT 1`,
+            [run.team_id, run.cohort_id, run.threshold],
+            'checkCohortMembershipSweepComplete'
+        )
+        return remaining.rows.length === 0
+    }
+
+    /**
+     * The claim token fences stragglers: a pod whose claim timed out and was reclaimed no longer
+     * matches, so it cannot overwrite the new owner's state nor resurrect a run that was
+     * abandoned in between. swept_rows accumulates across partial passes.
+     */
+    private async finishSweep(run: ClaimableRun, deleted: number, finished: boolean): Promise<void> {
         await this.postgres.query(
             PostgresUse.BEHAVIORAL_COHORTS_RW,
             `
@@ -611,7 +686,6 @@ export class CohortMembershipSweeper {
             'finishCohortMembershipSweep'
         )
 
-        rowsSwept.inc(deleted)
         logger.info('Swept stale cohort membership rows', {
             run_id: run.run_id,
             cohort_id: run.cohort_id,
@@ -619,16 +693,16 @@ export class CohortMembershipSweeper {
             rows: deleted,
             finished,
         })
-
-        return deleted
     }
 
     /**
      * Two distinct give-up paths, kept apart because only one is routine. A reconcile superseded
      * by a cohort edit emits no marker, so its `collecting` row can never complete; that is
-     * expected traffic. A `ready` run is fully proven and only waiting on consumer lag, and a
-     * `sweeping` run only ever fails transiently, so both get the marker-retention horizon rather
-     * than the short timeout: abandoning them sooner would discard runs that would have swept.
+     * expected traffic, and the short timeout retires it. Every proven run gets the
+     * marker-retention horizon instead, because abandoning it sooner would discard a run that
+     * would have swept: a `ready` run is only waiting on consumer lag, a `sweeping` run only ever
+     * fails transiently, and a `collecting` run holding every marker is only waiting on watermark
+     * capture, which the sweep loop retries each tick.
      *
      * These filters and the GC below scan without an index; the ledger is bounded by the GC to a
      * month of reconcile runs, so a sequential scan stays trivial.
@@ -640,6 +714,7 @@ export class CohortMembershipSweeper {
                 UPDATE cohort_membership_sweeps
                 SET status = 'abandoned', updated_at = CURRENT_TIMESTAMP
                 WHERE status = 'collecting'
+                  AND marker_bits <> ${ALL_MARKERS}
                   AND updated_at < CURRENT_TIMESTAMP - $1::interval
             `,
             [`${this.config.COHORT_MEMBERSHIP_SWEEP_ABANDON_AFTER_DAYS} days`],
@@ -657,7 +732,8 @@ export class CohortMembershipSweeper {
             `
                 UPDATE cohort_membership_sweeps
                 SET status = 'abandoned', claim_token = NULL, updated_at = CURRENT_TIMESTAMP
-                WHERE status IN ('ready', 'sweeping')
+                WHERE (status IN ('ready', 'sweeping')
+                       OR (status = 'collecting' AND marker_bits = ${ALL_MARKERS}))
                   AND created_at < CURRENT_TIMESTAMP - INTERVAL '${MARKER_RETENTION_DAYS} days'
             `,
             undefined,

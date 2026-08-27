@@ -26,7 +26,10 @@ describe('CdpCohortMembershipConsumer', () => {
         hub = await createHub()
         const deps = createCdpConsumerDeps(hub)
         consumer = new CdpCohortMembershipConsumer(hub, deps)
-        sweepConsumer = new CdpCohortMembershipConsumer({ ...hub, COHORT_MEMBERSHIP_SWEEP_ENABLED: true }, deps)
+        sweepConsumer = new CdpCohortMembershipConsumer(
+            { ...hub, COHORT_MEMBERSHIP_VERSION_WRITES_ENABLED: true, COHORT_MEMBERSHIP_SWEEP_ENABLED: true },
+            deps
+        )
         teamId = Number.parseInt(new UUIDT().toString().replaceAll('-', '').slice(-7), 16)
         // Progress rows key on (cluster, partition) and nothing truncates between tests, so a
         // unique cluster isolates each test from parallel workers and from prior runs.
@@ -204,6 +207,14 @@ describe('CdpCohortMembershipConsumer', () => {
                 { last_updated: '2026-05-26 13:00:00.000000' },
                 { last_updated: '2026-05-26 12:00:00.000000' },
                 true,
+            ],
+            // A versionless change applies unconditionally in SQL, so it also has to win the
+            // in-batch pick, even against a versioned entry earlier in Kafka order.
+            [
+                'keeping a later versionless change over an earlier versioned one',
+                { last_updated: '2026-05-26 13:00:00.000000' },
+                {},
+                false,
             ],
         ])(
             'should deduplicate batch entries for the same (team_id, cohort_id, person_id), %s',
@@ -442,6 +453,33 @@ describe('CdpCohortMembershipConsumer', () => {
                     min_snapshot_version: OLDER_VERSION,
                 },
             ])
+
+            // A reconcile assertion that lost its version still applies to its row while keeping
+            // the row's old stamp, so it has to collapse the run's minimum to the sentinel
+            // (rendered as NULL by to_char): otherwise the run's own sweep would delete the
+            // person it just asserted.
+            await sweepConsumer['handleBatch']([
+                createKafkaMessage(
+                    createCohortMembershipEvent({
+                        person_id: personId1,
+                        cohort_id: 456,
+                        team_id: teamId,
+                        origin: 'reconcile',
+                        run_id: runId,
+                    }),
+                    { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: 0 }
+                ),
+            ])
+
+            expect(await readSweep()).toEqual([
+                {
+                    team_id: String(teamId),
+                    marker_bits: '0',
+                    status: 'collecting',
+                    snapshot_rows: '4',
+                    min_snapshot_version: null,
+                },
+            ])
         })
 
         it('should advance consumer progress to the next offset without ever regressing it', async () => {
@@ -471,9 +509,9 @@ describe('CdpCohortMembershipConsumer', () => {
             ])
         })
 
-        it('should keep the pre-sweep write shape while the sweep flag is off', async () => {
-            // The migrations are a prerequisite of the flag flip, not of the deploy, so a flag-off
-            // batch must not touch the version column or the sweep tables.
+        it('should keep the pre-sweep write shape while version writes are off', async () => {
+            // The migrations are a prerequisite of the version-writes flip, not of the deploy, so
+            // a flag-off batch must not touch the version column or the sweep tables.
             const runId = new UUIDT().toString()
             const message = createKafkaMessage(
                 createCohortMembershipEvent({
@@ -537,12 +575,6 @@ describe('CdpCohortMembershipConsumer', () => {
         })
 
         it('should refuse to capture watermarks from a partial partition list', async () => {
-            await sweepConsumer['upsertConsumerProgress'](PostgresUse.BEHAVIORAL_COHORTS_RW, [
-                { partition: 0, nextOffset: 5 },
-                { partition: 1, nextOffset: 7 },
-                { partition: 2, nextOffset: 9 },
-            ])
-
             const stubConsumer = {
                 getPartitionsForTopic: jest.fn(),
                 queryWatermarkOffsets: jest.fn((_topic: string, partition: number) =>
@@ -551,10 +583,22 @@ describe('CdpCohortMembershipConsumer', () => {
             }
             sweepConsumer['kafkaConsumer'] = stubConsumer as any
 
+            // With no progress rows for this cluster there is no floor to validate the metadata
+            // against, so any truncated list would pass as the full set: capture fails closed.
+            stubConsumer.getPartitionsForTopic.mockResolvedValue([{ id: 0 }, { id: 1 }])
+            await expect(sweepConsumer['captureMembershipWatermarks']()).rejects.toThrow(
+                'No recorded consumer progress'
+            )
+
+            await sweepConsumer['upsertConsumerProgress'](PostgresUse.BEHAVIORAL_COHORTS_RW, [
+                { partition: 0, nextOffset: 5 },
+                { partition: 1, nextOffset: 7 },
+                { partition: 2, nextOffset: 9 },
+            ])
+
             // Three partitions have durable consumer progress on this cluster, so a broker
             // answering with two is a partial list, and capturing it would let the gate pass while
             // the missing partition still holds unconsumed snapshot rows.
-            stubConsumer.getPartitionsForTopic.mockResolvedValue([{ id: 0 }, { id: 1 }])
             await expect(sweepConsumer['captureMembershipWatermarks']()).rejects.toThrow('Partial partition metadata')
 
             stubConsumer.getPartitionsForTopic.mockResolvedValue([{ id: 0 }, { id: 1 }, { id: 2 }])

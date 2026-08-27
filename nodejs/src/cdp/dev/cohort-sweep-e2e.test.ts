@@ -50,7 +50,12 @@ describe('cohort membership mark and sweep, end to end', () => {
         )
 
         consumer = new CdpCohortMembershipConsumer(
-            { ...hub, COHORT_MEMBERSHIP_SWEEP_ENABLED: true, COHORT_MEMBERSHIP_SWEEP_INTERVAL_MS: 1000 },
+            {
+                ...hub,
+                COHORT_MEMBERSHIP_VERSION_WRITES_ENABLED: true,
+                COHORT_MEMBERSHIP_SWEEP_ENABLED: true,
+                COHORT_MEMBERSHIP_SWEEP_INTERVAL_MS: 1000,
+            },
             createCdpConsumerDeps(hub)
         )
         await consumer.start()

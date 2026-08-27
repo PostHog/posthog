@@ -13,6 +13,14 @@ export { parseEventHeaders, parseKafkaHeaders } from './consumer-v1'
 export type { KafkaConsumerConfig, RdKafkaConsumerConfig } from './consumer-v1'
 
 /**
+ * Overrides `auto.offset.reset` so a fresh consumer group starts at the tip of the topic instead
+ * of replaying the retained backlog. `auto.offset.reset` is a topic-level librdkafka property, so
+ * the global config type has no slot for it; both implementations mirror the value into the
+ * explicit topic config, which is the form librdkafka honors (see node-rdkafka #984).
+ */
+export const START_AT_LATEST = { ['auto.offset.reset' as keyof RdKafkaConsumerConfig]: 'latest' as never }
+
+/**
  * The shared surface that both KafkaConsumer (v1) and KafkaConsumerV2 expose to call sites.
  * Keep this small — every method here pins the migration. Adding a method here forces both
  * implementations to support it.

@@ -186,7 +186,11 @@ export type CdpConfig = ClickhouseConfig & {
     CYCLOTRON_NODE_RESCHEDULE_MAX_CHUNKS_PER_CALL: number
     CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS: number
 
-    // Mark-and-sweep deletion of cohort_membership rows a completed reconcile run did not re-assert
+    // Mark-and-sweep deletion of cohort_membership rows a completed reconcile run did not re-assert.
+    // Two flags so a rolling restart never mixes sweeping pods with pods that write no versions:
+    // version writes turn on first and off last, sweeping turns on last and off first. A pod that
+    // writes without versions preserves a row's old stamp, which a sweeping pod then reads as stale.
+    COHORT_MEMBERSHIP_VERSION_WRITES_ENABLED: boolean
     COHORT_MEMBERSHIP_SWEEP_ENABLED: boolean
     COHORT_MEMBERSHIP_SWEEP_INTERVAL_MS: number
     COHORT_MEMBERSHIP_SWEEP_BATCH_SIZE: number
@@ -353,6 +357,9 @@ export function getDefaultCdpConfig(): CdpConfig {
         CYCLOTRON_NODE_RESCHEDULE_MAX_CHUNKS_PER_CALL: 20,
         CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS: 100,
 
+        // Stays off until the schema migrations have applied; a pod reaching an unmigrated
+        // database must degrade to the pre-sweep write shape, not crash on a missing column.
+        COHORT_MEMBERSHIP_VERSION_WRITES_ENABLED: false,
         // Stays off until the processor writes membership to the live topic and the whole fleet
         // persists row versions. Sweeping before either would delete rows nothing re-asserts.
         //

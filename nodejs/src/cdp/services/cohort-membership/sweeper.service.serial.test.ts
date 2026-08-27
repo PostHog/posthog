@@ -271,7 +271,61 @@ describe('CohortMembershipSweeper', () => {
         expect(await survivingPersonIds()).not.toContain(stale)
     })
 
-    it('should abandon a run whose marker set never completed, but not a gate-blocked ready run', async () => {
+    it('should yield a sweep whose claim was taken over mid-run', async () => {
+        await readyRun()
+        await openGate()
+        await insertMembership(TEAM_ID, COHORT_ID, BELOW_THRESHOLD)
+        await insertMembership(TEAM_ID, COHORT_ID, BELOW_THRESHOLD)
+        const unreached = await insertMembership(TEAM_ID, COHORT_ID, BELOW_THRESHOLD)
+
+        // Take the claim over after the first delete page, as a reclaim after a stall would. The
+        // heartbeat must notice and yield, instead of paging on and writing the terminal ledger
+        // row over the new owner's state.
+        const newOwnerToken = new UUIDT().toString()
+        const realQuery = postgres.query.bind(postgres)
+        let pages = 0
+        postgres.query = (async (...args: any[]) => {
+            const result = await (realQuery as any)(...args)
+            if (args[3] === 'sweepCohortMembership' && ++pages === 1) {
+                await (realQuery as any)(
+                    PostgresUse.BEHAVIORAL_COHORTS_RW,
+                    'UPDATE cohort_membership_sweeps SET claim_token = $1 WHERE run_id = $2',
+                    [newOwnerToken, runId],
+                    'stealClaim'
+                )
+            }
+            return result
+        }) as typeof postgres.query
+
+        expect(await sweeper.runOnce()).toMatchObject({ rowsDeleted: 2 })
+        expect(await survivingPersonIds()).toEqual([unreached])
+        expect(await readSweep()).toMatchObject({ status: 'sweeping', swept_rows: null })
+    })
+
+    it('should send an interrupted sweep back to ready instead of retiring it', async () => {
+        await readyRun()
+        await openGate()
+        await insertMembership(TEAM_ID, COHORT_ID, BELOW_THRESHOLD)
+        await insertMembership(TEAM_ID, COHORT_ID, BELOW_THRESHOLD)
+        const unreached = await insertMembership(TEAM_ID, COHORT_ID, BELOW_THRESHOLD)
+
+        // Shutdown lands between delete pages. Marking the run swept here would strand the rows
+        // it never reached, because nothing revisits a swept run.
+        const realQuery = postgres.query.bind(postgres)
+        postgres.query = (async (...args: any[]) => {
+            const result = await (realQuery as any)(...args)
+            if (args[3] === 'sweepCohortMembership') {
+                sweeper['stopping'] = true
+            }
+            return result
+        }) as typeof postgres.query
+
+        expect(await sweeper.runOnce()).toMatchObject({ rowsDeleted: 2 })
+        expect(await survivingPersonIds()).toEqual([unreached])
+        expect(await readSweep()).toMatchObject({ status: 'ready', swept_rows: '2' })
+    })
+
+    it('should abandon unproven and expired runs, but no proven run, even while watermark capture fails', async () => {
         await query(
             `INSERT INTO cohort_membership_sweeps (run_id, cohort_id, team_id, marker_bits, created_at, updated_at)
              VALUES ($1, $2, $3, 7, CURRENT_TIMESTAMP - INTERVAL '30 days',
@@ -292,13 +346,41 @@ describe('CohortMembershipSweeper', () => {
             [blockedRunId, COHORT_ID + 1, TEAM_ID, MARKER_VERSION, THRESHOLD, JSON.stringify({ 0: 10 })]
         )
 
-        expect(await sweeper.runOnce()).toMatchObject({ abandoned: 1 })
+        // A fully-marked run that promotion cannot ready, because watermark capture keeps
+        // failing, is proven: the short timeout must not take it, and the failure must stay
+        // contained to promotion so the abandonment below still runs in the same cycle. Only the
+        // marker-retention horizon retires such a run.
+        const unpromotedRunId = new UUIDT().toString()
+        await query(
+            `INSERT INTO cohort_membership_sweeps (run_id, cohort_id, team_id, marker_bits, created_at, updated_at)
+             VALUES ($1, $2, $3, -1, CURRENT_TIMESTAMP - INTERVAL '5 days',
+                     CURRENT_TIMESTAMP - INTERVAL '5 days')`,
+            [unpromotedRunId, COHORT_ID + 2, TEAM_ID]
+        )
+        const expiredRunId = new UUIDT().toString()
+        await query(
+            `INSERT INTO cohort_membership_sweeps (run_id, cohort_id, team_id, marker_bits, created_at, updated_at)
+             VALUES ($1, $2, $3, -1, CURRENT_TIMESTAMP - INTERVAL '31 days',
+                     CURRENT_TIMESTAMP - INTERVAL '31 days')`,
+            [expiredRunId, COHORT_ID + 3, TEAM_ID]
+        )
+        sweeper['kafka'].captureMembershipWatermarks = () => Promise.reject(new Error('kafka down'))
+
+        expect(await sweeper.runOnce()).toMatchObject({ abandoned: 2 })
         expect(await readSweep()).toMatchObject({ status: 'abandoned' })
 
-        const blocked = await query<{ status: string }>(
-            `SELECT status FROM cohort_membership_sweeps WHERE run_id = $1`,
-            [blockedRunId]
+        const statuses = Object.fromEntries(
+            (
+                await query<{ run_id: string; status: string }>(
+                    'SELECT run_id, status FROM cohort_membership_sweeps WHERE run_id = ANY($1)',
+                    [[blockedRunId, unpromotedRunId, expiredRunId]]
+                )
+            ).map((row) => [row.run_id, row.status])
         )
-        expect(blocked[0].status).toEqual('ready')
+        expect(statuses).toEqual({
+            [blockedRunId]: 'ready',
+            [unpromotedRunId]: 'collecting',
+            [expiredRunId]: 'abandoned',
+        })
     })
 })
