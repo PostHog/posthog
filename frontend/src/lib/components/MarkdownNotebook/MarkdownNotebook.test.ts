@@ -3959,6 +3959,54 @@ Current AI paragraph`),
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nThinking...`)
     })
 
+    it('keeps the named question above the AI response when enabled', () => {
+        const onAskAI = jest.fn()
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Prompt question="What is PostHog?" />`,
+                onAskAI,
+                onChange,
+                aiPromptAuthorName: 'Avery',
+                createAIConversationId: () => TEST_AI_CONVERSATION_ID,
+            })
+        )
+        const keepQuestionButton = container.querySelector(
+            '[data-attr="markdown-notebook-ai-keep-question"]'
+        ) as HTMLButtonElement
+
+        expect(keepQuestionButton).toBeInstanceOf(HTMLButtonElement)
+        expect(keepQuestionButton.getAttribute('aria-pressed')).toEqual('false')
+
+        fireEvent.click(keepQuestionButton)
+
+        expect(keepQuestionButton.getAttribute('aria-pressed')).toEqual('true')
+        expect(keepQuestionButton.classList.contains('LemonButton--active')).toBe(true)
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Prompt question="What is PostHog?" keepQuestion />`
+        )
+
+        fireEvent.click(keepQuestionButton)
+
+        expect(keepQuestionButton.getAttribute('aria-pressed')).toEqual('false')
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Prompt question="What is PostHog?" />`
+        )
+
+        fireEvent.click(keepQuestionButton)
+        fireEvent.click(container.querySelector('[aria-label="Send prompt"]') as HTMLButtonElement)
+
+        const markdownWithResponse = `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n**Avery:** What is PostHog?\n\nThinking...`
+        expect(onChange).toHaveBeenLastCalledWith(markdownWithResponse)
+        expect(onAskAI).toHaveBeenCalledWith(
+            expect.objectContaining({
+                conversationId: TEST_AI_CONVERSATION_ID,
+                responseNodeIndex: 2,
+                markdownWithResponse,
+            })
+        )
+    })
+
     it('submits a persisted Ask AI prompt from the prompt textarea', () => {
         const onAskAI = jest.fn()
         const onChange = jest.fn()
