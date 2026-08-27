@@ -1,9 +1,10 @@
 # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml (XML generation only, no parsing - no XXE risk)
+from collections.abc import Callable
 from xml.etree import ElementTree as ET
 
 from posthog.schema import PropertyOperator
 
-from posthog.taxonomy.taxonomy import visible_definitions
+from posthog.taxonomy.taxonomy import CoreFilterDefinition, visible_definitions
 
 from products.cdp.backend.models.hog_functions.hog_function import TYPES_WITH_TRANSPILED_FILTERS, HogFunctionType
 
@@ -13,16 +14,11 @@ from ee.hogai.summarizers.property_filters import PROPERTY_FILTER_VERBOSE_NAME
 # event, person, or group, and `property_to_expr` raises `NotImplementedError` for those.
 UNSUPPORTED_FILTER_OPERATORS = frozenset({PropertyOperator.FLAG_EVALUATES_TO})
 
-# Site destinations and site apps transpile their filters to JavaScript, whose standard library
-# (`posthog/hogql/compiler/javascript_stl.py`) defines neither `sortableSemver` (which every semver
-# operator emits) nor `multiSearchAnyCaseInsensitive` (which the multi-contains operators emit). A
-# filter using one saves cleanly and then throws `ReferenceError` in the generated bundle on the
-# first event. Every other function type compiles filters to bytecode, whose standard library does
-# define both, so these stay offered there.
-TRANSPILED_UNSUPPORTED_FILTER_OPERATORS = frozenset(
+# These operators emit `sortableSemver` and `multiSearchAnyCaseInsensitive`, which the JavaScript
+# STL never defines. On the types that transpile filters instead of compiling bytecode, a filter
+# using one saves without error and then throws `ReferenceError` on the first event.
+JS_UNSUPPORTED_FILTER_OPERATORS = frozenset(
     {
-        PropertyOperator.ICONTAINS_MULTI,
-        PropertyOperator.NOT_ICONTAINS_MULTI,
         PropertyOperator.SEMVER_EQ,
         PropertyOperator.SEMVER_NEQ,
         PropertyOperator.SEMVER_GT,
@@ -32,16 +28,24 @@ TRANSPILED_UNSUPPORTED_FILTER_OPERATORS = frozenset(
         PropertyOperator.SEMVER_TILDE,
         PropertyOperator.SEMVER_CARET,
         PropertyOperator.SEMVER_WILDCARD,
+        PropertyOperator.ICONTAINS_MULTI,
+        PropertyOperator.NOT_ICONTAINS_MULTI,
     }
 )
 
-# Transformations run before person resolution, so their filter globals carry no person (see
-# `TRANSFORMATION_AVAILABLE_GLOBALS` in posthog/cdp/validation.py). A person-property filter on one
-# compiles and then evaluates against a null person, silently never matching. The filter UI hides
-# person properties from these types for the same reason.
-FUNCTION_TYPES_WITHOUT_PERSON_PROPERTIES = frozenset(
-    {HogFunctionType.TRANSFORMATION, HogFunctionType.TRANSFORMATION_LOG}
+_TYPES_WITH_TRANSPILED_FILTERS_VALUES = frozenset(t.value for t in TYPES_WITH_TRANSPILED_FILTERS)
+
+# Transformations run during ingestion against `TRANSFORMATION_AVAILABLE_GLOBALS`, which holds no
+# `person` and no group slots, so a person or group filter evaluates against null and never matches.
+# `HogFunctionFilters` hides those taxonomic groups for the same reason.
+TYPES_WITHOUT_PERSON_GLOBALS = frozenset(
+    {HogFunctionType.TRANSFORMATION.value, HogFunctionType.TRANSFORMATION_LOG.value}
 )
+
+# `distinct_id` compiles as `properties.distinct_id` here, but CDP stores the identifier at the
+# top level, so an event-type filter on it always evaluates false. `property_to_expr` special-cases
+# `type: "person", key: "distinct_id"` to read the top-level value, so keep its description there.
+EVENT_PROPERTIES_EXCLUDED_FROM_TAXONOMY = frozenset({"distinct_id"})
 
 HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT = """
 The user is currently editing or creating a Hog transformation function. They expect your help with writing and tweaking Hog code.
@@ -897,13 +901,16 @@ These functions are not available in the current version of HogQL (NEVER USE THE
 """
 
 
-def _render_taxonomy_group(group: str, root_tag: str, entry_tag: str) -> str:
+def _render_taxonomy_group(
+    group: str,
+    root_tag: str,
+    entry_tag: str,
+    *,
+    exclude: Callable[[str, CoreFilterDefinition], bool] | None = None,
+) -> str:
     root = ET.Element(root_tag)
     for name, definition in visible_definitions(group):
-        # Virtual properties are computed in HogQL and absent from the globals a hog function
-        # filters against, so a filter on one compiles to a lookup that fails at CDP runtime
-        # instead of matching. The person renderer skips them for the same reason.
-        if definition.get("virtual"):
+        if exclude is not None and exclude(name, definition):
             continue
         entry = ET.SubElement(root, entry_tag)
         ET.SubElement(entry, "name").text = name
@@ -922,18 +929,27 @@ def render_event_taxonomy() -> str:
     return _render_taxonomy_group("events", "event_taxonomy", "event")
 
 
+def _exclude_from_event_property_taxonomy(name: str, definition: CoreFilterDefinition) -> bool:
+    # Virtual properties (e.g. `$virt_is_bot`) compile to a bare top-level global the CDP filter
+    # globals never define, so a filter on one saves cleanly and then throws at runtime.
+    return bool(definition.get("virtual")) or name in EVENT_PROPERTIES_EXCLUDED_FROM_TAXONOMY
+
+
 def render_event_property_taxonomy() -> str:
-    return _render_taxonomy_group("event_properties", "event_property_taxonomy", "property")
+    return _render_taxonomy_group(
+        "event_properties", "event_property_taxonomy", "property", exclude=_exclude_from_event_property_taxonomy
+    )
 
 
-def render_person_property_taxonomy(function_type: str) -> str:
-    # A function type whose runtime has no person cannot filter on a person property, so offer none.
-    if function_type in FUNCTION_TYPES_WITHOUT_PERSON_PROPERTIES:
-        return ""
+def render_person_property_taxonomy() -> str:
     # The taxonomy copies almost every event property onto the person, so a description here would
     # repeat <event_property_taxonomy> and nearly double the prompt. Describe only the names that
     # section does not carry, because the model has nowhere else to read their meaning.
-    event_property_names = {name for name, _ in visible_definitions("event_properties")}
+    event_property_names = {
+        name
+        for name, definition in visible_definitions("event_properties")
+        if not _exclude_from_event_property_taxonomy(name, definition)
+    }
     root = ET.Element("person_property_taxonomy")
     ET.SubElement(root, "usage").text = (
         "A person property named like an event property means the same thing, so read its "
@@ -963,10 +979,23 @@ def _is_person_only(name: str, event_property_names: set[str]) -> bool:
     )
 
 
+def render_filter_scope(function_type: str) -> str:
+    """A note naming the property types this function type can filter on, empty when all three work."""
+    if function_type not in TYPES_WITHOUT_PERSON_GLOBALS:
+        return ""
+    root = ET.Element("filter_scope")
+    ET.SubElement(root, "usage").text = (
+        "This function runs during ingestion, where only the event is in scope. Use `event` "
+        "property filters only. A `person` or `group` filter saves without error and then matches "
+        "nothing, so the function never runs."
+    )
+    return ET.tostring(root, encoding="unicode")
+
+
 def render_filter_operator_taxonomy(function_type: str) -> str:
     unsupported = UNSUPPORTED_FILTER_OPERATORS
-    if function_type in TYPES_WITH_TRANSPILED_FILTERS:
-        unsupported = unsupported | TRANSPILED_UNSUPPORTED_FILTER_OPERATORS
+    if function_type in _TYPES_WITH_TRANSPILED_FILTERS_VALUES:
+        unsupported = unsupported | JS_UNSUPPORTED_FILTER_OPERATORS
     root = ET.Element("filter_taxonomy")
     ET.SubElement(root, "usage").text = "A filter's `operator` field takes the `value` below, never the `meaning`."
     for operator, verbose_name in PROPERTY_FILTER_VERBOSE_NAME.items():
@@ -1013,6 +1042,27 @@ To match every event, leave "events" as an empty list. "All events" in <event_ta
 Pick the operator that says what the user asked for. <filter_taxonomy> lists every one you may use.
 
 Return ONLY the JSON object inside <filters> tags. Do not add any other text or explanation."""
+
+
+def render_filters_system_prompt(function_type: str, current_filters: str) -> str:
+    """The full system prompt for the filters tool, carrying only the taxonomy this type can filter on."""
+    person_taxonomy = "" if function_type in TYPES_WITHOUT_PERSON_GLOBALS else render_person_property_taxonomy()
+    return "\n\n".join(
+        section
+        for section in [
+            HOG_FUNCTION_FILTERS_SYSTEM_PROMPT,
+            render_filter_scope(function_type),
+            render_event_taxonomy(),
+            render_event_property_taxonomy(),
+            person_taxonomy,
+            render_filter_operator_taxonomy(function_type),
+            # Last, so the taxonomy above stays an identical prefix across teams and requests
+            # and the provider's prompt cache can hit it.
+            f"Current filters: {current_filters}\nFunction type: {function_type}",
+        ]
+        if section
+    )
+
 
 HOG_FUNCTION_INPUTS_SYSTEM_PROMPT = """You are an expert at creating input variable schemas for PostHog hog functions.
 

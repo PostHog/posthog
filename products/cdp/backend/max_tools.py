@@ -15,7 +15,6 @@ from products.cdp.backend.prompts import (
     DESTINATION_LIMITATIONS_MESSAGE,
     HOG_EXAMPLE_MESSAGE,
     HOG_FUNCTION_FILTERS_ASSISTANT_ROOT_SYSTEM_PROMPT,
-    HOG_FUNCTION_FILTERS_SYSTEM_PROMPT,
     HOG_FUNCTION_INPUTS_ASSISTANT_ROOT_SYSTEM_PROMPT,
     HOG_FUNCTION_INPUTS_SYSTEM_PROMPT,
     HOG_GRAMMAR_MESSAGE,
@@ -24,10 +23,7 @@ from products.cdp.backend.prompts import (
     INPUT_SCHEMA_TYPES_MESSAGE,
     TRANSFORMATION_LIMITATIONS_MESSAGE,
     TRANSFORMATION_STRUCTURE_MESSAGE,
-    render_event_property_taxonomy,
-    render_event_taxonomy,
-    render_filter_operator_taxonomy,
-    render_person_property_taxonomy,
+    render_filters_system_prompt,
 )
 
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
@@ -165,21 +161,7 @@ class CreateHogFunctionFiltersTool(MaxTool):
         current_filters = self.context.get("current_filters", "{}")
         function_type = self.context.get("function_type", "destination")
 
-        system_content = "\n\n".join(
-            block
-            for block in [
-                HOG_FUNCTION_FILTERS_SYSTEM_PROMPT,
-                render_event_taxonomy(),
-                render_event_property_taxonomy(),
-                # Empty for function types whose runtime has no person, so it drops out of the join.
-                render_person_property_taxonomy(function_type),
-                render_filter_operator_taxonomy(function_type),
-                # Last, so the taxonomy above stays an identical prefix across teams and requests
-                # and the provider's prompt cache can hit it.
-                f"Current filters: {current_filters}\nFunction type: {function_type}",
-            ]
-            if block
-        )
+        system_content = render_filters_system_prompt(function_type, current_filters)
 
         user_content = f"Create filters for this hog function: {instructions}"
 

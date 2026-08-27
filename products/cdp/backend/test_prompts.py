@@ -10,6 +10,8 @@ from products.cdp.backend.prompts import (
     render_event_property_taxonomy,
     render_event_taxonomy,
     render_filter_operator_taxonomy,
+    render_filter_scope,
+    render_filters_system_prompt,
     render_person_property_taxonomy,
 )
 
@@ -21,46 +23,36 @@ def _texts(xml: str, tag: str) -> set[str]:
 
 
 class TestTaxonomyPrompts:
-    @parameterized.expand(
-        [
-            ("events", render_event_taxonomy),
-            ("event_properties", render_event_property_taxonomy),
-        ]
-    )
-    def test_render_covers_every_visible_taxonomy_entry(self, group, render):
-        # Virtual entries are excluded because a filter on one fails at CDP runtime; the events
-        # group carries none, so this stays a full-coverage check for that renderer.
-        assert _texts(render(), "name") == {
-            name for name, definition in visible_definitions(group) if not definition.get("virtual")
-        }
-
-    def test_render_event_properties_omit_virtual_entries(self):
-        # A virtual event property like `$virt_is_bot` compiles to a top-level global the CDP filter
-        # runtime never provides, so a saved filter on one fails instead of matching. Asserted
-        # against a literal name, not the renderer's own `virtual` check, so dropping the exclusion
-        # fails here rather than moving in lockstep with the completeness test above.
-        assert CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"]["$virt_is_bot"].get("virtual")
-        assert "$virt_is_bot" not in _texts(render_event_property_taxonomy(), "name")
+    def test_render_covers_every_visible_taxonomy_entry(self):
+        assert _texts(render_event_taxonomy(), "name") == {name for name, _ in visible_definitions("events")}
 
     def test_render_person_properties_covers_every_visible_non_virtual_entry(self):
         # Virtual properties are excluded because a filter on one never matches at CDP runtime.
-        assert _texts(render_person_property_taxonomy("destination"), "name") == {
+        assert _texts(render_person_property_taxonomy(), "name") == {
             name for name, definition in visible_definitions("person_properties") if not definition.get("virtual")
         }
 
-    @parameterized.expand(["transformation", "transformation_log"])
-    def test_render_person_properties_empty_for_types_without_a_person(self, function_type):
-        # These types run before person resolution, so a person filter evaluates against a null
-        # person and never matches. The renderer offers no person properties for them; a
-        # destination, whose runtime populates person, still gets the full set.
-        assert "<property>" not in render_person_property_taxonomy(function_type)
-        assert "email" in _texts(render_person_property_taxonomy("destination"), "name")
+    def test_render_event_properties_excludes_virtual_and_distinct_id(self):
+        # Both compile to a lookup CDP never populates: a virtual property throws at runtime, and
+        # `distinct_id` silently evaluates false.
+        names = _texts(render_event_property_taxonomy(), "name")
+
+        assert names == {
+            name
+            for name, definition in visible_definitions("event_properties")
+            if not definition.get("virtual") and name != "distinct_id"
+        }
+        # Anchored on a literal, so dropping the exclusion fails here instead of moving in lockstep
+        # with the derived set above.
+        assert CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"]["$virt_is_bot"].get("virtual")
+        assert "$virt_is_bot" not in names
+        assert "distinct_id" not in names
 
     @parameterized.expand(
         [
             ("events", render_event_taxonomy, "$autocapture"),
             ("event_properties", render_event_property_taxonomy, "$exception_steps"),
-            ("person_properties", lambda: render_person_property_taxonomy("destination"), "$initial_person_info"),
+            ("person_properties", render_person_property_taxonomy, "$initial_person_info"),
         ]
     )
     def test_render_omits_hidden_taxonomy_entries(self, group, render, hidden_name):
@@ -82,18 +74,20 @@ class TestTaxonomyPrompts:
         )
         assert events["$csp_violation"].findtext("examples")
 
-    def test_render_person_properties_describes_only_names_the_event_section_lacks(self):
-        # `email` has no counterpart in <event_property_taxonomy>, so this block is the only place
-        # the model can read its meaning. `$browser` is a copy, and the usage note sends the model
-        # next door for it.
+    @parameterized.expand(
+        [
+            ("email", True),  # no counterpart in <event_property_taxonomy>
+            ("distinct_id", True),  # excluded from the event block, so this is where it is described
+            ("$browser", False),  # a copy; the usage note sends the model to <event_property_taxonomy>
+            ("$initial_browser", False),
+        ]
+    )
+    def test_render_person_properties_describes_only_names_the_event_section_lacks(self, name, has_description):
         properties = {
-            prop.findtext("name"): prop
-            for prop in ET.fromstring(render_person_property_taxonomy("destination")).iter("property")
+            prop.findtext("name"): prop for prop in ET.fromstring(render_person_property_taxonomy()).iter("property")
         }
 
-        assert properties["email"].findtext("description")
-        assert properties["$browser"].findtext("description") is None
-        assert properties["$initial_browser"].findtext("description") is None
+        assert (properties[name].findtext("description") is not None) == has_description
 
     def test_render_operators_uses_wire_values(self):
         values = _texts(render_filter_operator_taxonomy("destination"), "value")
@@ -115,14 +109,10 @@ class TestTaxonomyPrompts:
             render_filter_operator_taxonomy("destination"), "value"
         )
 
-    @parameterized.expand(["site_destination", "site_app"])
-    def test_render_operators_omits_operators_that_break_transpiled_filters(self, function_type):
-        # Site types transpile filters to JavaScript, whose standard library defines neither
-        # `sortableSemver` (semver operators) nor `multiSearchAnyCaseInsensitive` (multi-contains).
-        # A saved filter using one throws at runtime, so these must not reach the model for a site
-        # type. Every other type compiles to bytecode, which defines both, so they stay offered.
-        # Asserted against literal names, not the renderer's own exclusion set, so a change that
-        # stopped excluding them would fail here instead of moving both sides together.
+    @parameterized.expand([("site_destination",), ("site_app",)])
+    def test_render_operators_omits_js_unsupported_operators_for_transpiled_types(self, function_type):
+        # Listed literally, not read from the renderer's own exclusion set, so a family member that
+        # stopped being excluded fails here rather than moving both sides together.
         broken_on_site = {
             PropertyOperator.ICONTAINS_MULTI.value,
             PropertyOperator.NOT_ICONTAINS_MULTI.value,
@@ -136,9 +126,22 @@ class TestTaxonomyPrompts:
             PropertyOperator.SEMVER_CARET.value,
             PropertyOperator.SEMVER_WILDCARD.value,
         }
-        site_values = _texts(render_filter_operator_taxonomy(function_type), "value")
-        destination_values = _texts(render_filter_operator_taxonomy("destination"), "value")
 
-        assert broken_on_site.isdisjoint(site_values)
-        # Scoped to site types: the bytecode path keeps every one of them.
-        assert broken_on_site <= destination_values
+        assert broken_on_site.isdisjoint(_texts(render_filter_operator_taxonomy(function_type), "value"))
+        # Scoped to the transpiled types: the bytecode STL defines both functions, so a destination
+        # keeps every one of them.
+        assert broken_on_site <= _texts(render_filter_operator_taxonomy("destination"), "value")
+
+    @parameterized.expand([("transformation", True), ("transformation_log", True), ("destination", False)])
+    def test_render_filter_scope_restricts_ingestion_types_to_event_properties(self, function_type, is_restricted):
+        # Destinations do get person and group globals, so they must not pick up the restriction.
+        assert bool(render_filter_scope(function_type)) == is_restricted
+
+    @parameterized.expand([("transformation", False), ("destination", True), ("site_destination", True)])
+    def test_system_prompt_carries_person_taxonomy_only_when_the_type_has_person_globals(
+        self, function_type, has_person_taxonomy
+    ):
+        prompt = render_filters_system_prompt(function_type, "{}")
+
+        assert ("<person_property_taxonomy>" in prompt) == has_person_taxonomy
+        assert "<event_property_taxonomy>" in prompt
