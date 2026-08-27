@@ -1151,10 +1151,17 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         request=NotebookSQLV2RunRequestSerializer,
         responses={
             200: NotebookSQLV2RunResponseSerializer,
+            409: OpenApiResponse(
+                description=(
+                    "The notebook already has a cell running. Wait for it to finish, then run this one. "
+                    "A conflict with the notebook's state rather than a rate, so it is not worth retrying "
+                    "on a timer."
+                )
+            ),
             429: OpenApiResponse(
                 description=(
-                    "A concurrency ceiling is full: the notebook already has a cell running, or the project "
-                    "has as many notebook cells in flight as it may. Retry once one finishes."
+                    "The project has as many notebook cells in flight as it may. Unlike the 409, retrying "
+                    "shortly is the right response."
                 )
             ),
         },
