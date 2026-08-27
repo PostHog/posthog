@@ -2674,9 +2674,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         setEndReached: ({ reached }) => {
             if (reached) {
-                // Clear the inactivity-skip flag, or the "Skipping inactivity" overlay stays up
-                // over the final frame instead of the rewind control.
-                actions.setSkippingInactivity(false)
                 actions.endBuffer()
                 actions.setPause()
                 // TODO: this will be time-gated so won't happen immediately, but we need it to

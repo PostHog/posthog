@@ -324,12 +324,17 @@ describe('sessionRecordingPlayerLogic', () => {
     })
 
     describe('end of recording', () => {
-        it('clears the inactivity-skip flag so the overlay does not stick over the final frame', async () => {
+        // Reaching the end pauses the player, and currentPlayerState only reports SKIP while playing,
+        // so the rewind control already replaces the "Skipping inactivity" overlay without touching the
+        // flag. The flag also drives playerSpeed, so it must survive end-of-recording: a rewind back into
+        // a trailing inactive stretch lands in the same segment, which does not recompute it, and clearing
+        // it there would make that dead time play at 1x.
+        it('keeps the inactivity-skip flag so a rewind into a trailing inactive stretch still skips', async () => {
             logic.actions.setSkippingInactivity(true)
             expect(logic.values.isSkippingInactivity).toBe(true)
 
             await expectLogic(logic, () => logic.actions.setEndReached(true)).toMatchValues({
-                isSkippingInactivity: false,
+                isSkippingInactivity: true,
             })
         })
     })
