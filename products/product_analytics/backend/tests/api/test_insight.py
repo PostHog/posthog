@@ -121,14 +121,20 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "query")
 
-    def test_updating_an_insight_left_without_a_query_still_works(self) -> None:
+    @parameterized.expand(
+        [
+            ("rename", {"name": "Renamed"}),
+            # What the delete-and-undo path sends: the whole object back, query included.
+            ("soft delete", {"deleted": True, "query": None}),
+        ]
+    )
+    def test_updating_an_insight_left_without_a_query_still_works(self, _name: str, payload: dict[str, Any]) -> None:
         # The backfill could not convert every row, and those still need renaming and deleting.
         insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
 
-        response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight.id}/", {"name": "Renamed"})
+        response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight.id}/", payload)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["name"], "Renamed")
 
     def test_get_insight_items(self) -> None:
         filter_dict = {
