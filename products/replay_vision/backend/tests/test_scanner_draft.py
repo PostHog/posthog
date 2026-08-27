@@ -15,6 +15,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import MIN_S
 from products.replay_vision.backend.queries.scanner_volume_estimate import ScannerVolumeEstimate
 from products.replay_vision.backend.queries.visited_paths import VisitedPath
 from products.replay_vision.backend.scanner_draft import (
+    _DRAFT_MODELS,
     DraftError,
     ScannerDraft,
     _build_user_content,
@@ -375,8 +376,9 @@ class TestGenerate:
         generate.side_effect = side_effect
         return generate
 
+    @patch("products.replay_vision.backend.scanner_draft.time.sleep")
     @patch("products.replay_vision.backend.scanner_draft.genai.Client")
-    def test_retries_once_on_a_transient_provider_failure(self, mock_client_cls):
+    def test_falls_back_to_a_second_model_on_a_transient_provider_failure(self, mock_client_cls, mock_sleep):
         response = MagicMock(text=_draft().model_dump_json())
         generate = self._mock_client(mock_client_cls, [RuntimeError("blip"), response])
 
@@ -384,15 +386,19 @@ class TestGenerate:
 
         assert result.name == "Checkout abandonment"
         assert generate.call_count == 2
+        # The retry must use the fallback model, not re-hit the model that just failed.
+        assert [call.kwargs["model"] for call in generate.call_args_list] == list(_DRAFT_MODELS)
+        mock_sleep.assert_called_once()
 
+    @patch("products.replay_vision.backend.scanner_draft.time.sleep")
     @patch("products.replay_vision.backend.scanner_draft.genai.Client")
-    def test_gives_up_after_the_second_failure(self, mock_client_cls):
+    def test_gives_up_after_every_model_fails(self, mock_client_cls, mock_sleep):
         generate = self._mock_client(mock_client_cls, [RuntimeError("blip"), RuntimeError("blip")])
 
         with pytest.raises(DraftError):
             _generate(user_content="goal", team_id=1, distinct_id="u")
 
-        assert generate.call_count == 2
+        assert generate.call_count == len(_DRAFT_MODELS)
 
     @patch("products.replay_vision.backend.scanner_draft.genai.Client")
     def test_caps_output_tokens(self, mock_client_cls):

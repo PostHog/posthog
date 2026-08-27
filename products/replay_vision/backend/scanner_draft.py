@@ -10,7 +10,9 @@ re-validates everything on save.
 """
 
 import re
+import time
 import uuid
+import random
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Literal, cast
@@ -49,9 +51,16 @@ from ee.hogai.utils.untrusted import as_untrusted_data
 logger = structlog.get_logger(__name__)
 
 # Interactive request path, but drafting a whole scanner well needs more model than the tag helper.
-# The stable flash tier: gemini-3.6-flash is retired in billing.py's lineup.
-_DRAFT_MODEL = "gemini-3.7-flash"
-_MODEL_CALL_TIMEOUT_MS = 90_000
+# First choice, then a fallback that sits on a different capacity pool, so one model running out of
+# capacity does not cost the user their draft. Both draft a scanner well.
+_DRAFT_MODELS = ("gemini-3.7-flash", "gemini-3-flash-preview")
+# Per-attempt timeout. The call runs inline while the user waits, so two attempts plus the backoff
+# still have to stay well under a minute; a hung provider must fail fast into the fallback.
+_MODEL_CALL_TIMEOUT_MS = 40_000
+# Jittered pause before the fallback attempt. It gives a provider capacity blip a moment to clear,
+# and keeps concurrent drafts from retrying in lockstep against the same blip.
+_RETRY_BACKOFF_MIN_S = 0.5
+_RETRY_BACKOFF_MAX_S = 1.5
 _MAX_NAME_LENGTH = 255  # ReplayScanner.name column length
 _MAX_DESCRIPTION_LENGTH = 1_000
 _MAX_PROMPT_LENGTH = 20_000
@@ -378,9 +387,9 @@ def _generate(
         max_output_tokens=_MAX_OUTPUT_TOKENS,
     )
 
-    def call_model() -> GenerateContentResponse:
+    def call_model(model: str) -> GenerateContentResponse:
         return client.models.generate_content(
-            model=_DRAFT_MODEL,
+            model=model,
             contents=user_content,
             config=config,
             posthog_distinct_id=distinct_id,
@@ -395,16 +404,21 @@ def _generate(
             posthog_groups={"project": str(team_id)},
         )
 
-    try:
-        response = call_model()
-    except Exception:
-        # One immediate second attempt: the user is sitting on this request, and a transient
-        # provider blip shouldn't cost them the draft.
+    # Try the primary model, then fall back to the next after a jittered pause. The user is sitting
+    # on this request, so a transient capacity blip on one model shouldn't cost them the draft.
+    response: GenerateContentResponse | None = None
+    last_error: Exception | None = None
+    for attempt, model in enumerate(_DRAFT_MODELS):
+        if attempt:
+            time.sleep(random.uniform(_RETRY_BACKOFF_MIN_S, _RETRY_BACKOFF_MAX_S))
         try:
-            response = call_model()
+            response = call_model(model)
+            break
         except Exception as e:
-            logger.exception("replay_vision.scanner_draft.generate_failed", team_id=team_id)
-            raise DraftError("model call failed") from e
+            last_error = e
+    if response is None:
+        logger.error("replay_vision.scanner_draft.generate_failed", team_id=team_id, exc_info=last_error)
+        raise DraftError("model call failed") from last_error
 
     if not response.text:
         raise DraftError("empty response")

@@ -1723,6 +1723,16 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
 
             draftScannerFromGoalFailure: ({ errorObject }) => {
+                // The endpoint returns 503 only for a transient model/capacity failure, and the goal
+                // stays in the box, so offer a one-click retry rather than making the user re-run it.
+                const transient = errorObject?.status === 503
+                const goal = values.goalDraftInput.trim()
+                if (transient && goal) {
+                    lemonToast.error('PostHog AI is busy right now. Your goal is saved. Try again in a moment.', {
+                        button: { label: 'Try again', action: () => actions.draftScannerFromGoal(goal) },
+                    })
+                    return
+                }
                 lemonToast.error(`Couldn't draft a scanner${errorObject?.detail ? `: ${errorObject.detail}` : ''}`)
             },
 

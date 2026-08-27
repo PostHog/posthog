@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
@@ -9,6 +10,12 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { replayScannerLogic } from '../replayScannerLogic'
+
+// Mirrors DraftScannerRequestSerializer.goal's max_length, so an over-long goal is caught here
+// rather than after a round trip.
+const GOAL_MAX_LENGTH = 2000
+// Only show the counter once the goal is close to the cap; a short goal needs no distraction.
+const GOAL_COUNTER_THRESHOLD = GOAL_MAX_LENGTH * 0.8
 
 /** "Tell PostHog AI what you want to accomplish" box on the template step: drafts a full scanner
  * from the stated goal and drops the user into the details step to review it. */
@@ -54,7 +61,7 @@ export function ScannerGoalDraft(): JSX.Element {
                         id="vision-goal-draft-input"
                         ref={textAreaRef}
                         value={goalDraftInput}
-                        onChange={setGoalDraftInput}
+                        onChange={(value) => setGoalDraftInput(value.slice(0, GOAL_MAX_LENGTH))}
                         onPressEnter={handleSubmit}
                         placeholder="e.g., Find sessions where users get stuck during onboarding"
                         minRows={2}
@@ -68,33 +75,48 @@ export function ScannerGoalDraft(): JSX.Element {
                             <IconSparkles className="text-ai size-3.5" />
                             <span>PostHog AI</span>
                         </div>
-                        <AIConsentPopoverWrapper
-                            placement="bottom-end"
-                            showArrow
-                            ignoreDismissal
-                            hideTrainingDisclaimer
-                            hidden={!consentRequested}
-                            onApprove={() => {
-                                setConsentRequested(false)
-                                draftScannerFromGoal(goalDraftInput.trim())
-                            }}
-                            onDismiss={() => setConsentRequested(false)}
-                        >
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                icon={<IconArrowRight />}
-                                loading={goalDraftLoading}
-                                onClick={handleSubmit}
-                                disabledReason={
-                                    editDisabledReason ??
-                                    (!goalDraftInput.trim() ? 'Describe what the scanner should look for' : undefined)
-                                }
-                                data-attr="vision-goal-draft-submit"
+                        <div className="flex items-center gap-2">
+                            {goalDraftInput.length >= GOAL_COUNTER_THRESHOLD && (
+                                <span
+                                    className={clsx(
+                                        'text-xs',
+                                        goalDraftInput.length >= GOAL_MAX_LENGTH ? 'text-danger' : 'text-tertiary'
+                                    )}
+                                    data-attr="vision-goal-draft-counter"
+                                >
+                                    {goalDraftInput.length} / {GOAL_MAX_LENGTH}
+                                </span>
+                            )}
+                            <AIConsentPopoverWrapper
+                                placement="bottom-end"
+                                showArrow
+                                ignoreDismissal
+                                hideTrainingDisclaimer
+                                hidden={!consentRequested}
+                                onApprove={() => {
+                                    setConsentRequested(false)
+                                    draftScannerFromGoal(goalDraftInput.trim())
+                                }}
+                                onDismiss={() => setConsentRequested(false)}
                             >
-                                Set up with AI
-                            </LemonButton>
-                        </AIConsentPopoverWrapper>
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    icon={<IconArrowRight />}
+                                    loading={goalDraftLoading}
+                                    onClick={handleSubmit}
+                                    disabledReason={
+                                        editDisabledReason ??
+                                        (!goalDraftInput.trim()
+                                            ? 'Describe what the scanner should look for'
+                                            : undefined)
+                                    }
+                                    data-attr="vision-goal-draft-submit"
+                                >
+                                    Set up with AI
+                                </LemonButton>
+                            </AIConsentPopoverWrapper>
+                        </div>
                     </div>
                 </label>
             </div>
