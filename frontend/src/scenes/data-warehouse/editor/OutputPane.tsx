@@ -590,7 +590,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
 
     const { sourceQuery, exportContext, insightLoading, hasQueryInput, isEmbeddedMode, metadata, metadataLoading } =
         useValues(sqlEditorLogic)
-    const { setSourceQuery } = useActions(sqlEditorLogic)
+    const { setSourceQuery, applyQueryFix } = useActions(sqlEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
         response: dataNodeResponse,
@@ -898,6 +898,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                 predicates={metadata?.index_usage ?? []}
                 scans={metadata?.unpruned_scans ?? []}
                 refreshing={metadataLoading}
+                onApplyFix={applyQueryFix}
             />
             {outputContent}
             <div className="flex justify-between px-2 border-t">

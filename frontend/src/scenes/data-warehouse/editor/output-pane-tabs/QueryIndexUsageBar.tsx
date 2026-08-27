@@ -4,7 +4,12 @@ import { IconInfo, IconWarning } from '@posthog/icons'
 
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 
-import { PredicateIndexUsage, PredicateIndexVerdict, UnprunedTableScan } from '~/queries/schema/schema-general'
+import {
+    HogQLFixEdit,
+    PredicateIndexUsage,
+    PredicateIndexVerdict,
+    UnprunedTableScan,
+} from '~/queries/schema/schema-general'
 
 import { QueryIndexUsageTable } from './QueryIndexUsageTable'
 import { UnprunedScanNotice } from './UnprunedScanNotice'
@@ -45,9 +50,15 @@ interface QueryIndexUsageBarProps {
     scans: UnprunedTableScan[]
     /** A refresh is in flight, so the report still describes the SQL the server last saw. */
     refreshing?: boolean
+    onApplyFix?: (edits: HogQLFixEdit[]) => void
 }
 
-export function QueryIndexUsageBar({ predicates, scans, refreshing }: QueryIndexUsageBarProps): JSX.Element | null {
+export function QueryIndexUsageBar({
+    predicates,
+    scans,
+    refreshing,
+    onApplyFix,
+}: QueryIndexUsageBarProps): JSX.Element | null {
     if (predicates.length === 0 && scans.length === 0) {
         return null
     }
@@ -75,7 +86,8 @@ export function QueryIndexUsageBar({ predicates, scans, refreshing }: QueryIndex
                     ),
                     content: (
                         <>
-                            <UnprunedScanNotice scans={scans} />
+                            {/* A stale report carries offsets into text the editor no longer holds, so the fix waits for the refresh. */}
+                            <UnprunedScanNotice scans={scans} onApplyFix={refreshing ? undefined : onApplyFix} />
                             <QueryIndexUsageTable predicates={predicates} />
                         </>
                     ),

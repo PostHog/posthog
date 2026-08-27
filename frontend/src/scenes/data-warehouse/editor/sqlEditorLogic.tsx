@@ -66,6 +66,7 @@ import {
     HogLanguage,
     HogQLFilters,
     HogQLMetadata,
+    HogQLFixEdit,
     HogQLMetadataResponse,
     HogQLQuery,
     NodeKind,
@@ -516,6 +517,41 @@ export function tabModelPath(tabId: string): string {
 // suggestion: @monaco-editor/react reuses the existing model on remount without re-applying
 // the `value` prop, so the content has to be written onto the model directly. No-ops when the
 // editor isn't mounted yet or the content already matches.
+function applyUndoableRangedEdits(
+    monaco: Monaco | null | undefined,
+    uri: Uri | undefined,
+    edits: HogQLFixEdit[],
+    offset: number
+): void {
+    if (!monaco || !uri || edits.length === 0) {
+        return
+    }
+    const model = monaco.editor.getModel(uri)
+    if (!model) {
+        return
+    }
+    model.pushStackElement()
+    model.pushEditOperations(
+        [],
+        edits.map((edit) => {
+            // Offsets index the metadata query, which is one statement of a multi-statement script.
+            const start = model.getPositionAt(edit.start + offset)
+            const end = model.getPositionAt(edit.end + offset)
+            return {
+                range: {
+                    startLineNumber: start.lineNumber,
+                    startColumn: start.column,
+                    endLineNumber: end.lineNumber,
+                    endColumn: end.column,
+                },
+                text: edit.text,
+            }
+        }),
+        () => null
+    )
+    model.pushStackElement()
+}
+
 function applyUndoableModelEdit(monaco: Monaco | null | undefined, uri: Uri | undefined, text: string): void {
     if (!monaco || !uri) {
         return
@@ -1031,6 +1067,9 @@ export interface sqlEditorLogicActions {
     setEditorSource: (source: SqlEditorSource) => {
         source: SqlEditorSource
     }
+    applyQueryFix: (edits: HogQLFixEdit[]) => {
+        edits: HogQLFixEdit[]
+    }
     setError: (error: string | null) => {
         error: string | null
     }
@@ -1445,6 +1484,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         syncUrlWithQuery: true,
         insertTextAtCursor: (text: string) => ({ text }),
         setEditorSource: (source: SqlEditorSource) => ({ source }),
+        applyQueryFix: (edits: HogQLFixEdit[]) => ({ edits }),
         runSubquery: true,
         setSendRawQuery: (sendRawQuery: boolean) => ({ sendRawQuery }),
         enforceConnectionRawQueryMode: true,
@@ -1877,6 +1917,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     source: values.suggestedSource,
                 })
                 actions._setSuggestionPayload(null)
+            },
+            applyQueryFix: ({ edits }) => {
+                applyUndoableRangedEdits(props.monaco, values.activeTab?.uri, edits, values.activeQueryOffset)
             },
             onRejectSuggestedQueryInput: () => {
                 values.suggestionPayload?.onReject(actions, values, props)

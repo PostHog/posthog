@@ -8195,24 +8195,6 @@ class TrendsQueryResponse(BaseModel):
     )
 
 
-class UnprunedTableScan(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    end: int | None = None
-    fix: str = Field(
-        ...,
-        description=("A predicate that would bound the partition key, ready to paste into the query."),
-    )
-    message: str
-    partition_key: str = Field(
-        ...,
-        description=("Partition key the scan does not bound, e.g. `toYYYYMM(timestamp)`."),
-    )
-    start: int | None = None
-    table_name: str
-
-
 class UsageMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -18875,27 +18857,6 @@ class QueryResponseAlternative6(BaseModel):
     )
 
 
-class QueryResponseAlternative9(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    ch_table_names: list[str] | None = None
-    errors: list[HogQLNotice]
-    index_usage: list[PredicateIndexUsage] | None = Field(
-        default=None, description="One entry per property filter, in query order."
-    )
-    isUsingIndices: QueryIndexUsage | None = None
-    isValid: bool | None = None
-    notices: list[HogQLNotice]
-    query: str | None = None
-    table_names: list[str] | None = None
-    unpruned_scans: list[UnprunedTableScan] | None = Field(
-        default=None,
-        description=("One entry per table scan with no bound on its partition key. Empty when every scan is bounded."),
-    )
-    warnings: list[HogQLNotice]
-
-
 class QueryResponseAlternative11(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -23317,6 +23278,28 @@ class TraceSpansSymbolStatsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class UnprunedTableScan(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    end: int | None = None
+    fix: str = Field(
+        ...,
+        description=("A predicate that would bound the partition key, ready to paste into the query."),
+    )
+    fix_action: HogQLFixAction | None = Field(
+        default=None,
+        description=("Absent when the query shape has no unambiguous place to write the bound."),
+    )
+    message: str
+    partition_key: str = Field(
+        ...,
+        description=("Partition key the scan does not bound, e.g. `toYYYYMM(timestamp)`."),
+    )
+    start: int | None = None
+    table_name: str
+
+
 class UsageMetricsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -26489,6 +26472,27 @@ class QueryResponseAlternative8(BaseModel):
             " the user can't access."
         ),
     )
+
+
+class QueryResponseAlternative9(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    ch_table_names: list[str] | None = None
+    errors: list[HogQLNotice]
+    index_usage: list[PredicateIndexUsage] | None = Field(
+        default=None, description="One entry per property filter, in query order."
+    )
+    isUsingIndices: QueryIndexUsage | None = None
+    isValid: bool | None = None
+    notices: list[HogQLNotice]
+    query: str | None = None
+    table_names: list[str] | None = None
+    unpruned_scans: list[UnprunedTableScan] | None = Field(
+        default=None,
+        description=("One entry per table scan with no bound on its partition key. Empty when every scan is bounded."),
+    )
+    warnings: list[HogQLNotice]
 
 
 class QueryResponseAlternative16(BaseModel):

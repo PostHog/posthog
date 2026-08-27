@@ -829,6 +829,8 @@ export interface UnprunedTableScan {
     message: string
     /** A predicate that would bound the partition key, ready to paste into the query. */
     fix: string
+    /** Absent when the query shape has no unambiguous place to write the bound. */
+    fix_action?: HogQLFixAction
     start?: integer
     end?: integer
 }

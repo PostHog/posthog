@@ -26,6 +26,7 @@ EVENTS_PARTITION_KEY = "toYYYYMM(timestamp)"
 # Shared by the editor marker and the scan report so the two cannot drift apart.
 UNPRUNED_SCAN_MESSAGE = "No filter on events.timestamp, so this reads your full event history."
 UNPRUNED_SCAN_FIX = "Add WHERE timestamp > now() - INTERVAL 30 DAY to read a recent time range."
+UNPRUNED_SCAN_FIX_TITLE = "Add a time range"
 
 # The bound the quick fix writes. It matches the interval named in UNPRUNED_SCAN_FIX.
 _BOUND_EXPRESSION = "now() - INTERVAL 30 DAY"

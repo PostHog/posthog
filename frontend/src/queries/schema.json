@@ -53870,6 +53870,10 @@
                     "description": "A predicate that would bound the partition key, ready to paste into the query.",
                     "type": "string"
                 },
+                "fix_action": {
+                    "$ref": "#/definitions/HogQLFixAction",
+                    "description": "Absent when the query shape has no unambiguous place to write the bound."
+                },
                 "message": {
                     "type": "string"
                 },

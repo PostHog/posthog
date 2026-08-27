@@ -79,6 +79,10 @@ const UNPRUNED_SCANS: UnprunedTableScan[] = [
         partition_key: 'toYYYYMM(timestamp)',
         message: 'No filter on events.timestamp, so this reads your full event history.',
         fix: 'Add WHERE timestamp > now() - INTERVAL 30 DAY to read a recent time range.',
+        fix_action: {
+            title: 'Add a time range',
+            edits: [{ start: 26, end: 26, text: ' WHERE timestamp > now() - INTERVAL 30 DAY' }],
+        },
         start: 21,
         end: 27,
     },
@@ -111,7 +115,7 @@ export const RefreshingAfterAnEdit: Story = {
 export const EveryFilterIndexedButNoTimeRange: Story = {
     render: () => (
         <div className="max-w-3xl">
-            <QueryIndexUsageBar predicates={[PREDICATES[0]]} scans={UNPRUNED_SCANS} />
+            <QueryIndexUsageBar predicates={[PREDICATES[0]]} scans={UNPRUNED_SCANS} onApplyFix={() => {}} />
         </div>
     ),
 }
@@ -119,7 +123,7 @@ export const EveryFilterIndexedButNoTimeRange: Story = {
 export const NoTimeRangeAndNoFilters: Story = {
     render: () => (
         <div className="max-w-3xl">
-            <QueryIndexUsageBar predicates={[]} scans={UNPRUNED_SCANS} />
+            <QueryIndexUsageBar predicates={[]} scans={UNPRUNED_SCANS} onApplyFix={() => {}} />
         </div>
     ),
 }

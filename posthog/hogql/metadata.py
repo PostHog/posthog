@@ -7,6 +7,8 @@ from pydantic import BaseModel
 
 from posthog.schema import (
     HogLanguage,
+    HogQLFixAction,
+    HogQLFixEdit,
     HogQLMetadata,
     HogQLMetadataResponse,
     HogQLNotice,
@@ -40,6 +42,7 @@ from posthog.hogql.partition_pruning import (
     EVENTS_PARTITION_KEY,
     EVENTS_TABLE_NAME,
     UNPRUNED_SCAN_FIX,
+    UNPRUNED_SCAN_FIX_TITLE,
     UNPRUNED_SCAN_MESSAGE,
     find_unpruned_events_scans,
 )
@@ -293,6 +296,14 @@ def _attach_unpruned_scans(
             partition_key=EVENTS_PARTITION_KEY,
             message=UNPRUNED_SCAN_MESSAGE,
             fix=UNPRUNED_SCAN_FIX,
+            fix_action=(
+                HogQLFixAction(
+                    title=UNPRUNED_SCAN_FIX_TITLE,
+                    edits=[HogQLFixEdit(start=edit.start, end=edit.end, text=edit.text) for edit in scan.bound_edits],
+                )
+                if scan.bound_edits
+                else None
+            ),
             start=scan.start,
             end=scan.end,
         )
