@@ -130,9 +130,9 @@ Four structural findings fall out of the inventory:
 ```text
 consumer loop                     (1 per pod; the event pump)
   ├── partition manager           (1 per pod; assignments + work distribution)
-  │     ├── partition driver      (1 per assigned partition)
-  │     │     └── key driver      (1 per active routing key, passive)
-  │     └── accumulator           (one cascade's releases; released to the batcher)
+  │     └── partition driver      (1 per assigned partition)
+  │           └── key driver      (1 per active routing key, passive)
+  ├── accumulator factory         (per tick: obtain a buffer, lend it down, release it)
   ├── worker batcher              (1 background task; the transport side, whole)
   │     ├── router/aperture       (placement — §4.3)
   │     ├── packer + size defense (request composition; §2.10 kept below it)
@@ -147,12 +147,13 @@ shared services: worker registry + discovery · transport classifier ·
 
 The hierarchy follows containment in the *data*: a partition contains per-key message sequences; a key's sequence is consumed in **groups** (one poll's messages for one key — the code's `MessageGroup`). The Kafka batch is demoted to an input format: it exists during collection and **dissolves at demux**. Nothing downstream tracks it. A *driver* here means exactly one thing: the single owner of one unit's state, advanced only by events.
 
-Below the consumer loop the tree has exactly two sides — the **domain side** (partition manager down to key drivers) and the **transport side** (the worker batcher and everything under it, with the result stream as its outlet) — and the seam between them is two channels of plain values: **accumulators** of releases go down, **request results** come back up (§4.7). During a cascade the accumulator is exclusively borrowed (`&mut`) — there is no locking anywhere; the only coordination in the whole hand-off is the release itself, one channel send per cascade. Neither side holds a reference into the other, and because the transport runs as its own task, placement and packing overlap the loop's next cascade.
+Below the consumer loop the tree has exactly two sides — the **domain side** (partition manager down to key drivers) and the **transport side** (the worker batcher and everything under it, with the result stream as its outlet) — and the seam between them is two channels of plain values: **accumulators** of releases go down, **request results** come back up (§4.7). The loop carries the buffer across the seam: at each tick it obtains an accumulator from its factory, lends it down the cascade (`&mut` — no locking anywhere), and releases it to the batcher when the cascade returns; the release is the hand-off's only coordination. The domain side owns nothing transport-shaped at all — not a channel, not even the buffer — and because the transport runs as its own task, placement and packing overlap the loop's next cascade.
 
-- **Consumer loop** — polls rdkafka, applies backpressure (§4.4), drains the result stream, watches assignment events, and hands each of them to the partition manager; between events it sleeps until the earliest deadline any component owns. Deliberately not a *driver* — it owns no unit's state (§8). With the transport behind the accumulator hand-off and every firing trigger event-driven inside the batcher (§4.3), it is a pure event pump: it owns nothing partition- or worker-shaped and knows no timer kinds.
-- **Partition manager** — the domain side's root. Owns the partition drivers and their lifecycle: partition assigned ⇒ create a driver; revoked ⇒ tear it down wholesale, with its key drivers and pending state (the rebalance unit and the component unit coincide). Owns the per-cascade **accumulator** and its send side toward the worker batcher — a test just reads the buffer, no transport required — and the domain's only clock, the stall-sweep cadence. Distributes work: demuxes each poll to its partition drivers, routes each request result's groups back to the partition driver that owns them, discards results whose assignment epoch is dead, collects every release its drivers hand up into the accumulator (under `&mut`, no locking), and ends every producing cascade by **releasing** it — one channel send, the hand-off's only coordination. Everything it passes down and collects up is a value.
+- **Consumer loop** — polls rdkafka, applies backpressure (§4.4), drains the result stream, watches assignment events, and hands each of them to the partition manager; a producing tick is three steps — obtain an accumulator, run the cascade, release what accumulated — and between events it sleeps until the earliest deadline any component owns. Deliberately not a *driver* — it owns no unit's state (§8). With the transport behind the accumulator hand-off and every firing trigger event-driven inside the batcher (§4.3), it is a pure event pump: it owns nothing partition- or worker-shaped and knows no timer kinds.
+- **Partition manager** — the domain side's root. Owns the partition drivers and their lifecycle: partition assigned ⇒ create a driver; revoked ⇒ tear it down wholesale, with its key drivers and pending state (the rebalance unit and the component unit coincide). Owns the domain's only clock, the stall-sweep cadence — and nothing transport-shaped: it fills the accumulator it is *lent* (a test just reads the buffer back). Distributes work: demuxes each poll to its partition drivers, routes each request result's groups back to the partition driver that owns them, discards results whose assignment epoch is dead, and collects every release its drivers hand up into the lent buffer. Everything it passes down and collects up is a value.
 - **Partition driver** — splits its messages by routing key into groups and hands them to key drivers; owns the **offset ledger**: the set of pending offsets and the highest contiguous completed offset (the **frontier**), which is what gets committed, on a cadence. Contiguity becomes *constructive* — the ledger computes exactly the committable frontier — instead of a property to verify after the fact.
 - **Key driver** — a passive state machine (a struct in a map, not a task; key cardinality is unbounded): a FIFO of groups, **at most one group released at a time** (binned, parked, or in flight), the rest queued behind it. On ACK: report offsets to the partition ledger, remember which worker served it (the sticky pin), release the next group. On failure: take the group back at queue head and release it again in the same cascade — re-placement, not waiting, is the response, because retry pacing lives in the transport (§2.9, §4.5). It names a *preference*, never a worker — placement is the batcher's. Created on first group, evicted when idle and empty.
+- **Accumulator factory** — the loop's supply of per-tick buffers, and the holder of the batcher's send side. `obtain()` hands the loop a buffer at the start of a producing tick; `release(acc)` sends a non-empty one to the batcher whole, by value — the hand-off's only coordination — and recycles an empty one. The domain never sees the factory: it is lent the buffer, never the machinery.
 - **Worker batcher** — the transport side, whole, as one background task. Each received accumulator is placed (router + pins-as-preferences, §4.3), binned per worker, and fired as target-sized requests down the ordered streams; each runner resolution frees its stream, is forwarded to the result stream, and refills the stream from its bin at once. A release no worker can take is **parked** inside the batcher and re-placed on its next wake (§4.5) — nothing is ever handed back. It never calls a driver. The packer and the §2.10 size defense sit below it, as do the stream runners: one task per worker — connect, greet with the assignment epoch, transmit, await ACKs, depth 1 — and the transport classifier, §2.9 unchanged (backpressure vs fault vs non-retriable, backpressure excluded from passive health).
 - **Result stream** — the transport's outlet: one **request result** at a time — every group a resolved request carried, with its outcome — and nothing else escapes. The batcher forwards each resolution the moment it arrives; the loop drains it and feeds the partition manager.
 - **Commit manager** — on the commit cadence, reads each partition driver's frontier, issues one batched manual commit, and refunds the budget for the retired work. The §2.3 verification rides here unchanged: the commit sentinel as a cheap assert, the commit monitor because librdkafka still drops async commit results.
@@ -162,8 +163,8 @@ Below the consumer loop the tree has exactly two sides — the **domain side** (
 
 State transitions split across two single-threaded tasks — the domain's on the consumer loop, the transport's on the worker batcher (sharding noted in §4.6) — each driven by three event sources, each finishing one cascade before taking the next event. The loop's:
 
-1. **Poll delivered** — the partition manager demuxes to partition drivers → key drivers enqueue and hand back released groups → the manager collects them into the accumulator and ends the cascade by releasing it to the batcher.
-2. **Request resolved** — the loop drains one **request result** from the result stream and hands it to the partition manager: ACK ⇒ ledgers update, key drivers advance, their next groups accumulate; failure ⇒ groups go back to their key drivers' queue heads and re-release in the same cascade (§4.5). The cascade ends the same way: release the accumulator.
+1. **Poll delivered** — the loop obtains an accumulator and lends it down with the poll: the partition manager demuxes to partition drivers → key drivers enqueue and hand back released groups → the manager collects them into the buffer. The cascade returns; the loop releases the accumulator to the batcher.
+2. **Request resolved** — the loop drains one **request result**, obtains an accumulator, and hands both to the partition manager: ACK ⇒ ledgers update, key drivers advance, their next groups accumulate; failure ⇒ groups go back to their key drivers' queue heads and re-release into the same buffer (§4.5). The loop releases it the same way.
 3. **Deadline reached** — the loop sleeps until the earlier of the two standing deadlines, then wakes both owners: the partition manager runs its stall sweep, the commit manager its cadence. A wake with nothing due is a no-op.
 
 And the batcher's:
@@ -225,13 +226,13 @@ results       mpsc, bound ≥ pool size   batcher → loop      ≤1 unresolved 
 health        snapshot (ArcSwap-style)  probes → router     the only cross-task shared read
 ```
 
-The `accumulators` channel is unbounded in count but self-limiting in content: every queued release is uncommitted work under the `B` gate, and a lagging batcher starves the domain of ACKs, which closes polling. The domain's outbound face is not an interface at all — it is the accumulator, plain data filled under `&mut`; the loop's inbound face is `next() -> RequestResult`. The values crossing the seam are:
+The `accumulators` channel is unbounded in count but self-limiting in content: every queued release is uncommitted work under the `B` gate, and a lagging batcher starves the domain of ACKs, which closes polling. The domain's outbound face is not an interface at all — it is the accumulator, plain data the loop's factory obtains each tick and the cascade fills under `&mut`; the loop's inbound face is `next() -> RequestResult`. The values crossing the seam are:
 
 ```rust
-struct Accumulator(Vec<Release>);            // one cascade's releases, in cascade order —
-                                             //   filled under &mut during the cascade (no
-                                             //   locking), then released to the batcher
-                                             //   whole, by value: one send per cascade
+struct Accumulator(Vec<Release>);            // one tick's releases, in cascade order —
+                                             //   obtained from the factory, lent down the
+                                             //   cascade under &mut (no locking), released
+                                             //   by the loop whole, by value: one send
 
 struct Release {                             // one group, ready to send
     group: Group,                            // carries partition (affinity), epoch, offsets
@@ -250,10 +251,11 @@ There is no `Mutex`, no `Arc`'d mutable state, and no atomic in the model: every
 **Consumer loop — the event pump.** Backpressure is the *absence of the poll branch*, not a check inside it. Deliberately not a driver: it owns no unit's state — it checks results, fetches messages, watches assignments, and hands each to the partition manager.
 
 ```rust
-// The event pump. Owns the domain side and the result stream's receive half;
-// mutation is plain &mut, no locks.
+// The event pump. Owns the domain side, the accumulator factory, and the result
+// stream's receive half; mutation is plain &mut, no locks.
 struct ConsumerLoop {
-    partitions: PartitionManager,            // the domain side; releases the accumulator
+    partitions: PartitionManager,            // the domain side: assignments + distribution
+    accumulators: AccumulatorFactory,        // per-tick buffers + the batcher's send side
     results: ResultStream,                   // the transport's outlet: resolved requests
     budget: Budget,                          // uncommitted events+bytes — the B gate (§4.4)
     commits: CommitManager,                  // frontiers → one batched commit; owns its cadence
@@ -264,9 +266,11 @@ loop {
     select! {                                // the loop's ONLY await point; arms run to
         biased;                              //   completion — drain before taking new work
 
-        result = results.next() => {         // one resolved request, whole — a value, not a
-            partitions.apply(result)         //   callback into the drivers; the successors
-        }                                    //   accumulate and release inside
+        result = results.next() => {         // one resolved request, whole — a value, not
+            let mut acc = accumulators.obtain();     //   a callback into the drivers
+            partitions.apply(result, &mut acc);
+            accumulators.release(acc);       // successors and re-releases, off to the batcher
+        }
 
         _ = sleep_until(min(partitions.next_deadline(),  // components own their deadlines;
                             commits.next_deadline())) => {   //   the loop knows only when
@@ -278,8 +282,10 @@ loop {
             // the gate is rdkafka pause/resume, not an unpolled consumer: polling must
             // continue for rebalance callbacks and max.poll.interval liveness at B
             budget.charge(msgs);
-            partitions.accept(msgs)          // the Kafka batch dissolves here; the cascade
-        }                                    //   ends by releasing the accumulator
+            let mut acc = accumulators.obtain();
+            partitions.accept(msgs, &mut acc);       // the Kafka batch dissolves here
+            accumulators.release(acc);
+        }
 
         ev = kafka.rebalance() => {          // surfaces via the same client, serialized
             match ev {                       //   with every other arm: no teardown race
@@ -291,16 +297,34 @@ loop {
 }
 ```
 
-**Partition manager — assignments, work distribution, and the accumulator.** The domain side's root: the only component that maps a group back to the state that must act on it, and the owner of the accumulator. The buffer stops here — the drivers below it hand releases up as return values.
+**Accumulator factory — obtain, lend, release.** The loop-owned pairing of the buffer supply with the batcher's send side; the whole hand-off protocol in two functions.
 
 ```rust
-// Loop-owned. Owns every partition driver, the accumulator, and the domain's one
-// clock (the stall sweep); passes values down, collects releases into the
-// accumulator under &mut, and ends every producing cascade by releasing it.
+// Loop-owned. The domain is lent the buffer, never the factory.
+struct AccumulatorFactory {
+    batcher: Tx<Accumulator>,                // the release point — one send per tick
+    spare: Option<Accumulator>,              // an empty buffer kept back for reuse
+}
+
+fn obtain() -> Accumulator { spare.take().unwrap_or_default() }
+
+fn release(acc) {                            // the one coordination point with the
+    if !acc.is_empty() {                     //   transport: the full buffer moves by
+        batcher.send(acc)                    //   value
+    } else {
+        spare = Some(acc)                    // nothing accumulated: keep the allocation
+    }
+}
+```
+
+**Partition manager — assignments and work distribution.** The domain side's root: the only component that maps a group back to the state that must act on it. It fills the accumulator it is lent; the drivers below hand releases up as return values.
+
+```rust
+// Loop-owned. Owns every partition driver and the domain's one clock (the stall
+// sweep); nothing transport-shaped. Passes values down, collects releases into the
+// buffer it is lent.
 struct PartitionManager {
     partitions: Map<Partition, PartitionDriver>,
-    acc: Accumulator,                        // this cascade's releases; a test reads it
-    batcher: Tx<Accumulator>,                // the release point — one send per cascade
     sweep_at: Deadline,
 }
 
@@ -310,31 +334,23 @@ fn revoke(p) -> Refund {                     // wholesale: key drivers and pendi
     partitions.remove(p).teardown()          //   with it; returns the budget to refund
 }
 
-fn accept(msgs) {                            // one poll, demuxed to its partitions
+fn accept(msgs, acc) {                       // one poll, demuxed to its partitions
     for (p, part) in msgs.by_partition() {
-        partitions[p].accept(part, &mut acc)
+        partitions[p].accept(part, acc)
     }
-    release()
 }
 
-fn apply(result) {                           // one request result, distributed
+fn apply(result, acc) {                      // one request result, distributed
     for group in result.groups {
         if group.epoch.dead() { continue }   // results for revoked partitions die here
-        partitions[group.partition].apply(group, result, &mut acc)
-    }
-    release()
-}
-
-fn release() {                               // the one coordination point with the
-    if !acc.is_empty() {                     //   transport: the full buffer moves by
-        batcher.send(acc.take())             //   value; a fresh one replaces it
+        partitions[group.partition].apply(group, result, acc)
     }
 }
 
 fn next_deadline() -> Deadline { sweep_at }
 
 fn wake(now) {                               // the stall sweep — the domain's only clock;
-    if now < sweep_at { return }             //   it releases nothing, so no release()
+    if now < sweep_at { return }             //   it produces no releases, so no accumulator
     for p in partitions { p.check_stall() }
     sweep_at = now + SWEEP_INTERVAL;
 }
@@ -454,7 +470,7 @@ struct WorkerBatcher {
     parked: Vec<Release>,                    // pool-wide unroutable (§4.5); re-placed on
     retry_at: Option<Deadline>,              //   every wake — this deadline is the backstop
     router: Router,                          // aperture + P2C over the health snapshot (§4.3)
-    accumulators: Rx<Accumulator>,           // from the partition manager: one per cascade
+    accumulators: Rx<Accumulator>,           // from the loop's factory: one per tick
     resolutions: Rx<Resolution>,             // from the runners
     results: Tx<RequestResult>,              // to the loop's result stream
     requests: Map<WorkerId, Tx<Request>>,    // send side per runner, capacity 1
@@ -663,11 +679,12 @@ The consumer's vocabulary has to survive three audiences at once: this crate, th
 | `window` | always qualified: in-flight, passive, stall, replay window | bare "the window" |
 | `driver` | the single owner of one unit's state, advanced only by events | — |
 | `consumer loop` | the event pump at the top: results, polls, deadlines, rebalance | consumer *driver* — it owns no unit's state |
-| `partition manager` | the domain side's root: assignment lifecycle + work distribution + the accumulator | — |
+| `partition manager` | the domain side's root: assignment lifecycle + work distribution | — |
 | `release` | one group handed to the batcher, with its placement preference | the ship-a-version sense |
 | `request result` | one resolved request, whole: groups + outcome + worker | resolution, outside the transport side |
 | `worker batcher` | the transport-side task: placement, bins, parked, streams | — |
-| `accumulator` | one cascade's releases, filled under `&mut`, released to the batcher | — |
+| `accumulator` | one tick's releases: obtained from the factory, lent down the cascade | — |
+| `accumulator factory` | the loop's buffer supply + the batcher's send side: obtain / release | — |
 | `result stream` | the transport's outlet: resolved requests, drained by the loop | — |
 | `parked` | a release held in the batcher while no worker can take it (§4.5) | — |
 
