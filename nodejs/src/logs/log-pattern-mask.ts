@@ -2,9 +2,26 @@ import { createTrackedRE2 } from '~/common/utils/tracked-re2'
 
 import { parseLogBodyForIngestion } from './log-body-parse'
 
-export const PATTERN_VERSION = 3
+export const PATTERN_VERSION = 4
 
-export type MaskRuleName = 'timestamp' | 'klogtime' | 'uuid' | 'email' | 'host' | 'hex0x' | 'hex' | 'ipv4' | 'num'
+export type MaskRuleName =
+    | 'timestamp'
+    | 'klogtime'
+    | 'awskey'
+    | 'bearer'
+    | 'jwt'
+    | 'stripe'
+    | 'aikey'
+    | 'posthogkey'
+    | 'ghtoken'
+    | 'slacktoken'
+    | 'uuid'
+    | 'email'
+    | 'host'
+    | 'hex0x'
+    | 'hex'
+    | 'ipv4'
+    | 'num'
 
 export type MaskRule = {
     name: MaskRuleName
@@ -44,6 +61,33 @@ export const MASK_RULES: readonly MaskRule[] = [
         pattern: `\\b${letter}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\\d|3[01]) \\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?`,
         replacement: `${letter}<KLOGTIME>`,
     })),
+    // Credential formats, ahead of every rule that would otherwise chew a token into pieces. `hex`
+    // and `num` both bite into a key body, and once they do the prefix is stranded next to a run of
+    // placeholders and the credential is neither redacted nor recognizable.
+    //
+    // The pattern is copied into `logs_pattern_buckets`, so a secret reaching it is stored twice, on
+    // two retention clocks. The PII scrub that would otherwise catch some of these runs earlier in
+    // the pipeline but is opt-in per team, so a team that has not enabled it gets whatever these
+    // rules catch and nothing else.
+    //
+    // Every rule anchors on a vendor-assigned prefix or a structural marker, which is what keeps
+    // them from swallowing ordinary words the way a general identifier rule would. The length floors
+    // do the same job for the two prefixes that are also English: without them `Bearer token missing`
+    // masks as a credential.
+    //
+    // Deliberately absent: Stripe `pk_` and PostHog `phc_`. Both are publishable keys, meant to sit
+    // in client-side code, so masking them hides which project a line belongs to and protects
+    // nothing. `ph[xsar]_` covers the personal, project-secret, OAuth-access and refresh keys only.
+    { name: 'awskey', pattern: '\\b(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z2-7]{16}\\b', replacement: '<AWS_KEY>' },
+    { name: 'bearer', pattern: '(?i:Bearer\\s+)[-A-Za-z0-9._~+/]{16,}=*', replacement: 'Bearer <TOKEN>' },
+    // Both segments must start `eyJ` — base64url for `{"`, so header and payload each decode to the
+    // start of a JSON object. One `eyJ` alone matches any base64-encoded JSON.
+    { name: 'jwt', pattern: '\\beyJ[A-Za-z0-9_-]*\\.eyJ[A-Za-z0-9_-]*\\.[A-Za-z0-9_-]*', replacement: '<JWT>' },
+    { name: 'stripe', pattern: '\\b[sr]k_(?:live|test)_[A-Za-z0-9]{20,}\\b', replacement: '<STRIPE_KEY>' },
+    { name: 'aikey', pattern: '\\bsk-(?:ant-)?[A-Za-z0-9_-]{16,}\\b', replacement: '<AI_KEY>' },
+    { name: 'posthogkey', pattern: '\\bph[xsar]_[A-Za-z0-9]{20,}\\b', replacement: '<POSTHOG_KEY>' },
+    { name: 'ghtoken', pattern: '\\bgh[pousr]_[A-Za-z0-9]{36}\\b', replacement: '<GH_TOKEN>' },
+    { name: 'slacktoken', pattern: '\\bxox[baprs]-[A-Za-z0-9-]{10,}\\b', replacement: '<SLACK_TOKEN>' },
     {
         name: 'uuid',
         pattern: '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',

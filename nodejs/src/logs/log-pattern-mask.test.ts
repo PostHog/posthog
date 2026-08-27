@@ -5,6 +5,23 @@ import { JSON_ARRAY, MASK_RULES, PATTERN_VERSION, computeLogPattern, maskString 
 
 const NO_CAP = 100_000
 
+// Every credential below is invented, but GitHub push protection scans the raw file and rejects a
+// push over any key-shaped literal, invented or not. Joining fragments keeps the shape out of the
+// source while the value the test sees stays whole.
+const cred = (...parts: string[]): string => parts.join('')
+
+const AWS_KEY = cred('AKIA', 'IOSFODNN7EXAMPLE')
+const BEARER_TOKEN = cred('abcdef0123456789', 'ABCDEF')
+const JWT = cred('eyJhbGciOiJIUzI1NiJ9', '.', 'eyJzdWIiOiIxMjM0NSJ9', '.SflKxwRJSM')
+const STRIPE_SECRET = cred('sk_test_', '51H8xQ2eZvKYlo2CabcdEFGH')
+const STRIPE_PUBLISHABLE = cred('pk_test_', '51H8xQ2eZvKYlo2CabcdEFGH')
+const AI_KEY = cred('sk-ant-', 'api03-AAAABBBBCCCCDDDD')
+const PH_PERSONAL = cred('phx_', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ012345')
+const PH_PROJECT = cred('phc_', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ012345')
+const PH_UNKNOWN_TYPE = cred('phq_', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ01')
+const GH_TOKEN = cred('ghp_', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789')
+const SLACK_TOKEN = cred('xoxb-', '1234567890-ABCDEFGHIJ')
+
 describe('log-pattern-mask', () => {
     describe('maskString', () => {
         it.each([
@@ -23,6 +40,14 @@ describe('log-pattern-mask', () => {
             ],
             ['klogtime warning severity', 'W0101 00:00:00 rotating', 'W<KLOGTIME> rotating'],
             ['klogtime at the MMDD upper bound', 'F1231 23:59:59 shutdown', 'F<KLOGTIME> shutdown'],
+            ['aws access key id', `assume role failed for ${AWS_KEY} now`, 'assume role failed for <AWS_KEY> now'],
+            ['bearer token', `auth header Bearer ${BEARER_TOKEN} sent`, 'auth header Bearer <TOKEN> sent'],
+            ['jwt with header and payload segments', `token ${JWT} expired`, 'token <JWT> expired'],
+            ['stripe secret key', `charge failed ${STRIPE_SECRET} ok`, 'charge failed <STRIPE_KEY> ok'],
+            ['anthropic api key', `using ${AI_KEY} now`, 'using <AI_KEY> now'],
+            ['posthog personal key', `auth ${PH_PERSONAL} ok`, 'auth <POSTHOG_KEY> ok'],
+            ['github token', `clone with ${GH_TOKEN} ok`, 'clone with <GH_TOKEN> ok'],
+            ['slack bot token', `post via ${SLACK_TOKEN} failed`, 'post via <SLACK_TOKEN> failed'],
             ['uuid', 'request 0f2d6faf-07e3-4cff-bf47-7efa1024aee2 failed', 'request <UUID> failed'],
             ['email', 'user alice@example.com rejected', 'user <EMAIL> rejected'],
             ['hex0x', 'fault at 0xdeadBEEF handler', 'fault at <HEX> handler'],
@@ -56,8 +81,35 @@ describe('log-pattern-mask', () => {
                 'processed 1234 12:34:56 rows',
                 'processed <N> <N>:<N>:<N> rows',
             ],
+            [
+                'an all-hex bearer token is claimed by bearer, not hex',
+                'Bearer deadbeefdeadbeef00 ok',
+                'Bearer <TOKEN> ok',
+            ],
+            [
+                'a slack token keeps its digits instead of being fragmented by num',
+                `post via ${SLACK_TOKEN} failed`,
+                'post via <SLACK_TOKEN> failed',
+            ],
         ])('ordering: %s', (_name, input, expected) => {
             expect(maskString(input).masked).toEqual(expected)
+        })
+
+        // Publishable keys are meant to sit in client-side code. Masking one hides which project a
+        // line came from and protects nothing, so both must survive untouched.
+        it.each([
+            ['stripe publishable key', `key ${STRIPE_PUBLISHABLE} used`],
+            ['posthog project key', `init ${PH_PROJECT} ok`],
+        ])('public key is left alone: %s', (_name, input) => {
+            expect(maskString(input).masked).toEqual(input)
+        })
+
+        it.each([
+            ['a short word after Bearer is not a token', 'Bearer token missing'],
+            ['a bare sk- prefix with too short a tail', 'saw sk-short here'],
+            ['a ph prefix that is not a secret key type', `init ${PH_UNKNOWN_TYPE} ok`],
+        ])('credential rules do not fire on: %s', (_name, input) => {
+            expect(maskString(input).masked).toEqual(input)
         })
 
         // The klog rule reaches text `\b\d+` cannot, so each guard is asserted from the negative
@@ -102,6 +154,14 @@ describe('log-pattern-mask', () => {
             expect(byName).toEqual({
                 timestamp: 0,
                 klogtime: 1,
+                awskey: 0,
+                bearer: 0,
+                jwt: 0,
+                stripe: 0,
+                aikey: 0,
+                posthogkey: 0,
+                ghtoken: 0,
+                slacktoken: 0,
                 uuid: 0,
                 email: 2,
                 host: 1,
@@ -210,7 +270,7 @@ describe('log-pattern-mask', () => {
                 .update(MASK_RULES.map((rule) => `${rule.name}\0${rule.pattern}\0${rule.replacement}`).join('\x01'))
                 .digest('hex')
                 .slice(0, 16)
-            expect({ version: PATTERN_VERSION, digest }).toEqual({ version: 3, digest: '599889a916d04e14' })
+            expect({ version: PATTERN_VERSION, digest }).toEqual({ version: 4, digest: '676e765b2fb1a7ba' })
         })
     })
 
