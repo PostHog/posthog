@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { combineUrl } from 'kea-router'
 import { useEffect } from 'react'
 import { twMerge } from 'tailwind-merge'
 
@@ -111,7 +112,9 @@ export function LoginForm(): JSX.Element {
                     <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-primary-highlight border border-primary rounded">
                         <span>To connect Stripe you need a PostHog account. Log in below, or</span>{' '}
                         <Link
-                            to={[signupUrl, { email: login.email }]}
+                            // A string target gives the anchor a real href, so cmd/middle-click
+                            // opens signup in a new tab instead of the `#` an array target renders.
+                            to={combineUrl(signupUrl, { email: login.email }).url}
                             data-attr="stripe-install-signup"
                             className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
                         >
