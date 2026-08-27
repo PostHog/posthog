@@ -25,6 +25,7 @@ from posthog.llm.gateway_internal_client import (
 )
 from posthog.models import Organization
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.personhog_client.fake_client import FakePersonHogClient
 from posthog.personhog_client.proto import GetGroupTypeMappingsByProjectIdRequest
@@ -676,6 +677,19 @@ class TestTeamAdminEmailSendingSuspension(BaseTest):
         assert self.mock_suspend_email.delay.call_args.kwargs["team_id"] == self.team.id
         assert self.mock_suspend_email.delay.call_args.kwargs["reason"] == "Hard bounce rate above 5%"
         assert self.mock_notification.call_count == 1
+
+    def test_suspend_drops_the_tier_to_zero_even_when_pinned(self) -> None:
+        config = get_or_create_team_extension(
+            self.team, TeamWorkflowsConfig, defaults={"email_sending_tier": 3, "email_sending_tier_pinned": True}
+        )
+
+        response = self.admin.suspend_email_sending_view(self._post({"reason": "spam complaints"}), str(self.team.pk))
+        assert response.status_code == 302
+
+        config.refresh_from_db()
+        assert config.email_sending_suspended_at is not None
+        assert config.email_sending_tier == 0
+        assert config.email_sending_tier_updated_at is not None
 
     def test_suspend_is_idempotent(self) -> None:
         self.admin.suspend_email_sending_view(self._post({"reason": "first"}), str(self.team.pk))

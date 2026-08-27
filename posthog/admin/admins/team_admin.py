@@ -70,7 +70,11 @@ from products.notifications.backend.facade.api import (
 )
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.services.email_sending_tier import recompute_email_sending_tier_for_team
-from products.workflows.backend.utils.email_sending_tiers import get_email_sending_tier_limits, max_email_sending_tier
+from products.workflows.backend.utils.email_sending_tiers import (
+    MIN_EMAIL_SENDING_TIER,
+    get_email_sending_tier_limits,
+    max_email_sending_tier,
+)
 
 logger = get_logger()
 
@@ -796,7 +800,22 @@ class TeamAdmin(admin.ModelAdmin):
                 suspended_at = timezone.now()
                 config.email_sending_suspended_at = suspended_at
                 config.email_sending_suspension_reason = reason
-                config.save(update_fields=["email_sending_suspended_at", "email_sending_suspension_reason"])
+                # Drop the trust tier now, in the same locked transaction, rather than at the next
+                # daily sweep: a suspension is the strongest signal there is, and the tier sets how
+                # fast the team may send once reinstated. A suspension always maps to the lowest
+                # tier, and that mapping needs no metrics, so write it here instead of through the
+                # recompute. This does not depend on ClickHouse and it also covers pinned teams,
+                # which the periodic sweep skips.
+                config.email_sending_tier = MIN_EMAIL_SENDING_TIER
+                config.email_sending_tier_updated_at = suspended_at
+                config.save(
+                    update_fields=[
+                        "email_sending_suspended_at",
+                        "email_sending_suspension_reason",
+                        "email_sending_tier",
+                        "email_sending_tier_updated_at",
+                    ]
+                )
 
         if already_suspended_at is not None:
             self.message_user(
@@ -815,12 +834,6 @@ class TeamAdmin(admin.ModelAdmin):
             triggered_by=request.user.email,
         )
         self._log_email_suspension_activity(request, team, "email_sending_suspended", reason)
-        # Drop the team's trust tier now rather than at the next daily sweep: a suspension is the
-        # strongest signal there is, and the tier sets how fast the team may send once reinstated.
-        try:
-            recompute_email_sending_tier_for_team(team.id)
-        except Exception:
-            logger.exception("admin_suspend_email_sending_tier_recompute_failed", team_id=team.id)
         # Best-effort side effects: the state flip has already committed, and the idempotency
         # guard would silently skip a retry. Log the failure and let the admin know rather than
         # 500-ing on a broker/DB hiccup and stranding the state without a customer notification.
