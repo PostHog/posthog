@@ -541,6 +541,7 @@ export interface sessionRecordingPlayerLogicValues {
     createExportJSON: () => ExportedSessionRecordingFileV2 // sessionRecordingDataCoordinatorLogic
     customRRWebEvents: customEvent[] // sessionRecordingDataCoordinatorLogic
     fullyLoaded: boolean // sessionRecordingDataCoordinatorLogic
+    recordingTooLargeToAutoload: boolean // sessionRecordingDataCoordinatorLogic
     sessionPlayerData: SessionPlayerData // sessionRecordingDataCoordinatorLogic
     sessionPlayerMetaData: SessionRecordingType | null // sessionRecordingDataCoordinatorLogic
     sessionPlayerMetaDataLoading: boolean // sessionRecordingDataCoordinatorLogic
@@ -691,6 +692,9 @@ export interface sessionRecordingPlayerLogicActions {
     setSpeed: (speed: number) => {
         speed: number
     } // playerSettingsLogic
+    loadOversizedRecording: () => {
+        value: true
+    } // sessionRecordingDataCoordinatorLogic
     loadRecordingData: () => {
         value: true
     } // sessionRecordingDataCoordinatorLogic
@@ -1161,6 +1165,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'customRRWebEvents',
                 'fullyLoaded',
                 'trackedWindow',
+                'recordingTooLargeToAutoload',
             ],
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting', 'showMetadataFooter', 'playerControlsOverlay'],
@@ -1188,7 +1193,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'setPlayerActive',
             ],
             sessionRecordingDataCoordinatorLogic(props),
-            ['loadRecordingData', 'loadRecordingMetaSuccess', 'snapshotProcessingFailed'],
+            ['loadRecordingData', 'loadRecordingMetaSuccess', 'snapshotProcessingFailed', 'loadOversizedRecording'],
             playerSettingsLogic,
             ['setSpeed', 'setSkipInactivitySetting', 'setPlayerControlsOverlay'],
             sessionRecordingEventUsageLogic,
@@ -2566,6 +2571,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             breakpoint()
         },
         loadRecordingMetaSuccess: () => {
+            if (values.recordingTooLargeToAutoload) {
+                actions.setPlayerError('recordingTooLarge')
+                return
+            }
+
             // As the connected data logic may be preloaded we call a shared function here and on mount
             actions.syncSnapshotsWithPlayer()
 
@@ -2573,6 +2583,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // Autoplay assumes we are playing immediately so lets go ahead and load more data
                 actions.setPlay()
             }
+        },
+        loadOversizedRecording: () => {
+            actions.clearPlayerError()
         },
         loadSnapshotsForSourceFailure: () => {
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {

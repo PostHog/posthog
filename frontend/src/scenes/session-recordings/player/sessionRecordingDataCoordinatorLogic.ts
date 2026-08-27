@@ -25,7 +25,9 @@ import {
     SourceLoadingState,
 } from '@posthog/replay-shared'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { metricCount } from 'lib/operationalMetrics'
 
 import {
@@ -55,6 +57,11 @@ import { sessionRecordingMetaLogic } from './sessionRecordingMetaLogic'
 import { posthogTelemetry } from './snapshot-processing/process-all-snapshots'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
+
+// Tab-freezing recordings are both large overall and made of huge individual events (giant DOM
+// mutations); most large recordings are ordinary small events and play fine, so both must trip
+export const OVERSIZED_RECORDING_AUTOLOAD_LIMIT_BYTES = 30 * 1024 * 1024
+export const OVERSIZED_RECORDING_AVG_EVENT_BYTES = 100 * 1024
 
 export interface SessionRecordingDataCoordinatorLogicProps {
     sessionRecordingId: SessionRecordingId
@@ -87,6 +94,7 @@ export interface sessionRecordingDataCoordinatorLogicValues {
     sessionEventsDataLoading: boolean // eventsLogic
     viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined // eventsLogic
     webVitalsEvents: RecordingEventType[] // eventsLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     annotations: AnnotationType[] // metaLogic
     annotationsLoading: boolean // metaLogic
     currentTeam: TeamPublicType | TeamType | null // metaLogic
@@ -117,9 +125,11 @@ export interface sessionRecordingDataCoordinatorLogicValues {
     isOldAndInvalid: boolean
     isRecentAndInvalid: boolean
     processedSnapshots: RecordingSnapshot[]
+    recordingTooLargeToAutoload: boolean
     reportedLoaded: boolean
     segments: RecordingSegment[]
     sessionPlayerData: SessionPlayerData
+    sizeGateBypassed: boolean
     snapshots: RecordingSnapshot[]
     snapshotsByWindowId: Record<number, eventWithTime[]>
     snapshotsInvalid: boolean
@@ -290,6 +300,9 @@ export interface sessionRecordingDataCoordinatorLogicActions {
     storeUpdated: () => {
         value: true
     } // snapLogic
+    loadOversizedRecording: () => {
+        value: true
+    }
     loadRecordingData: () => {
         value: true
     }
@@ -314,6 +327,11 @@ export interface sessionRecordingDataCoordinatorLogicActions {
 export interface sessionRecordingDataCoordinatorLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        recordingTooLargeToAutoload: (
+            sessionPlayerMetaData: SessionRecordingType | null,
+            sizeGateBypassed: any,
+            featureFlags: any
+        ) => boolean
         snapshots: (processedSnapshots: import('@posthog/replay-shared').RecordingSnapshot[]) => RecordingSnapshot[]
         start: (
             snapshots: import('@posthog/replay-shared').RecordingSnapshot[],
@@ -490,11 +508,14 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 ],
                 snapLogic,
                 ['snapshotStore', 'storeVersion', 'sourceLoadingStates'],
+                featureFlagLogic,
+                ['featureFlags'],
             ],
         }
     }),
     actions({
         loadRecordingData: true,
+        loadOversizedRecording: true,
         reportUsageIfFullyLoaded: true,
         setRecordingReportedLoaded: true,
         processSnapshotsAsync: true,
@@ -511,6 +532,12 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 setRecordingReportedLoaded: () => true,
             },
         ],
+        sizeGateBypassed: [
+            false,
+            {
+                loadOversizedRecording: () => true,
+            },
+        ],
         processedSnapshots: [
             [] as RecordingSnapshot[],
             {
@@ -524,10 +551,14 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         },
 
         loadRecordingMetaSuccess: () => {
-            if (props.sessionRecordingId) {
+            if (props.sessionRecordingId && !values.recordingTooLargeToAutoload) {
                 actions.loadSnapshotSources()
             }
             actions.reportUsageIfFullyLoaded()
+        },
+
+        loadOversizedRecording: () => {
+            actions.loadSnapshotSources()
         },
 
         loadRecordingMetaFailure: ({ errorObject }) => {
@@ -659,6 +690,26 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         },
     })),
     selectors(() => ({
+        recordingTooLargeToAutoload: [
+            (s) => [s.sessionPlayerMetaData, s.sizeGateBypassed, s.featureFlags],
+            (meta: SessionRecordingType | null, sizeGateBypassed: boolean, featureFlags: FeatureFlagsSet): boolean => {
+                if (!featureFlags[FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE] || sizeGateBypassed) {
+                    return false
+                }
+                // Mobile recordings are screenshot-based: large events, but cheap to play
+                if (meta?.snapshot_source !== 'web') {
+                    return false
+                }
+                const totalSize = meta?.total_size ?? 0
+                const eventCount = meta?.event_count ?? 0
+                return (
+                    totalSize > OVERSIZED_RECORDING_AUTOLOAD_LIMIT_BYTES &&
+                    eventCount > 0 &&
+                    totalSize / eventCount > OVERSIZED_RECORDING_AVG_EVENT_BYTES
+                )
+            },
+        ],
+
         snapshots: [
             (s) => [s.processedSnapshots],
             (processedSnapshots: RecordingSnapshot[]): RecordingSnapshot[] => {
