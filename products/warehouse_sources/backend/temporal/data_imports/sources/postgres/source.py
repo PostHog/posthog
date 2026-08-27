@@ -7,6 +7,7 @@ from psycopg.errors import SqlclientUnableToEstablishSqlconnection
 from sshtunnel import BaseSSHTunnelForwarderError
 
 if TYPE_CHECKING:
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 from posthog.schema import (
@@ -144,6 +145,14 @@ PostgresErrors = {
         'failed"). This usually means the username or password is wrong. Some connection poolers '
         "(for example Supabase's transaction pooler) also require a pooler-specific username such "
         "as postgres.<project-ref>. Check your credentials and try again."
+    ),
+    # Supavisor's own circuit breaker for repeated authentication failures against a tenant.
+    # `get_non_retryable_errors` already handles this on the streaming path; map it here too so
+    # validation returns an actionable message instead of the generic fallback.
+    "too many authentication failures": (
+        "Your database's connection pooler has temporarily blocked new connections after repeated "
+        'authentication failures ("too many authentication failures"). This usually means the '
+        "username or password is wrong. Check your credentials and try again."
     ),
     "could not translate host name": "Could not connect to the host",
     # libpq prefixes a DNS-resolution failure with "could not translate host name ..." (matched
@@ -361,6 +370,15 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 '("nxdomain"). This usually means the database project is paused or deleted. Check '
                 "that your database is active, then re-enable the sync."
             ),
+            # Supabase's Supavisor pooler reports a routing failure to its upstream backend as
+            # "FATAL: Failed to connect to database: {:error, :enetunreach}" — Erlang's wording for
+            # ENETUNREACH, the same OS condition libpq surfaces as "Network is unreachable" (handled
+            # below). Unlike the sibling ":etimedout"/":econnrefused" tuples in
+            # `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` — a transient blip reaching a backend that's up —
+            # there's no route to the backend's network at all, which is deterministic for the
+            # configured host (an IPv6-only backend PostHog can't route to, or a firewall dropping our
+            # IPs), so retrying re-hits the same wall. Match the stable erlang-tuple fragment.
+            "{:error, :enetunreach}": _HOST_UNREACHABLE_ERROR,
             # Supabase/Supavisor poolers reject a connection that carries no tenant identifier with
             # "FATAL: (ENOIDENTIFIER) no tenant identifier provided (external_id or sni_hostname
             # required)". The shared regional pooler host (e.g. aws-0-<region>.pooler.supabase.com)
@@ -403,6 +421,21 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 '("PAM authentication failed"). Your PostgreSQL server authenticates this user '
                 "through PAM (for example against the system password database or LDAP), and it "
                 "rejected the username or password. Check your credentials, then re-enable the sync."
+            ),
+            # Supavisor trips its own circuit breaker after repeated authentication failures against
+            # a tenant and temporarily refuses new connects, reporting "FATAL:  (ECIRCUITBREAKER) too
+            # many authentication failures, new connections are temporarily blocked". Distinct from
+            # the pooler-bookkeeping "(ECIRCUITBREAKER) failed to retrieve database credentials"
+            # variant kept retryable in postgres.py's `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` — this one
+            # is tripped by the credentials themselves being rejected repeatedly, so it's the same
+            # deterministic class as "password authentication failed" and retrying with the same
+            # credentials just re-trips the breaker. Match the stable message, excluding the volatile
+            # host/port the raw driver text prefixes it with.
+            "too many authentication failures": (
+                "Your database's connection pooler has temporarily blocked new connections after "
+                'repeated authentication failures ("too many authentication failures"). This usually '
+                "means the configured username or password is wrong. Check your credentials, then "
+                "re-enable the sync."
             ),
             "could not translate host name": _DNS_RESOLUTION_ERROR,
             "timeout expired connection to server at": None,
@@ -1277,6 +1310,59 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             finally:
                 conn.close()
 
+    def _buffered_cdc_source(self, schema: "ExternalDataSchema", inputs: SourceInputs) -> SourceResponse | None:
+        """A `SourceResponse` reading this schema's S3 change buffer, or None if it isn't flipped.
+
+        Returning None keeps the caller on the legacy `CDCHandledExternally` path, so a source that
+        was never flipped — or a lane the buffer doesn't serve — behaves exactly as before.
+        """
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
+            CONSOLIDATED_WRITE_MODE,
+            CDCSourceManager,
+            consolidated_resource_name,
+            has_pending_legacy_backlog,
+            is_buffered_consolidated,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import (
+            PostgresCDCConfig,
+        )
+
+        ingest_mode = PostgresCDCConfig.from_source(schema.source).ingest_mode
+        if not is_buffered_consolidated(schema, ingest_mode=ingest_mode):
+            return None
+
+        # A CDC reset must travel through snapshot mode (which purges the buffer and re-seeds the
+        # table); every reset writer does that. Standing down here instead would route into
+        # CDCHandledExternally, whose handler pauses this schedule — and nothing on a buffered
+        # source ever unpauses it, so the buffer would age to the S3 TTL unconsumed.
+        if inputs.reset_pipeline:
+            raise ValueError(
+                f"reset_pipeline is set on buffered CDC schema {schema.name} while cdc_mode is still "
+                "'streaming'. Reset it to snapshot (cdc_mode='snapshot') so the re-snapshot path runs."
+            )
+
+        resource_name = consolidated_resource_name(schema)
+
+        if has_pending_legacy_backlog(schema):
+            # Legacy deliveries carry no position column, so merging buffered rows before they land
+            # lets an older row overwrite a newer one. No-op this run — an empty response keeps the
+            # schedule alive, unlike CDCHandledExternally, which would pause it for good.
+            inputs.logger.info("cdc_buffered_waiting_for_legacy_backlog", schema_name=schema.name)
+            return SourceResponse(
+                name=resource_name,
+                items=lambda: iter(()),
+                primary_keys=schema.primary_key_columns,
+                cdc_write_mode=CONSOLIDATED_WRITE_MODE,
+            )
+
+        manager = CDCSourceManager(inputs, inputs.logger)
+        return SourceResponse(
+            name=resource_name,
+            items=lambda: manager.get_items(resource_name),
+            primary_keys=schema.primary_key_columns,
+            cdc_write_mode=CONSOLIDATED_WRITE_MODE,
+        )
+
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
@@ -1309,8 +1395,12 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             source_schema = source_schema or inferred_schema
             source_table_name = source_table_name or inferred_table
 
-        # CDC streaming schemas are handled by CDCExtractionWorkflow, not here
+        # A buffered source's changes are consumed here like any other source; every other CDC
+        # streaming schema is still dispatched by CDCExtractionWorkflow.
         if schema.is_cdc and schema.cdc_mode == "streaming":
+            buffered_response = self._buffered_cdc_source(schema, inputs)
+            if buffered_response is not None:
+                return buffered_response
             raise CDCHandledExternally(
                 f"Schema {schema.name} is in CDC streaming mode — handled by CDCExtractionWorkflow"
             )

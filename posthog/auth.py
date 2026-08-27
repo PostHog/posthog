@@ -55,10 +55,11 @@ from posthog.models.utils import (
 )
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import verify_passkey_authentication_response
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 class WebAuthnAuthenticationResponse(TypedDict):

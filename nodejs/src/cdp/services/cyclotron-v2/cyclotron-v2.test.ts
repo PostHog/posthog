@@ -1311,18 +1311,36 @@ describe('Cyclotron V2', () => {
                 // ever consulting the rate limiter. Keeps the bucket at
                 // capacity and the limiter's metrics silent during idle.
                 let hookCalls = 0
-                const worker = createRateLimitedWorker(() => {
-                    hookCalls += 1
-                    return Promise.resolve({ limit: 5 })
+                let resolveFirstPoll!: () => void
+                const firstPoll = new Promise<void>((resolve) => {
+                    resolveFirstPoll = resolve
                 })
 
+                class ObservedRateLimitedWorker extends CyclotronV2RateLimitedWorker {
+                    protected override countWork(limit: number): Promise<number> {
+                        resolveFirstPoll()
+                        return super.countWork(limit)
+                    }
+                }
+                const worker = new ObservedRateLimitedWorker(
+                    {
+                        pool: { dbUrl: DB_URL },
+                        queueName: QUEUE,
+                        batchMaxSize: 100,
+                        pollDelayMs: 10,
+                        includeEmptyBatches: true,
+                    },
+                    () => {
+                        hookCalls += 1
+                        return Promise.resolve({ limit: 5 })
+                    }
+                )
+
                 await worker.connect(async () => {})
-                // Let the loop poll several times (pollDelayMs is 10ms in tests).
-                await new Promise((resolve) => setTimeout(resolve, 200))
+                await firstPoll
                 await worker.stopConsuming()
 
-                // Many poll cycles ran (~20 at 10ms cadence) but no jobs exist,
-                // so the limiter hook is never invoked.
+                // The worker completed an idle poll, so the limiter hook is never invoked.
                 expect(hookCalls).toBe(0)
             })
 
@@ -1745,7 +1763,7 @@ describe('Cyclotron V2', () => {
             const createFairWorker = (overrides?: Record<string, unknown>): CyclotronV2Worker =>
                 createWorker(EMAIL_QUEUE, overrides)
 
-            it('dequeues the fast class before an earlier-enqueued bulk backlog when priority dequeue is enabled', async () => {
+            it('dequeues the fast class before an earlier-enqueued bulk backlog', async () => {
                 // A bulk broadcast (priority 1) is already queued when two fast-class
                 // sends (priority 0) arrive, one from the same team. Without priority
                 // ordering, the same-team fast job waits behind the whole backlog.
@@ -1757,7 +1775,7 @@ describe('Cyclotron V2', () => {
                     { teamId: teamB, queueName: EMAIL_QUEUE, priority: 0 },
                 ])
 
-                const worker = createFairWorker({ batchMaxSize: 2, priorityDequeue: true })
+                const worker = createFairWorker({ batchMaxSize: 2 })
                 const jobs = await dequeueOneBatch(worker)
 
                 expect(jobs.map((j) => j.priority)).toEqual([0, 0])
@@ -1775,7 +1793,7 @@ describe('Cyclotron V2', () => {
 
                 const drained: Array<[number, number]> = []
                 for (let i = 0; i < 5; i++) {
-                    const worker = createFairWorker({ batchMaxSize: 1, priorityDequeue: true })
+                    const worker = createFairWorker({ batchMaxSize: 1 })
                     const batch = await dequeueOneBatch(worker)
                     expect(batch).toHaveLength(1)
                     drained.push([batch[0].priority, batch[0].teamId])
@@ -1789,23 +1807,6 @@ describe('Cyclotron V2', () => {
                     [1, teamA],
                     [1, teamB],
                 ])
-            })
-
-            it('ignores priority when priority dequeue is disabled', async () => {
-                const teamA = 100
-                const teamB = 200
-                await manager.bulkCreateJobs([
-                    ...Array.from({ length: 5 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE, priority: 1 })),
-                    { teamId: teamA, queueName: EMAIL_QUEUE, priority: 0 },
-                    { teamId: teamB, queueName: EMAIL_QUEUE, priority: 0 },
-                ])
-
-                const worker = createFairWorker({ batchMaxSize: 2 })
-                const jobs = await dequeueOneBatch(worker)
-
-                // Legacy ordering is dequeue_seq only: the first fair round is team A's
-                // first bulk job and team B's fast job, so priorities stay mixed.
-                expect(jobs.map((j) => j.priority).sort((a, b) => a - b)).toEqual([0, 1])
             })
 
             it('picks small-tenant jobs into the same batch as big-tenant jobs', async () => {

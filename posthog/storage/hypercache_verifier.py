@@ -32,11 +32,13 @@ VerifyTeamFn = Callable[[Team, dict | None, dict | None], dict]
 # batches gives us ~48 progress logs total.
 PROGRESS_LOG_BATCH_INTERVAL = 20
 
-# Prometheus counter for tracking fixes during scheduled verification
+# Prometheus counter for tracking fixes during scheduled verification. `writer`
+# attributes the fix to the team's primary cache writer (see
+# HyperCacheManagementConfig.get_primary_writer_fn); "python" when unattributed.
 HYPERCACHE_VERIFY_FIX_COUNTER = Counter(
     "posthog_hypercache_verify_fixes_total",
     "Cache entries fixed during scheduled verification",
-    labelnames=["cache_type", "issue_type"],
+    labelnames=["cache_type", "issue_type", "writer"],
 )
 
 # Maximum number of team IDs to store for logging
@@ -404,8 +406,21 @@ def _fix_and_record(
             If it contains a "db_data" key, that data is written directly to
             cache to avoid a redundant DB query.
     """
+    writer = "python"
+    if config.get_primary_writer_fn is not None:
+        try:
+            writer = config.get_primary_writer_fn(team.id)
+        except SoftTimeLimitExceeded:
+            # The task ran out of time during attribution, not an attribution
+            # failure. Let it propagate so the run winds down, matching the write
+            # path below and the other guards in this file.
+            raise
+        except Exception:
+            # Attribution must never fail the repair itself.
+            writer = "unknown"
+
     # Log what's being fixed, including diff details for mismatches
-    log_kwargs: dict = {"team_id": team.id, "issue_type": issue_type, "cache_type": cache_type}
+    log_kwargs: dict = {"team_id": team.id, "issue_type": issue_type, "cache_type": cache_type, "writer": writer}
     if "diff_fields" in verification:
         log_kwargs["diff_fields"] = verification["diff_fields"]
     if "diff_flags" in verification:
@@ -447,7 +462,7 @@ def _fix_and_record(
         result.fixed_team_ids.append(team.id)
 
         # Update Prometheus metric
-        HYPERCACHE_VERIFY_FIX_COUNTER.labels(cache_type=cache_type, issue_type=issue_type).inc()
+        HYPERCACHE_VERIFY_FIX_COUNTER.labels(cache_type=cache_type, issue_type=issue_type, writer=writer).inc()
     else:
         result.fix_failed += 1
 

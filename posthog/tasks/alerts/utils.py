@@ -12,11 +12,11 @@ from posthog.schema import AlertCalculationInterval, AlertState, ChartDisplayTyp
 
 from posthog.dataclasses import frozen
 from posthog.ph_client import ph_background_capture
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.slo.context import get_current_slo
 from posthog.slo.types import SloOperation
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.delivery_slo import alert_delivery_slo
 from products.alerts.backend.destinations import (
     ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS,
@@ -151,10 +151,14 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
     "there was nothing to send" apart from "sending failed".
     """
 
+    log_properties = dict(properties)
+    if "insight_chart_url" in log_properties:
+        # The chart URL embeds a bearer token, so logs must not carry a usable credential.
+        log_properties["insight_chart_url"] = "[redacted]"
     logger.info(
         "Triggering internal event for alert destinations/hog functions",
         alert_id=alert.id,
-        properties=properties,
+        properties=log_properties,
     )
 
     props = {
@@ -488,7 +492,13 @@ def add_alert_check(
     return alert_check, should_notify(outcome)
 
 
-def disable_invalid_alert(alert: AlertConfiguration, reason: str) -> AlertCheck:
+def disable_invalid_alert(
+    alert: AlertConfiguration,
+    reason: str,
+    *,
+    notify_subscribers: bool = True,
+    error_code: str | None = None,
+) -> AlertCheck:
     """Auto-disable a misconfigured alert and email its subscribers.
 
     Used for configuration problems that make the alert unevaluable as set up — a deliberate,
@@ -501,15 +511,18 @@ def disable_invalid_alert(alert: AlertConfiguration, reason: str) -> AlertCheck:
     alert.save(update_fields=[*state_fields, "last_checked_at"])
 
     targets_to_notify = alert.get_subscribed_users_emails()
+    error = {"message": reason}
+    if error_code:
+        error["code"] = error_code
     alert_check = AlertCheck.objects.create(
         alert_configuration=alert,
         calculated_value=None,
         condition=alert.condition,
         targets_notified={},
         state=AlertState.ERRORED,
-        error={"message": reason},
+        error=error,
     )
-    if targets_to_notify:
+    if targets_to_notify and notify_subscribers:
         deliveries = send_notifications_for_disabled(alert, reason, targets_to_notify)
         record_alert_delivery(alert, alert_check, deliveries)
     return alert_check

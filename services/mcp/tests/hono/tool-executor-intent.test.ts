@@ -194,7 +194,7 @@ describe('ToolExecutor intent capture', () => {
         await vi.waitFor(() => expect(captureSpy).toHaveBeenCalledTimes(1))
         const arg = captureSpy.mock.calls[0]![0]
         expect(arg.toolName).toBe('execute-sql')
-        const expected = new InstructionsBuilder('').formatExecuteSqlDescription(undefined)
+        const expected = new InstructionsBuilder('').formatExecuteSqlDescription()
         expect(arg.properties?.$mcp_tool_description).toBe(expected.slice(0, MAX_CAPTURED_DESCRIPTION_LENGTH))
 
         captureSpy.mockRestore()
