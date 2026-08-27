@@ -2162,7 +2162,7 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_person_source_actions_when_enabled(self, _flag, mock_trigger_sync, mock_start_backfill):
         # Wiring guard: the actions route through the facade to the temporal seam, return the typed
-        # response, and the backfill pre-creates a running run the runs feed then surfaces.
+        # response, and an in-flight sync still sends the manual latest-revision follow-up.
         source_id = self._create_person_source()
 
         synced = self.client.post(f"{self.endpoint}{source_id}/sync/")
@@ -2172,7 +2172,7 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
 
         backfilled = self.client.post(f"{self.endpoint}{source_id}/backfill/")
         assert backfilled.status_code == status.HTTP_202_ACCEPTED, backfilled.content
-        assert backfilled.json() == {"status": "started", "already_running": False}
+        assert backfilled.json() == {"status": "already_running", "already_running": True}
         mock_start_backfill.assert_called_once()
 
         runs = self.client.get(f"{self.endpoint}{source_id}/runs/")
