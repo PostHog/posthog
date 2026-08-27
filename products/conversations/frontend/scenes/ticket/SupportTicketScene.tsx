@@ -190,13 +190,15 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
 
     // Tell PostHog AI which ticket is on screen, so a question about "this ticket" resolves without
     // the user pasting it in. The agent fetches the details with conversations-tickets-retrieve.
+    // Label with the ticket number, not the customer-controlled email subject: the label is
+    // interpolated into the agent's prompt context, so untrusted email text must not ride through it.
     useAttachedContext(
         ticket
             ? [
                   {
                       type: 'support_ticket',
                       key: ticket.id,
-                      label: ticket.email_subject || `Ticket #${ticket.ticket_number}`,
+                      label: `Ticket #${ticket.ticket_number}`,
                   },
               ]
             : null
