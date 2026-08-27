@@ -474,9 +474,13 @@ an agent-side fix reaches reviews only once it is published and the image rebuil
   collaboration mode as is and ignores the turn's `effort` param when one is sent, so the pinned effort has to ride
   along here or every turn runs at the model's default effort — this is the line that applies a tier's effort to
   `gpt-5.6-sol`); Claude → the claude adapter's session config sets the model and effort (effort only for the claude
-  adapter). `agent.ts` fetches the gateway model allow-list and **silently drops the model if it isn't served**
-  (`sanitizedModel` / `allowedModelIds`), so a typo'd/unavailable model falls back to a default rather than erroring —
-  verify `$ai_model` **and `$ai_effort`** on the review generations whenever a pin changes.
+  adapter). Startup validation (`bin.ts` + `isSupportedReasoningEffort`) checks the model/effort combo against the
+  registry, but **not** that the gateway actually serves the model. The sandbox reviewer path has no allow-list fallback:
+  `_doInitializeSession` → `createAcpConnection` passes the pinned `model` straight to codex (no `gatewayModels`, so
+  `SessionConfigState.allowedModelIds` stays unset), so a pin to an unserved model **fails review turns instead of
+  falling back to a default**. The `sanitizedModel` / `allowedModelIds` downgrade lives only in `agent.ts::Agent.run`
+  (the local desktop path); the claude adapter's `resolveInitialModelId` fallback covers Claude but not the codex
+  reviewer arm — verify `$ai_model` **and `$ai_effort`** on the review generations whenever a pin changes.
 
 **Recipe — testing e.g. Sonnet.** Set `runtime_adapter = "claude"`, `model` a key in `CLAUDE_REASONING_EFFORTS_BY_MODEL`,
 and an effort that model supports; provider auto-derives to `anthropic`. For a new Codex model: `runtime_adapter =
