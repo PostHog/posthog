@@ -520,11 +520,17 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             # Guessing the version is not safe: a buffered CDC schema consumed on v2 records no
             # load position, so the buffer re-merges in full and nothing is ever deleted. Skip
             # the run and let the schedule fire again, matching the lock-not-acquired path.
-            workflow.logger.error(
-                "Failed to check pipeline version, skipping run",
+            # patched() keeps in-flight pre-patch executions replaying their recorded fall-through.
+            if workflow.patched("data-imports-skip-run-on-version-check-failure-v1"):
+                workflow.logger.error(
+                    "Failed to check pipeline version, skipping run",
+                    extra={"schema_id": str(inputs.external_data_schema_id)},
+                )
+                return
+            workflow.logger.warning(
+                "Failed to check pipeline version, defaulting to V2",
                 extra={"schema_id": str(inputs.external_data_schema_id)},
             )
-            return
 
         # Only acquire lock for V3 pipelines (V2 never enters this block)
         if is_v3:
