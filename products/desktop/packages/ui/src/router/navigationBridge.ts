@@ -42,6 +42,13 @@ export function navigateToActivity(): void {
   void getRouterOrNull()?.navigate({ to: "/activity" });
 }
 
+export function navigateToCanvases(canvasId?: string): void {
+  void getRouterOrNull()?.navigate({
+    to: "/canvases",
+    search: { canvas: canvasId },
+  });
+}
+
 export function navigateToHome(): void {
   void getRouterOrNull()?.navigate({ to: "/" });
 }
@@ -122,6 +129,10 @@ export function openNotificationTarget(target: NotificationTarget): void {
 
 export function navigateToInbox(): void {
   void getRouterOrNull()?.navigate({ to: "/inbox" });
+}
+
+export function navigateToInboxReports(): void {
+  void getRouterOrNull()?.navigate({ to: "/inbox/reports" });
 }
 
 export function navigateToInboxPullRequestDetail(reportId: string): void {

@@ -488,6 +488,45 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Slack message received",
             "description": "Fires when a message is posted in a Slack channel PostHog is connected to.",
         },
+        # Descriptions here must stay in step with the matching workflow email metric definitions in
+        # products/workflows/frontend/Workflows/workflowMetricsSummaryLogic.ts, since the two surfaces
+        # count the same thing.
+        "$workflows_email_sent": {
+            "label": "Workflow email sent",
+            "description": "Fires when a workflow sends an email to a recipient.",
+        },
+        "$workflows_email_delivered": {
+            "label": "Workflow email delivered",
+            "description": "Fires when a workflow email reaches the recipient's inbox, confirmed by their mail server accepting it.",
+        },
+        "$workflows_email_failed": {
+            "label": "Workflow email failed",
+            "description": "Fires when a workflow email could not be sent. This covers a failed call to the email provider, a template that did not render, a message the provider rejected for containing a virus, and a misconfigured email step, such as a sender that no longer exists or a domain that is not verified.",
+        },
+        "$workflows_email_opened": {
+            "label": "Workflow email opened",
+            "description": "Fires when a recipient opens a workflow email. Emails sent without open tracking can never record an open, so they are missing from this count.",
+        },
+        "$workflows_email_link_clicked": {
+            "label": "Workflow email link clicked",
+            "description": "Fires when a recipient clicks a link in a workflow email. Emails sent without click tracking can never record a click, so they are missing from this count.",
+        },
+        "$workflows_email_bounced": {
+            "label": "Workflow email bounced",
+            "description": "Fires when a workflow email bounces.",
+        },
+        "$workflows_email_blocked": {
+            "label": "Workflow email marked as spam",
+            "description": 'Fires when a recipient reports a workflow email as spam. Despite the event name, this does not count blocked mail: it counts spam complaints that mailbox providers pass back through their feedback loops. Gmail does not send those reports, so a Gmail user marking an email as spam is not counted here. Workflow metrics show the same count as "Marked as spam".',
+        },
+        "$workflows_email_unsubscribed": {
+            "label": "Workflow email unsubscribed",
+            "description": "Fires when a recipient unsubscribes from workflow emails, through the one-click unsubscribe link or the preferences page. The `category` property holds the message category they left, or `$all` when they opted out of everything.",
+        },
+        "$workflows_email_tracking_consent_updated": {
+            "label": "Workflow email tracking consent updated",
+            "description": "Fires when a recipient changes whether workflow emails can track their opens and clicks, on the email preferences page.",
+        },
     },
     "elements": {
         "tag_name": {
@@ -2713,6 +2752,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
                 "Run a HogQL/SQL query against PostHog.",
                 "Fetch the trace referenced by an AI observability URL.",
             ],
+        },
+        "$mcp_skill_name": {
+            "label": "MCP skill name",
+            "description": "The stored skill a skill-* read tool returned, on `skill-get` and `skill-file-get` (and their `llma-skill-*` aliases). Present only when the read succeeded, so counting these events counts skills that were actually delivered. A failed read carries no skill name, which stops a deleted skill that agents keep requesting from reading as a popular one. Recorded only when the value matches the shape the skills store enforces at creation, so a name the agent invented is left off rather than echoed. Skill writes are not stamped here; those emit `llma skill *` from the skills API.",
+            "examples": ["prove-the-change", "pr-shepherd"],
+        },
+        "$mcp_skill_body_offset": {
+            "label": "MCP skill body offset",
+            "description": "Where in a skill's body a `skill-get` started reading. Long bodies come back in slices, so one skill load is several calls that differ only by this offset, and a first read usually omits the offset — absent and 0 both mean a first page. Scope the query to `$mcp_tool_name IN ('skill-get', 'llma-skill-get')` before counting: the property is never set on `skill-file-get` or on a failed read, so an absent value outside that scope means 'never paginated' rather than 'first page', and counting it inflates loads. Within the scope, count calls where the offset is absent or 0 for loads, and every call for pages read. Set only on reads that succeeded, like `$mcp_skill_name`.",
+            "examples": ["0", "5000"],
         },
         "$mcp_resource_name": {
             "label": "MCP resource name",
