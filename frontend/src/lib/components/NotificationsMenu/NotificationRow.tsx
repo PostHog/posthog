@@ -141,7 +141,7 @@ export function NotificationRow({
     onNavigate?: () => void
     readOnly?: boolean
 }): JSX.Element {
-    const { navigateToNotification, toggleRead, markAsRead, archiveNotification } =
+    const { navigateToNotification, notificationClicked, toggleRead, markAsRead, archiveNotification } =
         useActions(sidePanelNotificationsLogic)
     const { projectNameForNotification, sourcePathForNotification, manuallyToggledIds, archivingEnabled } =
         useValues(sidePanelNotificationsLogic)
@@ -158,6 +158,8 @@ export function NotificationRow({
 
     const hasNavigationTarget = !!sourcePathForNotification(notification)
     const handleOpen = (): void => {
+        // Fires for every deliberate click, including notifications with nothing to navigate to
+        notificationClicked(notification)
         // Clicking the card marks it read and navigates to its source
         if (!notification.read) {
             toggleRead(notification.id)
