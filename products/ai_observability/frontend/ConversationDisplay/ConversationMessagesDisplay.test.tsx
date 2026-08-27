@@ -470,6 +470,32 @@ describe('ConversationMessagesDisplay', () => {
             expect(screen.queryByText(text)).not.toBeInTheDocument()
         }
     })
+
+    it.each<[string, number | undefined, boolean]>([
+        ['tokens were billed', 4096, true],
+        ['the provider billed none', 0, false],
+        ['no token count arrived', undefined, false],
+    ])('empty output explains the gap when %s', (_label, outputTokens, shouldExplain) => {
+        render(
+            <Provider>
+                <ConversationMessagesDisplay
+                    inputNormalized={inputNormalized}
+                    outputNormalized={[]}
+                    errorData={null}
+                    raisedError={false}
+                    outputTokens={outputTokens}
+                />
+            </Provider>
+        )
+
+        expect(screen.getByText('No output')).toBeInTheDocument()
+        const explanation = screen.queryByText(/output tokens but no content was captured/)
+        if (shouldExplain) {
+            expect(explanation).toHaveTextContent('4,096')
+        } else {
+            expect(explanation).not.toBeInTheDocument()
+        }
+    })
 })
 
 describe('ImageMessageDisplay', () => {

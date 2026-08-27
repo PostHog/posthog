@@ -1783,6 +1783,7 @@ const EventContent = React.memo(
                                                                 errorData={event.properties.$ai_error}
                                                                 httpStatus={event.properties.$ai_http_status}
                                                                 raisedError={event.properties.$ai_is_error}
+                                                                outputTokens={event.properties.$ai_output_tokens}
                                                                 searchQuery={searchQuery}
                                                                 displayOption={displayOption}
                                                                 highlightMessageIndex={highlightMessageIndex}

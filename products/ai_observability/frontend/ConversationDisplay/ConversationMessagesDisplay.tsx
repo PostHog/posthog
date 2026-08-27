@@ -78,6 +78,7 @@ export function ConversationMessagesDisplay({
     errorData,
     httpStatus,
     raisedError,
+    outputTokens,
     bordered = false,
     searchQuery,
     displayOption,
@@ -92,6 +93,8 @@ export function ConversationMessagesDisplay({
     errorData: any
     httpStatus?: number
     raisedError?: boolean
+    /** `$ai_output_tokens`, used to explain an output the provider billed for but never sent. */
+    outputTokens?: number
     bordered?: boolean
     searchQuery?: string
     displayOption?: ConversationDisplayOption
@@ -282,6 +285,10 @@ export function ConversationMessagesDisplay({
 
     const showOutputSection = outputNormalized.length > 0 || !raisedError
 
+    // Billed output tokens with nothing to render means the provider produced content that never
+    // reached the event. Name that, so an empty box isn't mistaken for a provider that said nothing.
+    const billedOutputTokens = typeof outputTokens === 'number' && outputTokens > 0 ? outputTokens : null
+
     return (
         <>
             <LLMInputOutput
@@ -305,8 +312,15 @@ export function ConversationMessagesDisplay({
                                 />
                             ))
                         ) : (
-                            <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">
-                                No output
+                            <div className="rounded border text-default p-2 bg-[var(--bg-fill-error-tertiary)]">
+                                <div className="italic">No output</div>
+                                {billedOutputTokens !== null && (
+                                    <div className="mt-1 text-xs">
+                                        The provider reported {billedOutputTokens.toLocaleString()} output tokens but no
+                                        content was captured. This can happen when a response is cut short, or when the
+                                        model returns only reasoning tokens.
+                                    </div>
+                                )}
                             </div>
                         )
                     ) : null
