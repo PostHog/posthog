@@ -145,6 +145,24 @@ async def test_subscription_slo_failure_summary_preserves_mixed_failure_details(
     }
 
 
+async def test_subscription_slo_failure_summary_reports_unclassified_when_no_category_known() -> None:
+    summary = _summarize_export_failure_details(
+        [
+            ExportError(exception_class="OperationalError"),
+            ExportError(exception_class="LegacyError"),
+        ]
+    )
+
+    # No asset carries a category, so the scalar must not claim "mixed" (several causes).
+    assert summary["failure_category"] == "unclassified"
+    assert summary["failure_component"] == "unclassified"
+    assert summary["failure_categories"] == []
+    assert summary["failure_components"] == []
+    assert summary["failed_asset_count"] == 2
+    assert summary["failure_category_count"] == 0
+    assert summary["unclassified_failed_asset_count"] == 2
+
+
 async def test_email_delivery_error_is_non_retryable(team, user) -> None:
     subscription = await sync_to_async(create_subscription)(team=team, created_by=user)
     inputs = DeliverSubscriptionInputs(

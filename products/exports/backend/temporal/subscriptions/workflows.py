@@ -102,6 +102,14 @@ def _build_outcome_assets(
     return outcome_assets, successful_asset_ids
 
 
+def _summarize_scalar_dimension(values: list[str]) -> str:
+    # No known value means the cause is unknown, so report "unclassified" rather than
+    # "mixed" — "mixed" must keep its meaning of several distinct known causes.
+    if not values:
+        return "unclassified"
+    return values[0] if len(values) == 1 else "mixed"
+
+
 def _summarize_export_failure_details(errors: list[ExportError]) -> dict[str, str | int | list[str]]:
     """Summarize per-asset failure dimensions onto one subscription SLO event."""
 
@@ -113,9 +121,9 @@ def _summarize_export_failure_details(errors: list[ExportError]) -> dict[str, st
 
     return {
         "failure_stage": "asset_generation",
-        "failure_category": categories[0] if len(categories) == 1 else "mixed",
+        "failure_category": _summarize_scalar_dimension(categories),
         "failure_categories": categories,
-        "failure_component": components[0] if len(components) == 1 else "mixed",
+        "failure_component": _summarize_scalar_dimension(components),
         "failure_components": components,
         "failed_asset_count": len(errors),
         "failure_category_count": len(categories),
