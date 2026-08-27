@@ -183,6 +183,7 @@ class TestPostHogCallback:
             assert props["$ai_effort"] == expected
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("event_method", ["_on_success", "_on_failure"])
     @pytest.mark.parametrize(
         "auth_method,is_staff,team_id,expected_team_id",
         [
@@ -192,11 +193,12 @@ class TestPostHogCallback:
             ("oauth_access_token", False, None, None),
         ],
     )
-    async def test_on_success_team_attribution(
+    async def test_team_attribution(
         self,
         callback: PostHogCallback,
         standard_logging_object: dict,
         mock_posthog_client: tuple,
+        event_method: str,
         auth_method: str,
         is_staff: bool,
         team_id: int | None,
@@ -217,7 +219,7 @@ class TestPostHogCallback:
             patch("llm_gateway.callbacks.posthog.get_product", return_value="signals"),
             patch("llm_gateway.callbacks.posthog.get_posthog_properties", return_value={"team_id": "999"}),
         ):
-            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+            await getattr(callback, event_method)(kwargs, None, 0.0, 1.0, end_user_id=None)
 
         call_kwargs = mock_client.capture.call_args.kwargs
         props = mock_client.capture.call_args.kwargs["properties"]

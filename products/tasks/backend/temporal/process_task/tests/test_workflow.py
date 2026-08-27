@@ -7,7 +7,7 @@ import dataclasses
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import AsyncMock, Mock
@@ -24,7 +24,12 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxStatus, SandboxTemplate
 from products.tasks.backend.models import SandboxSnapshot
-from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT_USER_SECONDS, WARM_IDLE_TIMEOUT
+from products.tasks.backend.temporal.babysit_pr.snapshot import BabysitJournal
+from products.tasks.backend.temporal.constants import (
+    INACTIVITY_TIMEOUT_USER_SECONDS,
+    SANDBOX_TTL_SNAPSHOT_LEAD,
+    WARM_IDLE_TIMEOUT,
+)
 from products.tasks.backend.temporal.process_task import workflow as process_task_workflow_module
 from products.tasks.backend.temporal.process_task.activities import (
     STEER_DECLINED_OUTCOME,
@@ -60,6 +65,7 @@ from products.tasks.backend.temporal.process_task.activities import (
     track_workflow_event,
     update_task_run_status,
 )
+from products.tasks.backend.temporal.process_task.activities.create_resume_snapshot import CreateResumeSnapshotOutput
 from products.tasks.backend.temporal.process_task.activities.emit_progress_activity import EmitProgressInput
 from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import SendFollowupToSandboxInput
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
@@ -344,6 +350,408 @@ class TestProcessTaskWorkflow:
             causes.append(str(error))
             error = error.__cause__
         assert any("no longer exists" in cause or "not found" in cause for cause in causes), causes
+
+
+class TestSandboxDeadline:
+    """The provider kills a sandbox on a fixed clock. An interactive run has to snapshot
+    itself before that lands, because the teardown snapshot runs against a sandbox that is
+    already gone."""
+
+    def _workflow(
+        self,
+        *,
+        deadline: datetime | None,
+        mode: str = "interactive",
+        use_modal_resume_snapshots: bool = True,
+    ) -> ProcessTaskWorkflow:
+        wf = ProcessTaskWorkflow()
+        wf._context = _build_context(
+            github_integration_id=123,
+            state={"mode": mode},
+            use_modal_resume_snapshots=use_modal_resume_snapshots,
+        )
+        wf._sandbox_ttl_expires_at = deadline
+        return wf
+
+    def test_deadline_from_a_pre_rollout_history_leaves_the_timer_unscheduled(self):
+        wf = self._workflow(deadline=None)
+        created = CreateSandboxForRepositoryOutput(sandbox_id="sb-1", sandbox_url="https://s", connect_token=None)
+
+        wf._record_sandbox_deadline(created)
+
+        assert wf._sandbox_ttl_expires_at is None
+        assert wf._sandbox_deadline_snapshot_scheduled() is False
+
+    def test_a_replacement_sandbox_starts_its_clock_over(self, monkeypatch):
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        wf = self._workflow(deadline=datetime(2026, 7, 16, 12, 0, tzinfo=UTC))
+        wf._sandbox_ttl_snapshot_taken = True
+
+        wf._record_sandbox_deadline(
+            CreateSandboxForRepositoryOutput(
+                sandbox_id="sb-2",
+                sandbox_url="https://s",
+                connect_token=None,
+                ttl_expires_at="2026-07-16T18:00:00+00:00",
+            )
+        )
+
+        assert wf._sandbox_ttl_expires_at == datetime(2026, 7, 16, 18, 0, tzinfo=UTC)
+        assert wf._sandbox_ttl_snapshot_taken is False
+        assert wf._sandbox_deadline_snapshot_scheduled() is True
+
+    @parameterized.expand(
+        [
+            ("already_snapshotted", {"snapshot_taken": True}, False),
+            ("non_interactive", {"mode": "one_off"}, False),
+            ("resume_snapshots_disabled", {"use_modal_resume_snapshots": False}, False),
+            ("interactive_with_snapshots", {}, True),
+        ]
+    )
+    def test_only_runs_with_something_to_restore_wait_on_the_deadline(self, _name, overrides, expected):
+        wf = self._workflow(
+            deadline=datetime(2026, 7, 16, 12, 0, tzinfo=UTC),
+            mode=overrides.get("mode", "interactive"),
+            use_modal_resume_snapshots=overrides.get("use_modal_resume_snapshots", True),
+        )
+        wf._sandbox_ttl_snapshot_taken = overrides.get("snapshot_taken", False)
+
+        assert wf._sandbox_deadline_snapshot_scheduled() is expected
+
+    async def test_timer_sleeps_until_the_lead_time_before_the_deadline(self, monkeypatch):
+        wf = self._workflow(deadline=datetime(2026, 7, 16, 12, 0, tzinfo=UTC))
+        sleep_mock = AsyncMock()
+        monkeypatch.setattr(
+            process_task_workflow_module.workflow, "now", Mock(return_value=datetime(2026, 7, 16, 9, 0, tzinfo=UTC))
+        )
+        monkeypatch.setattr(process_task_workflow_module.workflow, "sleep", sleep_mock)
+
+        event = await wf._wait_for_sandbox_deadline()
+
+        assert event == process_task_workflow_module.TaskEvent.SANDBOX_TTL_APPROACHING
+        expected = (timedelta(hours=3) - SANDBOX_TTL_SNAPSHOT_LEAD).total_seconds()
+        sleep_mock.assert_awaited_once_with(expected)
+
+    async def test_a_deadline_already_inside_the_lead_time_fires_without_sleeping(self, monkeypatch):
+        wf = self._workflow(deadline=datetime(2026, 7, 16, 12, 0, tzinfo=UTC))
+        sleep_mock = AsyncMock()
+        monkeypatch.setattr(
+            process_task_workflow_module.workflow, "now", Mock(return_value=datetime(2026, 7, 16, 11, 55, tzinfo=UTC))
+        )
+        monkeypatch.setattr(process_task_workflow_module.workflow, "sleep", sleep_mock)
+
+        event = await wf._wait_for_sandbox_deadline()
+
+        assert event == process_task_workflow_module.TaskEvent.SANDBOX_TTL_APPROACHING
+        sleep_mock.assert_not_awaited()
+
+
+class TestSandboxRotation:
+    """Rotation moves a run onto a replacement sandbox before the provider kills the one it has.
+    Anything that goes wrong has to leave the run on its current sandbox, which still has the
+    lead time left on its clock."""
+
+    def _workflow(self, monkeypatch, *, rotation_enabled: bool = True) -> ProcessTaskWorkflow:
+        wf = ProcessTaskWorkflow()
+        wf._context = _build_context(github_integration_id=123, state={"mode": "interactive"})
+        wf._context.sandbox_rotation_enabled = rotation_enabled
+        wf._sandbox_url = "https://old.example"
+        wf._sandbox_connect_token = "old-token"
+        wf._sandbox_jwt_kid = "kid-old"
+        wf._sandbox_id_for_cleanup = "sb-old"
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        return wf
+
+    def _relay(self, name: str) -> "asyncio.Task[None]":
+        return cast("asyncio.Task[None]", name)
+
+    def _snapshot(self, external_id: str | None = "snap-1") -> CreateResumeSnapshotOutput:
+        return CreateResumeSnapshotOutput(
+            external_id=external_id, snapshot_kind="directory", snapshot_mount_path="/mnt/work"
+        )
+
+    def _replacement(self, used_snapshot: bool = True) -> GetSandboxForRepositoryOutput:
+        return GetSandboxForRepositoryOutput(
+            sandbox_id="sb-new",
+            sandbox_url="https://new.example",
+            connect_token="new-token",
+            used_snapshot=used_snapshot,
+            should_create_snapshot=not used_snapshot,
+        )
+
+    @parameterized.expand(
+        [
+            ("idle_with_flag_on", {}, True),
+            ("flag_off", {"rotation_enabled": False}, False),
+            ("agent_mid_turn", {"agent_active": True}, False),
+            ("run_finishing", {"task_completed": True}, False),
+            ("followup_in_flight", {"followup_running": True}, False),
+            ("followup_finished", {"followup_running": False, "followup_present": True}, True),
+        ]
+    )
+    def test_only_an_idle_run_with_the_flag_on_may_rotate(self, _name, overrides, expected):
+        wf = ProcessTaskWorkflow()
+        wf._context = _build_context(github_integration_id=123, state={"mode": "interactive"})
+        wf._context.sandbox_rotation_enabled = overrides.get("rotation_enabled", True)
+        wf._agent_active = overrides.get("agent_active", False)
+        wf._task_completed = overrides.get("task_completed", False)
+        if overrides.get("followup_running") or overrides.get("followup_present"):
+            followup = Mock()
+            followup.done.return_value = not overrides.get("followup_running", False)
+            wf._active_followup_task = followup
+
+        assert (wf._sandbox_rotation_block_reason() is None) is expected
+
+    async def test_the_credential_refresh_loop_follows_the_run_to_the_new_sandbox(self, monkeypatch):
+        wf = self._workflow(monkeypatch)
+        monkeypatch.setattr(wf, "_create_resume_snapshot_output", AsyncMock(return_value=self._snapshot()))
+        monkeypatch.setattr(wf, "_get_sandbox_for_repository", AsyncMock(return_value=self._replacement()))
+        monkeypatch.setattr(wf, "_start_agent_server", AsyncMock())
+        cancelled: list[object] = []
+        monkeypatch.setattr(wf, "_cancel_relay", AsyncMock(side_effect=lambda task: cancelled.append(task)))
+        monkeypatch.setattr(wf, "_cleanup_sandbox", AsyncMock())
+        monkeypatch.setattr(wf, "_spawn_event_relay", Mock(return_value=None))
+        spawn_refresh = Mock(return_value=self._relay("refresh-new"))
+        monkeypatch.setattr(wf, "_spawn_credential_refresh", spawn_refresh)
+        refresh_old = self._relay("refresh-old")
+
+        await wf._rotate_sandbox_before_deadline("sb-old", None, refresh_old)
+
+        assert refresh_old in cancelled
+        spawn_refresh.assert_called_once_with("sb-new")
+
+    async def test_successful_rotation_repoints_the_run_and_drops_the_old_sandbox(self, monkeypatch):
+        wf = self._workflow(monkeypatch)
+        monkeypatch.setattr(wf, "_create_resume_snapshot_output", AsyncMock(return_value=self._snapshot()))
+        resume_flags_at_provision = {}
+
+        async def provision_replacement():
+            state = wf.context.state or {}
+            resume_flags_at_provision["value"] = (state.get("handoff_resumed"), state.get("handoff_resume_idle"))
+            return self._replacement()
+
+        monkeypatch.setattr(wf, "_get_sandbox_for_repository", provision_replacement)
+        monkeypatch.setattr(wf, "_start_agent_server", AsyncMock())
+        monkeypatch.setattr(wf, "_cancel_relay", AsyncMock())
+        cleanup = AsyncMock()
+        monkeypatch.setattr(wf, "_cleanup_sandbox", cleanup)
+        relay_new = self._relay("relay-new")
+        refresh_new = self._relay("refresh-new")
+        monkeypatch.setattr(wf, "_spawn_event_relay", Mock(return_value=relay_new))
+        monkeypatch.setattr(wf, "_spawn_credential_refresh", Mock(return_value=refresh_new))
+
+        rotation = await wf._rotate_sandbox_before_deadline(
+            "sb-old", self._relay("relay-old"), self._relay("refresh-old")
+        )
+
+        assert rotation.sandbox_id == "sb-new"
+        assert rotation.relay_task is relay_new
+        assert rotation.credential_refresh_task is refresh_new
+        assert (wf._sandbox_url, wf._sandbox_connect_token) == ("https://new.example", "new-token")
+        assert wf._sandbox_id_for_cleanup == "sb-new"
+        assert resume_flags_at_provision["value"] == (True, True)
+        cleanup.assert_awaited_once_with("sb-old", complete_stream=False)
+
+    async def test_the_replacement_is_built_from_the_snapshot_just_taken(self, monkeypatch):
+        wf = self._workflow(monkeypatch)
+        monkeypatch.setattr(wf, "_create_resume_snapshot_output", AsyncMock(return_value=self._snapshot()))
+        monkeypatch.setattr(wf, "_get_sandbox_for_repository", AsyncMock(return_value=self._replacement()))
+        monkeypatch.setattr(wf, "_start_agent_server", AsyncMock())
+        monkeypatch.setattr(wf, "_cancel_relay", AsyncMock())
+        monkeypatch.setattr(wf, "_cleanup_sandbox", AsyncMock())
+        monkeypatch.setattr(wf, "_spawn_event_relay", Mock(return_value=None))
+        monkeypatch.setattr(wf, "_spawn_credential_refresh", Mock(return_value=None))
+
+        await wf._rotate_sandbox_before_deadline("sb-old", None, None)
+
+        state = wf.context.state or {}
+        assert state["snapshot_external_id"] == "snap-1"
+        assert state["snapshot_kind"] == "directory"
+        assert state["snapshot_mount_path"] == "/mnt/work"
+
+    async def test_routing_that_could_not_be_restored_is_reported_not_swallowed(self, monkeypatch):
+        wf = self._workflow(monkeypatch)
+        monkeypatch.setattr(wf, "_create_resume_snapshot_output", AsyncMock(return_value=self._snapshot()))
+
+        async def fail_after_creating() -> GetSandboxForRepositoryOutput:
+            wf._sandbox_id_for_cleanup = "sb-half-built"
+            raise RuntimeError("agent server never came up")
+
+        monkeypatch.setattr(wf, "_get_sandbox_for_repository", fail_after_creating)
+        monkeypatch.setattr(wf, "_cancel_relay", AsyncMock())
+        monkeypatch.setattr(wf, "_cleanup_sandbox", AsyncMock())
+        monkeypatch.setattr(wf, "_spawn_event_relay", Mock(return_value=None))
+        monkeypatch.setattr(wf, "_spawn_credential_refresh", Mock(return_value=None))
+        monkeypatch.setattr(wf, "_restore_sandbox_connection_state", AsyncMock(return_value=False))
+
+        rotation = await wf._rotate_sandbox_before_deadline("sb-old", None, None)
+
+        assert rotation.sandbox_id is None
+        assert rotation.routing_restored is False
+
+    async def test_a_replacement_built_without_the_snapshot_does_not_replace_the_live_sandbox(self, monkeypatch):
+        # Provisioning reports success for a sandbox it had to build fresh, which holds the
+        # branch head rather than the run's working tree. Completing the rotation there would
+        # destroy the only copy of the agent's uncommitted work.
+        wf = self._workflow(monkeypatch)
+        monkeypatch.setattr(wf, "_create_resume_snapshot_output", AsyncMock(return_value=self._snapshot()))
+        monkeypatch.setattr(
+            wf, "_get_sandbox_for_repository", AsyncMock(return_value=self._replacement(used_snapshot=False))
+        )
+        monkeypatch.setattr(wf, "_start_agent_server", AsyncMock())
+        monkeypatch.setattr(wf, "_cancel_relay", AsyncMock())
+        cleanup = AsyncMock()
+        monkeypatch.setattr(wf, "_cleanup_sandbox", cleanup)
+        monkeypatch.setattr(wf, "_spawn_event_relay", Mock(return_value=None))
+        monkeypatch.setattr(wf, "_spawn_credential_refresh", Mock(return_value=None))
+        restore = AsyncMock(return_value=True)
+        monkeypatch.setattr(wf, "_restore_sandbox_connection_state", restore)
+        wf._sandbox_id_for_cleanup = "sb-new"
+
+        rotation = await wf._rotate_sandbox_before_deadline("sb-old", None, None)
+
+        assert rotation.sandbox_id is None
+        assert (wf._sandbox_url, wf._sandbox_connect_token) == ("https://old.example", "old-token")
+        assert wf._sandbox_id_for_cleanup == "sb-old"
+        cleanup.assert_awaited_once_with("sb-new", complete_stream=False)
+        restore.assert_awaited_once_with("sb-old", "https://old.example", "old-token", "kid-old")
+
+    async def test_initial_provisioning_remembers_the_signing_key_of_the_sandbox_it_created(self, monkeypatch):
+        wf = self._workflow(monkeypatch)
+        wf._sandbox_jwt_kid = None
+        prepared = PrepareSandboxForRepositoryOutput(
+            sandbox_name="sandbox-name",
+            repository="posthog/posthog-js",
+            github_token="",
+            branch=None,
+            environment_variables={},
+            snapshot_id=None,
+            snapshot_external_id=None,
+            used_snapshot=True,
+            should_create_snapshot=False,
+            shallow_clone=False,
+            image_source="base_image",
+            image_source_label="published sandbox base image",
+            sandbox_creation_timeout_seconds=30 * 60,
+        )
+        created = CreateSandboxForRepositoryOutput(
+            sandbox_id="sb-provisioned",
+            sandbox_url="https://provisioned.example",
+            connect_token="provisioned-token",
+            used_snapshot=True,
+            jwt_kid="kid-provisioned",
+        )
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", AsyncMock(return_value=prepared))
+        monkeypatch.setattr(wf, "_run_sandbox_creation_activity", AsyncMock(return_value=created))
+        monkeypatch.setattr(wf, "_record_sandbox_deadline", Mock())
+        monkeypatch.setattr(wf, "_emit_progress", AsyncMock())
+
+        output = await wf._get_sandbox_for_repository()
+
+        assert output.jwt_kid == "kid-provisioned"
+        assert wf._sandbox_jwt_kid == "kid-provisioned"
+
+    @pytest.mark.parametrize(
+        "snapshot_invalidated, expected_saved",
+        [(False, True), (True, False)],
+    )
+    async def test_an_abandoned_rotation_reports_the_snapshot_it_already_took(
+        self, monkeypatch, snapshot_invalidated, expected_saved
+    ):
+        wf = self._workflow(monkeypatch)
+        monkeypatch.setattr(wf, "_create_resume_snapshot_output", AsyncMock(return_value=self._snapshot()))
+
+        async def fail_after_creating() -> GetSandboxForRepositoryOutput:
+            wf._sandbox_id_for_cleanup = "sb-half-built"
+            wf._resume_snapshot_invalidated = snapshot_invalidated
+            raise RuntimeError("agent server never came up")
+
+        monkeypatch.setattr(wf, "_get_sandbox_for_repository", fail_after_creating)
+        monkeypatch.setattr(wf, "_cancel_relay", AsyncMock())
+        monkeypatch.setattr(wf, "_cleanup_sandbox", AsyncMock())
+        monkeypatch.setattr(wf, "_spawn_event_relay", Mock(return_value=None))
+        monkeypatch.setattr(wf, "_spawn_credential_refresh", Mock(return_value=None))
+        monkeypatch.setattr(wf, "_restore_sandbox_connection_state", AsyncMock(return_value=True))
+
+        rotation = await wf._rotate_sandbox_before_deadline("sb-old", None, None)
+
+        assert rotation.sandbox_id is None
+        assert rotation.snapshot_saved is expected_saved
+
+    async def test_an_abandoned_rotation_puts_the_live_sandbox_back_on_the_clock_it_had(self, monkeypatch):
+        wf = self._workflow(monkeypatch)
+        old_deadline = datetime(2026, 7, 16, 12, 0, tzinfo=UTC)
+        wf._sandbox_ttl_expires_at = old_deadline
+        wf._sandbox_ttl_snapshot_taken = True
+        monkeypatch.setattr(wf, "_create_resume_snapshot_output", AsyncMock(return_value=self._snapshot()))
+
+        async def provision_replacement_then_fail() -> GetSandboxForRepositoryOutput:
+            wf._sandbox_id_for_cleanup = "sb-new"
+            wf._sandbox_jwt_kid = "kid-new"
+            wf._sandbox_ttl_expires_at = datetime(2026, 7, 16, 18, 0, tzinfo=UTC)
+            wf._sandbox_ttl_snapshot_taken = False
+            raise RuntimeError("agent server never came up")
+
+        monkeypatch.setattr(wf, "_get_sandbox_for_repository", provision_replacement_then_fail)
+        monkeypatch.setattr(wf, "_cancel_relay", AsyncMock())
+        monkeypatch.setattr(wf, "_cleanup_sandbox", AsyncMock())
+        monkeypatch.setattr(wf, "_spawn_event_relay", Mock(return_value=None))
+        monkeypatch.setattr(wf, "_spawn_credential_refresh", Mock(return_value=None))
+        restore = AsyncMock(return_value=True)
+        monkeypatch.setattr(wf, "_restore_sandbox_connection_state", restore)
+
+        await wf._rotate_sandbox_before_deadline("sb-old", None, None)
+
+        assert wf._sandbox_jwt_kid == "kid-old"
+        assert wf._sandbox_ttl_expires_at == old_deadline
+        assert wf._sandbox_ttl_snapshot_taken is True
+        restore.assert_awaited_once_with("sb-old", "https://old.example", "old-token", "kid-old")
+
+    async def test_a_snapshot_that_did_not_happen_leaves_the_run_where_it_is(self, monkeypatch):
+        wf = self._workflow(monkeypatch)
+        monkeypatch.setattr(wf, "_create_resume_snapshot_output", AsyncMock(return_value=self._snapshot(None)))
+        provision = AsyncMock()
+        monkeypatch.setattr(wf, "_get_sandbox_for_repository", provision)
+        monkeypatch.setattr(wf, "_cancel_relay", AsyncMock())
+
+        relay_old = self._relay("relay-old")
+        refresh_old = self._relay("refresh-old")
+        rotation = await wf._rotate_sandbox_before_deadline("sb-old", relay_old, refresh_old)
+
+        assert rotation.sandbox_id is None
+        assert rotation.relay_task is relay_old
+        assert rotation.credential_refresh_task is refresh_old
+        provision.assert_not_awaited()
+
+    async def test_a_failed_replacement_restores_the_old_sandbox_and_its_relay(self, monkeypatch):
+        wf = self._workflow(monkeypatch)
+        monkeypatch.setattr(wf, "_create_resume_snapshot_output", AsyncMock(return_value=self._snapshot()))
+
+        async def fail_after_creating() -> GetSandboxForRepositoryOutput:
+            wf._sandbox_id_for_cleanup = "sb-half-built"
+            raise RuntimeError("agent server never came up")
+
+        monkeypatch.setattr(wf, "_get_sandbox_for_repository", fail_after_creating)
+        monkeypatch.setattr(wf, "_cancel_relay", AsyncMock())
+        cleanup = AsyncMock()
+        monkeypatch.setattr(wf, "_cleanup_sandbox", cleanup)
+        relay_restarted = self._relay("relay-restarted")
+        monkeypatch.setattr(wf, "_spawn_event_relay", Mock(return_value=relay_restarted))
+        monkeypatch.setattr(wf, "_spawn_credential_refresh", Mock(return_value=self._relay("refresh-restarted")))
+        restore = AsyncMock(return_value=True)
+        monkeypatch.setattr(wf, "_restore_sandbox_connection_state", restore)
+
+        rotation = await wf._rotate_sandbox_before_deadline(
+            "sb-old", self._relay("relay-old"), self._relay("refresh-old")
+        )
+
+        assert rotation.sandbox_id is None
+        assert rotation.relay_task is relay_restarted
+        assert rotation.routing_restored is True
+        assert wf._sandbox_id_for_cleanup == "sb-old"
+        assert (wf._sandbox_url, wf._sandbox_connect_token) == ("https://old.example", "old-token")
+        cleanup.assert_awaited_once_with("sb-half-built", complete_stream=False)
+        restore.assert_awaited_once_with("sb-old", "https://old.example", "old-token", "kid-old")
 
 
 class TestProcessTaskFollowupDispatch:
@@ -956,6 +1364,37 @@ class TestProcessTaskWorkflowUnit:
     def test_parse_inputs_reads_prewarmed(self, payload: dict, expected_prewarmed: bool):
         parsed = ProcessTaskWorkflow.parse_inputs([json.dumps(payload)])
         assert parsed.prewarmed is expected_prewarmed
+
+    def test_parse_inputs_rebuilds_babysit_journal_from_resumed_sandbox(self):
+        payload = {
+            "run_id": "r1",
+            "resumed_sandbox": {
+                "sandbox_id": "s1",
+                "sandbox_url": "https://sandbox",
+                "connect_token": None,
+                "ci_repetitions": 0,
+                "pr_fingerprint": None,
+                "pr_progress_emitted": False,
+                "first_user_message_received": False,
+                "is_agent_design_enabled": False,
+                "last_active_time": None,
+                "babysit_journal": {
+                    "threads": {"T1": "C1"},
+                    "comment_ids": ["M1"],
+                    "head_sha": "abc",
+                    "head_keys": ["CI/backend"],
+                },
+            },
+        }
+
+        parsed = ProcessTaskWorkflow.parse_inputs([json.dumps(payload)])
+
+        # Must come back as a BabysitJournal, not a raw dict, so the next babysit poll can
+        # call .attention() on it instead of raising AttributeError.
+        assert parsed.resumed_sandbox is not None
+        journal = parsed.resumed_sandbox.babysit_journal
+        assert isinstance(journal, BabysitJournal)
+        assert journal.threads == {"T1": "C1"}
 
     def test_warm_idle_timeout_is_shorter_than_active_inactivity(self):
         assert WARM_IDLE_TIMEOUT < timedelta(seconds=INACTIVITY_TIMEOUT_USER_SECONDS)
@@ -2384,6 +2823,7 @@ class TestContinueAsNew:
         wf._agent_active = False
         wf._end_of_turn_received = True
         wf._last_agent_heartbeat_at = datetime(2026, 7, 16, 10, 29, tzinfo=UTC)
+        wf._sandbox_ttl_expires_at = datetime(2026, 7, 16, 15, 0, tzinfo=UTC)
         wf._slack_thread_context = {"channel": "C1"}
         wf._posthog_mcp_scopes = "full"
 
@@ -2410,6 +2850,7 @@ class TestContinueAsNew:
         assert restored._agent_active is False
         assert restored._end_of_turn_received is True
         assert restored._last_agent_heartbeat_at == datetime(2026, 7, 16, 10, 29, tzinfo=UTC)
+        assert restored._sandbox_ttl_expires_at == datetime(2026, 7, 16, 15, 0, tzinfo=UTC)
         # The wall-clock cap anchors on the chain start, so the first execution seeds it from
         # its own start_time and every later continuation carries that same value forward.
         assert restored._chain_started_at == chain_start
@@ -2438,6 +2879,7 @@ class TestContinueAsNew:
                 ),
             ),
             ("heartbeat_pending", lambda wf: setattr(wf, "_heartbeat_received", True)),
+            ("client_activity_pending", lambda wf: setattr(wf, "_client_activity_received", True)),
             ("slack_relay_active", lambda wf: setattr(wf, "_current_slack_relay_workflow_id", "relay-1")),
         ]
     )

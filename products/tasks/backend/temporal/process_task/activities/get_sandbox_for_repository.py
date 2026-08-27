@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
 
@@ -45,7 +46,6 @@ from products.tasks.backend.temporal.metrics import (
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
-    ai_gateway_env_vars,
     get_git_identity_env_vars,
     get_sandbox_api_url,
     get_sandbox_github_token,
@@ -53,6 +53,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_snapshot_metadata,
     get_task_run_credential_user,
     parse_run_state,
+    run_gateway_env_vars,
 )
 
 from .get_task_processing_context import TaskProcessingContext
@@ -108,18 +109,58 @@ def _emit_provisioning_diagnostics(ctx: TaskProcessingContext, sandbox: object) 
         emit_agent_log(ctx.run_id, "debug", f"Sandbox image build logs:\n{raw_excerpt}")
 
 
+def _build_environment_variables(
+    ctx: TaskProcessingContext, task: Task, github_token: str, access_token: str
+) -> dict[str, str]:
+    environment_variables = {
+        "POSTHOG_PERSONAL_API_KEY": access_token,
+        "POSTHOG_API_URL": get_sandbox_api_url(),
+        "POSTHOG_PROJECT_ID": str(ctx.team_id),
+        "JWT_PUBLIC_KEY": get_sandbox_jwt_public_key(),
+    }
+
+    if ctx.sandbox_environment_id:
+        sandbox_environment = ctx.get_sandbox_environment()
+        if sandbox_environment and sandbox_environment.environment_variables:
+            safe_vars, skipped_keys = filter_user_sandbox_env_vars(sandbox_environment.environment_variables)
+            environment_variables.update(safe_vars)
+
+            emit_agent_log(
+                ctx.run_id,
+                "debug",
+                f"Applied {len(safe_vars)} sandbox environment variable(s) from '{sandbox_environment.name}'",
+            )
+            if skipped_keys:
+                emit_agent_log(
+                    ctx.run_id,
+                    "debug",
+                    f"Skipped reserved/blocked sandbox environment variable keys from '{sandbox_environment.name}': {', '.join(sorted(skipped_keys))}",
+                )
+
+    if github_token:
+        environment_variables["GITHUB_TOKEN"] = github_token
+        environment_variables["GH_TOKEN"] = github_token
+
+    if settings.SANDBOX_LLM_GATEWAY_URL:
+        environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
+
+    environment_variables.update(run_gateway_env_vars(ctx, task))
+    return environment_variables
+
+
 @dataclass
 class GetSandboxForRepositoryInput:
     context: TaskProcessingContext
 
 
-@dataclass
+@frozen
 class GetSandboxForRepositoryOutput:
     sandbox_id: str
     sandbox_url: str
     connect_token: str | None
     used_snapshot: bool
     should_create_snapshot: bool
+    jwt_kid: str | None = None
     agent_server_launched: bool = False
     boot_path: str = "classic"
     image_source: str | None = None
@@ -223,40 +264,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                 cause=e,
             )
 
-        environment_variables = {
-            "POSTHOG_PERSONAL_API_KEY": access_token,
-            "POSTHOG_API_URL": get_sandbox_api_url(),
-            "POSTHOG_PROJECT_ID": str(ctx.team_id),
-            "JWT_PUBLIC_KEY": get_sandbox_jwt_public_key(),
-        }
-
-        sandbox_environment = None
-        if ctx.sandbox_environment_id:
-            sandbox_environment = ctx.get_sandbox_environment()
-            if sandbox_environment and sandbox_environment.environment_variables:
-                safe_vars, skipped_keys = filter_user_sandbox_env_vars(sandbox_environment.environment_variables)
-                environment_variables.update(safe_vars)
-
-                emit_agent_log(
-                    ctx.run_id,
-                    "debug",
-                    f"Applied {len(safe_vars)} sandbox environment variable(s) from '{sandbox_environment.name}'",
-                )
-                if skipped_keys:
-                    emit_agent_log(
-                        ctx.run_id,
-                        "debug",
-                        f"Skipped reserved/blocked sandbox environment variable keys from '{sandbox_environment.name}': {', '.join(sorted(skipped_keys))}",
-                    )
-
-        if github_token:
-            environment_variables["GITHUB_TOKEN"] = github_token
-            environment_variables["GH_TOKEN"] = github_token
-
-        if settings.SANDBOX_LLM_GATEWAY_URL:
-            environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
-
-        environment_variables.update(ai_gateway_env_vars())
+        environment_variables = _build_environment_variables(ctx, task, github_token, access_token)
 
         environment_variables.update(get_git_identity_env_vars(task, ctx.state))
 

@@ -5,6 +5,7 @@ from fastapi import HTTPException
 
 from llm_gateway.baseten import BASETEN_MODELS
 from llm_gateway.cloudflare import CLOUDFLARE_ALLOWED_MODELS
+from llm_gateway.flags import GLM_BASETEN_FLAG, GLM_MODAL_FLAG
 from llm_gateway.inference_routing import is_inference_routed_model
 from llm_gateway.modal import is_modal_served_model
 from llm_gateway.products.config import (
@@ -137,14 +138,15 @@ class TestCheckProductAccess:
             ("llma_translation", "personal_api_key", None, "gpt-4.1-mini", True, None),
             ("llma_translation", "personal_api_key", None, "claude-3-opus", False, "not allowed"),
             ("llma_translation", "oauth_access_token", "any-app-id", "gpt-4.1-mini", False, "not authorized"),
-            # signals allows API keys (shared gateway key) with any model, and OAuth from the
-            # array/twig (posthog_code) app for coding-agent tasks
+            # signals allows API keys (shared gateway key) with any model, and OAuth only from
+            # the dedicated Signals app — a posthog_code (Desktop) token must not reach it
             ("signals", "personal_api_key", None, "claude-haiku-4-5", True, None),
             ("signals", "personal_api_key", None, "claude-sonnet-4-5", True, None),
             ("signals", "personal_api_key", None, "claude-3-opus", True, None),
             ("signals", "oauth_access_token", "any-app-id", "claude-haiku-4-5", False, "not authorized"),
-            ("signals", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-haiku-4-5", True, None),
-            ("signals", "oauth_access_token", POSTHOG_CODE_EU_APP_ID, "claude-sonnet-4-5", True, None),
+            ("signals", "oauth_access_token", SIGNALS_DEV_APP_ID, "claude-haiku-4-5", True, None),
+            ("signals", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-haiku-4-5", False, "not authorized"),
+            ("signals", "oauth_access_token", POSTHOG_CODE_EU_APP_ID, "claude-sonnet-4-5", False, "not authorized"),
             # conversations: utility prompts (API key) and support-reply sandbox (array OAuth app)
             ("conversations", "personal_api_key", None, "claude-haiku-4-5", True, None),
             ("conversations", "personal_api_key", None, "claude-sonnet-4-6", True, None),
@@ -366,6 +368,7 @@ class TestCheckProductAccess:
             "gpt-5.3-codex",
             "gpt-5.2",
             "gpt-5-mini",
+            "gpt-5.6-luna",
             "gpt-5.6-sol",
         ],
     )
@@ -622,27 +625,34 @@ class TestCheckFreeTierModelAccess:
 
 
 class TestServerCredentialRequirement:
-    """The internal products that share the PostHog Desktop OAuth app (background_agents, signals,
-    slack_app, conversations, onboarding) must accept only server-minted tokens — those carrying the
-    internal `internal_run:read` marker. Otherwise a user's own Desktop OAuth token could route around
-    the posthog_code free-tier gate through these products to premium models."""
+    """Internal products driven by server-minted sandbox tokens (background_agents, signals,
+    slack_app, conversations, onboarding) must accept only tokens carrying the internal
+    `internal_run:read` marker. Otherwise a user's own OAuth token minted under the same app could
+    route around the posthog_code free-tier gate through these products to premium models."""
 
     _MARKER_SCOPES = ["llm_gateway:read", "task:write", "internal_run:read"]
 
-    @pytest.mark.parametrize("product", ["background_agents", "signals", "slack_app", "conversations", "onboarding"])
-    def test_oauth_without_marker_is_rejected(self, product: str):
-        # a desktop Code token (wildcard scope, no internal marker); claude-sonnet-5 is in every
+    # signals no longer accepts the Desktop app, so the marker check is exercised via its own app
+    _PRODUCT_APPS = [
+        ("background_agents", POSTHOG_CODE_US_APP_ID),
+        ("signals", SIGNALS_DEV_APP_ID),
+        ("slack_app", POSTHOG_CODE_US_APP_ID),
+        ("conversations", POSTHOG_CODE_US_APP_ID),
+        ("onboarding", POSTHOG_CODE_US_APP_ID),
+    ]
+
+    @pytest.mark.parametrize(("product", "app_id"), _PRODUCT_APPS)
+    def test_oauth_without_marker_is_rejected(self, product: str, app_id: str):
+        # a user-held token (wildcard scope, no internal marker); claude-sonnet-5 is in every
         # sibling's model list, so the rejection is unambiguously the missing server credential
-        allowed, error = check_product_access(
-            product, "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-sonnet-5", scopes=["*"]
-        )
+        allowed, error = check_product_access(product, "oauth_access_token", app_id, "claude-sonnet-5", scopes=["*"])
         assert allowed is False
         assert error is not None and "server-minted" in error
 
-    @pytest.mark.parametrize("product", ["background_agents", "signals", "slack_app", "conversations", "onboarding"])
-    def test_oauth_with_marker_is_allowed(self, product: str):
+    @pytest.mark.parametrize(("product", "app_id"), _PRODUCT_APPS)
+    def test_oauth_with_marker_is_allowed(self, product: str, app_id: str):
         allowed, error = check_product_access(
-            product, "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-sonnet-5", scopes=self._MARKER_SCOPES
+            product, "oauth_access_token", app_id, "claude-sonnet-5", scopes=self._MARKER_SCOPES
         )
         assert allowed is True
         assert error is None
@@ -713,6 +723,7 @@ class TestModelAccessFlag:
     def test_every_gated_model_has_its_own_flag(self):
         flags = list(MODEL_ACCESS_FLAGS.values())
         assert len(flags) == len(set(flags))
+        assert not set(flags) & {GLM_BASETEN_FLAG, GLM_MODAL_FLAG}
 
     @pytest.mark.parametrize("model", [None, "", "gpt-5.2", "claude-opus-5", "@cf/zai-org/glm-5.2"])
     def test_ungated_models_need_no_flag(self, model: str | None):

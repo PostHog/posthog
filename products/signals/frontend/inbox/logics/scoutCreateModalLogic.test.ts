@@ -3,6 +3,8 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api-error'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -47,8 +49,17 @@ const CREATED_SCOUT: SignalScoutCreateResponseApi = {
         auto_pause_exempt: false,
         network_access: 'trusted',
         model: null,
+        source_product: null,
+        source_id: null,
         created_at: '2026-07-24T00:00:00Z',
     },
+}
+
+const setRedesignFlag = (enabled: boolean): void => {
+    featureFlagLogic.mount()
+    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
+        [FEATURE_FLAGS.INBOX_REDESIGN]: enabled,
+    })
 }
 
 describe('scoutCreateModalLogic', () => {
@@ -58,6 +69,8 @@ describe('scoutCreateModalLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
+        // The prefix-in-the-field form is part of the inbox redesign; the legacy contract is pinned below.
+        setRedesignFlag(true)
         mockSignalsScoutCreate.mockReset()
         onClose = jest.fn()
         onCreated = jest.fn()
@@ -94,7 +107,7 @@ describe('scoutCreateModalLogic', () => {
         logic.mount()
 
         expect(logic.values.scoutCreateForm).toEqual({
-            name: 'signals-scout-checkout-failures',
+            name: 'checkout-failures',
             description: 'Investigates recurring checkout failures.',
             body: 'Inspect checkout failure signals and report meaningful regressions.',
             dailyTime: '09:00',
@@ -239,8 +252,90 @@ describe('scoutCreateModalLogic', () => {
         expect(logic.values.scoutCreateFormManualErrors).toEqual({
             name: 'A scout with this name already exists with different instructions.',
         })
-        expect(logic.values.scoutCreateForm).toMatchObject(initialValues)
+        expect(logic.values.scoutCreateForm).toMatchObject({ ...initialValues, name: 'checkout-failures' })
         expect(onCreated).not.toHaveBeenCalled()
         expect(onClose).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        ['', 'Name is required'],
+        ['checkout failures', 'Name cannot contain spaces. Use hyphens between words.'],
+        ['Checkout', 'Lowercase letters, numbers, and hyphens only'],
+        ['checkout-failures', undefined],
+        ['signals-scout-checkout-failures', undefined],
+    ])('validates the typed name %p', async (name, expectedError) => {
+        logic = scoutCreateModalLogic({ logicKey: `name-${name}`, onClose, onCreated })
+        logic.mount()
+
+        logic.actions.setScoutCreateFormValue('name', name)
+
+        await expectLogic(logic).toMatchValues({
+            scoutCreateFormValidationErrors: expect.objectContaining({ name: expectedError }),
+        })
+    })
+
+    it('adds the prefix once, whether or not it was typed', async () => {
+        mockSignalsScoutCreate.mockResolvedValue(CREATED_SCOUT)
+        logic = scoutCreateModalLogic({
+            logicKey: 'pasted-prefix',
+            initialValues: {
+                description: 'Investigates recurring checkout failures.',
+                body: 'Inspect checkout failure signals and report meaningful regressions.',
+            },
+            onClose,
+            onCreated,
+        })
+        logic.mount()
+
+        logic.actions.setScoutCreateFormValue('name', ' signals-scout-checkout-failures ')
+        await expectLogic(logic, () => logic.actions.submitScoutCreateForm()).toFinishAllListeners()
+
+        expect(mockSignalsScoutCreate).toHaveBeenCalledWith(
+            String(MOCK_TEAM_ID),
+            expect.objectContaining({ name: 'signals-scout-checkout-failures' })
+        )
+    })
+
+    // With the redesign flag off the field holds the whole skill name, so the prefix must be typed.
+    describe('with the redesign flag off', () => {
+        beforeEach(() => setRedesignFlag(false))
+
+        it.each([
+            ['checkout-failures', 'Name must start with signals-scout-'],
+            ['signals-scout-checkout-failures', undefined],
+        ])('validates the full name %p', async (name, expectedError) => {
+            logic = scoutCreateModalLogic({ logicKey: `legacy-name-${name}`, onClose, onCreated })
+            logic.mount()
+
+            expect(logic.values.scoutCreateForm.name).toBe('signals-scout-')
+            logic.actions.setScoutCreateFormValue('name', name)
+
+            await expectLogic(logic).toMatchValues({
+                scoutCreateFormValidationErrors: expect.objectContaining({ name: expectedError }),
+            })
+        })
+
+        it('keeps a prefilled full name and submits it unchanged', async () => {
+            mockSignalsScoutCreate.mockResolvedValue(CREATED_SCOUT)
+            logic = scoutCreateModalLogic({
+                logicKey: 'legacy-prefilled',
+                initialValues: {
+                    name: 'signals-scout-checkout-failures',
+                    description: 'Investigates recurring checkout failures.',
+                    body: 'Inspect checkout failure signals and report meaningful regressions.',
+                },
+                onClose,
+                onCreated,
+            })
+            logic.mount()
+
+            expect(logic.values.scoutCreateForm.name).toBe('signals-scout-checkout-failures')
+            await expectLogic(logic, () => logic.actions.submitScoutCreateForm()).toFinishAllListeners()
+
+            expect(mockSignalsScoutCreate).toHaveBeenCalledWith(
+                String(MOCK_TEAM_ID),
+                expect.objectContaining({ name: 'signals-scout-checkout-failures' })
+            )
+        })
     })
 })

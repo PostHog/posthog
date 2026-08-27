@@ -510,6 +510,398 @@ export interface VisionActionRunApi {
 }
 
 /**
+ * * `metric` - Metric
+ * * `match` - Match
+ */
+export type VisionAlertConfigurationKindEnumApi =
+    (typeof VisionAlertConfigurationKindEnumApi)[keyof typeof VisionAlertConfigurationKindEnumApi]
+
+export const VisionAlertConfigurationKindEnumApi = {
+    Metric: 'metric',
+    Match: 'match',
+} as const
+
+export interface VisionAlertSelectionApi {
+    /**
+     * Monitor verdicts to match, e.g. ['yes'].
+     * @maxItems 10
+     * @items.maxLength 100
+     */
+    verdict?: string[]
+    /**
+     * Classifier tags to match; an observation matches when it carries any of them.
+     * @maxItems 20
+     * @items.maxLength 200
+     */
+    tags?: string[]
+    /** Minimum scorer score (inclusive). */
+    min_score?: number
+    /** Maximum scorer score (inclusive). */
+    max_score?: number
+}
+
+/**
+ * * `count` - Count matching observations
+ * * `avg_score` - Average score
+ */
+export type VisionAlertConfigurationMetricEnumApi =
+    (typeof VisionAlertConfigurationMetricEnumApi)[keyof typeof VisionAlertConfigurationMetricEnumApi]
+
+export const VisionAlertConfigurationMetricEnumApi = {
+    Count: 'count',
+    AvgScore: 'avg_score',
+} as const
+
+/**
+ * * `not_firing` - Not firing
+ * * `firing` - Firing
+ * * `pending_resolve` - Pending resolve
+ * * `errored` - Errored
+ * * `snoozed` - Snoozed
+ * * `broken` - Broken
+ */
+export type LogsAlertConfigurationStateEnumApi =
+    (typeof LogsAlertConfigurationStateEnumApi)[keyof typeof LogsAlertConfigurationStateEnumApi]
+
+export const LogsAlertConfigurationStateEnumApi = {
+    NotFiring: 'not_firing',
+    Firing: 'firing',
+    PendingResolve: 'pending_resolve',
+    Errored: 'errored',
+    Snoozed: 'snoozed',
+    Broken: 'broken',
+} as const
+
+export interface AlertScheduleRestrictionWindowApi {
+    /** Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)). */
+    start: string
+    /** End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally. */
+    end: string
+}
+
+export interface AlertScheduleRestrictionApi {
+    /** Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours. */
+    blocked_windows: AlertScheduleRestrictionWindowApi[]
+}
+
+export interface VisionAlertConfigurationApi {
+    /** Unique identifier for this alert. */
+    readonly id: string
+    /** Scanner whose observations this alert watches. Immutable after creation. */
+    scanner_id: string
+    /**
+     * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
+     * @maxLength 255
+     */
+    name?: string
+    /** Whether the alert is active. Disabling a metric alert resets its state to not_firing. */
+    enabled?: boolean
+    /** 'metric' fires when a metric crosses a threshold over a rolling window; 'match' fires on every observation that matches the selection. Immutable after creation.
+     *
+     * * `metric` - Metric
+     * * `match` - Match */
+    kind: VisionAlertConfigurationKindEnumApi
+    /** Which observations count. Empty matches every observation of the scanner. */
+    selection?: VisionAlertSelectionApi
+    /** Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.
+     *
+     * * `count` - Count matching observations
+     * * `avg_score` - Average score */
+    metric?: VisionAlertConfigurationMetricEnumApi
+    /** Metric alerts only: whether the alert fires at or above, or at or below, the threshold.
+     *
+     * * `above` - At or above
+     * * `below` - At or below */
+    direction?: VisionAlertDirectionEnumApi
+    /**
+     * Metric alerts only: the threshold value. Required for metric alerts, must be omitted for match alerts.
+     * @nullable
+     */
+    threshold?: number | null
+    /** Metric alerts only: rolling window in days. Allowed values: [1, 3, 7, 14, 30]. */
+    window_days?: number
+    /**
+     * Metric alerts only: evaluation cadence in minutes, at least 15.
+     * @minimum 15
+     */
+    check_interval_minutes?: number
+    /** Current lifecycle state. Always not_firing for match alerts. Server-managed.
+     *
+     * * `not_firing` - Not firing
+     * * `firing` - Firing
+     * * `pending_resolve` - Pending resolve
+     * * `errored` - Errored
+     * * `snoozed` - Snoozed
+     * * `broken` - Broken */
+    readonly state: LogsAlertConfigurationStateEnumApi
+    /**
+     * Metric alerts only: total check periods in the sliding evaluation window (M in N-of-M).
+     * @minimum 1
+     * @maximum 10
+     */
+    evaluation_periods?: number
+    /**
+     * Metric alerts only: how many periods must breach to fire (N in N-of-M).
+     * @minimum 1
+     * @maximum 10
+     */
+    datapoints_to_alarm?: number
+    /**
+     * Metric alerts only: minimum minutes between repeated notifications. 0 means no cooldown.
+     * @minimum 0
+     */
+    cooldown_minutes?: number
+    /** Blocked local time windows when the alert must not notify. Times use the project timezone. Null disables quiet hours. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
+    /**
+     * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+     * @nullable
+     */
+    snooze_until?: string | null
+    /**
+     * When the next evaluation is scheduled. Server-managed.
+     * @nullable
+     */
+    readonly next_check_at: string | null
+    /**
+     * When the last notification was sent. Server-managed.
+     * @nullable
+     */
+    readonly last_notified_at: string | null
+    /**
+     * When the alert was last evaluated. Server-managed.
+     * @nullable
+     */
+    readonly last_checked_at: string | null
+    /** Consecutive evaluation failures. Resets on success. Server-managed. */
+    readonly consecutive_failures: number
+    /**
+     * When the alert was first enabled. Null means still a draft.
+     * @nullable
+     */
+    readonly first_enabled_at: string | null
+    /** When the alert was created. */
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    /**
+     * When the alert was last modified.
+     * @nullable
+     */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedVisionAlertConfigurationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: VisionAlertConfigurationApi[]
+}
+
+export interface PatchedVisionAlertConfigurationApi {
+    /** Unique identifier for this alert. */
+    readonly id?: string
+    /** Scanner whose observations this alert watches. Immutable after creation. */
+    scanner_id?: string
+    /**
+     * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
+     * @maxLength 255
+     */
+    name?: string
+    /** Whether the alert is active. Disabling a metric alert resets its state to not_firing. */
+    enabled?: boolean
+    /** 'metric' fires when a metric crosses a threshold over a rolling window; 'match' fires on every observation that matches the selection. Immutable after creation.
+     *
+     * * `metric` - Metric
+     * * `match` - Match */
+    kind?: VisionAlertConfigurationKindEnumApi
+    /** Which observations count. Empty matches every observation of the scanner. */
+    selection?: VisionAlertSelectionApi
+    /** Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.
+     *
+     * * `count` - Count matching observations
+     * * `avg_score` - Average score */
+    metric?: VisionAlertConfigurationMetricEnumApi
+    /** Metric alerts only: whether the alert fires at or above, or at or below, the threshold.
+     *
+     * * `above` - At or above
+     * * `below` - At or below */
+    direction?: VisionAlertDirectionEnumApi
+    /**
+     * Metric alerts only: the threshold value. Required for metric alerts, must be omitted for match alerts.
+     * @nullable
+     */
+    threshold?: number | null
+    /** Metric alerts only: rolling window in days. Allowed values: [1, 3, 7, 14, 30]. */
+    window_days?: number
+    /**
+     * Metric alerts only: evaluation cadence in minutes, at least 15.
+     * @minimum 15
+     */
+    check_interval_minutes?: number
+    /** Current lifecycle state. Always not_firing for match alerts. Server-managed.
+     *
+     * * `not_firing` - Not firing
+     * * `firing` - Firing
+     * * `pending_resolve` - Pending resolve
+     * * `errored` - Errored
+     * * `snoozed` - Snoozed
+     * * `broken` - Broken */
+    readonly state?: LogsAlertConfigurationStateEnumApi
+    /**
+     * Metric alerts only: total check periods in the sliding evaluation window (M in N-of-M).
+     * @minimum 1
+     * @maximum 10
+     */
+    evaluation_periods?: number
+    /**
+     * Metric alerts only: how many periods must breach to fire (N in N-of-M).
+     * @minimum 1
+     * @maximum 10
+     */
+    datapoints_to_alarm?: number
+    /**
+     * Metric alerts only: minimum minutes between repeated notifications. 0 means no cooldown.
+     * @minimum 0
+     */
+    cooldown_minutes?: number
+    /** Blocked local time windows when the alert must not notify. Times use the project timezone. Null disables quiet hours. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
+    /**
+     * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+     * @nullable
+     */
+    snooze_until?: string | null
+    /**
+     * When the next evaluation is scheduled. Server-managed.
+     * @nullable
+     */
+    readonly next_check_at?: string | null
+    /**
+     * When the last notification was sent. Server-managed.
+     * @nullable
+     */
+    readonly last_notified_at?: string | null
+    /**
+     * When the alert was last evaluated. Server-managed.
+     * @nullable
+     */
+    readonly last_checked_at?: string | null
+    /** Consecutive evaluation failures. Resets on success. Server-managed. */
+    readonly consecutive_failures?: number
+    /**
+     * When the alert was first enabled. Null means still a draft.
+     * @nullable
+     */
+    readonly first_enabled_at?: string | null
+    /** When the alert was created. */
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+    /**
+     * When the alert was last modified.
+     * @nullable
+     */
+    readonly updated_at?: string | null
+}
+
+/**
+ * * `slack` - slack
+ * * `webhook` - webhook
+ */
+export type VisionAlertCreateDestinationTypeEnumApi =
+    (typeof VisionAlertCreateDestinationTypeEnumApi)[keyof typeof VisionAlertCreateDestinationTypeEnumApi]
+
+export const VisionAlertCreateDestinationTypeEnumApi = {
+    Slack: 'slack',
+    Webhook: 'webhook',
+} as const
+
+export interface VisionAlertCreateDestinationApi {
+    /** Notification destination type.
+     *
+     * * `slack` - slack
+     * * `webhook` - webhook */
+    type: VisionAlertCreateDestinationTypeEnumApi
+    /** Integration ID for the Slack workspace. Required when type=slack. */
+    slack_workspace_id?: number
+    /** Slack channel ID. Required when type=slack. */
+    slack_channel_id?: string
+    /** Human-readable channel name for display. */
+    slack_channel_name?: string
+    /** HTTPS endpoint to post to. Required when type=webhook. */
+    webhook_url?: string
+}
+
+export interface VisionAlertDestinationResponseApi {
+    /** HogFunctions backing the created destination, one per event kind. */
+    hog_function_ids: string[]
+}
+
+export interface VisionAlertDeleteDestinationApi {
+    /**
+     * HogFunction IDs to delete as one atomic destination group.
+     * @minItems 1
+     * @maxItems 5
+     */
+    hog_function_ids: string[]
+}
+
+/**
+ * * `check` - Check
+ * * `reset` - Reset
+ * * `enable` - Enable
+ * * `disable` - Disable
+ * * `snooze` - Snooze
+ * * `unsnooze` - Unsnooze
+ * * `threshold_change` - Threshold change
+ */
+export type VisionAlertEventKindEnumApi = (typeof VisionAlertEventKindEnumApi)[keyof typeof VisionAlertEventKindEnumApi]
+
+export const VisionAlertEventKindEnumApi = {
+    Check: 'check',
+    Reset: 'reset',
+    Enable: 'enable',
+    Disable: 'disable',
+    Snooze: 'snooze',
+    Unsnooze: 'unsnooze',
+    ThresholdChange: 'threshold_change',
+} as const
+
+export interface VisionAlertEventApi {
+    readonly id: string
+    readonly created_at: string
+    readonly kind: VisionAlertEventKindEnumApi
+    readonly state_before: string
+    readonly state_after: string
+    readonly threshold_breached: boolean
+    /** @nullable */
+    readonly metric_value: number | null
+    /** @nullable */
+    readonly error_message: string | null
+}
+
+export interface PaginatedVisionAlertEventListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: VisionAlertEventApi[]
+}
+
+/**
+ * * `configured` - Configured
+ * * `inline` - Inline
+ */
+export type ScannerOriginEnumApi = (typeof ScannerOriginEnumApi)[keyof typeof ScannerOriginEnumApi]
+
+export const ScannerOriginEnumApi = {
+    Configured: 'configured',
+    Inline: 'inline',
+} as const
+
+/**
  * * `pending` - Pending
  * * `running` - Running
  * * `succeeded` - Succeeded
@@ -611,6 +1003,11 @@ export interface ReplayObservationApi {
     readonly id: string
     /** The scanner that produced this observation. */
     readonly scanner_id: string
+    /** Where the producing scanner came from. `configured` scanners are saved, named, and have a detail page; `inline` ones are throwaways minted for a one-off scan and are not addressable, so callers must not link to them.
+     *
+     * * `configured` - Configured
+     * * `inline` - Inline */
+    readonly scanner_origin: ScannerOriginEnumApi
     /** Session recording id this scanner was applied to. */
     readonly session_id: string
     /** Observation status (pending, running, succeeded, failed, ineligible).
@@ -697,6 +1094,22 @@ export interface RetryResponseApi {
     workflow_id: string
 }
 
+export interface ObservationSearchResultApi {
+    /** The matching observation. */
+    observation: ReplayObservationApi
+    /** Cosine distance between the search text and the observation's closest embedding. Lower is a closer match. Only comparable to other results in the same response. */
+    distance: number
+    /** Excerpt of the observation text that best matched the search, truncated. Empty for observations analyzed before excerpts were stored. */
+    matched_content: string
+}
+
+export interface ObservationSearchResponseApi {
+    /** Matching observations, most relevant first. */
+    results: ObservationSearchResultApi[]
+    /** True when more matches may exist beyond `results`, so the response is a top slice rather than everything that matched. */
+    truncated: boolean
+}
+
 export interface VisionQuotaApi {
     /**
      * Credits the org may spend per billing period (1 credit = $0.01). Null when billing has synced the product with no spend limit: uncapped.
@@ -762,7 +1175,9 @@ export const ScannerModelEnumApi = {
 } as const
 
 /**
- * The experiment a scanner's targeting watches. Metadata only; scanning never reads it.
+ * The experiment a scanner watches. Scans derive their person-scoped exposure filter from
+ * this blob at query time, so it is the only place an experiment can enter a scanner's
+ * targeting — which is what lets the write-side access check and read-side redaction cover it.
  */
 export interface ScannerExperimentTargetingApi {
     /**
@@ -771,13 +1186,11 @@ export interface ScannerExperimentTargetingApi {
      */
     experiment_id: number
     /**
-     * Targeted experiment variants. Empty means every variant.
-     * @maxItems 50
-     * @items.maxLength 400
+     * Narrow to sessions of people exposed to this variant. Null means every variant.
+     * @maxLength 400
+     * @nullable
      */
-    variant_keys: string[]
-    /** True when the exposure event is captured server-side and the query filters on the `$feature/<flag_key>` property instead. */
-    use_exposure_fallback: boolean
+    variant?: string | null
 }
 
 export interface FeedbackThemeSessionApi {
@@ -1606,6 +2019,335 @@ export interface CurrentPromptSuggestionApi {
 }
 
 /**
+ * * `small` - small
+ * * `medium` - medium
+ * * `large` - large
+ */
+export type SizeEnumApi = (typeof SizeEnumApi)[keyof typeof SizeEnumApi]
+
+export const SizeEnumApi = {
+    Small: 'small',
+    Medium: 'medium',
+    Large: 'large',
+} as const
+
+/**
+ * One chart attached to a report — rendered in the inbox and referenceable from the summary.
+ */
+export interface ReportChartApi {
+    /**
+     * Stable slug for this chart within the report (lowercase letters, numbers, underscores, hyphens; must start with a letter or number). Reference it from `summary` as a markdown link with a `chart:` target — `[Daily signups](chart:signups-drop)` — to place the chart at that point in the body. A chart you don't reference still renders, below the summary.
+     * @maxLength 100
+     */
+    chart_id: string
+    /**
+     * Short heading shown above the chart.
+     * @maxLength 200
+     */
+    title: string
+    /** The query node to render. `kind` must be `InsightVizNode` (an ad-hoc product analytics chart), `DataVisualizationNode` (a SQL series — a `HogQLQuery` source plus a `display`), or `SavedInsightNode` (an existing insight by `shortId`). Pin the window to absolute dates where the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to when they open the report. */
+    query: unknown
+    /**
+     * Optional one-line note on what to look at in the chart.
+     * @maxLength 500
+     * @nullable
+     */
+    caption?: string | null
+    /** How much height the chart gets: `small` for a single number or a short series, `medium` for an ordinary graph, `large` when there are rows or a grid to read (retention, paths, a wide breakdown). Leave it out unless the default looks wrong — the inbox sizes a chart from its query, and two charts referenced from the same paragraph sit side by side.
+     *
+     * * `small` - small
+     * * `medium` - medium
+     * * `large` - large */
+    size?: SizeEnumApi | null
+}
+
+/**
+ * One report a scanner's scout filed. Enough to read it in Replay Vision; the inbox owns the
+ * full record (status, priority, reviewers, run trail).
+ */
+export interface ScoutReportApi {
+    /** The report's id, as used by the Signals inbox. */
+    report_id: string
+    /** The scout that filed it, as its skill name. */
+    skill_name: string
+    /** When the run that filed this report started. Later edits do not move it. */
+    filed_at: string
+    /** The report's title. Empty when the scout left it unset. */
+    title: string
+    /** The report body, as markdown. Empty when the scout left it unset. */
+    summary: string
+    /** Charts the scout attached. The summary places one inline with a `[label](chart:<chart_id>)` link; any it does not place render after the body. */
+    charts: ReportChartApi[]
+}
+
+export interface SignalScoutSlackDestinationApi {
+    /**
+     * ID of the Slack integration whose bot posts this scout's findings and reports.
+     * @minimum 1
+     */
+    integration_id: number
+    /**
+     * Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set.
+     * @maxLength 255
+     * @nullable
+     */
+    channel?: string | null
+    /** When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post. */
+    thread_reports?: boolean
+}
+
+export interface SignalScoutWebhookDestinationApi {
+    /** Id of the CDP destination delivering this scout's reports. Set by the product that provisioned it, so it can find that destination again to update or remove it. */
+    hog_function_id: string
+}
+
+export interface SignalScoutOutputDestinationsApi {
+    /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
+    slack?: SignalScoutSlackDestinationApi | null
+    /** The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle. */
+    webhook?: SignalScoutWebhookDestinationApi | null
+}
+
+/**
+ * * `trusted` - Trusted domains only
+ * * `full` - Full
+ */
+export type ScoutConfigNetworkAccessEnumApi =
+    (typeof ScoutConfigNetworkAccessEnumApi)[keyof typeof ScoutConfigNetworkAccessEnumApi]
+
+export const ScoutConfigNetworkAccessEnumApi = {
+    Trusted: 'trusted',
+    Full: 'full',
+} as const
+
+/**
+ * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
+ * @nullable
+ */
+export type SignalScoutConfigOptionsApiStructuredOutputSchema = { [key: string]: unknown } | null
+
+/**
+ * Schedule, enablement, and delivery options accepted while creating a scout.
+ */
+export interface SignalScoutConfigOptionsApi {
+    /** Whether this scout runs on its schedule. Defaults to true. */
+    enabled?: boolean
+    /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
+    emit?: boolean
+    /**
+     * Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).
+     * @minimum 30
+     * @maximum 43200
+     */
+    run_interval_minutes?: number
+    /** Destinations that receive each finding or report this scout emits. Empty by default. */
+    output_destinations?: SignalScoutOutputDestinationsApi
+    /** What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.
+     *
+     * * `trusted` - Trusted domains only
+     * * `full` - Full */
+    network_access?: ScoutConfigNetworkAccessEnumApi
+    /** Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false. */
+    auto_pause_exempt?: boolean
+    /**
+     * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
+     * @maxLength 100
+     * @nullable
+     */
+    run_cron_schedule?: string | null
+    /**
+     * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
+     * @maxLength 200
+     * @nullable
+     */
+    model?: string | null
+    /**
+     * Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.
+     * @maxItems 10
+     */
+    tags?: string[]
+    /**
+     * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
+     * @nullable
+     */
+    structured_output_schema?: SignalScoutConfigOptionsApiStructuredOutputSchema
+    /**
+     * MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.
+     * @maxItems 100
+     */
+    mcp_gateway_server_ids?: string[]
+}
+
+/**
+ * A scout to stand up for this scanner. The scanner comes from the URL, never the body: it is
+ * what the caller's access is checked against, and what the scout is recorded as belonging to.
+ *
+ * Inherits the Signals scout definition so a scout created here clears the same name and prompt-size
+ * bars as one created through the generic endpoint.
+ */
+export interface ScannerScoutCreateApi {
+    /**
+     * Unique scout name. Must start with `signals-scout-` and contain only lowercase letters, numbers, and hyphens.
+     * @maxLength 64
+     */
+    name: string
+    /**
+     * Short description of the signal or behavior this scout investigates.
+     * @maxLength 4096
+     */
+    description: string
+    /** Complete markdown prompt executed on every scout run. Include any project-specific signal names, thresholds, investigation steps, and report criteria here. */
+    body: string
+    /** Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, emitting scout on the daily interval with no external destination. */
+    config?: SignalScoutConfigOptionsApi
+}
+
+export type ScoutOriginEnumApi = (typeof ScoutOriginEnumApi)[keyof typeof ScoutOriginEnumApi]
+
+export const ScoutOriginEnumApi = {
+    Canonical: 'canonical',
+    Custom: 'custom',
+} as const
+
+/**
+ * * `active` - Active
+ * * `pending_pause` - Pending pause
+ * * `paused_by_system` - Paused by system
+ * * `paused_by_user` - Paused by user
+ */
+export type ScoutConfigStatusEnumApi = (typeof ScoutConfigStatusEnumApi)[keyof typeof ScoutConfigStatusEnumApi]
+
+export const ScoutConfigStatusEnumApi = {
+    Active: 'active',
+    PendingPause: 'pending_pause',
+    PausedBySystem: 'paused_by_system',
+    PausedByUser: 'paused_by_user',
+} as const
+
+/**
+ * * `no_output` - No output
+ * * `ignored` - Ignored
+ * * `repeated_failures` - Repeated failures
+ */
+export type ScoutConfigPauseReasonEnumApi =
+    (typeof ScoutConfigPauseReasonEnumApi)[keyof typeof ScoutConfigPauseReasonEnumApi]
+
+export const ScoutConfigPauseReasonEnumApi = {
+    NoOutput: 'no_output',
+    Ignored: 'ignored',
+    RepeatedFailures: 'repeated_failures',
+} as const
+
+/**
+ * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
+ * @nullable
+ */
+export type SignalScoutConfigApiStructuredOutputSchema = { [key: string]: unknown } | null
+
+/**
+ * Read shape for a per-(team, skill) scout config.
+ *
+ * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
+ * when it discovers a scout skill; this serializer lets agents tune the row.
+ */
+export interface SignalScoutConfigApi {
+    readonly id: string
+    /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
+    readonly skill_name: string
+    /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
+    readonly description: string
+    /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
+    readonly scout_origin: ScoutOriginEnumApi
+    /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Derived from `status`: true for `active` and `pending_pause`, false for the paused statuses. */
+    readonly enabled: boolean
+    /** Lifecycle status. `active`: runs on its schedule. `pending_pause`: still running, but flagged by the system to pause soon unless something changes (any config edit clears it). `paused_by_system`: paused automatically, see `pause_reason`; set `enabled=true` to resume. `paused_by_user`: switched off by a person and never resumed automatically.
+     *
+     * * `active` - Active
+     * * `pending_pause` - Pending pause
+     * * `paused_by_system` - Paused by system
+     * * `paused_by_user` - Paused by user */
+    readonly status: ScoutConfigStatusEnumApi
+    /** Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the evaluation window), `ignored` (no person engaged with its reports — no view, rating, note, dismissal, or resolution), or `repeated_failures` (consecutive failed runs). Null unless `status` is `pending_pause` or `paused_by_system`.
+     *
+     * * `no_output` - No output
+     * * `ignored` - Ignored
+     * * `repeated_failures` - Repeated failures */
+    readonly pause_reason: ScoutConfigPauseReasonEnumApi | null
+    /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
+    readonly emit: boolean
+    /**
+     * Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.
+     * @minimum 30
+     * @maximum 43200
+     */
+    readonly run_interval_minutes: number
+    /**
+     * Optional five-field cron expression evaluated in the project timezone, e.g. '30 9 * * *'. Takes precedence over `run_interval_minutes` when set. Null means the rolling interval schedule.
+     * @nullable
+     */
+    readonly run_cron_schedule: string | null
+    /** Destinations that receive each finding or report this scout emits. Empty when none is configured. */
+    readonly output_destinations: SignalScoutOutputDestinationsApi
+    /**
+     * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
+     * @nullable
+     */
+    readonly structured_output_schema: SignalScoutConfigApiStructuredOutputSchema
+    /** What the scout's sandbox can reach over the network while it runs. `trusted` (the default) restricts runs to the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). `full` lets the scout reach any site, for skills that read external sources such as documentation or papers.
+     *
+     * * `trusted` - Trusted domains only
+     * * `full` - Full */
+    readonly network_access: ScoutConfigNetworkAccessEnumApi
+    /**
+     * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
+     * @nullable
+     */
+    readonly model: string | null
+    /**
+     * MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.
+     * @maxItems 100
+     */
+    readonly mcp_gateway_server_ids: readonly string[]
+    /**
+     * When the coordinator last dispatched this scout. Null if it has never run.
+     * @nullable
+     */
+    readonly last_run_at: string | null
+    /** How many of this scout's runs have failed in a row. Back to 0 after a successful run or any config edit. At the failure limit the scout pauses itself (`status` becomes `paused_by_system` with `pause_reason` `repeated_failures`) and retries about once a day; a successful retry resumes it, and so does setting `enabled=true`. */
+    readonly consecutive_failure_count: number
+    /**
+     * When `status` last changed. For `pending_pause` this is when the warning was issued (an `ignored` warning pauses about a week later unless someone engages with the scout's reports — opening one counts; a `no_output` warning only flags the scout); for the paused statuses it is when the scout was paused. Null if the status never changed.
+     * @nullable
+     */
+    readonly status_changed_at: string | null
+    /** Whether this scout is exempt from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. Only ever set explicitly: re-enabling a swept scout instead grants a fresh grace window before the sweep may judge it again. */
+    readonly auto_pause_exempt: boolean
+    /** Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter. */
+    tags?: string[]
+    /**
+     * The product that stood this scout up for one of its own objects. Null when a person created it.
+     * @nullable
+     */
+    readonly source_product: string | null
+    /**
+     * Id of the owning object in `source_product`, e.g. a Replay Vision scanner id.
+     * @nullable
+     */
+    readonly source_id: string | null
+    readonly created_at: string
+}
+
+/**
+ * The scout that now watches this scanner.
+ */
+export interface ScannerScoutCreateResponseApi {
+    /** False when a scout of this name already existed and the supplied config was applied to it. */
+    created: boolean
+    /** The scout's config, including the source recorded for it. */
+    config: SignalScoutConfigApi
+}
+
+/**
  * Distinct creators across all scanners on the team — feeds the `Created by` filter dropdown.
  */
 export interface ScannerCreatorsResponseApi {
@@ -1622,6 +2364,12 @@ export interface DraftScannerRequestApi {
      * @maxLength 2000
      */
     goal: string
+    /**
+     * Goal-based flow only: how many replays a month the scanner may watch. The draft solves `sampling_mode` and `sampling_rate` so the projection lands on this number. Omitted on the legacy flow, and ignored while the goal-based flow's flag is off for the caller.
+     * @minimum 1
+     * @maximum 1000000
+     */
+    monthly_scan_budget?: number
 }
 
 /**
@@ -1645,6 +2393,22 @@ export interface DraftScannerResponseApi {
     rationale: string
     /** `RecordingsQuery` narrowing which sessions get scanned; null when the draft targets every session. */
     query: unknown
+    /** Goal-based flow only: the quality pre-filter the draft chose for the goal. Null on the legacy flow, and null when the costing estimate failed — the wizard keeps its defaults.
+     *
+     * * `focused` - Focused
+     * * `balanced` - Balanced
+     * * `comprehensive` - Comprehensive */
+    sampling_mode: SamplingModeEnumApi | null
+    /**
+     * Goal-based flow only: the random sampling rate solved from `monthly_scan_budget`, 0..1. 1.0 when the budget covers every matching recording. Floored at the minimum rate, so a budget below that floor keeps the minimum. Null whenever `sampling_mode` is.
+     * @nullable
+     */
+    sampling_rate: number | null
+    /**
+     * Goal-based flow only: recordings a month the drafted scanner is projected to watch under the solved dials. At or under `monthly_scan_budget`, except when the budget is below what the minimum sampling rate can reach, where this is the floor and exceeds the budget. Null whenever `sampling_mode` is.
+     * @nullable
+     */
+    estimated_monthly_observations: number | null
 }
 
 /**
@@ -1676,6 +2440,8 @@ export interface EstimateRequestApi {
      * * `gemini-3-flash-preview` - Gemini 3 Flash
      * * `gemini-3.7-flash` - Gemini 3.7 Flash */
     model?: ScannerModelEnumApi
+    /** Proposed experiment targeting, merged into the query as its exposure filter the same way a saved scanner derives it. The estimate then runs as the requesting user. */
+    experiment_targeting?: ScannerExperimentTargetingApi | null
 }
 
 /**
@@ -1868,6 +2634,48 @@ export type VisionActionsRunsListParams = {
     offset?: number
 }
 
+export type VisionAlertsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Only return alerts on this scanner.
+     */
+    scanner_id?: string
+}
+
+export type VisionAlertsEventsListParams = {
+    /**
+     * Narrow the history to one event kind.
+     */
+    kind?: VisionAlertsEventsListKind
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type VisionAlertsEventsListKind = (typeof VisionAlertsEventsListKind)[keyof typeof VisionAlertsEventsListKind]
+
+export const VisionAlertsEventsListKind = {
+    Check: 'check',
+    Disable: 'disable',
+    Enable: 'enable',
+    Reset: 'reset',
+    Snooze: 'snooze',
+    ThresholdChange: 'threshold_change',
+    Unsnooze: 'unsnooze',
+} as const
+
 export type VisionObservationsListParams = {
     /**
      * Number of results to return per page.
@@ -1938,6 +2746,43 @@ export type VisionObservationsRetrieveParams = {
     triggered_by?: string
     /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string
+}
+
+export type VisionObservationsSearchRetrieveParams = {
+    /**
+     * Maximum number of results (default 20, at most 50).
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number
+    /**
+     * Keep only scorer observations with a score at or below this value.
+     */
+    max_score?: number
+    /**
+     * Keep only scorer observations with a score at or above this value.
+     */
+    min_score?: number
+    /**
+     * Natural-language description of what to find, e.g. 'users confused by the pricing page'.
+     * @minLength 1
+     * @maxLength 2000
+     */
+    q: string
+    /**
+     * Search a single scanner's observations. Defaults to every scanner you can read.
+     */
+    scanner_id?: string
+    /**
+     * Comma-separated classifier tags to keep. Matching is case- and format-insensitive. Unlike `verdict`, tags are not validated against a fixed list, so an unknown tag matches nothing.
+     * @minLength 1
+     */
+    tags?: string
+    /**
+     * Comma-separated monitor verdicts to keep, e.g. `yes,inconclusive`.
+     * @minLength 1
      */
     verdict?: string
 }

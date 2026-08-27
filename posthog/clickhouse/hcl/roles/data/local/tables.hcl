@@ -1,8 +1,9 @@
 database "posthog" {
   # Mirrors the events column set minus events' materialized property columns, with
-  # the full properties JSON kept as the source of truth. The materialized columns
-  # below carry their expression only on sharded_flag_evaluations; the Distributed
-  # proxy repeats them plain, because a Distributed engine computes nothing.
+  # the full properties JSON kept as the source of truth. The typed property columns
+  # below carry their DEFAULT expression only on sharded_flag_evaluations; the
+  # Distributed proxy repeats them plain, because a Distributed engine computes
+  # nothing.
   table "_flag_evaluations_columns" {
     abstract = true
     column "uuid" {
@@ -3474,31 +3475,31 @@ database "posthog" {
     }
     extend = "_flag_evaluations_columns"
     patch_column "$group_0" {
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^\"|\"$', '')"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^\"|\"$', '')"
     }
     patch_column "$group_1" {
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^\"|\"$', '')"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^\"|\"$', '')"
     }
     patch_column "$group_2" {
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^\"|\"$', '')"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^\"|\"$', '')"
     }
     patch_column "$group_3" {
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^\"|\"$', '')"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^\"|\"$', '')"
     }
     patch_column "$group_4" {
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^\"|\"$', '')"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^\"|\"$', '')"
     }
     patch_column "flag_key" {
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag'), '^\"|\"$', '')"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag'), '^\"|\"$', '')"
     }
     patch_column "response" {
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^\"|\"$', '')"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^\"|\"$', '')"
     }
     patch_column "session_id" {
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^\"|\"$', '')"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^\"|\"$', '')"
     }
     patch_column "request_id" {
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_request_id'), '^\"|\"$', '')"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_request_id'), '^\"|\"$', '')"
     }
     index "distinct_id_idx" {
       expr        = "distinct_id"
@@ -7862,6 +7863,53 @@ SQL
     column "mat_$ai_experiment_id" {
       type    = "Nullable(String)"
       comment = "column_materializer::properties::$ai_experiment_id"
+    }
+  }
+  table "sharded_billing_usage_records" {
+    order_by     = ["team_id", "toDate(timestamp)", "producer_id", "usage_key", "record_id"]
+    partition_by = "toYYYYMM(timestamp)"
+    settings = {
+      index_granularity = "8192"
+    }
+    column "schema_version" { type = "UInt8" }
+    column "record_id" { type = "String" }
+    column "producer_id" { type = "LowCardinality(String)" }
+    column "team_id" { type = "Int64" }
+    column "organization_id" { type = "UUID" }
+    column "usage_key" { type = "LowCardinality(String)" }
+    column "unit" { type = "LowCardinality(String)" }
+    column "quantity" { type = "Int64" }
+    column "timestamp" { type = "DateTime64(6, 'UTC')" }
+    column "inserted_at" { type = "DateTime64(6, 'UTC')" }
+    column "_timestamp" { type = "DateTime" }
+    column "_offset" { type = "UInt64" }
+    column "_partition" { type = "UInt64" }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records"
+      replica_name   = "{replica}"
+      version_column = "inserted_at"
+    }
+  }
+
+  table "billing_usage_records" {
+    column "schema_version" { type = "UInt8" }
+    column "record_id" { type = "String" }
+    column "producer_id" { type = "LowCardinality(String)" }
+    column "team_id" { type = "Int64" }
+    column "organization_id" { type = "UUID" }
+    column "usage_key" { type = "LowCardinality(String)" }
+    column "unit" { type = "LowCardinality(String)" }
+    column "quantity" { type = "Int64" }
+    column "timestamp" { type = "DateTime64(6, 'UTC')" }
+    column "inserted_at" { type = "DateTime64(6, 'UTC')" }
+    column "_timestamp" { type = "DateTime" }
+    column "_offset" { type = "UInt64" }
+    column "_partition" { type = "UInt64" }
+    engine "distributed" {
+      cluster_name    = "posthog"
+      remote_database = "posthog"
+      remote_table    = "sharded_billing_usage_records"
+      sharding_key    = "cityHash64(team_id)"
     }
   }
 }

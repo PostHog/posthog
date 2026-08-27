@@ -56,7 +56,98 @@ const BLOB_ENDPOINT_RE = /\/ai_blob\/v1\/sha256\/[0-9a-f]{64}$/
 const reportedRenders = new Map<string, true>()
 const MAX_REPORTED_RENDERS = 1000
 
-function captureBlobRender(src: string, mediaKind: 'image' | 'audio', outcome: 'success' | 'error'): void {
+type TimingWaiter = (timing?: PerformanceResourceTiming) => void
+
+const blobTimings = new Map<string, PerformanceResourceTiming>()
+const MAX_TRACKED_TIMINGS = 200
+const waitersByUrl = new Map<string, Set<TimingWaiter>>()
+const TIMING_WAIT_MS = 1000
+
+function isResourceTiming(entry: PerformanceEntry): entry is PerformanceResourceTiming {
+    return entry.entryType === 'resource'
+}
+
+function forgetWaiter(url: string, waiter: TimingWaiter): void {
+    const waiting = waitersByUrl.get(url)
+    if (!waiting) {
+        return
+    }
+    waiting.delete(waiter)
+    if (waiting.size === 0) {
+        waitersByUrl.delete(url)
+    }
+}
+
+function rememberBlobTiming(entry: PerformanceResourceTiming): void {
+    if (!BLOB_ENDPOINT_RE.test(entry.name)) {
+        return
+    }
+    if (!blobTimings.has(entry.name) && blobTimings.size >= MAX_TRACKED_TIMINGS) {
+        const oldestUrl = blobTimings.keys().next().value
+        if (oldestUrl !== undefined) {
+            blobTimings.delete(oldestUrl)
+        }
+    }
+    blobTimings.set(entry.name, entry)
+    const waiting = waitersByUrl.get(entry.name)
+    if (waiting) {
+        waitersByUrl.delete(entry.name)
+        waiting.forEach((waiter) => waiter(entry))
+    }
+}
+
+/**
+ * The browser keeps only 250 resource entries, and the app fills that buffer long before anyone opens a
+ * trace, so performance.getEntriesByName() finds nothing for a blob that just rendered. An observer
+ * receives every entry from registration onward, which does not depend on the buffer.
+ */
+function observeBlobTimings(): void {
+    if (typeof PerformanceObserver === 'undefined') {
+        return
+    }
+    try {
+        new PerformanceObserver((list) => {
+            list.getEntries().filter(isResourceTiming).forEach(rememberBlobTiming)
+        }).observe({ type: 'resource', buffered: true })
+    } catch {
+        // A browser that does not report resource entries leaves the timing properties null.
+    }
+}
+
+observeBlobTimings()
+
+/**
+ * Resource entries reach the observer on a queued task, so a load handler can run before the entry for
+ * its own request lands. Waiting closes that gap. The timeout keeps a render whose entry never arrives
+ * reporting null timing instead of never reporting at all.
+ */
+function awaitBlobTiming(url: string): Promise<PerformanceResourceTiming | undefined> {
+    const known = blobTimings.get(url)
+    blobTimings.delete(url)
+    if (known || typeof PerformanceObserver === 'undefined') {
+        return Promise.resolve(known)
+    }
+    return new Promise((resolve) => {
+        const waiter = (timing?: PerformanceResourceTiming): void => {
+            clearTimeout(timeout)
+            forgetWaiter(url, waiter)
+            resolve(timing)
+        }
+        const timeout = setTimeout(waiter, TIMING_WAIT_MS)
+        const waiting = waitersByUrl.get(url)
+        if (waiting) {
+            waiting.add(waiter)
+        } else {
+            waitersByUrl.set(url, new Set([waiter]))
+        }
+    })
+}
+
+async function captureBlobRender(
+    src: string,
+    mediaKind: 'image' | 'audio',
+    outcome: 'success' | 'error'
+): Promise<void> {
     const key = `${outcome}:${src}`
     if (reportedRenders.has(key)) {
         return
@@ -68,12 +159,7 @@ function captureBlobRender(src: string, mediaKind: 'image' | 'audio', outcome: '
         }
     }
     reportedRenders.set(key, true)
-    const entries =
-        typeof performance.getEntriesByName === 'function'
-            ? performance.getEntriesByName(new URL(src, window.location.origin).toString())
-            : []
-    const last = entries[entries.length - 1]
-    const timing = last && 'transferSize' in last ? (last as PerformanceResourceTiming) : undefined
+    const timing = await awaitBlobTiming(new URL(src, window.location.origin).toString())
     posthog.capture('llma ai blob render', {
         outcome,
         media_kind: mediaKind,
@@ -90,9 +176,11 @@ export function aiBlobRenderHandlers(
     if (!BLOB_ENDPOINT_RE.test(src)) {
         return {}
     }
-    const success = (): void => captureBlobRender(src, mediaKind, 'success')
+    const report = (outcome: 'success' | 'error') => (): void => {
+        void captureBlobRender(src, mediaKind, outcome)
+    }
     return {
-        ...(mediaKind === 'image' ? { onLoad: success } : { onCanPlay: success }),
-        onError: (): void => captureBlobRender(src, mediaKind, 'error'),
+        ...(mediaKind === 'image' ? { onLoad: report('success') } : { onCanPlay: report('success') }),
+        onError: report('error'),
     }
 }

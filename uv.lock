@@ -21,6 +21,7 @@ posthoganalytics = false
 django = false
 google-ads = false
 deltalite = false
+granian = false
 hogql-parser = false
 posthog-hogland = false
 hogql-parser-rs = false
@@ -2853,33 +2854,23 @@ requests = [
 
 [[package]]
 name = "granian"
-version = "2.7.6"
+version = "2.8.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5c/4b/7c27442d6377607bec0802dcc1ee73554f1b3982ed6fca3dab253bee55d4/granian-2.7.6.tar.gz", hash = "sha256:52c8eaa5bdd636535c4c50b62591420612297f38151786cffd8c8cd39c738da3", size = 128698, upload-time = "2026-06-10T19:35:22.556Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/80/74/9903bd396a3ea5e40163ce4946df974bfb9f7280834b1c59d727df65867c/granian-2.8.2.tar.gz", hash = "sha256:466a23e8cb44d4b407fa3db0f37aeb45ae722cad4d4b3701d6fa6b13ca54b1ef", size = 129359, upload-time = "2026-08-23T17:40:23.248Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/bb/01/d8c4ff585c6dfd656771b5aec0d55d19cb1173886ae3c3e373b88ff1af67/granian-2.7.6-cp313-cp313-macosx_10_12_x86_64.whl", hash = "sha256:6ebda7740ae13d1da82456d7f8166d90aa4dc92b9e114b64d8298cc0666e975a", size = 6538971, upload-time = "2026-06-10T19:33:56.426Z" },
-    { url = "https://files.pythonhosted.org/packages/58/e0/db5fb23bf4ef94e0832c901350203ee4bcc74c68000364c75f01f89dc166/granian-2.7.6-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:2079df78961f5bb0032ee86463fd0305f2c62469c7ea9207439c237729440d27", size = 6248206, upload-time = "2026-06-10T19:33:58.699Z" },
-    { url = "https://files.pythonhosted.org/packages/f6/28/2e851e4ca9a841f924de3028094336b6b2b7702188d00f260479571ed993/granian-2.7.6-cp313-cp313-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:08e2fd9f734db178f02e3c0ebe55e4424405c33ac00de4463631f7d459267fb9", size = 7247253, upload-time = "2026-06-10T19:34:00.257Z" },
-    { url = "https://files.pythonhosted.org/packages/44/4d/4743aa06d8a98d368ced0721a41ece254016bc8da0a56156911c99596043/granian-2.7.6-cp313-cp313-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:bc95fb353fa9e12888678c81625824f320c68697e86564ab1942910426842cd7", size = 6489729, upload-time = "2026-06-10T19:34:01.846Z" },
-    { url = "https://files.pythonhosted.org/packages/81/0d/0c710584c8aa9036e7213e192f3f541d9bb6cfacfaf003af5c0e13609ed1/granian-2.7.6-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:20d6e64c449025074f056ad86b0e16ea4a48ec2745596fa084c995ba514dd64b", size = 6939654, upload-time = "2026-06-10T19:34:04.271Z" },
-    { url = "https://files.pythonhosted.org/packages/c6/2b/61d7c3bce38de50b8259360256c6f7d2b0841e5039e65e98a08695502e59/granian-2.7.6-cp313-cp313-manylinux_2_28_aarch64.whl", hash = "sha256:425156ebaa2ad7215f7522501487fa4d676d0f04cde40a987732df4646b9266d", size = 7163197, upload-time = "2026-06-10T19:34:06.166Z" },
-    { url = "https://files.pythonhosted.org/packages/d4/30/200a1973e8ce5e2457c75083709229c1363cb2bc3e24d9527e7b8fcac0b7/granian-2.7.6-cp313-cp313-musllinux_1_1_aarch64.whl", hash = "sha256:9545a200992721f2a05a3d6f2ce58d11ae61925e9fa2857ea900fc5d32762b70", size = 7154198, upload-time = "2026-06-10T19:34:07.64Z" },
-    { url = "https://files.pythonhosted.org/packages/01/26/c2003a760e53a4f16b1c46a555a3b4d1b0468b3f9cddac23e39365226c85/granian-2.7.6-cp313-cp313-musllinux_1_1_armv7l.whl", hash = "sha256:4f6ad35673ba7108411ac817bfaba2bc1500f88de293380858ed792a34f233dc", size = 7395273, upload-time = "2026-06-10T19:34:09.501Z" },
-    { url = "https://files.pythonhosted.org/packages/11/37/ec09ad3557e4284aeef01882a25a3ac211dbc0040ac8aa083bcb7f926c2e/granian-2.7.6-cp313-cp313-musllinux_1_1_x86_64.whl", hash = "sha256:20fb3cc9437130f1cf6eff86abc8cd3d9c955ee7b1d9a6b12de1fb54525448cf", size = 6990918, upload-time = "2026-06-10T19:34:11.187Z" },
-    { url = "https://files.pythonhosted.org/packages/02/29/802e081046bfd9b9196b0756f22b494b4469e554fb0b7bc2ddf906a9415b/granian-2.7.6-cp313-cp313-win_amd64.whl", hash = "sha256:291c2d358ceb7cb8185366d6c9055697e68fa4a26addbc1b7e5bd6ba38033f5d", size = 4068154, upload-time = "2026-06-10T19:34:13.065Z" },
-    { url = "https://files.pythonhosted.org/packages/d2/f9/2e3d235a1b069e064605e9cceee37601ba41acafeff72f882955931f446b/granian-2.7.6-cp313-cp313t-macosx_10_12_x86_64.whl", hash = "sha256:8d79d0f1ea456dc69fdb0320a6787a5c3639a37285d8d99c18004dcfb3f50ce7", size = 6293196, upload-time = "2026-06-10T19:34:14.648Z" },
-    { url = "https://files.pythonhosted.org/packages/66/45/ee34fc633aa1d5b86f37e470ac8a5d1c48a87f5645c5dde7d2ba66e8b83b/granian-2.7.6-cp313-cp313t-macosx_11_0_arm64.whl", hash = "sha256:653f8f5fbb1089f72e277a3509e1d3a41fcb1b92bffb3338f77233df406afb22", size = 6108331, upload-time = "2026-06-10T19:34:16.183Z" },
-    { url = "https://files.pythonhosted.org/packages/2f/72/0d31b3fd13d1ad530c1b01b5e54ba01020d2d6f99db59656a9c7428f9a6f/granian-2.7.6-cp313-cp313t-manylinux_2_12_i686.manylinux2010_i686.whl", hash = "sha256:cfe099f5ebb71447979d4c78dcede61291f2a4bc61ff96311f6693dc0936ef05", size = 6285672, upload-time = "2026-06-10T19:34:17.948Z" },
-    { url = "https://files.pythonhosted.org/packages/d3/d5/20e52813cc4123f03ebbe15f87d94bfb00ed6597aab3d0c24688fb9fd5d1/granian-2.7.6-cp313-cp313t-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:98fb26c008b336d33f9f9a5120010baaedd75961d69f9f29bdeadd36ee248fcb", size = 7215459, upload-time = "2026-06-10T19:34:19.574Z" },
-    { url = "https://files.pythonhosted.org/packages/8c/c1/2182a311b747af48215ada0d71e693a0aaa3acc7b44c54d43197dd41cd53/granian-2.7.6-cp313-cp313t-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:6e8495d70361dc6aef300e2be03257dd8d29412673cb4892ff5ab931dfe58572", size = 6691259, upload-time = "2026-06-10T19:34:21.155Z" },
-    { url = "https://files.pythonhosted.org/packages/0e/f0/f08aec40227e9deffd66437b003e14138f7a68d75417c95fb70eb32a52ee/granian-2.7.6-cp313-cp313t-manylinux_2_28_aarch64.whl", hash = "sha256:8ce9cf7a999a9e8ce3981810c676233554515ce2e8f1797ed68dd568685b4db7", size = 6847821, upload-time = "2026-06-10T19:34:22.817Z" },
-    { url = "https://files.pythonhosted.org/packages/75/e6/58a72f2f1a3a12565e26bf404f9f4ba3595062cb95c4dbd54ff69837fdfd/granian-2.7.6-cp313-cp313t-musllinux_1_1_aarch64.whl", hash = "sha256:f3c044d191e2c03fff43af1b1b0ef8325e1763cf385ff47f9ce7d15b053bb3a2", size = 7063291, upload-time = "2026-06-10T19:34:24.674Z" },
-    { url = "https://files.pythonhosted.org/packages/93/79/ac4b3e7942d3184716890d2b670b953764c560a940e436bf92eafabb194c/granian-2.7.6-cp313-cp313t-musllinux_1_1_armv7l.whl", hash = "sha256:29cc78dacb2046c78d061d6c3bfefac83150851837ddb3110359b0dd6e2db50b", size = 7371043, upload-time = "2026-06-10T19:34:26.428Z" },
-    { url = "https://files.pythonhosted.org/packages/5c/c2/491a6bd46817a48541cc894c27dc6ae138ef5f3ad852bc41729825b177b0/granian-2.7.6-cp313-cp313t-musllinux_1_1_x86_64.whl", hash = "sha256:0ee043d48e3a9f8a4cba8b9bc0326591e5428f546724feee29f14146fe6595f3", size = 6898832, upload-time = "2026-06-10T19:34:28.06Z" },
-    { url = "https://files.pythonhosted.org/packages/85/eb/2508242883d8cbcffaac0f433245c83cbb56727ea3883cb021f8bc9224bc/granian-2.7.6-cp313-cp313t-win_amd64.whl", hash = "sha256:01a389fe9eb11a2e8b23720915df25d4fa6aaf08337d32b9f7515ef02d888c39", size = 3997437, upload-time = "2026-06-10T19:34:29.617Z" },
+    { url = "https://files.pythonhosted.org/packages/b3/3c/2b62d895c472d08f41a845497808dd8c591a82ad60fc9828fdd240cbb7e7/granian-2.8.2-cp313-cp313-macosx_10_12_x86_64.whl", hash = "sha256:434deec2c9af78785c93cd7f7a81f9869afc3003170e309ffc23f9b8ad6bbd35", size = 4561048, upload-time = "2026-08-23T17:38:51.971Z" },
+    { url = "https://files.pythonhosted.org/packages/c7/05/96ac5277451f226941a17670f3607055b84e3e12b15944af7d420d5c9964/granian-2.8.2-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:679ac93bc56b6af17363b6577b8e36c399e0283128f76d00e6254433b26fd037", size = 4384248, upload-time = "2026-08-23T17:38:53.262Z" },
+    { url = "https://files.pythonhosted.org/packages/0c/37/c58067f3d913f45307c7efa7e09d4248a3b4b1289ac5b5a56c8a0730c10f/granian-2.8.2-cp313-cp313-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:ae8805ea5d0dbb31d232437df9d23bf4a21a1a7e472cce05b11594662278b3b4", size = 5070839, upload-time = "2026-08-23T17:38:54.558Z" },
+    { url = "https://files.pythonhosted.org/packages/d6/d8/2fe874582f1a688f9cceef842be1ec47c5890b7e80f596cf2ddbee116fa5/granian-2.8.2-cp313-cp313-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:35414a2eea2adf92e71762a6793412794ae32540e1103400e62dd423f38b5a7a", size = 4597622, upload-time = "2026-08-23T17:38:55.967Z" },
+    { url = "https://files.pythonhosted.org/packages/43/1e/4558dd1a4df3b4fe92e5ee29f35773f9b152dba9eaf1deda28cc8437af53/granian-2.8.2-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:7fdc50c290dc26d61891255b6e118606c1fd8fbdfba3059da199052172ecb539", size = 4982980, upload-time = "2026-08-23T17:38:57.394Z" },
+    { url = "https://files.pythonhosted.org/packages/ef/33/1e3edea3be88a5b133cda591a20b227cab5a4a054c6b9a2902e63d594c06/granian-2.8.2-cp313-cp313-manylinux_2_28_aarch64.whl", hash = "sha256:8a9d20c8a509213bf0c3235c79c3d1892aa887521dd7ea4c36a2ee40dcdb72ab", size = 5110060, upload-time = "2026-08-23T17:38:58.902Z" },
+    { url = "https://files.pythonhosted.org/packages/d5/c4/764a6de6613395d85a4e6f6c26f048e95226454b2189987d1983e97f1024/granian-2.8.2-cp313-cp313-musllinux_1_1_aarch64.whl", hash = "sha256:63ba5fada798ff9d7fdedc3bd1fbed60d8269195fd13d4f48c273024eb23a292", size = 5147486, upload-time = "2026-08-23T17:39:00.285Z" },
+    { url = "https://files.pythonhosted.org/packages/58/4d/790a3bd672719c1d0487adaa2db4a962e401d6c0f2d61c7af5ae94b658cc/granian-2.8.2-cp313-cp313-musllinux_1_1_armv7l.whl", hash = "sha256:b22cbcc8e5ca399c0b231a74bb87b4f477a59b4c4852daa7f488c0a6561b1666", size = 5173157, upload-time = "2026-08-23T17:39:01.788Z" },
+    { url = "https://files.pythonhosted.org/packages/a8/45/c64bbc08bf1af0efbc5424fbb5760008b87b7e0782759c7367c59fa1d314/granian-2.8.2-cp313-cp313-musllinux_1_1_x86_64.whl", hash = "sha256:43c670710b34b65693f3e36d7665b18eb819e4783d43368c8144e2e9deff6b40", size = 5083624, upload-time = "2026-08-23T17:39:03.13Z" },
+    { url = "https://files.pythonhosted.org/packages/b9/12/2c7c44c5a4c1afe2841cb1f3e91fa47411cc86b3c8d5409d23e5a1873ff4/granian-2.8.2-cp313-cp313-win_amd64.whl", hash = "sha256:000d459d3b6cc7eb43ae673ba77411e27bdc1e278b6f7e4e01cf3fcdad2d4c6d", size = 3144567, upload-time = "2026-08-23T17:39:04.446Z" },
 ]
 
 [package.optional-dependencies]
@@ -3140,7 +3131,7 @@ wheels = [
 
 [[package]]
 name = "hogli"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "tools/hogli" }
 dependencies = [
     { name = "click" },
@@ -5693,6 +5684,7 @@ dependencies = [
     { name = "pixelhog" },
     { name = "playwright" },
     { name = "polars" },
+    { name = "posthog-hogland" },
     { name = "posthog-owners" },
     { name = "posthoganalytics" },
     { name = "protobuf" },
@@ -5739,6 +5731,7 @@ dependencies = [
     { name = "tiktoken" },
     { name = "tldextract" },
     { name = "trafilatura" },
+    { name = "trino" },
     { name = "types-cachetools" },
     { name = "umap-learn" },
     { name = "user-agents" },
@@ -5916,7 +5909,7 @@ requires-dist = [
     { name = "google-cloud-iam", specifier = "==2.21" },
     { name = "google-genai", specifier = "==1.46.0" },
     { name = "google-re2", specifier = ">=1.1.20251105,<2" },
-    { name = "granian", extras = ["uvloop", "reload", "pname"], specifier = "==2.7.6" },
+    { name = "granian", extras = ["uvloop", "reload", "pname"], specifier = "==2.8.2" },
     { name = "grimp", specifier = "~=3.14" },
     { name = "grpcio", specifier = "~=1.71.0" },
     { name = "gspread", specifier = "==6.2.1" },
@@ -5970,8 +5963,9 @@ requires-dist = [
     { name = "pixelhog", specifier = "~=1.2.0" },
     { name = "playwright", specifier = "~=1.60.0" },
     { name = "polars", specifier = "==1.37.1" },
+    { name = "posthog-hogland", specifier = "==0.3.1" },
     { name = "posthog-owners", editable = "tools/owners" },
-    { name = "posthoganalytics", specifier = "==7.39.1" },
+    { name = "posthoganalytics", specifier = "==7.44.1" },
     { name = "protobuf", specifier = "~=5.29.6" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.4" },
     { name = "psycopg2-binary", specifier = "==2.9.10" },
@@ -6016,6 +6010,7 @@ requires-dist = [
     { name = "tiktoken", specifier = "==0.9.*" },
     { name = "tldextract", specifier = "~=5.1" },
     { name = "trafilatura", specifier = "==2.0.0" },
+    { name = "trino", specifier = "==0.338.0" },
     { name = "types-cachetools", specifier = "==5.5.0.20240820" },
     { name = "umap-learn", specifier = "~=0.5.0" },
     { name = "user-agents", specifier = "~=2.2.0" },
@@ -6108,6 +6103,20 @@ sentiment = [
 ]
 
 [[package]]
+name = "posthog-hogland"
+version = "0.3.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+    { name = "httpx-sse" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/41/ec/dc5991a1015bf2beeb901d023f784be17322162b5011ef6e2b49eb2051f6/posthog_hogland-0.3.1.tar.gz", hash = "sha256:6cffa11ebc66c3f6cb4a38f8aadfd59ec658969fdb0f111a2bf9d81e5501d6c4", size = 46155, upload-time = "2026-07-06T08:55:16.003Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d2/69/57f187f0497072a2d776417514b69959bbeb79c939a9d0a369cd81a04ccf/posthog_hogland-0.3.1-py3-none-any.whl", hash = "sha256:cd565d9839163d6f5567952c7e8b998d88123b02aaa8f86df3daafdefbc11c00", size = 34955, upload-time = "2026-07-06T08:55:14.798Z" },
+]
+
+[[package]]
 name = "posthog-owners"
 version = "0.1.0"
 source = { editable = "tools/owners" }
@@ -6131,7 +6140,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "posthoganalytics"
-version = "7.39.1"
+version = "7.44.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -6139,9 +6148,9 @@ dependencies = [
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/df/61/b78317abb7f99b0b31513f171907434cc9c6fb18a80ffac17e44c0651731/posthoganalytics-7.39.1.tar.gz", hash = "sha256:a81d402b1d139774346ed224016d1f5310ebe89f955b08377fb546691e3a4a91", size = 428630, upload-time = "2026-08-14T13:51:17.661Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/df/be/dda003038377bba8ae1ae18a01b5d0b06cb07cc255b08b9168232794e6e8/posthoganalytics-7.44.1.tar.gz", hash = "sha256:1d94949599892c2c78cf4c2a08396c6a3ad1a5d6f1be3bb14c0a933bd34591de", size = 479944, upload-time = "2026-08-26T14:51:06.935Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f9/11/3302e6195b9f9dba0b912ce6008cbc6ec89e1d15ad94a4532794bc694fab/posthoganalytics-7.39.1-py3-none-any.whl", hash = "sha256:9349851f4c996e6fd2c8defade3aa7d3d8b9677640ccfa316df4c8d074d4c4e9", size = 507626, upload-time = "2026-08-14T13:51:15.76Z" },
+    { url = "https://files.pythonhosted.org/packages/75/26/787dc1573b723710ce95aace462a89ec093d82fc550e81a19197863c4a6d/posthoganalytics-7.44.1-py3-none-any.whl", hash = "sha256:e044cfb950d381e07949c445a339ca8911626ca170da3b96e6b7598033af5227", size = 571384, upload-time = "2026-08-26T14:51:04.646Z" },
 ]
 
 [[package]]
@@ -8462,6 +8471,24 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/f1/11/7414d5bc07690002ce4d7553602107bf969af85144bbd02830f9fb471236/transformers-4.51.3.tar.gz", hash = "sha256:e292fcab3990c6defe6328f0f7d2004283ca81a7a07b2de9a46d67fd81ea1409", size = 8941266, upload-time = "2025-04-14T08:15:00.485Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a9/b6/5257d04ae327b44db31f15cce39e6020cc986333c715660b1315a9724d82/transformers-4.51.3-py3-none-any.whl", hash = "sha256:fd3279633ceb2b777013234bbf0b4f5c2d23c4626b05497691f00cfda55e8a83", size = 10383940, upload-time = "2025-04-14T08:13:43.023Z" },
+]
+
+[[package]]
+name = "trino"
+version = "0.338.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "lz4" },
+    { name = "orjson", marker = "platform_python_implementation != 'PyPy'" },
+    { name = "python-dateutil" },
+    { name = "pytz" },
+    { name = "requests" },
+    { name = "tzlocal" },
+    { name = "zstandard" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/18/aa/4bc0539467c12d415e8f8870a79646be80d299c063c563a47fee0b6c9fa9/trino-0.338.0.tar.gz", hash = "sha256:1103d249cb96ba8f88f699588581965e2be088c16b9f8178e34cb64aa8a6c011", size = 57373, upload-time = "2026-06-29T19:55:37.547Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/91/b5/182b81d1b4cc2b306b174bd94efe5384f7d1253539eaf47a6b4d842b96a7/trino-0.338.0-py3-none-any.whl", hash = "sha256:093952f8a53b6f47ab357b77cbe92f1d66453290f7d8bcc4b74bd662e5ff2704", size = 59981, upload-time = "2026-06-29T19:55:36.449Z" },
 ]
 
 [[package]]

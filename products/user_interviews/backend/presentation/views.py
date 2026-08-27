@@ -157,10 +157,16 @@ class UserInterviewSerializer(serializers.ModelSerializer):
         participant_emails_joined = "\n".join(f"- {email}" for email in interviewee_emails)
         assignment_response = OpenAI(
             posthog_client=posthoganalytics.default_client, base_url=settings.OPENAI_BASE_URL
-        ).responses.create(  # type: ignore
+        ).responses.create(
             model="gpt-4.1-mini",
             posthog_trace_id=self._ai_trace_id,
+            posthog_privacy_mode=True,
             posthog_distinct_id=self.context["request"].user.distinct_id,
+            posthog_properties={
+                "ai_product": "user_interviews",
+                "ai_feature": "map-speakers",
+                "team_id": self.context["request"].user.current_team_id,
+            },
             input=[
                 {
                     "role": "system",
@@ -234,10 +240,16 @@ Map the speakers in the following transcript:
             return None
 
     def _summarize_transcript(self, transcript: str) -> str:
-        summary_response = OpenAI(posthog_client=posthoganalytics.default_client).responses.create(  # type: ignore
+        summary_response = OpenAI(posthog_client=posthoganalytics.default_client).responses.create(
             model="gpt-4.1-mini",
             posthog_trace_id=self._ai_trace_id,
+            posthog_privacy_mode=True,
             posthog_distinct_id=self.context["request"].user.distinct_id,
+            posthog_properties={
+                "ai_product": "user_interviews",
+                "ai_feature": "summarize-transcript",
+                "team_id": self.context["request"].user.current_team_id,
+            },
             input=[
                 {
                     "role": "system",

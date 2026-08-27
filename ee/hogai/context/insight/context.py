@@ -6,7 +6,7 @@ from posthog.hogql_queries.apply_dashboard_filters import (
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.context.insight.query_executor import execute_and_format_query
 from ee.hogai.tool_errors import MaxToolRetryableError
@@ -24,6 +24,9 @@ class InsightContext:
 
     Accepts insight data directly and provides methods to format schema or execute and format results.
     Supports optional dashboard filter/variable overrides before execution.
+
+    `insight_id` is only the identifier shown to the model; `insight_short_id` is the one that resolves to a
+    URL, so an ephemeral artifact passes the former and leaves the latter unset.
     """
 
     def __init__(
@@ -60,7 +63,7 @@ class InsightContext:
     def insight_url(self) -> str | None:
         """Generate insight URL from insight_short_id if available."""
         if self.insight_short_id:
-            return build_insight_url(self.team, self.insight_short_id)
+            return build_insight_url(self.insight_short_id)
         return None
 
     @classmethod
@@ -112,7 +115,6 @@ class InsightContext:
             insight_description=self.description,
             query_schema=query_schema,
             results=results,
-            include_url_reminder=self.insight_id is None,
             insight_url=self.insight_url,
         )
 
@@ -126,7 +128,6 @@ class InsightContext:
             insight_id=self.insight_id,
             insight_description=self.description,
             query_schema=query_schema,
-            include_url_reminder=self.insight_id is None,
             insight_url=self.insight_url,
         )
 

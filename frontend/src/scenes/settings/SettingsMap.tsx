@@ -6,6 +6,7 @@ import { AssignmentRules } from '@posthog/products-error-tracking/frontend/scene
 import { GroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/grouping_rules/GroupingRules'
 import { RateLimitSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rate_limit/RateLimitSettings'
 import { Releases } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/releases/Releases'
+import { SeverityRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/severity_rules/SeverityRules'
 import { SpikeDetectionSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/spike_detection/SpikeDetectionSettings'
 import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
 import { McpStoreSettings } from '@posthog/products-mcp-store/frontend/McpStoreSettings'
@@ -48,13 +49,13 @@ import { GeneralSection } from 'products/conversations/frontend/scenes/settings/
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
 import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
 import { CustomerAnalyticsEventStream } from 'products/customer_analytics/frontend/components/EventStream/CustomerAnalyticsEventStream'
+import { AccountTrackRules } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/AccountTrackRules'
 import { CustomerAnalyticsAccountConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/CustomerAnalyticsAccountConfig'
 import {
     WarehouseGroupPropertiesSetting,
     WarehousePersonPropertiesSetting,
 } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/WarehousePersonPropertiesSetting'
 import { CalendarSyncConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/calendar/CalendarSyncConfig'
-import { CustomerEmailConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/email/CustomerEmailConfig'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
@@ -455,6 +456,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['accounts', 'group', 'b2b'],
             },
             {
+                id: 'customer-analytics-track-rules',
+                title: 'Track rules',
+                description: 'Choose which active accounts appear in Customer analytics.',
+                component: <AccountTrackRules />,
+                flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_TRACK_RULES'],
+                keywords: ['accounts', 'track', 'ignore', 'rules', 'filter'],
+            },
+            {
                 id: 'customer-analytics-calendar-sync',
                 title: 'Google account sync',
                 description:
@@ -462,14 +471,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <CalendarSyncConfig />,
                 flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
                 keywords: ['calendar', 'email', 'meetings', 'google', 'sync', 'accounts'],
-            },
-            {
-                id: 'customer-analytics-email-sync',
-                title: 'Email forwarding',
-                description: 'Manage existing email forwarding connections.',
-                component: <CustomerEmailConfig />,
-                flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
-                keywords: ['email', 'inbox', 'forwarding', 'sync', 'accounts'],
             },
             {
                 id: 'customer-analytics-event-stream',
@@ -587,6 +588,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Automatically assign errors to team members based on rules you define.',
                 component: <AssignmentRules />,
                 keywords: ['assign', 'owner', 'team', 'rule', 'routing'],
+            },
+            {
+                id: 'error-tracking-severity-rules',
+                title: 'Severity rules',
+                description: 'Set the initial severity of new issues based on rules you define.',
+                component: <SeverityRules />,
+                flag: 'ERROR_TRACKING_SEVERITY_RULES',
+                keywords: ['severity', 'priority', 'triage', 'critical', 'rule'],
             },
             {
                 id: 'error-tracking-custom-grouping',
@@ -798,7 +807,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-logs',
         title: 'Logs',
-        flag: 'LOGS_SETTINGS',
         group: 'Products',
         settings: [
             {
@@ -809,7 +817,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/logs',
                 platformSupport: FEATURE_SUPPORT.logsCapture,
                 component: <LogsCaptureSettings />,
-                flag: 'LOGS_SETTINGS',
                 keywords: ['log', 'capture', 'collect', 'ingest', 'console'],
             },
             {
@@ -844,7 +851,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 searchDescription:
                     "The log attributes PostHog reads to identify which person a log belongs to. A log is linked when any of these attributes matches one of the person's distinct IDs. Defaults to posthogDistinctId, the key the JavaScript and React Native SDKs auto-attach. Add keys only if your backend pipeline emits the person identifier under different attributes.",
                 component: <LogsDistinctIdAttributeKeys />,
-                flag: 'LOGS_SETTINGS',
                 keywords: ['log', 'person', 'distinct', 'attribute', 'pivot', 'profile', 'link'],
             },
             {
@@ -861,7 +867,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 searchDescription:
                     'The log attributes PostHog reads to identify which session a log belongs to, checked in order with the first match winning, followed by other common session ID attributes. Defaults to sessionId, the key the JavaScript and React Native SDKs auto-attach. Add keys only if your pipeline emits the session ID under different attributes.',
                 component: <LogsSessionIdAttributeKeys />,
-                flag: 'LOGS_SETTINGS',
                 keywords: ['log', 'session', 'replay', 'attribute', 'link'],
             },
             {
@@ -887,12 +892,12 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'logs-metric-rules',
-                title: 'Metric rules',
+                title: 'Log-based metrics',
                 description:
                     'Generate metrics from your logs at ingestion time. Metrics are computed before drop rules, so you can drop noisy logs and keep the trend.',
                 component: <LogsMetricRulesSection />,
                 flag: LogsFeatureFlagKeys.metricRules,
-                keywords: ['metric', 'metrics', 'generate', 'count', 'aggregate', 'logs to metrics'],
+                keywords: ['metric', 'metrics', 'log-based', 'generate', 'count', 'aggregate', 'logs to metrics'],
             },
             {
                 id: 'logs-retention-rules',
@@ -908,7 +913,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Alerting',
                 description: 'Configure alerts to get notified when log volumes breach thresholds.',
                 component: <LogsAlertingSection />,
-                flag: 'LOGS_ALERTING',
                 keywords: ['notification', 'alert', 'threshold', 'logs'],
             },
         ],
@@ -1453,7 +1457,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Notifications',
                 description: 'Get notified about activity log events via configured destinations.',
                 component: <ActivityLogNotifications />,
-                flag: 'CDP_ACTIVITY_LOG_NOTIFICATIONS',
                 allowForTeam: (t) => (t?.effective_membership_level ?? 0) >= OrganizationMembershipLevel.Admin,
                 keywords: ['notification', 'alert', 'activity', 'webhook'],
             },
@@ -1561,7 +1564,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Slack integration',
                 description:
                     'Integrate with Slack to subscribe to insights or dashboards for regular reports to channels of your choice.',
-                docsUrl: 'https://posthog.com/docs/webhooks/slack',
+                docsUrl: Slack.docsUrl,
                 component: <Slack.SettingsSection />,
                 keywords: ['slack', 'channel', 'notification', 'subscribe', 'report'],
             },
@@ -1569,7 +1572,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'integration-github',
                 title: 'GitHub integration',
                 description: 'Connect GitHub to link issues and pull requests with PostHog insights.',
-                docsUrl: 'https://posthog.com/docs/error-tracking/integrations',
+                docsUrl: GitHub.docsUrl,
                 component: <GitHub.SettingsSection connectSurface="settings" />,
                 keywords: ['github', 'git', 'repository', 'issue', 'pr'],
             },
@@ -1577,15 +1580,41 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'integration-linear',
                 title: 'Linear integration',
                 description: 'Connect Linear to create and link issues directly from PostHog.',
-                docsUrl: 'https://posthog.com/docs/error-tracking/integrations',
+                docsUrl: Linear.docsUrl,
                 component: <Linear.SettingsSection />,
                 keywords: ['linear', 'issue', 'project management', 'task'],
             },
             {
                 id: 'integration-other',
                 title: 'Other integrations',
-                description: 'Browse and manage additional third-party integrations.',
-                component: <IntegrationsList omitKinds={['slack', 'github', 'linear']} />,
+                description:
+                    'Integrations connected from other product areas, such as pipeline destinations, data warehouse sources, error tracking, and marketing analytics.',
+                component: (
+                    <IntegrationsList
+                        omitKinds={['slack', 'github', 'linear']}
+                        titleText=""
+                        emptyState={
+                            <div className="px-4 py-6 text-center text-sm text-secondary rounded border bg-surface-primary">
+                                <p className="mb-1">No other integrations connected</p>
+                                <p className="text-xs text-muted text-balance mb-0">
+                                    These connect from the product area that uses them:{' '}
+                                    <Link to={urls.destinations()}>pipeline destinations</Link>,{' '}
+                                    <Link to={urls.sources()}>data warehouse sources</Link>,{' '}
+                                    <Link
+                                        to={urls.settings('environment-error-tracking', 'error-tracking-integrations')}
+                                    >
+                                        error tracking
+                                    </Link>{' '}
+                                    and{' '}
+                                    <Link to={urls.settings('environment-marketing-analytics', 'marketing-settings')}>
+                                        marketing analytics
+                                    </Link>
+                                    .
+                                </p>
+                            </div>
+                        }
+                    />
+                ),
                 keywords: ['integration', 'connect', 'third-party', 'app'],
             },
             {

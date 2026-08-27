@@ -18,7 +18,7 @@ from posthog.errors import CHQueryErrorNoCommonType
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.endpoints.backend.logic.execution import EndpointExecutionService
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 

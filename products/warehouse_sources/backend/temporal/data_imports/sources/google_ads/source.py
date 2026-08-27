@@ -51,10 +51,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     GoogleAdsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.configs import (
+    GOOGLE_ADS_INITIAL_BACKFILL_DAYS,
     GoogleAdsResumeConfig,
     GoogleAdsServiceAccountSourceConfig,
     clean_customer_id,
     format_customer_id,
+    parse_start_date,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -98,6 +100,8 @@ class GoogleAdsSource(
         VersionDeprecation(version="v23", sunset_at=datetime.date(2027, 2, 1)),
         VersionDeprecation(version="v24", sunset_at=None),
     )
+
+    history_lookback = datetime.timedelta(days=GOOGLE_ADS_INITIAL_BACKFILL_DAYS)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -157,6 +161,15 @@ class GoogleAdsSource(
             # "UNAUTHENTICATED" token, retrying cannot recover, the user must reconnect their Google Ads account.
             "Request had invalid authentication credentials": "Your Google Ads connection could not be authenticated. Please reconnect your Google Ads account.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # A quota/rate-limit RESOURCE_EXHAUSTED ("Resource has been exhausted (e.g. check
+        # quota).") is already ridden out in-process by `_call_with_transient_retry` (see
+        # `_is_transient_grpc_error` in google_ads.py). A search that still fails after that
+        # budget has hit a longer-lived quota window than a few seconds of backoff can clear,
+        # but Temporal's activity retry recovers once it does — self-recovering, not a bug, so
+        # keep it out of error tracking as noise.
+        return {"Resource has been exhausted (e.g. check quota)"}
 
     # TODO: clean up google ads source to not have two auth config options
     def parse_config(self, job_inputs: dict) -> GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig:
@@ -243,6 +256,9 @@ class GoogleAdsSource(
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            db_incremental_field_last_value_before_lookback=inputs.db_incremental_field_last_value_before_lookback,
+            history_start=inputs.history_start,
+            requested_start=config.start_date if isinstance(config, GoogleAdsSourceConfig) else None,
         )
 
     @property
@@ -274,6 +290,20 @@ class GoogleAdsSource(
                         integrationKind="google-ads",
                         required=True,
                         placeholder="123-456-7890",
+                    ),
+                    SourceFieldInputConfig(
+                        name="start_date",
+                        label="Start date",
+                        caption=(
+                            "Earliest date to import, as YYYY-MM-DD. On a source that has already "
+                            "synced, changing this takes effect on the next full re-import — Sync "
+                            "keeps going from where it left off. Leave empty for the last two years; "
+                            "an earlier date imports more rows, which count towards your billed row usage."
+                        ),
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="2020-01-01",
+                        secret=False,
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="is_mcc_account",
@@ -443,6 +473,14 @@ class GoogleAdsSource(
             _is_transient_grpc_error,
             google_ads_client,
         )
+
+        # Caught here rather than at sync time: an unreadable value is treated as unset there, so
+        # the source would import a range nobody asked for with nothing to say why.
+        if isinstance(config, GoogleAdsSourceConfig) and config.start_date:
+            try:
+                parse_start_date(config.start_date)
+            except ValueError:
+                return False, "Start date must be a date in YYYY-MM-DD format, for example 2020-01-01."
 
         # The SDK's client default is the newest bundled version, so leaving these probes unpinned
         # would validate against a version the source may not sync with.

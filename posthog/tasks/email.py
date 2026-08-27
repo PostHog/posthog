@@ -39,10 +39,10 @@ from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.scoping import with_team_scope
 from posthog.models.utils import UUIDT
 from posthog.ph_client import feature_enabled_or_false, get_client, ph_scoped_capture
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
@@ -769,6 +769,10 @@ def send_batch_export_run_failure(
         "batch_export__team", "batch_export_on_demand__team"
     ).get(id=batch_export_run_id)
     batch_export = batch_export_run.parent
+    # On-demand exports do not have a page for this email to link to.
+    if not isinstance(batch_export, BatchExport):
+        return
+
     team: Team = batch_export.team
 
     pipeline_id = f"batch_export:{batch_export.id}"
@@ -783,11 +787,7 @@ def send_batch_export_run_failure(
 
     campaign_key: str = f"batch_export_run_email_batch_export_{batch_export.id}_last_updated_at_{last_updated_at_date}"
 
-    subject = (
-        f"PostHog: {batch_export.name} batch export run failure"
-        if isinstance(batch_export, BatchExport)
-        else "PostHog: batch export on demand run failure"
-    )
+    subject = f"PostHog: {batch_export.name} batch export run failure"
     message = EmailMessage(
         campaign_key=campaign_key,
         subject=subject,
@@ -796,7 +796,7 @@ def send_batch_export_run_failure(
             "time": batch_export_run.last_updated_at.strftime("%I:%M%p %Z on %B %d"),
             "team": team,
             "id": batch_export.id,
-            "name": batch_export.name if isinstance(batch_export, BatchExport) else "",
+            "name": batch_export.name,
         },
     )
     logger.info("Prepared notification email for campaign %s", campaign_key)

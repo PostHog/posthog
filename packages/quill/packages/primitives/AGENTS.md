@@ -352,6 +352,8 @@ Switch has sizes: `<Switch size="sm" />` or `<Switch size="default" />`
 
 Small trigger: `<SelectTrigger size="sm">`
 
+Attached panel outside the popup: pass `popupSibling` on `SelectContent` — rendered in the positioner beside the popup, outside its overflow and scroll mask; position it absolute so it never resizes the option list.
+
 ### Combobox (searchable select)
 
 ```tsx
@@ -1014,6 +1016,8 @@ Compose `Table > TableHeader/TableBody/TableFooter > TableRow > TableHead/TableC
 
 **Backgrounds: transparent by default, opaque when sticky.** Plain cells and headers are transparent, so a `Table` inherits whatever surface it sits on (inside a `Card`, a tinted panel). Sticky parts (`stickyHeader`, `stickyHeader="page"`, `sticky="left"/"right"`) get an opaque background automatically — they'd otherwise bleed scrolled-under content — so you don't add `bg-background` yourself. It defaults to the app background; if the table sits on a different surface, override the inherited `--quill-table-sticky-bg` custom property on the `Table` so the frozen cells match — e.g. inside a `Card`, `className="[--quill-table-sticky-bg:var(--card)]"`.
 
+**Bounding the height — `h-*` or `max-h-*` both scroll.** A height class on the `Table` (it lands on the root wrapper) makes the body scroll past that height; pair it with `stickyHeader` to freeze the header. Both a definite height (`h-96`) and a bare cap (`max-h-[44rem]`) work — the scroll viewport reads the cap through `max-height: inherit`, so `max-h-*` no longer clips rows without a scrollbar.
+
 **Empty state — use `TableEmpty`, not a hand-rolled cell.** Drop `TableEmpty` in where a `TableBody` would go; it renders its own `tbody > tr > td` with a full-span `colSpan` (defaults huge, browsers clamp to the real column count) and centers its content. Put `<Empty>` or plain text inside — no manual `colSpan`, no `h-full`. To make it fill the body area, give the `Table` a height (e.g. `className="h-full"` with a height-bounded container); otherwise it sizes to its content. Don't put an `<Empty>` (a `div`) as a direct child of `Table` — that's invalid table markup and the browser hoists it out of the grid.
 
 ```tsx
@@ -1094,6 +1098,9 @@ toast.dismiss(id)
 // With an action button
 toast({ title: 'Item archived', action: { label: 'Undo', onClick: () => restore() } })
 ```
+
+The title and description are selectable, so a user can copy an error message out of a toast, while the rest of the card is not, so a drag across it still reads as swipe-to-dismiss.
+Custom content you put inside a `ToastCard` needs `data-base-ui-swipe-ignore` for the same treatment, or Base UI takes a drag on it as a swipe and suppresses the selection.
 
 `anchoredToast` positions a toast next to an element instead of stacking it in the corner. It takes the same
 options plus an anchor. An anchored toast with an action also gets a close button, so give it `timeout: 0`

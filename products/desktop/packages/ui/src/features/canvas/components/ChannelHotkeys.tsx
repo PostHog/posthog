@@ -6,16 +6,18 @@ import {
   showChannelPane,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
-import { requestSpaceSearchFocus } from "@posthog/ui/features/canvas/stores/spaceTreeStore";
+import { requestSidebarSearchFocus } from "@posthog/ui/features/canvas/stores/sidebarSearchStore";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
+import { useSpacesTabs } from "@posthog/ui/features/feature-flags/useSpacesTabs";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { navigateToChannel } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import { useHotkeys } from "react-hotkeys-hook";
 
 /**
- * Renders nothing — the unconditional owner of ⌘1-9 (switch channel) under the
- * channels layout.
+ * Renders nothing — the owner of ⌘1-9 (switch channel) under the channels
+ * layout, wherever the tab strip is not. With tabs on, those keys switch tabs
+ * (the browser meaning) and this yields them, so a press has one owner.
  *
  * Mounted from the root rather than from the sidebar: the sidebar only renders
  * its channel pane once a channel is already scoped, so binding there left the
@@ -26,6 +28,7 @@ import { useHotkeys } from "react-hotkeys-hook";
  */
 export function ChannelHotkeys() {
   const channelsLayout = useChannelsLayout();
+  const spacesTabs = useSpacesTabs();
   const { slots } = useStarredChannelSlots();
   const setCurrentChannel = useCurrentChannelStore((s) => s.setCurrentChannel);
 
@@ -52,7 +55,7 @@ export function ChannelHotkeys() {
       });
     },
     {
-      enabled: channelsLayout,
+      enabled: channelsLayout && !spacesTabs,
       enableOnFormTags: true,
       enableOnContentEditable: true,
       preventDefault: true,
@@ -64,11 +67,11 @@ export function ChannelHotkeys() {
   // slide it back to the list, and hand the keyboard to the search box, which
   // is also the tree's keyboard driver.
   useHotkeys(
-    SHORTCUTS.FOCUS_SPACE_SEARCH,
+    SHORTCUTS.FOCUS_SIDEBAR_SEARCH,
     () => {
       useSidebarStore.getState().setOpen(true);
       showChannelList();
-      requestSpaceSearchFocus();
+      requestSidebarSearchFocus();
     },
     {
       enabled: channelsLayout,

@@ -26,6 +26,7 @@ from products.experiments.backend.hogql_queries.utils import (
     get_variant_result,
     get_variant_results,
     metric_variant_to_statistic,
+    sanitize_non_finite,
     validate_variant_result,
 )
 from products.experiments.stats.shared.statistics import ProportionStatistic, SampleMeanStatistic
@@ -867,6 +868,38 @@ class TestValidateVariantResult:
         assert result.validation_failures is not None
         assert ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA in result.validation_failures
 
+    @pytest.mark.parametrize(
+        "denominator_sum,denominator_sum_squares,expects_failure",
+        [
+            (0.0, 0.0, True),
+            (None, None, True),
+            (200.0, 450.0, False),
+        ],
+    )
+    def test_ratio_metric_zero_denominator_validation(self, denominator_sum, denominator_sum_squares, expects_failure):
+        metric = ExperimentRatioMetric(
+            numerator=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL),
+            denominator=EventsNode(event="checkout started", math=ExperimentMetricMathType.TOTAL),
+        )
+
+        variant = ExperimentStatsBase(
+            key="test",
+            number_of_samples=100,
+            sum=3,
+            sum_squares=9,
+            denominator_sum=denominator_sum,
+            denominator_sum_squares=denominator_sum_squares,
+            numerator_denominator_sum_product=0.0,
+        )
+
+        result = validate_variant_result(variant, metric, is_baseline=False)
+
+        assert result.validation_failures is not None
+        if expects_failure:
+            assert ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA in result.validation_failures
+        else:
+            assert ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA not in result.validation_failures
+
     def test_mean_metric_no_minimum_success_validation(self):
         """Test that mean metrics don't require minimum successes (continuous metrics)."""
         metric = ExperimentMeanMetric(
@@ -1019,3 +1052,24 @@ class TestMetricVariantToStatistic:
         assert isinstance(stat, ProportionStatistic)
         assert isinstance(stat.sum, int)
         assert stat.sum == 4
+
+
+class TestSanitizeNonFinite:
+    def test_replaces_non_finite_floats_recursively(self):
+        result = sanitize_non_finite(
+            {
+                "chance_to_win": 0.97,
+                "confidence_interval": [float("-inf"), float("inf")],
+                "variants": [{"key": "control", "variance": float("nan"), "count": 100}],
+            }
+        )
+
+        assert result == {
+            "chance_to_win": 0.97,
+            "confidence_interval": [None, None],
+            "variants": [{"key": "control", "variance": None, "count": 100}],
+        }
+
+    def test_leaves_finite_values_untouched(self):
+        value = {"a": 1, "b": [1.5, "x", None, True], "c": {"d": 0.0}}
+        assert sanitize_non_finite(value) == value

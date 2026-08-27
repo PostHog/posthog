@@ -949,6 +949,38 @@ export interface CommentSlackThreadApi {
     readonly created_by: UserBasicApi | null
 }
 
+/**
+ * * `attribute` - attribute
+ * * `resourceAttribute` - resourceAttribute
+ */
+export type UserFacetSettingsEntrySourceTypeEnumApi =
+    (typeof UserFacetSettingsEntrySourceTypeEnumApi)[keyof typeof UserFacetSettingsEntrySourceTypeEnumApi]
+
+export const UserFacetSettingsEntrySourceTypeEnumApi = {
+    Attribute: 'attribute',
+    ResourceAttribute: 'resourceAttribute',
+} as const
+
+export interface UserFacetSettingsEntryApi {
+    /** The log or span attribute key this facet is based on — for example `http.status_code` or `k8s.pod.name`. */
+    key: string
+    /** Where the key lives: `attribute` for a plain log/span attribute, `resourceAttribute` for an OpenTelemetry resource attribute.
+     *
+     * * `attribute` - attribute
+     * * `resourceAttribute` - resourceAttribute */
+    source_type: UserFacetSettingsEntrySourceTypeEnumApi
+}
+
+export interface UserFacetSettingsApi {
+    /** Ordered list of custom facets the user has pinned for this product, within the current team. Send the full list to replace the existing set. */
+    custom_facets: UserFacetSettingsEntryApi[]
+}
+
+export interface PatchedUserFacetSettingsApi {
+    /** Ordered list of custom facets the user has pinned for this product, within the current team. Send the full list to replace the existing set. */
+    custom_facets?: UserFacetSettingsEntryApi[]
+}
+
 export interface PinnedSceneTabApi {
     /** Stable identifier for the tab. Generated client-side; safe to omit on create. */
     id?: string
@@ -1173,6 +1205,7 @@ export type ActivityLogListParams = {
      * * `InstanceSetting` - InstanceSetting
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
+     * * `SignalTeamConfig` - SignalTeamConfig
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
@@ -1268,6 +1301,7 @@ export const ActivityLogListScope = {
     InstanceSetting: 'InstanceSetting',
     SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
+    SignalTeamConfig: 'SignalTeamConfig',
     StreamlitApp: 'StreamlitApp',
     Metric: 'Metric',
     TableCertification: 'TableCertification',
@@ -1350,6 +1384,7 @@ export const ActivityLogListScope = {
  * * `InstanceSetting` - InstanceSetting
  * * `SignalReport` - SignalReport
  * * `SignalScoutConfig` - SignalScoutConfig
+ * * `SignalTeamConfig` - SignalTeamConfig
  * * `StreamlitApp` - StreamlitApp
  * * `Metric` - Metric
  * * `TableCertification` - TableCertification
@@ -1433,6 +1468,7 @@ export const ActivityLogListScopesItem = {
     InstanceSetting: 'InstanceSetting',
     SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
+    SignalTeamConfig: 'SignalTeamConfig',
     StreamlitApp: 'StreamlitApp',
     Metric: 'Metric',
     TableCertification: 'TableCertification',
@@ -1636,4 +1672,34 @@ export const CommentsListKind = {
     Any: 'any',
     Comment: 'comment',
     Task: 'task',
+} as const
+
+export type UserFacetSettingsRetrieveParams = {
+    /**
+     * Which product's custom facets to read or update.
+     */
+    product: UserFacetSettingsRetrieveProduct
+}
+
+export type UserFacetSettingsRetrieveProduct =
+    (typeof UserFacetSettingsRetrieveProduct)[keyof typeof UserFacetSettingsRetrieveProduct]
+
+export const UserFacetSettingsRetrieveProduct = {
+    Logs: 'logs',
+    Tracing: 'tracing',
+} as const
+
+export type UserFacetSettingsPartialUpdateParams = {
+    /**
+     * Which product's custom facets to read or update.
+     */
+    product: UserFacetSettingsPartialUpdateProduct
+}
+
+export type UserFacetSettingsPartialUpdateProduct =
+    (typeof UserFacetSettingsPartialUpdateProduct)[keyof typeof UserFacetSettingsPartialUpdateProduct]
+
+export const UserFacetSettingsPartialUpdateProduct = {
+    Logs: 'logs',
+    Tracing: 'tracing',
 } as const

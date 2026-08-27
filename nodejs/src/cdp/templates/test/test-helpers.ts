@@ -205,7 +205,6 @@ export class TemplateTester {
                 sesEndpoint: config.SES_ENDPOINT,
                 sesTrackedConfigurationSet: config.SES_TRACKED_CONFIGURATION_SET,
                 sesUntrackedConfigurationSet: config.SES_UNTRACKED_CONFIGURATION_SET,
-                sesTenantAttributionEnabled: false,
             },
             undefined as any,
             undefined as any,
@@ -274,7 +273,8 @@ export class TemplateTester {
 
     async invoke(
         _inputs: Record<string, any>,
-        _globals?: DeepPartialHogFunctionInvocationGlobals
+        _globals?: DeepPartialHogFunctionInvocationGlobals,
+        _options?: { hogFlow?: { id: string }; actionId?: string }
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         if (this.template.mapping_templates) {
             throw new Error('Mapping templates found. Use invokeMapping instead.')
@@ -301,6 +301,14 @@ export class TemplateTester {
 
         const globalsWithInputs = await this.hogExecutor.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
         const invocation = createInvocation(globalsWithInputs, hogFunction)
+        // Workflow-only async functions read the flow id and step id off the invocation the way
+        // HogFlowFunctionsService sets them; there is no flow in this harness, so inject them.
+        if (_options?.hogFlow) {
+            ;(invocation as { hogFlow?: { id: string } }).hogFlow = _options.hogFlow
+        }
+        if (_options?.actionId) {
+            invocation.state.actionId = _options.actionId
+        }
         const transformationFunctions = getTransformationFunctions(this.geoIp!)
         const extraFunctions = invocation.hogFunction.type === 'transformation' ? transformationFunctions : {}
 
