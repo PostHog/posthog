@@ -451,7 +451,15 @@ jobs:
               # --force: Swatinem/rust-cache restores ~/.cargo/.crates2.json but not the
               # binary itself, so without --force binstall can short-circuit ("already
               # installed") and leave no `cargo nextest` binary.
-              run: cargo binstall --no-confirm --force cargo-nextest@0.9.140
+              # The release lookup goes to api.github.com, which 504s, so retry. Compiling
+              # is not a fallback: nextest refuses a source build without --locked, and
+              # binstall does not pass it, so the fallback burns three minutes and fails.
+              run: |
+                  for attempt in 1 2 3; do
+                      cargo binstall --no-confirm --force --disable-strategies compile cargo-nextest@0.9.140 && exit 0
+                      sleep $((attempt * 10))
+                  done
+                  exit 1
 
             - name: Run cargo test
               env:
@@ -830,7 +838,13 @@ jobs:
               # (which records cargo-shear as installed) but not the binary itself, so
               # without --force binstall short-circuits ("already installed") and the
               # next step fails with `error: no such command: shear`.
-              run: cargo binstall --no-confirm --force cargo-shear@1.1.12
+              # Retried for the same api.github.com 504 the nextest install hits.
+              run: |
+                  for attempt in 1 2 3; do
+                      cargo binstall --no-confirm --force cargo-shear@1.1.12 && exit 0
+                      sleep $((attempt * 10))
+                  done
+                  exit 1
 
             - name: Run cargo shear
               run: cargo shear
