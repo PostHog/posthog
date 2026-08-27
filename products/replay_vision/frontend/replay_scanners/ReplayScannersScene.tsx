@@ -56,10 +56,12 @@ const TYPE_OPTIONS: { value: ScannerType; label: string }[] = SCANNER_TYPE_OPTIO
 }))
 
 function ScannerRowActions({ scanner }: { scanner: ReplayScanner }): JSX.Element {
+    const { deletingIds } = useValues(replayScannersLogic)
     const { deleteScanner } = useActions(replayScannersLogic)
 
     return (
         <More
+            data-attr="vision-scanner-row-more"
             overlay={
                 <>
                     <LemonButton
@@ -75,7 +77,12 @@ function ScannerRowActions({ scanner }: { scanner: ReplayScanner }): JSX.Element
                     <LemonButton
                         fullWidth
                         status="danger"
-                        disabledReason={getReplayVisionDeleteDisabledReason(scanner.user_access_level)}
+                        loading={deletingIds.includes(scanner.id)}
+                        disabledReason={
+                            deletingIds.includes(scanner.id)
+                                ? 'Deleting…'
+                                : getReplayVisionDeleteDisabledReason(scanner.user_access_level)
+                        }
                         onClick={() =>
                             LemonDialog.open({
                                 title: `Delete "${scanner.name || 'Untitled scanner'}"?`,
