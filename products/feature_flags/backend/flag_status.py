@@ -72,6 +72,11 @@ def filter_stale_flags(queryset: QuerySet) -> QuerySet:
 
     The caller supplies the scope, so a batched caller can compose this with its own team
     filter.
+
+    Compose it by chaining `.filter()`, and keep the result a top-level queryset. The raw
+    `.extra(where=...)` predicate hard-codes the `posthog_featureflag` table name, so wrapping the
+    result in `Exists()`, `Subquery()`, or `pk__in=<queryset>` aliases the table and Postgres
+    rejects the query, because the raw text still reads `posthog_featureflag.filters`.
     """
     # Get stale flags using the best available signal:
     # 1. If last_called_at exists: flag hasn't been called in 30+ days
