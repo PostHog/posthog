@@ -80,6 +80,12 @@ rules:
                               |Announcement
                               |AnnouncementDelivery
                               |ApprovalPolicy
+                              |AutoresearchIteration
+                              |AutoresearchModel
+                              |AutoresearchPipeline
+                              |AutoresearchRun
+                              |AutoresearchSuggestion
+                              |AutoresearchTrainingRun
                               |BatchExport
                               |BatchExportBackfill
                               |BatchExportFileDownload
@@ -455,6 +461,12 @@ rules:
                         |Announcement
                         |AnnouncementDelivery
                         |ApprovalPolicy
+                        |AutoresearchIteration
+                        |AutoresearchModel
+                        |AutoresearchPipeline
+                        |AutoresearchRun
+                        |AutoresearchSuggestion
+                        |AutoresearchTrainingRun
                         |BatchExport
                         |BatchExportBackfill
                         |BatchExportFileDownload
