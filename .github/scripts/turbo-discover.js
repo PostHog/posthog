@@ -48,7 +48,10 @@ const { loadContractSurfaces } = require('./trunk-impacted-targets')
 // without knowing which segment it is. Sizing solves wall = overhead + work/n
 // for n, so the target is a promise about the PR lane (where the overheads below
 // are fitted); master pays extra overhead (full migration replay) on top.
-const TARGET_WALL_SECONDS = 15 * 60
+// A full run's wall is discovery plus the slowest of its shards, and with many
+// shards packed to one target the slowest lands a few minutes above it, so a
+// 12-minute shard target puts a full PR run near 15 minutes end to end.
+const TARGET_WALL_SECONDS = 12 * 60
 // Per-product cost within a runner: turbo dispatch, pytest collection, Django
 // init. First product pays ~45s, subsequent ~15s; use 60s as a conservative
 // average that also absorbs the amortized portion of runner startup.
@@ -816,13 +819,16 @@ const DJANGO_FALLBACK_SHARDS = { Core: 38, CorePOE: 7, Temporal: 7 }
 // average.
 //
 // The floor on the work budget covers a pathological overhead at or above the
-// target: it degrades to the 50% efficiency rule (work budget = overhead)
-// instead of dividing by zero or a negative.
+// target: the budget stops at half the overhead instead of going to zero or
+// negative, so the shard count stays bounded.
 //
 // minShards: full runs keep the DJANGO_MIN_SHARDS floor, but a narrowed
 // (test-selection) run may legitimately fit one shard.
 function calculateShards(totalWorkSeconds, overheadSeconds, minShards = DJANGO_MIN_SHARDS) {
-    const budget = Math.max(TARGET_WALL_SECONDS - overheadSeconds, overheadSeconds, 1)
+    // The floor stops an overhead near the target from exploding the shard
+    // count. It sits at half the overhead: a floor at the full overhead pinned
+    // split product shards at twice their overhead, above any target below it.
+    const budget = Math.max(TARGET_WALL_SECONDS - overheadSeconds, overheadSeconds / 2, 1)
     const shards = Math.ceil(totalWorkSeconds / budget)
     return Math.max(minShards, Math.min(DJANGO_MAX_SHARDS, shards))
 }
@@ -985,10 +991,10 @@ function buildMatrix(products, durations, productsScaled = false) {
     const packable = []
 
     // Split a product across multiple shards with the same rule Django uses:
-    // enough shards that each lands at the shared wall target. Don't apply the
-    // safety factor here — that inflation is for packing-capacity decisions
-    // (avoid stuffing a bucket beyond budget under variance), not for the
-    // "must we split?" check.
+    // enough shards that each lands at the shared wall target. The safety
+    // factor applies here as it does to packing: the products that split are
+    // the fixture-heavy suites whose recorded durations undercount the most,
+    // and a split sized on the bare sum lands its shards well past the target.
     for (const product of products) {
         const { work, staleUnionWork, staleness } = resolveProductSizing(product, durations, productsScaled)
         if (staleUnionWork !== null) {
@@ -1002,7 +1008,7 @@ function buildMatrix(products, durations, productsScaled = false) {
             )
         }
 
-        const shards = calculateShards(work, PRODUCT_JOB_OVERHEAD_SECONDS, 1)
+        const shards = calculateShards(work * PRODUCT_SAFETY_FACTOR, PRODUCT_JOB_OVERHEAD_SECONDS, 1)
         if (shards > 1) {
             console.error(`  ${product}: ${(work / 60).toFixed(1)} min work → split across ${shards} shards`)
             const filters = `--filter=@posthog/products-${product}`
@@ -1056,6 +1062,7 @@ module.exports = {
     resolveProductSizing,
     buildMatrix,
     PRODUCT_JOB_OVERHEAD_SECONDS,
+    PRODUCT_SAFETY_FACTOR,
     PRODUCTS_SCALED_MARKER,
     TARGET_WALL_SECONDS,
     DJANGO_OVERHEAD_SECONDS_BY_SEGMENT,

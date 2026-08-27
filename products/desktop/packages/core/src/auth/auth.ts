@@ -1,3 +1,4 @@
+import { isAuthFailureResponse } from "@posthog/api-client/fetcher";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
 import {
   type IPowerManager,
@@ -251,7 +252,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       return response;
     }
 
-    if (response.status === 401 || response.status === 403) {
+    if (await isAuthFailureResponse(response)) {
       const refreshedAuth = await this.refreshAccessToken();
       response = await this.executeAuthenticatedFetch(
         fetchImpl,
@@ -430,17 +431,14 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     if (this.sessionGeneration !== sessionGeneration) {
       return;
     }
+    const desktopAccess = this.carryDesktopAccessInto(nextSession);
     this.session = nextSession;
     this.persistProjectPreference(nextSession);
     this.updateState({
       orgProjectsMap: next.orgProjectsMap,
       currentOrgId: next.currentOrgId,
       currentProjectId: next.currentProjectId,
-      desktopAccess: {
-        projectId: next.currentProjectId,
-        status: "checking",
-        reason: null,
-      },
+      desktopAccess,
     });
     await this.updateDesktopAccessFromSession(nextSession);
   }
@@ -1104,6 +1102,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       return false;
     }
     this.persistProjectPreference(session);
+    const desktopAccess = this.carryDesktopAccessInto(session);
     this.session = session;
     this.scheduleImpersonationExpiry(session);
     this.updateState({
@@ -1113,11 +1112,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       orgProjectsMap: session.orgProjectsMap,
       currentOrgId: session.currentOrgId,
       currentProjectId: session.currentProjectId,
-      desktopAccess: {
-        projectId: session.currentProjectId,
-        status: "checking",
-        reason: null,
-      },
+      desktopAccess,
       needsScopeReauth: false,
       sessionType: session.sessionType,
       sessionExpiresAt: session.accessTokenExpiresAt,
@@ -1283,6 +1278,32 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       sessionEndReason: partial.sessionEndReason ?? null,
     });
   }
+
+  // Resetting to "checking" on every refresh would unmount the whole app.
+  private carryDesktopAccessInto(session: InMemorySession): DesktopAccess {
+    const previous = this.state.desktopAccess;
+    const previousAccountKey = this.session?.accountKey ?? null;
+    // A failed `/api/users/@me/` lookup leaves accountKey null. That is an
+    // unknown account, not a different one, so it must not flash the loading
+    // screen. A resolved key that differs is a real account change.
+    const sameIdentity =
+      previousAccountKey !== null &&
+      (session.accountKey === null ||
+        session.accountKey === previousAccountKey) &&
+      previous.projectId === session.currentProjectId;
+    if (
+      sameIdentity &&
+      (previous.status === "allowed" || previous.status === "blocked")
+    ) {
+      return previous;
+    }
+    return {
+      projectId: session.currentProjectId,
+      status: "checking",
+      reason: null,
+    };
+  }
+
   private async updateDesktopAccessFromSession(
     session: InMemorySession,
   ): Promise<void> {

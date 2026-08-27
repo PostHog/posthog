@@ -8,12 +8,13 @@ import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { waitForExpect } from '~/tests/helpers/expectations'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
+import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
 import { EmailService, parseAddressList, sanitizeEmailSubject } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
@@ -66,17 +67,26 @@ describe('parseAddressList', () => {
     })
 })
 
+let integrationIdBase: number
+
+const getIntegrationId = (id: number): number => integrationIdBase + id
+
 const createEmailParams = (
     params: Partial<CyclotronInvocationQueueParametersEmailType> = {}
 ): CyclotronInvocationQueueParametersEmailType => {
+    const from = params.from ?? { integrationId: 1 }
     return {
         type: 'email',
         to: { email: 'test@example.com', name: 'Test User' },
-        from: { integrationId: 1 },
         subject: 'Test Subject',
         text: 'Test Text',
         html: 'Test HTML',
         ...params,
+        from: {
+            ...from,
+            integrationId: getIntegrationId(from.integrationId),
+            integrationIds: from.integrationIds?.map(getIntegrationId),
+        },
     }
 }
 describe('EmailService', () => {
@@ -84,9 +94,9 @@ describe('EmailService', () => {
     let hub: Hub
     let team: Team
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub({})
-        team = await getFirstTeam(hub.postgres)
+        team = (await createTestTeamFixture(hub.postgres)).team
+        integrationIdBase = team.id
         service = new EmailService(
             {
                 sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
@@ -95,7 +105,6 @@ describe('EmailService', () => {
                 sesEndpoint: hub.SES_ENDPOINT,
                 sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
                 sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
-                sesTenantAttributionEnabled: hub.EMAIL_SES_TENANT_ATTRIBUTION_ENABLED,
             },
             hub.integrationManager,
             new TeamWorkflowsConfigService(hub.postgres),
@@ -120,7 +129,6 @@ describe('EmailService', () => {
                     sesEndpoint: '',
                     sesTrackedConfigurationSet: 'posthog-messaging',
                     sesUntrackedConfigurationSet: '',
-                    sesTenantAttributionEnabled: false,
                 },
                 hub.integrationManager,
                 new TeamWorkflowsConfigService(hub.postgres),
@@ -133,7 +141,7 @@ describe('EmailService', () => {
             expect(serviceWithoutSES.sesV2Client).toBeNull()
 
             await insertIntegration(hub.postgres, team.id, {
-                id: 1,
+                id: getIntegrationId(1),
                 kind: 'email',
                 config: {
                     email: 'test@posthog.com',
@@ -158,7 +166,7 @@ describe('EmailService', () => {
         let sendEmailSpy: jest.SpyInstance
         beforeEach(async () => {
             await insertIntegration(hub.postgres, team.id, {
-                id: 1,
+                id: getIntegrationId(1),
                 kind: 'email',
                 config: {
                     email: 'test@posthog.com',
@@ -182,7 +190,7 @@ describe('EmailService', () => {
         describe('integration validation', () => {
             beforeEach(async () => {
                 await insertIntegration(hub.postgres, team.id, {
-                    id: 2,
+                    id: getIntegrationId(2),
                     kind: 'email',
                     config: {
                         email: 'test@other-domain.com',
@@ -192,7 +200,7 @@ describe('EmailService', () => {
                     },
                 })
                 await insertIntegration(hub.postgres, team.id, {
-                    id: 3,
+                    id: getIntegrationId(3),
                     kind: 'slack',
                     config: {},
                 })
@@ -254,7 +262,7 @@ describe('EmailService', () => {
 
             it('uses and logs the sender selected for this workflow invocation', async () => {
                 await insertIntegration(hub.postgres, team.id, {
-                    id: 4,
+                    id: getIntegrationId(4),
                     kind: 'email',
                     config: {
                         email: 'second@posthog.com',
@@ -264,7 +272,13 @@ describe('EmailService', () => {
                         provider: 'ses',
                     },
                 })
-                invocation.id = 'invocation-0'
+                invocation.id = Array.from({ length: 10 }, (_, index) => `invocation-${index}`).find(
+                    (id) =>
+                        selectEmailSenderIntegrationId(id, {
+                            integrationId: getIntegrationId(1),
+                            integrationIds: [getIntegrationId(1), getIntegrationId(4)],
+                        }) === getIntegrationId(4)
+                )!
                 invocation.queueParameters = createEmailParams({
                     from: { integrationId: 1, integrationIds: [1, 4] },
                 })
@@ -470,7 +484,6 @@ describe('EmailService', () => {
                         sesEndpoint: hub.SES_ENDPOINT,
                         sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
                         sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
-                        sesTenantAttributionEnabled: hub.EMAIL_SES_TENANT_ATTRIBUTION_ENABLED,
                     },
                     hub.integrationManager,
                     new TeamWorkflowsConfigService(hub.postgres),
@@ -562,7 +575,7 @@ describe('EmailService', () => {
                 return actualFetch(...args) as any
             })
             await insertIntegration(hub.postgres, team.id, {
-                id: 1,
+                id: getIntegrationId(1),
                 kind: 'email',
                 config: {
                     email: 'test@posthog.com',
@@ -618,7 +631,7 @@ describe('EmailService', () => {
                 return actualFetch(...args) as any
             })
             await insertIntegration(hub.postgres, team.id, {
-                id: 1,
+                id: getIntegrationId(1),
                 kind: 'email',
                 config: {
                     email: 'test@posthog-test.com',
@@ -715,8 +728,7 @@ describe('EmailService', () => {
         })
 
         describe('SES tenant attribution', () => {
-            it('attributes the send to the team tenant when enabled', async () => {
-                service['sesConfig'].sesTenantAttributionEnabled = true
+            it('attributes the send to the team tenant', async () => {
                 sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
 
                 const result = await service.executeSendEmail(invocation)
@@ -726,18 +738,7 @@ describe('EmailService', () => {
                 expect(sentCommand.input.TenantName).toEqual(`team-${team.id}`)
             })
 
-            it('omits TenantName by default (flag off)', async () => {
-                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
-
-                const result = await service.executeSendEmail(invocation)
-
-                expect(result.error).toBeUndefined()
-                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-                expect(sentCommand.input.TenantName).toBeUndefined()
-            })
-
             it('attributes test-panel sends too — they are real SES sends', async () => {
-                service['sesConfig'].sesTenantAttributionEnabled = true
                 sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
 
                 const result = await service.executeSendEmail(invocation, true)

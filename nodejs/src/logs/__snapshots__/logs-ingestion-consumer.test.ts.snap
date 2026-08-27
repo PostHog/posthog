@@ -5,8 +5,8 @@ exports[`LogsIngestionConsumer general should process a valid log message 1`] = 
   {
     "json-parse": "false",
     "retention-days": "14",
-    "team_id": "2",
-    "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+    "team_id": "TEAM_ID",
+    "token": "<REPLACED-UUID-0>",
   },
 ]
 `;
@@ -16,20 +16,20 @@ exports[`LogsIngestionConsumer general should process multiple log messages 1`] 
   {
     "json-parse": "false",
     "retention-days": "14",
-    "team_id": "2",
-    "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+    "team_id": "TEAM_ID",
+    "token": "<REPLACED-UUID-1>",
   },
   {
     "json-parse": "false",
     "retention-days": "14",
-    "team_id": "2",
-    "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+    "team_id": "TEAM_ID",
+    "token": "<REPLACED-UUID-1>",
   },
   {
     "json-parse": "false",
     "retention-days": "14",
-    "team_id": "2",
-    "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+    "team_id": "TEAM_ID",
+    "token": "<REPLACED-UUID-1>",
   },
 ]
 `;
@@ -39,8 +39,8 @@ exports[`LogsIngestionConsumer message parsing and validation should overwrite e
   {
     "json-parse": "false",
     "retention-days": "14",
-    "team_id": "2",
-    "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+    "team_id": "TEAM_ID",
+    "token": "<REPLACED-UUID-3>",
   },
 ]
 `;
@@ -51,8 +51,8 @@ exports[`LogsIngestionConsumer message parsing and validation should preserve ka
     "json-parse": "false",
     "myHeader": "hello",
     "retention-days": "14",
-    "team_id": "2",
-    "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+    "team_id": "TEAM_ID",
+    "token": "<REPLACED-UUID-2>",
   },
 ]
 `;

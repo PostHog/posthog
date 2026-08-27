@@ -34,14 +34,7 @@ import {
     confirmArchiveExperiment,
     confirmDeleteExperiment,
 } from 'scenes/experiments/experimentActions'
-import {
-    EXPERIMENTS_PER_PAGE,
-    ExperimentsFilters,
-    experimentsLogic,
-    getExperimentStatus,
-    getShippedVariantKey,
-    isSingleVariantShipped,
-} from 'scenes/experiments/experimentsLogic'
+import { getExperimentStatus } from 'scenes/experiments/experimentStatus'
 import { ExperimentVelocityStats } from 'scenes/experiments/ExperimentVelocityStats'
 import { StatusTag } from 'scenes/experiments/ExperimentView/StatusTag'
 import MaxTool from 'scenes/max/MaxTool'
@@ -71,6 +64,13 @@ import { experimentsEmptyState } from 'products/experiments/frontend/emptyState/
  * having their own routes.
  */
 import { ExperimentsHoldoutsScene } from 'products/experiments/frontend/scenes/ExperimentsHoldoutsScene'
+import {
+    EXPERIMENTS_PER_PAGE,
+    ExperimentsFilters,
+    experimentsLogic,
+    getShippedVariantKey,
+    isSingleVariantShipped,
+} from 'products/experiments/frontend/scenes/experimentsLogic'
 import { ExperimentsSettingsScene } from 'products/experiments/frontend/scenes/ExperimentsSettingsScene'
 import { ExperimentsSharedMetricsScene } from 'products/experiments/frontend/scenes/ExperimentsSharedMetricsScene'
 
