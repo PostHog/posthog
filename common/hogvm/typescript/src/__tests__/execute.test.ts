@@ -136,6 +136,13 @@ describe('hogvm execute', () => {
         expect(() => execSync(['_H', 1, op.CALL_GLOBAL, 'match', 1], options)).toThrow(
             'Not enough arguments on the stack'
         )
+
+        expect(() => execSync(['_H', 1, op.STRING, 'a', op.CALL_GLOBAL, 'replaceOne', 1], options)).toThrow(
+            'Function replaceOne requires at least 3 arguments'
+        )
+        expect(() =>
+            execSync(['_H', 1, op.STRING, 'AB', op.STRING, 'extra', op.CALL_GLOBAL, 'lower', 2], options)
+        ).toThrow('Function lower requires at most 1 arguments')
     })
 
     test('null coercion in ordering comparisons - preserved behavior', () => {

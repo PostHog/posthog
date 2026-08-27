@@ -169,6 +169,13 @@ class TestBytecodeExecute:
             raise AssertionError("Expected Exception not raised")
 
         try:
+            execute_bytecode([_H, VERSION, op.STRING, "AB", op.STRING, "extra", op.CALL_GLOBAL, "lower", 2], {})
+        except Exception as e:
+            assert str(e) == "Function lower requires at most 1 arguments"
+        else:
+            raise AssertionError("Expected Exception not raised")
+
+        try:
             execute_bytecode([_H, VERSION, op.CALL_GLOBAL, "lower", 1], {})
         except Exception as e:
             assert str(e) == "Stack underflow"
