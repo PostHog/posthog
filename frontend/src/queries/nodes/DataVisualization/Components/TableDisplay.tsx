@@ -3,7 +3,9 @@ import { useActions, useValues } from 'kea'
 import { IconGraph, IconLifecycle, IconPieChart, IconScatter, IconTrends } from '@posthog/icons'
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Icon123, IconAreaChart, IconHeatmap, IconTableChart } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { ChartDisplayType } from '~/types'
 
@@ -14,6 +16,7 @@ interface TableDisplayProps extends Pick<LemonSelectProps<ChartDisplayType>, 'di
 export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element => {
     const { setVisualizationType } = useActions(dataVisualizationLogic)
     const { autoVisualizationType, columns, numericalColumns, visualizationType } = useValues(dataVisualizationLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const canDisplayContinuousChart = columns.length > 1 && numericalColumns.length > 0
     // Both scatter axes are numeric measures, so one numeric column can't fill both.
@@ -119,6 +122,17 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
                         ? 'Requires at least two numeric columns, one for each axis'
                         : undefined,
                 },
+                ...(featureFlags[FEATURE_FLAGS.SQL_BOX_PLOT_INSIGHT]
+                    ? [
+                          {
+                              value: ChartDisplayType.BoxPlot,
+                              icon: <IconGraph />,
+                              label: 'Box plot',
+                              disabledReason:
+                                  numericalColumns.length < 6 ? 'Requires six numeric summary columns' : undefined,
+                          },
+                      ]
+                    : []),
                 {
                     value: ChartDisplayType.TwoDimensionalHeatmap,
                     icon: <IconHeatmap />,

@@ -5368,6 +5368,48 @@ export namespace Schemas {
       start?: number | null;
     }
 
+    export type PredicateScope = typeof PredicateScope[keyof typeof PredicateScope];
+
+
+    export const PredicateScope = {
+      Event: 'event',
+      Person: 'person',
+      Group: 'group',
+      Unknown: 'unknown',
+    } as const;
+
+    export type PredicateIndexVerdict = typeof PredicateIndexVerdict[keyof typeof PredicateIndexVerdict];
+
+
+    export const PredicateIndexVerdict = {
+      Indexed: 'indexed',
+      Blocked: 'blocked',
+      UnindexedColumn: 'unindexed_column',
+      UnindexedJson: 'unindexed_json',
+      OperatorNotIndexable: 'operator_not_indexable',
+    } as const;
+
+    export interface PredicateIndexUsage {
+      column_name?: string | null;
+      end?: number | null;
+      fix?: string | null;
+      message: string;
+      /** HogQL comparison operator, e.g. `==`, `in`, `ilike`. */
+      operator: string;
+      /** Type the value is physically stored as. */
+      physical_type: string;
+      property_name: string;
+      scope: PredicateScope;
+      /** Type the property definition declares. */
+      semantic_type: string;
+      /** Where the value is physically read from, e.g. `materialized column` or `JSON blob`. */
+      source_label: string;
+      start?: number | null;
+      /** Skip indexes this predicate can actually use. */
+      usable_indexes: string[];
+      verdict: PredicateIndexVerdict;
+    }
+
     export type QueryIndexUsage = typeof QueryIndexUsage[keyof typeof QueryIndexUsage];
 
 
@@ -5381,6 +5423,8 @@ export namespace Schemas {
     export interface HogQLMetadataResponse {
       ch_table_names?: string[] | null;
       errors: HogQLNotice[];
+      /** One entry per property filter, in query order. */
+      index_usage?: PredicateIndexUsage[] | null;
       isUsingIndices?: QueryIndexUsage | null;
       isValid?: boolean | null;
       notices: HogQLNotice[];
@@ -8468,6 +8512,18 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface BoxPlotSettings {
+      excludeOutliers?: boolean | null;
+      maxColumn?: string | null;
+      meanColumn?: string | null;
+      medianColumn?: string | null;
+      minColumn?: string | null;
+      p25Column?: string | null;
+      p75Column?: string | null;
+      seriesColumn?: string | null;
+      xAxisColumn?: string | null;
+    }
+
     export interface HeatmapGradientStop {
       color: string;
       value: number;
@@ -8623,6 +8679,7 @@ export namespace Schemas {
     export type ChartSettingsResultCustomizations = {[key: string]: ResultCustomizationByValue} | null;
 
     export interface ChartSettings {
+      boxPlot?: BoxPlotSettings | null;
       /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
       chartStyle?: ChartStyle | null;
       goalLines?: GoalLine[] | null;
@@ -17624,11 +17681,6 @@ export namespace Schemas {
       LimitReached: 'limit_reached',
       StaleVersion: 'stale_version',
     } as const;
-
-    export interface CodeInviteRedeemRequest {
-      /** @maxLength 50 */
-      code: string;
-    }
 
     /**
      * * `codex` - codex
@@ -44434,6 +44486,8 @@ export namespace Schemas {
       filters?: HogQLFilters | null;
       /** Extra globals for the query */
       globals?: HogQLMetadataGlobals;
+      /** Analyze how each property filter reads its data. Costs a second type-resolution pass, so only editors that render the result should ask for it. */
+      indexUsage?: boolean | null;
       kind?: 'HogQLMetadata';
       /** Language to validate */
       language: HogLanguage;
@@ -46520,7 +46574,7 @@ export namespace Schemas {
     }
 
     export interface LegacyDesktopAccessResponse {
-      /** Whether the user has legacy PostHog Desktop access. */
+      /** Whether the current project can use PostHog Desktop. */
       has_access: boolean;
       /** Whether the independent Loops feature is enabled. */
       has_loops_access: boolean;
@@ -51735,6 +51789,11 @@ export namespace Schemas {
       /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
       members_can_see_org_members?: boolean;
       allow_publicly_shared_resources?: boolean;
+      /**
+         * When True, requests through the PostHog MCP server can read but not change this organization's data.
+         * @nullable
+         */
+      read_only_mcp_access?: boolean | null;
       readonly member_count: number;
       /** @nullable */
       is_ai_data_processing_approved?: boolean | null;
@@ -62826,6 +62885,11 @@ export namespace Schemas {
       /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
       members_can_see_org_members?: boolean;
       allow_publicly_shared_resources?: boolean;
+      /**
+         * When True, requests through the PostHog MCP server can read but not change this organization's data.
+         * @nullable
+         */
+      read_only_mcp_access?: boolean | null;
       readonly member_count?: number;
       /** @nullable */
       is_ai_data_processing_approved?: boolean | null;
@@ -66121,100 +66185,6 @@ export namespace Schemas {
     }
 
     /**
-     * Mixin for serializers to add user access control fields
-     */
-    export interface PatchedTicket {
-      readonly id?: string;
-      readonly ticket_number?: number;
-      readonly channel_source?: ChannelSourceEnum;
-      readonly channel_detail?: ChannelDetailEnum | null;
-      readonly distinct_id?: string;
-      /** Ticket status: new, open, pending, on_hold, or resolved
-       *
-       * * `new` - New
-       * * `open` - Open
-       * * `pending` - Pending
-       * * `on_hold` - On hold
-       * * `resolved` - Resolved */
-      status?: TicketStatusEnum;
-      /** Ticket priority: low, medium, high, or critical. Null if unset.
-       *
-       * * `low` - Low
-       * * `medium` - Medium
-       * * `high` - High
-       * * `critical` - Critical */
-      priority?: TicketPriorityEnum | BlankEnum | null;
-      readonly assignee?: TicketAssignment;
-      /** Customer-provided traits such as name and email */
-      anonymous_traits?: unknown;
-      /**
-         * Trust signal indicating whether the ticket's claimed identity was attested by the server (widget HMAC, SPF-authenticated email, or a signature-validated platform webhook). True when verified, false when assessed but not attested, null when unknown (e.g. created before this signal existed).
-         * @nullable
-         */
-      readonly identity_verified?: boolean | null;
-      ai_resolved?: boolean;
-      /** @nullable */
-      escalation_reason?: string | null;
-      /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.). */
-      readonly ai_triage?: unknown;
-      readonly created_at?: string;
-      readonly updated_at?: string;
-      readonly message_count?: number;
-      /** @nullable */
-      readonly last_message_at?: string | null;
-      /** @nullable */
-      readonly last_message_text?: string | null;
-      readonly unread_team_count?: number;
-      readonly unread_customer_count?: number;
-      /** @nullable */
-      readonly session_id?: string | null;
-      readonly session_context?: unknown;
-      /**
-         * SLA deadline set via workflows. Null means no SLA.
-         * @nullable
-         */
-      sla_due_at?: string | null;
-      /** @nullable */
-      snoozed_until?: string | null;
-      /** @nullable */
-      readonly slack_channel_id?: string | null;
-      /** @nullable */
-      readonly slack_thread_ts?: string | null;
-      /** @nullable */
-      readonly slack_team_id?: string | null;
-      /** @nullable */
-      readonly email_subject?: string | null;
-      /** @nullable */
-      readonly email_from?: string | null;
-      /** @nullable */
-      readonly email_to?: string | null;
-      readonly cc_participants?: unknown;
-      /** @nullable */
-      readonly github_repo?: string | null;
-      /** @nullable */
-      readonly github_issue_number?: number | null;
-      /** @nullable */
-      readonly zendesk_ticket_id?: number | null;
-      /**
-         * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
-         * @nullable
-         */
-      readonly organization_id?: string | null;
-      /**
-         * How organization_id was resolved: 'person' (from the requester's identity) or 'slack_channel_account' (inferred from the customer analytics account linked to the ticket's Slack channel). Null when organization_id is unset.
-         * @nullable
-         */
-      readonly organization_id_source?: string | null;
-      readonly person?: TicketPerson | null;
-      tags?: unknown[];
-      /**
-         * The effective access level the user has for this object
-         * @nullable
-         */
-      readonly user_access_level?: string | null;
-    }
-
-    /**
      * Payload for updating a private note on a ticket.
      */
     export interface PatchedTicketNoteUpdateRequest {
@@ -66225,6 +66195,86 @@ export namespace Schemas {
       message?: string;
       /** Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message. */
       rich_content?: unknown;
+    }
+
+    /**
+     * Assign the ticket to a user.
+     */
+    export type UserTicketAssigneeRequestType = typeof UserTicketAssigneeRequestType[keyof typeof UserTicketAssigneeRequestType];
+
+
+    export const UserTicketAssigneeRequestType = {
+      User: 'user',
+    } as const;
+
+    export interface UserTicketAssigneeRequest {
+      /** Assign the ticket to a user. */
+      type: UserTicketAssigneeRequestType;
+      /** User ID. */
+      id: number;
+    }
+
+    /**
+     * Assign the ticket to a role.
+     */
+    export type RoleTicketAssigneeRequestType = typeof RoleTicketAssigneeRequestType[keyof typeof RoleTicketAssigneeRequestType];
+
+
+    export const RoleTicketAssigneeRequestType = {
+      Role: 'role',
+    } as const;
+
+    export interface RoleTicketAssigneeRequest {
+      /** Assign the ticket to a role. */
+      type: RoleTicketAssigneeRequestType;
+      /** Role ID. */
+      id: string;
+    }
+
+    export type TicketAssigneeRequest = UserTicketAssigneeRequest | RoleTicketAssigneeRequest;
+
+    /**
+     * Fields accepted when updating a ticket.
+     */
+    export interface PatchedTicketUpdateRequest {
+      /** Ticket status: new, open, pending, on_hold, or resolved.
+       *
+       * * `new` - New
+       * * `open` - Open
+       * * `pending` - Pending
+       * * `on_hold` - On hold
+       * * `resolved` - Resolved */
+      status?: TicketStatusEnum;
+      /** Ticket priority: low, medium, high, or critical. Pass null to clear it.
+       *
+       * * `low` - Low
+       * * `medium` - Medium
+       * * `high` - High
+       * * `critical` - Critical */
+      priority?: TicketPriorityEnum | BlankEnum | null;
+      /** User or role to assign. Pass null to remove the current assignee. */
+      assignee?: TicketAssigneeRequest | null;
+      /** Customer details such as name and email. */
+      anonymous_traits?: unknown;
+      /** Whether AI resolved the ticket. */
+      ai_resolved?: boolean;
+      /**
+         * Reason the ticket was escalated. Pass null to clear it.
+         * @nullable
+         */
+      escalation_reason?: string | null;
+      /**
+         * SLA deadline. Pass null to clear it.
+         * @nullable
+         */
+      sla_due_at?: string | null;
+      /**
+         * Time to reopen the ticket. Pass null to reopen it now.
+         * @nullable
+         */
+      snoozed_until?: string | null;
+      /** Tag names to set on the ticket. */
+      tags?: string[];
     }
 
     export interface PatchedTicketView {
@@ -70091,6 +70141,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative9 {
       ch_table_names?: string[] | null;
       errors: HogQLNotice[];
+      /** One entry per property filter, in query order. */
+      index_usage?: PredicateIndexUsage[] | null;
       isUsingIndices?: QueryIndexUsage | null;
       isValid?: boolean | null;
       notices: HogQLNotice[];
@@ -84206,6 +84258,50 @@ export namespace Schemas {
       rich_content?: unknown;
     }
 
+    /**
+     * Fields accepted when updating a ticket.
+     */
+    export interface TicketUpdateRequest {
+      /** Ticket status: new, open, pending, on_hold, or resolved.
+       *
+       * * `new` - New
+       * * `open` - Open
+       * * `pending` - Pending
+       * * `on_hold` - On hold
+       * * `resolved` - Resolved */
+      status?: TicketStatusEnum;
+      /** Ticket priority: low, medium, high, or critical. Pass null to clear it.
+       *
+       * * `low` - Low
+       * * `medium` - Medium
+       * * `high` - High
+       * * `critical` - Critical */
+      priority?: TicketPriorityEnum | BlankEnum | null;
+      /** User or role to assign. Pass null to remove the current assignee. */
+      assignee?: TicketAssigneeRequest | null;
+      /** Customer details such as name and email. */
+      anonymous_traits?: unknown;
+      /** Whether AI resolved the ticket. */
+      ai_resolved?: boolean;
+      /**
+         * Reason the ticket was escalated. Pass null to clear it.
+         * @nullable
+         */
+      escalation_reason?: string | null;
+      /**
+         * SLA deadline. Pass null to clear it.
+         * @nullable
+         */
+      sla_due_at?: string | null;
+      /**
+         * Time to reopen the ticket. Pass null to reopen it now.
+         * @nullable
+         */
+      snoozed_until?: string | null;
+      /** Tag names to set on the ticket. */
+      tags?: string[];
+    }
+
     export interface TopPage {
       /** Host for the page, if recorded. */
       host: string;
@@ -84664,6 +84760,18 @@ export namespace Schemas {
       lookback_days_used: number;
       /** Caveats and guidance about the suggestions */
       notes: string[];
+    }
+
+    /**
+     * Request body for POST /api/users/verify_email/. Exactly one of token or code is required.
+     */
+    export interface VerifyEmailRequest {
+      /** UUID of the user whose email is being verified. */
+      uuid: string;
+      /** Verification token from the emailed link. Required unless a code is provided. */
+      token?: string;
+      /** The 6-digit verification code emailed at signup. Whitespace, invisible characters, and grouping hyphens are removed and compatibility digits are folded to ASCII before checking. */
+      code?: string;
     }
 
     export interface ViewLinkValidation {

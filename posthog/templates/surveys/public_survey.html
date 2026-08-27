@@ -218,7 +218,10 @@
                     return
                 }
 
-                if (event.key === 'Enter' && !event.shiftKey) {
+                const target = event.target
+                if (target instanceof HTMLElement && target.tagName === 'TEXTAREA') return
+
+                if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
                     const submitButton = container.querySelector('.form-submit:not([disabled])')
                     if (!submitButton) return
                     event.preventDefault()
@@ -228,7 +231,6 @@
                 }
 
                 if (isArrowKey(event.key)) {
-                    const target = event.target
                     if (target instanceof HTMLElement) {
                         const tag = target.tagName
                         if (tag === 'TEXTAREA') return
@@ -334,11 +336,13 @@
             const labels = getKeyboardHintLabels()
             const chip = (kbd, label) =>
                 `<span class="survey-keyhint-row"><kbd class="survey-kbd">${kbd}</kbd><span class="survey-keyhint-label">${label}</span></span>`
+            const commandEnter = navigator.platform.includes('Mac') ? '⌘↵' : 'Ctrl + ↵'
 
-            const chips = [chip('↵', labels.submit)]
-            if (currentType === 'open') {
-                chips.push(chip('⇧ ↵', labels.newline))
-            } else if (currentType === 'single_choice') {
+            const chips =
+                currentType === 'open'
+                    ? [chip('↵', labels.newline), chip(commandEnter, labels.submit)]
+                    : [chip('↵', labels.submit)]
+            if (currentType === 'single_choice') {
                 chips.push(chip('↑ ↓', labels.select))
             } else if (currentType === 'multiple_choice') {
                 chips.push(chip('↑ ↓', labels.select))
