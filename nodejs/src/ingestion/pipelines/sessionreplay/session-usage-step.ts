@@ -1,8 +1,9 @@
 import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
-import { PipelineResult, ok } from '~/ingestion/framework/results'
+import { PipelineResult, isOkResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 
 import { ParsedMessageData } from './kafka/types'
+import { SessionRecordingIngesterMetrics } from './metrics'
 import { NewSessionFlag, Recordable, SessionReplayHeaders } from './pipeline-types'
 import { TeamForReplay } from './teams/types'
 
@@ -46,5 +47,24 @@ export function createRecordSessionUsageStep<T extends SessionUsageInput>(
             }
         }
         return Promise.resolve(ok(value))
+    }
+}
+
+/**
+ * Counts the new sessions that lose their flag before they can bill. The pipeline marks a session
+ * seen before this step's message is parsed, so a first message that fails takes the flag with it:
+ * a later valid message for the same session bills nothing, while the report still counts the
+ * recording it produced. Marking later is not free — the mark sits after key resolution so a
+ * recording is never written in cleartext — so measure how often this happens before paying for it.
+ */
+export function trackUnbilledNewSessions<T extends NewSessionFlag, U>(
+    step: ProcessingStep<T, U>
+): ProcessingStep<T, U> {
+    return async function trackUnbilledNewSession(value): Promise<PipelineResult<U>> {
+        const result = await step(value)
+        if (value.isNewSession && !isOkResult(result)) {
+            SessionRecordingIngesterMetrics.incrementUnbilledNewSession(result.reason)
+        }
+        return result
     }
 }

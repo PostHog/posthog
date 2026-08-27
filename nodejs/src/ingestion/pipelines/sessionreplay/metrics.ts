@@ -146,8 +146,18 @@ export class SessionRecordingIngesterMetrics {
         help: 'Messages whose derived team pseudonym failed the consumer ref-shape check; collection disabled for them (inline blur instead)',
     })
 
+    private static readonly unbilledNewSession = new Counter({
+        name: 'recording_blob_ingestion_v2_unbilled_new_session',
+        help: 'New sessions whose first message failed before the usage step, so a later message for the same session bills nothing while the report still counts the recording',
+        labelNames: ['reason'],
+    })
+
     public static incrementMessageReceived(partition: number): void {
         this.messageReceived.labels(partition.toString()).inc()
+    }
+
+    public static incrementUnbilledNewSession(reason: string): void {
+        this.unbilledNewSession.labels(reason).inc()
     }
 
     public static observeDroppedByRestrictions(count: number): void {

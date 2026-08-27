@@ -32,7 +32,7 @@ import { createMarkSeenStep } from './session-batch-mark-seen-step'
 import { createResolveRetentionStep } from './session-batch-resolve-retention-step'
 import { createTrackAndGateStep } from './session-batch-track-and-gate-step'
 import { createResolveKeyStep } from './session-resolve-key-step'
-import { createRecordSessionUsageStep } from './session-usage-step'
+import { createRecordSessionUsageStep, trackUnbilledNewSessions } from './session-usage-step'
 import { createTeamFilterStep } from './team-filter-step'
 import { createValidateSessionReplayHeadersStep } from './validate-headers-step'
 
@@ -202,12 +202,14 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
                                                 b
                                                     // Parse message content
                                                     .pipe(
-                                                        topHogWrapper(createParseMessageStep(), [
-                                                            timer('parse_time_ms_by_session_id', (input) => ({
-                                                                token: input.headers.token ?? 'unknown',
-                                                                session_id: input.headers.session_id ?? 'unknown',
-                                                            })),
-                                                        ])
+                                                        trackUnbilledNewSessions(
+                                                            topHogWrapper(createParseMessageStep(), [
+                                                                timer('parse_time_ms_by_session_id', (input) => ({
+                                                                    token: input.headers.token ?? 'unknown',
+                                                                    session_id: input.headers.session_id ?? 'unknown',
+                                                                })),
+                                                            ])
+                                                        )
                                                     )
                                                     // Monitor library version and emit warnings for old versions
                                                     .pipe(createLibVersionMonitorStep())

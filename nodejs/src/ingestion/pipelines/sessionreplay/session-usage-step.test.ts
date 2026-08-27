@@ -1,11 +1,13 @@
 import { DateTime } from 'luxon'
+import { register } from 'prom-client'
 
 import { UsageIngestionClient, UsageRecordInput } from '~/common/usage-ingestion/client'
 import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
+import { drop, ok } from '~/ingestion/framework/results'
 
 import { ParsedMessageData } from './kafka/types'
 import { Recordable, SessionReplayHeaders } from './pipeline-types'
-import { createRecordSessionUsageStep } from './session-usage-step'
+import { createRecordSessionUsageStep, trackUnbilledNewSessions } from './session-usage-step'
 import { TeamForReplay } from './teams/types'
 
 type SessionUsageValue = Recordable<{
@@ -86,5 +88,29 @@ describe('createRecordSessionUsageStep', () => {
 
     it('bills nothing for a session already seen in this batch', async () => {
         expect(await record('web', 'posthog-js', false)).toEqual([])
+    })
+
+    describe('trackUnbilledNewSessions', () => {
+        async function unbilledCount(): Promise<number> {
+            const metric = register.getSingleMetric('recording_blob_ingestion_v2_unbilled_new_session')!
+            const data = (await metric.get()) as { values: { value: number }[] }
+            return data.values.reduce((total, entry) => total + entry.value, 0)
+        }
+
+        it.each([
+            ['counts a new session whose message fails', true, false, 1],
+            ['counts nothing for a session already seen', false, false, 0],
+            ['counts nothing for a new session that parses', true, true, 0],
+        ])('%s', async (_name, isNewSession, succeeds, expectedIncrease) => {
+            const value = buildValue('web', 'posthog-js', isNewSession)
+            const before = await unbilledCount()
+            const step = trackUnbilledNewSessions(() =>
+                Promise.resolve(succeeds ? ok(value) : drop<typeof value>('message_contained_no_valid_rrweb_events'))
+            )
+
+            await step(value)
+
+            expect(await unbilledCount()).toEqual(before + expectedIncrease)
+        })
     })
 })
