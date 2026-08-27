@@ -70,7 +70,7 @@ describe('nodeDetailSceneLogic', () => {
     it.each<[string, DataModelingNodeType, boolean, NodeDetailSceneTab]>([
         ['a materialized view', 'matview', true, 'materialization'],
         ['a plain view', 'view', false, 'query'],
-        ['an endpoint', 'endpoint', false, 'query'],
+        ['an endpoint', 'endpoint', true, 'query'],
         ['a table', 'table', false, 'lineage'],
     ])('opens %s on its own default tab', async (_case, type, materialized, expectedTab) => {
         node = buildNode(type)

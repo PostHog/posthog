@@ -359,6 +359,11 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 if (node?.type === 'table') {
                     return 'lineage'
                 }
+                // An endpoint's saved query is always materialized, but its materialization panel
+                // strips most controls, so Query is the tab that fits it.
+                if (node?.type === 'endpoint') {
+                    return 'query'
+                }
                 return savedQuery?.is_materialized ? 'materialization' : 'query'
             },
         ],
