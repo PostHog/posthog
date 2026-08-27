@@ -35,10 +35,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     observe_and_project_table,
     observed_schema_metadata_columns,
     raise_on_nullability_drift,
+    reconcile_batch_to_accumulated_schema,
     relax_batch_nullability,
     restrict_schema_to_columns,
     source_uses_delta_write_column_selection,
     table_from_py_list,
+    unify_schemas_with_text_fallback,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
@@ -1904,3 +1906,85 @@ class TestConditionalLruCacheAsyncCachePop:
         assert fetch.cache_pop("a") == "value-a"
         # Popped, not just read — a second pop finds nothing left to remove.
         assert fetch.cache_pop("a") is None
+
+
+class TestReconcileBatchToAccumulatedSchema:
+    def test_first_batch_seeds_the_accumulated_schema(self):
+        batch = pa.table({"owner_id": [1, 2]})
+
+        result, accumulated = reconcile_batch_to_accumulated_schema(batch, None)
+
+        assert result.equals(batch)
+        assert accumulated == batch.schema
+
+    @pytest.mark.parametrize(
+        "first,second,expected_type,expected_values",
+        [
+            # An epoch field arriving as numeric text after a numeric batch — the shape that
+            # kept breaking Intercom syncs — folds back into the type already written.
+            (pa.table({"f": [1700000000]}), pa.table({"f": ["1700000001"]}), pa.int64(), [1700000001]),
+            (pa.table({"f": ["a"]}), pa.table({"f": [7]}), pa.string(), ["7"]),
+            # Arrow's own promotion wins over stringifying when the types are compatible.
+            (pa.table({"f": [1]}), pa.table({"f": [1.5]}), pa.float64(), [1.5]),
+            # A column that was all-null in the first batch adopts the real type later.
+            (pa.table({"f": [None]}), pa.table({"f": [3]}), pa.int64(), [3]),
+            # Nothing else holds both, so text does.
+            (pa.table({"f": [1]}), pa.table({"f": ["nope"]}), pa.string(), ["nope"]),
+        ],
+    )
+    def test_conflicting_column_types_converge(
+        self, first: pa.Table, second: pa.Table, expected_type: pa.DataType, expected_values: list[Any]
+    ):
+        _, accumulated = reconcile_batch_to_accumulated_schema(first, None)
+
+        result, accumulated = reconcile_batch_to_accumulated_schema(second, accumulated)
+
+        assert result.schema.field("f").type == expected_type
+        assert accumulated.field("f").type == expected_type
+        assert result.column("f").to_pylist() == expected_values
+
+    def test_columns_missing_from_a_batch_are_backfilled(self):
+        _, accumulated = reconcile_batch_to_accumulated_schema(pa.table({"a": [1], "b": ["x"]}), None)
+
+        result, accumulated = reconcile_batch_to_accumulated_schema(pa.table({"a": [2]}), accumulated)
+
+        assert result.column("b").to_pylist() == [None]
+        assert result.schema.field("b").type == pa.string()
+
+    def test_columns_new_to_a_batch_join_the_accumulated_schema(self):
+        _, accumulated = reconcile_batch_to_accumulated_schema(pa.table({"a": [1]}), None)
+
+        _, accumulated = reconcile_batch_to_accumulated_schema(pa.table({"a": [2], "b": ["x"]}), accumulated)
+
+        assert accumulated.names == ["a", "b"]
+
+    def test_batches_of_source_rows_that_flip_type_stay_mergeable(self):
+        # The prod failure: a source returns the same field as an int on some rows and a string
+        # on others, each batch infers its own type, and merging the run's parquet schemas dies
+        # with "Unable to merge: Field ... has incompatible types: int64 vs string".
+        accumulated = None
+        schemas = []
+        for row in ({"id": "1", "waiting_since": 1700000000}, {"id": "2", "waiting_since": "1700000001"}):
+            batch = evolve_pyarrow_schema(table_from_py_list([row]), None)
+            batch, accumulated = reconcile_batch_to_accumulated_schema(batch, accumulated)
+            schemas.append(batch.schema)
+
+        assert unify_schemas_with_text_fallback(schemas).field("waiting_since").type == pa.int64()
+
+
+class TestUnifySchemasWithTextFallback:
+    def test_unmergeable_field_resolves_to_text(self):
+        # Batches written before a conflict keep their original type on disk, so the run's
+        # merged schema still sees both. Describing it as text beats failing the extraction.
+        merged = unify_schemas_with_text_fallback(
+            [pa.schema([pa.field("f", pa.int64())]), pa.schema([pa.field("f", pa.string())])]
+        )
+
+        assert merged.field("f").type == pa.string()
+
+    def test_mergeable_schemas_are_unchanged(self):
+        merged = unify_schemas_with_text_fallback(
+            [pa.schema([pa.field("a", pa.int64())]), pa.schema([pa.field("b", pa.string())])]
+        )
+
+        assert merged.names == ["a", "b"]

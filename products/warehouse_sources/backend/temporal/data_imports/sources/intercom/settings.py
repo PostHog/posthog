@@ -31,9 +31,6 @@ class IntercomEndpointConfig:
     incremental_query_param: str | None = None
     # Substream wiring — when set, this endpoint is fetched per-row of `parent_endpoint`.
     parent_endpoint: str | None = None
-    # Fields whose Intercom JSON type is inconsistent across records (int vs string);
-    # coerced to string at the source so every Arrow batch infers one stable type.
-    coerce_string_fields: list[str] = field(default_factory=list)
 
 
 # Endpoint contracts validated against the live Intercom REST API (version 2.13).
@@ -102,19 +99,6 @@ INTERCOM_ENDPOINTS: dict[str, IntercomEndpointConfig] = {
         paginator_kind="search",
         method="POST",
         partition_key="created_at",
-        # owner_id flips int/string per row; the nullable epoch attributes flip the
-        # same way (each observed failing prod syncs), so the whole family is pinned.
-        coerce_string_fields=[
-            "owner_id",
-            "last_seen_at",
-            "last_replied_at",
-            "last_contacted_at",
-            "last_email_opened_at",
-            "last_email_clicked_at",
-            "ios_last_seen_at",
-            "android_last_seen_at",
-            "signed_up_at",
-        ],
     ),
     "conversations": IntercomEndpointConfig(
         name="conversations",
@@ -123,7 +107,6 @@ INTERCOM_ENDPOINTS: dict[str, IntercomEndpointConfig] = {
         paginator_kind="search",
         method="POST",
         partition_key="created_at",
-        coerce_string_fields=["admin_assignee_id", "team_assignee_id", "waiting_since", "snoozed_until"],
     ),
     "tickets": IntercomEndpointConfig(
         # `POST /tickets/search` mirrors contacts/conversations: it accepts
@@ -135,7 +118,6 @@ INTERCOM_ENDPOINTS: dict[str, IntercomEndpointConfig] = {
         paginator_kind="search",
         method="POST",
         partition_key="created_at",
-        coerce_string_fields=["admin_assignee_id", "team_assignee_id"],
     ),
     "articles": IntercomEndpointConfig(
         name="articles",
@@ -193,7 +175,6 @@ INTERCOM_ENDPOINTS: dict[str, IntercomEndpointConfig] = {
         paginator_kind="substream",
         parent_endpoint="conversations",
         partition_key="created_at",
-        coerce_string_fields=["waiting_since"],
     ),
     "help_centers": IntercomEndpointConfig(
         # `GET /help_center/help_centers` — one row per Help Center site. A workspace

@@ -355,19 +355,27 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         has_non_retryable_error = not platform_failure and error_message_matches(
             internal_error_normalized, non_retryable_errors.keys()
         )
+
+        # This activity runs once the workflow has given up, so every error reaching here has
+        # already exhausted its retries — including the ones no source classified. Those used to
+        # leave a schema in error state with no event behind it, which is why whole classes of
+        # failure only ever surfaced through support tickets. Emit for both outcomes and
+        # distinguish them with a property.
+        posthoganalytics.capture(
+            distinct_id=get_machine_id(),
+            event="schema non-retryable error" if has_non_retryable_error else "schema unclassified error",
+            properties={
+                "schemaId": inputs.schema_id,
+                "sourceId": inputs.source_id,
+                "sourceType": source.source_type,
+                "jobId": inputs.job_id,
+                "teamId": inputs.team_id,
+                "error": inputs.internal_error,
+                "classified": has_non_retryable_error,
+            },
+        )
+
         if has_non_retryable_error:
-            posthoganalytics.capture(
-                distinct_id=get_machine_id(),
-                event="schema non-retryable error",
-                properties={
-                    "schemaId": inputs.schema_id,
-                    "sourceId": inputs.source_id,
-                    "sourceType": source.source_type,
-                    "jobId": inputs.job_id,
-                    "teamId": inputs.team_id,
-                    "error": inputs.internal_error,
-                },
-            )
             friendly_errors = [
                 friendly_error
                 for error, friendly_error in non_retryable_errors.items()

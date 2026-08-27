@@ -787,6 +787,122 @@ def restrict_schema_to_columns(schema: pa.Schema, column_names: Sequence[str]) -
     return pa.schema([field for field in schema if field.name in present])
 
 
+def _stringify_column(column: pa.ChunkedArray | pa.Array) -> pa.Array:
+    """Render a column as text, JSON-encoding anything that isn't a plain scalar."""
+    return pa.array(
+        [
+            None if value is None else (_json_dumps(value) if isinstance(value, dict | list) else str(value))
+            for value in _to_list_array(column)
+        ],
+        type=pa.string(),
+    )
+
+
+def _cast_column_to(column: pa.ChunkedArray | pa.Array, target: pa.DataType) -> pa.ChunkedArray | pa.Array | None:
+    """Safe-cast a column, returning None when the values don't fit the target type."""
+    try:
+        return pc.cast(column, target)
+    except (pa.ArrowInvalid, pa.ArrowNotImplementedError, pa.ArrowTypeError):
+        return None
+
+
+def _common_type(left: pa.DataType, right: pa.DataType) -> pa.DataType | None:
+    """The type Arrow will promote `left` and `right` to, or None if it won't promote them."""
+    try:
+        unified = pa.unify_schemas(
+            [pa.schema([pa.field("f", left)]), pa.schema([pa.field("f", right)])], promote_options="permissive"
+        )
+    except (pa.ArrowInvalid, pa.ArrowTypeError, pa.ArrowNotImplementedError):
+        return None
+    return unified.field("f").type
+
+
+def reconcile_batch_to_accumulated_schema(
+    pa_table: pa.Table, accumulated_schema: pa.Schema | None
+) -> tuple[pa.Table, pa.Schema]:
+    """Make a batch's schema consistent with the batches already written in this run.
+
+    Extraction infers each batch's Arrow types independently, so a source that returns the same
+    field as an int on some rows and a string on others produces parquet parts that disagree —
+    which then fails when the parts' schemas are merged, with the whole sync landing in error.
+    That is not fixable per-field per-source: a workspace can put arbitrary values in a custom
+    attribute, so the set of flip-prone fields is unbounded.
+
+    Reconciling here converges every batch onto one type for the run, preferring in order:
+    the type earlier batches already wrote (nothing to rewrite), Arrow's own promotion (e.g.
+    int64 + double → double), and finally text, which holds anything.
+
+    Also backfills columns that earlier batches had and this one doesn't, so a column that only
+    appears in some batches still lands with a stable type.
+    """
+    if accumulated_schema is None:
+        return pa_table, pa_table.schema
+
+    for accumulated_field in accumulated_schema:
+        name = accumulated_field.name
+        index = pa_table.schema.get_field_index(name)
+        if index == -1:
+            pa_table = pa_table.append_column(
+                accumulated_field, pa.nulls(pa_table.num_rows, type=accumulated_field.type)
+            )
+            continue
+
+        incoming_type = pa_table.field(index).type
+        if incoming_type == accumulated_field.type:
+            continue
+
+        casted = _cast_column_to(pa_table.column(name), accumulated_field.type)
+        resolved_type = accumulated_field.type
+
+        if casted is None:
+            promoted = _common_type(accumulated_field.type, incoming_type)
+            casted = None if promoted is None else _cast_column_to(pa_table.column(name), promoted)
+            resolved_type = promoted if casted is not None else pa.string()
+            if casted is None:
+                casted = _stringify_column(pa_table.column(name))
+
+        pa_table = pa_table.set_column(index, pa.field(name, resolved_type, nullable=True), casted)
+        if resolved_type != accumulated_field.type:
+            accumulated_schema = accumulated_schema.set(
+                accumulated_schema.get_field_index(name), pa.field(name, resolved_type, nullable=True)
+            )
+
+    for field in pa_table.schema:
+        if field.name not in accumulated_schema.names:
+            accumulated_schema = accumulated_schema.append(field)
+
+    return pa_table, accumulated_schema
+
+
+def unify_schemas_with_text_fallback(schemas: list[pa.Schema]) -> pa.Schema:
+    """Merge batch schemas, resolving any field Arrow refuses to merge to text.
+
+    `reconcile_batch_to_accumulated_schema` converges a run onto one type per column, but batches
+    written before the conflicting one keep the type they were written with, so the merged view of
+    a run can still hold two types for a field. The merged schema is descriptive metadata — the
+    load stage casts each part toward the Delta table on its own — so it's better to describe such
+    a column as text than to fail the extraction over it.
+    """
+    try:
+        return pa.unify_schemas(schemas, promote_options="permissive")
+    except (pa.ArrowInvalid, pa.ArrowTypeError, pa.ArrowNotImplementedError):
+        pass
+
+    merged: dict[str, pa.Field] = {}
+    for schema in schemas:
+        for field in schema:
+            existing = merged.get(field.name)
+            if existing is None:
+                merged[field.name] = field
+                continue
+            if existing.type == field.type:
+                continue
+            promoted = _common_type(existing.type, field.type)
+            merged[field.name] = pa.field(field.name, promoted or pa.string(), nullable=True)
+
+    return pa.schema(list(merged.values()))
+
+
 def build_pyarrow_decimal_type(precision: int, scale: int) -> pa.Decimal128Type | pa.Decimal256Type:
     if precision <= 38:
         return pa.decimal128(precision, scale)
