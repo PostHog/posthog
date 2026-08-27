@@ -470,24 +470,34 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_total_cost_usd).toBeGreaterThan(0)
         })
 
-        // This pair is the point of the distinction: absent token counts and zero
-        // token counts describe different calls, so they must not price the same.
-        it('records no cost when token counts are absent', () => {
+        // Absent and zero token counts describe different calls, so they must not
+        // price the same. Zero is a usage report of nothing; absent is no report.
+        it.each([
+            { counts: 'absent', tokens: {}, expected: undefined },
+            { counts: 'zero', tokens: { $ai_input_tokens: 0, $ai_output_tokens: 0 }, expected: 0 },
+        ])('records $expected cost when token counts are $counts', ({ tokens, expected }) => {
             delete event.properties!.$ai_input_tokens
             delete event.properties!.$ai_output_tokens
+            Object.assign(event.properties!, tokens)
+
             const result = processAiEvent(event)
-            expect(result.properties!.$ai_total_cost_usd).toBeUndefined()
-            expect(result.properties!.$ai_input_cost_usd).toBeUndefined()
-            expect(result.properties!.$ai_output_cost_usd).toBeUndefined()
+
+            expect(result.properties!.$ai_total_cost_usd).toBe(expected)
+            expect(result.properties!.$ai_input_cost_usd).toBe(expected)
+            expect(result.properties!.$ai_output_cost_usd).toBe(expected)
         })
 
-        it('handles zero token counts', () => {
-            event.properties!.$ai_input_tokens = 0
-            event.properties!.$ai_output_tokens = 0
+        // Guards the property list that decides whether an event reported usage.
+        // Narrowing it to the plain input/output counts would leave an event that
+        // only reports cache or modality tokens looking like it reported nothing.
+        it('prices an event that reports only cache tokens', () => {
+            delete event.properties!.$ai_input_tokens
+            delete event.properties!.$ai_output_tokens
+            event.properties!.$ai_cache_read_input_tokens = 100
+
             const result = processAiEvent(event)
-            expect(result.properties!.$ai_total_cost_usd).toBe(0)
-            expect(result.properties!.$ai_input_cost_usd).toBe(0)
-            expect(result.properties!.$ai_output_cost_usd).toBe(0)
+
+            expect(result.properties!.$ai_total_cost_usd).toBeGreaterThan(0)
         })
     })
 
