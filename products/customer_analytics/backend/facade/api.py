@@ -1706,9 +1706,7 @@ def _validate_column_property_map(column_property_map: Any) -> dict[str, str]:
     return column_property_map
 
 
-def _validate_column_descriptions(
-    column_descriptions: Any, mapped_columns: set[str], *, reject_unmapped: bool = False
-) -> dict[str, str]:
+def _validate_column_descriptions(column_descriptions: Any, mapped_columns: set[str]) -> dict[str, str]:
     """Optional {warehouse_column: description} for a person source. Descriptions are keyed by the
     same warehouse columns the source maps; unknown columns and blank descriptions are dropped."""
     if column_descriptions is None:
@@ -1718,10 +1716,6 @@ def _validate_column_descriptions(
     cleaned: dict[str, str] = {}
     for column, description in column_descriptions.items():
         if column not in mapped_columns:
-            if reject_unmapped:
-                raise CustomPropertySourceValidationError(
-                    "column_descriptions keys must be present in column_property_map."
-                )
             continue
         if description is None or (isinstance(description, str) and not description.strip()):
             continue
@@ -2207,20 +2201,27 @@ def update_custom_property_source(
     profile_mapping_fields = {"column_property_map", "column_descriptions"}.intersection(fields)
     if profile_mapping_fields:
         if source.definition.target_type not in _WAREHOUSE_PROFILE_TARGETS:
-            raise CustomPropertySourceValidationError(
-                "An account property source uses saved_query + source_column, not external_data_schema."
-            )
-        validated_map = _validate_column_property_map(fields.get("column_property_map", source.column_property_map))
-        if "column_property_map" in fields:
-            fields["column_property_map"] = validated_map
-        if "column_descriptions" in fields:
-            fields["column_descriptions"] = _validate_column_descriptions(
-                fields["column_descriptions"], set(validated_map), reject_unmapped=True
-            )
-        elif "column_property_map" in fields:
-            fields["column_descriptions"] = _validate_column_descriptions(
-                source.column_descriptions, set(validated_map)
-            )
+            if any(fields[field] is not None for field in profile_mapping_fields):
+                raise CustomPropertySourceValidationError(
+                    "An account property source uses saved_query + source_column, not external_data_schema."
+                )
+            # Account GET responses include these profile-only fields as null. Treating those nulls as
+            # absent keeps the writable representation compatible with a GET/PATCH round trip.
+            for field in profile_mapping_fields:
+                fields.pop(field)
+            profile_mapping_fields.clear()
+        else:
+            validated_map = _validate_column_property_map(fields.get("column_property_map", source.column_property_map))
+            if "column_property_map" in fields:
+                fields["column_property_map"] = validated_map
+            if "column_descriptions" in fields:
+                fields["column_descriptions"] = _validate_column_descriptions(
+                    fields["column_descriptions"], set(validated_map)
+                )
+            elif "column_property_map" in fields:
+                fields["column_descriptions"] = _validate_column_descriptions(
+                    source.column_descriptions, set(validated_map)
+                )
     reenabling = fields.get("is_enabled") is True and not source.is_enabled
     mapping_changed = "column_property_map" in fields and fields["column_property_map"] != source.column_property_map
     descriptions_changed = (

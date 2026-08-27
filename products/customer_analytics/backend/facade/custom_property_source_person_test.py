@@ -330,11 +330,6 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
             ("empty_map", {"column_property_map": {}}, "non-empty object"),
             ("null_map", {"column_property_map": None}, "non-empty object"),
             ("blank_property", {"column_property_map": {"plan": ""}}, "non-empty property names"),
-            (
-                "description_outside_map",
-                {"column_descriptions": {"unmapped": "Unknown column"}},
-                "present in column_property_map",
-            ),
         ]
     )
     @patch("products.customer_analytics.backend.facade.api._start_person_backfill_if_enabled")
@@ -350,6 +345,18 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         row = CustomPropertySource.objects.unscoped().get(id=source.id)
         assert row.column_property_map == {"plan": "plan_tier"}
         start_backfill.assert_not_called()
+
+    def test_update_person_source_drops_unmapped_descriptions_like_create(self):
+        source = self._create(user_access_control=self._uac(allowed=True))
+
+        view = api.update_custom_property_source(
+            team_id=self.team.id,
+            source_id=source.id,
+            fields={"column_descriptions": {"plan": " Plan tier ", "unmapped": "ignored"}},
+            user_access_control=self._uac(allowed=True),
+        )
+
+        assert view is not None and view.column_descriptions == {"plan": "Plan tier"}
 
     @parameterized.expand(["column_property_map", "column_descriptions"])
     def test_update_account_source_rejects_profile_mapping_fields(self, field):
@@ -368,6 +375,24 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
                 source_id=source.id,
                 fields={field: value},
             )
+
+    def test_update_account_source_ignores_null_profile_mapping_fields(self):
+        source = self._create(
+            definition_id=self.account_def.id,
+            external_data_schema_id=None,
+            saved_query_id=self.saved_query.id,
+            source_column="mrr",
+            column_property_map=None,
+        )
+
+        view = api.update_custom_property_source(
+            team_id=self.team.id,
+            source_id=source.id,
+            fields={"column_property_map": None, "column_descriptions": None},
+        )
+
+        assert view is not None
+        assert view.column_property_map is None and view.column_descriptions is None
 
     def test_update_person_mapping_is_team_scoped(self):
         source = self._create(user_access_control=self._uac(allowed=True))

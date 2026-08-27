@@ -2019,7 +2019,16 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         assert listed.status_code == status.HTTP_200_OK
         assert [s["id"] for s in listed.json()["results"]] == [source_id]
 
-        toggled = self.client.patch(f"{self.endpoint}{source_id}/", {"is_enabled": False}, format="json")
+        detail_endpoint = f"{self.endpoint}{source_id}/"
+        retrieved = self.client.get(detail_endpoint)
+        assert retrieved.status_code == status.HTTP_200_OK
+        assert retrieved.json()["column_property_map"] is None
+        assert retrieved.json()["column_descriptions"] is None
+
+        round_tripped = self.client.patch(detail_endpoint, retrieved.json(), format="json")
+        assert round_tripped.status_code == status.HTTP_200_OK, round_tripped.content
+
+        toggled = self.client.patch(detail_endpoint, {"is_enabled": False}, format="json")
         assert toggled.status_code == status.HTTP_200_OK
         assert toggled.json()["is_enabled"] is False
 
