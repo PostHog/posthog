@@ -171,7 +171,7 @@ class CreateHogFunctionFiltersTool(MaxTool):
                 render_event_taxonomy(),
                 render_event_property_taxonomy(),
                 render_person_property_taxonomy(),
-                render_filter_operator_taxonomy(),
+                render_filter_operator_taxonomy(function_type),
                 # Last, so the taxonomy above stays an identical prefix across teams and requests
                 # and the provider's prompt cache can hit it.
                 f"Current filters: {current_filters}\nFunction type: {function_type}",

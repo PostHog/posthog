@@ -5,11 +5,35 @@ from posthog.schema import PropertyOperator
 
 from posthog.taxonomy.taxonomy import visible_definitions
 
+from products.cdp.backend.models.hog_functions.hog_function import TYPES_WITH_TRANSPILED_FILTERS
+
 from ee.hogai.summarizers.property_filters import PROPERTY_FILTER_VERBOSE_NAME
 
 # `flag_evaluates_to` compiles only on a `type: "flag"` filter. Hog function filters are only ever
 # event, person, or group, and `property_to_expr` raises `NotImplementedError` for those.
 UNSUPPORTED_FILTER_OPERATORS = frozenset({PropertyOperator.FLAG_EVALUATES_TO})
+
+# Site destinations and site apps transpile their filters to JavaScript, whose standard library
+# (`posthog/hogql/compiler/javascript_stl.py`) defines neither `sortableSemver` (which every semver
+# operator emits) nor `multiSearchAnyCaseInsensitive` (which the multi-contains operators emit). A
+# filter using one saves cleanly and then throws `ReferenceError` in the generated bundle on the
+# first event. Every other function type compiles filters to bytecode, whose standard library does
+# define both, so these stay offered there.
+TRANSPILED_UNSUPPORTED_FILTER_OPERATORS = frozenset(
+    {
+        PropertyOperator.ICONTAINS_MULTI,
+        PropertyOperator.NOT_ICONTAINS_MULTI,
+        PropertyOperator.SEMVER_EQ,
+        PropertyOperator.SEMVER_NEQ,
+        PropertyOperator.SEMVER_GT,
+        PropertyOperator.SEMVER_GTE,
+        PropertyOperator.SEMVER_LT,
+        PropertyOperator.SEMVER_LTE,
+        PropertyOperator.SEMVER_TILDE,
+        PropertyOperator.SEMVER_CARET,
+        PropertyOperator.SEMVER_WILDCARD,
+    }
+)
 
 HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT = """
 The user is currently editing or creating a Hog transformation function. They expect your help with writing and tweaking Hog code.
@@ -923,11 +947,14 @@ def _is_person_only(name: str, event_property_names: set[str]) -> bool:
     )
 
 
-def render_filter_operator_taxonomy() -> str:
+def render_filter_operator_taxonomy(function_type: str) -> str:
+    unsupported = UNSUPPORTED_FILTER_OPERATORS
+    if function_type in TYPES_WITH_TRANSPILED_FILTERS:
+        unsupported = unsupported | TRANSPILED_UNSUPPORTED_FILTER_OPERATORS
     root = ET.Element("filter_taxonomy")
     ET.SubElement(root, "usage").text = "A filter's `operator` field takes the `value` below, never the `meaning`."
     for operator, verbose_name in PROPERTY_FILTER_VERBOSE_NAME.items():
-        if operator in UNSUPPORTED_FILTER_OPERATORS:
+        if operator in unsupported:
             continue
         entry = ET.SubElement(root, "operator")
         ET.SubElement(entry, "value").text = operator.value

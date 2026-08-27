@@ -75,7 +75,7 @@ class TestTaxonomyPrompts:
         assert properties["$initial_browser"].findtext("description") is None
 
     def test_render_operators_uses_wire_values(self):
-        values = _texts(render_filter_operator_taxonomy(), "value")
+        values = _texts(render_filter_operator_taxonomy("destination"), "value")
 
         assert values == {
             operator.value for operator in PROPERTY_FILTER_VERBOSE_NAME if operator not in UNSUPPORTED_FILTER_OPERATORS
@@ -90,4 +90,34 @@ class TestTaxonomyPrompts:
 
     def test_render_operators_omits_operators_hog_functions_cannot_compile(self):
         assert PropertyOperator.FLAG_EVALUATES_TO in UNSUPPORTED_FILTER_OPERATORS
-        assert PropertyOperator.FLAG_EVALUATES_TO.value not in _texts(render_filter_operator_taxonomy(), "value")
+        assert PropertyOperator.FLAG_EVALUATES_TO.value not in _texts(
+            render_filter_operator_taxonomy("destination"), "value"
+        )
+
+    @parameterized.expand(["site_destination", "site_app"])
+    def test_render_operators_omits_operators_that_break_transpiled_filters(self, function_type):
+        # Site types transpile filters to JavaScript, whose standard library defines neither
+        # `sortableSemver` (semver operators) nor `multiSearchAnyCaseInsensitive` (multi-contains).
+        # A saved filter using one throws at runtime, so these must not reach the model for a site
+        # type. Every other type compiles to bytecode, which defines both, so they stay offered.
+        # Asserted against literal names, not the renderer's own exclusion set, so a change that
+        # stopped excluding them would fail here instead of moving both sides together.
+        broken_on_site = {
+            PropertyOperator.ICONTAINS_MULTI.value,
+            PropertyOperator.NOT_ICONTAINS_MULTI.value,
+            PropertyOperator.SEMVER_EQ.value,
+            PropertyOperator.SEMVER_NEQ.value,
+            PropertyOperator.SEMVER_GT.value,
+            PropertyOperator.SEMVER_GTE.value,
+            PropertyOperator.SEMVER_LT.value,
+            PropertyOperator.SEMVER_LTE.value,
+            PropertyOperator.SEMVER_TILDE.value,
+            PropertyOperator.SEMVER_CARET.value,
+            PropertyOperator.SEMVER_WILDCARD.value,
+        }
+        site_values = _texts(render_filter_operator_taxonomy(function_type), "value")
+        destination_values = _texts(render_filter_operator_taxonomy("destination"), "value")
+
+        assert broken_on_site.isdisjoint(site_values)
+        # Scoped to site types: the bytecode path keeps every one of them.
+        assert broken_on_site <= destination_values
