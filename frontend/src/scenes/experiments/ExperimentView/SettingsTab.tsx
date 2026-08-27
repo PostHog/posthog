@@ -130,9 +130,9 @@ export function SettingsTab(): JSX.Element {
                     />
                 </div>
                 <p className="text-muted text-xs mt-1">
-                    Applies per metric, and only to metrics that have a conversion or retention window. For those
-                    metrics, it excludes participants whose window has not elapsed. Metrics without a window are not
-                    affected. The default is set in{' '}
+                    Applies per metric. It affects retention metrics and metrics whose conversion window is set to Time
+                    window, and excludes participants whose window has not elapsed. Metrics set to Experiment duration
+                    are not affected. The default is set in{' '}
                     <Link to={urls.settings('environment-experiments', 'environment-experiment-matured-users')}>
                         environment settings
                     </Link>
