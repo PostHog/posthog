@@ -223,3 +223,16 @@ FROM billing_usage_records GROUP BY 1, 2 ORDER BY 1, 2
 ## What is not reported yet
 
 All current collectors mirror usage into usage-ingestion. Existing billing still reads the nightly usage report.
+
+## Where a collector still disagrees with the report
+
+Each row is a case where the two systems would bill the same team differently, so they have to be closed before billing reads these records.
+
+| usage_key               | the report counts                                                                                                     | the collector counts                  | effect                                          |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------- | ----------------------------------------------- |
+| `survey_responses`      | one response per `$survey_submission_id` per survey, and nothing for a survey attached to a product tour              | every `survey sent` event             | over-bills repeat submissions and product tours |
+| `warehouse_rows_synced` | nothing for a source created within seven days of the period end, and nothing at all during the warehouse free period | every completed billable job          | over-bills a source's first week                |
+| `feature_flag_requests` | `decide` and local evaluation separately                                                                              | `decide` only, from the flags service | local evaluation requests never reach a record  |
+
+Session replay is the closest of the three that were closed: the collector bills a new session under `session_replay_recordings` only when it is not mobile, and under `mobile_replay_recordings` only for the four SDKs the report bills.
+It still bills a recording the report would later drop for `is_deleted`, because deletion happens after the session is counted.
