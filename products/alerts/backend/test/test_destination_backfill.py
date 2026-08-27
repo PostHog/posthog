@@ -30,6 +30,12 @@ SLACK_INPUTS_SCHEMA = [
 ]
 
 
+def _inputs(destination: HogFunction) -> dict[str, Any]:
+    inputs = destination.inputs
+    assert inputs is not None
+    return inputs
+
+
 def slack_inputs(blocks: list[Any]) -> dict[str, Any]:
     return {
         "blocks": {"value": blocks, "bytecode": ["_H", 1], "order": 0},
@@ -101,7 +107,7 @@ class TestBackfillInsightAlertChartBlocks(BaseTest):
 
     def _stored_blocks(self, destination: HogFunction) -> Any:
         destination.refresh_from_db()
-        return destination.inputs["blocks"]
+        return _inputs(destination)["blocks"]
 
     def test_apply_rewrites_the_blocks_and_their_bytecode(self) -> None:
         destination = self._destination()
@@ -146,7 +152,7 @@ class TestBackfillInsightAlertChartBlocks(BaseTest):
     def test_liquid_templated_blocks_are_left_alone(self) -> None:
         # A hog expression in liquid blocks would reach Slack as literal text.
         destination = self._destination()
-        destination.inputs["blocks"]["templating"] = "liquid"
+        _inputs(destination)["blocks"]["templating"] = "liquid"
         destination.save(update_fields=["inputs"])
 
         with self.captureOnCommitCallbacks(execute=True):
