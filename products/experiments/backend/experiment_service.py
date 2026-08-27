@@ -325,6 +325,16 @@ class ExperimentVersionConflict(APIException):
         return data
 
 
+class AnalyticsDatabaseUnavailable(APIException):
+    """A ClickHouse replica briefly went read-only (code 242), a transient server-side fault. 503
+    with a stable code, not the 400 a ValidationError sends: a scripted caller can then tell it apart
+    from a rejected request and retry — as the message asks — instead of treating it as permanent."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "analytics_database_unavailable"
+    default_detail = FREEZE_EXPOSURE_READONLY_MESSAGE
+
+
 # Fields a stale write may still change. The metric collections merge per uuid — each metric
 # carries a stable server-assigned uuid, so concurrent intent is preserved — and the ordering
 # arrays are re-derived by the ordering syncs. A stale write touching anything else conflicts
@@ -2524,7 +2534,7 @@ class ExperimentService:
                     limit_context=LimitContext.COHORT_CALCULATION,
                 )
         except CHQueryErrorTableIsReadOnly:
-            raise ValidationError(FREEZE_EXPOSURE_READONLY_MESSAGE)
+            raise AnalyticsDatabaseUnavailable()
         except (
             ClickHouseQueryTimeOut,
             ClickHouseQueryMemoryLimitExceeded,
@@ -2615,7 +2625,7 @@ class ExperimentService:
             # population doesn't leave an empty static cohort behind.
             cohort.delete()
             if isinstance(e, CHQueryErrorTableIsReadOnly):
-                raise ValidationError(FREEZE_EXPOSURE_READONLY_MESSAGE)
+                raise AnalyticsDatabaseUnavailable()
             raise
         return cohort
 

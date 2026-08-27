@@ -41,6 +41,7 @@ from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import (
+    AnalyticsDatabaseUnavailable,
     ExperimentService,
     ExperimentVersionConflict,
     _deprecated_fields_in_request,
@@ -4024,16 +4025,18 @@ class TestExperimentService(APIBaseTest):
         experiment = self._create_running_experiment(name="Freeze Readonly", feature_flag_key="freeze-readonly-flag")
         original_filters = deepcopy(experiment.feature_flag.filters)
 
-        # A read-only replica is transient — the message must invite a retry, not reuse the
-        # "too much data" wording that implies a permanent limit, and must not surface as a 500.
+        # A read-only replica is transient — a retryable 503, not a 400 that a scripted caller reads
+        # as permanent, and never a 500. The message must invite a retry, not reuse the "too much
+        # data" wording that implies a permanent limit.
         with patch(
             "products.experiments.backend.experiment_service.execute_hogql_query",
             side_effect=CHQueryErrorTableIsReadOnly("Table is in readonly mode", code=242),
         ):
-            with self.assertRaises(ValidationError) as ctx:
+            with self.assertRaises(AnalyticsDatabaseUnavailable) as ctx:
                 self._service().freeze_exposure(experiment, request=self._make_request())
-        assert "temporarily unavailable" in str(ctx.exception)
-        assert "too much" not in str(ctx.exception)
+        assert ctx.exception.status_code == 503
+        assert "temporarily unavailable" in str(ctx.exception.detail)
+        assert "too much" not in str(ctx.exception.detail)
 
         assert not Cohort.objects.filter(team=self.team, is_static=True).exists()
         experiment.feature_flag.refresh_from_db()
@@ -4143,7 +4146,7 @@ class TestExperimentService(APIBaseTest):
             (
                 "readonly_replica",
                 CHQueryErrorTableIsReadOnly("Table is in readonly mode", code=242),
-                ValidationError,
+                AnalyticsDatabaseUnavailable,
                 "temporarily unavailable",
             ),
         ]
