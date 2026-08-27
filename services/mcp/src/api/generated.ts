@@ -31484,6 +31484,8 @@ export namespace Schemas {
       query_status?: QueryStatus | null;
       /** Distinct releases in the range for the selected app, before folding. */
       release_count: number;
+      /** Set when the query hit its row cap, so `release_count`, `other` and `total` are lower bounds. */
+      release_count_truncated: boolean;
       /** The resolved previous/comparison period date range, when comparing against another period */
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
@@ -70340,6 +70342,8 @@ export namespace Schemas {
       query_status?: QueryStatus | null;
       /** Distinct releases in the range for the selected app, before folding. */
       release_count: number;
+      /** Set when the query hit its row cap, so `release_count`, `other` and `total` are lower bounds. */
+      release_count_truncated: boolean;
       /** The resolved previous/comparison period date range, when comparing against another period */
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
