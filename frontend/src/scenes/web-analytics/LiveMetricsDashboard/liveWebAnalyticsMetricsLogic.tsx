@@ -62,6 +62,7 @@ import {
 
 const ERROR_TOAST_ID = 'live-pageviews-error'
 const PARTIAL_FAILURE_TOAST_ID = 'live-pageviews-partial-failure'
+const BOT_QUERY_LABEL = 'bot traffic'
 const BUCKET_WINDOW_MINUTES = 30
 const FLUSH_INTERVAL_MS = 300
 const COOKIELESS_TRANSFORM_PREFIX = 'cookieless_transform'
@@ -75,6 +76,8 @@ const LIVE_QUERY_RETRY_DELAY_MS = 250
 const RELOAD_DEBOUNCE_MS = 300
 const PAUSE_GRACE_MS = 2000
 const TRANSIENT_QUERY_STATUSES = new Set([502, 503, 504])
+
+type BotQueryStatus = 'idle' | 'loading' | 'loaded' | 'error'
 
 // Bound live-dashboard query fan-out to protect ClickHouse capacity.
 const liveQueryConcurrency = new ConcurrencyController(LIVE_QUERY_CONCURRENCY)
@@ -134,6 +137,7 @@ export interface liveWebAnalyticsMetricsLogicValues {
     productTab: ProductTab // webAnalyticsLogic
     shouldFilterTestAccounts: boolean // webAnalyticsLogic
     botBreakdown: BotBreakdownItem[]
+    botQueryStatus: BotQueryStatus
     browserBreakdown: BrowserBreakdownItem[]
     chartData: ChartDataPoint[]
     cityBreakdown: CityBreakdownItem[]
@@ -142,6 +146,7 @@ export interface liveWebAnalyticsMetricsLogicValues {
     eventsVersion: number
     geoVersion: number
     hasActiveFilters: boolean
+    hasBotQueryError: boolean
     isBotLoading: boolean
     isLoading: boolean
     isRefreshing: boolean
@@ -210,6 +215,9 @@ export interface liveWebAnalyticsMetricsLogicActions {
             timestamp: number
         }[]
     }
+    setBotQueryStatus: (status: BotQueryStatus) => {
+        status: BotQueryStatus
+    }
     setInitialData: (
         buckets: {
             bucket: SlidingWindowBucket
@@ -222,9 +230,6 @@ export interface liveWebAnalyticsMetricsLogicActions {
             timestamp: number
         }[]
         recentUsersByLastSeen: [string, number][]
-    }
-    setIsBotLoading: (loading: boolean) => {
-        loading: boolean
     }
     setIsLoading: (loading: boolean) => {
         loading: boolean
@@ -281,6 +286,8 @@ export interface liveWebAnalyticsMetricsLogicMeta {
         ) => AnyPropertyFilter[]
         unstreamableTestAccountFilterCount: (testAccountFilters: AnyPropertyFilter[]) => number
         hasActiveFilters: (liveFilters: WebAnalyticsPropertyFilter[], shouldFilterTestAccounts: boolean) => boolean
+        hasBotQueryError: (botQueryStatus: BotQueryStatus) => boolean
+        isBotLoading: (botQueryStatus: BotQueryStatus) => boolean
         shouldLoadBots: (featureFlags: FeatureFlagsSet) => boolean
     }
 }
@@ -322,9 +329,9 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             recentUsersByLastSeen: [string, number][]
         ) => ({ buckets, recentUsersByLastSeen }),
         setBotData: (buckets: { timestamp: number; bucket: SlidingWindowBucket }[]) => ({ buckets }),
+        setBotQueryStatus: (status: BotQueryStatus) => ({ status }),
         setIsLoading: (loading: boolean) => ({ loading }),
         setIsRefreshing: (refreshing: boolean) => ({ refreshing }),
-        setIsBotLoading: (loading: boolean) => ({ loading }),
         loadInitialData: (isBackground: boolean = false) => ({ isBackground }),
         scheduleReload: true,
         updateConnection: true,
@@ -484,10 +491,10 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 setIsRefreshing: (_, { refreshing }) => refreshing,
             },
         ],
-        isBotLoading: [
-            false,
+        botQueryStatus: [
+            'idle' as BotQueryStatus,
             {
-                setIsBotLoading: (_, { loading }) => loading,
+                setBotQueryStatus: (_, { status }) => status,
             },
         ],
         recentEvents: [
@@ -661,6 +668,14 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             (liveFilters: WebAnalyticsPropertyFilter[], shouldFilterTestAccounts: boolean): boolean =>
                 liveFilters.length > 0 || shouldFilterTestAccounts,
         ],
+        hasBotQueryError: [
+            (s) => [s.botQueryStatus],
+            (botQueryStatus: BotQueryStatus): boolean => botQueryStatus === 'error',
+        ],
+        isBotLoading: [
+            (s) => [s.botQueryStatus],
+            (botQueryStatus: BotQueryStatus): boolean => botQueryStatus === 'loading',
+        ],
         shouldLoadBots: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS],
@@ -759,40 +774,43 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 )
                 cache.hasLoadedData = true
 
+                if (values.shouldLoadBots) {
+                    actions.setBotQueryStatus('loading')
+                }
                 actions.setIsLoading(false)
                 actions.setIsRefreshing(false)
 
-                if (data.failedQueries.length > 0) {
-                    lemonToast.warning(`Some live metrics failed to load: ${data.failedQueries.join(', ')}`, {
-                        toastId: PARTIAL_FAILURE_TOAST_ID,
-                    })
-                }
+                const failedQueries = [...data.failedQueries]
 
                 if (values.shouldLoadBots) {
-                    if (isColdLoad) {
-                        actions.setIsBotLoading(true)
+                    const botResponse = await loadBotQueryData({
+                        dateFrom,
+                        dateTo: handoff,
+                        filters: values.liveFilters,
+                        filterTestAccounts: values.shouldFilterTestAccounts,
+                        filtersEnabled: true,
+                        abortController,
+                    })
+                    if (signal.aborted) {
+                        return
                     }
-                    try {
-                        const botResponse = await loadBotQueryData({
-                            dateFrom,
-                            dateTo: handoff,
-                            filters: values.liveFilters,
-                            filterTestAccounts: values.shouldFilterTestAccounts,
-                            filtersEnabled: true,
-                            abortController,
-                        })
-                        if (!signal.aborted && botResponse) {
-                            const botBucketMap = new Map<number, SlidingWindowBucket>()
-                            addBotDataToBuckets(botResponse, botBucketMap)
-                            actions.setBotData(
-                                [...botBucketMap.entries()].map(([timestamp, bucket]) => ({ timestamp, bucket }))
-                            )
-                        }
-                    } finally {
-                        if (!signal.aborted) {
-                            actions.setIsBotLoading(false)
-                        }
+                    if (botResponse) {
+                        const botBucketMap = new Map<number, SlidingWindowBucket>()
+                        addBotDataToBuckets(botResponse, botBucketMap)
+                        actions.setBotData(
+                            [...botBucketMap.entries()].map(([timestamp, bucket]) => ({ timestamp, bucket }))
+                        )
+                        actions.setBotQueryStatus('loaded')
+                    } else {
+                        failedQueries.push(BOT_QUERY_LABEL)
+                        actions.setBotQueryStatus('error')
                     }
+                }
+
+                if (failedQueries.length > 0) {
+                    lemonToast.warning(`Some live metrics failed to load: ${failedQueries.join(', ')}`, {
+                        toastId: PARTIAL_FAILURE_TOAST_ID,
+                    })
                 }
             } catch (error) {
                 if (!isAbortedRequest(error)) {
