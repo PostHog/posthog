@@ -68,6 +68,33 @@ function breakdownEvent(
   };
 }
 
+function compactBoundaryEvent(): AcpMessage {
+  return {
+    type: "acp_message",
+    ts: 1,
+    message: {
+      jsonrpc: "2.0",
+      method: "_posthog/compact_boundary",
+      params: { sessionId: "s1", trigger: "auto" },
+    },
+  };
+}
+
+function fullBreakdown(
+  overrides: Record<string, number>,
+): Record<string, number> {
+  return {
+    systemPrompt: 0,
+    tools: 0,
+    rules: 0,
+    skills: 0,
+    mcp: 0,
+    subagents: 0,
+    conversation: 0,
+    ...overrides,
+  };
+}
+
 function agentChunkEvent(): AcpMessage {
   return {
     type: "acp_message",
@@ -168,6 +195,33 @@ describe("extractContextUsage", () => {
     expect(result?.cost?.currency).toBe("USD");
   });
 
+  it("drops a breakdown from before a compaction so it can't outlive the shrunken context", () => {
+    const result = extractContextUsage([
+      usageUpdateEvent(180_000, 200_000),
+      breakdownEvent(
+        fullBreakdown({ systemPrompt: 4000, conversation: 176_000 }),
+      ),
+      compactBoundaryEvent(),
+      usageUpdateEvent(40_000, 200_000),
+    ]);
+    // Ring shows the reduced context; the stale pre-compaction breakdown must
+    // not linger against it, so the popover falls back until a fresh one lands.
+    expect(result?.used).toBe(40_000);
+    expect(result?.breakdown).toBeNull();
+  });
+
+  it("keeps a breakdown emitted after a compaction", () => {
+    const result = extractContextUsage([
+      breakdownEvent(fullBreakdown({ conversation: 176_000 })),
+      compactBoundaryEvent(),
+      usageUpdateEvent(40_000, 200_000),
+      breakdownEvent(
+        fullBreakdown({ systemPrompt: 4000, conversation: 36_000 }),
+      ),
+    ]);
+    expect(result?.breakdown?.conversation).toBe(36_000);
+  });
+
   it("tolerates the double-underscore method prefix from extNotification", () => {
     const result = extractContextUsage([
       usageUpdateEvent(50_000, 200_000),
@@ -249,6 +303,27 @@ describe("createContextUsageTracker", () => {
       costUsageUpdateEvent(90_000, 200_000, 0.35),
     ];
     expect(tracker.update(events)).toEqual(extractContextUsage(events));
+  });
+
+  it("clears the carried breakdown on the append path when a compaction lands", () => {
+    const tracker = createContextUsageTracker();
+    const before = [
+      usageUpdateEvent(180_000, 200_000),
+      breakdownEvent(
+        fullBreakdown({ systemPrompt: 4000, conversation: 176_000 }),
+      ),
+    ];
+    expect(tracker.update(before)?.breakdown?.conversation).toBe(176_000);
+
+    const after = [
+      ...before,
+      compactBoundaryEvent(),
+      usageUpdateEvent(40_000, 200_000),
+    ];
+    const result = tracker.update(after);
+    expect(result?.used).toBe(40_000);
+    expect(result?.breakdown).toBeNull();
+    expect(result).toEqual(extractContextUsage(after));
   });
 
   it("rebuilds when the tail changes at the same length", () => {
