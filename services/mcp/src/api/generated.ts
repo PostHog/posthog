@@ -11980,15 +11980,111 @@ export namespace Schemas {
       type: SnowflakeDestinationConfigType;
     }
 
-    export type BatchExportDestinationConfig = DatabricksDestinationConfig | AzureBlobDestinationConfig | BigQueryDestinationConfig | PostgresDestinationConfig | AwsS3DestinationConfig | S3CompatibleDestinationConfig | SnowflakeDestinationConfig;
+    /**
+     * * `varchar` - varchar
+     * * `super` - super
+     */
+    export type PropertiesDataTypeEnum = typeof PropertiesDataTypeEnum[keyof typeof PropertiesDataTypeEnum];
+
+
+    export const PropertiesDataTypeEnum = {
+      Varchar: 'varchar',
+      Super: 'super',
+    } as const;
+
+    /**
+     * * `INSERT` - INSERT
+     * * `COPY` - COPY
+     */
+    export type RedshiftExportModeEnum = typeof RedshiftExportModeEnum[keyof typeof RedshiftExportModeEnum];
+
+
+    export const RedshiftExportModeEnum = {
+      Insert: 'INSERT',
+      Copy: 'COPY',
+    } as const;
+
+    /**
+     * Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.
+     */
+    export type RedshiftCopyInputsAuthorization = number | string | {
+      aws_access_key_id: string;
+      aws_secret_access_key: string;
+    };
+
+    /**
+     * Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.
+     */
+    export type RedshiftCopyInputsBucketCredentials = number | {
+      aws_access_key_id: string;
+      aws_secret_access_key: string;
+    };
+
+    /**
+     * S3 staging configuration for a Redshift batch export running in COPY mode.
+     */
+    export interface RedshiftCopyInputs {
+      /** S3 bucket where files are staged before the Redshift COPY. */
+      s3_bucket: string;
+      /** AWS region of the staging S3 bucket. */
+      region_name: string;
+      /** Key prefix for staged files in the S3 bucket. */
+      s3_key_prefix: string;
+      /** Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration. */
+      authorization: RedshiftCopyInputsAuthorization;
+      /** Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration. */
+      bucket_credentials: RedshiftCopyInputsBucketCredentials;
+    }
+
+    export type RedshiftDestinationConfigType = typeof RedshiftDestinationConfigType[keyof typeof RedshiftDestinationConfigType];
+
+
+    export const RedshiftDestinationConfigType = {
+      Redshift: 'Redshift',
+    } as const;
+
+    /**
+     * Typed configuration for a Redshift batch-export destination.
+     *
+     * Connection credentials may live in a linked Integration (when one is provided) or inline in
+     * this config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in
+     * `products/batch_exports/backend/service.py`.
+     */
+    export interface RedshiftDestinationConfig {
+      /** Redshift database name to connect to. */
+      database: string;
+      /** Redshift cluster or Serverless workgroup endpoint. Required when using an AWS Redshift integration; plain Redshift integrations store the host themselves. */
+      host?: string;
+      /** Redshift schema name containing the destination table. */
+      schema?: string;
+      /** Redshift table name to write exported rows into. */
+      table_name?: string;
+      /** Port the Redshift server listens on. */
+      port?: number;
+      /** Data type used for JSON-like columns such as event properties.
+       *
+       * * `varchar` - varchar
+       * * `super` - super */
+      properties_data_type?: PropertiesDataTypeEnum;
+      /** How rows reach Redshift: batched INSERT statements, or COPY from files staged in S3.
+       *
+       * * `INSERT` - INSERT
+       * * `COPY` - COPY */
+      mode?: RedshiftExportModeEnum;
+      /** S3 staging configuration, required when mode is 'COPY'. */
+      copy_inputs?: RedshiftCopyInputs;
+      type: RedshiftDestinationConfigType;
+    }
+
+    export type BatchExportDestinationConfig = DatabricksDestinationConfig | AzureBlobDestinationConfig | BigQueryDestinationConfig | PostgresDestinationConfig | AwsS3DestinationConfig | S3CompatibleDestinationConfig | SnowflakeDestinationConfig | RedshiftDestinationConfig;
 
     /**
      * Serializer for an BatchExportDestination model.
      *
      * The `config` field is polymorphic and typed only for destinations that keep
      * credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,
-     * AwsS3, S3Compatible, Snowflake). Other destination types accept the same JSON shape but without a
-     * typed OpenAPI schema. Secret fields are stripped from `config` on read.
+     * AwsS3, S3Compatible, Snowflake, Redshift). Other destination types accept the same JSON shape
+     * but without a typed OpenAPI schema. Secret fields are stripped from `config` on read.
      */
     export interface BatchExportDestination {
       /** A choice of supported BatchExportDestination types.
@@ -12007,7 +12103,7 @@ export namespace Schemas {
        * * `NoOp` - Noop
        * * `FileDownload` - File Download */
       type: BatchExportDestinationTypeEnum;
-      /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
+      /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, Redshift) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
       config: BatchExportDestinationConfig;
       /**
          * The integration for this destination.
@@ -12015,7 +12111,7 @@ export namespace Schemas {
          */
       integration?: number | null;
       /**
-         * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake (inline credentials remain supported); unused for other types.
+         * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake and Redshift (inline credentials remain supported); unused for other types.
          * @nullable
          */
       integration_id?: number | null;
@@ -13001,7 +13097,24 @@ export namespace Schemas {
       config: SnowflakeDestinationConfig;
     }
 
-    export type BatchExportDestinationRequest = DatabricksDestinationRequest | AzureBlobDestinationRequest | BigQueryDestinationRequest | PostgresDestinationRequest | AwsS3DestinationRequest | S3CompatibleDestinationRequest | SnowflakeDestinationRequest;
+    export type RedshiftDestinationRequestType = typeof RedshiftDestinationRequestType[keyof typeof RedshiftDestinationRequestType];
+
+
+    export const RedshiftDestinationRequestType = {
+      Redshift: 'Redshift',
+    } as const;
+
+    /**
+     * Request shape for creating or updating a Redshift batch-export destination.
+     */
+    export interface RedshiftDestinationRequest {
+      type: RedshiftDestinationRequestType;
+      /** ID of an aws-redshift-kind Integration providing connection credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one. */
+      integration_id?: number;
+      config: RedshiftDestinationConfig;
+    }
+
+    export type BatchExportDestinationRequest = DatabricksDestinationRequest | AzureBlobDestinationRequest | BigQueryDestinationRequest | PostgresDestinationRequest | AwsS3DestinationRequest | S3CompatibleDestinationRequest | SnowflakeDestinationRequest | RedshiftDestinationRequest;
 
     /**
      * Request body for create/partial_update on BatchExportViewSet.
@@ -28784,11 +28897,11 @@ export namespace Schemas {
          */
       goal: string;
       /**
-         * Goal-based flow only: how many replays a month the scanner may watch. The draft solves `sampling_mode` and `sampling_rate` so the projection lands on this number. Omitted on the legacy flow, and ignored while the goal-based flow's flag is off for the caller.
+         * Goal-based flow only: credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves `sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets `credit_limit` to it as a hard cap. Omitted on the legacy flow, and ignored while the goal-based flow's flag is off for the caller.
          * @minimum 1
-         * @maximum 1000000
+         * @maximum 100000000
          */
-      monthly_scan_budget?: number;
+      monthly_credit_budget?: number;
     }
 
     /**
@@ -28822,6 +28935,20 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
+     * * `gemini-3.7-flash` - Gemini 3.7 Flash
+     */
+    export type ScannerModelEnum = typeof ScannerModelEnum[keyof typeof ScannerModelEnum];
+
+
+    export const ScannerModelEnum = {
+      Gemini35FlashLite: 'gemini-3.5-flash-lite',
+      Gemini3FlashPreview: 'gemini-3-flash-preview',
+      Gemini37Flash: 'gemini-3.7-flash',
+    } as const;
+
+    /**
      * An AI-drafted scanner configuration, ready to seed the creation wizard. Nothing is persisted.
      */
     export interface DraftScannerResponse {
@@ -28849,12 +28976,23 @@ export namespace Schemas {
        * * `comprehensive` - Comprehensive */
       sampling_mode: SamplingModeEnum | null;
       /**
-         * Goal-based flow only: the random sampling rate solved from `monthly_scan_budget`, 0..1. 1.0 when the budget covers every matching recording. Floored at the minimum rate, so a budget below that floor keeps the minimum. Null whenever `sampling_mode` is.
+         * Goal-based flow only: the random sampling rate solved from `monthly_credit_budget`, 0..1. 1.0 when the budget covers every matching recording. Floored at the minimum rate, so a budget below that floor keeps the minimum. Null whenever `sampling_mode` is.
          * @nullable
          */
       sampling_rate: number | null;
+      /** Goal-based flow only: the observation model the draft chose for the goal, by how much judgment it needs. Null on the legacy flow, where the wizard keeps its default model.
+       *
+       * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+       * * `gemini-3-flash-preview` - Gemini 3 Flash
+       * * `gemini-3.7-flash` - Gemini 3.7 Flash */
+      model: ScannerModelEnum | null;
       /**
-         * Goal-based flow only: recordings a month the drafted scanner is projected to watch under the solved dials. At or under `monthly_scan_budget`, except when the budget is below what the minimum sampling rate can reach, where this is the floor and exceeds the budget. Null whenever `sampling_mode` is.
+         * Goal-based flow only: the monthly credit cap, set to `monthly_credit_budget` so a mis-estimate stops the scanner at the credits the user agreed to. Null on the legacy flow.
+         * @nullable
+         */
+      credit_limit: number | null;
+      /**
+         * Goal-based flow only: recordings a month the drafted scanner is projected to watch under the solved dials. Its credit cost lands at or under `monthly_credit_budget`, except when the budget is below what the minimum sampling rate can reach, where this is the floor and exceeds the budget. Null whenever `sampling_mode` is.
          * @nullable
          */
       estimated_monthly_observations: number | null;
@@ -31925,20 +32063,6 @@ export namespace Schemas {
       /** Hash of the uploaded symbol set content. */
       content_hash: string;
     }
-
-    /**
-     * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
-     * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.7-flash` - Gemini 3.7 Flash
-     */
-    export type ScannerModelEnum = typeof ScannerModelEnum[keyof typeof ScannerModelEnum];
-
-
-    export const ScannerModelEnum = {
-      Gemini35FlashLite: 'gemini-3.5-flash-lite',
-      Gemini3FlashPreview: 'gemini-3-flash-preview',
-      Gemini37Flash: 'gemini-3.7-flash',
-    } as const;
 
     /**
      * The experiment a scanner watches. Scans derive their person-scoped exposure filter from
@@ -72859,6 +72983,16 @@ export namespace Schemas {
       EveryRunInThisRepo: 'every_run_in_this_repo',
       RunsTouchingThisArea: 'runs_touching_this_area',
       OneOff: 'one_off',
+    } as const;
+
+    /**
+     * * `Redshift` - Redshift
+     */
+    export type RedshiftDestinationRequestTypeEnum = typeof RedshiftDestinationRequestTypeEnum[keyof typeof RedshiftDestinationRequestTypeEnum];
+
+
+    export const RedshiftDestinationRequestTypeEnum = {
+      Redshift: 'Redshift',
     } as const;
 
     export interface RelationshipReject {
