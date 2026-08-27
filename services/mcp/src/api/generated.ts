@@ -28711,7 +28711,7 @@ export namespace Schemas {
       merge_to_deploy_series: MergeToDeployBucket[];
       /** False when the deployments/deployment_statuses tables aren't synced for the selected repo; every other field is then empty or null, never a fake zero. */
       deploy_data_available: boolean;
-      /** What the environment filter resolved to: 'production' (deployments GitHub marks production_environment), an exact environment name (the one passed, or the busiest persistent environment when nothing is marked production), or 'persistent' (no persistent environment deployed in the window, so every non-transient one counts). Transient environments (ephemeral per-PR previews) never join a default scope. */
+      /** What the environment filter resolved to: 'production' (deployments GitHub marks production_environment), an exact environment name (the one passed, or the busiest persistent environment when nothing is marked production), or 'persistent' (no persistent environment deployed in the window, so every non-transient one counts). Transient environments (ephemeral per-PR previews) never join a default scope. The scope resolves from deployments in the scan window, so two different windows can resolve different scopes and are not always comparable. */
       environment_scope: string;
       /** Distinct persistent environments deployed to in the scan window, most-deployed first — the environment picker's options. Transient environments are omitted but stay reachable by exact name. */
       environments: string[];
@@ -28724,12 +28724,12 @@ export namespace Schemas {
       /** Same count over the equal-length window before date_from. */
       deployment_count_prev: number;
       /**
-         * deployment_count normalized by the window length in days. Null when nothing deployed.
+         * deployment_count normalized by the window length in days. Null only when the deploy tables aren't synced.
          * @nullable
          */
       deployments_per_day: number | null;
       /**
-         * Previous-window twin of deployments_per_day. Null when nothing deployed.
+         * Previous-window twin of deployments_per_day. Null only when the deploy tables aren't synced.
          * @nullable
          */
       deployments_per_day_prev: number | null;
