@@ -16,7 +16,6 @@ import {
   Palette,
   Plugs,
   Robot,
-  SignOut,
   SlackLogo,
   Terminal,
   TrafficSignal,
@@ -28,7 +27,6 @@ import { BILLING_FLAG } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
-import { useLogoutMutation } from "@posthog/ui/features/auth/useAuthMutations";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useQuickAskAvailable } from "@posthog/ui/features/quick-ask/useQuickAskAvailable";
@@ -44,6 +42,7 @@ import {
   SETTINGS_PAGE_LABELS,
   type SettingsCategory,
 } from "@posthog/ui/features/settings/types";
+import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
 import { useSpendAnalysisEnabled } from "@posthog/ui/features/usage/useSpendAnalysisEnabled";
 import * as nav from "@posthog/ui/router/navigationBridge";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
@@ -149,7 +148,6 @@ export function SettingsPanel({
   const { data: user } = useCurrentUser({ client });
   const billingEnabled = useFeatureFlag(BILLING_FLAG);
   const { localWorkspaces } = useHostCapabilities();
-  const logoutMutation = useLogoutMutation();
   const quickAskAvailable = useQuickAskAvailable();
 
   const spendAnalysisEnabled = useSpendAnalysisEnabled();
@@ -258,18 +256,9 @@ export function SettingsPanel({
         </div>
 
         {isAuthenticated && (
-          <button
-            type="button"
-            disabled={logoutMutation.isPending}
-            className="flex cursor-pointer items-center gap-2 border-0 border-border border-t bg-transparent px-3 py-2.5 text-left font-mono text-[12px] text-muted-foreground transition-colors hover:bg-fill-hover hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
-            onClick={() => {
-              close();
-              logoutMutation.mutate();
-            }}
-          >
-            <SignOut size={14} />
-            <span>Sign out</span>
-          </button>
+          <div className="border-border border-t p-2">
+            <ProjectSwitcher />
+          </div>
         )}
       </div>
 
