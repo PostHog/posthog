@@ -315,7 +315,13 @@ def should_send_pipeline_error_notification(
             if team_id is not None
             else None
         )
-        locks = notification_locks_for_users([user.id], organization_id=organization_id).get(user.id, {})
+        # An unresolved organization would otherwise read every organization's rules, which is the
+        # cross-organization reach this scoping exists to prevent. Apply none instead.
+        locks = (
+            notification_locks_for_users([user.id], organization_id=organization_id).get(user.id, {})
+            if organization_id is not None
+            else {}
+        )
 
     # Governed per project, stored per pipeline, so it cannot be merged into the settings below.
     enforced = pipeline_lock_for_team(locks, team_id)
