@@ -174,8 +174,6 @@ export function RetentionCohortTable({
     return (
         <div className="flex flex-col gap-4">
             {caveats.length > 0 && <div className="text-secondary text-xs">{caveats.join(' ')}</div>}
-            {/* Widest question first: which value wins. The baseline gives it something to be measured
-                against, and the per-cohort panels below are the detail behind both. */}
             <RetentionSummaryTable rows={rows} labels={labels} dimensionLabel={dimensionLabel} />
             <div>
                 <div className="text-muted mb-1 text-xs font-semibold uppercase">
