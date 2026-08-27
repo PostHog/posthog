@@ -21,6 +21,8 @@ from products.error_tracking.backend.temporal.lifecycle.event_properties import 
 from products.error_tracking.backend.temporal.lifecycle.rendering import (
     SIGNAL_MAX_TOKENS,
     decode_token_prefix,
+    parse_origin,
+    render_origin,
     render_stacktrace,
 )
 from products.signals.backend.facade.api import emit_signal
@@ -155,7 +157,8 @@ async def emit_issue_lifecycle_signal(
     event_properties = await sync_to_async(fetch_event_properties, thread_sensitive=False)(team, inputs)
     issue_name = inputs.issue.name or "Unknown"
     issue_description = inputs.issue.description or ""
-    header = f"{preamble}:\n{issue_name}: {issue_description}\n"
+    origin = parse_origin(event_properties)
+    header = f"{preamble}:\n{issue_name}: {issue_description}\n{render_origin(origin)}"
     encoding = get_tiktoken_encoding_for_model(TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL)
     stacktrace_tokens = max(SIGNAL_MAX_TOKENS - len(encoding.encode(header)), 0)
     stacktrace = render_stacktrace(event_properties, stacktrace_tokens)
@@ -172,6 +175,6 @@ async def emit_issue_lifecycle_signal(
         source_id=inputs.issue_id,
         description=description,
         weight=1.0,
-        extra={"fingerprint": inputs.fingerprint},
+        extra={"fingerprint": inputs.fingerprint, "host": origin.host, "is_dev_host": origin.is_dev_host},
         idempotency_key=inputs.notification_id,
     )

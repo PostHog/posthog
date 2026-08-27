@@ -238,6 +238,41 @@ async def test_signal_is_truncated_and_uses_notification_id_for_idempotency() ->
         "source_id": inputs.issue_id,
         "description": description,
         "weight": 1.0,
-        "extra": {"fingerprint": inputs.fingerprint},
+        "extra": {"fingerprint": inputs.fingerprint, "host": None, "is_dev_host": False},
         "idempotency_key": inputs.notification_id,
     }
+
+
+@pytest.mark.asyncio
+async def test_signal_carries_dev_host_origin_in_description_and_extra() -> None:
+    inputs = _inputs()
+    team = MagicMock()
+    event_properties = {
+        "$exception_list": [{"type": "TypeError", "value": "boom"}],
+        "$current_url": "http://localhost:3000/dashboard",
+        "$lib": "posthog-js",
+    }
+
+    with (
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.Team.objects.aget",
+            new=AsyncMock(return_value=team),
+        ),
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.fetch_event_properties",
+            return_value=event_properties,
+        ),
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.emit_signal",
+            new=AsyncMock(),
+        ) as emit_signal,
+    ):
+        await emit_issue_lifecycle_signal(
+            inputs,
+            source_type="issue_reopened",
+            preamble="Previously resolved issue reappeared",
+        )
+
+    call = emit_signal.await_args.kwargs
+    assert "Origin: host localhost:3000 (local development host), lib posthog-js\n" in call["description"]
+    assert call["extra"] == {"fingerprint": inputs.fingerprint, "host": "localhost:3000", "is_dev_host": True}

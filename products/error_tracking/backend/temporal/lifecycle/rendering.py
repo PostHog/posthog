@@ -1,10 +1,23 @@
+import ipaddress
 from typing import cast
+from urllib.parse import urlparse
 
 import tiktoken
 
+from posthog.dataclasses import frozen
 from posthog.helpers.tiktoken_encoding import TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
 
 SIGNAL_MAX_TOKENS = 8000
+
+_DEV_HOSTNAMES = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
+
+
+@frozen
+class Origin:
+    host: str | None
+    is_dev_host: bool
+    lib: str | None
+    lib_version: str | None
 
 
 def _as_dict(value: object) -> dict[str, object] | None:
@@ -69,6 +82,60 @@ def decode_token_prefix(encoding: tiktoken.Encoding, tokens: list[int], max_toke
         except UnicodeDecodeError:
             prefix.pop()
     return ""
+
+
+def _is_dev_hostname(hostname: str) -> bool:
+    hostname = hostname.lower()
+    if hostname in _DEV_HOSTNAMES:
+        return True
+    if hostname.endswith(".local") or hostname.endswith(".localhost"):
+        return True
+    try:
+        ip = ipaddress.ip_address(hostname)
+    except ValueError:
+        return False
+    return ip.is_private or ip.is_loopback or ip.is_link_local
+
+
+def _origin_netloc(event_properties: dict[str, object]) -> tuple[str | None, str | None]:
+    current_url = _string(event_properties.get("$current_url"))
+    netloc = urlparse(current_url).netloc if current_url else ""
+    if not netloc:
+        netloc = _string(event_properties.get("$host"))
+    if not netloc:
+        return None, None
+    # Drop any userinfo, keep host and port. Path and query never reach here, since both
+    # $current_url and $host carry an authority only.
+    display = netloc.rsplit("@", 1)[-1]
+    hostname = urlparse(f"//{netloc}").hostname
+    return display or None, hostname
+
+
+def parse_origin(event_properties: dict[str, object]) -> Origin:
+    display, hostname = _origin_netloc(event_properties)
+    return Origin(
+        host=display,
+        is_dev_host=_is_dev_hostname(hostname) if hostname else False,
+        lib=_string(event_properties.get("$lib")) or None,
+        lib_version=_string(event_properties.get("$lib_version")) or None,
+    )
+
+
+def render_origin(origin: Origin) -> str:
+    parts: list[str] = []
+    if origin.host:
+        host_part = f"host {origin.host}"
+        if origin.is_dev_host:
+            host_part += " (local development host)"
+        parts.append(host_part)
+    if origin.lib:
+        lib_part = f"lib {origin.lib}"
+        if origin.lib_version:
+            lib_part += f" {origin.lib_version}"
+        parts.append(lib_part)
+    if not parts:
+        return ""
+    return "Origin: " + ", ".join(parts) + "\n"
 
 
 def render_stacktrace(event_properties: dict[str, object], max_tokens: int) -> str:
