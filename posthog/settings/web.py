@@ -778,6 +778,11 @@ SPECTACULAR_SETTINGS = {
         # choice set (top-level column vs span attribute vs resource attribute).
         "SpanPropertyTypeEnum": ["span", "span_attribute", "span_resource_attribute"],
         "LogsViewColumnTypeEnum": ["timestamp", "level", "source", "trace_id", "span_id", "message", "custom"],
+        # The AI observability instrumentation checklist exposes the same key set twice: as `key` on a
+        # graded check and as `check` on the dismiss/restore body. Mirrors CheckKey in
+        # products/ai_observability/backend/instrumentation_checklist/grading.py; a member added there
+        # changes the hash, so this warning comes back rather than drifting silently.
+        "AIObservabilityInstrumentationCheckEnum": ["sessions", "tool_calls", "user_identity", "trace_structure"],
         # LoopTriggerWrite.type and LoopPreviewRequest.trigger_type share the same
         # schedule/github/api choice set — pin them to a single named enum.
         "LoopTriggerTypeEnum": ["schedule", "github", "api"],

@@ -31,6 +31,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     is_bot_authorship_fallback,
     is_caller_token_run,
     loop_mcp_installation_allowlist,
+    parse_run_state,
     upgrade_run_to_user_authorship,
 )
 
@@ -46,6 +47,22 @@ class TestRuntimeModelCapabilities(SimpleTestCase):
     def test_kimi_is_known_without_selectable_reasoning_effort(self) -> None:
         assert "moonshotai/kimi-k3" in get_models_for_runtime_adapter("claude")
         assert get_supported_reasoning_efforts("claude", "moonshotai/kimi-k3") == ()
+
+
+class TestRunStateResumeCompatibility(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("resume", {"handoff_resumed": True}, True, False),
+            ("idle", {"handoff_resumed": True, "handoff_resume_idle": True}, True, True),
+        ]
+    )
+    def test_parse_run_state_accepts_legacy_resume_keys(
+        self, _name: str, state: dict[str, bool], expected_resume: bool, expected_idle: bool
+    ) -> None:
+        parsed = parse_run_state(state)
+
+        self.assertEqual(parsed.same_run_resume, expected_resume)
+        self.assertEqual(parsed.same_run_resume_idle, expected_idle)
 
 
 class TestRunStateSnapshotPaths(TestCase):

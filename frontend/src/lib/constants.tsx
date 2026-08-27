@@ -185,6 +185,7 @@ export const FEATURE_FLAGS = {
 
     // Feature flags used to control opt-in for different behaviors, should not be removed
     ACCESS_CONTROL_DETAIL_PANEL: 'access-control-detail-panel', // owner: @a-lider #team-platform-features, gates the member and role access detail side panel
+    AI_OBSERVABILITY_INSTRUMENTATION_CHECKLIST: 'ai-observability-instrumentation-checklist', // owner: #team-ai-observability, gates the instrumentation checklist card and empty states
     AI_OBSERVABILITY_SELF_DRIVING: 'ai-observability-daily-digest-scout', // owner: #team-ai-observability, gates the AI observability Self-driving tab
     AI_TRAINING: 'ai-training', // owner: @nicowaltz #team-replay #ai-research, gates the AI training opt-out UI and API enforcement
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-platform-features, used to control access to audit logs
@@ -202,6 +203,7 @@ export const FEATURE_FLAGS = {
     REPLAY_EXCLUDE_FROM_HIDE_RECORDINGS_MENU: 'replay-exclude-from-hide-recordings-menu', // owner: #team-replay, used to exclude what other people are seeing in Replay
     SHOW_UPGRADE_TO_MANAGED_ACCOUNT: 'show-upgrade-to-managed-account', // owner: #team-billing, used to give free accounts a way to force upgrade to managed account
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-ingestion, used to disable webhooks for certain companies
+    SQL_BOX_PLOT_INSIGHT: 'sql-box-plot-insight', // owner: @pauldambra #team-product-analytics
 
     // Legacy flags, TBD if they need to be removed
     BATCH_EXPORTS_POSTHOG_HTTP: 'posthog-http-batch-exports', // owner: #team-batch-exports
@@ -278,6 +280,7 @@ export const FEATURE_FLAGS = {
     CONDENSED_FILTER_BAR: 'condensed_filter_bar', // owner: @jordanm-posthog #team-web-analytics
     CREATE_FORM_TOOL: 'phai-create-form-tool', // owner: @kappa90 #team-posthog-ai
     CRM_ITERATION_ONE: 'crm-iteration-one', // owner: @arthurdedeus #team-customer-analytics
+    CUSTOM_FACET_PINNING: 'custom-facet-pinning', // owner: #team-logs — gates pinning custom facets to the logs/tracing facet rails
     CUSTOMER_ANALYTICS: 'customer-analytics-roadmap', // owner: @arthurdedeus #team-customer-analytics
     CUSTOMER_ANALYTICS_CSP: 'customer-analytics-csp', // owner: @arthurdedeus #team-customer-analytics, gates the Customer analytics > Accounts settings tab (account_group_type_index dropdown)
     CUSTOMER_ANALYTICS_FEATURE_REQUESTS: 'customer-analytics-feature-requests',
@@ -319,7 +322,6 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING_RATE_LIMITING_PER_ISSUE: 'error-tracking-rate-limiting-per-issue', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_RECOMMENDATIONS: 'error-tracking-recommendations', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_RELATED_ISSUES: 'error-tracking-related-issues', // owner: #team-error-tracking
-    ERROR_TRACKING_SEVERITY_RULES: 'error-tracking-severity-rules', // owner: #team-error-tracking
     ERROR_TRACKING_WEEKLY_DIGEST: 'error-tracking-weekly-digest', // owner: #team-error-tracking
     EVENT_MEDIA_PREVIEWS: 'event-media-previews', // owner: @alexlider
     EXPERIMENT_BEHAVIOR_COMPARISON: 'experiment-behavior-comparison', // owner: @mp-hog #team-experiments
@@ -345,6 +347,7 @@ export const FEATURE_FLAGS = {
     HEALTH_ASK_AI: 'health-ask-ai', // owner: @jordanm-posthog #team-web-analytics, gates the "Ask PostHog AI" buttons on the Health overview
     HOGQL_WAREHOUSE_ACCESS_CONTROL: 'hogql-warehouse-access-control', // owner: @a-lider #team-platform-features, gates per-object access control for warehouse tables and views
     IDENTITY_MATCHING: 'identity-matching', // owner: @fercgomes #team-growth, gates new identity matching scene on marketing analytics
+    INBOX_REDESIGN: 'inbox-redesign', // owner: #team-self-driving, gates the inbox redesign: report sections, triage mode, the Settings tab, and scout cards
     INBOX_SLACK_NOTIFICATIONS: 'inbox-slack-notifications', // owner: #team-self-driving, gates the Slack notifications config card in the inbox
     INBOX_WELCOME_REDESIGN: 'inbox-welcome-redesign', // owner: #team-self-driving multivariate=control,test — experiment on the inbox self-driving welcome takeover
     INSIGHT_DRAG_TO_ZOOM: 'insight-drag-to-zoom', // owner: @sampennington #team-product-analytics, gates x-axis drag-to-zoom on insight charts (trends today, SQL to follow)
@@ -376,6 +379,7 @@ export const FEATURE_FLAGS = {
     LOGS_TRANSFORMATIONS: 'logs-transformations', // owner: #team-logs
     MANAGED_MIGRATIONS_IAM_ROLE_AUTH: 'managed-migrations-iam-role-auth', // owner: #team-ingestion, gates IAM role auth for S3 batch imports
     MANAGED_MIGRATIONS_TRIAL_RUNS: 'managed-migrations-trial-runs', // owner: #team-ingestion, gates trial runs for managed migrations
+    MANAGED_REVERSE_PROXY_ROOT_REDIRECT: 'managed-reverse-proxy-root-redirect', // owner: @reecejones #team-platform-features
     MANAGED_VIEWSETS: 'managed-viewsets', // owner: @rafaeelaudibert #team-revenue-analytics
     MARKETING_ANALYTICS_AI: 'marketing-analytics-ai', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_ATTRIBUTION: 'marketing-analytics-attribution', // owner: @jabahamondes #team-web-analytics — gates the Attribution tab
@@ -470,6 +474,7 @@ export const FEATURE_FLAGS = {
     REPLAY_PLAYLIST_SURFACING_SCORE: 'replay-playlist-surfacing-score', // owner: #team-replay
     REPLAY_TRIGGERS_V2: 'replay-triggers-v2', // owner: #team-replay
     REPLAY_UI_REDESIGN_2026: 'replay-ui-redesign-2026', // owner: #team-replay, New UI layout for replay
+    REPLAY_VISION_ALERTS: 'replay-vision-alerts', // owner: #team-replay, scanner alerts on the shared alerts platform replacing legacy vision-action alerts
     REPLAY_VISION_ANALYSIS_NUDGE: 'replay-vision-analysis-nudge', // owner: #team-replay, in-player nudge offering an AI-drafted scanner after analyzing several recordings
     REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT: 'replay-vision-model-tier-naming-experiment', // owner: #team-replay multivariate=control,test,lite-standard-pro
     REPLAY_VISION_SCOUT_DIGESTS: 'replay-vision-scout-digests', // owner: #team-replay, scanner digests backed by Signals scouts instead of vision actions
@@ -556,7 +561,6 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_TOOLTIP_COMPARISON_LABELS: 'web-analytics-tooltip-comparison-labels', // owner: @lricoy #team-web-analytics
     WORKFLOW_AI_TASK_ACTION: 'workflow-ai-task-action', // owner: @mayteio #team-workflows
     WORKFLOWS_DELAY_UNTIL_DATE: 'workflows-delay-until-date', // owner: @dmarchuk #team-workflows
-    WORKFLOWS_EMAIL_RATE_LIMIT: 'workflows-email-rate-limit', // owner: #team-workflows
     WORKFLOWS_EMAIL_REPUTATION: 'workflows-email-reputation', // owner: #team-workflows
     WORKFLOWS_EMAIL_SENDER_ROTATION: 'workflows-email-sender-rotation', // owner: @arthurdedeus #team-workflows
     WORKFLOWS_INCIDENT_REPLAY: 'workflows-incident-replay', // owner: #team-workflows
