@@ -1,4 +1,7 @@
-import type { EvidenceDetailSection } from "@posthog/api-client/evidence-previews";
+import type {
+  EvidenceDetailSection,
+  ExperimentResultsPresentation,
+} from "@posthog/api-client/evidence-previews";
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import {
   type ChartHeadlineStat,
@@ -39,6 +42,7 @@ export interface EvidenceCardData {
     render: "line" | "bar";
   };
   sections?: EvidenceDetailSection[];
+  experimentResults?: ExperimentResultsPresentation;
   /** A dashboard's tiles, each resolvable to a live insight chart. */
   tiles?: Array<{ shortId: string; name: string | null }>;
   /** Canonical id when it differs from the cited one (a flag cited by key). */

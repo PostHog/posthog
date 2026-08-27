@@ -18,6 +18,46 @@ export interface EvidenceDetailSection {
   fields: EvidenceDetailField[];
 }
 
+export type ExperimentResultState =
+  | "ready"
+  | "draft"
+  | "error"
+  | "insufficient_data";
+
+export interface ExperimentVariantResultPresentation {
+  key: string;
+  isControl: boolean;
+  outcome: string;
+  sampleContext: string;
+  uplift: string | null;
+  interval: string | null;
+  pValue: string | null;
+  chanceToWin: string | null;
+  significance: "significant" | "not_significant" | "insufficient_data" | null;
+}
+
+export interface ExperimentMetricResultPresentation {
+  id: string;
+  name: string;
+  metricType: "primary" | "secondary";
+  state: "ready" | "error" | "insufficient_data";
+  error: string | null;
+  outcomeLabel: string;
+  variants: ExperimentVariantResultPresentation[];
+}
+
+export interface ExperimentResultsPresentation {
+  state: ExperimentResultState;
+  stale: boolean;
+  lastRefresh: string | null;
+  primaryMetrics: ExperimentMetricResultPresentation[];
+  secondaryMetrics: ExperimentMetricResultPresentation[];
+}
+
+export interface ExperimentMetricQueryResult {
+  response: Schemas.ExperimentQueryResponse | null;
+}
+
 export interface EvidencePreview {
   /** The object's name in PostHog. */
   title: string;
@@ -55,6 +95,7 @@ export interface EvidencePreview {
     render: "line" | "bar";
   };
   sections?: EvidenceDetailSection[];
+  experimentResults?: ExperimentResultsPresentation;
   /**
    * A dashboard's tiles, each resolvable to a live insight chart, so a full
    * page can render the metrics themselves rather than describe them.
@@ -440,6 +481,349 @@ export function shapeExperimentPreview(
         ]),
       ),
     ],
+  };
+}
+
+interface ExperimentMetricDefinition {
+  query: unknown;
+  id: string;
+  name: string;
+  metricType: "primary" | "secondary";
+  valueType: string | null;
+}
+
+function metricName(metric: QueryRecord, index: number): string {
+  const directName = conciseValue(metric.name);
+  if (directName) return directName;
+  for (const field of [
+    "source",
+    "completion_event",
+    "start_event",
+    "numerator",
+  ]) {
+    const source = metric[field];
+    if (isRecord(source)) {
+      const eventName = conciseValue(source.event) ?? conciseValue(source.name);
+      if (eventName) return eventName;
+    }
+  }
+  return `Metric ${index + 1}`;
+}
+
+function metricUuid(metric: QueryRecord, fallback: string): string {
+  return conciseValue(metric.uuid) ?? fallback;
+}
+
+function orderedMetricDefinitions(
+  experiment: Schemas.Experiment,
+  metricType: "primary" | "secondary",
+): ExperimentMetricDefinition[] {
+  const inlineMetrics = ((metricType === "primary"
+    ? experiment.metrics
+    : experiment.metrics_secondary) ?? []) as unknown[];
+  const definitions: ExperimentMetricDefinition[] = inlineMetrics.flatMap(
+    (metric, index) =>
+      isRecord(metric)
+        ? [
+            {
+              query: metric,
+              id: metricUuid(metric, `${metricType}-${index}`),
+              name: metricName(metric, index),
+              metricType,
+              valueType: conciseValue(metric.metric_type),
+            },
+          ]
+        : [],
+  );
+
+  for (const savedMetric of experiment.saved_metrics ?? []) {
+    const metadata = isRecord(savedMetric.metadata) ? savedMetric.metadata : {};
+    if (metadata.type !== metricType || !isRecord(savedMetric.query)) continue;
+    definitions.push({
+      query: savedMetric.query,
+      id: metricUuid(
+        savedMetric.query,
+        `${metricType}-saved-${savedMetric.saved_metric}`,
+      ),
+      name:
+        savedMetric.name || metricName(savedMetric.query, definitions.length),
+      metricType,
+      valueType: conciseValue(savedMetric.query.metric_type),
+    });
+  }
+
+  const experimentRecord = experiment as unknown as QueryRecord;
+  const orderKey =
+    metricType === "primary"
+      ? "primary_metrics_ordered_uuids"
+      : "secondary_metrics_ordered_uuids";
+  const orderedUuids = Array.isArray(experimentRecord[orderKey])
+    ? (experimentRecord[orderKey] as unknown[]).filter(
+        (uuid): uuid is string => typeof uuid === "string",
+      )
+    : [];
+  if (orderedUuids.length === 0) return definitions;
+  const position = new Map(orderedUuids.map((uuid, index) => [uuid, index]));
+  return definitions
+    .map((definition, index) => ({ definition, index }))
+    .sort(
+      (left, right) =>
+        (position.get(left.definition.id) ?? orderedUuids.length + left.index) -
+        (position.get(right.definition.id) ??
+          orderedUuids.length + right.index),
+    )
+    .map(({ definition }) => definition);
+}
+
+export function experimentMetricQueries(
+  experiment: Schemas.Experiment,
+  metricType: "primary" | "secondary",
+): unknown[] {
+  return orderedMetricDefinitions(experiment, metricType).map(
+    (definition) => definition.query,
+  );
+}
+
+function formatPercent(value: number, includeSign = false): string {
+  const percentage = value * 100;
+  const sign = includeSign && percentage > 0 ? "+" : "";
+  return `${sign}${Math.abs(percentage) >= 10 ? percentage.toFixed(1) : percentage.toFixed(2)}%`;
+}
+
+function formatPValue(value: number): string {
+  return value < 0.001 ? "< 0.001" : value.toFixed(3);
+}
+
+function validInterval(value: unknown): [number, number] | null {
+  if (!Array.isArray(value) || value.length !== 2) return null;
+  const lower = cellNumber(value[0]);
+  const upper = cellNumber(value[1]);
+  return lower === null || upper === null ? null : [lower, upper];
+}
+
+function outcomeValue(
+  stats: Schemas.ExperimentStatsBaseValidated,
+  valueType: string | null,
+): { label: string; comparable: number | null; display: string } {
+  const samples = stats.number_of_samples;
+  const mean = samples > 0 ? stats.sum / samples : null;
+  if (valueType === "funnel" || valueType === "retention") {
+    return {
+      label: valueType === "retention" ? "Retained" : "Conversions",
+      comparable: mean,
+      display: `${compactCount(stats.sum)} · ${mean === null ? "No rate" : formatPercent(mean)}`,
+    };
+  }
+  if (valueType === "ratio") {
+    const denominator = cellNumber(stats.denominator_sum);
+    const ratio =
+      denominator && denominator !== 0 ? stats.sum / denominator : null;
+    return {
+      label: "Ratio",
+      comparable: ratio,
+      display: `${compactCount(stats.sum)} numerator · ${ratio === null ? "No ratio" : ratio.toFixed(2)}`,
+    };
+  }
+  return {
+    label: "Outcome",
+    comparable: mean,
+    display: `${compactCount(stats.sum)} total · ${mean === null ? "No mean" : `${compactCount(mean)} per sample`}`,
+  };
+}
+
+function hasInsufficientData(
+  response: Schemas.ExperimentQueryResponse,
+  stats: Schemas.ExperimentStatsBaseValidated[],
+): boolean {
+  if (response.significance_code === "not_enough_exposure") return true;
+  return stats.some((entry) =>
+    (entry.validation_failures ?? []).some(
+      (failure) =>
+        failure === "not-enough-exposures" ||
+        failure === "not-enough-metric-data",
+    ),
+  );
+}
+
+function shapeMetricResult(
+  definition: ExperimentMetricDefinition,
+  queryResult: ExperimentMetricQueryResult | undefined,
+  exposures: Record<string, number>,
+  experimentStarted: boolean,
+): ExperimentMetricResultPresentation {
+  const response = queryResult?.response;
+  if (!experimentStarted) {
+    return {
+      id: definition.id,
+      name: definition.name,
+      metricType: definition.metricType,
+      state: "insufficient_data",
+      error: null,
+      outcomeLabel: "Outcome",
+      variants: [],
+    };
+  }
+  if (!response) {
+    return {
+      id: definition.id,
+      name: definition.name,
+      metricType: definition.metricType,
+      state: "error",
+      error: "Couldn't calculate this metric.",
+      outcomeLabel: "Outcome",
+      variants: [],
+    };
+  }
+
+  const baseline = response.baseline;
+  const variants = response.variant_results ?? [];
+  if (!baseline || variants.length === 0) {
+    return {
+      id: definition.id,
+      name: definition.name,
+      metricType: definition.metricType,
+      state: "insufficient_data",
+      error: null,
+      outcomeLabel: "Outcome",
+      variants: [],
+    };
+  }
+
+  const baselineOutcome = outcomeValue(baseline, definition.valueType);
+  const allStats = [baseline, ...variants];
+  const insufficient = hasInsufficientData(response, allStats);
+  const rows = allStats.map((stats, index) => {
+    const outcome = outcomeValue(stats, definition.valueType);
+    const isControl = index === 0;
+    const statsRecord = stats as unknown as QueryRecord;
+    const interval = validInterval(
+      statsRecord.confidence_interval ??
+        statsRecord.credible_interval ??
+        response.credible_intervals?.[stats.key],
+    );
+    const pValue = cellNumber(
+      statsRecord.p_value ?? (variants.length === 1 ? response.p_value : null),
+    );
+    const chanceToWin = cellNumber(
+      statsRecord.chance_to_win ?? response.probability?.[stats.key],
+    );
+    const significantValue =
+      typeof statsRecord.significant === "boolean"
+        ? statsRecord.significant
+        : variants.length === 1 && typeof response.significant === "boolean"
+          ? response.significant
+          : null;
+    const uplift =
+      !isControl &&
+      outcome.comparable !== null &&
+      baselineOutcome.comparable !== null &&
+      baselineOutcome.comparable !== 0
+        ? outcome.comparable / baselineOutcome.comparable - 1
+        : null;
+    return {
+      key: stats.key,
+      isControl,
+      outcome: outcome.display,
+      sampleContext: [
+        `${compactCount(stats.number_of_samples)} samples`,
+        typeof exposures[stats.key] === "number"
+          ? `${compactCount(exposures[stats.key])} exposed`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      uplift: isControl || uplift === null ? null : formatPercent(uplift, true),
+      interval:
+        isControl || !interval
+          ? null
+          : `${formatPercent(interval[0], true)} to ${formatPercent(interval[1], true)}`,
+      pValue: isControl || pValue === null ? null : formatPValue(pValue),
+      chanceToWin:
+        isControl || chanceToWin === null ? null : formatPercent(chanceToWin),
+      significance: isControl
+        ? null
+        : insufficient
+          ? ("insufficient_data" as const)
+          : significantValue === null
+            ? null
+            : significantValue
+              ? ("significant" as const)
+              : ("not_significant" as const),
+    };
+  });
+
+  return {
+    id: definition.id,
+    name: definition.name,
+    metricType: definition.metricType,
+    state: insufficient ? "insufficient_data" : "ready",
+    error: null,
+    outcomeLabel: baselineOutcome.label,
+    variants: rows,
+  };
+}
+
+export function shapeExperimentResults(
+  experiment: Schemas.Experiment,
+  exposuresResponse: Schemas.ExperimentExposureQueryResponse | null,
+  primaryResults: ExperimentMetricQueryResult[],
+  secondaryResults: ExperimentMetricQueryResult[],
+): ExperimentResultsPresentation {
+  const primaryMetrics = orderedMetricDefinitions(experiment, "primary").map(
+    (definition, index) =>
+      shapeMetricResult(
+        definition,
+        primaryResults[index],
+        exposuresResponse?.total_exposures ?? {},
+        !!experiment.start_date,
+      ),
+  );
+  const secondaryMetrics = orderedMetricDefinitions(
+    experiment,
+    "secondary",
+  ).map((definition, index) =>
+    shapeMetricResult(
+      definition,
+      secondaryResults[index],
+      exposuresResponse?.total_exposures ?? {},
+      !!experiment.start_date,
+    ),
+  );
+  const metrics = [...primaryMetrics, ...secondaryMetrics];
+  const responses = [...primaryResults, ...secondaryResults]
+    .map((result) => result.response as unknown as QueryRecord | null)
+    .filter((response): response is QueryRecord => response !== null);
+  const refreshTimes = responses.flatMap((response) => {
+    const lastRefresh = conciseValue(response.last_refresh);
+    return lastRefresh ? [lastRefresh] : [];
+  });
+  const staleRefreshTimes = experiment.end_date
+    ? []
+    : responses.flatMap((response) => {
+        const lastRefresh = conciseValue(response.last_refresh);
+        if (response.is_cached !== true || !lastRefresh) return [];
+        const refreshedAt = new Date(lastRefresh).getTime();
+        return Number.isFinite(refreshedAt) &&
+          Date.now() - refreshedAt > 24 * 60 * 60 * 1000
+          ? [lastRefresh]
+          : [];
+      });
+  const state: ExperimentResultState = !experiment.start_date
+    ? "draft"
+    : metrics.some((metric) => metric.state === "error")
+      ? "error"
+      : metrics.length === 0 ||
+          metrics.every((metric) => metric.state === "insufficient_data")
+        ? "insufficient_data"
+        : "ready";
+
+  return {
+    state,
+    stale: staleRefreshTimes.length > 0,
+    lastRefresh:
+      staleRefreshTimes.sort()[0] ?? refreshTimes.sort().at(-1) ?? null,
+    primaryMetrics,
+    secondaryMetrics,
   };
 }
 
