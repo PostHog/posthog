@@ -6,6 +6,8 @@ import { uuid } from 'lib/utils/dom'
 
 import { SessionTimeline, SessionTimelineHandle } from './SessionTimeline'
 import { ItemCategory, ItemCollector, ItemLoader, ItemRenderer, TimelineItem } from './timeline'
+import { exceptionRenderer } from './timeline/items/exceptions'
+import { pageRenderer } from './timeline/items/page'
 
 const meta: Meta = {
     title: 'Components/SessionTimeline',
@@ -172,6 +174,19 @@ class MockLoader implements ItemLoader<MockItem> {
     }
 }
 
+/** Loads a fixed set of pre-built items once, with no pagination. */
+class StaticItemLoader implements ItemLoader<TimelineItem> {
+    constructor(private readonly items: TimelineItem[]) {}
+
+    async loadBefore(cursor: Dayjs): Promise<{ items: TimelineItem[]; hasMoreBefore: boolean }> {
+        return { items: this.items.filter((item) => item.timestamp.isBefore(cursor)), hasMoreBefore: false }
+    }
+
+    async loadAfter(cursor: Dayjs): Promise<{ items: TimelineItem[]; hasMoreAfter: boolean }> {
+        return { items: this.items.filter((item) => item.timestamp.isAfter(cursor)), hasMoreAfter: false }
+    }
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function buildCollector(options: {
@@ -306,6 +321,50 @@ export const SingleCategory: StoryFn = () => {
         center: CENTER,
         categories: [{ category: ItemCategory.CONSOLE_LOGS, countBefore: 50, countAfter: 50 }],
     })
+    const ref = useRef<SessionTimelineHandle>(null)
+    return (
+        <div style={{ width: 600, height: 400, border: '1px solid var(--border)' }}>
+            <SessionTimeline ref={ref} collector={collector} />
+        </div>
+    )
+}
+
+/** Mobile session — $screen views share the pageview lane, rendered by the real renderer next to an exception. */
+export const MobileScreenviews: StoryFn = () => {
+    const collector = new ItemCollector('mobile-session', CENTER)
+    const screens = ['HomeScreen', 'ProductListScreen', 'ProductDetailScreen', 'CartScreen', 'CheckoutScreen']
+
+    collector.addCategory(
+        ItemCategory.PAGE_VIEWS,
+        pageRenderer as ItemRenderer<TimelineItem>,
+        new StaticItemLoader(
+            screens.map((screenName, i) => ({
+                id: uuid(),
+                category: ItemCategory.PAGE_VIEWS,
+                timestamp: CENTER.subtract(screens.length - i, 'second'),
+                payload: { runtime: 'python', screenName },
+            }))
+        )
+    )
+    collector.addCategory(
+        ItemCategory.ERROR_TRACKING,
+        exceptionRenderer as ItemRenderer<TimelineItem>,
+        new StaticItemLoader([
+            {
+                id: uuid(),
+                category: ItemCategory.ERROR_TRACKING,
+                timestamp: CENTER,
+                payload: {
+                    runtime: 'python',
+                    type: 'NullPointerException',
+                    message: 'Attempt to read a null object reference',
+                    issue_id: '',
+                    fingerprint: '',
+                },
+            },
+        ])
+    )
+
     const ref = useRef<SessionTimelineHandle>(null)
     return (
         <div style={{ width: 600, height: 400, border: '1px solid var(--border)' }}>
