@@ -85,10 +85,17 @@ describe('markdownNotebookRegistry', () => {
             expect(flagOff.components.PythonV2.insertCommand).toBeUndefined()
         })
 
-        it('offers generated widgets in the insert menu', () => {
+        it('offers generated widgets in the insert menu and renders legacy GenUI blocks', () => {
             expect(getInsertCommandsByLabel({ [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true }, 'Widget')).toEqual([
                 { key: 'component-GeneratedWidget', category: 'Common' },
             ])
+            expect(NOTEBOOK_MARKDOWN_REGISTRY.components.GenUI).toMatchObject({
+                label: 'Widget',
+                insertCommand: undefined,
+                ToolbarComponent: NOTEBOOK_MARKDOWN_REGISTRY.components.GeneratedWidget.ToolbarComponent,
+                ViewComponent: NOTEBOOK_MARKDOWN_REGISTRY.components.GeneratedWidget.ViewComponent,
+            })
+            expect(NOTEBOOK_MARKDOWN_REGISTRY.components.GeneratedWidget.ToolbarComponent).toBeTruthy()
         })
 
         // The panel visibility resolver is the notebook shell's public behavior. Testing through it

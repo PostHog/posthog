@@ -175,7 +175,7 @@ def _widget_node_ids(content: object) -> set[str]:
     if markdown is not None:
         occurrences: dict[str, int] = {}
         for tag_name, raw, _next_line_index in _iter_markdown_component_blocks(markdown):
-            if tag_name != "GeneratedWidget":
+            if tag_name not in {"GeneratedWidget", "GenUI"}:
                 continue
             props = _parse_markdown_component_props(raw)
             fingerprint = _get_markdown_component_fingerprint(tag_name, props)
@@ -987,8 +987,6 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
         elif state.build_status == "failed":
             lifecycle = "failed"
             error_detail = state.build_error or "The widget preview could not be built."
-        elif active_job is not None:
-            lifecycle = "generating"
     elif selected_canvas_version is None:
         lifecycle = "failed"
         error_detail = "The widget preview is unavailable. Generate a new version."
@@ -1001,8 +999,9 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
     elif selected_canvas_version.build_status == "failed":
         lifecycle = "failed"
         error_detail = "The widget preview could not be built."
-    elif active_job is not None:
+    if active_job is not None:
         lifecycle = "generating"
+        error_detail = None
     return WidgetStatus(
         lifecycle_status=lifecycle,
         error_detail=error_detail,
@@ -1090,6 +1089,22 @@ def _get_instance_and_version(
     if version is None:
         raise WidgetError("The widget version is unavailable.", "version_missing")
     return instance, version
+
+
+def read_widget_source(*, notebook: Notebook, node_id: str) -> str:
+    from products.canvas.backend import (  # noqa: PLC0415 - keeps Canvas storage imports off notebook startup
+        notebook_integration as canvas_facade,
+    )
+
+    instance, version = _get_instance_and_version(notebook, node_id, None)
+    try:
+        return canvas_facade.get_notebook_canvas_source(
+            team_id=notebook.team_id,
+            canvas_id=instance.widget.canvas_id,
+            version_id=version.canvas_source_version_id,
+        )
+    except canvas_facade.NotebookCanvasError as error:
+        raise WidgetError("The widget source is unavailable. Try again.", "source_unavailable") from error
 
 
 def revert_widget_version(

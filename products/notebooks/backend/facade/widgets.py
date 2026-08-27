@@ -9,6 +9,7 @@ from products.notebooks.backend.widgets import (
     inspect_widget_inputs,
     list_widget_versions,
     read_widget_frame,
+    read_widget_source,
     revert_widget_version,
     start_widget_generation,
 )
@@ -25,6 +26,7 @@ __all__ = [
     "inspect_widget_inputs",
     "list_widget_versions",
     "read_widget_frame",
+    "read_widget_source",
     "revert_widget_version",
     "start_widget_generation",
 ]

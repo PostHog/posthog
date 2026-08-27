@@ -49,6 +49,7 @@ from products.notebooks.backend.widgets import (
     _cancellation_key,
     _extend_prompt_history,
     _materialize_effective_prompt,
+    get_widget_status,
     infer_widget_inputs,
     inspect_widget_inputs,
     normalize_widget_inputs as normalize_inputs,
@@ -336,14 +337,15 @@ class TestWidgetGeneration(SimpleTestCase):
         assert 'document.addEventListener("click"' in source
         assert 'document.addEventListener("submit"' in source
 
-    def test_infers_dataframe_context_from_the_notebook(self) -> None:
+    @parameterized.expand([("generated_widget", "GeneratedWidget"), ("legacy_genui", "GenUI")])
+    def test_infers_dataframe_context_from_the_notebook(self, _name: str, tag_name: str) -> None:
         notebook = cast(
             Notebook,
             SimpleNamespace(
                 content=markdown_content(
                     '<PythonV2 nodeId="source" returnVariable="locations_df" />\n\n'
                     '<SQLV2 nodeId="summary" returnVariable="summary_df" />\n\n'
-                    '<GeneratedWidget nodeId="globe" prompt="Render a globe" />\n\n'
+                    f'<{tag_name} nodeId="globe" prompt="Render a globe" />\n\n'
                     '<PythonV2 nodeId="later" returnVariable="future_df" />'
                 )
             ),
@@ -707,6 +709,55 @@ class TestWidgetData(APIBaseTest):
         assert history_response.status_code == 200
         assert history_response.json()["count"] == 2
         assert len(history_response.json()["results"]) == 1
+
+    def test_active_generation_hides_a_transient_preview_error(self) -> None:
+        instance = self._mapping()
+        GeneratedWidgetGenerationJob.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            widget=instance.widget,
+            instance=instance,
+            requested_by=self.user,
+            operation=GeneratedWidgetVersion.Operation.IMPROVE,
+            prompt="Make it lighter",
+            model="claude-sonnet-4-6",
+            base_version=instance.pinned_version,
+            input_contract=instance.pinned_version.input_contract if instance.pinned_version else [],
+            schema_hash="",
+        )
+        state = CanvasGenerationState(
+            current_source_version_id=uuid4(),
+            artifact_url=None,
+            build_status="building",
+            build_error=None,
+        )
+
+        with (
+            patch("products.canvas.backend.notebook_integration.get_canvas_generation_state", return_value=state),
+            patch("products.canvas.backend.notebook_integration.list_notebook_canvas_versions", return_value=[]),
+        ):
+            result = get_widget_status(notebook=self.notebook, node_id=self.NODE_ID)
+
+        assert result.lifecycle_status == "generating"
+        assert result.error_detail is None
+
+    def test_source_endpoint_reads_the_current_widget_version(self) -> None:
+        instance = self._mapping()
+        version = self._pinned_version(instance)
+        url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widgets/{self.NODE_ID}/source/"
+
+        with patch(
+            "products.canvas.backend.notebook_integration.get_notebook_canvas_source",
+            return_value="export default function Widget() { return <div /> }",
+        ) as read_source:
+            response = self.client.get(url)
+
+        assert response.status_code == 200
+        assert response.json() == {"source": "export default function Widget() { return <div /> }"}
+        read_source.assert_called_once_with(
+            team_id=self.team.id,
+            canvas_id=instance.widget.canvas_id,
+            version_id=version.canvas_source_version_id,
+        )
 
     def test_generate_endpoint_infers_available_dataframes(self) -> None:
         latest = self._run()

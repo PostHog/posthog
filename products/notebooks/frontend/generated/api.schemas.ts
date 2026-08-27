@@ -828,6 +828,11 @@ export interface WidgetRevertRequestApi {
     expected_current_version_id: string
 }
 
+export interface WidgetSourceApi {
+    /** Read-only source code for the current widget version. */
+    source: string
+}
+
 /**
  * * `initial` - initial
  * * `regenerate` - regenerate

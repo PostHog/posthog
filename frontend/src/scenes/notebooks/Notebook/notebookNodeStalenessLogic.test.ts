@@ -123,6 +123,20 @@ describe('notebookNodeStalenessLogic', () => {
         expect(stalenessLogic.values.chainQueue).toEqual([])
     })
 
+    it('runs only the requested widget data chain in dependency order', async () => {
+        mountNode('a')
+        mountNode('b')
+        mountNode('c')
+        mountNode('x')
+
+        stalenessLogic.actions.runWidgetDataChain(content, ['a', 'b'])
+        await expectLogic(stalenessLogic).toFinishAllListeners()
+
+        expect(runSpy.mock.calls.map((call) => call[1].node_id)).toEqual(['a', 'b'])
+        expect(stalenessLogic.values.staleNodeIds).toEqual({ c: 'upstream' })
+        expect(stalenessLogic.values.widgetDataChainNodeIds).toEqual([])
+    })
+
     it('a chain run picks up cells its own completion marked stale', async () => {
         // The queue must be rebuilt as the chain advances: a's run marks b and c stale, and
         // a snapshot taken at chain start would finish "successfully" while they stay flagged.

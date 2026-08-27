@@ -5,6 +5,7 @@ import type { WidgetGenerateRequestApi } from 'products/notebooks/frontend/gener
 export type WidgetModel = NonNullable<WidgetGenerateRequestApi['model']>
 
 export const DEFAULT_WIDGET_MODEL: WidgetModel = 'claude-sonnet-4-6'
+export const DEFAULT_WIDGET_PROMPT = 'visualize the data in this notebook in weird and wonderful ways'
 
 export type WidgetModelInfo = {
     name: string

@@ -1,4 +1,6 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
@@ -11,7 +13,11 @@ import { NotebookType } from 'scenes/notebooks/types'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
-import { notebooksWidgetStatus, notebooksWidgetVersions } from 'products/notebooks/frontend/generated/api'
+import {
+    notebooksWidgetSource,
+    notebooksWidgetStatus,
+    notebooksWidgetVersions,
+} from 'products/notebooks/frontend/generated/api'
 
 jest.mock('scenes/notebooks/Notebook/migrations/migrate', () => {
     const actual = jest.requireActual('scenes/notebooks/Notebook/migrations/migrate')
@@ -23,6 +29,7 @@ jest.mock('products/notebooks/frontend/generated/api', () => ({
     notebooksWidgetFrame: jest.fn(),
     notebooksWidgetGenerate: jest.fn(),
     notebooksWidgetRevert: jest.fn(),
+    notebooksWidgetSource: jest.fn(),
     notebooksWidgetStatus: jest.fn(),
     notebooksWidgetVersions: jest.fn(),
 }))
@@ -95,5 +102,57 @@ describe('NotebookNodeGeneratedWidget', () => {
 
         expect(screen.getByText('Widget')).toBeTruthy()
         await waitFor(() => expect(screen.getAllByText('Regenerating widget…')).toHaveLength(1))
+    })
+
+    it('opens the current source with an improvement prompt', async () => {
+        const versionId = '00000000-0000-0000-0000-000000000002'
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue({
+            lifecycle_status: 'ready',
+            error_detail: null,
+            artifact_url: 'https://example.com/widget.html',
+            frame_names: [],
+            current_version_id: versionId,
+            widget_id: '00000000-0000-0000-0000-000000000003',
+            instance_id: '00000000-0000-0000-0000-000000000004',
+            has_versions: true,
+            active_job: null,
+        })
+        jest.mocked(notebooksWidgetVersions).mockResolvedValue({
+            results: [
+                {
+                    id: versionId,
+                    parent_version_id: null,
+                    version: 1,
+                    operation: 'initial',
+                    prompt_delta: 'Render a globe',
+                    effective_prompt: 'Render a globe',
+                    model: 'claude-sonnet-4-6',
+                    created_at: '2026-08-27T12:00:00Z',
+                    build_status: 'ready',
+                    artifact_url: 'https://example.com/widget.html',
+                    frame_names: [],
+                    is_current: true,
+                },
+            ],
+            count: 1,
+            next_offset: null,
+        })
+        jest.mocked(notebooksWidgetSource).mockResolvedValue({
+            source: 'export default function Widget() {}',
+        })
+        const logicProps: NotebookLogicProps = { shortId: SHORT_ID, mode: 'notebook', cachedNotebook }
+
+        render(
+            <BindLogic logic={notebookLogic} props={logicProps}>
+                <MarkdownNotebookV2 />
+            </BindLogic>
+        )
+
+        fireEvent.click(await screen.findByText('View source'))
+
+        await waitFor(() => expect(notebooksWidgetSource).toHaveBeenCalledWith(String(MOCK_TEAM_ID), SHORT_ID, 'globe'))
+        expect(screen.getByText('Widget source')).toBeTruthy()
+        expect(screen.getByText('What would you like to change?')).toBeTruthy()
+        expect(screen.getByText('Build changes')).toBeTruthy()
     })
 })

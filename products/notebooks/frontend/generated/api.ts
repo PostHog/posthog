@@ -30,6 +30,7 @@ import type {
     WidgetFrameApi,
     WidgetGenerateRequestApi,
     WidgetRevertRequestApi,
+    WidgetSourceApi,
     WidgetStatusApi,
     WidgetVersionPageApi,
 } from './api.schemas'
@@ -639,6 +640,25 @@ export const notebooksWidgetRevert = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(widgetRevertRequestApi),
+    })
+}
+
+export const getNotebooksWidgetSourceUrl = (projectId: string, shortId: string, nodeId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/widgets/${nodeId}/source/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksWidgetSource = async (
+    projectId: string,
+    shortId: string,
+    nodeId: string,
+    options?: RequestInit
+): Promise<WidgetSourceApi> => {
+    return apiMutator<WidgetSourceApi>(getNotebooksWidgetSourceUrl(projectId, shortId, nodeId), {
+        ...options,
+        method: 'GET',
     })
 }
 

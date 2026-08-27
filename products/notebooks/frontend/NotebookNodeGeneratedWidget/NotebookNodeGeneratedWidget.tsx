@@ -64,17 +64,20 @@ function ExpandedWidget({
                 title: notebookLogic.values.title,
             })
         },
+        getContent: () => notebookLogic.values.content ?? null,
     })
     const {
         artifactUnavailable,
         activeFrameNames,
         cancellationInFlight,
+        dataRefreshInFlight,
         elapsedSeconds,
         frameRevision,
         generationError,
         generationRequestLoading,
         isWorking,
         runtimeError,
+        runDataDependenciesDisabledReason,
         selectedVersion,
         selectedVersionId,
         status,
@@ -93,6 +96,7 @@ function ExpandedWidget({
         loadVersions,
         openGenerationModal,
         refreshData,
+        runDataDependencies,
         setRuntimeError,
     } = useActions(logic)
 
@@ -152,7 +156,8 @@ function ExpandedWidget({
                         ) : null}
                     </div>
                 ) : null}
-                {generationError || (status?.lifecycle_status === 'failed' && status.error_detail) ? (
+                {generationError ||
+                (!generationRequestLoading && status?.lifecycle_status === 'failed' && status.error_detail) ? (
                     <LemonBanner type="error" className="m-2">
                         {generationError || status?.error_detail}
                     </LemonBanner>
@@ -163,7 +168,22 @@ function ExpandedWidget({
                     </LemonBanner>
                 ) : null}
                 {runtimeError ? (
-                    <LemonBanner type="warning" className="m-2" onClose={() => setRuntimeError(null)}>
+                    <LemonBanner
+                        type="warning"
+                        className="m-2"
+                        onClose={() => setRuntimeError(null)}
+                        action={
+                            isEditable
+                                ? {
+                                      children: 'Run data cells',
+                                      onClick: runDataDependencies,
+                                      loading: dataRefreshInFlight,
+                                      disabledReason: runDataDependenciesDisabledReason ?? undefined,
+                                      'data-attr': 'notebook-widget-runtime-run-data',
+                                  }
+                                : undefined
+                        }
+                    >
                         {runtimeError}
                     </LemonBanner>
                 ) : null}
@@ -189,7 +209,7 @@ function ExpandedWidget({
                         onArtifactUnavailable={markArtifactUnavailable}
                         onError={() =>
                             setRuntimeError(
-                                'The widget hit a runtime error. Reload it, or improve the current version.'
+                                'The widget could not load its notebook data. Run its data cells and try again.'
                             )
                         }
                         onRendered={() => {
@@ -236,6 +256,17 @@ function ExpandedWidget({
         )
     }
 
+    if (generationRequestLoading) {
+        return (
+            <EmptyState>
+                <div className="flex items-center gap-2" role="status" aria-live="polite">
+                    <Spinner />
+                    Starting widget generation…
+                </div>
+            </EmptyState>
+        )
+    }
+
     if (status?.lifecycle_status === 'failed' || generationError) {
         return (
             <EmptyState>
@@ -253,7 +284,6 @@ function ExpandedWidget({
                                     generateWidget(initialPrompt, attributes.model ?? DEFAULT_WIDGET_MODEL, 'initial')
                                 }
                                 loading={generationRequestLoading}
-                                disabledReason={!initialPrompt ? 'Add instructions first' : undefined}
                             >
                                 Generate widget
                             </LemonButton>
@@ -290,13 +320,6 @@ function ExpandedWidget({
                 {isEditable
                     ? "This version's preview is no longer available. Its prompt and source remain in version history."
                     : "This version's preview is no longer available."}
-            </EmptyState>
-        )
-    }
-    if (!initialPrompt) {
-        return (
-            <EmptyState>
-                {isEditable ? 'Add instructions in the widget settings.' : 'This widget has not been configured yet.'}
             </EmptyState>
         )
     }

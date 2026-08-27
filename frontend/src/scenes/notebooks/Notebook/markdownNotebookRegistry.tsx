@@ -76,6 +76,7 @@ import { uuid } from 'lib/utils/dom'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import 'products/notebooks/frontend/NotebookNodeGeneratedWidget/NotebookNodeGeneratedWidget'
+import { NotebookGeneratedWidgetRunButton } from 'products/notebooks/frontend/NotebookNodeGeneratedWidget/NotebookGeneratedWidgetRunButton'
 
 import { NODE_ICONS } from '../nodeIcons'
 import { NotebookCodeCellRunButton } from '../Nodes/components/NotebookCodeCellRunButton'
@@ -173,6 +174,7 @@ export const MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE: Partial<Record<string, Notebook
     HogQLSQL: NotebookNodeType.HogQLSQL,
     SQLV2: NotebookNodeType.SQLV2,
     GeneratedWidget: NotebookNodeType.GeneratedWidget,
+    GenUI: NotebookNodeType.GeneratedWidget,
     Recording: NotebookNodeType.Recording,
     RecordingPlaylist: NotebookNodeType.RecordingPlaylist,
     FeatureFlag: NotebookNodeType.FeatureFlag,
@@ -299,6 +301,7 @@ export const MARKDOWN_NODE_DEFINITIONS: {
         tagName: 'GeneratedWidget',
         category: 'Code',
         label: 'Widget',
+        ToolbarComponent: NotebookGeneratedWidgetRunButton,
         insertCommand: {
             category: COMMON_INSERT_COMMAND_CATEGORY,
             aliases: ['visualization', 'widget', '3d'],
@@ -309,6 +312,7 @@ export const MARKDOWN_NODE_DEFINITIONS: {
             }),
         },
     },
+    { tagName: 'GenUI', category: 'Code', label: 'Widget', ToolbarComponent: NotebookGeneratedWidgetRunButton },
     { tagName: 'RecordingPlaylist', category: 'Data', label: 'Session recordings' },
     { tagName: 'Experiment', category: 'Experiment' },
     { tagName: 'Image', category: 'Media', EditComponent: ImageEdit },

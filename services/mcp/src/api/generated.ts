@@ -85285,6 +85285,11 @@ export namespace Schemas {
       expected_current_version_id: string;
     }
 
+    export interface WidgetSource {
+      /** Read-only source code for the current widget version. */
+      source: string;
+    }
+
     export interface WidgetStatus {
       /** Current widget and preview state.
        *

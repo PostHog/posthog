@@ -95,6 +95,12 @@ class WidgetVersionQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(default=25, min_value=1, max_value=100, help_text="Maximum versions to return.")
 
 
+class WidgetSourceSerializer(serializers.Serializer):
+    source = serializers.CharField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
+        help_text="Read-only source code for the current widget version."
+    )
+
+
 class WidgetRevertRequestSerializer(serializers.Serializer):
     version_id = serializers.UUIDField(help_text="Earlier version to restore as a new version.")
     expected_current_version_id = serializers.UUIDField(help_text="Current version used for optimistic concurrency.")

@@ -11,8 +11,13 @@ import type { NotebookNodeAttributeProperties } from 'scenes/notebooks/types'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { NotebookNodeGeneratedWidgetAttributes } from './NotebookNodeGeneratedWidget'
-import { formatWidgetElapsed, notebookNodeGeneratedWidgetLogic } from './notebookNodeGeneratedWidgetLogic'
-import { DEFAULT_WIDGET_MODEL, WIDGET_MODEL_OPTIONS } from './widgetModels'
+import {
+    formatWidgetElapsed,
+    type NotebookNodeGeneratedWidgetLogicProps,
+    notebookNodeGeneratedWidgetLogic,
+} from './notebookNodeGeneratedWidgetLogic'
+import { NotebookWidgetSourceModal } from './NotebookWidgetSourceModal'
+import { DEFAULT_WIDGET_MODEL, DEFAULT_WIDGET_PROMPT, WIDGET_MODEL_OPTIONS } from './widgetModels'
 
 export function NotebookNodeGeneratedWidgetSettings({
     attributes,
@@ -21,7 +26,7 @@ export function NotebookNodeGeneratedWidgetSettings({
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { isEditable, notebookLogic } = useValues(nodeLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const logic = notebookNodeGeneratedWidgetLogic({
+    const logicProps: NotebookNodeGeneratedWidgetLogicProps = {
         projectId: currentTeamId,
         notebookShortId: notebookLogic.props.shortId,
         nodeId: attributes.nodeId,
@@ -34,7 +39,9 @@ export function NotebookNodeGeneratedWidgetSettings({
                 title: notebookLogic.values.title,
             })
         },
-    })
+        getContent: () => notebookLogic.values.content ?? null,
+    }
+    const logic = notebookNodeGeneratedWidgetLogic(logicProps)
     const {
         cancellationInFlight,
         elapsedSeconds,
@@ -60,6 +67,7 @@ export function NotebookNodeGeneratedWidgetSettings({
         generateWidget,
         loadMoreVersions,
         openGenerationModal,
+        openSourceModal,
         restoreSelectedVersion,
         selectVersion,
         setGenerationDraftModel,
@@ -78,6 +86,8 @@ export function NotebookNodeGeneratedWidgetSettings({
         generationModalOperation === 'improve'
             ? 'Describe one change. The generator will use the current widget as a starting point and create a new version.'
             : 'Edit the complete instructions below. This creates a new version from scratch and keeps existing versions.'
+    const visibleGenerationError =
+        generationError || (!isWorking && !generationRequestLoading ? status?.error_detail : null)
     const submitGenerationDraft = (prompt: string): void => {
         if (!generationModalOperation || !prompt.trim() || generationRequestLoading || isWorking) {
             return
@@ -95,7 +105,7 @@ export function NotebookNodeGeneratedWidgetSettings({
                             id={promptId}
                             value={initialPrompt}
                             onChange={(value) => updateAttributes({ prompt: value || undefined })}
-                            placeholder="Describe the widget you want to generate."
+                            placeholder={DEFAULT_WIDGET_PROMPT}
                             minRows={5}
                             autoFocus={wasNotebookNodeJustInserted(attributes.nodeId)}
                             disabled={!isEditable || isWorking}
@@ -203,9 +213,14 @@ export function NotebookNodeGeneratedWidgetSettings({
                             </LemonButton>
                         ) : null}
                         {isCurrentVersion && isEditable ? (
-                            <LemonButton type="primary" onClick={() => openGenerationModal('improve')}>
-                                Improve...
-                            </LemonButton>
+                            <>
+                                <LemonButton onClick={openSourceModal} data-attr="notebook-widget-view-source">
+                                    View source
+                                </LemonButton>
+                                <LemonButton type="primary" onClick={() => openGenerationModal('improve')}>
+                                    Improve...
+                                </LemonButton>
+                            </>
                         ) : null}
                         {isEditable ? (
                             <LemonButton onClick={() => openGenerationModal('regenerate')}>Regenerate…</LemonButton>
@@ -217,16 +232,13 @@ export function NotebookNodeGeneratedWidgetSettings({
                         onClick={() =>
                             generateWidget(initialPrompt, attributes.model ?? DEFAULT_WIDGET_MODEL, 'initial')
                         }
-                        disabledReason={!initialPrompt.trim() ? 'Add instructions first' : undefined}
                         loading={generationRequestLoading}
                     >
                         Generate widget
                     </LemonButton>
                 )}
             </div>
-            {generationError || status?.error_detail ? (
-                <LemonBanner type="error">{generationError || status?.error_detail}</LemonBanner>
-            ) : null}
+            {visibleGenerationError ? <LemonBanner type="error">{visibleGenerationError}</LemonBanner> : null}
 
             <LemonModal
                 isOpen={generationModalOperation !== null}
@@ -281,6 +293,7 @@ export function NotebookNodeGeneratedWidgetSettings({
                     </div>
                 </div>
             </LemonModal>
+            <NotebookWidgetSourceModal {...logicProps} />
         </div>
     )
 }

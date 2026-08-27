@@ -3,12 +3,15 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api-error'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 
 import { initKeaTests } from '~/test/init'
 
 import {
     notebooksWidgetCancel,
     notebooksWidgetGenerate,
+    notebooksWidgetSource,
     notebooksWidgetStatus,
     notebooksWidgetVersions,
 } from 'products/notebooks/frontend/generated/api'
@@ -18,13 +21,19 @@ import type {
     WidgetVersionPageApi,
 } from 'products/notebooks/frontend/generated/api.schemas'
 
-import { formatWidgetElapsed, notebookNodeGeneratedWidgetLogic } from './notebookNodeGeneratedWidgetLogic'
+import {
+    formatWidgetElapsed,
+    getWidgetDataDependencyNodeIds,
+    notebookNodeGeneratedWidgetLogic,
+} from './notebookNodeGeneratedWidgetLogic'
+import { DEFAULT_WIDGET_PROMPT } from './widgetModels'
 
 jest.mock('products/notebooks/frontend/generated/api', () => ({
     notebooksWidgetCancel: jest.fn(),
     notebooksWidgetFrame: jest.fn(),
     notebooksWidgetGenerate: jest.fn(),
     notebooksWidgetRevert: jest.fn(),
+    notebooksWidgetSource: jest.fn(),
     notebooksWidgetStatus: jest.fn(),
     notebooksWidgetVersions: jest.fn(),
 }))
@@ -55,6 +64,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         model: 'claude-sonnet-4-6' as const,
         isEditable: true,
         persistNotebook: jest.fn(async () => undefined),
+        getContent: jest.fn(() => null),
     }
     let logic: ReturnType<typeof notebookNodeGeneratedWidgetLogic.build>
 
@@ -62,6 +72,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         initKeaTests()
         jest.mocked(notebooksWidgetCancel).mockReset()
         jest.mocked(notebooksWidgetGenerate).mockReset()
+        jest.mocked(notebooksWidgetSource).mockReset()
         jest.mocked(notebooksWidgetStatus).mockReset()
         jest.mocked(notebooksWidgetVersions).mockReset().mockResolvedValue(emptyVersions)
         props.persistNotebook.mockClear()
@@ -253,7 +264,10 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         expect(notebooksWidgetGenerate).not.toHaveBeenCalled()
     })
 
-    it('submits generation once and follows the durable queued job', async () => {
+    it.each([
+        ['provided instructions', 'Render a globe', 'Render a globe'],
+        ['an empty new-widget prompt', '', DEFAULT_WIDGET_PROMPT],
+    ])('submits %s once and follows the durable queued job', async (_label, prompt, expectedPrompt) => {
         const queued = status({
             lifecycle_status: 'generating',
             active_job: {
@@ -271,7 +285,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
-        logic.actions.generateWidget('Render a globe', 'claude-sonnet-4-6', 'initial')
+        logic.actions.generateWidget(prompt, 'claude-sonnet-4-6', 'initial')
         await expectLogic(logic).toFinishAllListeners()
 
         expect(notebooksWidgetGenerate).toHaveBeenCalledTimes(1)
@@ -280,7 +294,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             'notebook-1',
             'globe',
             expect.objectContaining({
-                prompt: 'Render a globe',
+                prompt: expectedPrompt,
                 generation_id: expect.any(String),
                 model: 'claude-sonnet-4-6',
                 generation_operation: 'initial',
@@ -289,6 +303,63 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         expect(logic.values.status?.active_job?.status).toBe('queued')
         expect(logic.values.generationRequestLoading).toBe(false)
         expect(logic.values.isWorking).toBe(true)
+    })
+
+    it('finds the data producer and its transitive dependencies without unrelated cells', () => {
+        const content: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: NotebookNodeType.SQLV2,
+                    attrs: { nodeId: 'source', returnVariable: 'sql_df', code: 'select 1' },
+                },
+                {
+                    type: NotebookNodeType.PythonV2,
+                    attrs: {
+                        nodeId: 'transform',
+                        returnVariable: 'locations_df',
+                        code: 'locations_df = sql_df.copy()',
+                    },
+                },
+                {
+                    type: NotebookNodeType.SQLV2,
+                    attrs: { nodeId: 'unrelated', returnVariable: 'other_df', code: 'select 2' },
+                },
+            ],
+        }
+
+        expect(getWidgetDataDependencyNodeIds(content, ['locations_df'])).toEqual(['source', 'transform'])
+    })
+
+    it('loads the current source and queues an improvement from it', async () => {
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(status({ lifecycle_status: 'ready' }))
+        jest.mocked(notebooksWidgetSource).mockResolvedValue({ source: 'export default function Widget() {}' })
+        jest.mocked(notebooksWidgetGenerate).mockResolvedValue(status({ lifecycle_status: 'generating' }))
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.openSourceModal()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(notebooksWidgetSource).toHaveBeenCalledWith(String(MOCK_TEAM_ID), 'notebook-1', 'globe')
+        expect(logic.values.source).toBe('export default function Widget() {}')
+        expect(logic.values.sourceModalOpen).toBe(true)
+
+        logic.actions.setSourceChangePrompt('Use a darker background')
+        logic.actions.improveSource()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(notebooksWidgetGenerate).toHaveBeenCalledWith(
+            String(MOCK_TEAM_ID),
+            'notebook-1',
+            'globe',
+            expect.objectContaining({
+                prompt: 'Use a darker background',
+                generation_operation: 'improve',
+            })
+        )
+        expect(logic.values.sourceModalOpen).toBe(false)
     })
 
     it('persists an older Markdown widget and retries with the same generation identifier', async () => {

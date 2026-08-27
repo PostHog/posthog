@@ -73,6 +73,7 @@ from products.notebooks.backend.facade.widgets import (
     inspect_widget_inputs,
     list_widget_versions,
     read_widget_frame,
+    read_widget_source,
     revert_widget_version,
     start_widget_generation,
 )
@@ -85,6 +86,7 @@ from products.notebooks.backend.presentation.widget_serializers import (
     WidgetFrameSerializer,
     WidgetGenerateRequestSerializer,
     WidgetRevertRequestSerializer,
+    WidgetSourceSerializer,
     WidgetStatusSerializer,
     WidgetVersionPageSerializer,
     WidgetVersionQuerySerializer,
@@ -924,6 +926,33 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         except WidgetError as error:
             return self._widget_error_response(error)
         return Response(WidgetVersionPageSerializer(result).data)
+
+    @extend_schema(
+        operation_id="notebooks_widget_source",
+        responses={200: WidgetSourceSerializer, 400: WidgetErrorSerializer, 404: WidgetErrorSerializer},
+        parameters=[
+            OpenApiParameter(
+                "node_id",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.PATH,
+                description="Stable identifier of the generated widget node.",
+            )
+        ],
+    )
+    @action(
+        methods=["GET"],
+        url_path="widgets/(?P<node_id>[^/.]+)/source",
+        detail=True,
+        required_scopes=["notebook:read"],
+    )
+    def widget_source(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
+        if node_id is None:
+            raise Http404()
+        try:
+            source = read_widget_source(notebook=self.get_object(), node_id=node_id)
+        except WidgetError as error:
+            return self._widget_error_response(error)
+        return Response(WidgetSourceSerializer({"source": source}).data)
 
     @extend_schema(
         operation_id="notebooks_widget_revert",
