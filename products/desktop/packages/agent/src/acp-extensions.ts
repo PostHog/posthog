@@ -45,9 +45,6 @@ export const POSTHOG_NOTIFICATIONS = {
   /** Maps taskRunId to agent's sessionId and adapter type (for resumption) */
   SDK_SESSION: "_posthog/sdk_session",
 
-  /** Git checkpoint captured for handoff */
-  GIT_CHECKPOINT: "_posthog/git_checkpoint",
-
   /** Agent mode changed (interactive/background) */
   MODE_CHANGE: "_posthog/mode_change",
 
