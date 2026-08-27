@@ -66,13 +66,19 @@ class Command(BaseCommand):
         team_ids: Optional[list[int]] = options.get("team_ids")
 
         after = timezone.now() - timedelta(days=days)
-        histories = build_sending_histories(after=after, team_ids=team_ids)
+        histories = self._without_deleted_teams(build_sending_histories(after=after, team_ids=team_ids))
         decisions = self._decide(histories=histories, team_ids=team_ids)
 
-        if apply_changes:
-            self._apply(decisions)
+        written = self._apply(decisions) if apply_changes else 0
 
-        self._report(decisions=decisions, histories=histories, days=days, applied=apply_changes)
+        self._report(decisions=decisions, histories=histories, days=days, applied=apply_changes, written=written)
+
+    def _without_deleted_teams(self, histories: dict[int, TeamSendingHistory]) -> dict[int, TeamSendingHistory]:
+        # app_metrics2 lives in ClickHouse and is not cleared when a team is deleted from Postgres,
+        # so its history can name teams that no longer exist. Drop them so a defunct team_id does not
+        # inflate the distribution, the denominator, or the written count.
+        existing = set(Team.objects.filter(id__in=list(histories)).values_list("id", flat=True))
+        return {team_id: history for team_id, history in histories.items() if team_id in existing}
 
     def _decide(self, *, histories: dict[int, TeamSendingHistory], team_ids: Optional[list[int]]) -> list[TierDecision]:
         configs = TeamWorkflowsConfig.objects.all()
@@ -116,9 +122,10 @@ class Command(BaseCommand):
                 decisions.append(decision)
         return decisions
 
-    def _apply(self, decisions: list[TierDecision]) -> None:
+    def _apply(self, decisions: list[TierDecision]) -> int:
         teams = {team.id: team for team in Team.objects.filter(id__in=[d.team_id for d in decisions])}
         now = timezone.now()
+        written = 0
         for decision in decisions:
             team = teams.get(decision.team_id)
             if team is None:
@@ -127,6 +134,7 @@ class Command(BaseCommand):
             config.email_sending_tier = decision.new_tier
             config.email_sending_tier_updated_at = now
             config.save(update_fields=["email_sending_tier", "email_sending_tier_updated_at"])
+            written += 1
             logger.info(
                 "workflows_email_sending_tier_backfilled",
                 team_id=decision.team_id,
@@ -134,6 +142,7 @@ class Command(BaseCommand):
                 new_tier=decision.new_tier,
                 reason=decision.reason,
             )
+        return written
 
     def _current_tiers(self, team_ids: Iterable[int]) -> dict[int, int]:
         return {
@@ -148,6 +157,7 @@ class Command(BaseCommand):
         histories: dict[int, TeamSendingHistory],
         days: int,
         applied: bool,
+        written: int,
     ) -> None:
         moved_to = {decision.team_id: decision.new_tier for decision in decisions}
         current_tiers = self._current_tiers(histories.keys())
@@ -178,6 +188,6 @@ class Command(BaseCommand):
         self.stdout.write(f"Teams whose tier would change: {len(decisions)}")
 
         if applied:
-            self.stdout.write(self.style.SUCCESS(f"Wrote {len(decisions)} tier changes."))
+            self.stdout.write(self.style.SUCCESS(f"Wrote {written} tier changes."))
         else:
             self.stdout.write(self.style.WARNING("Nothing written. Re-run with --apply to write these tiers."))
