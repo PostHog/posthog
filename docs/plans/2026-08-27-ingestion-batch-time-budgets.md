@@ -29,7 +29,8 @@ The worker cannot do better today even if it wanted to:
 ## Design overview
 
 Invert who enforces time.
-The worker gets a per-sub-batch **budget** sized so it acks well before the consumer's watchdog fires.
+The worker gets a per-sub-batch **budget**, sized by the consumer and carried on every request — the consumer owns budget policy end to end; the worker enforces what it is sent and has no sizing config of its own.
+The consumer sizes it so the worker acks well before the watchdog fires.
 When the budget expires, the framework stops _starting_ work: events the budget cut off complete as a new result type, `TIMEOUT`; events the order gate refuses to even feed (see below) complete as `REJECTED`; and the ack carries per-message dispositions so the consumer redelivers only the unfinished remainder.
 The watchdog stays as what it should be: a dead-worker detector.
 
@@ -121,7 +122,8 @@ Pipelines with no time policy (tests, the non-gRPC pipelines) pass `unlimitedBud
 
 `feedSerialized` calls the factory once per fed batch and stamps the minted budget into each element's context next to `messageId`.
 Sub-contexts created by `fanOut` and `filterMap` copy it the way they copy `debugContext`.
-The factory receives the feed context, and the analytics factory anchors its deadline at the `armedAt` the server stamped at frame read — so time parked in the admission queue counts against the budget even though the object is minted at feed.
+The factory receives the feed context, and the gRPC factory is a pure function of the wire: `budget_ms == 0 → unlimited()`, else a deadline at `armedAt + budget_ms`, with `armedAt` stamped by the server at frame read — so time parked in the admission queue counts against the budget even though the object is minted at feed.
+There is no worker-side sizing knob for it to consult: budget policy belongs to the consumer.
 Result handling treats the unacked results as a no-op (metric, no produce); ingestion-warning handling and TopHog gain both new result labels.
 
 ### Steps: backward-compatible opt-in
@@ -156,7 +158,7 @@ export interface CompletedSubBatch {
 ```
 
 `WorkerIngestServer` stamps `armedAt` and the frame's `budget_ms` into the feed context when it reads the frame — before the admission wait — and races the admission wait against the same deadline.
-One shared helper computes `armedAt + min(budget_ms, cap)` for both the server's admission race and the pipeline's budget factory, so the sizing policy lives once.
+One shared helper computes `armedAt + budget_ms` for both the server's admission race and the pipeline's budget factory — no worker-side cap enters the arithmetic.
 A sub-batch whose deadline passes while parked in the FIFO admission queue is acked `PARTIAL` with every message timed out, without ever being fed: nothing entered the pipeline, so no worker state exists, and the consumer redelivers through the deferral path.
 The ordinary path acks after `settled` resolves: `PARTIAL` when either list is non-empty, `OK` otherwise.
 
@@ -190,8 +192,10 @@ That over-cancels but needs no per-key state; the in-flight window is small.
 ```proto
 message SubBatch {
   // ...existing fields...
-  // Time allowance for processing this sub-batch, milliseconds; 0 = no budget.
-  // The worker takes min(budget_ms, its own configured cap).
+  // Time allowance for processing this sub-batch, milliseconds. The worker
+  // derives its budget from this field alone; it has no sizing config of its
+  // own. 0 = unlimited — which is also what a consumer predating this field
+  // sends, so compatibility is automatic.
   uint64 budget_ms = 6;
 }
 
@@ -225,11 +229,11 @@ The consumer must never derive acceptance from the lists without that validation
 This is the largest piece outside the framework.
 The stash, the cascade rule, and the ordered flush are reused as-is, but everything between the ack and the stash needs real work:
 
-- Regenerate the proto; stamp `budget_ms` on each `SubBatch` from new config (suggested: `INGESTION_WORKER_SUB_BATCH_BUDGET_MS`, default 0 = disabled; when set, sized at roughly half `INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS`).
+- Regenerate the proto; stamp `budget_ms` on each `SubBatch` from new config (suggested: `INGESTION_WORKER_SUB_BATCH_BUDGET_MS`, default 0 = unlimited, today's semantics; when set, sized at roughly half `INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS`). This is the system's only budget-sizing knob.
 - **A per-message reply shape.** The transport reply today is all-or-nothing (`Accepted { accepted, messages }`), and a sub-batch the transport split into size-bounded chunks acks per chunk — the transport must remap each chunk's `timed_out` and `rejected` indices back to sub-batch positions and merge the chunk dispositions into one resolution.
 - **A mixed resolve path.** Today a sub-batch resolves fully (release keys, advance counts) or fails fully (`defer_failed` stashes everything). Partial acceptance needs a resolve that releases completed messages and stashes the rest while preserving the dispatcher's outstanding-count invariants (the count nets to unchanged for stashed keys and never dips to zero mid-handoff).
 - **Per-key acked watermarks computed from completed messages only.** The order sentinel advances a key's watermark using the key's maximum offset in the sub-batch; on a partial ack that would advance past unprocessed offsets and flag the redelivery as a resend-after-ack violation. The watermark must come from the completed subset.
-- **An escalation ladder for events that never fit the budget.** Such an event would otherwise redeliver forever — the deferral path has no attempt cap — with each round ending in the flush-stall bail and a process restart, the watchdog fully masked. Stash entries produced by partial acks carry an attempt count; after N budget-limited attempts the message resends with `budget_ms = 0`, degrading to exactly today's semantics (full watchdog window, fence on overrun) for that message alone, with a counter so the pathological event is visible instead of masked.
+- **An escalation ladder for events that never fit the budget.** Such an event would otherwise redeliver forever — the deferral path has no attempt cap — with each round ending in the flush-stall bail and a process restart, the watchdog fully masked. Stash entries produced by partial acks carry an attempt count; after N budget-limited attempts the message resends with `budget_ms = 0` (unlimited), degrading to exactly today's semantics (full watchdog window, fence on overrun) for that message alone, with a counter so the pathological event is visible instead of masked.
   Only `timed_out` occurrences increment the count — a `rejected` message was never attempted, and counting it would let a hot key's gate rejections spuriously escalate its neighbors to `budget_ms = 0`.
   This is why the wire distinguishes the two lists at all.
 - Offset commit accounting is unchanged in kind: partially accepted sub-batches hold commits exactly the way deferred groups do today, just for fewer messages.
@@ -264,7 +268,7 @@ Shadow mode (`enforce: false`) records all of the above without changing any res
    Every existing constructor passes `unlimitedBudgetFactory`: zero behavior change, and no optional-budget code path ever exists.
 2. **Order gate** — the gate/clear mechanism in `ConcurrentlyGroupingChunkPipeline` behind the sequence-extractor option, plus fuzz tests.
    Inert without budgets.
-3. **Wire + worker** — proto fields, `PARTIAL` acks in `WorkerIngestServer`, dispositions in `GrpcStreamIngestDriver`, worker-side cap config.
+3. **Wire + worker** — proto fields, `PARTIAL` acks in `WorkerIngestServer`, dispositions in `GrpcStreamIngestDriver`, and the wire-driven budget factory; the worker's only budget knob is the shadow/enforce rollout flag (gating, not sizing).
    Run shadow in production; read the overrun and would-have-cancelled metrics.
 4. **Consumer** — proto regen, `budget_ms` stamping, the per-message reply shape with chunk index remapping, the mixed resolve path, completed-only watermarks, the escalation ladder, and e2e coverage in `grpc_transport_test.rs` and the integration harness.
    Enable end to end, budget ≈ 0.5 × watchdog.
