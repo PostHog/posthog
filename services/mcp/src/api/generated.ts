@@ -84762,6 +84762,18 @@ export namespace Schemas {
       notes: string[];
     }
 
+    /**
+     * Request body for POST /api/users/verify_email/. Exactly one of token or code is required.
+     */
+    export interface VerifyEmailRequest {
+      /** UUID of the user whose email is being verified. */
+      uuid: string;
+      /** Verification token from the emailed link. Required unless a code is provided. */
+      token?: string;
+      /** The 6-digit verification code emailed at signup. Whitespace, invisible characters, and grouping hyphens are removed and compatibility digits are folded to ASCII before checking. */
+      code?: string;
+    }
+
     export interface ViewLinkValidation {
       /**
          * Name of the table or view being joined onto the source table.
