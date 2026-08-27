@@ -488,26 +488,37 @@ class TestSurvey(APIBaseTest):
         assert (str(survey.id) in payload_ids) is expected_in_payload
 
     def test_sdk_payload_orders_surveys_by_launch_date(self) -> None:
-        # SDKs break display ties by payload order, so it must be deterministic: oldest launch first.
-        launch_dates = [
-            datetime(2026, 1, 3, tzinfo=UTC),
-            datetime(2026, 1, 1, tzinfo=UTC),
-            datetime(2026, 1, 2, tzinfo=UTC),
-        ]
-        surveys = [
-            Survey.objects.create(
+        # SDKs break display ties by payload order, so it must be deterministic:
+        # oldest launch first, created_at as the tie-break.
+        def create_survey(name: str, start_date: datetime, created_at: datetime) -> Survey:
+            survey = Survey.objects.create(
                 team=self.team,
-                name=f"Ordered survey {i}",
+                name=name,
                 type="popover",
                 start_date=start_date,
                 questions=[{"type": "open", "id": "q1", "question": "How are you?"}],
             )
-            for i, start_date in enumerate(launch_dates)
-        ]
+            Survey.objects.filter(id=survey.id).update(created_at=created_at)
+            return survey
+
+        launched_last = create_survey(
+            "Launched last", datetime(2026, 1, 3, tzinfo=UTC), datetime(2026, 1, 1, tzinfo=UTC)
+        )
+        launched_first = create_survey(
+            "Launched first", datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 2, tzinfo=UTC)
+        )
+        tie_created_second = create_survey(
+            "Tie created second", datetime(2026, 1, 2, tzinfo=UTC), datetime(2026, 1, 2, tzinfo=UTC)
+        )
+        tie_created_first = create_survey(
+            "Tie created first", datetime(2026, 1, 2, tzinfo=UTC), datetime(2026, 1, 1, tzinfo=UTC)
+        )
 
         payload_ids = [str(item["id"]) for item in get_surveys_response(self.team)["surveys"]]
 
-        assert payload_ids == [str(surveys[1].id), str(surveys[2].id), str(surveys[0].id)]
+        assert payload_ids == [
+            str(survey.id) for survey in [launched_first, tie_created_first, tie_created_second, launched_last]
+        ]
 
     def test_sdk_payload_strips_non_runtime_question_fields(self) -> None:
         self.team.survey_config = {"appearance": {"backgroundColor": "black"}}

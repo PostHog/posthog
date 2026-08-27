@@ -3520,7 +3520,7 @@ def get_surveys_response(team: Team) -> dict[str, Any]:
         # SDKs display one popover at a time and break appearance-delay ties by payload
         # order, so this ordering decides which of two colliding surveys a user sees.
         # Launch order (oldest first) keeps that winner deterministic across cache rebuilds.
-        .order_by("start_date", "created_at"),
+        .order_by("start_date", "created_at", "id"),
         many=True,
     ).data
 
