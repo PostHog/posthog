@@ -130,6 +130,10 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.MAX,
     ),
+    "zai-org/glm-5.3-flash": (
+        ReasoningEffort.HIGH,
+        ReasoningEffort.MAX,
+    ),
     "moonshotai/kimi-k3": (),
     "claude-opus-4-5": (
         ReasoningEffort.LOW,
