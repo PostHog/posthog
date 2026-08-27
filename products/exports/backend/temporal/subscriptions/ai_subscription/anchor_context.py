@@ -88,6 +88,17 @@ def _insight_lines(insight, collected_events: list[str]) -> list[str]:
     return lines
 
 
+def _dashboard_metadata_line(label: str, value: object) -> str | None:
+    if not value:
+        return None
+    serialized = sanitize_user_text(
+        json.dumps(value, separators=(",", ":"), sort_keys=True),
+        ANCHOR_QUERY_JSON_MAX_CHARS,
+        truncate_marker="…(truncated)",
+    )
+    return f"  {label} (JSON): {serialized}" if serialized else None
+
+
 def build_anchor_context(subscription: Subscription) -> AnchorContext | None:
     """The anchor's schema as planner context: names, descriptions, and query definitions only.
 
@@ -128,6 +139,10 @@ def _build_anchor_context(subscription: Subscription) -> AnchorContext | None:
         description = sanitize_user_text(dashboard.description or "", ANCHOR_DESCRIPTION_MAX_LENGTH)
         if description:
             lines.append(f"  Description: {description}")
+        for label, value in (("Dashboard filters", dashboard.filters), ("Dashboard variables", dashboard.variables)):
+            metadata_line = _dashboard_metadata_line(label, value)
+            if metadata_line:
+                lines.append(metadata_line)
         # Sort on layout columns alone, then load only the insights that survive the cap: a
         # dashboard's `query` JSON is its heaviest column, and a large dashboard would otherwise
         # pull every tile's query to render 25 lines. order_by("id") gives ties (missing or equal

@@ -45,7 +45,13 @@ class TestBuildAnchorContext(APIBaseTest):
         assert build_anchor_context(self._subscription()) is None
 
     def test_dashboard_anchor_lists_tiles_in_layout_order_with_queries(self) -> None:
-        dashboard = Dashboard.objects.create(team=self.team, name="Growth", description="North star")
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Growth",
+            description="North star",
+            filters={"properties": [{"key": "region", "value": "north"}]},
+            variables={"minimum_count": {"value": 10}},
+        )
         bottom = Insight.objects.create(team=self.team, name="Signups", query=_TRENDS_QUERY)
         top = Insight.objects.create(team=self.team, name="Pageviews")
         standalone = Insight.objects.create(team=self.team, name="Retention")
@@ -59,6 +65,8 @@ class TestBuildAnchorContext(APIBaseTest):
         assert context is not None
         assert "Context dashboard" in context.blob
         assert "Growth" in context.blob and "North star" in context.blob
+        assert 'Dashboard filters (JSON): {"properties":[{"key":"region","value":"north"}]}' in context.blob
+        assert 'Dashboard variables (JSON): {"minimum_count":{"value":10}}' in context.blob
         assert "Context insight" in context.blob and "Retention" in context.blob
         # Layout order, not creation order.
         assert context.blob.index("Pageviews") < context.blob.index("Signups")
