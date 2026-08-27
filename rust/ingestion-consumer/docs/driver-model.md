@@ -210,7 +210,7 @@ health        snapshot (ArcSwap-style)  probes → place()   the only cross-task
 
 Both channel families are created in one place, so every later use has a declaration:
 
-```text
+```rust
 // Startup: the one resolutions channel; the event loop keeps the receive side.
 let (resolutions_tx, resolutions) = mpsc::channel(RESOLUTIONS_BOUND);   // ≥ pool size
 
@@ -224,7 +224,7 @@ There is no `Mutex`, no `Arc`'d mutable state, and no atomic in the model: every
 
 **Consumer driver — the event loop.** Backpressure is the *absence of the poll branch*, not a check inside it.
 
-```text
+```rust
 // One task. Sole owner of everything below; mutation is plain &mut, no locks.
 struct ConsumerDriver {
     partitions: Map<Partition, PartitionDriver>,
@@ -273,7 +273,7 @@ loop {
 
 **Partition driver — demux and the offset ledger.** A plain struct owned by the loop, mutated under `&mut`.
 
-```text
+```rust
 // Loop-owned struct; methods are synchronous and never block.
 struct PartitionDriver {
     keys: Map<RoutingKey, KeyDriver>,
@@ -304,7 +304,7 @@ fn check_stall() {
 
 **Commit manager — frontiers to one batched commit.** The §2.3 verification rides here unchanged.
 
-```text
+```rust
 // The consumer driver's `commits` field; tick() runs synchronously on the commit cadence.
 fn tick() {
     let batch = partitions.filter(frontier advanced).map(|p| (p, p.frontier + 1));
@@ -324,7 +324,7 @@ task commit_monitor {
 
 **Key driver — a passive state machine.** The deferral cascade, the pin, and the retry pacing are all this struct — a plain entry in its partition driver's map: no task, no lock, no ref-count.
 
-```text
+```rust
 // A plain entry in its partition driver's map. No task, no lock, no ref-count.
 // Methods run on the loop and never block: "waiting" is an entry in the timer heap.
 struct KeyDriver {
@@ -366,7 +366,7 @@ fn failed(group) {
 
 **Worker batcher — bins, triggers, packing, fan-out.**
 
-```text
+```rust
 // Loop-owned. busy[w] is the loop's own record of stream state — set on fire,
 // cleared on resolution; never a flag shared with runners.
 struct WorkerBatcher {
@@ -419,7 +419,7 @@ fn try_fire(w) {                             // the single send-origination site
 
 **Router placement** (§4.3):
 
-```text
+```rust
 fn place(key) -> Option<WorkerId> {
     let health = registry.snapshot();        // published by the probe task; the model's
                                              //   only cross-task shared read — no lock
@@ -436,7 +436,7 @@ fn place(key) -> Option<WorkerId> {
 
 **Worker stream runner — one task per worker, depth 1.** The machinery below the batcher.
 
-```text
+```rust
 // One long-lived task per worker. Owns its connection; shares only the two channels,
 // and both hand data over by value.
 task stream_runner(w, requests: Receiver<Request>, resolutions: Sender<Resolution>) {
