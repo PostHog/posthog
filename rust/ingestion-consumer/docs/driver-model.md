@@ -133,9 +133,10 @@ consumer loop                     (1 per pod; the event pump)
   │     └── partition driver      (1 per assigned partition; ledger + stall deadline)
   ├── accumulator factory         (per poll: obtain a buffer, lend it down, release it)
   ├── worker batcher              (1 background task; the transport side, whole)
-  │     ├── key table             (every key's send state + its run-queue)
+  │     ├── key table             (every key's send state + its scheduling, sharded)
   │     ├── router/aperture       (placement — §4.3)
-  │     ├── packer + size defense (request composition; §2.10 kept below it)
+  │     ├── packer + size defense (composition: bins + armed; §2.10 kept below it)
+  │     ├── dispatch governor     (permits: the ±1 law over request RTT — §4.3)
   │     └── stream runners        (1 task per worker; depth-bounded ordered send)
   ├── completion stream           (batcher → loop; ACKed groups, for the ledgers)
   ├── commit manager              (1 per pod; frontiers → one batched commit)
@@ -550,7 +551,7 @@ task commit_monitor {
 }
 ```
 
-**Worker batcher — the transport side, whole, one task.** Admission, placement, packing, settlement, and the stream runners, behind two channels: accumulators in, completions out. Its per-key state lives in the **key table** and its concurrency in the **governor** — each its own component below, each a method per scenario — so the batcher itself is only the wiring between them, the bins, and the streams.
+**Worker batcher — the transport side, whole, one task.** Admission, placement, packing, settlement, and the stream runners, behind two channels: accumulators in, completions out. Its per-key state lives in the **key table**, its composition in the **packer**, and its concurrency in the **governor** — each its own component below — so the batcher itself is only the wiring between them and the streams. The split of duties in one line: the table decides *what may go*, the router decides *where*, the packer decides *what rides together*, the governor decides *how much at once*.
 
 ```rust
 // One long-lived task. Sole owner of everything transport-shaped; mutation is plain
@@ -559,16 +560,10 @@ struct WorkerBatcher {
     keys: KeyTable,                          // every key's send state + scheduling, one
                                              //   method per scenario — nothing else
                                              //   touches a key (below)
+    packer: Packer,                          // composition: the bins + the armed set (below)
     governor: Governor,                      // the permit valve + the ±1 law (§4.3, below)
-    bins: Map<WorkerId, Bin>,                // bin: ordered groups, events/bytes, affinities
     in_flight: Map<WorkerId, u32>,           // per-stream depth in use (≤ DEPTH_MAX)
-    armed: RotatingSet<WorkerId>,            // workers with a non-empty bin — armed until
-                                             //   it drains, so a fire refused by depth or
-                                             //   permits is retried at every wake, never
-                                             //   lost (the bounded-wait argument, §4.3);
-                                             //   iterated round-robin, so scarce permits
-                                             //   reach every armed bin within |armed| turns
-    retry_at: Option<Deadline>,              // armed only while a key is parked
+    retry_at: Option<Deadline>,              // armed only while an item is parked
     router: Router,                          // aperture + P2C over the health snapshot (§4.3)
     accumulators: Rx<Feed>,                  // Batch(accumulator) | Revoked(partition)
     resolutions: Rx<Resolution>,             // from the runners
@@ -619,32 +614,14 @@ fn settle(w, outcome, groups) {              // every transition — per key and
 }
 
 fn dispatch() {                              // the batcher's own algorithm (§4.3): one
-    keys.revive();                           //   pass — parked keys get another attempt,
-    while let Some((key, pin)) = keys.pop_ready() {      //   and parking removes a key
-        match router.place(pin, &bins) {                 //   from the pass, so it ends
-            None => {
-                keys.park(key)
-            }
-            Some(w) => {
-                bins[w].push_run(keys.send(key, up_to: T));  // a contiguous, in-order
-                armed.insert(w);                             //   run — a hot key may fill
-                if bins[w].size >= T {                       //   the whole request
-                    try_fire(w)
-                }
-            }
-        }
-    }
-    while let Some(p) = keys.pop_keyless() {         // then the keyless filler (§1):
-        match router.place(None, &bins) {            //   order-free, so no pin and any
-            None => {                                //   split — tops open bins toward
-                keys.park_keyless(p)                 //   target
-            }
-            Some(w) => {
-                bins[w].push_run(keys.take_keyless(p, up_to: T));
-                armed.insert(w);
-                if bins[w].size >= T {
-                    try_fire(w)
-                }
+    keys.revive();                           //   pass. The table yields uniform work
+    while let Some((item, pin)) = keys.pop_ready() {     //   items — keyed or keyless is
+        match router.place(pin, &packer) {               //   its business alone; the
+            None => {                                    //   router places, the packer
+                keys.park(item)                          //   composes. Parking removes an
+            }                                            //   item from the pass, so the
+            Some(w) => {                                 //   pass ends
+                packer.bin(w, keys.take(item, up_to: T))
             }
         }
     }
@@ -653,8 +630,9 @@ fn dispatch() {                              // the batcher's own algorithm (§4
     } else {
         retry_at = None
     }
-    for w in armed {                         // every armed stream, every wake — including
-        try_fire(w)                          //   fires refused last wake; zero added latency
+    for w in packer.armed() {                // every armed stream, every wake — and each
+        while try_fire(w) {                  //   drains through as many requests as depth
+        }                                    //   and permits allow; zero added latency
     }
 }
 
@@ -664,22 +642,18 @@ fn on_worker_discovered(w) {                 // from registry discovery; a reape
     spawn(stream_runner(w, rx, resolutions_tx.clone()));
 }
 
-fn try_fire(w) {                             // the single send-origination site
-    if in_flight[w] >= DEPTH_MAX || bins[w].is_empty() {
-        return
+fn try_fire(w) -> bool {                     // the single send-origination site
+    if in_flight[w] >= DEPTH_MAX || !packer.has_work(w) {
+        return false
     }
     if !governor.permit() {                  // permit-starved — noted; w stays armed, so
-        return                               //   this fire is retried at the next wake
+        return false                         //   this fire is retried at the next wake
     }
-    let request = pack(bins[w]);             // §4.3: take ≤ T in whole key-runs — a run
-                                             //   never splits across requests, so a key
-                                             //   settles exactly once; remainder stays
-    if bins[w].is_empty() {                  //   binned and w stays armed
-        armed.remove(w)
-    }
+    let request = packer.next_request(w);    // ≤ T, whole key-runs (§4.3)
     requests[w].try_send(request).unwrap();  // non-blocking; capacity DEPTH_MAX, provably
     in_flight[w] += 1;                       //   never full: sends only below the depth
-}                                            //   bound, decremented only at settlement
+    true                                     //   bound, decremented only at settlement
+}
 ```
 
 **Key table — per-key send state, partition-sharded, one method per scenario.** A key lives in exactly one partition, so its state nests in that partition's **shard** — the transport-side mirror of the domain's partition driver, which also carries the shard's **keyless lane** (§1: null-key work owes no order — no state, no pin, just a queue of free filler, counted only for the drain). The shards, the lists, and every drain live behind the table; nothing outside touches any of them, the one-outstanding-per-key invariant is asserted in here, and a `Drained` can only be produced by a draining shard's final settlement — no `begin_drain`, no marker, by construction.
@@ -690,10 +664,13 @@ fn try_fire(w) {                             // the single send-origination site
 // together with list membership, so a key can never be listed twice.
 struct KeyTable {
     partitions: Map<Partition, PartitionKeys>,
-    ready: Deque<RoutingKey>,                // runnable now, in the order they became so
-    keyless_ready: Deque<Partition>,         // shards with keyless work to place (§1)
-    parked: Deque<RoutingKey>,               // unplaceable (§4.5); revived at each wake
-    parked_keyless: Deque<Partition>,        //   — same, for the keyless lanes
+    ready: Deque<Item>,                      // runnable now, in the order they became so
+    parked: Deque<Item>,                     // unplaceable (§4.5); revived at each wake
+}
+
+enum Item {                                  // the table's one scheduling unit — keyed or
+    Keyed(RoutingKey),                       //   keyless is the table's business alone:
+    Keyless(Partition),                      //   the router and packer never learn which
 }
 
 struct PartitionKeys {                       // one partition's shard — created at first
@@ -726,58 +703,62 @@ fn admit(group) {                            // scenario: a demuxed group arrive
     }
 }
 
-fn revive() {                                // scenario: a new wake — parked lanes retry
-    ready.append(take(parked));
-    keyless_ready.append(take(parked_keyless))
+fn revive() {                                // scenario: a new wake — parked items retry
+    ready.append(take(parked))
 }
 
-fn pop_ready() -> Option<(RoutingKey, Option<WorkerId>)> {   // scenario: dispatch wants
-    loop {                                   //   the next runnable key, with its pin;
-        let key = ready.pop_front()?;        //   a drained shard's stale ids drop here
-        if let Some(k) = lookup(key) {
-            k.queued = false;
-            return Some((key, k.pin))
+fn pop_ready() -> Option<(Item, Option<WorkerId>)> {     // scenario: dispatch wants the
+    loop {                                   //   next runnable item, with its placement
+        let item = ready.pop_front()?;       //   preference; a drained shard's stale
+        match item {                         //   entries drop here
+            Keyed(key) => {
+                if let Some(k) = lookup(key) {
+                    k.queued = false;
+                    return Some((item, k.pin))
+                }
+            }
+            Keyless(p) => {
+                if let Some(shard) = partitions.get(p) {
+                    shard.keyless_listed = false;
+                    return Some((item, None))        // free work never has a pin (§1)
+                }
+            }
         }
     }
 }
 
-fn send(key, up_to) -> Run {                 // scenario: dispatch placed the key — mark
-    lookup(key).outstanding = true;          //   it outstanding, hand over a contiguous,
-    lookup(key).queue.take(up_to)            //   in-order run of its queue
-}
-
-fn park(key) {                               // scenario: pool-wide unroutable (§4.5) —
-    lookup(key).queued = true;               //   the work stays in the key's own queue;
-    parked.push(key)                         //   only the id waits on the parked list
-}
-
-fn pop_keyless() -> Option<Partition> {      // scenario: dispatch fills with free work —
-    loop {                                   //   same guarded-list discipline as pop_ready
-        let p = keyless_ready.pop_front()?;
-        if let Some(shard) = partitions.get(p) {
-            shard.keyless_listed = false;
-            return Some(p)
+fn take(item, up_to) -> Run {                // scenario: dispatch placed the item — hand
+    match item {                             //   over a run of its work
+        Keyed(key) => {
+            lookup(key).outstanding = true;  // a contiguous, in-order run of the key's
+            lookup(key).queue.take(up_to)    //   queue — one request may carry it
+        }
+        Keyless(p) => {
+            let shard = shard(p);
+            shard.keyless_out += 1;          // counted for the drain only (§1)
+            let run = shard.keyless.take(up_to);
+            if !shard.keyless.is_empty() {   // remainder: back on the list for this or
+                list_keyless(p)              //   the next wake
+            }
+            run
         }
     }
 }
 
-fn take_keyless(p, up_to) -> Run {           // scenario: dispatch placed free work — one
-    let shard = shard(p);                    //   run out, counted for the drain only
-    shard.keyless_out += 1;
-    let run = shard.keyless.take(up_to);
-    if !shard.keyless.is_empty() {           // remainder: back on the list for this or
-        list_keyless(p)                      //   the next wake
+fn park(item) {                              // scenario: pool-wide unroutable (§4.5) —
+    match item {                             //   the work stays where it is; only the
+        Keyed(key) => {                      //   item waits on the parked list
+            lookup(key).queued = true
+        }
+        Keyless(p) => {
+            shard(p).keyless_listed = true
+        }
     }
-    run
-}
-
-fn park_keyless(p) {                         // scenario: pool-wide unroutable (§4.5)
-    shard(p).keyless_listed = true;
-    parked_keyless.push(p)
+    parked.push(item)
 }
 
 fn any_parked() -> bool {
-    !parked.is_empty() || !parked_keyless.is_empty()
+    !parked.is_empty()
 }
 
 fn settle(w, outcome, groups) -> Vec<Partition> {    // scenario: a request resolved —
@@ -846,7 +827,7 @@ fn make_ready(key) {                         // private — the only way onto a 
     let k = lookup(key);                     //   guard makes entries unique by construction
     if !k.queued && !k.outstanding && !k.queue.is_empty() {
         k.queued = true;
-        ready.push(key)
+        ready.push(Item::Keyed(key))
     }
 }
 
@@ -854,12 +835,47 @@ fn list_keyless(p) {                         // private — the keyless lane's m
     let shard = shard(p);
     if !shard.keyless_listed && !shard.keyless.is_empty() {
         shard.keyless_listed = true;
-        keyless_ready.push(p)
+        ready.push(Item::Keyless(p))
     }
 }
 
 fn lookup(key) -> Option<&mut KeyState> {    // private — every key access routes through
     partitions.get(key.partition)?.keys.get(key)     //   its partition's shard
+}
+```
+
+**Packer — composition, its own component.** The per-worker bins and the armed set (§4.3). What a request carries is decided here, and only here — the router decides where work goes, the table decides what may go at all.
+
+```rust
+// Owned by the batcher; the router reads its bins for fill and load checks.
+struct Packer {
+    bins: Map<WorkerId, Bin>,                // bin: ordered runs, events/bytes, affinities
+    armed: RotatingSet<WorkerId>,            // workers with a non-empty bin — armed until
+}                                            //   it drains, so a fire refused by depth or
+                                             //   permits is retried at every wake, never
+                                             //   lost (the bounded-wait argument, §4.3);
+                                             //   iterated round-robin, so scarce permits
+                                             //   reach every armed bin within |armed| turns
+
+fn bin(w, run) {                             // one placed run joins w's bin, whole
+    bins[w].push_run(run);
+    armed.insert(w)
+}
+
+fn has_work(w) -> bool {
+    !bins[w].is_empty()
+}
+
+fn armed() -> RotatingIter<WorkerId> {       // round-robin over the armed workers
+    armed.iter_rotated()
+}
+
+fn next_request(w) -> Request {              // ≤ T, in whole key-runs — a run never
+    let request = bins[w].pack(up_to: T);    //   splits across requests, so a key settles
+    if bins[w].is_empty() {                  //   exactly once; affinity-minimizing,
+        armed.remove(w)                      //   oldest-head-first (§4.3); the remainder
+    }                                        //   stays binned and w stays armed
+    request
 }
 ```
 
@@ -897,7 +913,8 @@ fn observe(rtt_sample) {                     // at every settlement — the law:
 **Router placement** (§4.3) — inside the batcher; `sticky` is the batcher's pin for the key — a preference, not a constraint:
 
 ```rust
-fn place(sticky, bins) -> Option<WorkerId> {
+fn place(sticky, packer) -> Option<WorkerId> {       // reads the packer's bins for
+                                                     //   fill and load
     let health = registry.snapshot();        // published by the probe task; the model's
                                              //   only cross-task shared read — no lock
     if let Some(w) = sticky {
@@ -1035,6 +1052,8 @@ The consumer's vocabulary has to survive three audiences at once: this crate, th
 | `key table` | the batcher's component owning all key states + their scheduling, partition-sharded, one method per scenario | — |
 | `partition keys` | one partition's shard of the key table: its key states + keyless lane + drain | the domain's partition *driver* |
 | `keyless` | null-key work — no order owed (§1); a shard's free-filler lane | — |
+| `item` | the table's one scheduling unit: a ready key, or a shard's keyless lane | — |
+| `packer` | the batcher's composition component: the bins + the armed set | — |
 | `key state` | one key's entry in its shard: queue · outstanding · queued · pin | key *driver* — retired with the domain-side version |
 | `outstanding` | a key has exactly one request's worth of work out (§2.5's sense) | in-flight, for this |
 | `admit` / `dispatch` / `settle` | the batcher's three phases: queue in, place + fire, resolve | — |
