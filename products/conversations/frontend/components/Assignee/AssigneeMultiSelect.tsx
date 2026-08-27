@@ -220,7 +220,7 @@ const AssigneeFilterItem = ({
             size="small"
             icon={<LemonCheckbox checked={isSelected(item)} className="pointer-events-none" />}
             disabledReason={isSelected(item) ? undefined : selectionCapReason}
-            onClick={() => onToggle(item)}
+            onClick={() => onToggle(toTicketAssignee(item))}
         >
             <span className="flex items-center gap-1">
                 <AssigneeIconDisplay assignee={item} size="small" />
