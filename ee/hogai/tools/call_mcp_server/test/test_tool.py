@@ -4,6 +4,7 @@ import uuid
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from asgiref.sync import sync_to_async
@@ -25,7 +26,7 @@ from ee.hogai.tools.call_mcp_server.installations import (
     _get_installations,
     _get_tool_approval_states,
 )
-from ee.hogai.tools.call_mcp_server.mcp_client import MCPClientError
+from ee.hogai.tools.call_mcp_server.mcp_client import MCPClient, MCPClientError, MCPToolRejectionError
 from ee.hogai.tools.call_mcp_server.tool import CallMCPServerTool
 from ee.hogai.utils.types.base import AssistantState, NodePath
 
@@ -654,6 +655,26 @@ class TestAuthRefresh(TestCallMCPServerTool):
         tool._refresh_token_for_server.assert_called_once_with(self.SERVER_URL)
         self.assertEqual(result, "success after refresh")
 
+    async def test_rejection_skips_refresh_and_surfaces_message(self):
+        inst = _make_oauth_installation(server_url=self.SERVER_URL)
+        tool = self._create_tool(installations=[inst])
+        tool._refresh_token_for_server = AsyncMock()
+
+        rejection = 'query.operator: "contains" is not an allowed operator'
+        with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
+            rejecting_client = self._make_mock_client()
+            rejecting_client.call_tool = AsyncMock(side_effect=MCPToolRejectionError(rejection))
+            MockClient.return_value = rejecting_client
+
+            with self.assertRaises(MaxToolRetryableError) as ctx:
+                await tool._arun_impl(server_url=self.SERVER_URL, tool_name="some_tool", arguments={"key": "val"})
+
+        # The server's message reaches the model, not a blanked placeholder.
+        self.assertIn(rejection, str(ctx.exception))
+        # A rejection is not an auth failure: no token refresh, and the call runs once.
+        tool._refresh_token_for_server.assert_not_called()
+        self.assertEqual(rejecting_client.call_tool.await_count, 1)
+
     async def test_refresh_failure_raises_fatal(self):
         inst = _make_oauth_installation(server_url=self.SERVER_URL)
         tool = self._create_tool(installations=[inst])
@@ -1156,3 +1177,44 @@ class TestIsDangerousOperation(TestCallMCPServerTool):
         self.assertIn("rename_org", preview)
         self.assertIn("Linear", preview)
         self.assertIn("new_name", preview)
+
+
+class TestMCPClientCallTool(SimpleTestCase):
+    def _client_with_session(self, session) -> MCPClient:
+        client = MCPClient("https://mcp.example.com/mcp")
+        client._session = session
+        return client
+
+    @parameterized.expand(
+        [
+            ("protocol_error", "invalid_params"),
+            ("tool_error_result", "is_error"),
+        ]
+    )
+    async def test_rejection_preserves_server_message(self, _name: str, mode: str):
+        from mcp.shared.exceptions import McpError
+        from mcp.types import CallToolResult, ErrorData, TextContent
+
+        message = 'query.operator: "contains" is not an allowed operator'
+        session = AsyncMock()
+        if mode == "invalid_params":
+            session.call_tool = AsyncMock(side_effect=McpError(ErrorData(code=-32602, message=message)))
+        else:
+            session.call_tool = AsyncMock(
+                return_value=CallToolResult(isError=True, content=[TextContent(type="text", text=message)])
+            )
+        client = self._client_with_session(session)
+
+        with self.assertRaises(MCPToolRejectionError) as ctx:
+            await client.call_tool("search", {"operator": "contains"})
+        self.assertEqual(str(ctx.exception), message)
+
+    async def test_transport_error_stays_generic(self):
+        session = AsyncMock()
+        session.call_tool = AsyncMock(side_effect=RuntimeError("connection reset"))
+        client = self._client_with_session(session)
+
+        with self.assertRaises(MCPClientError) as ctx:
+            await client.call_tool("search", {})
+        # Transport failures must keep the retry path, so they are not rejections.
+        self.assertNotIsInstance(ctx.exception, MCPToolRejectionError)

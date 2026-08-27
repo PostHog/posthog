@@ -7,11 +7,24 @@ import httpx
 from mcp import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
+from mcp.shared.exceptions import McpError
 from mcp.types import TextContent
 
 
 class MCPClientError(Exception):
     pass
+
+
+class MCPToolRejectionError(MCPClientError):
+    """The server received the call and refused it: invalid parameters or a tool error.
+
+    This is not an auth or transport failure. The message tells the caller what to fix,
+    so callers must not refresh credentials and re-send the identical call.
+    """
+
+
+# Keep server-supplied messages short enough to hand back to the model.
+_MAX_ERROR_LEN = 500
 
 
 CLIENT_TIMEOUT = 60.0
@@ -80,13 +93,17 @@ class MCPClient:
             raise MCPClientError("Client not initialized. Call initialize() first.")
         try:
             result = await self._session.call_tool(tool_name, arguments or {})
+        except McpError as e:
+            # The server answered at the protocol level and refused the call.
+            # Keep its message so the model can correct the arguments.
+            raise MCPToolRejectionError((e.error.message or "Tool call rejected")[:_MAX_ERROR_LEN])
         except Exception:
             raise MCPClientError("Failed to call tool")
 
         if result.isError:
             text_parts = [c.text for c in result.content if isinstance(c, TextContent)]
             error_text = "\n".join(text_parts) if text_parts else "Tool returned an error"
-            raise MCPClientError(error_text[:500])
+            raise MCPToolRejectionError(error_text[:_MAX_ERROR_LEN])
 
         text_parts = [c.text for c in result.content if isinstance(c, TextContent)]
         return "\n".join(text_parts) if text_parts else str(result.content)
