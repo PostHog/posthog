@@ -1,5 +1,12 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { mkdir, mkdtemp, readlink, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readlink,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -213,6 +220,24 @@ describe("prepareCodexHome", () => {
     expect(existsSync(path.join(codexHome, "config.toml"))).toBe(false);
     expect(existsSync(rollout)).toBe(true);
   });
+
+  // Windows needs elevated rights to create a directory symlink.
+  it.skipIf(process.platform === "win32")(
+    "cleanupCodexHome unlinks a run home that is a link instead of emptying its target",
+    async () => {
+      const victim = path.join(root, "victim");
+      await mkdir(victim, { recursive: true });
+      await writeFile(path.join(victim, "keep.txt"), "keep me\n");
+      const codexHome = getCodexHomeDir(appDataPath, taskRunId);
+      await mkdir(path.dirname(codexHome), { recursive: true });
+      await symlink(victim, codexHome, "dir");
+
+      await cleanupCodexHome(appDataPath, taskRunId);
+
+      expect(existsSync(codexHome)).toBe(false);
+      expect(existsSync(path.join(victim, "keep.txt"))).toBe(true);
+    },
+  );
 
   it("cleanupCodexHome is a no-op when the run's dir was never created", async () => {
     await expect(

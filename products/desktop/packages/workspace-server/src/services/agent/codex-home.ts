@@ -34,6 +34,14 @@ export async function cleanupCodexHome(
   taskRunId: string,
 ): Promise<void> {
   const codexHome = getCodexHomeDir(appDataPath, taskRunId);
+  // `readdir` resolves through a link, so deleting entry by entry would empty
+  // whatever a link at this path points at. Remove the link itself instead.
+  const stats = await fs.promises.lstat(codexHome).catch(() => null);
+  if (stats === null) return;
+  if (!stats.isDirectory()) {
+    await fs.promises.rm(codexHome, { recursive: true, force: true });
+    return;
+  }
   let entries: string[];
   try {
     entries = await fs.promises.readdir(codexHome);

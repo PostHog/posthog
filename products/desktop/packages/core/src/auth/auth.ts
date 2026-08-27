@@ -454,17 +454,14 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     if (this.sessionGeneration !== sessionGeneration) {
       return;
     }
+    const desktopAccess = this.carryDesktopAccessInto(nextSession);
     this.session = nextSession;
     this.persistProjectPreference(nextSession);
     this.updateState({
       orgProjectsMap: next.orgProjectsMap,
       currentOrgId: next.currentOrgId,
       currentProjectId: next.currentProjectId,
-      desktopAccess: {
-        projectId: next.currentProjectId,
-        status: "checking",
-        reason: null,
-      },
+      desktopAccess,
     });
     await this.updateDesktopAccessFromSession(nextSession);
   }
@@ -1308,9 +1305,14 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   // Resetting to "checking" on every refresh would unmount the whole app.
   private carryDesktopAccessInto(session: InMemorySession): DesktopAccess {
     const previous = this.state.desktopAccess;
+    const previousAccountKey = this.session?.accountKey ?? null;
+    // A failed `/api/users/@me/` lookup leaves accountKey null. That is an
+    // unknown account, not a different one, so it must not flash the loading
+    // screen. A resolved key that differs is a real account change.
     const sameIdentity =
-      session.accountKey !== null &&
-      this.session?.accountKey === session.accountKey &&
+      previousAccountKey !== null &&
+      (session.accountKey === null ||
+        session.accountKey === previousAccountKey) &&
       previous.projectId === session.currentProjectId;
     if (
       sameIdentity &&

@@ -153,7 +153,8 @@ describe("AuthService", () => {
 
   const stubAuthFetch = (
     options: {
-      accountKey?: string;
+      /** `null` makes the account lookup fail, as a transient 5xx would. */
+      accountKey?: string | null;
       currentOrgId?: string;
       orgs?: Record<
         string,
@@ -163,7 +164,8 @@ describe("AuthService", () => {
       redeemInviteCodeResponse?: () => Response;
     } = {},
   ) => {
-    const accountKey = options.accountKey ?? "user-1";
+    const accountKey =
+      options.accountKey === undefined ? "user-1" : options.accountKey;
     const currentOrgId = options.currentOrgId ?? "org-1";
     const orgs = options.orgs ?? {
       "org-1": { name: "Org 1", projects: [{ id: 42, name: "Project 42" }] },
@@ -175,6 +177,13 @@ describe("AuthService", () => {
         const url = typeof input === "string" ? input : input.url;
 
         if (url.includes("/api/users/@me/")) {
+          if (accountKey === null) {
+            return {
+              ok: false,
+              status: 500,
+              json: vi.fn().mockResolvedValue({}),
+            } as unknown as Response;
+          }
           return {
             ok: true,
             json: vi.fn().mockResolvedValue({
@@ -2345,6 +2354,12 @@ describe("AuthService", () => {
         statusDuringRecheck: "allowed",
       },
       {
+        // A failed account lookup is an unknown account, not another one.
+        name: "keeps the current result on screen while a refresh whose account lookup failed rechecks it",
+        refreshedAccountKey: null as string | null,
+        statusDuringRecheck: "allowed",
+      },
+      {
         name: "shows checking while a refresh that lands on another account rechecks",
         refreshedAccountKey: "user-2",
         statusDuringRecheck: "checking",
@@ -2372,6 +2387,33 @@ describe("AuthService", () => {
 
       release();
       await refresh;
+      expect(service.getState().desktopAccess.status).toBe("allowed");
+    });
+
+    it("keeps the current result while a commit that leaves the project alone rechecks it", async () => {
+      // Background org recovery commits the project it already had. Publishing
+      // "checking" there unmounts the whole app after it finished loading.
+      let release!: () => void;
+      const pending = new Promise<Response>((resolve) => {
+        release = () => resolve(okBody({ allowed: true, reason: null }));
+      });
+      stubAuthFetch();
+      await service.initialize();
+      expect(service.getState().desktopAccess.status).toBe("allowed");
+
+      let checks = 0;
+      stubAuthFetch({
+        desktopAccessResponse: () => {
+          checks += 1;
+          return pending as unknown as Response;
+        },
+      });
+      const selection = service.selectProject(42);
+      await vi.waitFor(() => expect(checks).toBe(1));
+      expect(service.getState().desktopAccess.status).toBe("allowed");
+
+      release();
+      await selection;
       expect(service.getState().desktopAccess.status).toBe("allowed");
     });
 
