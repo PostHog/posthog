@@ -141,6 +141,31 @@ export const GeneralPage: Story = {
             </SettingsCardRow>
           </SettingsCard>
         </SettingsSection>
+
+        <SettingsSection label="Updates">
+          <SettingsCard>
+            <SettingsCardRow
+              label={
+                <span className="inline-flex items-baseline gap-2">
+                  Version
+                  <span className="font-mono font-normal text-[12px] text-gray-11">
+                    0.61.61
+                  </span>
+                </span>
+              }
+              description="You're on the latest version"
+            >
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="link-muted" size="sm">
+                  Changelog
+                </Button>
+                <Button type="button" variant="outline" size="sm">
+                  Check now
+                </Button>
+              </div>
+            </SettingsCardRow>
+          </SettingsCard>
+        </SettingsSection>
       </div>
     );
   },

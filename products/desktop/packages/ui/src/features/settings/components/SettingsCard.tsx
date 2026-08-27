@@ -82,7 +82,7 @@ export function SettingsCardRow({
       )}
     >
       <div className="flex min-w-0 flex-col gap-0.5 py-0.5">
-        <span className="font-medium text-[13px] text-gray-12 leading-5">
+        <span className="font-medium text-[13px] text-gray-12 leading-snug">
           {label}
         </span>
         {description && (

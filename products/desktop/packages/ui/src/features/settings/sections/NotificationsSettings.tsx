@@ -35,6 +35,7 @@ import {
   SettingsCardRow,
   SettingsSection,
 } from "@posthog/ui/features/settings/components/SettingsCard";
+import { settingsToggleItemClassName } from "@posthog/ui/features/settings/components/SettingsSegmented";
 import { SettingsSelect } from "@posthog/ui/features/settings/components/SettingsSelect";
 import { AddCustomSoundDialog } from "@posthog/ui/features/settings/sections/AddCustomSoundDialog";
 import { TipsSection } from "@posthog/ui/features/settings/sections/TipsSettings";
@@ -557,7 +558,7 @@ function VoiceSection() {
                   value="needs_input"
                   size="sm"
                   variant="outline"
-                  className="h-6 px-2.5 text-[12px] text-gray-11 data-[pressed]:border-(--accent-9) data-[pressed]:bg-(--accent-3) data-[pressed]:text-(--accent-11)"
+                  className={settingsToggleItemClassName}
                 >
                   Needs you
                 </ToggleGroupItem>
@@ -565,7 +566,7 @@ function VoiceSection() {
                   value="completion"
                   size="sm"
                   variant="outline"
-                  className="h-6 px-2.5 text-[12px] text-gray-11 data-[pressed]:border-(--accent-9) data-[pressed]:bg-(--accent-3) data-[pressed]:text-(--accent-11)"
+                  className={settingsToggleItemClassName}
                 >
                   Task finished
                 </ToggleGroupItem>
@@ -573,7 +574,7 @@ function VoiceSection() {
                   value="progress"
                   size="sm"
                   variant="outline"
-                  className="h-6 px-2.5 text-[12px] text-gray-11 data-[pressed]:border-(--accent-9) data-[pressed]:bg-(--accent-3) data-[pressed]:text-(--accent-11)"
+                  className={settingsToggleItemClassName}
                 >
                   Progress
                 </ToggleGroupItem>
