@@ -54,6 +54,7 @@ export function SubscriptionContextPicker({ contexts, onAdd, onRemove }: Subscri
                 groupType={TaxonomicFilterGroupType.Insights}
                 groupTypes={CONTEXT_GROUP_TYPES}
                 onChange={handleChange}
+                closeOnChange={false}
                 placeholder="Add context"
                 size="small"
                 type="secondary"
