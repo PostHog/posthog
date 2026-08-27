@@ -1,6 +1,9 @@
-import pytest
-from unittest.mock import AsyncMock, patch
+import logging
 
+import pytest
+from unittest.mock import MagicMock, patch
+
+from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.session_replay.delete_recordings.object_storage import (
     delete_session_id_chunks,
     generate_chunk_key,
@@ -8,6 +11,24 @@ from posthog.temporal.session_replay.delete_recordings.object_storage import (
     load_session_id_chunk,
     store_session_id_chunks,
 )
+
+STORAGE_MODULE = "posthog.temporal.session_replay.delete_recordings.object_storage.object_storage"
+
+
+def fake_storage(stored: dict[str, bytes], failed_keys: list[str] | None = None) -> MagicMock:
+    # Mirrors the shared client contract: a missing key is only tolerated when the
+    # caller opts in, otherwise the read raises.
+    def read_bytes(key: str, *, missing_ok: bool = False) -> bytes | None:
+        if key in stored:
+            return stored[key]
+        if not missing_ok:
+            raise ObjectStorageError("read failed")
+        return None
+
+    storage = MagicMock()
+    storage.read_bytes.side_effect = read_bytes
+    storage.delete_objects.return_value = failed_keys or []
+    return storage
 
 
 @pytest.mark.parametrize(
@@ -45,7 +66,7 @@ def test_generate_chunk_key(prefix, chunk_index, expected):
 def test_store_session_id_chunks(session_ids, chunk_size, expected_chunks, expected_last_chunk_size):
     written: dict[str, str] = {}
 
-    with patch("posthog.temporal.session_replay.delete_recordings.object_storage.object_storage") as mock_os:
+    with patch(STORAGE_MODULE) as mock_os:
         mock_os.write = lambda key, content: written.update({key: content})
 
         prefix, total_chunks = store_session_id_chunks("wf-test", session_ids, chunk_size)
@@ -67,61 +88,66 @@ def test_store_session_id_chunks(session_ids, chunk_size, expected_chunks, expec
     assert len(written[last_key].split("\n")) == expected_last_chunk_size
 
 
+@pytest.mark.parametrize(
+    "chunk_content, expected",
+    [
+        pytest.param(b"session-a\nsession-b\nsession-c", ["session-a", "session-b", "session-c"], id="three_ids"),
+        pytest.param(b"session-a\n\nsession-b\n", ["session-a", "session-b"], id="skips_empty_lines"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_load_session_id_chunk():
-    chunk_content = b"session-a\nsession-b\nsession-c"
+async def test_load_session_id_chunk(chunk_content, expected):
+    storage = fake_storage({"deletion-inputs/wf-1/chunk-0002.csv": chunk_content})
 
-    mock_body = AsyncMock()
-    mock_body.read = AsyncMock(return_value=chunk_content)
+    with patch(STORAGE_MODULE, storage):
+        result = await load_session_id_chunk("deletion-inputs/wf-1/", 2)
 
-    mock_client = AsyncMock()
-    mock_client.get_object = AsyncMock(return_value={"Body": mock_body})
-
-    with patch("posthog.temporal.session_replay.delete_recordings.object_storage._s3_client") as mock_ctx:
-        mock_ctx.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
-
-        result = await load_session_id_chunk("deletion-inputs/wf-1/", 0)
-
-    assert result == ["session-a", "session-b", "session-c"]
-    mock_client.get_object.assert_called_once()
+    assert result == expected
 
 
 @pytest.mark.asyncio
-async def test_load_session_id_chunk_skips_empty_lines():
-    chunk_content = b"session-a\n\nsession-b\n"
+async def test_load_session_id_chunk_raises_when_chunk_is_missing():
+    storage = fake_storage({"deletion-inputs/wf-1/chunk-0000.csv": b"session-a"})
 
-    mock_body = AsyncMock()
-    mock_body.read = AsyncMock(return_value=chunk_content)
+    with patch(STORAGE_MODULE, storage):
+        with pytest.raises(ValueError, match="deletion-inputs/wf-1/chunk-0001.csv"):
+            await load_session_id_chunk("deletion-inputs/wf-1/", 1)
 
-    mock_client = AsyncMock()
-    mock_client.get_object = AsyncMock(return_value={"Body": mock_body})
 
-    with patch("posthog.temporal.session_replay.delete_recordings.object_storage._s3_client") as mock_ctx:
-        mock_ctx.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+@pytest.mark.parametrize(
+    "total_chunks, expected_keys",
+    [
+        pytest.param(1, ["deletion-inputs/wf-1/chunk-0000.csv"], id="single_chunk"),
+        pytest.param(
+            3,
+            [
+                "deletion-inputs/wf-1/chunk-0000.csv",
+                "deletion-inputs/wf-1/chunk-0001.csv",
+                "deletion-inputs/wf-1/chunk-0002.csv",
+            ],
+            id="multiple_chunks",
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_delete_session_id_chunks(total_chunks, expected_keys):
+    storage = fake_storage({})
 
-        result = await load_session_id_chunk("deletion-inputs/wf-1/", 0)
+    with patch(STORAGE_MODULE, storage):
+        await delete_session_id_chunks("deletion-inputs/wf-1/", total_chunks)
 
-    assert result == ["session-a", "session-b"]
+    storage.delete_objects.assert_called_once_with(expected_keys)
 
 
 @pytest.mark.asyncio
-async def test_delete_session_id_chunks():
-    mock_client = AsyncMock()
-    mock_client.delete_object = AsyncMock()
+async def test_delete_session_id_chunks_logs_orphans(caplog):
+    orphan = "deletion-inputs/wf-1/chunk-0001.csv"
+    storage = fake_storage({}, failed_keys=[orphan])
 
     with (
-        patch("posthog.temporal.session_replay.delete_recordings.object_storage._s3_client") as mock_ctx,
-        patch("posthog.temporal.session_replay.delete_recordings.object_storage.settings") as mock_settings,
+        patch(STORAGE_MODULE, storage),
+        caplog.at_level(logging.WARNING, logger="posthog.temporal.session_replay.delete_recordings.object_storage"),
     ):
-        mock_settings.OBJECT_STORAGE_BUCKET = "test-bucket"
-        mock_ctx.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        await delete_session_id_chunks("deletion-inputs/wf-1/", 2)
 
-        await delete_session_id_chunks("deletion-inputs/wf-1/", 3)
-
-    assert mock_client.delete_object.call_count == 3
-    mock_client.delete_object.assert_any_call(Bucket="test-bucket", Key="deletion-inputs/wf-1/chunk-0000.csv")
-    mock_client.delete_object.assert_any_call(Bucket="test-bucket", Key="deletion-inputs/wf-1/chunk-0001.csv")
-    mock_client.delete_object.assert_any_call(Bucket="test-bucket", Key="deletion-inputs/wf-1/chunk-0002.csv")
+    assert orphan in caplog.text

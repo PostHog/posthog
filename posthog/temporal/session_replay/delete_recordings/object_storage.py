@@ -2,21 +2,12 @@
 
 Avoids exceeding Temporal's ~2MB payload limit by storing session IDs
 as chunked files in S3 instead of inline in the workflow input.
-
-Write path (sync, from Django admin): uses posthog.storage.object_storage.write()
-Read/delete path (async, from Temporal activities): uses aioboto3
 """
 
 import math
+import asyncio
 import logging
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from itertools import batched
-
-from django.conf import settings
-
-import aioboto3
-from botocore.client import Config
 
 from posthog.storage import object_storage
 
@@ -53,47 +44,18 @@ def store_session_id_chunks(
     return prefix, total_chunks
 
 
-@asynccontextmanager
-async def _s3_client() -> AsyncIterator:
-    session = aioboto3.Session()
-    async with session.client(  # type: ignore[call-overload]
-        "s3",
-        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
-        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        config=Config(
-            signature_version="s3v4",
-            connect_timeout=1,
-            retries={"max_attempts": 1},
-        ),
-        region_name=settings.OBJECT_STORAGE_REGION,
-    ) as client:
-        yield client
-
-
 async def load_session_id_chunk(prefix: str, chunk_index: int) -> list[str]:
     key = generate_chunk_key(prefix, chunk_index)
-    async with _s3_client() as client:
-        try:
-            response = await client.get_object(
-                Bucket=settings.OBJECT_STORAGE_BUCKET,
-                Key=key,
-            )
-        except client.exceptions.NoSuchKey:
-            raise ValueError(f"Chunk file not found: {key}")
-        raw = await response["Body"].read()
+    # The shared object storage client is synchronous, so run it off the event loop.
+    raw = await asyncio.to_thread(object_storage.read_bytes, key, missing_ok=True)
+    if raw is None:
+        raise ValueError(f"Chunk file not found: {key}")
 
     return [line for line in raw.decode("utf-8").split("\n") if line]
 
 
 async def delete_session_id_chunks(prefix: str, total_chunks: int) -> None:
-    async with _s3_client() as client:
-        for i in range(total_chunks):
-            key = generate_chunk_key(prefix, i)
-            try:
-                await client.delete_object(
-                    Bucket=settings.OBJECT_STORAGE_BUCKET,
-                    Key=key,
-                )
-            except Exception:
-                logger.warning("Failed to delete chunk %s, orphaned object may remain", key, exc_info=True)
+    keys = [generate_chunk_key(prefix, i) for i in range(total_chunks)]
+    failed_keys = await asyncio.to_thread(object_storage.delete_objects, keys)
+    if failed_keys:
+        logger.warning("Failed to delete chunks %s, orphaned objects may remain", failed_keys)
