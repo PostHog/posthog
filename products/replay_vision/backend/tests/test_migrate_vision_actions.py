@@ -3,19 +3,17 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.apps import apps
 from django.core.management import call_command
 
 from parameterized import parameterized
 
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.replay_vision.backend.management.commands.migrate_vision_actions import rrule_to_cron
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.models.vision_action import ActionMode, TriggerType, VisionAction
 from products.replay_vision.backend.models.vision_alert import VisionAlertConfiguration, VisionAlertKind
 
 _CMD = "products.replay_vision.backend.management.commands.migrate_vision_actions"
-
-FeatureFlag = apps.get_model("feature_flags", "FeatureFlag")
 
 
 class TestMigrateVisionActions(APIBaseTest):

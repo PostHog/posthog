@@ -28,7 +28,7 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.models import User
+from posthog.models import Team, User
 
 from products.replay_vision.backend.alert_destinations import (
     EVENT_KIND_CONFIG,
@@ -367,31 +367,14 @@ class Command(BaseCommand):
         action.save(update_fields=["synthesis_config", "enabled", "updated_at"])
 
     def _flag_org(self, org_id: Any, execute: bool, flag_team_id: int, report: _Report) -> None:
-        # Resolved through the app registry: products.feature_flags is not on this
-        # product's dependency surface, and a one-shot command doesn't justify adding it.
-        from django.apps import (
-            apps,  # noqa: PLC0415 — registry lookup keeps products.feature_flags off this product's dependency surface
+        from products.feature_flags.backend.facade.api import (  # noqa: PLC0415 — keeps the flags API surface off the command's import path
+            add_group_to_flag_targeting,
         )
 
-        FeatureFlag = apps.get_model("feature_flags", "FeatureFlag")
-
+        team = Team.objects.get(id=flag_team_id)
         for key in (ALERTS_FLAG_KEY, SCOUTS_FLAG_KEY):
-            flag = FeatureFlag.objects.filter(team_id=flag_team_id, key=key, deleted=False).first()
-            if flag is None:
-                report.problems.append(f"flag {key} not found on team {flag_team_id}")
+            if not execute:
                 continue
-            groups = (flag.filters or {}).get("groups") or []
-            condition = next(
-                (prop for group in groups for prop in group.get("properties", []) if prop.get("key") == "$group_key"),
-                None,
-            )
-            if condition is None:
-                report.problems.append(f"flag {key} has no $group_key condition; convert it to org targeting first")
-                continue
-            values = condition.setdefault("value", [])
-            if str(org_id) in values:
-                continue
-            if execute:
-                values.append(str(org_id))
-                flag.save(update_fields=["filters"])
+            if not add_group_to_flag_targeting(team=team, key=key, group_key=str(org_id)):
+                report.problems.append(f"flag {key}: no organization targeting to widen on team {flag_team_id}")
         report.orgs_flagged += 1
