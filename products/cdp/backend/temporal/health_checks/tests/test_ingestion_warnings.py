@@ -66,6 +66,15 @@ class TestIngestionWarningsSignal(SimpleTestCase):
         assert "may be" in signal.description
         assert "were dropped" not in signal.description
 
+    def test_info_warning_does_not_claim_every_event_was_dropped(self):
+        # replay_lib_version_too_old and client_ingestion_warning drop nothing, so the info
+        # copy must not tell users every info warning intentionally dropped their events.
+        signal = IngestionWarningsCheck.render_signal(_issue("replay_lib_version_too_old", "replay", "info"))
+        assert signal is not None
+        assert "informational" in signal.description
+        assert "drop nothing" in signal.description
+        assert "incomplete" not in signal.description
+
     def test_alert_summary_uses_human_label(self):
         alert = IngestionWarningsCheck.render_alert(_issue("high_volume_distinct_id", "quota", "warning"))
         assert alert.summary == "High volume distinct ID fired 12 times"

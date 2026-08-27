@@ -60,8 +60,9 @@ def _impact_and_guidance(category: str | None, severity: str | None) -> tuple[st
         )
     if severity == "info":
         return (
-            "These warnings are informational — the affected events were dropped on purpose, so your data "
-            "is unaffected.",
+            "These warnings are informational. Some only flag a condition and drop nothing. Others report "
+            "events dropped on purpose, such as events too old to ingest or events removed by one of your "
+            "transformations. Nothing was dropped unexpectedly.",
             "Review the ingestion warnings page if you did not expect them.",
         )
     return (
