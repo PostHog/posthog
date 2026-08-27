@@ -13,7 +13,6 @@ describe("ModelSwitchCacheDialog", () => {
     render(
       <ModelSwitchCacheDialog
         open
-        fromModelId="claude-sonnet-5"
         fromModelLabel="Claude Sonnet 5"
         toModelId="claude-opus-5"
         toModelLabel="Claude Opus 5"

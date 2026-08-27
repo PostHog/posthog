@@ -973,7 +973,6 @@ export function SessionView({
       </ContextMenu.Trigger>
       <ModelSwitchCacheDialog
         open={pendingModelSwitch !== null}
-        fromModelId={pendingModelSwitch?.fromValue ?? ""}
         fromModelLabel={pendingModelSwitch?.fromLabel ?? ""}
         toModelId={pendingModelSwitch?.value ?? ""}
         toModelLabel={pendingModelSwitch?.label ?? ""}

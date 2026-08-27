@@ -17,11 +17,10 @@ import {
   formatTokensCompact,
 } from "@posthog/ui/features/sessions/contextColors";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
-import { type ReactElement, useEffect, useId, useState } from "react";
+import { type ReactElement, useEffect, useId, useRef, useState } from "react";
 
 interface ModelSwitchCacheDialogProps {
   open: boolean;
-  fromModelId: string;
   fromModelLabel: string;
   toModelId: string;
   toModelLabel: string;
@@ -37,7 +36,6 @@ type ActiveAction = "compact" | "copy_summary" | "switch" | null;
 
 export function ModelSwitchCacheDialog({
   open,
-  fromModelId,
   fromModelLabel,
   toModelId,
   toModelLabel,
@@ -54,6 +52,7 @@ export function ModelSwitchCacheDialog({
   const [dontShowAgain, setDontShowAgain] = useState(false);
   const [activeAction, setActiveAction] = useState<ActiveAction>(null);
   const checkboxId = useId();
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const estimatedInputCost = estimateUncachedInputCost(
     toModelId,
     contextTokens,
@@ -105,7 +104,7 @@ export function ModelSwitchCacheDialog({
         if (!next && !busy) onCancel();
       }}
     >
-      <AlertDialogContent>
+      <AlertDialogContent initialFocus={cancelButtonRef}>
         <AlertDialogHeader>
           <AlertDialogTitle>Switch model mid-session?</AlertDialogTitle>
           <AlertDialogDescription>
@@ -114,9 +113,9 @@ export function ModelSwitchCacheDialog({
             process.
           </AlertDialogDescription>
         </AlertDialogHeader>
-        <div className="flex flex-col gap-3 px-4 pb-4">
-          <div className="flex flex-col gap-2 rounded-(--radius-3) border border-(--gray-4) bg-(--gray-2) px-4 py-3">
-            <div className="flex items-center justify-center gap-2.5">
+        <div className="flex flex-col gap-4 px-4 pb-4">
+          <div className="overflow-hidden rounded-(--radius-3) border border-(--gray-4) bg-(--gray-2)">
+            <div className="flex items-center justify-center gap-2.5 px-3 py-3">
               <span className="truncate rounded-(--radius-2) bg-(--gray-4) px-2 py-1 text-[12px] text-muted-foreground">
                 {fromModelLabel}
               </span>
@@ -128,46 +127,64 @@ export function ModelSwitchCacheDialog({
                 {toModelLabel}
               </span>
             </div>
-            {contextTokens > 0 && (
-              <Text className="text-center text-[12px] text-muted-foreground">
-                Switching now reprocesses about{" "}
-                <span className="font-medium text-foreground tabular-nums">
-                  {formatTokensCompact(contextTokens)} tokens
-                </span>
-                {estimatedInputCost !== null && (
-                  <>
-                    {" "}
-                    for an estimated input cost of{" "}
-                    <span className="font-medium text-foreground tabular-nums">
-                      {formatCostUsd(estimatedInputCost)}
-                    </span>
-                  </>
+            {(contextTokens > 0 || sessionCostUsd !== undefined) && (
+              <div className="flex flex-col gap-2 border-(--gray-4) border-t px-3 py-3">
+                {contextTokens > 0 && (
+                  <div className="flex items-center justify-between gap-4">
+                    <Text className="text-[12px] text-muted-foreground">
+                      Context to reprocess
+                    </Text>
+                    <Text className="shrink-0 font-medium text-[12px] text-foreground tabular-nums">
+                      ~{formatTokensCompact(contextTokens)} tokens
+                    </Text>
+                  </div>
                 )}
-                .
-              </Text>
-            )}
-            {sessionCostUsd !== undefined && (
-              <Text className="text-center text-[12px] text-muted-foreground">
-                Estimated session cost so far:{" "}
-                <span className="font-medium text-foreground tabular-nums">
-                  {formatCostUsd(sessionCostUsd)}
-                </span>
-              </Text>
+                {estimatedInputCost !== null && (
+                  <div className="flex items-center justify-between gap-4">
+                    <Text className="text-[12px] text-muted-foreground">
+                      Estimated input cost
+                    </Text>
+                    <Text className="shrink-0 font-medium text-[12px] text-foreground tabular-nums">
+                      {formatCostUsd(estimatedInputCost)}
+                    </Text>
+                  </div>
+                )}
+                {sessionCostUsd !== undefined && (
+                  <div className="flex items-center justify-between gap-4">
+                    <Text className="text-[12px] text-muted-foreground">
+                      Session cost so far
+                    </Text>
+                    <Text className="shrink-0 font-medium text-[12px] text-foreground tabular-nums">
+                      {formatCostUsd(sessionCostUsd)}
+                    </Text>
+                  </div>
+                )}
+              </div>
             )}
           </div>
           {onCopyHandoffSummary && (
-            <Button
-              variant="link-muted"
-              size="sm"
-              loading={activeAction === "copy_summary"}
-              disabled={busy}
-              data-attr="model-switch-cache-dialog-copy-summary"
-              onClick={handleCopyHandoffSummary}
-            >
-              Copy a handoff summary
-            </Button>
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex min-w-0 flex-col">
+                <Text className="font-medium text-[12px] text-foreground">
+                  Continue with another agent
+                </Text>
+                <Text className="text-[12px] text-muted-foreground">
+                  Copy the important context from this conversation.
+                </Text>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                loading={activeAction === "copy_summary"}
+                disabled={busy}
+                data-attr="model-switch-cache-dialog-copy-summary"
+                onClick={handleCopyHandoffSummary}
+              >
+                Copy summary
+              </Button>
+            </div>
           )}
-          <div className="flex items-center gap-2 py-1">
+          <div className="flex items-center gap-2 border-(--gray-4) border-t pt-3">
             <Checkbox
               id={checkboxId}
               checked={dontShowAgain}
@@ -183,8 +200,13 @@ export function ModelSwitchCacheDialog({
             </Label>
           </div>
         </div>
-        <AlertDialogFooter>
-          <Button variant="outline" disabled={busy} onClick={onCancel}>
+        <AlertDialogFooter className="flex-row justify-end">
+          <Button
+            ref={cancelButtonRef}
+            variant="outline"
+            disabled={busy}
+            onClick={onCancel}
+          >
             Cancel
           </Button>
           <Button
