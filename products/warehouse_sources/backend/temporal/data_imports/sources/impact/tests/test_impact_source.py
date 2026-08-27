@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.impact import ImpactSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.impact import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.impact.source import ImpactSource
@@ -111,6 +112,27 @@ class TestImpactSourceClass:
             ImpactSource().source_for_pipeline(ImpactSourceConfig(account_sid="s", auth_token="t"), manager, inputs)
 
         assert mock_impact_source.call_args.kwargs["db_incremental_field_last_value"] is None
+
+    @parameterized.expand(
+        [
+            (
+                "exhausted_500",
+                "500 Server Error: Internal Server Error for url: https://api.impact.com/Mediapartners/s/Campaigns",
+            ),
+            ("exhausted_502", "502 Server Error: Bad Gateway for url: https://api.impact.com/Advertisers/s/Invoices"),
+        ]
+    )
+    def test_exhausted_upstream_5xx_is_retryable(self, _name: str, error: str) -> None:
+        assert error_message_matches(error, ImpactSource().get_retryable_errors())
+
+    @parameterized.expand(
+        [
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.impact.com/Advertisers/s/Invoices"),
+            ("forbidden", "403 Client Error: Forbidden for url: https://api.impact.com/Advertisers/s/Invoices"),
+        ]
+    )
+    def test_client_errors_are_not_retryable(self, _name: str, error: str) -> None:
+        assert not error_message_matches(error, ImpactSource().get_retryable_errors())
 
     def test_default_version_is_14(self) -> None:
         assert ImpactSource.default_version == "14"

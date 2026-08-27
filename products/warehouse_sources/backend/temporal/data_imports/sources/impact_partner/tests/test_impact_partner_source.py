@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.impactpartner import (
     ImpactPartnerSourceConfig,
 )
@@ -97,3 +98,24 @@ class TestImpactPartnerSourceClass:
             )
 
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
+
+    @parameterized.expand(
+        [
+            (
+                "exhausted_500",
+                "500 Server Error: Internal Server Error for url: https://api.impact.com/Mediapartners/s/Campaigns",
+            ),
+            ("exhausted_502", "502 Server Error: Bad Gateway for url: https://api.impact.com/Mediapartners/s/Invoices"),
+        ]
+    )
+    def test_exhausted_upstream_5xx_is_retryable(self, _name: str, error: str) -> None:
+        assert error_message_matches(error, ImpactPartnerSource().get_retryable_errors())
+
+    @parameterized.expand(
+        [
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.impact.com/Mediapartners/s/Invoices"),
+            ("forbidden", "403 Client Error: Forbidden for url: https://api.impact.com/Mediapartners/s/Invoices"),
+        ]
+    )
+    def test_client_errors_are_not_retryable(self, _name: str, error: str) -> None:
+        assert not error_message_matches(error, ImpactPartnerSource().get_retryable_errors())

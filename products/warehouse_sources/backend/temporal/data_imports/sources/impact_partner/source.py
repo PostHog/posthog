@@ -95,6 +95,14 @@ If your account is a brand (advertiser) account, use the impact.com source inste
             "403 Client Error: Forbidden for url: https://api.impact.com": "Your Impact.com token does not have access to this data. Check the token's permissions, then reconnect.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_fetch` reads over the tracked session, whose `DEFAULT_RETRY` adapter already retries a
+        # 5xx three times. A 5xx that still reaches us is an exhausted upstream outage — transient,
+        # not a PostHog bug — and Temporal retries the whole activity, so the sync self-recovers.
+        # `requests.Response.raise_for_status` derives the "Server Error" prefix from the status code
+        # alone, so it is stable to match on (see mailchimp/app_store_connect for the same pattern).
+        return {"Server Error"}
+
     def get_schemas(
         self,
         config: ImpactPartnerSourceConfig,
