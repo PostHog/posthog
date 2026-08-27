@@ -3,7 +3,6 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
-from functools import partial
 
 from django.conf import settings
 from django.db.models import Q
@@ -26,6 +25,11 @@ from posthog.clickhouse.cluster import (
 )
 from posthog.clickhouse.plugin_log_entries import PLUGIN_LOG_ENTRIES_TABLE
 from posthog.dags.common import JobOwners
+from posthog.dags.common.staged_dictionary import (
+    StagedDictionary,
+    create_on_every_cluster,
+    load_and_verify_on_every_cluster,
+)
 from posthog.dags.person_overrides import squash_person_overrides
 from posthog.dataclasses import frozen
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
@@ -229,57 +233,6 @@ class AdhocEventDeletesTable(Table):
     def optimize(self, client: Client) -> None:
         # This is a pretty small table and has a TTL of 3 months, so we can optimize it.
         client.execute(f"OPTIMIZE TABLE {self.qualified_name} FINAL")
-
-
-def _dictionary_s3_args(key: str, structure: str) -> str:
-    """Argument list for a ClickHouse ``s3(...)`` call over a staged dictionary payload.
-
-    Credentials are emitted only where an endpoint is configured, which is local, dev and test
-    object storage. On prod the endpoint is empty and the cluster reaches the bucket through its
-    attached IAM role, so no secret is ever interpolated into SQL.
-    """
-    path = f"{settings.DELETES_DICTIONARY_S3_PREFIX}/{key}"
-    endpoint = settings.DELETES_DICTIONARY_S3_ENDPOINT
-    if endpoint:
-        url = f"{endpoint}/{settings.DELETES_DICTIONARY_S3_BUCKET}/{path}"
-        creds = f"'{settings.OBJECT_STORAGE_ACCESS_KEY_ID}', '{settings.OBJECT_STORAGE_SECRET_ACCESS_KEY}', "
-    else:
-        bucket = settings.DELETES_DICTIONARY_S3_BUCKET
-        url = f"https://{bucket}.s3.{settings.DELETES_DICTIONARY_S3_REGION}.amazonaws.com/{path}"
-        creds = ""
-    # The structure sits inside a single-quoted SQL literal, so escape the quotes in a type like
-    # DateTime64(6, 'UTC') or they terminate the literal early.
-    escaped = " ".join(structure.split()).replace("'", "\\'")
-    return f"'{url}', {creds}'Parquet', '{escaped}'"
-
-
-@dataclass(frozen=True, kw_only=True)
-class StagedDictionary:
-    """A dictionary's rows copied to one Parquet object, for clusters that share no Keeper.
-
-    A dictionary's source table reaches every host of one cluster by replication, and replication
-    is exactly what a cluster boundary stops: a cluster with its own Keeper can never join that
-    replica set. An object each host reads for itself crosses the boundary instead, and both sides
-    load identical bytes, which is what makes comparing their checksums meaningful.
-    """
-
-    key: str
-    columns: str
-    structure: str
-
-    @property
-    def __args(self) -> str:
-        return _dictionary_s3_args(self.key, self.structure)
-
-    @property
-    def query(self) -> str:
-        """The dictionary SOURCE query, for hosts that cannot see the source table."""
-        return f"SELECT {self.columns} FROM s3({self.__args})"
-
-    def export(self, client: Client, source_query: str) -> None:
-        # Truncate rather than append: a retried run has to leave the object holding this run's
-        # rows alone, or the two clusters load different data and the checksum gate fails.
-        client.execute(f"INSERT INTO FUNCTION s3({self.__args}) {source_query} SETTINGS s3_truncate_on_insert=1")
 
 
 @frozen
@@ -576,65 +529,6 @@ def load_pending_deletions(
     return create_pending_deletions_table
 
 
-def _create_dictionary_everywhere(
-    context: dagster.OpExecutionContext,
-    cluster: ClickhouseCluster,
-    config: DeleteConfig,
-    dictionary: Dictionary,
-) -> None:
-    """Create ``dictionary`` on every cluster the delete mutations will run on.
-
-    The handle in hand reads its own replicated source table. A cluster that shares no Keeper with
-    it cannot see that table at all, so the rows are staged to S3 first and every host there loads
-    the object for itself.
-    """
-    create = partial(
-        dictionary.create,
-        shards=config.shards,
-        max_execution_time=config.max_execution_time,
-        max_memory_usage=config.max_memory_usage,
-    )
-    cluster.map_all_hosts(create).result()
-
-    siblings = [handle for handle in sweep_clusters(cluster) if handle is not cluster]
-    if not siblings:
-        return
-
-    staged = dictionary.staged()
-    cluster.any_host_by_role(partial(staged.export, source_query=dictionary.query), NodeRole.DATA).result()
-    recreate = partial(
-        dictionary.recreate,
-        shards=config.shards,
-        max_execution_time=config.max_execution_time,
-        max_memory_usage=config.max_memory_usage,
-        query=staged.query,
-    )
-    for sibling in siblings:
-        sibling.map_all_hosts(recreate).result()
-
-    context.log.info(
-        f"Staged {dictionary.name} to {staged.key} for {[sibling.data_cluster_name for sibling in siblings]}"
-    )
-
-
-def _load_and_verify_everywhere(cluster: ClickhouseCluster, dictionary: Dictionary) -> None:
-    """Load ``dictionary`` on every host of every cluster, and prove they all hold the same rows.
-
-    Comparing checksums across clusters is what catches a stale or missing staged object. Without
-    it the mutation there runs against an empty dictionary, deletes nothing, and reports success.
-    """
-    by_cluster: dict[str, set[int]] = {}
-    for handle in sweep_clusters(cluster):
-        results = handle.map_all_hosts(dictionary.load, concurrency=1).result()
-        by_cluster[handle.data_cluster_name] = set(results.values())
-
-    if len({checksum for checksums in by_cluster.values() for checksum in checksums}) != 1:
-        raise dagster.Failure(
-            description=f"{dictionary.name} does not hold the same rows on every host: "
-            + ", ".join(f"{name}={sorted(checksums)}" for name, checksums in by_cluster.items())
-        )
-
-
 @dagster.op
 def create_deletes_dict(
     context: dagster.OpExecutionContext,
@@ -654,7 +548,14 @@ def create_deletes_dict(
         source=load_pending_deletions,
     )
 
-    _create_dictionary_everywhere(context, cluster, config, del_dict)
+    create_on_every_cluster(
+        context,
+        sweep_clusters(cluster),
+        del_dict,
+        shards=config.shards,
+        max_execution_time=config.max_execution_time,
+        max_memory_usage=config.max_memory_usage,
+    )
     return del_dict
 
 
@@ -678,7 +579,14 @@ def create_adhoc_event_deletes_dict(
         source=adhoc_event_deletions,
     )
 
-    _create_dictionary_everywhere(context, cluster, config, del_dict)
+    create_on_every_cluster(
+        context,
+        sweep_clusters(cluster),
+        del_dict,
+        shards=config.shards,
+        max_execution_time=config.max_execution_time,
+        max_memory_usage=config.max_memory_usage,
+    )
 
     # The dictionary holds identical data on every host, so count the loaded ids on a single
     # data node (verifying replica identity is the job of load_and_verify_adhoc_event_deletes_dictionary).
@@ -704,7 +612,7 @@ def load_and_verify_deletes_dictionary(
     dictionary: PendingDeletesDictionary,
 ) -> PendingDeletesDictionary:
     """Load the dictionary on every host of every cluster the mutations run on, and verify it."""
-    _load_and_verify_everywhere(cluster, dictionary)
+    load_and_verify_on_every_cluster(sweep_clusters(cluster), dictionary)
     return dictionary
 
 
@@ -714,7 +622,7 @@ def load_and_verify_adhoc_event_deletes_dictionary(
     dictionary: AdhocEventDeletesDictionary,
 ) -> AdhocEventDeletesDictionary:
     """Load the dictionary on every host of every cluster the mutations run on, and verify it."""
-    _load_and_verify_everywhere(cluster, dictionary)
+    load_and_verify_on_every_cluster(sweep_clusters(cluster), dictionary)
     return dictionary
 
 

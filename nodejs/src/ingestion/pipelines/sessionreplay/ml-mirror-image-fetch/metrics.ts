@@ -110,12 +110,15 @@ export class ImageFetchConsumerMetrics {
         help: 'Wall time per completed poll batch. Read against Kafka max.poll.interval.ms (300s)',
         buckets: [0.01, 0.05, 0.1, 0.5, 1, 5, 15, 30, 60, 120, 240, 300, 600],
     })
-    private static activeBatchStartedAtMs: number | undefined
+    private static readonly activeBatchStartedAtMs = new Map<symbol, number>()
     private static readonly activeBatchElapsed = new Gauge({
         name: 'ml_image_fetch_consumer_active_batch_elapsed_seconds',
         help: 'Elapsed wall time of the active non-empty poll batch, or zero between batches. This exposes a stuck batch before Kafka max.poll.interval.ms revokes it',
         collect() {
-            const startedAtMs = ImageFetchConsumerMetrics.activeBatchStartedAtMs
+            const startedAtMs =
+                ImageFetchConsumerMetrics.activeBatchStartedAtMs.size > 0
+                    ? Math.min(...ImageFetchConsumerMetrics.activeBatchStartedAtMs.values())
+                    : undefined
             this.set(startedAtMs === undefined ? 0 : Math.max(0, performance.now() - startedAtMs) / 1000)
         },
     })
@@ -167,11 +170,13 @@ export class ImageFetchConsumerMetrics {
         this.observeBatchDistribution('origin', originCounts)
         this.observeBatchDistribution('registrable_domain', registrableDomainCounts)
     }
-    public static startBatch(nowMs = performance.now()): void {
-        this.activeBatchStartedAtMs = nowMs
+    public static startBatch(nowMs = performance.now()): symbol {
+        const batchId = Symbol()
+        this.activeBatchStartedAtMs.set(batchId, nowMs)
+        return batchId
     }
-    public static finishBatch(): void {
-        this.activeBatchStartedAtMs = undefined
+    public static finishBatch(batchId: symbol): void {
+        this.activeBatchStartedAtMs.delete(batchId)
     }
     public static observeRecord(urls: number): void {
         this.urlsPerRecord.observe(urls)
