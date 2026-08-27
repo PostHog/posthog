@@ -4,6 +4,7 @@ from textwrap import dedent
 from posthog.test.base import APIBaseTest, FuzzyInt
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import HogQLQueryResponse
@@ -220,6 +221,32 @@ class TestViewLinkQuery(APIBaseTest):
         self.assertEqual(response.status_code, 400, response.content)
         join.refresh_from_db()
         self.assertEqual(join.source_table_key, "distinct_id")
+
+    @parameterized.expand(
+        [
+            ("collision_with_existing_field", "distinct_id", 400, "some_field"),
+            ("rename_to_unused_field", "renamed_field", 200, "renamed_field"),
+        ]
+    )
+    def test_update_field_name_uniqueness(self, _name, new_field_name, expected_status, expected_persisted_name):
+        join = DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="events",
+            source_table_key="distinct_id",
+            joining_table_name="persons",
+            joining_table_key="id",
+            field_name="some_field",
+            configuration=None,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_view_links/{join.id}/",
+            {"field_name": new_field_name},
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        join.refresh_from_db()
+        self.assertEqual(join.field_name, expected_persisted_name)
 
     def test_update_with_configuration(self):
         join = DataWarehouseJoin.objects.create(

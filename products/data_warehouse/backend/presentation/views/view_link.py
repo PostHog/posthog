@@ -185,6 +185,15 @@ class ViewLinkSerializer(serializers.ModelSerializer, ViewLinkValidationMixin):
                 team_id,
             )
 
+        if "field_name" in validated_data or "source_table_name" in validated_data:
+            new_field_name = validated_data.get("field_name", instance.field_name)
+            new_source_table = validated_data.get("source_table_name", instance.source_table_name)
+            # Only enforce when the field moves or is renamed. The built database already carries
+            # this join's own field, so re-validating an unchanged (field_name, source table) pair
+            # would collide it with itself.
+            if new_field_name != instance.field_name or new_source_table != instance.source_table_name:
+                self._validate_key_uniqueness(new_field_name, new_source_table, team_id)
+
         return super().update(instance, validated_data)
 
 
