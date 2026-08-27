@@ -136,8 +136,35 @@ describe('SqlLineGraph', () => {
             })
 
             await waitFor(() => {
-                expect(document.querySelectorAll('.AnnotationsBadge').length).toBeGreaterThan(0)
+                expect(
+                    [...document.querySelectorAll<HTMLButtonElement>('.AnnotationsBadge')].some(
+                        (element) => element.textContent === '1'
+                    )
+                ).toBe(true)
             })
+        })
+
+        it('does not render annotations for a categorical X axis', async () => {
+            renderDataVisualization({
+                query: buildDataVisualizationQuery({
+                    display: ChartDisplayType.ActionsLineGraph,
+                    chartSettings: { xAxis: { column: 'category' }, showAnnotations: true },
+                }),
+                response: {
+                    columns: ['category', 'accounts'],
+                    types: [
+                        ['category', 'String'],
+                        ['accounts', 'UInt64'],
+                    ],
+                    results: [
+                        ['small', 1],
+                        ['large', 2],
+                    ],
+                },
+            })
+
+            await screen.findByLabelText(/chart with/i)
+            expect(document.querySelectorAll('.AnnotationsBadge')).toHaveLength(0)
         })
     })
 

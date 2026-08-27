@@ -4,7 +4,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 
-import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
@@ -71,13 +71,26 @@ describe('DisplayTab', () => {
                 query: 'select day, accounts from numbers(2)',
             },
             display: ChartDisplayType.ActionsLineGraph,
-            chartSettings: {},
+            chartSettings: { xAxis: { column: 'day' } },
         }
 
         const props: DataVisualizationLogicProps = {
             key,
             query,
             dataNodeCollectionId: key,
+            cachedResults: {
+                columns: ['day', 'accounts'],
+                types: [
+                    ['day', 'Date'],
+                    ['accounts', 'UInt64'],
+                ],
+                results: [
+                    ['2026-01-01', 1],
+                    ['2026-01-02', 2],
+                ],
+                hogql: '',
+                hasMore: false,
+            } as HogQLQueryResponse,
             setQuery: (setter) => {
                 query = setter(query)
             },
@@ -214,6 +227,7 @@ describe('DisplayTab', () => {
         expect(screen.queryByText('Right Y-axis')).not.toBeInTheDocument()
         expect(screen.queryByText('Goals')).not.toBeInTheDocument()
         expect(screen.queryByText('Show total row')).not.toBeInTheDocument()
+        expect(screen.queryByText('Show annotations')).not.toBeInTheDocument()
 
         await user.click(screen.getByText('Exclude outliers'))
         await user.click(screen.getByText('Y-axis'))

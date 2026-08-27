@@ -222,6 +222,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         [props.setQuery, props.query] // oxlint-disable-line react-hooks/exhaustive-deps
     )
 
+    const isDateXAxis = xData?.column.type.name === 'DATE' || xData?.column.type.name === 'DATETIME'
+
     let component: JSX.Element | null = null
 
     if (responseError) {
@@ -276,7 +278,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     dashboardId={dashboardId}
                     goalLines={[...alertThresholdLines, ...goalLines]}
                     insightNumericId={insight?.id || 'new'}
-                    showAnnotations={!props.inSharedMode && chartSettings.showAnnotations === true}
+                    showAnnotations={!props.inSharedMode && isDateXAxis && chartSettings.showAnnotations === true}
                     presetChartHeight={presetChartHeight}
                 />
             </BindLogic>
