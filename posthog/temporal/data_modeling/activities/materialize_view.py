@@ -71,8 +71,7 @@ MB_100_IN_BYTES = 100 * 1000 * 1000
 # The cluster profile sets distributed_product_mode=global, which makes ClickHouse build every
 # IN/JOIN subquery as a GLOBAL temporary table while it plans the query. DESCRIBE plans the query
 # too, so it scans the source tables for those subqueries just to return the column types. "allow"
-# leaves the subqueries in place, so the DESCRIBE reads nothing. The materialization query itself
-# keeps the profile mode, because "allow" would run each subquery once per shard at execution.
+# leaves the subqueries in place, so the DESCRIBE reads nothing.
 DESCRIBE_QUERY_SETTINGS = {"distributed_product_mode": "allow"}
 CLICKHOUSE_MAX_BLOCK_SIZE_ROWS = 50 * 1000
 DELTA_TABLE_RETENTION_HOURS = 24
