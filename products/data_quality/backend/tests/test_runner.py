@@ -18,6 +18,7 @@ from products.data_quality.backend.facade.enums import (
     SubjectType,
     SuiteRunTrigger,
 )
+from products.data_quality.backend.logic.run_records import record_check_run
 from products.data_quality.backend.logic.runner import run_check
 from products.data_quality.backend.models import (
     DataQualityCheck,
@@ -306,6 +307,29 @@ class TestCheckRunner(BaseTest):
         # Indexed alongside the run, since the history gates read the rows rather than the column.
         indexed = DataQualityCheckRunSubject.objects.for_team(self.team.id).filter(run=run)
         assert [(row.subject_type, str(row.subject_uuid)) for row in indexed] == [(SubjectType.VIEW, str(target.id))]
+
+    def test_recording_dedupes_a_subject_pinned_under_two_names(self) -> None:
+        # A query can name one object two ways (a dotted "stripe.charges" and the "stripe_charges"
+        # row it resolves to), which pins the same identity twice. Both rows would violate the
+        # unique index and roll back the run, so recording must index the identity once.
+        check = self._check()
+        subject = {"subject_type": SubjectType.VIEW, "subject_uuid": str(self.view.id)}
+        run = record_check_run(
+            self.team.id,
+            quality_check=check,
+            suite_run=self.suite_run,
+            subject_type=check.subject_type,
+            subject_uuid=self.view.id,
+            subject_name=check.subject_name,
+            check_type=check.check_type,
+            check_fingerprint=check.fingerprint,
+            column_name=check.column_name,
+            referenced_subjects=[subject, subject],
+            status=CheckRunStatus.PASSED,
+        )
+
+        indexed = DataQualityCheckRunSubject.objects.for_team(self.team.id).filter(run=run)
+        assert [(row.subject_type, str(row.subject_uuid)) for row in indexed] == [(SubjectType.VIEW, str(self.view.id))]
 
     @parameterized.expand([("custom_sql", CheckType.CUSTOM_SQL), ("relationships", CheckType.RELATIONSHIPS)])
     def test_an_automated_referencing_check_without_an_author_errors_without_running(

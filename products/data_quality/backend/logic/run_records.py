@@ -28,6 +28,9 @@ def _index_referenced_subjects(run: DataQualityCheckRun) -> None:
     pinned = pinned_subjects(run.referenced_subjects)
     if not pinned:
         return
+    # One row per identity. A query can name one object two ways (a dotted "stripe.charges" and the
+    # "stripe_charges" row it resolves to), which pins the same id twice. Without this the unique
+    # index rejects the repeat and rolls the whole run back. dict.fromkeys keeps first-seen order.
     DataQualityCheckRunSubject.objects.for_team(run.team_id).bulk_create(
         DataQualityCheckRunSubject(
             team_id=run.team_id,
@@ -35,5 +38,5 @@ def _index_referenced_subjects(run: DataQualityCheckRun) -> None:
             subject_type=subject.subject_type,
             subject_uuid=UUID(subject.subject_uuid),
         )
-        for subject in pinned
+        for subject in dict.fromkeys(pinned)
     )
