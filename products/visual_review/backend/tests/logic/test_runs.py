@@ -522,6 +522,34 @@ class TestRunOperations:
         assert updated.status == RunStatus.FAILED
         assert updated.error_message == "Something failed"
 
+    def test_finish_processing_fails_the_run_when_the_recount_raises(self, repo, mocker):
+        run, _ = runs.create_run(
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="main",
+                pr_number=None,
+                snapshots=[],
+                baseline_hashes={},
+            ),
+            team_id=repo.team_id,
+        )
+
+        # The diff task calls finish_processing from its exception handler, so a recount
+        # that keeps raising must not hold the run in PROCESSING.
+        mocker.patch(
+            "products.visual_review.backend.logic.gating._recount",
+            side_effect=RuntimeError("recount timed out"),
+        )
+
+        with pytest.raises(RuntimeError):
+            runs.finish_processing(run.id, error_message="recount timed out")
+
+        run.refresh_from_db()
+        assert run.status == RunStatus.FAILED
+        assert run.error_message == "recount timed out"
+
     def test_update_run_counts_reads_and_writes_through_requested_db(self, repo, mocker):
         run, _ = runs.create_run(
             CreateRunInput(
