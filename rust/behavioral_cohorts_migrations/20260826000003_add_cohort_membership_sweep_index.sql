@@ -13,7 +13,10 @@
 -- rerun's IF NOT EXISTS will NOT rebuild it. A drop-first statement can't fix that here, because
 -- sqlx runs a no-transaction migration as one implicitly-transactional batch, so CONCURRENTLY
 -- statements must be alone in their file, and a separate drop migration wouldn't re-run on retry.
--- Recover manually:
---   DROP INDEX CONCURRENTLY idx_cohort_membership_sweep;  -- then re-run migrations
+-- Nothing reports that state: the migration run that left it INVALID already failed, and every
+-- later run skips the file and reports success, so check for it before assuming the index is there.
+--   SELECT indisvalid FROM pg_index WHERE indexrelid = to_regclass('idx_cohort_membership_sweep');
+-- On `f`, recover manually, then re-run migrations:
+--   DROP INDEX CONCURRENTLY idx_cohort_membership_sweep;
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_cohort_membership_sweep
     ON cohort_membership (team_id, cohort_id, version);
