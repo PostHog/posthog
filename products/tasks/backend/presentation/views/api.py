@@ -108,7 +108,6 @@ from products.tasks.backend.presentation.serializers import (
     SandboxCustomImageSerializer,
     SandboxCustomImageUpdateSerializer,
     SandboxCustomImageWriteSerializer,
-    SandboxEnvironmentListSerializer,
     SandboxEnvironmentSerializer,
     SandboxEnvironmentWriteSerializer,
     SlackThreadContextQuerySerializer,
@@ -3728,13 +3727,13 @@ class SandboxEnvironmentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
     lookup_value_regex = UUID_LOOKUP_REGEX
 
-    @extend_schema(responses={200: SandboxEnvironmentListSerializer(many=True)})
+    @extend_schema(responses={200: SandboxEnvironmentSerializer(many=True)})
     def list(self, request, **kwargs):
         envs = tasks_facade.list_sandbox_environments(self.team_id, request.user.id)
         page = self.paginate_queryset(envs)
         if page is not None:
-            return self.get_paginated_response(SandboxEnvironmentListSerializer(page, many=True).data)
-        return Response(SandboxEnvironmentListSerializer(envs, many=True).data)
+            return self.get_paginated_response(SandboxEnvironmentSerializer(page, many=True).data)
+        return Response(SandboxEnvironmentSerializer(envs, many=True).data)
 
     @extend_schema(responses={200: SandboxEnvironmentSerializer})
     def retrieve(self, request, pk=None, **kwargs):
