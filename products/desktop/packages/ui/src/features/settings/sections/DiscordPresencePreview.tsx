@@ -67,7 +67,7 @@ export function DiscordPresencePreview({
   return (
     <SettingsSection
       label="Preview"
-      description="What your Discord profile shows while you work."
+      description="What your Discord profile shows while you work"
       action={
         <SettingsSegmented
           value={running ? "running" : "idle"}
@@ -82,15 +82,19 @@ export function DiscordPresencePreview({
       }
     >
       <div
-        className={`max-w-[380px] rounded-xl border border-gray-5 bg-gray-2 px-4 py-3 ${
+        className={`max-w-[380px] rounded-xl border border-border bg-gray-2 px-4 py-3 ${
           enabled ? "" : "pointer-events-none opacity-50"
         }`}
       >
         <Flex align="center" justify="between">
-          <Text className="font-semibold text-[12px] text-gray-11">
+          <Text className="font-semibold text-[12px] text-muted-foreground">
             Playing
           </Text>
-          <DotsThree size={18} weight="bold" className="text-gray-9" />
+          <DotsThree
+            size={18}
+            weight="bold"
+            className="text-muted-foreground"
+          />
         </Flex>
 
         <Flex align="start" gap="3" className="mt-2">
@@ -111,11 +115,13 @@ export function DiscordPresencePreview({
           </div>
 
           <Flex direction="column" className="min-w-0 gap-0">
-            <Text className="font-bold text-[15px] text-gray-12">PostHog</Text>
-            <Text truncate className="text-[13px] text-gray-12">
+            <Text className="font-bold text-[15px] text-foreground">
+              PostHog
+            </Text>
+            <Text truncate className="text-[13px] text-foreground">
               {details}
             </Text>
-            <Text truncate className="text-[13px] text-gray-11">
+            <Text truncate className="text-[13px] text-muted-foreground">
               {state}
             </Text>
             <Flex align="center" gap="1" className="mt-0.5 text-(--green-11)">
