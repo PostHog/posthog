@@ -971,7 +971,10 @@ export function SessionView({
         toModelLabel={pendingModelSwitch?.label ?? ""}
         contextTokens={contextUsage?.used}
         sessionCostUsd={
-          contextUsage?.cost?.currency === "USD"
+          // A windowed cloud transcript holds only its tail, so the summed
+          // cost would understate the session; hide it until older history is
+          // resident rather than label a partial sum as the total.
+          olderHistoryCursor === 0 && contextUsage?.cost?.currency === "USD"
             ? contextUsage.cost.amount
             : undefined
         }
