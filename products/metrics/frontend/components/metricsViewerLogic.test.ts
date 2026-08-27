@@ -161,12 +161,23 @@ describe('metricsViewerLogic', () => {
         expect(logic.values.metricsQueryNode?.clauses[0].metricType).toBe('gauge')
     })
 
-    it('backfills the metric type when the picker loads after the metric was set', () => {
+    it('backfills the metric type and recommended aggregation when the picker loads after the metric was set', () => {
         metricNamePickerLogic.actions.loadItemsSuccess([])
         logic.actions.setMetricName('queue_depth')
         expect(logic.values.metricsQueryNode?.clauses[0]).not.toHaveProperty('metricType')
         metricNamePickerLogic.actions.loadItemsSuccess(PICKER_ITEMS)
         expect(logic.values.metricsQueryNode?.clauses[0].metricType).toBe('gauge')
+        // A cold URL restore sets the name before the list arrives, so without the late
+        // recommendation a gauge/counter link would silently chart as a raw sum.
+        expect(logic.values.aggregation).toBe('avg')
+    })
+
+    it('the late backfill leaves an explicitly chosen aggregation alone', () => {
+        metricNamePickerLogic.actions.loadItemsSuccess([])
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setAggregation('p95')
+        metricNamePickerLogic.actions.loadItemsSuccess(PICKER_ITEMS)
+        expect(logic.values.aggregation).toBe('p95')
     })
 
     // "Add to dashboard" must not create a fresh insight on every click — repeated

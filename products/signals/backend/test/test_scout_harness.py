@@ -687,7 +687,7 @@ class TestPromptBuilder(BaseTest):
             ("report_channel", ["emit_report", "edit_report"]),
         ]
     )
-    def test_catalog_rule_gated_on_data_catalog_flag(self, name: str, allowed_tools: list[str]) -> None:
+    def test_catalog_rule_renders_on_every_channel(self, name: str, allowed_tools: list[str]) -> None:
         skill_name = f"signals-scout-catalog-{name}"
         LLMSkill.objects.create(
             team=self.team,
@@ -703,15 +703,9 @@ class TestPromptBuilder(BaseTest):
             "started_at": datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
         }
 
-        enabled = build_run_prompt(loaded, **kwargs, data_catalog_enabled=True)
-        assert "system.information_schema.metrics" in enabled
-        assert "data-catalog-metric-run" in enabled
-
-        # Default (flag off): the metrics table isn't registered for the team, so steering
-        # at it would burn the run's budget on failing queries.
-        disabled = build_run_prompt(loaded, **kwargs)
-        assert "information_schema.metrics" not in disabled
-        assert "data-catalog-metric-run" not in disabled
+        prompt = build_run_prompt(loaded, **kwargs)
+        assert "system.information_schema.metrics" in prompt
+        assert "data-catalog-metric-run" in prompt
 
     def test_prefetched_catalog_listing_replaces_the_probe_instruction(self) -> None:
         LLMSkill.objects.create(team=self.team, name="signals-scout-catalog-listing", description="s", body="watch")
@@ -723,7 +717,7 @@ class TestPromptBuilder(BaseTest):
         }
         names = ["scout_cost_per_run", "scout_run_fail_pct"]
 
-        listed = build_run_prompt(loaded, **kwargs, data_catalog_enabled=True, governed_metric_names=names)
+        listed = build_run_prompt(loaded, **kwargs, governed_metric_names=names)
         assert "`scout_run_fail_pct`" in listed
         assert "`scout_cost_per_run`" in listed
         assert "data-catalog-metric-run" in listed
@@ -731,29 +725,25 @@ class TestPromptBuilder(BaseTest):
         assert _SUPERSEDES_CACHED_ENTRIES in listed
         assert "governed catalog consulted: no listed metric matched" in listed
 
-        empty = build_run_prompt(loaded, **kwargs, data_catalog_enabled=True, governed_metric_names=[])
+        empty = build_run_prompt(loaded, **kwargs, governed_metric_names=[])
         assert "no approved metrics" in empty
         assert "Cache the lookup outcome" not in empty
         assert _SUPERSEDES_CACHED_ENTRIES in empty
         assert "governed catalog consulted: empty, no metric matches" in empty
 
-        fallback = build_run_prompt(loaded, **kwargs, data_catalog_enabled=True, governed_metric_names=None)
+        fallback = build_run_prompt(loaded, **kwargs, governed_metric_names=None)
         assert "Cache the lookup outcome" in fallback
         assert _SUPERSEDES_CACHED_ENTRIES not in fallback
         assert "governed catalog consulted: no listed metric matched" in fallback
 
-        # The cap is what keeps this injection to a handful of tokens in every catalog-enabled run,
-        # and past it the listing stops being the whole catalog, so it has to say a lookup is still
-        # warranted for an unlisted measure.
+        # The cap is what keeps this injection to a handful of tokens in every run, and past it the
+        # listing stops being the whole catalog, so it has to say a lookup is still warranted for an
+        # unlisted measure.
         overflowing = [f"metric_{index:03d}" for index in range(_GOVERNED_METRIC_LISTING_CAP + 3)]
-        capped = build_run_prompt(loaded, **kwargs, data_catalog_enabled=True, governed_metric_names=overflowing)
+        capped = build_run_prompt(loaded, **kwargs, governed_metric_names=overflowing)
         assert "`metric_000`" in capped
         assert f"`metric_{_GOVERNED_METRIC_LISTING_CAP:03d}`" not in capped
         assert "and 3 more this listing omits" in capped
-
-        flag_off = build_run_prompt(loaded, **kwargs, governed_metric_names=names)
-        assert "scout_run_fail_pct" not in flag_off
-        assert "data-catalog-metric-run" not in flag_off
 
     def test_report_channel_renders_report_persona_and_guidance(self) -> None:
         LLMSkill.objects.create(
@@ -1270,50 +1260,6 @@ async def test_run_passes_the_per_scout_server_selection_and_no_credential_owner
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "flag,expect_rule",
-    [
-        pytest.param(True, True, id="enabled"),
-        pytest.param(False, False, id="disabled"),
-        # A flag-read error resolves off and the run still completes: failing here would book a
-        # failed run and advance the streak toward pausing the lane, over a prompt section the
-        # run does not need.
-        pytest.param(RuntimeError("flag backend down"), False, id="flag_read_error"),
-    ],
-)
-async def test_catalog_steering_reaches_the_prompt_from_the_team_flag(ateam, aerrors_skill, flag, expect_rule):
-    # The prompt-builder tests take `data_catalog_enabled` directly, so they stay green if the
-    # runner stops resolving or forwarding the flag — this covers that wiring end to end.
-    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
-    captured: dict = {}
-
-    async def _capture_start(*args, on_task_run_created=None, **kwargs):
-        captured.update(kwargs)
-        if on_task_run_created is not None:
-            await on_task_run_created(session.task_run)
-        return session, result
-
-    flag_mock = MagicMock(side_effect=flag) if isinstance(flag, Exception) else MagicMock(return_value=flag)
-    with (
-        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
-        patch("products.signals.backend.scout_harness.runner.is_data_catalog_enabled", flag_mock),
-        patch(
-            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
-            return_value="env-id",
-        ),
-        patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
-            return_value=42,
-        ),
-    ):
-        run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
-
-    assert run_result.status == apps.get_model("tasks", "TaskRun").Status.COMPLETED.value
-    assert ("information_schema.metrics" in captured["prompt"]) is expect_rule
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-@pytest.mark.parametrize(
     "names,expected_marker",
     [
         pytest.param(["scout_run_fail_pct"], "scout_run_fail_pct", id="listing_injected"),
@@ -1338,7 +1284,6 @@ async def test_governed_listing_reaches_the_prompt_from_the_catalog(ateam, aerro
     names_mock = MagicMock(side_effect=names) if isinstance(names, Exception) else MagicMock(return_value=names)
     with (
         patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
-        patch("products.signals.backend.scout_harness.runner.is_data_catalog_enabled", return_value=True),
         patch("products.signals.backend.scout_harness.runner.approved_metric_names_for_team", names_mock),
         patch(
             "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
