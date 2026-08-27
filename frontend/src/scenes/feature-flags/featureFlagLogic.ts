@@ -3704,6 +3704,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
                 actions.updateFlag(syncedFlag)
                 refreshTreeItem('feature_flag', String(flagId))
+                // Disabling changes the staleness verdict, so refetch it as the other mutation
+                // paths do, or the stale banner outlives the toggle made from the Projects tab.
+                actions.loadFeatureFlagStatus()
             }
         },
         refreshFeatureFlagSuccess: ({ featureFlagRefresh }) => {
@@ -3800,6 +3803,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         refreshTreeItem('feature_flag', String(featureFlag.id))
                     }
                     actions.loadFeatureFlag()
+                    // The flag is no longer deleted, so its real verdict may differ from the retained
+                    // DELETED one. Refetch it so the banner reflects the restored flag.
+                    actions.loadFeatureFlagStatus()
                 },
             })
         },
