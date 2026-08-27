@@ -87,6 +87,39 @@ test.describe('Signup', () => {
         await expect(page).toHaveURL(/\/verify_email\/[a-zA-Z0-9_.-]*/)
     })
 
+    test('Keeps the open role dropdown in place when content above it shifts', async ({ page }) => {
+        const email = `${randomString('new_user')}@posthog.com`
+        await startSignupFlow(page, email, VALID_PASSWORD)
+        await page.locator('[data-attr=signup-name]').fill('Alice Bob')
+        await page.locator('[data-attr=signup-organization-name]').fill('Hogflix SpinOff')
+
+        const selectButton = page.locator('[data-attr=signup-role-at-organization]')
+        await selectButton.click()
+        const popover = page.locator('.Popover').filter({ hasText: 'Engineering' })
+        await expect(popover).toBeVisible()
+
+        const popoverTopBefore = (await popover.boundingBox())!.y
+        const selectTopBefore = (await selectButton.boundingBox())!.y
+
+        // Grow content above the select the way a field error does, so the trigger relocates.
+        await page.evaluate(() => {
+            const form = document.querySelector('[data-attr=signup-role-at-organization]')?.closest('form')
+            const spacer = document.createElement('div')
+            spacer.style.height = '200px'
+            form?.insertBefore(spacer, form.firstChild)
+        })
+
+        // Once the trigger has moved, the open popover must not chase it, or it eats the next click.
+        await expect
+            .poll(async () => Math.abs((await selectButton.boundingBox())!.y - selectTopBefore))
+            .toBeGreaterThan(5)
+        expect(Math.round((await popover.boundingBox())!.y)).toBe(Math.round(popoverTopBefore))
+
+        // A single click on an option still selects it.
+        await popover.locator('li').filter({ hasText: 'Engineering' }).click()
+        await expect(selectButton).toContainText('Engineering')
+    })
+
     test('Can submit the signup form multiple times if there is a generic email set', async ({ page }) => {
         let signupRequestBody: string | null = null
         const email = `${randomString('new_user-generic_error_test')}@posthog.com`

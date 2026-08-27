@@ -324,7 +324,11 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
 
     useEffect(() => {
         if (visible && referenceRef?.current && floatingElement) {
-            return autoUpdate(referenceRef.current, floatingElement, update)
+            // `layoutShift` follows the reference when content above it grows or shrinks (e.g. a field
+            // error appearing over an open select). That jump moves menu options out from under the
+            // cursor, so the first click lands in the popover padding and is lost. Keep scroll and
+            // resize tracking; drop only the layout-shift follow.
+            return autoUpdate(referenceRef.current, floatingElement, update, { layoutShift: false })
         }
     }, [visible, placement, referenceRef?.current, floatingElement]) // oxlint-disable-line react-hooks/exhaustive-deps
 
