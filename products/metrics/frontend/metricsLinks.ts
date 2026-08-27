@@ -45,9 +45,7 @@ export const metricsFilterGroup = (
 export const metricUrl = (params: MetricLinkParams): string => {
     const searchParams: Record<string, string | string[]> = {}
 
-    // The scene opens on Overview. A link that names a metric means to show that metric.
     if (params.metricName) {
-        searchParams.activeTab = 'viewer'
         searchParams.metricName = params.metricName
     }
     if (params.metricType) {
@@ -67,6 +65,12 @@ export const metricUrl = (params: MetricLinkParams): string => {
     }
     if (params.filterGroup) {
         searchParams.filterGroup = JSON.stringify(params.filterGroup)
+    }
+
+    // The scene opens on Overview. Anything that scopes the viewer — a metric, a service filter, a
+    // group-by, a window — means to show the chart, so say so rather than filtering a hidden tab.
+    if (Object.keys(searchParams).length > 0) {
+        searchParams.activeTab = 'viewer'
     }
 
     return combineUrl(urls.metrics(), searchParams).url

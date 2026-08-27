@@ -11,11 +11,21 @@ describe('metricsLinks', () => {
         expect(metricUrl({})).toBe('/metrics')
     })
 
-    it('opens the viewer tab whenever a metric is named, so the link lands on the chart', () => {
-        // The scene defaults to Overview. A link to a metric that dropped the user on Overview
-        // would look broken.
+    // The scene opens on Overview. Any link that scopes the viewer has to say so, or it applies
+    // its filters to a tab the user never sees and looks broken.
+    it.each([
+        ['a metric name', { metricName: 'http_requests_total' }],
+        ['a filter group', { filterGroup: { type: FilterLogicalOperator.And, values: [] } }],
+        ['a group-by', { groupBy: ['service_name'] }],
+        ['a time window', { dateFrom: '-7d' }],
+    ])('opens the viewer tab for a link carrying %s', (_name, params) => {
+        expect(paramsOf(metricUrl(params)).activeTab).toBe('viewer')
+    })
+
+    // Param names are the contract with metricsSceneLogic's parser. Spelling one of them
+    // differently here drops it silently on restore, so pin the names, not just the values.
+    it('names the metric with the param the scene reads back', () => {
         expect(paramsOf(metricUrl({ metricName: 'http_requests_total' }))).toMatchObject({
-            activeTab: 'viewer',
             metricName: 'http_requests_total',
         })
     })
