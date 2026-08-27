@@ -2,8 +2,16 @@ import { Warning } from "@phosphor-icons/react";
 import { formatResetTime } from "@posthog/core/billing/usageDisplay";
 import type { UsageLimitContent } from "@posthog/core/billing/usageLimitContent";
 import { usageLimitContent } from "@posthog/core/billing/usageLimitContent";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Button,
+} from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
-import { AlertDialog, Button, Flex } from "@radix-ui/themes";
 import { useEffect } from "react";
 import { track } from "../../shell/analytics";
 import { openExternalUrl } from "../../shell/openExternal";
@@ -70,44 +78,39 @@ export function UsageLimitModalContent({
   onAction: () => void;
 }) {
   return (
-    <AlertDialog.Root
+    <AlertDialog
       open={open}
       onOpenChange={(nextOpen) => {
         if (!nextOpen) onDismiss();
       }}
     >
-      <AlertDialog.Content maxWidth="420px" size="2">
-        <AlertDialog.Title className="text-base">
-          <Flex align="center" gap="2">
-            <Warning size={18} weight="fill" color="var(--orange-9)" />
-            {content.title}
-          </Flex>
-        </AlertDialog.Title>
-        <AlertDialog.Description className="text-sm">
-          {content.description}
-        </AlertDialog.Description>
-
-        <Flex justify="end" gap="2" mt="4">
-          <AlertDialog.Cancel>
-            {content.actionLabel ? (
-              <Button variant="soft" color="gray" size="1">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            <span className="flex items-center gap-2">
+              <Warning size={18} weight="fill" color="var(--orange-9)" />
+              {content.title}
+            </span>
+          </AlertDialogTitle>
+          <AlertDialogDescription>{content.description}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          {content.actionLabel ? (
+            <>
+              <Button variant="outline" onClick={onDismiss}>
                 {content.dismissLabel}
               </Button>
-            ) : (
-              <Button variant="solid" size="1">
-                {content.dismissLabel}
-              </Button>
-            )}
-          </AlertDialog.Cancel>
-          {content.actionLabel && (
-            <AlertDialog.Action>
-              <Button variant="solid" size="1" onClick={onAction}>
+              <Button variant="primary" onClick={onAction}>
                 {content.actionLabel}
               </Button>
-            </AlertDialog.Action>
+            </>
+          ) : (
+            <Button variant="primary" onClick={onDismiss}>
+              {content.dismissLabel}
+            </Button>
           )}
-        </Flex>
-      </AlertDialog.Content>
-    </AlertDialog.Root>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
