@@ -170,6 +170,23 @@ export const Error: Story = {
     },
 }
 
+export const EmptyOutputWithBilledTokens: Story = {
+    args: {
+        eventProperties: {
+            $ai_input: [
+                { role: 'system', content: 'You are a good bot.' },
+                { role: 'user', content: 'Write me a long essay about bots.' },
+            ],
+            $ai_output_choices: [],
+            $ai_input_tokens: 120,
+            $ai_output_tokens: 512,
+            $ai_latency: 8.4,
+            $ai_model: 'gpt-9',
+            $ai_http_status: 200,
+        },
+    },
+}
+
 export const Anthropic: Story = {
     args: {
         eventProperties: {
