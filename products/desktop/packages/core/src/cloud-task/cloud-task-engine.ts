@@ -882,6 +882,14 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       id: input.id ?? globalThis.crypto.randomUUID(),
     };
 
+    // Explicit reason so a genuine timeout reads as a timeout, not a bare
+    // "This operation was aborted" that the shared classifier would mistake
+    // for an app-issued cancel.
+    const timeout = new AbortController();
+    const timer = setTimeout(
+      () => timeout.abort(new Error("Cloud command timed out after 5 minutes")),
+      5 * 60_000,
+    );
     try {
       const response = await this.auth.authenticatedFetch(url, {
         method: "POST",
@@ -889,7 +897,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(5 * 60_000),
+        signal: timeout.signal,
       });
 
       if (!response.ok) {
@@ -958,6 +966,8 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
         error: errorMessage,
       });
       return { success: false, error: errorMessage, retryable: true };
+    } finally {
+      clearTimeout(timer);
     }
   }
 

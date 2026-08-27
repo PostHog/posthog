@@ -173,6 +173,7 @@ export {
   type GatewayLimitCause,
   getErrorMessage,
   isAuthError,
+  isCancelledError,
   isFatalSessionError,
   isNotAuthenticatedError,
   isRateLimitError,
