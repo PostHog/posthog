@@ -28,13 +28,13 @@ _UNFURL_OPT_OUT_QUERY = "unfurl=false"
 _RE_OPEN_TAG = re.compile(r"<([a-z][\w-]*)((?:\s+[a-z][\w-]*\s*=\s*\"[^\"]*\")*)\s*(/>|>)")
 _RE_CLOSE_TAG = re.compile(r"</([a-z][\w-]*)\s*>")
 _RE_ATTR = re.compile(r"([a-z][\w-]*)\s*=\s*\"([^\"]*)\"")
-# Fences of three or more, then inline code: a run of backticks closed by a run of the same length,
-# so ````x```` and ``x`` are one span each instead of two empty ones around a live tag.
-_RE_CODE_SEGMENT = re.compile(r"(?<!`)(`{3,}|~{3,})[\s\S]*?\1(?!`)|(?<!`)(`+)[^`\n]*?\2(?!`)")
+_RE_FENCE_LINE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+_RE_BACKTICK_RUN = re.compile(r"`+")
 _RE_UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f-]{27,}$", re.IGNORECASE)
 _RE_LABEL_UNSAFE = re.compile(r"[\[\]|]")
 _LABEL_ANGLE_ENTITIES = {"<": "&lt;", ">": "&gt;"}
 _RE_NUMERIC = re.compile(r"^\d+$")
+_RE_BARE_ID = re.compile(r"^[\w$.:-]{1,64}$")
 
 
 @frozen
@@ -128,8 +128,60 @@ def _parse_attrs(raw: str) -> dict[str, str]:
     return {match.group(1): _unescape_xml(match.group(2)) for match in _RE_ATTR.finditer(raw)}
 
 
+def _inline_code_spans(line: str, offset: int) -> list[_Span]:
+    """CommonMark inline code on one line: a run of N backticks closes on the next run of exactly N."""
+    runs = list(_RE_BACKTICK_RUN.finditer(line))
+    spans: list[_Span] = []
+    index = 0
+    while index < len(runs):
+        opener = runs[index]
+        length = opener.end() - opener.start()
+        closer_index = next(
+            (i for i in range(index + 1, len(runs)) if runs[i].end() - runs[i].start() == length),
+            None,
+        )
+        if closer_index is None:
+            index += 1
+            continue
+        spans.append(_Span(start=offset + opener.start(), end=offset + runs[closer_index].end()))
+        index = closer_index + 1
+    return spans
+
+
 def _code_spans(text: str) -> list[_Span]:
-    return [_Span(start=match.start(), end=match.end()) for match in _RE_CODE_SEGMENT.finditer(text)]
+    """Fenced blocks and inline code, found in one pass over the lines.
+
+    Mirrors the desktop renderer's fence rules: a backtick or tilde fence of three or more, closed
+    only by a run of the same character at least as long with nothing else on the line, and an
+    unclosed fence runs to the end of the text.
+    """
+    spans: list[_Span] = []
+    fence_char = ""
+    fence_length = 0
+    fence_start = 0
+    offset = 0
+    for line in text.split("\n"):
+        fence = _RE_FENCE_LINE.match(line)
+        if fence_char:
+            closes = (
+                fence is not None
+                and fence.group(1)[0] == fence_char
+                and len(fence.group(1)) >= fence_length
+                and line[fence.end() :].strip() == ""
+            )
+            if closes:
+                spans.append(_Span(start=fence_start, end=offset + len(line)))
+                fence_char = ""
+        elif fence:
+            fence_char = fence.group(1)[0]
+            fence_length = len(fence.group(1))
+            fence_start = offset
+        else:
+            spans.extend(_inline_code_spans(line, offset))
+        offset += len(line) + 1
+    if fence_char:
+        spans.append(_Span(start=fence_start, end=len(text)))
+    return spans
 
 
 def _scan_tags(text: str, skip_spans: list[_Span]) -> list[_Tag]:
@@ -220,10 +272,15 @@ def _render_hogql(tag: _Tag, project_url: str) -> str | None:
 
 def _render_reference(tag: _Tag, kind: _ObjectKind, project_url: str) -> str | None:
     object_id = (tag.attrs.get("id") or "").strip()
+    body = tag.body.strip()
+    if not object_id and _RE_BARE_ID.match(body):
+        # The older ``<insight>abc123</insight>`` form Max's notebook tools still write.
+        object_id, body = body, ""
     if not object_id:
-        return None
+        # A tag with a title but no id (a notebook query node) has no page to link; keep the title.
+        return _safe_label(tag.attrs.get("title") or "") or None
     is_block = tag.attrs.get("display") == "block"
-    label = _safe_label(tag.attrs.get("title") or tag.body) or f"{kind.label} {_safe_label(object_id)}"
+    label = _safe_label(tag.attrs.get("title") or body) or f"{kind.label} {_safe_label(object_id)}"
     return _link(label, _object_url(project_url, kind, object_id, unfurl=is_block))
 
 
@@ -275,3 +332,41 @@ def rewrite_object_tags_for_slack(text: str, *, project_url: str) -> str:
     if needs_paragraph_break and rest.strip():
         rest = "\n\n" + rest.lstrip("\n")
     return output + rest
+
+
+# A streamed flush that ends inside a tag would post the fragments as raw XML; hold back at most
+# this much so a genuinely unterminated tag still flushes eventually.
+_MAX_HELD_SUFFIX = 4000
+
+
+@frozen
+class StreamSplit:
+    """A streamed chunk split into the part safe to post now and an incomplete trailing tag."""
+
+    sendable: str
+    held: str
+
+
+def split_incomplete_tag_suffix(text: str) -> StreamSplit:
+    """Split off a trailing object tag that has not finished arriving.
+
+    Used between streaming flushes so a tag split across two chunks is rewritten whole in the
+    next one. Nothing is held when that would leave nothing to send.
+    """
+    held_from: int | None = None
+    last_lt = text.rfind("<")
+    if last_lt != -1 and ">" not in text[last_lt:] and re.fullmatch(r"<(?:[a-z][\w-]*(?:\s[^>]*)?)?", text[last_lt:]):
+        held_from = last_lt
+    else:
+        last_open = None
+        for match in _RE_OPEN_TAG.finditer(text):
+            if match.group(3) == ">" and _resolve_kind(match.group(1)) is not None:
+                last_open = match
+        if (
+            last_open is not None
+            and re.search(rf"</{re.escape(last_open.group(1))}\s*>", text[last_open.end() :]) is None
+        ):
+            held_from = last_open.start()
+    if held_from is None or held_from == 0 or len(text) - held_from > _MAX_HELD_SUFFIX:
+        return StreamSplit(sendable=text, held="")
+    return StreamSplit(sendable=text[:held_from], held=text[held_from:])

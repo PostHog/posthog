@@ -3,7 +3,10 @@ import unittest
 from parameterized import parameterized
 
 from products.tasks.backend.temporal.slack_relay.activities import _markdown_to_slack_mrkdwn
-from products.tasks.backend.temporal.slack_relay.object_tags import rewrite_object_tags_for_slack
+from products.tasks.backend.temporal.slack_relay.object_tags import (
+    rewrite_object_tags_for_slack,
+    split_incomplete_tag_suffix,
+)
 
 PROJECT = "https://us.posthog.com/project/2"
 UUID = "0190f8a1-7c3e-7b2a-9d4f-2a1b3c4d5e6f"
@@ -100,6 +103,16 @@ class TestRewriteObjectTagsForSlack(unittest.TestCase):
                 f"**[Events]({PROJECT}/sql?open_query=SELECT%20%60event%60%20FROM%20events&unfurl=false)**\n```\nSELECT `event` FROM events\n```",
             ),
             (
+                "legacy_id_in_body_form_links_to_the_insight",
+                "See <insight>abc123</insight> for the trend.",
+                f"See [Insight abc123]({PROJECT}/insights/abc123?unfurl=false) for the trend.",
+            ),
+            (
+                "title_only_query_tag_keeps_the_title",
+                '<insight title="Signups by day" query_kind="TrendsQuery">{"kind":"TrendsQuery"}</insight>',
+                "Signups by day",
+            ),
+            (
                 "inline_hogql_links_to_sql_editor",
                 'See <hogql label="signups today">SELECT count() FROM events</hogql>.',
                 f"See [signups today]({PROJECT}/sql?open_query=SELECT%20count%28%29%20FROM%20events&unfurl=false).",
@@ -132,6 +145,8 @@ class TestRewriteObjectTagsForSlack(unittest.TestCase):
             ("tag_inside_inline_code", 'Write `<insight id="1">x</insight>` to cite.'),
             ("tag_inside_double_backtick_code", 'Write ``<insight id="1">x</insight>`` to cite.'),
             ("tag_inside_fenced_code", '```xml\n<insight id="1">x</insight>\n```'),
+            ("tag_inside_unclosed_fence", 'Example:\n```xml\n<insight id="1">x</insight>'),
+            ("tag_inside_tilde_fence", '~~~\n<insight id="1">x</insight>\n~~~'),
             ("text_without_tags", "plain **bold** text"),
         ]
     )
@@ -172,6 +187,11 @@ class TestRewriteObjectTagsForSlack(unittest.TestCase):
         assert rendered.count('`<flag id="1"/>`') == 200
         assert rendered.count(f"[live]({PROJECT}/feature_flags/2?unfurl=false)") == 200
 
+    def test_long_backtick_runs_do_not_hide_tags_or_stall(self) -> None:
+        # Runs of different lengths never pair into a code span, so the tag between them is live.
+        text = "x " + "`" * 20000 + ' <flag id="42">beta</flag> ' + "`" * 19999
+        assert rewrite(text).count(f"[beta]({PROJECT}/feature_flags/42?unfurl=false)") == 1
+
     def test_unmatched_openers_do_not_stop_later_tags_rewriting(self) -> None:
         text = ('<insight id="open"> ' * 300) + '<flag id="42">beta</flag>'
         rendered = rewrite(text)
@@ -193,3 +213,32 @@ class TestRewriteObjectTagsForSlack(unittest.TestCase):
     def test_entities_in_labels_survive_mrkdwn_conversion(self) -> None:
         converted = _markdown_to_slack_mrkdwn(rewrite('<insight id="1" title="Error rate > 1%"/>'))
         assert converted == f"<{PROJECT}/insights/1?unfurl=false|Error rate &gt; 1%>"
+
+
+class TestSplitIncompleteTagSuffix(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("opener_cut_mid_attribute", 'The <insight id="9pQ', "The ", '<insight id="9pQ'),
+            ("opener_cut_before_name", "The <", "The ", "<"),
+            ("body_still_streaming", 'The <insight id="1">check', "The ", '<insight id="1">check'),
+            (
+                "complete_tag_is_sent",
+                'The <insight id="1">x</insight> dropped',
+                'The <insight id="1">x</insight> dropped',
+                "",
+            ),
+            ("self_closing_tag_is_sent", 'See <flag id="1"/> now', 'See <flag id="1"/> now', ""),
+            ("comparison_is_not_a_tag", "a < b and c", "a < b and c", ""),
+            ("unknown_tag_is_sent", "x <unknown>y", "x <unknown>y", ""),
+            ("nothing_held_when_nothing_would_be_sent", '<insight id="1">check', '<insight id="1">check', ""),
+        ]
+    )
+    def test_split(self, _name: str, text: str, sendable: str, held: str) -> None:
+        split = split_incomplete_tag_suffix(text)
+        assert (split.sendable, split.held) == (sendable, held)
+
+    def test_oversized_suffix_is_sent_rather_than_held(self) -> None:
+        text = "intro " + '<insight id="1">' + "x" * 5000
+        split = split_incomplete_tag_suffix(text)
+        assert split.held == ""
+        assert split.sendable == text
