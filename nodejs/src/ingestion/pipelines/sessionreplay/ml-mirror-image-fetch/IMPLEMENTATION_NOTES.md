@@ -38,6 +38,8 @@ The queue tracks the remaining request slots from active and waiting jobs. It ap
 
 The frontier consumer uses cooperative rebalancing. Its revoke path drains active work before it releases assigned partitions.
 
+Each image-fetch worker creates two Kafka group members by default. A local joiner combines their batches before it starts a fetch pass. Group assignments do not overlap, so each ready member adds a different partition. The joiner processes available batches when its join window ends. A later group can run concurrently instead of spending its Kafka poll interval behind a full pass. Shared request limits still bound total network concurrency. The worker divides the existing Kafka prefetch memory budget across its group members. During a mixed-version rollout, pods with more group members can receive more partitions until the rollout finishes. `SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH` accepts targets from one to four for worker-count experiments.
+
 Retry jobs use 1-minute, 10-minute, and 1-hour Kafka topics. The topics use broker append timestamps.
 
 Each delay consumer waits once for the latest record in its batch. It then republishes the complete batch to the frontier.
