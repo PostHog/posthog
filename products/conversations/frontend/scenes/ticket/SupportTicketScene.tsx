@@ -24,6 +24,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
 import { ChannelsTag, getChannelThreadUrl } from '../../components/Channels/ChannelsTag'
 import { ChatView } from '../../components/Chat/ChatView'
@@ -185,6 +187,20 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     }
 
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
+
+    // Tell PostHog AI which ticket is on screen, so a question about "this ticket" resolves without
+    // the user pasting it in. The agent fetches the details with conversations-tickets-retrieve.
+    useAttachedContext(
+        ticket
+            ? [
+                  {
+                      type: 'support_ticket',
+                      key: ticket.id,
+                      label: ticket.email_subject || `Ticket #${ticket.ticket_number}`,
+                  },
+              ]
+            : null
+    )
 
     // Above the early returns below: this scene renders a spinner and a not-found state before the
     // thread, and a hook can't be called on only some of those paths.
