@@ -41,22 +41,25 @@ def report_usage(records: Iterable[UsageRecord], *, site: str) -> None:
     if not enabled or not address:
         return
 
-    request = service_pb2.IngestBillingUsageRequest(
-        records=[
-            service_pb2.BillingUsageRecord(
-                record_id=record.record_id,
-                producer_id=record.producer_id,
-                team_id=record.team_id,
-                usage_key=record.usage_key,
-                unit=record.unit,
-                quantity=record.quantity,
-                timestamp_ms=record.timestamp_ms,
-            )
-            for record in enabled
-        ]
-    )
+    # Every producer calls this after committing work of its own, and the nightly report is
+    # still the billing source of truth, so a record is worth less than the caller it runs in.
+    # Nothing here escapes — not a bad address, not an unencodable field, not an RPC error.
     try:
+        request = service_pb2.IngestBillingUsageRequest(
+            records=[
+                service_pb2.BillingUsageRecord(
+                    record_id=record.record_id,
+                    producer_id=record.producer_id,
+                    team_id=record.team_id,
+                    usage_key=record.usage_key,
+                    unit=record.unit,
+                    quantity=record.quantity,
+                    timestamp_ms=record.timestamp_ms,
+                )
+                for record in enabled
+            ]
+        )
         with grpc.insecure_channel(address) as channel:
             service_pb2_grpc.UsageIngestionStub(channel).IngestBillingUsage(request, timeout=_timeout_seconds())
-    except grpc.RpcError:
-        logger.warning("usage_ingestion_report_failed", site=site, records=len(enabled))
+    except Exception:
+        logger.warning("usage_ingestion_report_failed", site=site, records=len(enabled), exc_info=True)

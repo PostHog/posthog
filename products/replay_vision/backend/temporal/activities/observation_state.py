@@ -169,19 +169,6 @@ def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) 
     record_observation("succeeded", inputs.scanner_type)
     record_observation_e2e(inputs.scanner_type, (timezone.now() - obs["created_at"]).total_seconds())
     if receipt_created:
-        report_usage(
-            [
-                UsageRecord(
-                    record_id=str(inputs.observation_id),
-                    producer_id="replay-vision",
-                    team_id=obs["team_id"],
-                    usage_key="replay_vision_credits",
-                    unit="credits",
-                    quantity=credits,
-                )
-            ],
-            site="replay_vision",
-        )
         # Gate on the receipt so a lost-result retry can't double count the burn rate.
         record_credits_consumed(inputs.scanner_type, model, credits)
     logger.info(
@@ -212,4 +199,20 @@ def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) 
             "organization": str(obs["team__organization_id"]),
             "project": str(obs["team__uuid"]),
         },
+    )
+    # Last, and off the receipt rather than the receipt being new: the transition above already
+    # committed the credits, and `record_id` deduplicates a resend, so a retry that gets this far
+    # again costs nothing. Everything that has to happen for a scan happens before this line.
+    report_usage(
+        [
+            UsageRecord(
+                record_id=str(inputs.observation_id),
+                producer_id="replay-vision",
+                team_id=obs["team_id"],
+                usage_key="replay_vision_credits",
+                unit="credits",
+                quantity=credits,
+            )
+        ],
+        site="replay_vision",
     )
