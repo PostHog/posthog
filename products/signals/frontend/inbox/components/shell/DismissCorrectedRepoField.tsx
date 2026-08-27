@@ -24,7 +24,7 @@ export function DismissCorrectedRepoField(): JSX.Element | null {
 
 function CorrectedRepoPicker({ integrationId }: { integrationId: number }): JSX.Element {
     const logic = githubRepositorySearchLogic({ id: integrationId })
-    const { repositoryNames, loading } = useValues(logic)
+    const { repositoryNames, loading, error } = useValues(logic)
     const { setSearchQuery } = useActions(logic)
 
     return (
@@ -43,6 +43,9 @@ function CorrectedRepoPicker({ integrationId }: { integrationId: number }): JSX.
                     loading={loading}
                     placeholder="Search repositories"
                     data-attr="inbox-dismiss-corrected-repository"
+                    // Without this a failed lookup shows the generic "No options", which reads as
+                    // an account with no repositories. Typing clears the error and retries.
+                    emptyStateComponent={error ? <p className="text-danger italic p-1">{error}</p> : undefined}
                 />
             )}
         </LemonField>
