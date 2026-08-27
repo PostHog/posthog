@@ -1,4 +1,4 @@
-import { BuiltLogic, KeaPlugin, resetContext } from 'kea'
+import { KeaPlugin, resetContext } from 'kea'
 import { formsPlugin } from 'kea-forms'
 import { loadersPlugin } from 'kea-loaders'
 import { localStoragePlugin } from 'kea-localstorage'
@@ -56,8 +56,6 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadMonitoringSnapshot', // The managed warehouse Monitoring tab renders its own retry state
     'loadMonitoringSeries', // The managed warehouse Monitoring tab renders its own partial/error state
 ]
-
-const SELF_HANDLED_ERROR_LOGICS = new Set(['products.webAnalytics.agentAnalyticsLogic'])
 
 /*
 Write actions that show their own friendly message for access-denied 403s
@@ -128,17 +126,7 @@ export function initKea({
         }),
         formsPlugin,
         loadersPlugin({
-            onFailure({
-                error,
-                reducerKey,
-                actionKey,
-                logic,
-            }: {
-                error: any
-                reducerKey: string
-                actionKey: string
-                logic: BuiltLogic
-            }) {
+            onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
                 // A request aborted by us (superseded query, unmount, manual cancel) is not a
                 // failure — don't toast, log, or report it.
                 if (error?.name === 'AbortError') {
@@ -155,7 +143,6 @@ export function initKea({
                     isAccessDeniedError(error) && (isLoadAction || ACCESS_DENIED_SELF_HANDLED.has(String(actionKey)))
                 if (
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
-                    !SELF_HANDLED_ERROR_LOGICS.has(logic.pathString) &&
                     error?.status !== undefined &&
                     ![200, 201, 204, 401, 409].includes(error.status) && // 401 is handled by api.ts and the userLogic; 409 conflict flows surface their own UI
                     !(isLoadAction && error.status === 403) && // 403 access denied is handled by sceneLogic gates

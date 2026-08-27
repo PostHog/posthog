@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { performQuery } from '~/queries/query'
-import { WebAgentAnalyticsQueryType } from '~/queries/schema/schema-general'
+import { WebAgentAnalyticsQuery, WebAgentAnalyticsQueryType } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { webAnalyticsFetchLlmsTxt } from 'products/web_analytics/frontend/generated/api'
@@ -328,6 +328,23 @@ describe('agentAnalyticsLogic', () => {
                 }),
                 expect.objectContaining({ signal: expect.any(AbortSignal) })
             )
+        })
+
+        it('keeps a failed query on its own section instead of failing the loader', async () => {
+            mockPerformQuery.mockImplementation((node: WebAgentAnalyticsQuery) =>
+                node.queryType === WebAgentAnalyticsQueryType.Overview
+                    ? Promise.reject({ status: 500, detail: 'Query timed out' })
+                    : Promise.resolve({ columns: [], results: [] })
+            )
+
+            await expectLogic(logic, () => logic.actions.loadOverview())
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['loadOverviewFailure'])
+                .toMatchValues({
+                    overviewError: 'Query timed out',
+                    overviewLoading: false,
+                    journeysError: null,
+                })
         })
 
         it('caps journey timelines at fifty requests', async () => {

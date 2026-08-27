@@ -208,6 +208,16 @@ const llmsTxtFetchErrorMessage = (error: unknown): string => {
     )
 }
 
+const queryErrorMessage = (error: unknown): string => {
+    const apiError = error as { detail?: string; message?: string }
+    return apiError?.detail ?? apiError?.message ?? 'Could not load this query.'
+}
+
+const errorForQuery =
+    (queryType: WebAgentAnalyticsQueryType) =>
+    (state: string | null, payload: { queryType: WebAgentAnalyticsQueryType; error: string | null }): string | null =>
+        payload.queryType === queryType ? payload.error : state
+
 const num = (value: unknown): number => Number(value ?? 0)
 
 const str = (value: unknown): string => (value == null ? '' : String(value))
@@ -918,6 +928,13 @@ export interface agentAnalyticsLogicActions {
     setLlmsTxtSourceValues: (values: DeepPartial<LlmsTxtSourceForm>) => {
         values: DeepPartial<LlmsTxtSourceForm>
     }
+    setQueryError: (
+        queryType: WebAgentAnalyticsQueryType,
+        error: string | null
+    ) => {
+        error: string | null
+        queryType: WebAgentAnalyticsQueryType
+    }
     setResultHasMore: (
         queryType: WebAgentAnalyticsQueryType,
         hasMore: boolean
@@ -1083,6 +1100,7 @@ export const agentAnalyticsLogic = kea<agentAnalyticsLogicType>([
         setSelectedJourneyKey: (journeyKey: string | null) => ({ journeyKey }),
         setResultHasMore: (queryType: WebAgentAnalyticsQueryType, hasMore: boolean) => ({ queryType, hasMore }),
         setResultPage: (queryType: WebAgentAnalyticsQueryType, page: number) => ({ queryType, page }),
+        setQueryError: (queryType: WebAgentAnalyticsQueryType, error: string | null) => ({ queryType, error }),
         setSelectedIssueKey: (key: string | null) => ({ key }),
         setLlmsTxtFromUrl: (content: string, url: string) => ({ content, url }),
         refresh: true,
@@ -1158,7 +1176,8 @@ export const agentAnalyticsLogic = kea<agentAnalyticsLogicType>([
                 response = await performQuery(node, { signal: signalFor(queryType) })
             } catch (error) {
                 breakpoint()
-                throw error
+                actions.setQueryError(queryType, queryErrorMessage(error))
+                return {}
             }
             breakpoint()
             if (paginated) {
@@ -1365,70 +1384,70 @@ export const agentAnalyticsLogic = kea<agentAnalyticsLogicType>([
             null as string | null,
             {
                 loadOverview: () => null,
-                loadOverviewFailure: (_, { error }) => error,
+                setQueryError: errorForQuery(WebAgentAnalyticsQueryType.Overview),
             },
         ],
         contentGapIssuesError: [
             null as string | null,
             {
                 loadIssues: () => null,
-                loadIssuesFailure: (_, { error }) => error,
+                setQueryError: errorForQuery(WebAgentAnalyticsQueryType.Issues),
             },
         ],
         whatAgentsReadError: [
             null as string | null,
             {
                 loadWhatAgentsRead: () => null,
-                loadWhatAgentsReadFailure: (_, { error }) => error,
+                setQueryError: errorForQuery(WebAgentAnalyticsQueryType.PageRequests),
             },
         ],
         nextHopsError: [
             null as string | null,
             {
                 loadNextHops: () => null,
-                loadNextHopsFailure: (_, { error }) => error,
+                setQueryError: errorForQuery(WebAgentAnalyticsQueryType.Transitions),
             },
         ],
         demandRowsError: [
             null as string | null,
             {
                 loadDemandRows: () => null,
-                loadDemandRowsFailure: (_, { error }) => error,
+                setQueryError: errorForQuery(WebAgentAnalyticsQueryType.Demand),
             },
         ],
         variantsError: [
             null as string | null,
             {
                 loadVariants: () => null,
-                loadVariantsFailure: (_, { error }) => error,
+                setQueryError: errorForQuery(WebAgentAnalyticsQueryType.IssueVariants),
             },
         ],
         requestAnatomyError: [
             null as string | null,
             {
                 loadRequestAnatomy: () => null,
-                loadRequestAnatomyFailure: (_, { error }) => error,
+                setQueryError: errorForQuery(WebAgentAnalyticsQueryType.RequestAnatomy),
             },
         ],
         journeySummaryError: [
             null as string | null,
             {
                 loadJourneySummary: () => null,
-                loadJourneySummaryFailure: (_, { error }) => error,
+                setQueryError: errorForQuery(WebAgentAnalyticsQueryType.JourneySummary),
             },
         ],
         journeysError: [
             null as string | null,
             {
                 loadJourneys: () => null,
-                loadJourneysFailure: (_, { error }) => error,
+                setQueryError: errorForQuery(WebAgentAnalyticsQueryType.Journeys),
             },
         ],
         journeyDetailError: [
             null as string | null,
             {
                 loadJourneyDetail: () => null,
-                loadJourneyDetailFailure: (_, { error }) => error,
+                setQueryError: errorForQuery(WebAgentAnalyticsQueryType.JourneyDetail),
             },
         ],
     }),
