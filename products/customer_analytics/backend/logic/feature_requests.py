@@ -19,7 +19,7 @@ from django.db.models import (
     Value,
     When,
 )
-from django.db.models.functions import Coalesce, Lower, NullIf
+from django.db.models.functions import Coalesce, Concat, Lower, NullIf, Trim
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -263,8 +263,7 @@ def _apply_ordering(
             User.objects.filter(pk=OuterRef("created_by_id"))
             .annotate(
                 display_name=Coalesce(
-                    NullIf("first_name", Value("")),
-                    NullIf("last_name", Value("")),
+                    NullIf(Trim(Concat("first_name", Value(" "), "last_name")), Value("")),
                     "email",
                     output_field=CharField(),
                 )
