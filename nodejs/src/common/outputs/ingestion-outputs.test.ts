@@ -133,6 +133,21 @@ describe('IngestionOutputs', () => {
             expect(failures).toEqual(['events'])
         })
 
+        it('accepts a topic that is missing from metadata only briefly', async () => {
+            const producer = createMockProducer()
+            producer.checkTopicExists.mockRejectedValueOnce(new Error('Topic not found')).mockResolvedValue(undefined)
+            const outputs = new IngestionOutputs({
+                events: new SingleIngestionOutput('events', 'events', producer, 'test'),
+                ai_events: new SingleIngestionOutput('ai_events', 'ai_events', producer, 'test'),
+            })
+
+            const failures = await outputs.checkTopics(10000, 3, 0)
+
+            expect(failures).toEqual([])
+            // Only the output that failed is retried, not the whole set.
+            expect(producer.checkTopicExists).toHaveBeenCalledTimes(3)
+        })
+
         it('checks same topic separately on different producers', async () => {
             const mskProducer = createMockProducer()
             const wsProducer = createMockProducer()

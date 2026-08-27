@@ -1,5 +1,6 @@
 import { MessageKey } from '~/common/kafka/producer'
 import { logger } from '~/common/utils/logger'
+import { delay } from '~/common/utils/utils'
 
 import { IngestionOutput } from './ingestion-output'
 import { IngestionOutputMessage } from './types'
@@ -48,22 +49,45 @@ export class IngestionOutputs<O extends string> {
     /**
      * Check that all non-empty topics exist on their brokers.
      *
+     * Retries the failing subset, because a topic can be briefly absent from broker
+     * metadata while it still exists: during a controller failover or leader election,
+     * or in the window just after another client created it. Only a topic that stays
+     * absent across every attempt is treated as missing, which keeps the startup gate
+     * fatal for a genuinely absent topic.
+     *
      * @param timeoutMs - Timeout for each topic metadata check.
-     * @returns Output names whose topics failed the check.
+     * @param attempts - How many times to check before reporting failure.
+     * @param retryDelayMs - Wait between attempts.
+     * @returns Output names whose topics failed every attempt.
      */
-    async checkTopics(timeoutMs = 10000): Promise<string[]> {
-        const failures: string[] = []
-        for (const outputName in this.outputs) {
-            try {
-                await this.outputs[outputName].checkTopicExists(timeoutMs)
-            } catch {
-                failures.push(outputName)
+    async checkTopics(timeoutMs = 10000, attempts = 3, retryDelayMs = 500): Promise<string[]> {
+        let pending = Object.keys(this.outputs) as O[]
+
+        for (let attempt = 1; ; attempt++) {
+            const failures: O[] = []
+            for (const outputName of pending) {
+                try {
+                    await this.outputs[outputName].checkTopicExists(timeoutMs)
+                } catch {
+                    failures.push(outputName)
+                }
             }
+
+            if (failures.length === 0) {
+                return []
+            }
+            if (attempt >= attempts) {
+                logger.error('🔴', `Topic check failed for outputs: ${failures.join(', ')}`)
+                return failures
+            }
+
+            logger.warn(
+                '🟡',
+                `Topic check failed for outputs: ${failures.join(', ')}. Retrying (${attempt}/${attempts - 1}).`
+            )
+            pending = failures
+            await delay(retryDelayMs)
         }
-        if (failures.length > 0) {
-            logger.error('🔴', `Topic check failed for outputs: ${failures.join(', ')}`)
-        }
-        return failures
     }
 }
 
