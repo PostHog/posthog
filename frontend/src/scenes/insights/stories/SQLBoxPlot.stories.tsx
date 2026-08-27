@@ -78,12 +78,15 @@ export default meta
 export const GroupedSeries: Story = createInsightStory(__sqlBoxPlot as any)
 
 export const EditOptions: Story = {
-    // The play function raises an unhandled error event under webkit, which fails the story there.
-    // No story opts into webkit snapshots, so nothing is lost by skipping it. See issue #90191.
-    tags: ['test-skip-webkit'],
     render: createInsightStory(__sqlBoxPlot as any, 'edit'),
     parameters: {
         ...meta.parameters,
+        // Edit mode mounts the SQL editor, so Monaco starts and asks for its web worker at
+        // /static/monacoEditorWorker.js. Storybook does not serve that file, and Monaco reports the
+        // failed load as an uncaught error. Storybook fails a story when an error like that lands
+        // while the play function runs, which makes the result depend on how fast the browser is.
+        // The error says nothing about the box plot settings this story asserts. See issue #90191.
+        test: { dangerouslyIgnoreUnhandledErrors: true },
         testOptions: {
             ...meta.parameters?.testOptions,
             waitForSelector: '[data-attr="box-plot-minColumn"]',
