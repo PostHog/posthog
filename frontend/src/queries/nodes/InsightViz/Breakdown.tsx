@@ -1,13 +1,29 @@
 import { useActions, useValues } from 'kea'
 
+import {
+    canAddBehavioralBreakdown,
+    createBehavioralBreakdownSeries,
+} from 'scenes/insights/filters/BreakdownFilter/behavioralBreakdown'
 import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { EditorFilterProps } from '~/types'
+import { FEATURE_FLAGS } from '~/lib/constants'
+import { BehavioralPropertyFilter, EditorFilterProps } from '~/types'
 
 export function Breakdown({ insightProps }: EditorFilterProps): JSX.Element {
-    const { breakdownFilter, display, isTrends, isFunnels } = useValues(insightVizDataLogic(insightProps))
-    const { updateBreakdownFilter, updateDisplay } = useActions(insightVizDataLogic(insightProps))
+    const { breakdownFilter, display, featureFlags, isTrends, isFunnels, querySource } = useValues(
+        insightVizDataLogic(insightProps)
+    )
+    const { updateBreakdownFilter, updateDisplay, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
+
+    const addBehavioralBreakdown = canAddBehavioralBreakdown(
+        querySource,
+        !!featureFlags[FEATURE_FLAGS.BEHAVIORAL_PROPERTY_FILTER]
+    )
+        ? (filter: BehavioralPropertyFilter): void => {
+              updateQuerySource({ series: createBehavioralBreakdownSeries(querySource.series[0], filter) })
+          }
+        : undefined
 
     return (
         <>
@@ -19,6 +35,7 @@ export function Breakdown({ insightProps }: EditorFilterProps): JSX.Element {
                 isFunnels={isFunnels}
                 updateBreakdownFilter={updateBreakdownFilter}
                 updateDisplay={updateDisplay}
+                onAddBehavioralBreakdown={addBehavioralBreakdown}
                 showLabel={false}
                 showInlineOptions
             />

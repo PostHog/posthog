@@ -9,11 +9,13 @@ import { BehavioralPropertyFilter } from '~/types'
 export interface AddBehavioralFilterButtonProps {
     onAdd: (filter: BehavioralPropertyFilter) => void
     'data-attr': string
+    size?: 'xsmall' | 'small' | 'medium'
 }
 
 export function AddBehavioralFilterButton({
     onAdd,
     'data-attr': dataAttr,
+    size,
 }: AddBehavioralFilterButtonProps): JSX.Element {
     return (
         <TaxonomicPopover
@@ -31,6 +33,7 @@ export function AddBehavioralFilterButton({
             placeholder="Performed"
             placeholderClass=""
             icon={<IconPlusSmall />}
+            size={size}
             sideIcon={null}
             data-attr={dataAttr}
         />

@@ -3,6 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, configure, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
+import { FEATURE_FLAGS } from '~/lib/constants'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildTrendsQuery, renderInsightPage } from '~/test/insight-testing'
 
@@ -34,6 +35,16 @@ describe('TaxonomicBreakdownFilter', () => {
             renderInsightPage({ query: buildTrendsQuery() })
             const button = await waitForBreakdownButton()
             expect(button).toHaveAttribute('aria-disabled', 'false')
+            expect(screen.queryByTestId('add-behavioral-breakdown-button')).not.toBeInTheDocument()
+        })
+
+        it('renders the Performed breakdown when its feature is enabled', async () => {
+            renderInsightPage({
+                query: buildTrendsQuery(),
+                featureFlags: { [FEATURE_FLAGS.BEHAVIORAL_PROPERTY_FILTER]: true },
+            })
+            await waitForBreakdownButton()
+            expect(screen.getByTestId('add-behavioral-breakdown-button')).toHaveTextContent('Performed')
         })
     })
 

@@ -3,6 +3,7 @@ import { ReactElement } from 'react'
 
 import { IconGear, IconPencil } from '@posthog/icons'
 
+import { AddBehavioralFilterButton } from 'lib/components/PropertyFilters/components/AddBehavioralFilterButton'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Link } from 'lib/lemon-ui/Link'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -12,7 +13,7 @@ import { LemonButton } from '~/lib/lemon-ui/LemonButton'
 import { LemonLabel } from '~/lib/lemon-ui/LemonLabel'
 import { Popover } from '~/lib/lemon-ui/Popover'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
-import { ChartDisplayType, InsightLogicProps } from '~/types'
+import { BehavioralPropertyFilter, ChartDisplayType, InsightLogicProps } from '~/types'
 
 import { EditableBreakdownTag } from './BreakdownTag'
 import { GlobalBreakdownOptionsMenu } from './GlobalBreakdownOptionsMenu'
@@ -31,6 +32,7 @@ export interface TaxonomicBreakdownFilterProps {
     disabledReason?: string
     updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => void
     updateDisplay: (display: ChartDisplayType | undefined) => void
+    onAddBehavioralBreakdown?: (filter: BehavioralPropertyFilter) => void
     showLabel?: boolean
     showInlineOptions?: boolean
     disablePropertyInfo?: boolean
@@ -46,6 +48,7 @@ export function TaxonomicBreakdownFilter({
     disabledReason,
     updateBreakdownFilter,
     updateDisplay,
+    onAddBehavioralBreakdown,
     showLabel = true,
     showInlineOptions = false,
     disablePropertyInfo,
@@ -163,6 +166,13 @@ export function TaxonomicBreakdownFilter({
                     disabledReasonInteractive={!!composedDisabledReason}
                     size={size}
                 />
+                {onAddBehavioralBreakdown && (
+                    <AddBehavioralFilterButton
+                        onAdd={onAddBehavioralBreakdown}
+                        data-attr="add-behavioral-breakdown-button"
+                        size={size}
+                    />
+                )}
             </div>
             {showInlineOptions && isMultipleBreakdownsEnabled && hasGlobalBreakdownOptions && (
                 <div className="mt-2 border-t pt-2">
