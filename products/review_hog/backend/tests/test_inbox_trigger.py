@@ -32,7 +32,7 @@ _HEAD_BRANCH = "posthog-code/fix-the-thing"
 class TestInboxTrigger(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        # The PR leg now probes the busy-guard before starting; default it idle so the existing
+        # The trigger probes the busy-guard before starting; default it idle so the existing
         # cases exercise the review path without a live Temporal, and the busy case overrides it.
         busy_patcher = patch(_WORKFLOW_RUNNING, return_value=False)
         self.addCleanup(busy_patcher.stop)
@@ -148,7 +148,7 @@ class TestInboxTrigger(BaseTest):
         run = self._run(task)
         self._record_output(run, {"pr_url": _PR_URL, "head_branch": _HEAD_BRANCH}, update_fields=update_fields)
 
-        # The PR leg wins over the branch leg when both targets are present.
+        # `head_branch` rides along in real output; only the PR is a review target.
         mock_start.assert_called_once_with(
             team_id=self.team.id,
             user_id=self.alice.id,
@@ -160,33 +160,11 @@ class TestInboxTrigger(BaseTest):
         )
 
     @patch(_START, return_value="wf-1")
-    def test_branch_only_output_starts_a_branch_review(self, mock_start) -> None:
-        # `output.head_branch` is synced by the agent server as soon as the work branch exists —
-        # before (or without) a PR. The branch leg reviews and stores; publish needs the PR leg.
-        self._mock_start = mock_start
-        self._suggest_reviewers(["alice"])
-        self._opt_in(self.alice)
-        task = self._task()
-        self._record_output(self._run(task), {"head_branch": _HEAD_BRANCH})
-
-        mock_start.assert_called_once_with(
-            team_id=self.team.id,
-            user_id=self.alice.id,
-            publish=True,
-            acting_user_id=self.alice.id,
-            trigger_source="inbox",
-            signal_report_id=str(task.signal_report_id),
-            # Task.save lowercases the repository slug — the receiver forwards it as stored.
-            repository="posthog/posthog",
-            head_branch=_HEAD_BRANCH,
-        )
-
-    @patch(_START, return_value="wf-1")
     def test_pr_review_is_skipped_while_the_prs_resolution_is_running(self, mock_start) -> None:
         # Busy-guard: a published inbox review chains its own resolution, and a later TaskRun save
         # re-fires this receiver. Without the guard that second review races the resolution's pushes
         # and re-reviews threads it is mid-way through settling — the exact collision the endpoints
-        # already refuse. The branch leg can't collide, so only the PR leg is guarded.
+        # already refuse.
         self._mock_start = mock_start
         self._suggest_reviewers(["alice"])
         self._opt_in(self.alice)
@@ -194,18 +172,6 @@ class TestInboxTrigger(BaseTest):
             self._record_output(self._run(self._task()), {"pr_url": _PR_URL})
 
         mock_start.assert_not_called()
-
-    @patch(_START, return_value="wf-1")
-    def test_branch_review_ignores_the_resolution_busy_guard(self, mock_start) -> None:
-        # A branch-only target has no PR for a resolution to run against, so a "busy" probe must not
-        # block it — the branch leg reviews regardless.
-        self._mock_start = mock_start
-        self._suggest_reviewers(["alice"])
-        self._opt_in(self.alice)
-        with patch(_WORKFLOW_RUNNING, return_value=True):
-            self._record_output(self._run(self._task()), {"head_branch": _HEAD_BRANCH})
-
-        mock_start.assert_called_once()
 
     @patch(_START, return_value="wf-1")
     def test_run_creation_with_a_target_does_not_trigger(self, mock_start) -> None:
@@ -336,7 +302,9 @@ class TestInboxTrigger(BaseTest):
             ("nobody_opted_in", True, False, ["alice"], False, {"pr_url": _PR_URL}, "o/r"),
             ("empty_output", True, False, ["alice"], True, {}, "o/r"),
             ("output_without_a_target", True, False, ["alice"], True, {"other": "x"}, "o/r"),
-            ("branch_target_without_a_repository", True, False, ["alice"], True, {"head_branch": "b"}, None),
+            # A pushed branch is not a target: a review of a branch whose PR never opens is spend
+            # with no reader, and the PR save re-fires the receiver.
+            ("pushed_branch_without_a_pr", True, False, ["alice"], True, {"head_branch": _HEAD_BRANCH}, "o/r"),
         ]
     )
     @patch(_START, return_value="wf-1")
@@ -440,19 +408,6 @@ class TestInboxTrigger(BaseTest):
         # webhook resolver only ever considered alice would retract the approval as opted-out on
         # the next push, with bob still opted in.
         assert resolve_stamphog_acting_reviewer(self.team.id, str(self.signal_report.id), None) == bob.id
-
-    @patch(_STAMPHOG_QUEUE)
-    @patch(_START, return_value="wf-1")
-    def test_stamphog_leg_needs_a_pr_target(self, mock_start, mock_queue) -> None:
-        # A bare pushed branch reviews on the ReviewHog side (stored), but stamphog's verdict is a
-        # GitHub review — with no PR to post to, queueing a stamphog run would only burn a sandbox.
-        self._mock_start = mock_start
-        self._suggest_reviewers(["alice"])
-        self._opt_in(self.alice, review_inbox_prs=True, stamphog_review_inbox_prs=True)
-        self._record_output(self._run(self._task()), {"head_branch": _HEAD_BRANCH})
-
-        mock_start.assert_called_once()
-        mock_queue.assert_not_called()
 
     @patch(_STAMPHOG_QUEUE, side_effect=RuntimeError("broker down"))
     @patch(_START, return_value="wf-1")

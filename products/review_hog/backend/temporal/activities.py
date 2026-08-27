@@ -137,6 +137,7 @@ from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
 from products.review_hog.backend.temporal.types import TRIGGER_LABEL, TRIGGER_MANUAL
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import CodeReview, CodeReviewCounts
+from products.signals.backend.facade.api import persisted_report_priority
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 
@@ -410,6 +411,10 @@ class TrackReviewCompletedInput:
     # The workflow's start_time (ISO 8601) — one turn is one workflow execution, so this anchors
     # the event's turn duration.
     workflow_started_at: str
+    # Which trigger started THIS turn. The report row only remembers the trigger that created it,
+    # and a person's re-trigger of an inbox report is the case the tier telemetry has to see.
+    # Defaulted so in-flight payloads from before the field still deserialize.
+    turn_trigger_source: str | None = None
 
 
 @dataclass
@@ -419,6 +424,7 @@ class TrackReviewFailedInput:
     team_id: int
     report_id: str
     run_index: int
+    turn_trigger_source: str | None = None
 
 
 @dataclass
@@ -546,6 +552,14 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         pr_metadata=pr_metadata,
         signal_report_id=input.signal_report_id,
         trigger_source=input.trigger_source,
+        # Read on every turn of an inbox report (one indexed query) although only the creating turn
+        # routes on it: the upsert is what knows whether the row exists.
+        signal_priority=(
+            persisted_report_priority(team_id=input.team_id, report_id=input.signal_report_id)
+            if input.signal_report_id is not None
+            else None
+        ),
+        lift_tier_on_human_trigger=True,
     )
     # Read the report's watermark BEFORE persist_commit_snapshot advances it, so the parent can decide
     # whether this turn has anything to do. `published_head_sha == head_sha` means we already reviewed
@@ -951,9 +965,10 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
         if input.blind_spot_check
         else f"issues-review-p{input.pass_number}-c{input.chunk_id}"
     )
-    # The report's persisted experiment arm, not the module pins. Each unit resolves it against the
-    # live registry, so all units of a turn agree unless a deploy deregisters the model mid-turn —
-    # which is why experiment teardown drops arms from REVIEW_EXPERIMENT_ARMS, never the registry.
+    # The report's persisted arm (its tier's, decided at creation), not the module pins. Each unit
+    # resolves it against the live registry, so all units of a turn agree unless a deploy
+    # deregisters the model mid-turn — which is why a tier's arm changes in REVIEW_ARMS_BY_TIER,
+    # never by deregistering the model.
     arm = await database_sync_to_async(load_review_arm, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id
     )
@@ -1285,11 +1300,12 @@ def _review_event_identity(report: ReviewReport) -> str:
     return str(acting_distinct_id) if acting_distinct_id else str(report.team.uuid)
 
 
-def _review_arm_properties(report: ReviewReport) -> dict[str, str | bool]:
-    """The model-experiment labels on every review analytics event (the model name is the arm).
+def _review_routing_properties(report: ReviewReport) -> dict[str, str | bool | None]:
+    """The tier and arm labels on every review analytics event (the per-tier dashboards key on these).
 
-    Resolved, not raw: pre-experiment rows carry NULLs but their reviews run on the default pins,
-    and the event must say what actually ran.
+    The arm is resolved, not raw: pre-arm rows carry NULLs but their reviews run on the default
+    pins, and the event must say what actually ran. The tier and priority are raw: they are the
+    decision as recorded, and NULL means the row predates tiers.
     """
     persisted = (
         report.review_runtime_adapter,
@@ -1300,13 +1316,16 @@ def _review_arm_properties(report: ReviewReport) -> dict[str, str | bool]:
     arm = resolve_review_arm(*persisted)
     resolved = (arm.runtime_adapter.value, arm.model, arm.reasoning_effort.value, arm.initial_permission_mode)
     return {
+        "review_tier": report.review_tier,
+        "signal_priority": report.review_signal_priority,
+        "signal_report_id": str(report.signal_report_id) if report.signal_report_id else None,
         "review_runtime_adapter": arm.runtime_adapter.value,
         "review_model": arm.model,
         "review_reasoning_effort": arm.reasoning_effort.value,
         # True when a persisted assignment failed resolution and the turn ran the fallback pins
-        # instead of its drawn arm; per-arm dashboards must exclude these contaminated turns.
+        # instead of its tier's arm; per-tier dashboards must exclude these contaminated turns.
         # The whole bundle is compared because a failed assignment can share the default arm's model
-        # string while differing on adapter or effort. Pre-experiment rows (all NULL) stay False.
+        # string while differing on adapter or effort. Pre-arm rows (all NULL) stay False.
         "review_arm_fallback": any(persisted) and resolved != persisted,
     }
 
@@ -1341,6 +1360,7 @@ def _track_review_completed(input: TrackReviewCompletedInput) -> None:
             "pr_number": report.pr_number,
             "run_index": input.run_index,
             "trigger_source": report.trigger_source,
+            "turn_trigger_source": input.turn_trigger_source,
             "author_login": report.author_login,
             "published": input.published,
             "findings_total": len(findings),
@@ -1348,7 +1368,7 @@ def _track_review_completed(input: TrackReviewCompletedInput) -> None:
             "findings_must_fix": valid_by_priority.get(IssuePriority.MUST_FIX, 0),
             "findings_should_fix": valid_by_priority.get(IssuePriority.SHOULD_FIX, 0),
             "findings_consider": valid_by_priority.get(IssuePriority.CONSIDER, 0),
-            **_review_arm_properties(report),
+            **_review_routing_properties(report),
             # PR size as fetched for this turn; None when the turn's snapshot is unavailable.
             "pr_additions": pr_meta.additions if pr_meta is not None else None,
             "pr_deletions": pr_meta.deletions if pr_meta is not None else None,
@@ -1402,8 +1422,9 @@ def _track_review_failed(input: TrackReviewFailedInput) -> None:
             "pr_number": report.pr_number,
             "run_index": input.run_index,
             "trigger_source": report.trigger_source,
+            "turn_trigger_source": input.turn_trigger_source,
             "author_login": report.author_login,
-            **_review_arm_properties(report),
+            **_review_routing_properties(report),
         },
         groups=groups(team=report.team),
         send_feature_flags=True,

@@ -652,7 +652,12 @@ class ReviewPRWorkflow:
                 try:
                     await workflow.execute_activity(
                         track_review_failed_activity,
-                        TrackReviewFailedInput(team_id=inputs.team_id, report_id=report_id, run_index=meta.run_index),
+                        TrackReviewFailedInput(
+                            team_id=inputs.team_id,
+                            report_id=report_id,
+                            run_index=meta.run_index,
+                            turn_trigger_source=inputs.trigger_source,
+                        ),
                         start_to_close_timeout=_QUICK_TIMEOUT,
                         retry_policy=_RETRY,
                     )
@@ -673,6 +678,7 @@ class ReviewPRWorkflow:
                     run_index=meta.run_index,
                     published=posted,
                     workflow_started_at=workflow.info().start_time.isoformat(),
+                    turn_trigger_source=inputs.trigger_source,
                 ),
                 start_to_close_timeout=_QUICK_TIMEOUT,
                 retry_policy=_RETRY,
