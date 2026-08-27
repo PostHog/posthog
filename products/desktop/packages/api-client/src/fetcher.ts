@@ -35,6 +35,30 @@ export function requestErrorStatus(error: unknown): number | undefined {
   return error instanceof ApiRequestError ? error.status : undefined;
 }
 
+/**
+ * Whether a response means the access token itself was rejected. A 403 only
+ * counts when the body says so: the same status is a plain permission denial
+ * (a disabled feature, a private org) that a fresh token cannot fix.
+ */
+export async function isAuthFailureResponse(
+  response: Response,
+): Promise<boolean> {
+  if (response.status === 401) return true;
+  if (response.status !== 403) return false;
+  try {
+    const body = (await response.clone().json()) as {
+      code?: string;
+      type?: string;
+    } | null;
+    return (
+      body?.code === "authentication_failed" ||
+      body?.type === "authentication_error"
+    );
+  } catch {
+    return false;
+  }
+}
+
 export const buildApiFetcher: (
   config: ApiFetcherConfig,
 ) => Parameters<typeof createApiClient>[0] = (config) => {
@@ -92,28 +116,11 @@ export const buildApiFetcher: (
     }
   };
 
-  const isAuthFailure = async (response: Response): Promise<boolean> => {
-    if (response.status === 401) return true;
-    if (response.status !== 403) return false;
-    try {
-      const body = (await response.clone().json()) as {
-        code?: string;
-        type?: string;
-      } | null;
-      return (
-        body?.code === "authentication_failed" ||
-        body?.type === "authentication_error"
-      );
-    } catch {
-      return false;
-    }
-  };
-
   return {
     fetch: async (input) => {
       let response = await makeRequest(input, await config.getAccessToken());
 
-      if (!response.ok && (await isAuthFailure(response))) {
+      if (!response.ok && (await isAuthFailureResponse(response))) {
         try {
           response = await makeRequest(
             input,

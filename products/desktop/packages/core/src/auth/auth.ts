@@ -1,3 +1,4 @@
+import { isAuthFailureResponse } from "@posthog/api-client/fetcher";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
 import {
   type IPowerManager,
@@ -251,7 +252,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       return response;
     }
 
-    if (response.status === 401 || response.status === 403) {
+    if (await isAuthFailureResponse(response)) {
       const refreshedAuth = await this.refreshAccessToken();
       response = await this.executeAuthenticatedFetch(
         fetchImpl,
@@ -1306,6 +1307,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       sessionEndReason: partial.sessionEndReason ?? null,
     });
   }
+
   private async updateDesktopAccessFromSession(
     session: InMemorySession,
   ): Promise<void> {
