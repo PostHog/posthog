@@ -814,6 +814,8 @@ jobs:
             # available on Depot), so setup-python keeps the bot PAT.
             - parallel:
                   - name: Install pnpm dependencies
+                    id: pnpm_install_first_attempt
+                    continue-on-error: true
                     uses: ./.depot/actions/pnpm-install
                     with:
                         install-command: pnpm install --frozen-lockfile --filter=@posthog/root
@@ -827,6 +829,11 @@ jobs:
                     with:
                         toolchain: 1.91.1
                         components: cargo
+            - name: Retry pnpm dependency installation
+              if: steps.pnpm_install_first_attempt.outcome == 'failure'
+              uses: ./.depot/actions/pnpm-install
+              with:
+                  install-command: pnpm install --frozen-lockfile --filter=@posthog/root
             - name: Install uv
               id: setup-uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0

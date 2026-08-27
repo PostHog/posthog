@@ -781,6 +781,8 @@ jobs:
 
             - parallel:
                   - name: Install pnpm dependencies
+                    id: pnpm_install_first_attempt
+                    continue-on-error: true
                     uses: ./.github/actions/pnpm-install
                     with:
                         install-command: pnpm install --frozen-lockfile --filter=@posthog/root
@@ -797,6 +799,13 @@ jobs:
                     with:
                         toolchain: 1.91.1
                         components: cargo
+
+            - name: Retry pnpm dependency installation
+              if: steps.pnpm_install_first_attempt.outcome == 'failure'
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm install --frozen-lockfile --filter=@posthog/root
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               id: setup-uv
