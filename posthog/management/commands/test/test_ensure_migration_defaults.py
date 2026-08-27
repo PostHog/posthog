@@ -22,6 +22,22 @@ def _insight_tiles() -> Iterator[tuple[str, dict[str, Any], dict[str, Any]]]:
                 yield f"{template['template_name']} / {tile['name']}", template, tile
 
 
+def _resolve(value: Any, variables: dict[str, dict[str, Any]]) -> Any:
+    if isinstance(value, str):
+        match = _PLACEHOLDER.match(value)
+        variable = variables.get(match.group(1)) if match else None
+        if variable is None:
+            return value
+        # Every variable is an event one, which the browser turns into a series node before the tile reaches the API.
+        default = variable["default"]
+        return {"kind": "EventsNode", "event": default["id"], "name": default["name"], "math": "total"}
+    if isinstance(value, dict):
+        return {key: _resolve(item, variables) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_resolve(item, variables) for item in value]
+    return value
+
+
 def _placeholders(value: Any) -> set[str]:
     if isinstance(value, str):
         match = _PLACEHOLDER.match(value)
@@ -39,11 +55,12 @@ class TestSeededDashboardTemplates(SimpleTestCase):
         assert tile.get("query"), "create_from_template builds insights from `query`, so a tile without one is blank"
         assert "filters" not in tile, "legacy `filters` is never read; convert with filter_to_query instead"
 
-    @parameterized.expand(
-        [(label, tile) for label, template, tile in _insight_tiles() if not template.get("variables")]
-    )
-    def test_insight_tile_query_matches_the_schema(self, _label: str, tile: dict[str, Any]) -> None:
-        InsightVizNode(**tile["query"])
+    @parameterized.expand([(label, template, tile) for label, template, tile in _insight_tiles()])
+    def test_insight_tile_query_matches_the_schema(
+        self, _label: str, template: dict[str, Any], tile: dict[str, Any]
+    ) -> None:
+        variables = {variable["id"]: variable for variable in template.get("variables", [])}
+        InsightVizNode(**_resolve(tile["query"], variables))
 
     @parameterized.expand([(label, template, tile) for label, template, tile in _insight_tiles()])
     def test_placeholders_resolve_to_a_declared_variable(
