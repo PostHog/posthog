@@ -301,6 +301,41 @@ export class KafkaConsumerV2 {
         } finally {
             // Drain whatever is left before letting the caller's disconnect() return.
             await this.drainAll('shutdown')
+            this.answerPendingRebalances()
+        }
+    }
+
+    /**
+     * Answer rebalance events that were queued but never handled because the loop stopped.
+     * librdkafka blocks disconnect() until the application responds to a pending cooperative
+     * rebalance, so leaving one unanswered hangs shutdown. Nothing polls any more, so an
+     * assignment answered here delivers no messages and is released by the final REVOKE that
+     * disconnect() routes through rebalanceCallback.
+     */
+    private answerPendingRebalances(): void {
+        while (this.rebalanceQueue.length > 0) {
+            const event = this.rebalanceQueue.shift()!
+            if (event.type === 'ERROR') {
+                continue
+            }
+            try {
+                if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
+                    if (event.type === 'ASSIGN') {
+                        this.rdKafkaConsumer.incrementalAssign(event.partitions)
+                    } else {
+                        this.rdKafkaConsumer.incrementalUnassign(event.partitions)
+                    }
+                } else if (event.type === 'ASSIGN') {
+                    this.rdKafkaConsumer.assign(event.partitions)
+                } else {
+                    this.rdKafkaConsumer.unassign()
+                }
+            } catch (error) {
+                logger.warn('🔁', 'kafka_consumer_v2_pending_rebalance_answer_failed', {
+                    type: event.type,
+                    error: String(error),
+                })
+            }
         }
     }
 
