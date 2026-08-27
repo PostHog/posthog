@@ -177,44 +177,37 @@ def _is_invalid_token(response: requests.Response) -> bool:
     return "invalid token" in message.lower()
 
 
-def validate_credentials(
-    base_url: Optional[str], api_token: str, schema_name: Optional[str] = None, team_id: Optional[int] = None
-) -> tuple[bool, str | None]:
-    """Probe a cheap list endpoint to confirm the API token is genuine.
-
-    A bad Invoice Ninja token returns 403 ``{"message": "Invalid token"}``, so — unlike sources whose
-    403 means "valid token, missing scope" — a 403 carrying that message is always a hard failure. A
-    403 *without* it (an entity-restricted enterprise token) is accepted at source-create and only
-    rejected for a scoped probe.
-    """
+def _resolve_probe_url(base_url: Optional[str], team_id: Optional[int]) -> tuple[str | None, str | None]:
+    """Resolve and vet the target URL. Returns ``(resolved_base_url, error)`` with one side set."""
     resolved_base_url = normalize_base_url(base_url)
     host = _host_of(resolved_base_url)
 
     if not host:
-        return False, "Invalid Invoice Ninja API URL"
+        return None, "Invalid Invoice Ninja API URL"
 
     # The host is fully customer-controlled for self-hosted deployments, so block hosts that resolve to
     # private/internal addresses (SSRF). Only enforced on cloud — see _is_host_safe.
     if team_id is not None:
         host_ok, host_err = _is_host_safe(host, team_id)
         if not host_ok:
-            return False, host_err or HOST_NOT_ALLOWED_ERROR
+            return None, host_err or HOST_NOT_ALLOWED_ERROR
 
     # Refuse plaintext HTTP before the token-bearing request goes out, so a self-hosted URL can't
     # expose the API token on the network.
     if not _is_https(resolved_base_url):
-        return False, HTTP_NOT_ALLOWED_ERROR
+        return None, HTTP_NOT_ALLOWED_ERROR
 
-    url = f"{resolved_base_url}/clients?{urlencode({'per_page': 1, 'page': 1})}"
-    try:
-        # `redact_values` masks the token from captured HTTP samples: it rides in the `X-API-TOKEN`
-        # header, which the transport's name-based denylist doesn't recognise. Don't follow redirects:
-        # the validated host could 3xx to an internal address, defeating the host check above (SSRF).
-        session = make_tracked_session(redact_values=(api_token,))
-        response = session.get(url, headers=_get_headers(api_token), timeout=10, allow_redirects=False)
-    except requests.exceptions.RequestException as e:
-        return False, str(e)
+    return resolved_base_url, None
 
+
+def _classify_probe_response(response: requests.Response, schema_name: Optional[str]) -> tuple[bool, str | None]:
+    """Map a probe response to a ``(valid, error)`` verdict.
+
+    A bad Invoice Ninja token returns 403 ``{"message": "Invalid token"}``, so — unlike sources whose
+    403 means "valid token, missing scope" — a 403 carrying that message is always a hard failure. A
+    403 *without* it (an entity-restricted enterprise token) is accepted at source-create and only
+    rejected for a scoped probe.
+    """
     if response.is_redirect or response.is_permanent_redirect:
         return False, HOST_NOT_ALLOWED_ERROR
 
@@ -237,6 +230,27 @@ def validate_credentials(
         return False, body.get("message", response.text)
     except Exception:
         return False, response.text
+
+
+def validate_credentials(
+    base_url: Optional[str], api_token: str, schema_name: Optional[str] = None, team_id: Optional[int] = None
+) -> tuple[bool, str | None]:
+    """Probe a cheap list endpoint to confirm the API token is genuine."""
+    resolved_base_url, url_error = _resolve_probe_url(base_url, team_id)
+    if url_error is not None:
+        return False, url_error
+
+    url = f"{resolved_base_url}/clients?{urlencode({'per_page': 1, 'page': 1})}"
+    try:
+        # `redact_values` masks the token from captured HTTP samples: it rides in the `X-API-TOKEN`
+        # header, which the transport's name-based denylist doesn't recognise. Don't follow redirects:
+        # the validated host could 3xx to an internal address, defeating the host check above (SSRF).
+        session = make_tracked_session(redact_values=(api_token,))
+        response = session.get(url, headers=_get_headers(api_token), timeout=10, allow_redirects=False)
+    except requests.exceptions.RequestException as e:
+        return False, str(e)
+
+    return _classify_probe_response(response, schema_name)
 
 
 def invoiceninja_source(
