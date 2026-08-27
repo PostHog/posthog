@@ -1,6 +1,7 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import {
   isDeepseekModelId,
+  isGlm53FlashModelId,
   isGlm53ModelId,
   isGlmModelId,
   isSelectGroup,
@@ -13,6 +14,7 @@ export interface ModelRolloutFlags {
   deepseek: boolean;
   glm: boolean;
   glm53: boolean;
+  glm53Flash: boolean;
   kimi: boolean;
 }
 
@@ -20,7 +22,11 @@ function isModelDisabled(modelId: string, flags: ModelRolloutFlags): boolean {
   return (
     (!flags.deepseek && isDeepseekModelId(modelId)) ||
     (!flags.glm53 && isGlm53ModelId(modelId)) ||
-    (!flags.glm && isGlmModelId(modelId) && !isGlm53ModelId(modelId)) ||
+    (!flags.glm53Flash && isGlm53FlashModelId(modelId)) ||
+    (!flags.glm &&
+      isGlmModelId(modelId) &&
+      !isGlm53ModelId(modelId) &&
+      !isGlm53FlashModelId(modelId)) ||
     (!flags.kimi && isKimiModelId(modelId))
   );
 }
