@@ -37,6 +37,20 @@ Add an entry when you close a PR and do not merge it. Add an entry when you reve
 Give the entry the title of the idea. Then give the verdict, the date, and the measurement.
 An entry of five lines has more value than a design document that nobody opens.
 
+## Remove an entry
+
+Age alone is not a reason to remove an entry. The pytest-xdist entry is the oldest here, and people still propose that idea.
+
+Remove an entry when one of these is true:
+
+The system that it describes is gone. A person cannot propose the idea any more, so the verdict guides nobody.
+
+The idea shipped later. The entry is history, not prior art. Keep it only when the first failure is still a trap.
+
+The entry gives a general lesson and no specific trap. "Measure before you optimize" does not need an entry.
+
+Give the reason when you remove an entry. Do not remove an entry because it looks old.
+
 ---
 
 ## Test parallelism and sharding
@@ -46,7 +60,7 @@ An entry of five lines has more value than a design document that nobody opens.
 **Verdict: rejected** · Oct 2025 · [#38927](https://github.com/PostHog/posthog/pull/38927)
 
 The test used 53 shards and `-n 4`.
-Wall time decreased from approximately 15 minutes to approximately 9 minutes. This is a speed increase of 42.8%, and the measurement is statistically strong.
+Wall time decreased from approximately 15 minutes to approximately 9 minutes. The PR reports the difference as statistically strong.
 CPU cost increased from 1,572 to 3,908 core-minutes. This is a factor of approximately 2.5.
 
 The speed increase is real. The cost is the problem.
@@ -237,12 +251,12 @@ _Also asked as:_ Docker Hub rate limit in CI, unauthenticated pull limit, DOCKER
 
 The trial did not do a direct exchange. It ran a Blacksmith shadow of most compute jobs on the same commit, behind the `BLACKSMITH_SHADOW_ENABLED` variable. Each shadow used `continue-on-error`, and no shadow was a required check.
 
-The comparison was not conclusive. Some jobs looked much slower on the shadow runner. The step-level data showed a difference in the cache state between the two providers, not a difference in compute speed. The trial also ran for approximately 16 hours, which is too short for the jobs whose medians were close.
-
-The team kept Depot. [#57991](https://github.com/PostHog/posthog/pull/57991) removed the shadow workflow and the matrix branches.
+The team kept Depot. The comparison did not give a clear answer.
+The detail of that comparison is not in the PRs. It went to a report in the team channel, so this entry cannot show you the numbers. [#57991](https://github.com/PostHog/posthog/pull/57991) removed the shadow workflow and the matrix branches.
 It kept `.github/scripts/compare-ci-runners.py` and marked the file as legacy. That script produced the numbers of the trial.
 
-If you propose this again, equalize the caches first. Otherwise the next trial measures the cache plumbing again, not the runners.
+If you propose this again, equalize the caches of the two providers first. A runner that keeps a warm cache between jobs measures the cache, not the compute.
+Run the trial for several days. A short window cannot separate the jobs whose times are close.
 
 _Also asked as:_ change CI provider, Blacksmith, cheaper runners, are the Depot runners slow
 
@@ -250,12 +264,15 @@ _Also asked as:_ change CI provider, Blacksmith, cheaper runners, are the Depot 
 
 **Verdict: rejected for those workflows** · Oct 2025 · [#39239](https://github.com/PostHog/posthog/pull/39239)
 
-The proposal added sparse-checkout to the backend, frontend, and Rust workflows. Each job would exclude the directories that it does not use.
+The description covers the backend, frontend, and Rust workflows. The diff changes only `ci-backend.yml` and `ci-rust.yml`.
 
-The PR did not merge. Sparse-checkout is still correct for small jobs, and `ci-storybook.yml`, `ci-security.yaml`, and `pr-resolve-outdated-bot-comments.yml` use it today.
-The large test workflows do not. A test job reads more of the tree than the exclusion list expects, and the migration jobs change refs.
+The PR did not merge, and no person reviewed it. The stale bot closed it. Thus there is no recorded reason for the result.
 
-If you propose this again, name the jobs and prove that each one reads only the included paths.
+Sparse-checkout is correct for small jobs, and `ci-storybook.yml`, `ci-security.yaml`, and `pr-resolve-outdated-bot-comments.yml` use it today.
+`ci-rust.yml` also uses it on the build and test jobs, but that came before this PR.
+The large Python and frontend test jobs do not use it. Their checkout is complete.
+
+If you propose this again, name the jobs and prove that each one reads only the included paths. A test job can read more of the tree than an exclusion list expects.
 
 _Also asked as:_ sparse-checkout, partial clone, do not check out the whole repo, speed up the checkout step
 
@@ -302,18 +319,6 @@ The agent that opens the PR already knows this person. Thus the instruction move
 _Also asked as:_ auto-assign bot PRs, find the human behind an agent PR, nudge for ownership
 
 ## Dev environment
-
-### Replace mprocs with Tilt for the local dev orchestration
-
-**Verdict: rejected** · Oct 2025 · [#40698](https://github.com/PostHog/posthog/pull/40698)
-
-The proposal is correct about the problem. mprocs starts every process in parallel and knows nothing about the dependencies, so services fail when their dependencies are not ready.
-
-The PR did not merge. `bin/mprocs.yaml` is still the process list today, and the repository has no Tilt configuration.
-
-The dependency problem got other answers. `bin/wait-for-docker` and the compose health checks do the waiting, and the intent system in hogli decides which processes start.
-
-_Also asked as:_ Tilt, replace mprocs, dev orchestrator, services start in the wrong order
 
 ### Share the dev environment and the Docker containers across worktrees
 
@@ -363,26 +368,6 @@ Before you increase the Python version, examine which versions the pinned flox u
 
 _Also asked as:_ bump Python, upgrade the interpreter, why is Python pinned to an exact version
 
-### Replace Unit and Uvicorn with Granian in one step
-
-**Verdict: superseded** · Oct 2025 · [#40450](https://github.com/PostHog/posthog/pull/40450), replaced by [#40847](https://github.com/PostHog/posthog/pull/40847)
-
-A dual-mode PR replaced the direct exchange. The dual mode keeps Unit as the default and starts Granian when `USE_GRANIAN=true`.
-The work is the same, and the rollout is safer. Granian is a dependency today.
-
-_Also asked as:_ migrate to Granian, replace Nginx Unit, unify the ASGI server
-
-### Change the object storage service from MinIO to SeaweedFS
-
-**Verdict: shipped, after several unsuccessful attempts** · first attempt Mar 2026 · [#49827](https://github.com/PostHog/posthog/pull/49827)
-
-Other people made earlier attempts, and those attempts also failed.
-The change is complete now. The dev stack and CI use SeaweedFS for both S3-compatible stores. `AGENTS.md` prohibits new dependencies on MinIO.
-
-This entry is evidence that a migration can be correct after several failures.
-
-_Also asked as:_ remove MinIO, SeaweedFS, replace the object storage container
-
 ## Django performance
 
 [docs/internal/django-startup-time.md](django-startup-time.md) is the deep source for this area. It has a Traps section that records the failure modes of each mechanism.
@@ -420,12 +405,33 @@ _Also asked as:_ `defer_build`, make the schema import lazy, pydantic model buil
 **Verdict: not viable today**
 
 `posthog/schema.py` has more than 1,000 generated classes. `hogli build:schema` generates the file from the TypeScript types with pydantic tooling.
-More than 250 files call `model_validate`, and the API layer depends on this validation. Thus a change of the model library is not a local change.
+Approximately 220 files call `model_validate`, and more call the `model_validate_json` and `model_validate_python` variants. The API layer depends on this validation. Thus a change of the model library is not a local change.
 
 The import cost is solved. `posthog.schema` costs approximately 2 seconds to import, but `django.setup()` no longer loads it. The enums also moved to `posthog.schema_enums`, which imports in approximately 20 ms.
 Import a model from `posthog.schema` inside the method that uses it. Take the enums from `posthog.schema_enums`.
 
 _Also asked as:_ remove pydantic, use dataclasses for the schema, the schema import is slow, why is `posthog.schema` so big
+
+## Database migrations
+
+### Switch the Person model to the partitioned table with a Django setting
+
+**Verdict: eight attempts, none merged** · Nov 2025 · [#41436](https://github.com/PostHog/posthog/pull/41436), [#41513](https://github.com/PostHog/posthog/pull/41513), [#41522](https://github.com/PostHog/posthog/pull/41522), [#41600](https://github.com/PostHog/posthog/pull/41600), [#41604](https://github.com/PostHog/posthog/pull/41604), [#41669](https://github.com/PostHog/posthog/pull/41669), [#41698](https://github.com/PostHog/posthog/pull/41698), [#41813](https://github.com/PostHog/posthog/pull/41813)
+
+The goal is to move the Person model from `posthog_person` to a table that is partitioned by `team_id`. Eight PRs tried five mechanisms.
+
+A `PERSON_TABLE_NAME` setting that gives `db_table` to the model. A dual manager that reads both tables and prefers the new one. A swap of the two table names in the database. A wrapper that rejects any query to a partitioned table without `team_id` in the `WHERE` clause. A separate test database for the person tables.
+
+None of them merged. The author wrote this on [#41513](https://github.com/PostHog/posthog/pull/41513):
+
+> I'm still not sure if I got on the wrong track here by wanting to bend all test setup to use the person_new table and other sqlx migrated stuff. It seems I overlooked something fundamental since things are failing so much.
+
+The work continues, but the mechanism is different. `PERSON_TABLE_NAME` is not in the code. `posthog_person_new` survives in one Dagster job, with a comment about a future name swap.
+Person and group data now goes through the gRPC client in `posthog/personhog_client/`. `AGENTS.md` makes that client the required interface and prohibits new ORM queries against the person tables.
+
+Read this entry before you propose a Django-level cutover. The Django setting is not where this problem lives any more.
+
+_Also asked as:_ partition the person table, `PERSON_TABLE_NAME`, `posthog_person_new`, dual-table reads, cut over the Person model
 
 ## API contracts
 
@@ -435,7 +441,7 @@ _Also asked as:_ remove pydantic, use dataclasses for the schema, the schema imp
 
 The idea returns in two shapes.
 
-End-to-end traffic validation, through a Django middleware and the Playwright run: [#49895](https://github.com/PostHog/posthog/pull/49895), [#49898](https://github.com/PostHog/posthog/pull/49898), [#49932](https://github.com/PostHog/posthog/pull/49932), [#49940](https://github.com/PostHog/posthog/pull/49940).
+End-to-end traffic validation, in the Playwright run. Most of these use a Django middleware, and [#49895](https://github.com/PostHog/posthog/pull/49895) uses Spectral and a Prism proxy instead: [#49898](https://github.com/PostHog/posthog/pull/49898), [#49932](https://github.com/PostHog/posthog/pull/49932), [#49940](https://github.com/PostHog/posthog/pull/49940).
 Response validation inside the pytest run, with a report as a CI artifact: [#56804](https://github.com/PostHog/posthog/pull/56804), [#56810](https://github.com/PostHog/posthog/pull/56810).
 
 Each PR made the validation optional and non-blocking, to avoid noise. None of them merged.
