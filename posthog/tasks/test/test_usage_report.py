@@ -23,6 +23,7 @@ from posthog.test.base import (
 from unittest.mock import MagicMock, Mock, patch
 
 from django.apps import apps
+from django.core.exceptions import ImproperlyConfigured
 from django.db import connection
 from django.test import SimpleTestCase, TestCase
 from django.utils.timezone import now
@@ -62,11 +63,14 @@ from posthog.tasks.usage_report import (
     _get_mcp_analytics_event_metric_counts,
     _get_team_report,
     _get_teams_for_usage_reports,
+    _get_teams_with_ai_credits_for_products,
     capture_event,
     capture_report,
     get_all_event_metrics_in_period,
     get_instance_metadata,
+    get_teams_with_ai_credits_used_in_period,
     get_teams_with_billable_event_count_in_period,
+    get_teams_with_posthog_code_credits_used_in_period,
     get_teams_with_query_metric,
     has_non_zero_usage,
     send_all_org_usage_reports,
@@ -3563,6 +3567,31 @@ class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, Click
         assert org_2_report["organization_name"] == "Org 2"
         assert org_2_report["exceptions_captured_in_period"] == 7
         assert org_2_report["teams"][str(self.org_2_team_3.pk)]["exceptions_captured_in_period"] == 7
+
+
+class TestAICreditsRegionHandling(SimpleTestCase):
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_on_dev_region_returns_empty(self, mock_region: MagicMock) -> None:
+        mock_region.return_value = "DEV"
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+
+        assert get_teams_with_ai_credits_used_in_period(period.start, period.end) == []
+        assert get_teams_with_posthog_code_credits_used_in_period(period.start, period.end) == []
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_on_unexpected_region_raises(self, mock_region: MagicMock) -> None:
+        mock_region.return_value = "APAC"
+        period_end = now()
+        period_start = period_end - timedelta(days=1)
+
+        with self.assertRaisesRegex(ImproperlyConfigured, "APAC"):
+            _get_teams_with_ai_credits_for_products(
+                period_start,
+                period_end,
+                ai_products=[],
+                usage_report_tag="test",
+            )
 
 
 @freeze_time("2022-01-10T10:00:00Z")

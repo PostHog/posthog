@@ -369,7 +369,7 @@ async def _finalize_sync_bookkeeping(
 
     if not schema.initial_sync_complete:
         await logger.adebug("Setting initial_sync_complete on schema")
-        await set_initial_sync_complete(schema_id=schema.id, team_id=job.team_id)
+        await set_initial_sync_complete(schema_id=schema.id, team_id=job.team_id, logger=logger)
 
     if resource is not None:
         await finalize_desc_sort_incremental_value(resource, schema, last_incremental_field_value, logger)

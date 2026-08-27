@@ -12,10 +12,7 @@ import { IntervalType } from '~/types'
 import { marketingAnalyticsLogic } from './marketingAnalyticsLogic'
 import { attributableConversionGoals } from './marketingBreakdown'
 
-/**
- * The retention query registers under this collection, so the tab's refresh button reloads exactly it —
- * not the dashboard tiles living in the scene-level collection.
- */
+/** Keeps the tab's refresh button off the dashboard tiles, which sit in the scene-level collection. */
 export const MARKETING_ANALYTICS_RETENTION_COLLECTION_ID = 'marketing-analytics-retention'
 
 export const DEFAULT_TOTAL_INTERVALS: number = 8
@@ -128,12 +125,7 @@ export type marketingRetentionLogicType = MakeLogicType<
 export const marketingRetentionLogic = kea<marketingRetentionLogicType>([
     path(['scenes', 'webAnalytics', 'marketingRetentionLogic']),
     connect(() => ({
-        values: [
-            // The tab renders under the scene's shared filter bar, so it reuses that date range rather
-            // than owning a second date control the user would have to keep in sync.
-            marketingAnalyticsLogic,
-            ['dateFilter', 'conversion_goals'],
-        ],
+        values: [marketingAnalyticsLogic, ['dateFilter', 'conversion_goals']],
     })),
     actions({
         setBreakdownBy: (breakdownBy: MarketingAnalyticsAttributionBreakdown) => ({ breakdownBy }),

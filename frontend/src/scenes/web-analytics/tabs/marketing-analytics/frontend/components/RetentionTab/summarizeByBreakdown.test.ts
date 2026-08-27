@@ -37,8 +37,7 @@ describe('summarizeByBreakdown', () => {
     })
 
     it('leaves cohorts that have not finished a period out of that period entirely', () => {
-        // The young cohort contributing a zero here would deflate the column instead of being absent
-        // from it, which is the failure that makes a healthy channel look like it is churning.
+        // A zero from the unfinished cohort would deflate the column instead of being absent from it.
         const [summary] = summarizeByBreakdown([row('google', 0, 100, [100, 40]), row('google', 1, 100, [100, null])])
 
         expect(summary.cells[0].cohorts).toBe(2)
@@ -62,8 +61,7 @@ describe('summarizeByBreakdown', () => {
     })
 
     it('leaves the folded "Other" row out of the ranking', () => {
-        // "Other" is the summed long tail, so ranking it by acquired size would float a row nobody can
-        // act on above real channels. It stays in the per-cohort panels; it does not belong here.
+        // Its 5000 would outrank every real channel, and it is a sum of the tail, not a channel.
         const summary = summarizeByBreakdown([
             row(BREAKDOWN_OTHER_STRING_LABEL, 0, 5000, [5000, 4000]),
             row('google', 0, 100, [100, 50]),

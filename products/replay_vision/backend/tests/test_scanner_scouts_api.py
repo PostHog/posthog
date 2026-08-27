@@ -76,7 +76,7 @@ class TestScannerScoutCreate(_VisionAPITestCase):
         # not on its own enough to author one. Routing creation through Replay Vision must not let a
         # caller around the skill-authoring bar the Signals endpoint applies.
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_resource"
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource"
         ) as check_resource:
             check_resource.side_effect = lambda resource, *args, **kwargs: resource != "llm_skill"
             response = self.client.post(self._scouts_url(str(self.scanner.id)), data=self._payload(), format="json")

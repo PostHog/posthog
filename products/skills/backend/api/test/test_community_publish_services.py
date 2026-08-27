@@ -8,6 +8,8 @@ from django.test import override_settings
 
 import yaml
 import requests
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 
 from posthog.models.github_integration_base import GitHubIntegrationError
@@ -250,6 +252,30 @@ class TestPublishableSize:
             )
 
 
+# Generated per run rather than checked in: a PEM in a public repo trips secret scanners, and the
+# publisher settings take a real key because the App JWT is signed for real in these tests.
+PUBLISHER_PRIVATE_KEY = (
+    rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    .private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    .decode()
+)
+PUBLISHER_SETTINGS = {
+    "COMMUNITY_SKILLS_GITHUB_INSTALLATION_ID": "4242",
+    "COMMUNITY_SKILLS_GITHUB_REPO": "community-skills",
+    "COMMUNITY_SKILLS_GITHUB_APP_CLIENT_ID": "Iv23licommunity",
+    "COMMUNITY_SKILLS_GITHUB_APP_PRIVATE_KEY": PUBLISHER_PRIVATE_KEY,
+    # A usable core App, which the publish path must never fall back to: that App is installed
+    # across the whole PostHog org, so a fallback hands publishing a credential for every
+    # repository in it. Configured here so every case below holds publishing to its own App.
+    "GITHUB_APP_CLIENT_ID": "core",
+    "GITHUB_APP_PRIVATE_KEY": PUBLISHER_PRIVATE_KEY,
+}
+
+
 class TestCommunitySkillsPublisher:
     def _response(self, status_code: int, payload: dict) -> MagicMock:
         response = MagicMock()
@@ -257,20 +283,18 @@ class TestCommunitySkillsPublisher:
         response.json.return_value = payload
         return response
 
-    @override_settings(
-        COMMUNITY_SKILLS_GITHUB_INSTALLATION_ID="4242",
-        COMMUNITY_SKILLS_GITHUB_REPO="community-skills",
-        GITHUB_APP_CLIENT_ID="client",
-        GITHUB_APP_PRIVATE_KEY="key",
-    )
-    @patch("products.skills.backend.api.community_publish_services.GitHubIntegration.client_request")
+    @override_settings(**PUBLISHER_SETTINGS)
+    @patch("products.skills.backend.api.community_publish_services._publisher_app_request")
     def test_mints_a_token_scoped_to_the_publish_repository(self, mock_request: MagicMock) -> None:
         mock_request.side_effect = [
             self._response(200, {"account": {"login": "PostHog", "type": "Organization"}}),
             self._response(201, {"token": "ghs_x"}),
         ]
 
-        assert get_community_skills_publisher() is not None
+        publisher = get_community_skills_publisher()
+        assert publisher is not None
+        # Every write the publisher makes must share the App-JWT calls' egress label.
+        assert publisher.source == "community_skills"
 
         mint_body = mock_request.call_args.kwargs["json_body"]
         assert mint_body["repositories"] == ["community-skills"]
@@ -291,17 +315,9 @@ class TestCommunitySkillsPublisher:
         # None here becomes the endpoint's 503, which tells the publisher this instance can't publish
         # at all. A transient failure must not say that: it sends them to the manual path over an
         # outage that clears by itself.
-        settings_override = override_settings(
-            COMMUNITY_SKILLS_GITHUB_INSTALLATION_ID="4242",
-            COMMUNITY_SKILLS_GITHUB_REPO="community-skills",
-            GITHUB_APP_CLIENT_ID="client",
-            GITHUB_APP_PRIVATE_KEY="key",
-        )
         with (
-            settings_override,
-            patch(
-                "products.skills.backend.api.community_publish_services.GitHubIntegration.client_request"
-            ) as mock_request,
+            override_settings(**PUBLISHER_SETTINGS),
+            patch("products.skills.backend.api.community_publish_services._publisher_app_request") as mock_request,
         ):
             mock_request.side_effect = [
                 self._response(200, {"account": {"login": "PostHog", "type": "Organization"}}),
@@ -314,20 +330,36 @@ class TestCommunitySkillsPublisher:
             else:
                 assert get_community_skills_publisher() is None
 
-    @override_settings(
-        COMMUNITY_SKILLS_GITHUB_INSTALLATION_ID="4242",
-        COMMUNITY_SKILLS_GITHUB_REPO="community-skills",
-        GITHUB_APP_CLIENT_ID="client",
-        GITHUB_APP_PRIVATE_KEY="key",
-    )
-    @patch("products.skills.backend.api.community_publish_services.GitHubIntegration.client_request")
+    @override_settings(**PUBLISHER_SETTINGS)
+    @patch("products.skills.backend.api.community_publish_services._publisher_app_request")
     def test_github_being_unreachable_while_minting_raises_a_publish_error(self, mock_request: MagicMock) -> None:
-        # client_request goes to the transport directly, so a timeout arrives raw rather than as the
+        # The App-JWT calls go to the transport directly, so a timeout arrives raw rather than as the
         # GitHubIntegrationError api_request would wrap it in. Unhandled, the endpoint answers 500.
         mock_request.side_effect = requests.ConnectTimeout("boom")
 
         with pytest.raises(CommunitySkillPublishError):
             get_community_skills_publisher()
+
+    @parameterized.expand(
+        [
+            ("no client id", {"COMMUNITY_SKILLS_GITHUB_APP_CLIENT_ID": ""}),
+            ("no private key", {"COMMUNITY_SKILLS_GITHUB_APP_PRIVATE_KEY": ""}),
+            ("a private key that cannot sign", {"COMMUNITY_SKILLS_GITHUB_APP_PRIVATE_KEY": "not-a-pem"}),
+            ("no installation", {"COMMUNITY_SKILLS_GITHUB_INSTALLATION_ID": ""}),
+        ]
+    )
+    def test_an_unusable_publisher_app_never_reaches_github(self, _label: str, overrides: dict[str, str]) -> None:
+        # Publishing is off on this instance, which is the endpoint's 503. Reaching GitHub anyway
+        # would answer a deployment nobody can retry their way out of as though it were an outage,
+        # and reaching it under the core App would publish with an org-wide credential.
+        with (
+            override_settings(**{**PUBLISHER_SETTINGS, **overrides}),
+            patch(
+                "products.skills.backend.api.community_publish_services._publisher_app_request",
+                side_effect=AssertionError("GitHub was called with an unusable publisher App"),
+            ),
+        ):
+            assert get_community_skills_publisher() is None
 
 
 TEAM_A = "11111111-1111-1111-1111-111111111111"

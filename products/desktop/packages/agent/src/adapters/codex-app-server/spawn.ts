@@ -5,7 +5,6 @@ import type { Readable, Writable } from "node:stream";
 import { applyContextWikiEnv } from "../../context-wiki";
 import type { ContextWikiEnv, ProcessSpawnedCallback } from "../../types";
 import { Logger } from "../../utils/logger";
-import { CodexSettingsManager } from "./settings";
 
 /**
  * Host-facing codex options passed through `createAcpConnection`'s
@@ -145,16 +144,6 @@ export function buildAppServerArgs(
       "-c",
       `shell_environment_policy.set.BASH_ENV=${tomlBasicString(environment.BASH_ENV)}`,
     );
-  }
-
-  // Disable the user's ambient ~/.codex MCP servers so the adapter only exposes
-  // MCP servers PostHog injects per-thread; otherwise codex fails connecting to them.
-  for (const name of new CodexSettingsManager(
-    options.cwd ?? process.cwd(),
-  ).getSettings().mcpServerNames) {
-    // codex's `-c` parser rejects quoted/special key segments; skip such names.
-    if (!/^[A-Za-z0-9_-]+$/.test(name)) continue;
-    args.push("-c", `mcp_servers.${name}.enabled=false`);
   }
 
   if (options.apiBaseUrl) {

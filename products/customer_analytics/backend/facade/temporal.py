@@ -7,6 +7,9 @@ from products.customer_analytics.backend.temporal.account_property_sync import (
     ACCOUNT_PROPERTY_SYNC_ACTIVITIES,
     ACCOUNT_PROPERTY_SYNC_WORKFLOWS,
 )
+from products.customer_analytics.backend.temporal.account_track_rules import (
+    create_account_track_rule_coordinator_schedule,
+)
 from products.customer_analytics.backend.temporal.calendar_sync import create_calendar_sync_coordinator_schedule
 
 __all__ = [
@@ -15,5 +18,6 @@ __all__ = [
     "ACTIVITIES",
     "WORKFLOWS",
     "AccountPropertySyncInput",
+    "create_account_track_rule_coordinator_schedule",
     "create_calendar_sync_coordinator_schedule",
 ]

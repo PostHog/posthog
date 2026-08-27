@@ -56,6 +56,16 @@ class TestClassifyPostgresCDCError:
                 CDCErrorCategory.HOST_UNREACHABLE,
             ),
             (
+                # Supavisor reports the same routing failure with its erlang-tuple wording, which
+                # never contains the libpq phrases above.
+                "supavisor_enetunreach_is_non_retryable_host",
+                psycopg.OperationalError(
+                    "connection to server at example.invalid, port 5432 failed: FATAL:  "
+                    "Failed to connect to database: {:error, :enetunreach}"
+                ),
+                CDCErrorCategory.HOST_UNREACHABLE,
+            ),
+            (
                 "slot_missing",
                 psycopg.errors.UndefinedObject('replication slot "posthog_slot" does not exist'),
                 CDCErrorCategory.SLOT_MISSING,

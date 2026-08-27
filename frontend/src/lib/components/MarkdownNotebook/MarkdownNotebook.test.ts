@@ -4561,6 +4561,56 @@ Body text`)
 <Query query={{"kind":"DataTableNode"}} />`)
     })
 
+    it('opens a selection-anchored thread with its composer in the edit panel', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('Numbers look off here'),
+                registry: createDiscussionCommentTestRegistry(),
+            })
+        )
+        const paragraph = getBodyTextBlock(container)
+
+        selectTextAcrossNodes(getFirstTextNode(paragraph), 8, getFirstTextNode(paragraph), 'Numbers look'.length, true)
+        fireEvent.click(container.querySelector('button[aria-label="Comment on selection"]') as HTMLButtonElement)
+
+        // Insertion opens the panel through the transient cache, so the composer lands in the edit
+        // panel (ready to type) rather than the read-only view panel — and no prop is persisted.
+        expect(
+            container.querySelector(
+                '.MarkdownNotebook__component-panel--filters [data-attr="notebook-discussion-comment-input"]'
+            )
+        ).not.toBeNull()
+        expect(
+            container.querySelector(
+                '.MarkdownNotebook__component-panel--results [data-attr="notebook-discussion-comment-input"]'
+            )
+        ).toBeNull()
+    })
+
+    it('opens a gutter-inserted thread with its composer in the edit panel', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('<Query query={{"kind":"DataTableNode"}} />'),
+                registry: createDiscussionCommentTestRegistry(),
+            })
+        )
+
+        fireEvent.click(
+            container.querySelector('[data-attr="markdown-notebook-block-comment-button"]') as HTMLButtonElement
+        )
+
+        expect(
+            container.querySelector(
+                '.MarkdownNotebook__component-panel--filters [data-attr="notebook-discussion-comment-input"]'
+            )
+        ).not.toBeNull()
+        expect(
+            container.querySelector(
+                '.MarkdownNotebook__component-panel--results [data-attr="notebook-discussion-comment-input"]'
+            )
+        ).toBeNull()
+    })
+
     it('reuses an existing block comment thread above a component from the gutter button', async () => {
         const onChange = jest.fn()
         const { container } = render(

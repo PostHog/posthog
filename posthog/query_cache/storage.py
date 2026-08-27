@@ -112,6 +112,12 @@ S3_WRITE_BYTES_COUNTER = Counter(
     labelnames=["mode"],
 )
 
+S3_DELETE_COUNTER = Counter(
+    name="posthog_query_cache_s3_delete_total",
+    documentation="Query cache blob deletes, by what orphaned the blob and outcome.",
+    labelnames=["trigger", "outcome"],
+)
+
 LEGACY_VALUE_READ_COUNTER = Counter(
     name="posthog_query_cache_legacy_value_read_total",
     documentation="Successful reads of values written through django_redis before this module "
@@ -227,8 +233,12 @@ def schedule_upload_for_pointer(
             if mode == "on" and pointer is not None:
                 swapped = swap(pointer)
                 if not swapped:
-                    # The blob this upload wrote is unreferenced; the lifecycle rule collects it.
                     logger.info("query_cache_s3_swap_superseded", team_id=team_id, cache_key=cache_key)
+                    superseded = decode_pointer(pointer)
+                    if superseded is not None:
+                        # This upload's blob never entered Redis, so no reader can hold its
+                        # pointer; delete immediately rather than through the delayed task.
+                        delete_blob(bucket=superseded.bucket, key=superseded.key, team_id=team_id, trigger="superseded")
         except Exception:
             logger.warning("query_cache_s3_swap_failed", team_id=team_id, cache_key=cache_key, exc_info=True)
         finally:
@@ -379,6 +389,51 @@ def write_blob(
     _record_s3_write(mode, "success", time.perf_counter() - upload_start)
     S3_WRITE_BYTES_COUNTER.labels(mode=mode).inc(len(blob))
     return encode_pointer(S3BlobPointer(bucket=bucket, key=object_key, last_refresh=last_refresh))
+
+
+# A reader resolves a pointer in two steps, the Redis GET and then the S3 fetch, with
+# milliseconds between them. Delaying the delete far past that window means a reader holding
+# a just-replaced pointer still completes its read instead of turning into a recompute.
+BLOB_DELETE_DELAY_SECONDS = 60
+
+
+def delete_blob(*, bucket: str, key: str, team_id: int, trigger: str) -> None:
+    """Best-effort delete of a blob nothing references anymore. Never raises: a blob that
+    outlives its pointer is only a storage cost, and the bucket's lifecycle rule collects
+    whatever this misses."""
+    try:
+        object_storage_client().delete(bucket=bucket, key=key)
+    except Exception:
+        S3_DELETE_COUNTER.labels(trigger=trigger, outcome="error").inc()
+        logger.warning("query_cache_s3_delete_failed", team_id=team_id, bucket=bucket, key=key, exc_info=True)
+        return
+    S3_DELETE_COUNTER.labels(trigger=trigger, outcome="success").inc()
+
+
+def schedule_blob_delete(old_value: object, *, team_id: int, cache_key: str, trigger: str) -> None:
+    """Enqueue a delayed best-effort delete for the blob behind a pointer that just left Redis.
+
+    Callers pass a displacing script's raw return value; anything that isn't a pointer
+    record is ignored. Never raises: cache writes happen in web, Celery, Temporal, and
+    Dagster processes, and one of them failing to reach the broker must cost an orphaned
+    blob (the lifecycle rule collects it), not the cache write.
+    """
+    if not isinstance(old_value, bytes) or not is_s3_pointer(old_value):
+        return
+    pointer = decode_pointer(old_value)
+    if pointer is None:
+        return
+    try:
+        from posthog.query_cache.tasks import (
+            delete_query_cache_blob,  # noqa: PLC0415 — circular: tasks.py imports this module
+        )
+
+        delete_query_cache_blob.apply_async(
+            kwargs={"bucket": pointer.bucket, "key": pointer.key, "team_id": team_id, "trigger": trigger},
+            countdown=BLOB_DELETE_DELAY_SECONDS,
+        )
+    except Exception:
+        logger.warning("query_cache_s3_delete_enqueue_failed", team_id=team_id, cache_key=cache_key, exc_info=True)
 
 
 def _read_blob(pointer_bytes: bytes, *, team_id: int, cache_key: str) -> Optional[bytes]:

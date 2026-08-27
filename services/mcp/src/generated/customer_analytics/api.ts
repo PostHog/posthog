@@ -165,6 +165,10 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
             ),
         properties: zod
             .object({
+                website_domain: zod
+                    .string()
+                    .nullish()
+                    .describe('Primary company website hostname used for account identity and logo lookup.'),
                 email_domains: zod
                     .array(zod.string())
                     .optional()
@@ -186,7 +190,7 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
             })
             .nullish()
             .describe(
-                "Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here."
+                "Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here."
             ),
         tags: zod
             .array(zod.string())
@@ -374,6 +378,10 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             ),
         properties: zod
             .object({
+                website_domain: zod
+                    .string()
+                    .nullish()
+                    .describe('Primary company website hostname used for account identity and logo lookup.'),
                 email_domains: zod
                     .array(zod.string())
                     .optional()
@@ -395,7 +403,7 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             })
             .nullish()
             .describe(
-                "Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here."
+                "Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here."
             ),
         tags: zod
             .array(zod.string())
@@ -861,9 +869,8 @@ export const CustomPropertySourcesBackfillParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Person and group sources only: the source's sync/backfill run history, newest first. Gated
- * on the caller's warehouse-source viewer access, since the runs expose its row counts and sync
- * errors.
+ * The source's sync history, newest first. Person and group runs require viewer access to
+ * their warehouse source because the response includes row counts and sync errors.
  */
 export const CustomPropertySourcesRunsListParams = /* @__PURE__ */ zod.object({
     id: zod.string(),
@@ -877,6 +884,10 @@ export const CustomPropertySourcesRunsListParams = /* @__PURE__ */ zod.object({
 export const CustomPropertySourcesRunsListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    search: zod
+        .string()
+        .optional()
+        .describe('Match run IDs, workflow IDs, job IDs, statuses, segments, triggers, or errors.'),
 })
 
 /**

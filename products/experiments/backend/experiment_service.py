@@ -2211,6 +2211,19 @@ class ExperimentService:
         # Re-fetch so the serializer sees the updated flag
         experiment.feature_flag = feature_flag
 
+        # The flag flip logs under the FeatureFlag scope only; without this entry the
+        # experiment's History tab shows nothing for the pause.
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+            user=self.user,
+            was_impersonated=is_impersonated_session(request) if request else False,
+            item_id=experiment.pk,
+            scope="Experiment",
+            activity="paused",
+            detail=Detail(name=experiment.name),
+        )
+
         self._report_lifecycle_event(experiment, "experiment paused", request=request)
 
         return experiment
@@ -2236,6 +2249,17 @@ class ExperimentService:
 
         # Re-fetch so the serializer sees the updated flag
         experiment.feature_flag = feature_flag
+
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+            user=self.user,
+            was_impersonated=is_impersonated_session(request) if request else False,
+            item_id=experiment.pk,
+            scope="Experiment",
+            activity="resumed",
+            detail=Detail(name=experiment.name),
+        )
 
         self._report_lifecycle_event(experiment, "experiment resumed", request=request)
 

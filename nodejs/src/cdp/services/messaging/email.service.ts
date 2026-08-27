@@ -4,10 +4,12 @@ import { SendMailOptions } from 'nodemailer'
 import { Counter } from 'prom-client'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
+import { HogFlowEmailSendingRateLimit, HogFlowEmailSendingRateLimitSchema } from '~/cdp/schema/hogflow'
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
+    HogFunctionType,
     IntegrationType,
     MessageAssetRow,
 } from '~/cdp/types'
@@ -18,6 +20,7 @@ import { logger } from '~/common/utils/logger'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
+import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailSuppressionService } from './email-suppression.service'
 import { addTrackingToEmail, resolveEmailEngagementDistinctId } from './email-tracking.service'
@@ -76,6 +79,32 @@ function pickThrottleRetryDelayMs(): number {
     // simply re-claim a token if SES capacity has refreshed. Exponential
     // backoff isn't needed at this layer.
     return 500 + Math.floor(Math.random() * 500)
+}
+
+const workflowEmailRateLimitedTotal = new Counter({
+    name: 'cdp_workflow_email_rate_limited_total',
+    help: 'Email sends delayed by a user-configured per-workflow sending rate limit.',
+})
+
+// The metadata blob is the flow action's config plus flow-level keys stamped in by
+// HogFlowFunctionsService.buildHogFunction; parse defensively since it is untyped.
+function parseWorkflowEmailRateLimit(metadata: HogFunctionType['metadata']): HogFlowEmailSendingRateLimit | null {
+    const raw = metadata?.email_sending_rate_limit
+    if (!raw) {
+        return null
+    }
+    const parsed = HogFlowEmailSendingRateLimitSchema.safeParse(raw)
+    return parsed.success ? parsed.data : null
+}
+
+function pickWorkflowRateLimitRetryDelayMs(refillPerSecond: number): number {
+    // Wake around when the next token accrues. The 1x-2x jitter spreads a queued backlog's
+    // retries so they don't all re-dequeue (and re-claim against one token) at the same instant.
+    // Clamped so second-scale limits don't churn the queue and hour-scale limits still wake
+    // often enough to drain promptly once capacity frees up.
+    const tokenIntervalMs = 1000 / refillPerSecond
+    const baseMs = Math.min(Math.max(tokenIntervalMs, 1_000), 5 * 60 * 1_000)
+    return Math.floor(baseMs * (1 + Math.random()))
 }
 
 export interface EmailServiceConfig {
@@ -158,7 +187,8 @@ export class EmailService {
         private trackingCodeSigner: EmailTrackingCodeSigner,
         private emailSuppressionService: EmailSuppressionService,
         private recipientsManager: RecipientsManagerService,
-        private messageAssetsService?: MessageAssetsService
+        private messageAssetsService?: MessageAssetsService,
+        private workflowEmailRateLimiter: RateLimiterService | null = null
     ) {
         this.sesV2Client = this.sesConfig.sesRegion
             ? new SESv2Client({
@@ -260,6 +290,45 @@ export class EmailService {
             // Like suppression, the tracking decision lives at this choke point so every send path
             // (workflow action or email destination hog function) resolves it the same way.
             trackingEnabled = await this.resolveTrackingEnabled(result.invocation, params)
+
+            // User-configured per-workflow pacing. Claimed last, after every skip gate, so a
+            // suspended or suppressed send never spends a token. Test sends bypass it. When the
+            // limiter's Valkey is down claimUpTo returns 0, so sends wait (never drop) until it
+            // recovers — same fail-closed stance as the global SES gate.
+            const workflowRateLimit = parseWorkflowEmailRateLimit(invocation.hogFunction.metadata)
+            if (workflowRateLimit && this.workflowEmailRateLimiter && !isTest) {
+                const periodSeconds = workflowRateLimit.period === 'minute' ? 60 : 3600
+                const refillPerSecond = workflowRateLimit.count / periodSeconds
+                // Burst capacity is about one second of budget, not the full count: a bucket that
+                // could hold `count` starts full and refills within the same period, so a fresh (or
+                // idle-expired) bucket would send ~2x the configured limit in its first period.
+                // A near-empty bucket keeps every window at ~count and spreads sends evenly, which
+                // is what the pacing is for.
+                const capacity = Math.max(1, Math.ceil(refillPerSecond))
+                const granted = await this.workflowEmailRateLimiter.claimUpTo({
+                    key: `@posthog/workflow-email-rate/${invocation.teamId}/${invocation.functionId}`,
+                    requested: 1,
+                    capacity,
+                    refillPerSecond,
+                })
+                if (granted === 0) {
+                    workflowEmailRateLimitedTotal.inc()
+                    result.finished = false
+                    // Re-attach the email payload before rescheduling. createInvocationResult cleared
+                    // queueParameters, so without this the rescheduled dequeue has no 'email' params to
+                    // re-enter the send path — the retry would resume the Hog VM instead and drop the
+                    // send. Mirrors the fetch-retry (`result.invocation.queueParameters = params`) and
+                    // queue-routing paths, which re-attach the same way.
+                    result.invocation.queueParameters = params
+                    const retryDelayMs = pickWorkflowRateLimitRetryDelayMs(refillPerSecond)
+                    result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryDelayMs })
+                    addLog(
+                        'info',
+                        `Sending rate limit reached (${workflowRateLimit.count} emails per ${workflowRateLimit.period}); retrying this email in ${Math.round(retryDelayMs / 1000)}s`
+                    )
+                    return result
+                }
+            }
 
             switch (integration.config.provider ?? 'ses') {
                 case 'maildev':

@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import ArtifactContentType, ArtifactSource, AssistantTool, AssistantToolCallMessage
 
+from products.notebooks.backend.facade.contracts import NotebookCellLimitExceeded
 from products.notebooks.backend.facade.widget_catalog import format_notebook_widget_catalog_for_agents
 
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
@@ -166,6 +167,13 @@ class CreateNotebookTool(MaxTool):
                 return (
                     f"Error: The user does not have permission to edit the saved notebook {artifact.short_id}, "
                     "so it was not changed.",
+                    None,
+                )
+            except NotebookCellLimitExceeded as err:
+                # Deterministic: the same save fails again, so say so rather than letting the
+                # model spend turns retrying it.
+                return (
+                    f"Error: {err} The notebook was not changed, so do not retry this save.",
                     None,
                 )
 

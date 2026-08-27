@@ -8,9 +8,10 @@ import { MarketingAnalyticsRetentionRow } from '~/queries/schema/schema-general'
 import { displayBreakdownValue } from '../../logic/marketingBreakdown'
 import { SUMMARY_PERIODS, SummaryRow, summarizeByBreakdown } from './summarizeByBreakdown'
 
-/** Matches the per-cohort tables, so the same percentage reads as the same shade in both. */
+/** Same values as the per-cohort tables, so a rate reads as the same shade in both. */
 const CELL_COLOR = '#1d4aff'
 const CELL_COLOR_FLOOR = 0.1
+const CELL_TEXT_LIGHT_THRESHOLD = 0.4
 
 export function RetentionSummaryTable({
     rows,
@@ -42,8 +43,7 @@ export function RetentionSummaryTable({
             title: label,
             key: label,
             align: 'center' as const,
-            // First click sorts descending, so the best channel at that horizon lands on top. A period no
-            // cohort has reached maps to -1, below every real rate, so it sorts last instead of as zero.
+            // -1 puts a period no cohort has reached below every real rate, rather than level with 0%.
             defaultSortOrder: -1 as const,
             sorter: (a: SummaryRow, b: SummaryRow) => (a.cells[period].rate ?? -1) - (b.cells[period].rate ?? -1),
             render: (_: any, row: SummaryRow) => {
@@ -64,9 +64,7 @@ export function RetentionSummaryTable({
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{
                                 backgroundColor: gradateColor(CELL_COLOR, cell.rate, CELL_COLOR_FLOOR),
-                                // Flip to white once the blue saturates, matching the per-cohort and heatmap
-                                // cells, so high rates stay readable instead of dark text on solid blue.
-                                color: cell.rate > 0.4 ? '#fff' : 'var(--text-3000)',
+                                color: cell.rate > CELL_TEXT_LIGHT_THRESHOLD ? '#fff' : 'var(--text-3000)',
                             }}
                         >
                             {percentage(cell.rate, 1)}
