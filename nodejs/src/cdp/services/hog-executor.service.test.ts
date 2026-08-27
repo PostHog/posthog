@@ -718,6 +718,24 @@ describe('Hog Executor', () => {
                 }
             )
 
+            it('lowercases a mixed-case ticket_id for the URL and the claim', async () => {
+                const fetchSpy = jest
+                    .spyOn(requestModule, 'internalFetch')
+                    .mockResolvedValue(mockInternalResponse(200, { id: TICKET_UUID }))
+
+                mockExecHogForAsyncFunction('postHogGetTicket', [{ ticket_id: TICKET_UUID.toUpperCase() }])
+                await executor.execute(createTicketInvocation())
+
+                const [url, options] = fetchSpy.mock.calls[0] as unknown as [string, FetchOptions]
+                expect(url).toContain(`/tickets/${TICKET_UUID}`)
+                const headers = options.headers as Record<string, string>
+                const claims = new ScopedServiceJwt(
+                    PosthogJwtAudience.CONVERSATIONS_TICKETS,
+                    hub.CONVERSATIONS_TICKETS_JWT_SECRET
+                ).verify(headers['Authorization'].replace('Bearer ', ''))
+                expect(claims.ticket_id).toEqual(TICKET_UUID)
+            })
+
             it('passes a 4xx through to the Hog response without retrying', async () => {
                 const fetchSpy = jest
                     .spyOn(requestModule, 'internalFetch')

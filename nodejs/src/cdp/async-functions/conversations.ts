@@ -23,15 +23,17 @@ async function callInternalTicketApi(
     ticketId: string,
     options: { method: 'GET' | 'PATCH'; body?: string; extraHeaders?: Record<string, string> }
 ): Promise<void> {
-    // The ticket id becomes a URL segment and a token claim, so only a canonical UUID may
-    // pass — Hog code controls this value.
+    // The ticket id becomes a URL segment and a token claim, so only a UUID may pass — Hog
+    // code controls this value. Lowercased because Django's <uuid:> converter and the claim
+    // comparison only accept the canonical form.
     if (!UUID_RE.test(ticketId)) {
         throw new Error(`[HogFunction] - ticket_id must be a UUID, got '${ticketId}'`)
     }
+    const canonicalTicketId = ticketId.toLowerCase()
     await callInternalApi(context, result, {
         jwt: context.conversationsTicketsJwt,
-        path: `/api/projects/${context.invocation.teamId}/internal/conversations/tickets/${ticketId}`,
-        entityClaims: { ticket_id: ticketId },
+        path: `/api/projects/${context.invocation.teamId}/internal/conversations/tickets/${canonicalTicketId}`,
+        entityClaims: { ticket_id: canonicalTicketId },
         ...options,
     })
 }
