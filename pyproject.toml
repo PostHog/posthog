@@ -633,6 +633,7 @@ ignore_imports = [
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_runs",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_serializers",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_state",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_variables",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.client",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.sql_v2",
     # TODO: experiments presentation wave — these were invisible to import-linter until
