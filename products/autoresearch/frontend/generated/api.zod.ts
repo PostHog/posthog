@@ -106,26 +106,129 @@ export const AutoresearchCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * List, retrieve, open, record iterations into, and complete training runs for a pipeline.
- *
- * The write endpoints let an external (bring-your-own) agent or a scheduled job drive a
- * training run directly — recording each iteration as it completes rather than via a single
- * terminal sandbox output. Recipe validation and champion promotion stay server-side.
+ * Open a new training run for a pipeline and return its id. An agent — the in-house sandbox, an external bring-your-own agent, or a scheduled job — then records iterations against this run and finalizes it with the complete endpoint. The run starts in 'running'.
+ * @summary Open a training run
  */
-export const autoresearchTrainingRunsCreateBodyIterationBudgetMin = -2147483648
-export const autoresearchTrainingRunsCreateBodyIterationBudgetMax = 2147483647
+export const autoresearchTrainingRunsCreateBodyIterationBudgetMax = 500
 
-export const AutoresearchTrainingRunsCreateBody = /* @__PURE__ */ zod.object({
-    pipeline: zod.uuid().describe('Pipeline this training run belongs to.'),
-    task_id: zod.uuid().nullish().describe('Parent Task ID in the tasks sandbox. Null for stub runs.'),
-    task_run_id: zod.uuid().nullish().describe('Task sandbox run ID. Null for stub\/synchronous training runs.'),
-    iteration_budget: zod
-        .number()
-        .min(autoresearchTrainingRunsCreateBodyIterationBudgetMin)
-        .max(autoresearchTrainingRunsCreateBodyIterationBudgetMax)
-        .optional()
-        .describe('Maximum iterations allowed for this run.'),
-})
+export const AutoresearchTrainingRunsCreateBody = /* @__PURE__ */ zod
+    .object({
+        iteration_budget: zod
+            .number()
+            .min(1)
+            .max(autoresearchTrainingRunsCreateBodyIterationBudgetMax)
+            .optional()
+            .describe("Iteration budget for this run. Defaults to the pipeline's iteration_budget if omitted."),
+    })
+    .describe('Input for opening an agent-driven training run.')
+
+/**
+ * Finalize a training run. The backend selects the best iteration (highest holdout score, or the one you name), decides champion vs challenger via the promotion ladder, and persists the model. Agents cannot set the champion directly — promotion is server-side.
+ * @summary Complete a training run
+ */
+export const autoresearchTrainingRunsCompleteCreateBodyRecommendedNextDefault = ``
+export const autoresearchTrainingRunsCompleteCreateBodyRecommendedNextMax = 2000
+
+export const autoresearchTrainingRunsCompleteCreateBodyDistillationDefault = ``
+export const autoresearchTrainingRunsCompleteCreateBodyDistillationMax = 2000
+
+export const AutoresearchTrainingRunsCompleteCreateBody = /* @__PURE__ */ zod
+    .object({
+        best_iteration_id: zod
+            .uuid()
+            .nullish()
+            .describe(
+                'Iteration to promote as champion candidate. If omitted, the kept iteration with the highest holdout_score is used.'
+            ),
+        model_explanation: zod
+            .looseObject({})
+            .optional()
+            .describe('Global feature importance \/ directionality bundle for the champion model card.'),
+        recommended_next: zod
+            .string()
+            .max(autoresearchTrainingRunsCompleteCreateBodyRecommendedNextMax)
+            .default(autoresearchTrainingRunsCompleteCreateBodyRecommendedNextDefault)
+            .describe(
+                'What a future run should try next, given what this run learned. Stored in the run summary so the next run reads it during orientation. Keep it short and concrete; max 2000 characters.'
+            ),
+        distillation: zod
+            .string()
+            .max(autoresearchTrainingRunsCompleteCreateBodyDistillationMax)
+            .default(autoresearchTrainingRunsCompleteCreateBodyDistillationDefault)
+            .describe(
+                'A 1–2 sentence distillation of what this run learned — the winning signal, the key transform, the dead-ends. Stored in the run summary as the cheapest thing the next run reads. Max 2000 characters.'
+            ),
+    })
+    .describe('Input for finalizing a training run. The backend selects\/promotes the champion.')
+
+/**
+ * Record one iteration of an open training run. Idempotent on iteration_number — re-sending the same number updates that iteration. The recipe is validated server-side: model_class must be in the allowlist and feature_sql must be a read-only SELECT keyed on person_id.
+ * @summary Record a training iteration
+ */
+export const autoresearchTrainingRunsIterationsCreateBodyIterationNumberMin = 0
+
+export const autoresearchTrainingRunsIterationsCreateBodyTrainScoreMin = 0
+export const autoresearchTrainingRunsIterationsCreateBodyTrainScoreMax = 1
+
+export const autoresearchTrainingRunsIterationsCreateBodyHoldoutScoreMin = 0
+export const autoresearchTrainingRunsIterationsCreateBodyHoldoutScoreMax = 1
+
+export const autoresearchTrainingRunsIterationsCreateBodyAgentDescriptionDefault = ``
+export const autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMin = 0
+export const autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMax = 1
+
+export const AutoresearchTrainingRunsIterationsCreateBody = /* @__PURE__ */ zod
+    .object({
+        iteration_number: zod
+            .number()
+            .min(autoresearchTrainingRunsIterationsCreateBodyIterationNumberMin)
+            .describe(
+                'Zero-based index of this iteration within the run. Re-sending the same number updates that iteration (idempotent).'
+            ),
+        recipe_snapshot: zod
+            .looseObject({})
+            .describe(
+                'Compact recipe for this iteration: feature_sql (HogQL SELECT keyed on person_id) and transforms.'
+            ),
+        model_spec: zod
+            .looseObject({})
+            .describe('model_class (must be allowlisted) and model_params tried this iteration.'),
+        status: zod
+            .enum(['kept', 'discarded', 'crashed'])
+            .describe('\* `kept` - kept\n\* `discarded` - discarded\n\* `crashed` - crashed')
+            .describe(
+                "'kept' if this iteration improved on the best score, 'discarded' otherwise, 'crashed' on failure.\n\n\* `kept` - kept\n\* `discarded` - discarded\n\* `crashed` - crashed"
+            ),
+        train_score: zod
+            .number()
+            .min(autoresearchTrainingRunsIterationsCreateBodyTrainScoreMin)
+            .max(autoresearchTrainingRunsIterationsCreateBodyTrainScoreMax)
+            .nullish()
+            .describe('Training-set AUC for this iteration (0-1).'),
+        holdout_score: zod
+            .number()
+            .min(autoresearchTrainingRunsIterationsCreateBodyHoldoutScoreMin)
+            .max(autoresearchTrainingRunsIterationsCreateBodyHoldoutScoreMax)
+            .nullish()
+            .describe('Held-out AUC for this iteration (0-1). Used to pick the champion at completion.'),
+        agent_description: zod
+            .string()
+            .default(autoresearchTrainingRunsIterationsCreateBodyAgentDescriptionDefault)
+            .describe("Agent's plain-English rationale for this iteration."),
+        agent_confidence: zod
+            .number()
+            .min(autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMin)
+            .max(autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMax)
+            .nullish()
+            .describe("Agent's self-assessed confidence (0–1) that this iteration helps."),
+        parent_suggestion: zod
+            .uuid()
+            .nullish()
+            .describe(
+                "UUID of the steering suggestion this iteration was spawned from, if any. Set it whenever the iteration acts on a pending suggestion — it links the iteration back to the suggestion for attribution and advances the suggestion to 'acted_on'."
+            ),
+    })
+    .describe('Input for recording one training iteration. Validated against the recipe allowlist.')
 
 /**
  * Manage autoresearch prediction pipelines.

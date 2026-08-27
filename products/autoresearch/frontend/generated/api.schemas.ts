@@ -617,6 +617,193 @@ export interface PaginatedAutoresearchTrainingRunListApi {
 }
 
 /**
+ * Input for opening an agent-driven training run.
+ */
+export interface OpenTrainingRunApi {
+    /**
+     * Iteration budget for this run. Defaults to the pipeline's iteration_budget if omitted.
+     * @minimum 1
+     * @maximum 500
+     */
+    iteration_budget?: number
+}
+
+/**
+ * Global feature importance / directionality bundle for the champion model card.
+ */
+export type CompleteTrainingRunApiModelExplanation = { [key: string]: unknown }
+
+/**
+ * Input for finalizing a training run. The backend selects/promotes the champion.
+ */
+export interface CompleteTrainingRunApi {
+    /**
+     * Iteration to promote as champion candidate. If omitted, the kept iteration with the highest holdout_score is used.
+     * @nullable
+     */
+    best_iteration_id?: string | null
+    /** Global feature importance / directionality bundle for the champion model card. */
+    model_explanation?: CompleteTrainingRunApiModelExplanation
+    /**
+     * What a future run should try next, given what this run learned. Stored in the run summary so the next run reads it during orientation. Keep it short and concrete; max 2000 characters.
+     * @maxLength 2000
+     */
+    recommended_next?: string
+    /**
+     * A 1–2 sentence distillation of what this run learned — the winning signal, the key transform, the dead-ends. Stored in the run summary as the cheapest thing the next run reads. Max 2000 characters.
+     * @maxLength 2000
+     */
+    distillation?: string
+}
+
+/**
+ * Compact recipe for this iteration: feature_sql (HogQL SELECT keyed on person_id) and transforms.
+ */
+export type RecordIterationApiRecipeSnapshot = { [key: string]: unknown }
+
+/**
+ * model_class (must be allowlisted) and model_params tried this iteration.
+ */
+export type RecordIterationApiModelSpec = { [key: string]: unknown }
+
+/**
+ * * `kept` - kept
+ * * `discarded` - discarded
+ * * `crashed` - crashed
+ */
+export type RecordIterationStatusEnumApi =
+    (typeof RecordIterationStatusEnumApi)[keyof typeof RecordIterationStatusEnumApi]
+
+export const RecordIterationStatusEnumApi = {
+    Kept: 'kept',
+    Discarded: 'discarded',
+    Crashed: 'crashed',
+} as const
+
+/**
+ * Input for recording one training iteration. Validated against the recipe allowlist.
+ */
+export interface RecordIterationApi {
+    /**
+     * Zero-based index of this iteration within the run. Re-sending the same number updates that iteration (idempotent).
+     * @minimum 0
+     */
+    iteration_number: number
+    /** Compact recipe for this iteration: feature_sql (HogQL SELECT keyed on person_id) and transforms. */
+    recipe_snapshot: RecordIterationApiRecipeSnapshot
+    /** model_class (must be allowlisted) and model_params tried this iteration. */
+    model_spec: RecordIterationApiModelSpec
+    /** 'kept' if this iteration improved on the best score, 'discarded' otherwise, 'crashed' on failure.
+     *
+     * * `kept` - kept
+     * * `discarded` - discarded
+     * * `crashed` - crashed */
+    status: RecordIterationStatusEnumApi
+    /**
+     * Training-set AUC for this iteration (0-1).
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    train_score?: number | null
+    /**
+     * Held-out AUC for this iteration (0-1). Used to pick the champion at completion.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    holdout_score?: number | null
+    /** Agent's plain-English rationale for this iteration. */
+    agent_description?: string
+    /**
+     * Agent's self-assessed confidence (0–1) that this iteration helps.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    agent_confidence?: number | null
+    /**
+     * UUID of the steering suggestion this iteration was spawned from, if any. Set it whenever the iteration acts on a pending suggestion — it links the iteration back to the suggestion for attribution and advances the suggestion to 'acted_on'.
+     * @nullable
+     */
+    parent_suggestion?: string | null
+}
+
+export interface AutoresearchIterationApi {
+    readonly id: string
+    pipeline: string
+    training_run: string
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    iteration_number: number
+    /** @maxLength 64 */
+    recipe_hash: string
+    /** Compact recipe snapshot at time of iteration. Full artifact lives in the model row. */
+    recipe_snapshot: unknown
+    /** Model class and hyperparameters tried in this iteration. */
+    model_spec: unknown
+    /** @nullable */
+    train_score?: number | null
+    /** @nullable */
+    holdout_score?: number | null
+    status: AutoresearchIterationStatusEnumApi
+    agent_description?: string
+    /**
+     * Agent's self-assessed confidence 0–1
+     * @nullable
+     */
+    agent_confidence?: number | null
+    /**
+     * UUID of the steering suggestion this iteration was spawned from, if any.
+     * @nullable
+     */
+    parent_suggestion?: string | null
+    readonly created_at: string
+}
+
+/**
+ * One prior completed training run plus its full iteration trail.
+ */
+export interface TrainingRunHistoryEntryApi {
+    /** UUID of the completed training run. */
+    run_id: string
+    /** UUID of the pipeline this run belongs to. */
+    pipeline_id: string
+    /** True if this run is from the pipeline you are training; False if it is a same-target sibling pipeline on the team. */
+    is_current_pipeline: boolean
+    /** Target event this run's pipeline predicts. */
+    target_event: string
+    /** Prediction horizon (days) of this run's pipeline. */
+    horizon_days: number
+    /**
+     * Best holdout AUC achieved across this run's iterations.
+     * @nullable
+     */
+    best_holdout_score: number | null
+    /** Number of iterations recorded in this run. */
+    iteration_count: number
+    /**
+     * When this run completed.
+     * @nullable
+     */
+    completed_at: string | null
+    /** Distilled tier-1 summary of this run — read this first to orient. Null for older runs without one. */
+    summary: TrainingRunSummaryApi | null
+    /** The iteration trail: every recipe tried, kept or discarded, with rationale and score. */
+    iterations: IterationTrailApi[]
+}
+
+/**
+ * Cross-run learning memory: prior runs the agent should read before iterating.
+ */
+export interface TrainingRunHistoryApi {
+    /** Recent completed training runs — the current pipeline first, then same-target sibling pipelines on the team — newest first. Mine these to reuse winning features and avoid repeating discarded approaches. */
+    runs: TrainingRunHistoryEntryApi[]
+}
+
+/**
  * Omit (or pass {"type": "event"}) to predict target_event; pass {"type": "action", "action_id": N} to predict a PostHog action. No other shapes are accepted.
  */
 export type PatchedAutoresearchPipelineCreateApiTargetDefinition = { [key: string]: unknown }
@@ -935,6 +1122,13 @@ export type AutoresearchTrainingRunsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type AutoresearchTrainingRunsHistoryRetrieveParams = {
+    /**
+     * Maximum number of prior runs to return (default 5, capped at 20).
+     */
+    limit?: number
 }
 
 export type AutoresearchTemplatesListParams = {

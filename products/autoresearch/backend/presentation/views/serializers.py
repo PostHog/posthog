@@ -11,6 +11,8 @@ from posthog.api.shared import UserBasicSerializer
 
 from products.autoresearch.backend.facade import api
 from products.autoresearch.backend.facade.contracts import (
+    AutoresearchConflict,
+    Iteration,
     IterationTrailEntry,
     Model,
     Pipeline,
@@ -801,6 +803,95 @@ class AutoresearchTrainingRunSerializer(DataclassSerializer):
         ]
 
 
+@extend_schema_serializer(component_name="AutoresearchIteration")
+class AutoresearchIterationSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True)
+    pipeline = serializers.UUIDField()
+    training_run = serializers.UUIDField()
+    iteration_number = serializers.IntegerField(
+        min_value=-2147483648,
+        max_value=2147483647,
+    )
+    recipe_hash = serializers.CharField(max_length=64)
+    recipe_snapshot = serializers.JSONField(
+        help_text="Compact recipe snapshot at time of iteration. Full artifact lives in the model row."
+    )
+    model_spec = serializers.JSONField(help_text="Model class and hyperparameters tried in this iteration.")
+    train_score = serializers.FloatField(required=False, allow_null=True)
+    holdout_score = serializers.FloatField(required=False, allow_null=True)
+    status = serializers.ChoiceField(choices=ITERATION_STATUS_CHOICES)
+    agent_description = serializers.CharField(required=False, allow_blank=True)
+    agent_confidence = serializers.FloatField(
+        required=False, allow_null=True, help_text="Agent's self-assessed confidence 0–1"
+    )
+    parent_suggestion = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="UUID of the steering suggestion this iteration was spawned from, if any.",
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        dataclass = Iteration
+        fields = [
+            "id",
+            "pipeline",
+            "training_run",
+            "iteration_number",
+            "recipe_hash",
+            "recipe_snapshot",
+            "model_spec",
+            "train_score",
+            "holdout_score",
+            "status",
+            "agent_description",
+            "agent_confidence",
+            "parent_suggestion",
+            "created_at",
+        ]
+
+
+class TrainingRunHistoryEntrySerializer(serializers.Serializer):
+    """One prior completed training run plus its full iteration trail."""
+
+    run_id = serializers.UUIDField(help_text="UUID of the completed training run.")
+    pipeline_id = serializers.UUIDField(help_text="UUID of the pipeline this run belongs to.")
+    is_current_pipeline = serializers.BooleanField(
+        help_text=(
+            "True if this run is from the pipeline you are training; False if it is a same-target "
+            "sibling pipeline on the team."
+        )
+    )
+    target_event = serializers.CharField(help_text="Target event this run's pipeline predicts.")
+    horizon_days = serializers.IntegerField(help_text="Prediction horizon (days) of this run's pipeline.")
+    best_holdout_score = serializers.FloatField(
+        allow_null=True, help_text="Best holdout AUC achieved across this run's iterations."
+    )
+    iteration_count = serializers.IntegerField(help_text="Number of iterations recorded in this run.")
+    completed_at = serializers.DateTimeField(allow_null=True, help_text="When this run completed.")
+    summary = TrainingRunSummarySerializer(
+        allow_null=True,
+        help_text="Distilled tier-1 summary of this run — read this first to orient. Null for older runs without one.",
+    )
+    iterations = IterationTrailSerializer(
+        many=True,
+        help_text="The iteration trail: every recipe tried, kept or discarded, with rationale and score.",
+    )
+
+
+class TrainingRunHistorySerializer(serializers.Serializer):
+    """Cross-run learning memory: prior runs the agent should read before iterating."""
+
+    runs = TrainingRunHistoryEntrySerializer(
+        many=True,
+        help_text=(
+            "Recent completed training runs — the current pipeline first, then same-target sibling "
+            "pipelines on the team — newest first. Mine these to reuse winning features and avoid "
+            "repeating discarded approaches."
+        ),
+    )
+
+
 @extend_schema_serializer(component_name="AutoresearchRun")
 class AutoresearchRunSerializer(DataclassSerializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique UUID of this run.")
@@ -935,6 +1026,150 @@ class ValidatePipelineResponseSerializer(serializers.Serializer):
     error = serializers.CharField(
         allow_null=True,
         help_text="Internal error message if validation itself failed to run.",
+    )
+
+
+# ── Agent-recorded training serializers ────────────────────────────────────
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "description": (
+            "Compact recipe for this iteration. Should contain feature_sql (a read-only HogQL SELECT "
+            "keyed on person_id) and optional feature_transforms."
+        ),
+        "example": {
+            "feature_sql": "SELECT person_id AS distinct_id, countIf(event='$pageview') AS pageviews FROM events GROUP BY person_id",
+            "feature_transforms": [],
+        },
+    }
+)
+class IterationRecipeField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "description": (
+            "Model class and hyperparameters tried this iteration. model_class must be one of the "
+            "allowlisted sklearn/xgboost classifiers."
+        ),
+        "example": {"model_class": "sklearn.linear_model.LogisticRegression", "model_params": {"C": 1.0}},
+    }
+)
+class ModelSpecField(serializers.JSONField):
+    pass
+
+
+class OpenTrainingRunSerializer(serializers.Serializer):
+    """Input for opening an agent-driven training run."""
+
+    iteration_budget = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=500,
+        help_text="Iteration budget for this run. Defaults to the pipeline's iteration_budget if omitted.",
+    )
+
+
+class RecordIterationSerializer(serializers.Serializer):
+    """Input for recording one training iteration. Validated against the recipe allowlist."""
+
+    iteration_number = serializers.IntegerField(
+        min_value=0,
+        help_text="Zero-based index of this iteration within the run. Re-sending the same number updates that iteration (idempotent).",
+    )
+    recipe_snapshot = IterationRecipeField(
+        help_text="Compact recipe for this iteration: feature_sql (HogQL SELECT keyed on person_id) and transforms.",
+    )
+    model_spec = ModelSpecField(
+        help_text="model_class (must be allowlisted) and model_params tried this iteration.",
+    )
+    status = serializers.ChoiceField(
+        choices=["kept", "discarded", "crashed"],
+        help_text="'kept' if this iteration improved on the best score, 'discarded' otherwise, 'crashed' on failure.",
+    )
+    train_score = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=1,
+        help_text="Training-set AUC for this iteration (0-1).",
+    )
+    holdout_score = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=1,
+        help_text="Held-out AUC for this iteration (0-1). Used to pick the champion at completion.",
+    )
+    agent_description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Agent's plain-English rationale for this iteration.",
+    )
+    agent_confidence = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=1,
+        help_text="Agent's self-assessed confidence (0–1) that this iteration helps.",
+    )
+    parent_suggestion = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "UUID of the steering suggestion this iteration was spawned from, if any. Set it whenever the "
+            "iteration acts on a pending suggestion — it links the iteration back to the suggestion for "
+            "attribution and advances the suggestion to 'acted_on'."
+        ),
+    )
+
+    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
+        try:
+            api.validate_iteration_recipe(
+                model_spec=data.get("model_spec") or {}, recipe_snapshot=data.get("recipe_snapshot") or {}
+            )
+        except AutoresearchConflict as e:
+            raise serializers.ValidationError(str(e)) from e
+        return data
+
+
+class CompleteTrainingRunSerializer(serializers.Serializer):
+    """Input for finalizing a training run. The backend selects/promotes the champion."""
+
+    best_iteration_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Iteration to promote as champion candidate. If omitted, the kept iteration with the highest holdout_score is used.",
+    )
+    model_explanation = ModelExplanationField(
+        required=False,
+        default=dict,
+        help_text="Global feature importance / directionality bundle for the champion model card.",
+    )
+    recommended_next = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=2000,
+        help_text=(
+            "What a future run should try next, given what this run learned. Stored in the run summary so the "
+            "next run reads it during orientation. Keep it short and concrete; max 2000 characters."
+        ),
+    )
+    distillation = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=2000,
+        help_text=(
+            "A 1–2 sentence distillation of what this run learned — the winning signal, the key transform, the "
+            "dead-ends. Stored in the run summary as the cheapest thing the next run reads. Max 2000 characters."
+        ),
     )
 
 

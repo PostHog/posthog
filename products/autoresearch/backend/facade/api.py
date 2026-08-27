@@ -9,8 +9,12 @@ Scope is set at the entry boundary, so every read and write here takes ``team_id
 filters on it. Business rules live in the modules behind this facade, not in the views.
 """
 
+import json
+import hashlib
 from typing import Any
 from uuid import UUID
+
+from django.utils import timezone as django_timezone
 
 from posthog.models.team import Team
 
@@ -24,10 +28,14 @@ from ..models import (
     AutoresearchModel,
     AutoresearchPipeline,
     AutoresearchRun,
+    AutoresearchSuggestion,
     AutoresearchTrainingRun,
 )
+from ..training.promotion import PromotionError, complete_training_run
+from ..training.recipe_validation import RecipeValidationError, validate_recipe
 from .contracts import (
     AutoresearchConflict,
+    Iteration,
     IterationTrailEntry,
     Model,
     Pipeline,
@@ -38,9 +46,13 @@ from .contracts import (
     Run,
     TemplateInfo,
     TrainingRun,
+    TrainingRunHistory,
+    TrainingRunHistoryEntry,
     TrainingRunNotFound,
     ValidationWarning,
 )
+
+_HISTORY_LIMIT_MAX = 20
 
 
 def _as_uuid(value: str | UUID | None) -> UUID | None:
@@ -152,6 +164,25 @@ def _training_run_to_contract(row: AutoresearchTrainingRun) -> TrainingRun:
         error=row.error,
         started_at=row.started_at,
         completed_at=row.completed_at,
+        created_at=row.created_at,
+    )
+
+
+def _iteration_to_contract(row: AutoresearchIteration) -> Iteration:
+    return Iteration(
+        id=row.id,
+        pipeline=row.pipeline_id,
+        training_run=row.training_run_id,
+        iteration_number=row.iteration_number,
+        recipe_hash=row.recipe_hash,
+        recipe_snapshot=row.recipe_snapshot or {},
+        model_spec=row.model_spec or {},
+        train_score=row.train_score,
+        holdout_score=row.holdout_score,
+        status=row.status,
+        agent_description=row.agent_description,
+        agent_confidence=row.agent_confidence,
+        parent_suggestion=row.parent_suggestion_id,
         created_at=row.created_at,
     )
 
@@ -440,11 +471,161 @@ def get_training_run(team_id: int, training_run_id: str | UUID) -> TrainingRun |
         return None
 
 
+def open_training_run(team_id: int, pipeline_id: str | UUID, *, iteration_budget: int | None) -> TrainingRun:
+    """Open a run an external agent will record iterations against."""
+    pipeline = _pipeline_row(team_id, pipeline_id)
+    if pipeline.status == AutoresearchPipeline.Status.ARCHIVED:
+        raise AutoresearchConflict("Cannot open a training run on an archived pipeline.")
+    row = AutoresearchTrainingRun.objects.create(
+        pipeline=pipeline,
+        status=AutoresearchTrainingRun.Status.RUNNING,
+        iteration_budget=iteration_budget or pipeline.iteration_budget,
+        started_at=django_timezone.now(),
+    )
+    return _training_run_to_contract(row)
+
+
+def record_iteration(team_id: int, training_run_id: str | UUID, *, fields: dict[str, Any]) -> Iteration:
+    """Record one iteration of an open run. Idempotent on ``iteration_number``."""
+    training_run = _training_run_row(team_id, training_run_id)
+    if training_run.status != AutoresearchTrainingRun.Status.RUNNING:
+        raise AutoresearchConflict("Can only record iterations on a running training run.")
+
+    recipe_snapshot = fields["recipe_snapshot"]
+    model_spec = fields["model_spec"]
+    recipe_hash = hashlib.sha256(
+        json.dumps({"recipe": recipe_snapshot, "spec": model_spec}, sort_keys=True).encode()
+    ).hexdigest()
+
+    # Scope the suggestion lookup to this run's pipeline so a foreign suggestion id
+    # cannot be attached across tenants.
+    parent_suggestion = None
+    parent_suggestion_id = _as_uuid(fields.get("parent_suggestion"))
+    if fields.get("parent_suggestion"):
+        if parent_suggestion_id is not None:
+            parent_suggestion = (
+                AutoresearchSuggestion.objects.for_team(team_id)
+                .filter(id=parent_suggestion_id, pipeline=training_run.pipeline)
+                .first()
+            )
+        if parent_suggestion is None:
+            raise AutoresearchConflict("parent_suggestion not found on this pipeline.")
+
+    iteration, _ = AutoresearchIteration.objects.update_or_create(
+        training_run=training_run,
+        iteration_number=fields["iteration_number"],
+        defaults={
+            "pipeline": training_run.pipeline,
+            "recipe_hash": recipe_hash,
+            "recipe_snapshot": recipe_snapshot,
+            "model_spec": model_spec,
+            "train_score": fields.get("train_score"),
+            "holdout_score": fields.get("holdout_score"),
+            "status": fields["status"],
+            "agent_description": fields.get("agent_description", ""),
+            "agent_confidence": fields.get("agent_confidence"),
+            "parent_suggestion": parent_suggestion,
+        },
+    )
+
+    # Spawning an iteration from a suggestion is itself acting on it — advance the suggestion so
+    # the UI reflects the pickup even if the agent never calls the respond endpoint.
+    if parent_suggestion and parent_suggestion.status in (
+        AutoresearchSuggestion.Status.QUEUED,
+        AutoresearchSuggestion.Status.PICKED_UP,
+    ):
+        parent_suggestion.status = AutoresearchSuggestion.Status.ACTED_ON
+        parent_suggestion.save(update_fields=["status", "updated_at"])
+
+    return _iteration_to_contract(iteration)
+
+
+def complete_run(
+    team_id: int,
+    training_run_id: str | UUID,
+    *,
+    best_iteration_id: Any = None,
+    model_explanation: dict[str, Any] | None = None,
+    recommended_next: str = "",
+    distillation: str = "",
+) -> TrainingRun:
+    """Finalize a run. Promotion is server-side — an agent cannot set the champion."""
+    training_run = _training_run_row(team_id, training_run_id)
+    if training_run.status not in (
+        AutoresearchTrainingRun.Status.RUNNING,
+        AutoresearchTrainingRun.Status.PENDING,
+    ):
+        raise AutoresearchConflict("Training run is already completed or failed.")
+    try:
+        complete_training_run(
+            training_run,
+            best_iteration_id=best_iteration_id,
+            model_explanation=model_explanation or {},
+            recommended_next=recommended_next or "",
+            distillation=distillation or "",
+        )
+    except PromotionError as exc:
+        raise AutoresearchConflict(str(exc)) from exc
+    training_run.refresh_from_db()
+    return _training_run_to_contract(training_run)
+
+
+def training_run_history(team_id: int, pipeline_id: str | UUID, *, limit: int = 5) -> TrainingRunHistory:
+    """Prior completed runs a new run reads to orient.
+
+    This pipeline's own history first, backfilled with same-target sibling pipelines on the
+    team, so a fresh pipeline still inherits what the team already learned about the target.
+    """
+    pipeline = _pipeline_row(team_id, pipeline_id)
+    limit = max(1, min(limit, _HISTORY_LIMIT_MAX))
+
+    completed = (
+        AutoresearchTrainingRun.objects.for_team(team_id)
+        .filter(status=AutoresearchTrainingRun.Status.COMPLETED)
+        .select_related("pipeline")
+        .prefetch_related("iterations")
+    )
+    runs = list(completed.filter(pipeline=pipeline).order_by("-completed_at")[:limit])
+    remaining = limit - len(runs)
+    if remaining > 0:
+        runs += list(
+            completed.filter(pipeline__target_event=pipeline.target_event)
+            .exclude(pipeline=pipeline)
+            .order_by("-completed_at")[:remaining]
+        )
+
+    return TrainingRunHistory(
+        runs=[
+            TrainingRunHistoryEntry(
+                run_id=run.id,
+                pipeline_id=run.pipeline_id,
+                is_current_pipeline=run.pipeline_id == pipeline.id,
+                target_event=run.pipeline.target_event,
+                horizon_days=run.pipeline.horizon_days,
+                best_holdout_score=run.best_holdout_score,
+                iteration_count=run.iteration_count,
+                completed_at=run.completed_at,
+                summary=run.summary or None,
+                iterations=[_iteration_trail_entry(i) for i in run.iterations.all()],
+            )
+            for run in runs
+        ]
+    )
+
+
 # ── Recipe validation surface for the presentation layer ───────────────────
 
 # The semantic population kinds the labeler can compile. Presentation validates a submitted
 # spec against this so an uncompilable population is refused at creation, not at query time.
 POPULATION_KINDS = _POPULATION_KINDS
+
+
+def validate_iteration_recipe(*, model_spec: dict[str, Any], recipe_snapshot: dict[str, Any]) -> None:
+    """Raise ``AutoresearchConflict`` if an agent-submitted recipe is outside the allowlist."""
+    try:
+        validate_recipe(model_spec=model_spec, recipe_snapshot=recipe_snapshot)
+    except RecipeValidationError as exc:
+        raise AutoresearchConflict(str(exc)) from exc
 
 
 # ── Choice vocabularies for the presentation layer ─────────────────────────
