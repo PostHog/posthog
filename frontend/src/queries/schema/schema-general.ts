@@ -1307,6 +1307,18 @@ export interface ScatterChartSettings {
     showBestFit?: boolean
 }
 
+export interface BoxPlotSettings {
+    xAxisColumn?: string | null
+    seriesColumn?: string | null
+    minColumn?: string
+    p25Column?: string
+    medianColumn?: string
+    meanColumn?: string
+    p75Column?: string
+    maxColumn?: string
+    excludeOutliers?: boolean
+}
+
 export interface YAxisSettings {
     label?: string
     scale?: 'linear' | 'logarithmic'
@@ -1341,6 +1353,7 @@ export interface ChartSettings {
     heatmap?: HeatmapSettings
     pie?: PieChartSettings
     scatter?: ScatterChartSettings
+    boxPlot?: BoxPlotSettings
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: Record<string, ResultCustomizationByValue>
     /** Chart rendering style overrides (line shape). Only applies to line and area charts. */

@@ -8468,6 +8468,18 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface BoxPlotSettings {
+      excludeOutliers?: boolean | null;
+      maxColumn?: string | null;
+      meanColumn?: string | null;
+      medianColumn?: string | null;
+      minColumn?: string | null;
+      p25Column?: string | null;
+      p75Column?: string | null;
+      seriesColumn?: string | null;
+      xAxisColumn?: string | null;
+    }
+
     export interface HeatmapGradientStop {
       color: string;
       value: number;
@@ -8623,6 +8635,7 @@ export namespace Schemas {
     export type ChartSettingsResultCustomizations = {[key: string]: ResultCustomizationByValue} | null;
 
     export interface ChartSettings {
+      boxPlot?: BoxPlotSettings | null;
       /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
       chartStyle?: ChartStyle | null;
       goalLines?: GoalLine[] | null;
@@ -17624,11 +17637,6 @@ export namespace Schemas {
       LimitReached: 'limit_reached',
       StaleVersion: 'stale_version',
     } as const;
-
-    export interface CodeInviteRedeemRequest {
-      /** @maxLength 50 */
-      code: string;
-    }
 
     /**
      * * `codex` - codex
@@ -46520,7 +46528,7 @@ export namespace Schemas {
     }
 
     export interface LegacyDesktopAccessResponse {
-      /** Whether the user has legacy PostHog Desktop access. */
+      /** Whether the current project can use PostHog Desktop. */
       has_access: boolean;
       /** Whether the independent Loops feature is enabled. */
       has_loops_access: boolean;
@@ -51735,6 +51743,11 @@ export namespace Schemas {
       /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
       members_can_see_org_members?: boolean;
       allow_publicly_shared_resources?: boolean;
+      /**
+         * When True, requests through the PostHog MCP server can read but not change this organization's data.
+         * @nullable
+         */
+      read_only_mcp_access?: boolean | null;
       readonly member_count: number;
       /** @nullable */
       is_ai_data_processing_approved?: boolean | null;
@@ -62826,6 +62839,11 @@ export namespace Schemas {
       /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
       members_can_see_org_members?: boolean;
       allow_publicly_shared_resources?: boolean;
+      /**
+         * When True, requests through the PostHog MCP server can read but not change this organization's data.
+         * @nullable
+         */
+      read_only_mcp_access?: boolean | null;
       readonly member_count?: number;
       /** @nullable */
       is_ai_data_processing_approved?: boolean | null;
