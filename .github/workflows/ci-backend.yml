@@ -1065,7 +1065,7 @@ jobs:
             # also covers the skipped gate on fork/Dependabot. Sits before the timing-data upload so
             # a real failure still skips it, as it did before the test step got continue-on-error.
             - name: Fail on test failure
-              if: ${{ !cancelled() && steps.run-product-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success' || steps.warehouse_sources_check.outcome != 'success') }}
+              if: ${{ !cancelled() && (steps.warehouse_sources_check.outcome == 'failure' || (steps.run-product-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success'))) }}
               shell: bash
               run: exit 1
 
