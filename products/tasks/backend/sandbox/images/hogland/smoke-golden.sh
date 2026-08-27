@@ -216,9 +216,13 @@ if [[ -n "${HOG_HOST:-}" && -n "${HOG_TOKEN_COMMAND:-}" ]]; then
     else
         exec_out=$(mktemp)
         exec_body='{"argv":["/bin/sh","-c","echo golden-exec-ok"],"timeout_seconds":30}'
+        # hogplane matches the auth scheme case-sensitively — "Bearer" (capital
+        # B), unlike the lowercase "bearer" GitHub's OIDC token endpoint wants in
+        # HOG_TOKEN_COMMAND. A lowercase scheme here gets a 401, which the case
+        # below treats as a hard failure.
         http_code=$(curl -sS -o "$exec_out" -w '%{http_code}' \
             -X POST "$HOG_HOST/v1/hogboxes/$SMOKE_BOX_ID/exec" \
-            -H "Authorization: bearer $exec_token" \
+            -H "Authorization: Bearer $exec_token" \
             -H 'Content-Type: application/json' \
             -d "$exec_body" 2>/dev/null || echo 000)
         case "$http_code" in
