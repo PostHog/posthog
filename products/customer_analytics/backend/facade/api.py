@@ -1790,10 +1790,10 @@ def _expire_stale_running_runs(team_id: int, runs: "Iterable[CustomPropertySyncR
 def _create_running_runs(team_id: int, binding: "WarehouseBinding", trigger: str) -> list[Any]:
     """Insert a 'running' run for each enabled person/group source on the binding that isn't already
     running. The UI shows these as in-progress and disables the trigger while they exist; the sync and
-    backfill activities reconcile them to their terminal state (see record_sync_run). Skipping sources
-    that already have a running run makes this a no-op when a run for the table is already in flight
-    (coalesced). Returns the source ids a placeholder was created for, so the caller can reconcile them
-    to FAILED if the workflow start never happens (see ``_fail_created_runs``)."""
+    backfill activities reconcile them to their terminal state (see record_sync_run). An existing row
+    suppresses only a duplicate placeholder; the binding workflow still receives a signal and opens a
+    new row when its follow-up starts. Returns the source ids a placeholder was created for, so the
+    caller can reconcile them to FAILED if the workflow start never happens (see ``_fail_created_runs``)."""
     # A source and a run name the same binding through different columns: a source's schema binding is
     # the `external_data_schema` FK, a run's is the plain `schema_id`.
     source_field = "saved_query_id" if binding.is_saved_query else "external_data_schema_id"
@@ -1875,7 +1875,7 @@ def _start_backfill(team_id: int, binding: "WarehouseBinding", trigger: str) -> 
 def _start_person_backfill_if_enabled(source: CustomPropertySource) -> None:
     """Auto-start a backfill after a person/group source is created/enabled so historical rows populate
     immediately rather than waiting for the next warehouse run. Profile sources only (an account source
-    has its own Celery sync); deduped per table by the workflow id."""
+    has its own Celery sync); serialized per table by the workflow id."""
     binding = _profile_binding(source)
     if not source.is_enabled or binding is None:
         return
@@ -1989,22 +1989,24 @@ def trigger_person_property_sync(
 def trigger_person_property_backfill(
     *, team_id: int, source_id: str, trigger: str = "manual", user_access_control: "UserAccessControl | None" = None
 ) -> bool | None:
-    """Start a backfill for a profile source's table. Returns True (started), False (already running →
-    coalesced), or None for an invalid source (→ 400). Requires editor access to the warehouse object
-    (→ 403)."""
+    """Request a backfill for a profile source's table. Returns True when a new visible run starts,
+    False when an existing run receives a guaranteed latest-state follow-up, or None for an invalid
+    source (→ 400). Requires editor access to the warehouse object (→ 403)."""
     binding = _triggerable_profile_binding(team_id, source_id)
     if binding is None:
         return None
     _assert_warehouse_editor(team_id, binding, user_access_control)
     # Placeholder rows before starting, so the activity always finds a running row to reconcile.
     created_source_ids = _create_running_runs(team_id, binding, trigger)
+    started_new_run = bool(created_source_ids)
     from products.warehouse_sources.backend.facade.temporal import (  # noqa: PLC0415
         WarehouseBindingMissingError,
         start_person_property_backfill,
     )
 
     try:
-        return start_person_property_backfill(team_id=team_id, binding=binding, trigger=trigger)
+        start_person_property_backfill(team_id=team_id, binding=binding, trigger=trigger)
+        return started_new_run
     except WarehouseBindingMissingError:
         # The warehouse table or view was deleted after the placeholders were created; reconcile them
         # so the source isn't stuck 'running', and report an invalid source (→ 400) rather than a

@@ -1315,8 +1315,8 @@ class CustomPropertySourceViewSet(
     @action(methods=["POST"], detail=True)
     def backfill(self, request: Request, *args, **kwargs) -> Response:
         """Person and group sources only: start a backfill that reads the whole warehouse table and
-        populates person or group properties for historical rows. Coalesces if one is already running
-        for the table."""
+        populates person or group properties for historical rows. If one is already running for the
+        table, queue a follow-up that observes the latest mapping."""
         self._guard_group_source(request, self.kwargs["pk"])
         try:
             started = api.trigger_person_property_backfill(

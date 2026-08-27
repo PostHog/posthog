@@ -9,6 +9,7 @@ Every entry point opens a Temporal client, so this module must stay off the ``dj
 it's reached only from the facade on a request, never from an AppConfig or model.
 """
 
+import dataclasses
 from uuid import UUID
 
 from django.conf import settings
@@ -16,8 +17,7 @@ from django.conf import settings
 import structlog
 from asgiref.sync import async_to_sync
 from temporalio.client import Client
-from temporalio.common import WorkflowIDReusePolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.client import async_connect, sync_connect
@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
 logger = structlog.get_logger(__name__)
 
 BACKFILL_WORKFLOW_NAME = "backfill-warehouse-person-properties"
+BACKFILL_SIGNAL_NAME = "request_backfill"
 
 # The canonical warehouse schema reload/resync endpoints reject a manual sync with this message when
 # the team's syncing is paused (monthly limit reached); reused so person-property "sync now" matches.
@@ -89,19 +90,17 @@ def trigger_schema_sync(*, team_id: int, schema_id: str) -> None:
     log.info("Triggered warehouse schema sync for person-property sync-now")
 
 
-def start_person_property_backfill(*, team_id: int, binding: WarehouseBinding, trigger: str) -> bool:
-    """Start the per-table backfill workflow. One workflow per ``{team, binding}`` (id-keyed), so
-    concurrent triggers for the same table coalesce: returns False (does not raise) when one is
-    already running. Raises ``WarehouseBindingMissingError`` when the warehouse object no longer
-    exists, kept distinct from the coalesced False so the caller can fail the run rows it created
-    rather than reporting a coalesced run for a table that is gone."""
+def start_person_property_backfill(*, team_id: int, binding: WarehouseBinding, trigger: str) -> None:
+    """Request a per-table backfill. One workflow per ``{team, binding}`` serializes runs; a request
+    received while its activity is in flight replaces the pending request and guarantees a latest-state
+    follow-up. Raises ``WarehouseBindingMissingError`` when the warehouse object no longer exists."""
     log = logger.bind(team_id=team_id, binding_kind=binding.kind, binding_id=binding.id, trigger=trigger)
     inputs = _backfill_inputs(team_id, binding, trigger)
     if inputs is None:
         log.warning("person-property backfill not started: warehouse object no longer exists")
         raise WarehouseBindingMissingError
     workflow_id = f"{BACKFILL_WORKFLOW_NAME}-{team_id}-{binding.id}"
-    return _start_backfill_workflow(inputs, workflow_id)
+    _start_backfill_workflow(inputs, workflow_id)
 
 
 def _backfill_inputs(
@@ -177,25 +176,23 @@ def trigger_saved_query_materialization(*, team_id: int, saved_query_id: str) ->
 
 
 @async_to_sync
-async def _start_backfill_workflow(inputs: PersonPropertyBackfillActivityInputs, workflow_id: str) -> bool:
+async def _start_backfill_workflow(inputs: PersonPropertyBackfillActivityInputs, workflow_id: str) -> None:
     log = logger.bind(workflow_id=workflow_id, **inputs.properties_to_log)
     try:
         client: Client = await async_connect()
-        # ALLOW_DUPLICATE so a manual re-backfill is allowed after a prior run closes; a run currently
-        # in flight for the same id raises WorkflowAlreadyStartedError, which we swallow to coalesce.
+        # Atomic signal-with-start: route to the binding's current execution, or start a fresh one after
+        # the prior execution closes. The empty seed avoids running the same request twice on a new run.
         await client.start_workflow(
             BACKFILL_WORKFLOW_NAME,
-            inputs,
+            dataclasses.replace(inputs, skip_initial_run=True),
             id=workflow_id,
             task_queue=settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
+            id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            start_signal=BACKFILL_SIGNAL_NAME,
+            start_signal_args=[inputs],
         )
-        log.info("Started person-property backfill workflow")
-        return True
-    except WorkflowAlreadyStartedError:
-        # Expected: a backfill for this table is already in flight, so this trigger coalesces into it.
-        log.info("person-property backfill already running for binding, coalescing")
-        return False
+        log.info("Requested person-property backfill workflow")
     except Exception as e:
         # A real failure to reach Temporal — capture it; the caller (facade) treats a raise as
         # "start failed" and the placeholder running row is reconciled to failed by the next run.

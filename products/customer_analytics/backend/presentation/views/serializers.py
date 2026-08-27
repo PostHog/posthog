@@ -1428,12 +1428,12 @@ class CustomPropertySyncTriggerResponseSerializer(serializers.Serializer):
         choices=[("triggered", "triggered"), ("started", "started"), ("already_running", "already_running")],
         help_text=(
             "'triggered' (sync now started the warehouse sync), 'started' (a new backfill began), or "
-            "'already_running' (a backfill for this table was already in flight, so this was a no-op)."
+            "'already_running' (a backfill was in flight and a latest-state follow-up was queued)."
         ),
     )
     already_running = serializers.BooleanField(
         required=False,
-        help_text="Backfill only: true when a backfill for this table was already running and this call coalesced.",
+        help_text="Backfill only: true when a run was already in flight and this call queued its follow-up.",
     )
 
 
