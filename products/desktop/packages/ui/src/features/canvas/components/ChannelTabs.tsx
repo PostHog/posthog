@@ -8,7 +8,7 @@ import { Link, useRouterState } from "@tanstack/react-router";
 const TABS = CHANNEL_SECTIONS.map((s) => ({
   key: s.key,
   label: s.label,
-  to: `/website/$channelId/${s.key}` as const,
+  to: `/spaces/$channelId/${s.key}` as const,
 }));
 
 // Channel section switcher shown in the channel header bar, with

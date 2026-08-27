@@ -24,6 +24,58 @@ Team deletion for tables that are replicated rather than sharded runs through a 
 A sharded table must not be registered there — it would sweep one shard.
 The team arm inside `delete_events` covers sharded tables.
 
+## Reach: one handle addresses one cluster
+
+Every sweep dispatches over a `ClickhouseCluster`, and one of those addresses exactly one cluster.
+Hosts come from `clusterAllReplicas(<name>, system.clusters) WHERE name = <name> AND is_local`, and only hosts whose `hostClusterRole` macro is `data` are given a shard number.
+`cluster.shards`, `map_one_host_per_shard` and `map_any_host_in_shards`, which is how every mutation reaches a storage table, enumerate those hosts alone.
+Passing `data_cluster=` replaces that shard map rather than merging a second one in, so a single handle cannot span two clusters.
+
+A Distributed table has no such limit: it routes to whichever cluster its engine names.
+That asymmetry is what makes an off-cluster storage table dangerous rather than merely unsupported.
+The sweep finds nothing to mutate and reports success, while the proxy every verification reads through still returns the rows.
+
+Two gates keep that from passing silently.
+
+- `placement_for` refuses a registered target whose storage table is on no data node of any cluster reachable from here while its Distributed proxy still returns rows (`UnreachableTargetError`). Absent from everywhere and empty is still treated as not yet migrated, which is the ordinary pre-rollout state.
+- `assert_sweep_complete` runs after the immediate person-removal and event-removal sweeps and counts survivors through the proxy, so rows a mutation never reached fail the request instead of completing it (`UnsweptRowsError`).
+
+Both gates probe hosts rather than compare cluster names.
+Two cluster names can cover the same nodes, which is what the dev stack and CI do, so a name comparison would refuse deployments that can in fact sweep the table.
+`DeletionTarget.cluster_setting` names where a storage table lives, and `ClickhouseCluster.sibling` turns that name into a handle; neither decides reachability.
+`sharded_events_json` carries `CLICKHOUSE_EVENTS_CLUSTER`, which names the `events` cluster.
+
+## Dispatching to a target's own cluster
+
+`resolve_placements` pairs each target with the handle whose shards carry it: the job's own handle where the table is local, a sibling derived from it where it is not.
+The handle in hand is probed first, so a deployment whose tables are all on one cluster never builds a second one.
+
+Sweeps that iterate placements dispatch each target over `placement.cluster.shards`:
+
+- `delete_person_events_op`
+- `execute_event_deletion`, immediate mode
+- `deletes_job` → `delete_events`, which also has to put its dictionaries on the second cluster; see below
+
+The rest are bound to a single handle and refuse rather than skip when a target has moved off it (`dispatchable_here`, `UnreachableTargetError`):
+
+- Property removal. Its staging table is host-local and its fan-out is one op per shard of one cluster.
+- The deferred queue fill. Both halves of its `INSERT` are host-local: the source table it reads and the `adhoc_events_deletion` queue it writes.
+
+### Getting the dictionaries onto the second cluster
+
+`delete_events` does not name the rows it removes. Its predicate joins two dictionaries, `pending_deletes_<timestamp>_dictionary` and `adhoc_events_deletion_dictionary`, so a mutation cannot run anywhere those are absent.
+
+Both reach every host of one cluster because their source table is replicated, and replication is exactly what a cluster boundary stops: a cluster with its own Keeper can never join that replica set.
+`adhoc_events_deletion` compounds it, being migration-managed and present only on the main cluster.
+
+So the rows are staged instead. One Parquet object per dictionary per run, written by the cluster itself with `INSERT INTO FUNCTION s3(...)`, and every host on the other cluster loads it through `SOURCE(CLICKHOUSE(QUERY 'SELECT ... FROM s3(...)'))`.
+ClickHouse has no S3 dictionary source, but that source runs its query locally, and the query can read anything the server can.
+
+- Nothing changes on a deployment where every target sits on the cluster the job connects to. The handle in hand is probed first, and no object is written.
+- The source tables stay where they are. `pending_deletes_<timestamp>` also carries the Postgres `AsyncDeletion` row ids that `mark_deletions_verified` reads back, and those never enter a dictionary.
+- `load_and_verify_deletes_dictionary` loads on every host of every cluster and fails the run unless all of them checksum alike. That is what catches a stale or missing object: without it the mutation there joins an empty dictionary, deletes nothing, and reports success.
+- Retention belongs to the bucket lifecycle policy, set through `DELETES_DICTIONARY_S3_*`. Nothing deletes the objects.
+
 ## Covered tables
 
 - `sharded_events` — all sweeps.
@@ -107,5 +159,6 @@ Keeping the fork downstream of person resolution is the contract, tracked on #81
 
 Register it in `PERSONAL_DATA_TARGETS`, with capability flags reflecting what its schema can actually take and what the sweep code actually implements: `accepts_property_rewrite` needs the rewrite machinery to reach the table, not just assignable columns.
 If it is not going to be swept, add it to `TTL_ONLY_TABLES` with the window you are accepting.
+If its storage lives on a cluster other than the one the deletion jobs connect to, give it a `cluster_setting` naming that cluster and mark it `optional`; see "Reach" and "Dispatching" above for which sweeps then reach it and which refuse.
 
 `posthog/clickhouse/test/test_deletion_coverage.py` fails on any storage table that declares `person_properties` and appears in neither list, so the decision has to be made rather than skipped.

@@ -12,6 +12,7 @@ concurrency:
 
 permissions:
     contents: read
+    actions: read
     pull-requests: read
 
 env:
@@ -83,11 +84,20 @@ jobs:
             # fetch-depth=1000 + blob:none mirrors ci-backend's turbo-discover so
             # HEAD^2 (PR branch tip) is reachable for the merge-base step below
             # without the cost of fetching blobs.
+            # docker-compose.base.yml is in the sparse set for the schema-key step, which
+            # reads it at the merge base. Checking it out puts the blob on disk, so that
+            # `git show` resolves locally rather than through a lazy fetch that could fail
+            # quietly and leave the migration cache key wrong.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1000
                   filter: blob:none
                   clean: false
+                  sparse-checkout: |
+                      .github/actions/paths-filter
+                      .github/clickhouse-versions.json
+                      docker-compose.base.yml
+                  sparse-checkout-cone-mode: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
@@ -129,6 +139,7 @@ jobs:
                         - 'posthog/exceptions_capture.py'
                         - 'posthog/metrics.py'
                         - 'posthog/git.py'
+                        - 'posthog/job_owners.py'
                         - 'posthog/llm/**'
                         - 'posthog/person_db_router.py'
                         - 'posthog/persons_db.py'
@@ -165,6 +176,9 @@ jobs:
                         - 'products/warehouse_sources/backend/models/**/*.py'
                         - 'products/error_tracking/backend/**/*.py'
                         - 'products/event_definitions/backend/**/*.py'
+                        # The postgres-to-clickhouse ETL DAG imports the encrypted-flag
+                        # payload redaction constant from the flags backend.
+                        - 'products/feature_flags/backend/**/*.py'
                         - 'products/growth/backend/**/*.py'
                         - 'products/signals/backend/**/*.py'
                         - 'products/marketing_analytics/backend/**/*.py'
@@ -174,6 +188,10 @@ jobs:
                         - 'products/web_analytics/backend/**/*.py'
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-dagster.yml
+                        # The test selector guards itself: selector changes run the
+                        # suite (full mode), which executes its unit tests first
+                        - tools/dagster_test_selection.py
+                        - tools/test_dagster_test_selection.py
                         - .github/clickhouse-versions.json
                         # Composite action used to install sqlx-cli
                         - '.github/actions/setup-sqlx-cli/**'
@@ -210,6 +228,8 @@ jobs:
                         - 'posthog/dags/**'
                         - 'products/*/dags/**'
                         - .github/workflows/ci-dagster.yml
+                        - tools/dagster_test_selection.py
+                        - tools/test_dagster_test_selection.py
 
             - name: Read ClickHouse versions from JSON
               id: read-versions
@@ -304,18 +324,142 @@ jobs:
                       echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
 
+    # Narrow ordinary PR runs to the dag tests the diff can affect (snob import
+    # graph with whole-tree fallbacks for conftest/non-Python changes). The
+    # merge-queue run keeps the broad filter and the full suite, so the merge
+    # gate is unchanged and a selection miss surfaces there. Fail-open: if this
+    # job fails or is skipped its outputs stay empty and the dagster job falls
+    # back to the full matrix. The run-ci-dagster label forces the full suite.
+    select-tests:
+        name: Select dagster tests
+        needs: [changes]
+        if: >-
+            github.event_name == 'pull_request'
+            && needs.changes.outputs.merge_queue != 'true'
+            && needs.changes.outputs.dagster_direct == 'true'
+            && !contains(github.event.pull_request.labels.*.name, 'run-ci-dagster')
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        outputs:
+            mode: ${{ steps.classify.outputs.mode }}
+            test_paths: ${{ steps.classify.outputs.test_paths }}
+            matrix_include: ${{ steps.classify.outputs.matrix_include }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 1000
+                  filter: blob:none
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.28'
+
+            - name: Restore test durations from cache
+              # The selector's full-run cutoff and shard sizing read .test_durations,
+              # which is not in the repo. This job runs on a GitHub-hosted runner, so
+              # the Depot-side cache misses and the fallback below is the usual path.
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .test_durations
+                  key: posthog-test-durations-${{ github.run_id }}
+                  restore-keys: |
+                      posthog-test-durations-
+
+            - name: Fall back to the last published durations
+              # .test_durations is not in the repo. The timing workflow refreshes the
+              # cache several times a day and publishes the same files as an artifact
+              # of its own runs. On a cache miss (retention lapsed, timing workflow
+              # down for two weeks) take the newest artifact; if that is gone too,
+              # pytest-split splits by count and turbo-discover sizes from file counts
+              # until the next timing run.
+              if: ${{ hashFiles('.test_durations') == '' }}
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci-backend-update-test-timing.yml \
+                      --branch master --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+                  if [ -z "$run_id" ]; then
+                      echo "::warning::No successful timing run to fall back to, sharding without durations"
+                      exit 0
+                  fi
+                  gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name test-durations --dir . \
+                      || echo "::warning::Timing artifact of run $run_id unavailable, sharding without durations"
+
+            # A broken selector must degrade to the full suite, never to a
+            # silently wrong subset — prove it healthy before trusting it.
+            - name: Guard the selector with its unit tests
+              id: selftest
+              continue-on-error: true
+              run: python3 tools/test_dagster_test_selection.py
+
+            - name: Run selector
+              id: select
+              continue-on-error: true
+              if: steps.selftest.outcome == 'success'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: |
+                  set -euo pipefail
+                  git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+                  uv run tools/dagster_test_selection.py --base-ref "origin/$BASE_REF" > /tmp/dagster-selection.json
+
+            - name: Classify selection
+              id: classify
+              env:
+                  OLDEST_SUPPORTED: ${{ needs.changes.outputs.oldest_supported }}
+                  SELECT_OUTCOME: ${{ steps.select.outcome }}
+              run: |
+                  set -euo pipefail
+                  if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/dagster-selection.json ]]; then
+                      echo "::warning::dagster test selector unavailable; running the full suite"
+                      exit 0
+                  fi
+                  mode=$(jq -r '.mode' /tmp/dagster-selection.json)
+                  echo "mode=$mode" >> "$GITHUB_OUTPUT"
+                  {
+                      echo "## Dagster test selection"
+                      echo
+                      echo "Mode: \`$mode\` — $(jq -r '.count' /tmp/dagster-selection.json) test files, $(jq -r '.selected_seconds' /tmp/dagster-selection.json)s of $(jq -r '.suite_seconds' /tmp/dagster-selection.json)s suite time"
+                      jq -r '.reasons[]? | "- " + .' /tmp/dagster-selection.json
+                      jq -r '.tests[]? | "- `" + . + "`"' /tmp/dagster-selection.json
+                  } >> "$GITHUB_STEP_SUMMARY"
+                  if [[ "$mode" != "selected" ]]; then
+                      exit 0
+                  fi
+                  echo "test_paths=$(jq -r '.tests | join(" ")' /tmp/dagster-selection.json)" >> "$GITHUB_OUTPUT"
+                  shards=$(jq -r '.shards' /tmp/dagster-selection.json)
+                  image=$(echo "$OLDEST_SUPPORTED" | jq -r '.[0]')
+                  # Same shape as the changes job's build-matrix step, with the
+                  # shard count sized to the selection instead of fixed at 3.
+                  include=$(jq -cn --arg image "$image" --argjson shards "$shards" '
+                    [range(1; $shards + 1) | {
+                      "clickhouse-server-image": $image,
+                      concurrency: $shards,
+                      group: .
+                    }]
+                  ')
+                  echo "matrix_include=$include" >> "$GITHUB_OUTPUT"
+
     dagster:
         name: Dagster tests (${{ matrix.group }}/${{ matrix.concurrency }})
-        needs: [changes]
+        needs: [changes, select-tests]
         timeout-minutes: 40
         strategy:
             fail-fast: false
             matrix:
-                include: ${{ fromJson(needs.changes.outputs.matrix_include || '[]') }}
+                include: ${{ fromJson(needs.select-tests.outputs.matrix_include || needs.changes.outputs.matrix_include || '[]') }}
+        # !cancelled() lets this run when select-tests is skipped (master,
+        # merge queue) or failed (fall back to the full matrix); mode 'none'
+        # means the diff cannot affect any dagster test, so nothing runs and
+        # the merge-queue full suite remains the gate.
         if: >-
-            needs.changes.outputs.dagster_direct == 'true'
-            || (needs.changes.outputs.merge_queue == 'true'
-                && needs.changes.outputs.dagster == 'true')
+            ${{ !cancelled()
+            && needs.select-tests.outputs.mode != 'none'
+            && (needs.changes.outputs.dagster_direct == 'true'
+                || (needs.changes.outputs.merge_queue == 'true'
+                    && needs.changes.outputs.dagster == 'true')) }}
         runs-on: depot-ubuntu-24.04
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
@@ -488,9 +632,9 @@ jobs:
 
             - name: Restore test durations from cache
               # pytest-split distributes Dagster tests across shards using .test_durations.
-              # Restore the newest cache (refreshed daily by ci-backend-update-test-timing.yml,
-              # which merges all segments into one file) over the committed file; a miss leaves
-              # the committed fallback and pytest-split still runs.
+              # Restore the newest cache (refreshed by ci-backend-update-test-timing.yml,
+              # which merges all segments into one file); the fallback step below covers
+              # a miss.
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .test_durations
@@ -499,7 +643,30 @@ jobs:
                   restore-keys: |
                       posthog-test-durations-
 
+            - name: Fall back to the last published durations
+              # .test_durations is not in the repo. The timing workflow refreshes the
+              # cache several times a day and publishes the same files as an artifact
+              # of its own runs. On a cache miss (retention lapsed, timing workflow
+              # down for two weeks) take the newest artifact; if that is gone too,
+              # pytest-split splits by count and turbo-discover sizes from file counts
+              # until the next timing run.
+              if: ${{ hashFiles('.test_durations') == '' }}
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci-backend-update-test-timing.yml \
+                      --branch master --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+                  if [ -z "$run_id" ]; then
+                      echo "::warning::No successful timing run to fall back to, sharding without durations"
+                      exit 0
+                  fi
+                  gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name test-durations --dir . \
+                      || echo "::warning::Timing artifact of run $run_id unavailable, sharding without durations"
+
             - name: Run Dagster tests
+              env:
+                  TEST_PATHS: ${{ needs.select-tests.outputs.test_paths }}
               run: |
                   # Pick the split algorithm and granularity at runtime: optimal_chunks +
                   # file granularity only when the installed pytest-split offers them, else
@@ -512,7 +679,17 @@ jobs:
                       SPLITTING_ALGORITHM=optimal_chunks
                       SPLIT_GRANULARITY=(--split-granularity=file)
                   fi
-                  pytest posthog/dags products/**/dags \
+                  # Selected mode: run only the test files chosen by the dagster
+                  # selector. products/*/dags expands identically to the old
+                  # products/**/dags (bash globs without globstar).
+                  if [ -n "${TEST_PATHS:-}" ]; then
+                      read -r -a TEST_TARGETS <<< "$TEST_PATHS"
+                  else
+                      TEST_TARGETS=(posthog/dags products/*/dags)
+                  fi
+                  # Call-only times so the timing-update workflow's migration-tax corrector
+                  # sees the same setup-free signal it gets from the backend segments.
+                  pytest "${TEST_TARGETS[@]}" \
                       --reuse-db \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
@@ -520,6 +697,7 @@ jobs:
                       "${SPLIT_GRANULARITY[@]}" \
                       --reruns 2 --reruns-delay 1 \
                       -r fEsxX \
+                      -o junit_duration_report=call \
                       --junitxml=junit-dagster-${{ matrix.group }}.xml
 
             - name: Upload test results

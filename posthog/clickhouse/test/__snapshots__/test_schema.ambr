@@ -106,6 +106,27 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_billing_usage_records]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_billing_usage_records
+  (
+      schema_version UInt8,
+      record_id String,
+      producer_id LowCardinality(String),
+      team_id Int64,
+      organization_id UUID,
+      usage_key LowCardinality(String),
+      unit LowCardinality(String),
+      quantity Int64,
+      timestamp DateTime64(6, 'UTC'),
+      inserted_at DateTime64(6, 'UTC')
+  )
+  ENGINE = Kafka(warpstream_shared, kafka_topic_list = 'clickhouse_billing_usage_records_test', kafka_group_name = 'clickhouse_billing_usage_records', kafka_format = 'JSONEachRow')
+  SETTINGS date_time_input_format = 'best_effort'
+  
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_cohort_membership]
   '''
   
@@ -1121,6 +1142,54 @@
   _offset,
   _partition
   FROM kafka_app_metrics
+  
+  '''
+# ---
+# name: test_create_table_query[billing_usage_records]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS billing_usage_records
+  (
+      schema_version UInt8,
+      record_id String,
+      producer_id LowCardinality(String),
+      team_id Int64,
+      organization_id UUID,
+      usage_key LowCardinality(String),
+      unit LowCardinality(String),
+      quantity Int64,
+      timestamp DateTime64(6, 'UTC'),
+      inserted_at DateTime64(6, 'UTC')
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = Distributed('posthog', 'posthog_test', 'sharded_billing_usage_records', cityHash64(team_id))
+  
+  '''
+# ---
+# name: test_create_table_query[billing_usage_records_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS billing_usage_records_mv
+  TO writable_billing_usage_records
+  AS SELECT
+      schema_version,
+      record_id,
+      producer_id,
+      team_id,
+      organization_id,
+      usage_key,
+      unit,
+      quantity,
+      timestamp,
+      inserted_at,
+      _timestamp,
+      _offset,
+      _partition
+  FROM kafka_billing_usage_records
   
   '''
 # ---
@@ -2341,6 +2410,27 @@
   
   '''
 # ---
+# name: test_create_table_query[kafka_billing_usage_records]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_billing_usage_records
+  (
+      schema_version UInt8,
+      record_id String,
+      producer_id LowCardinality(String),
+      team_id Int64,
+      organization_id UUID,
+      usage_key LowCardinality(String),
+      unit LowCardinality(String),
+      quantity Int64,
+      timestamp DateTime64(6, 'UTC'),
+      inserted_at DateTime64(6, 'UTC')
+  )
+  ENGINE = Kafka(warpstream_shared, kafka_topic_list = 'clickhouse_billing_usage_records_test', kafka_group_name = 'clickhouse_billing_usage_records', kafka_format = 'JSONEachRow')
+  SETTINGS date_time_input_format = 'best_effort'
+  
+  '''
+# ---
 # name: test_create_table_query[kafka_cohort_membership]
   '''
   
@@ -3458,6 +3548,8 @@
       `_bytes_uncompressed` UInt64,
       `_bytes_compressed` UInt64,
       `_record_count` UInt64,
+      `pattern` String,
+      `pattern_version` UInt8,
       INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
       INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
@@ -3707,6 +3799,54 @@
           resource_fingerprint,
           resource_attributes
   )
+  
+  '''
+# ---
+# name: test_create_table_query[logs34_to_volume_buckets]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.logs34_to_volume_buckets TO posthog_test.logs_volume_buckets
+  (
+      `team_id` Int32,
+      `time_bucket` DateTime('UTC'),
+      `service_name` LowCardinality(String),
+      `namespace` LowCardinality(String),
+      `environment` LowCardinality(String),
+      `severity_text` LowCardinality(String),
+      `log_count` SimpleAggregateFunction(sum, UInt64)
+  )
+  AS SELECT
+      team_id,
+      time_bucket,
+      service_name,
+      namespace,
+      environment,
+      severity_text,
+      sumSimpleState(1) AS log_count
+  FROM
+  (
+      SELECT
+          team_id,
+          toStartOfInterval(timestamp, toIntervalSecond(300), 'UTC') AS time_bucket,
+          service_name,
+          if(
+              resource_attributes['k8s.namespace.name'] != '',
+              resource_attributes['k8s.namespace.name'],
+              resource_attributes['service.namespace']
+          ) AS namespace,
+          if(
+              resource_attributes['deployment.environment.name'] != '',
+              resource_attributes['deployment.environment.name'],
+              if(
+                  resource_attributes['deployment.environment'] != '',
+                  resource_attributes['deployment.environment'],
+                  resource_attributes['env']
+              )
+          ) AS environment,
+          lower(severity_text) AS severity_text
+      FROM posthog_test.logs34
+  )
+  GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text
   
   '''
 # ---
@@ -6486,6 +6626,33 @@
   
   '''
 # ---
+# name: test_create_table_query[sharded_billing_usage_records]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_billing_usage_records
+  (
+      schema_version UInt8,
+      record_id String,
+      producer_id LowCardinality(String),
+      team_id Int64,
+      organization_id UUID,
+      usage_key LowCardinality(String),
+      unit LowCardinality(String),
+      quantity Int64,
+      timestamp DateTime64(6, 'UTC'),
+      inserted_at DateTime64(6, 'UTC')
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_billing_usage_records', '{replica}', inserted_at)
+  PARTITION BY toYYYYMM(timestamp)
+  ORDER BY (team_id, toDate(timestamp), producer_id, usage_key, record_id)
+  
+  '''
+# ---
 # name: test_create_table_query[sharded_conversion_goal_attributed_preaggregated]
   '''
   
@@ -8985,6 +9152,31 @@
   
   '''
 # ---
+# name: test_create_table_query[writable_billing_usage_records]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_billing_usage_records
+  (
+      schema_version UInt8,
+      record_id String,
+      producer_id LowCardinality(String),
+      team_id Int64,
+      organization_id UUID,
+      usage_key LowCardinality(String),
+      unit LowCardinality(String),
+      quantity Int64,
+      timestamp DateTime64(6, 'UTC'),
+      inserted_at DateTime64(6, 'UTC')
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = Distributed('posthog', 'posthog_test', 'sharded_billing_usage_records', cityHash64(team_id))
+  
+  '''
+# ---
 # name: test_create_table_query[writable_cohort_membership]
   '''
   
@@ -10559,6 +10751,8 @@
       `_bytes_uncompressed` UInt64,
       `_bytes_compressed` UInt64,
       `_record_count` UInt64,
+      `pattern` String,
+      `pattern_version` UInt8,
       INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
       INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
@@ -11458,6 +11652,33 @@
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_app_metrics', '{replica}')
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, plugin_config_id, job_id, category, toStartOfHour(timestamp), error_type, error_uuid)
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_billing_usage_records]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_billing_usage_records
+  (
+      schema_version UInt8,
+      record_id String,
+      producer_id LowCardinality(String),
+      team_id Int64,
+      organization_id UUID,
+      usage_key LowCardinality(String),
+      unit LowCardinality(String),
+      quantity Int64,
+      timestamp DateTime64(6, 'UTC'),
+      inserted_at DateTime64(6, 'UTC')
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_billing_usage_records', '{replica}', inserted_at)
+  PARTITION BY toYYYYMM(timestamp)
+  ORDER BY (team_id, toDate(timestamp), producer_id, usage_key, record_id)
   
   '''
 # ---

@@ -22,11 +22,24 @@ from celery import shared_task
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.instance_setting import get_instance_setting
 
-from products.stamphog.backend.facade.enums import TERMINAL_STATUSES, ReviewMode, ReviewRunStatus, ReviewVerdict
+from products.stamphog.backend.facade.enums import (
+    TERMINAL_STATUSES,
+    ReviewMode,
+    ReviewRunStatus,
+    ReviewTrigger,
+    ReviewVerdict,
+)
 from products.stamphog.backend.facade.inbox_hooks import get_inbox_acting_reviewer_resolver
+from products.stamphog.backend.logic.approval_retention import (
+    MAX_RETAINED_HEADS,
+    RETAINED_HEADS_KEY,
+    UNCHANGED_DIFF,
+    approved_diff_unchanged,
+)
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_audiences
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
+from products.stamphog.backend.logic.review_trigger import derive_review_trigger
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.temporal.client import execute_stamphog_review_workflow
 from products.tasks.backend.facade.api import find_signal_implementation_run
@@ -516,6 +529,131 @@ def _retract_approvals_on_base_retarget(repo_config: StamphogRepoConfig, pr: dic
         )
 
 
+def _standing_approval_retention(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> bool:
+    """Whether a standing approval survives this push, rather than being dismissed and re-reviewed.
+
+    Compares the PR's own diff at the head that the approval was posted for against its diff at the
+    head that this delivery carries. ``compare_diff`` reads both sides from commit shas that the
+    payload and the run already fixed, so a contributor cannot point either side at content that the
+    PR is not on.
+
+    Returns False for everything ambiguous: no PR row, no standing approval, an approval already at
+    this head, a run with no recorded base sha, an empty diff on either side, or any GitHub error. A
+    diff too large for GitHub to render is one such error. A same-head re-review is allowed to void
+    the approval on purpose.
+    """
+    team_id = repo_config.team_id
+    pr_number = pr.get("number")
+    head_sha = (pr.get("head") or {}).get("sha") or ""
+    base_sha = (pr.get("base") or {}).get("sha") or ""
+    if pr_number is None or not head_sha or not base_sha:
+        return False
+
+    # Writer pin for the same reason that _retract_stale_approvals_on_skip uses one. This read
+    # decides whether an approval stands, and a lagged reader that misses the approving run falls
+    # through to a dismissal that the approval did not need.
+    pull_request = (
+        PullRequest.objects.for_team(team_id)
+        .using(router.db_for_write(PullRequest))
+        .filter(repo_config=repo_config, pr_number=pr_number)
+        .first()
+    )
+    if pull_request is None:
+        return False
+
+    standing = (
+        ReviewRun.objects.for_team(team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(
+            pull_request=pull_request,
+            posted_review_id__isnull=False,
+            approval_dismissed_at__isnull=True,
+        )
+        .exclude(head_sha=head_sha)
+        .order_by("-created_at")
+        .first()
+    )
+    if standing is None or standing.posted_review_id is None or not standing.head_sha:
+        return False
+
+    approved_pr = (standing.output or {}).get("pr")
+    approved_base = (approved_pr or {}).get("base") if isinstance(approved_pr, dict) else None
+    approved_base_sha = (approved_base or {}).get("sha") if isinstance(approved_base, dict) else ""
+    if not approved_base_sha:
+        return False
+
+    client = StamphogGitHubClient(repo_config.installation_id)
+    # posted_review_id records that stamphog approved, and not that the approval still stands. A
+    # maintainer who dismisses it by hand on GitHub updates nothing here. Retention over a dismissed
+    # approval would skip the replacement review and leave the PR with no approval at all. An
+    # unreadable or unconfigured identity yields an empty list, which falls through to the review.
+    active_ids = {review.get("id") for review in client.list_own_active_approvals(repo_config.repository, pr_number)}
+    if standing.posted_review_id not in active_ids:
+        return False
+
+    approved_diff = client.compare_diff(repo_config.repository, approved_base_sha, standing.head_sha)
+    current_diff = client.compare_diff(repo_config.repository, base_sha, head_sha)
+    if not approved_diff_unchanged(approved_diff, current_diff):
+        return False
+    _record_retained_head(standing, head_sha)
+    return True
+
+
+def _record_retained_head(run: ReviewRun, head_sha: str) -> None:
+    """Note that this run's approval also covers ``head_sha``.
+
+    ``_record_merged_pull_request`` matches an approving run on ``head_sha`` alone. Without this
+    record a retained PR merges as unapproved, and it drops out of the daily digest permanently,
+    because ``merged_at`` makes the redelivery a no-op. The reviewed head stays on ``head_sha``
+    itself, which the dismissal sweep and ``post_verdict``'s guards read.
+    """
+    stored = (run.output or {}).get(RETAINED_HEADS_KEY) or []
+    retained = [sha for sha in stored if isinstance(sha, str)]
+    if head_sha in retained:
+        return
+    retained.append(head_sha)
+    run.output = {**(run.output or {}), RETAINED_HEADS_KEY: retained[-MAX_RETAINED_HEADS:]}
+    run.save(update_fields=["output", "updated_at"])
+
+
+_BOT_AUTHOR_LABEL_MESSAGE = (
+    "stamphog does not review bot-authored pull requests, so the trigger label has been removed. "
+    "This change needs a human reviewer."
+)
+
+
+def _clear_trigger_label_from_bot_pr(installation_id: str, repo: str, pr: dict[str, Any], action: str) -> None:
+    """Remove the trigger label from a bot-authored PR that somebody labeled.
+
+    Without this removal the label stays on the PR, and every later delivery silently takes the
+    bot-author skip. The PR then looks reviewed, but it never is. The comment explains the removal
+    only on the paths where a person just acted, because a later synchronize is a cleanup and not a
+    response.
+
+    This is best effort. A bot PR that carries a stray label is a cosmetic problem next to the
+    review path that runs beside it, so a GitHub failure is logged and not retried.
+    """
+    pr_number = pr.get("number")
+    if pr_number is None:
+        return
+    try:
+        repo_config = _resolve_repo_config(installation_id, repo)
+        # LABEL mode only. In other modes the trigger label carries no meaning, and the removal of
+        # a label that the repo does not act on would surprise the author rather than clean
+        # anything up.
+        if repo_config is None or not repo_config.enabled or repo_config.review_mode != ReviewMode.LABEL:
+            return
+        label_names = {(label or {}).get("name") for label in pr.get("labels") or []}
+        if repo_config.trigger_label not in label_names:
+            return
+        client = StamphogGitHubClient(repo_config.installation_id)
+        if action != "synchronize":
+            client.upsert_sticky_comment(repo, pr_number, _BOT_AUTHOR_LABEL_MESSAGE)
+        client.remove_pr_label(repo, pr_number, repo_config.trigger_label)
+    except Exception:
+        logger.warning("stamphog_pr_event_bot_label_cleanup_failed", repo=repo, pr_number=pr_number, exc_info=True)
+
+
 def _retract_stale_approvals_on_skip(repo_config: StamphogRepoConfig, pr: dict[str, Any], message: str) -> None:
     """Retract a standing stamphog approval when a head-changing event is skipped before the workflow.
 
@@ -645,13 +783,30 @@ def _record_merged_pull_request(payload: dict[str, Any], delivery_id: str) -> No
             .order_by("-created_at")
             .first()
         )
+    if approving_run is None and pr_head_sha:
+        # A retained approval covers a head that it was never posted at (see
+        # _record_retained_head). The diff at that head is byte-identical to the approved diff, so
+        # the merge is stamphog-approved.
+        approving_run = (
+            ReviewRun.objects.for_team(team_id)
+            .using(router.db_for_write(ReviewRun))
+            .filter(
+                pull_request=pr_obj,
+                verdict=ReviewVerdict.APPROVED,
+                approval_dismissed_at__isnull=True,
+                **{f"output__{RETAINED_HEADS_KEY}__contains": [pr_head_sha]},
+            )
+            .order_by("-created_at")
+            .first()
+        )
+
     approved = approving_run is not None
     if repo_config.digest_enabled and approving_run is not None:
         # The approving run reviewed exactly the head that merged, so its summary describes what
         # landed and its ownership names the teams whose code moved. The digest has neither.
         pr_obj.summary_line = approving_run.change_summary
         update_fields.append("summary_line")
-        audiences = resolve_audiences(repo_config, pr, approving_run.gate_result)
+        audiences = resolve_audiences(repo_config, approving_run.gate_result)
     else:
         audiences = []
     if not audiences:
@@ -968,6 +1123,8 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
                     "stamphog_pr_event_untrusted_skip_dismiss_failed", delivery_id=delivery_id, error=str(e)
                 )
                 raise cast(Any, process_pull_request_event).retry(exc=e)
+        if skip_reason == "bot_author":
+            _clear_trigger_label_from_bot_pr(installation_id, repo, pr, action)
         if carve_out_error is not None:
             # The dismissal above already ran, so the stale-approval invariant holds however many
             # retries fail. Retry so the carve-out re-review is re-attempted once the failure clears.
@@ -1058,6 +1215,30 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
             _mark_pr_event_processed(delivery_id)
         return
 
+    # A push that leaves the approved diff untouched needs no fresh verdict. A dismissal would drop
+    # the PR out of merge readiness while a full sandboxed review derives the same answer again.
+    # This check sits after every trust gate above, so the code retains an approval only on a push
+    # that this same path would have reviewed. Self-driving inbox runs are excluded, which keeps
+    # their head-pinning carve-out untouched.
+    if action in _HEAD_CHANGING_ACTIONS and inbox_review is None:
+        try:
+            retained = _standing_approval_retention(repo_config, pr)
+        except Exception:
+            # This is an optimization, so it must never cost a review. An unreachable GitHub or an
+            # unexpected payload falls through to the full path, and never retries or retains.
+            logger.warning("stamphog_pr_event_retention_check_failed", delivery_id=delivery_id, exc_info=True)
+            retained = False
+        if retained:
+            logger.info(
+                "stamphog_pr_event_approval_retained",
+                repo=repo,
+                pr_number=pr_number,
+                reason=UNCHANGED_DIFF,
+            )
+            if delivery_id:
+                _mark_pr_event_processed(delivery_id)
+            return
+
     team_id = repo_config.team_id
 
     # Recovery fast path: a run for this delivery already exists (a redelivery/Celery retry that
@@ -1130,7 +1311,15 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
                 status=ReviewRunStatus.QUEUED,
                 # Inbox provenance for a carved-out re-review. The engine turns on its self-driving
                 # behavior from this, and it attributes the run in the UI and analytics.
-                output={"inbox_review": inbox_review} if inbox_review is not None else {},
+                # review_trigger is stamped now, not derived when the sandbox runs: the reviewer is
+                # told this as fact in its trusted block, and re-deriving it later would read a
+                # review_mode an admin may have changed since this delivery was admitted.
+                output={
+                    **({"inbox_review": inbox_review} if inbox_review is not None else {}),
+                    "review_trigger": derive_review_trigger(
+                        has_inbox_review=inbox_review is not None, review_mode=repo_config.review_mode
+                    ).value,
+                },
             )
             # Only start the workflow once the row is durably committed — an aborted
             # transaction must not leave a workflow chasing a run that never existed.
@@ -1340,7 +1529,8 @@ def process_inbox_pr_review(
                 head_sha=head_sha,
                 delivery_id=None,
                 status=ReviewRunStatus.QUEUED,
-                output={"inbox_review": inbox_review},
+                # Always self-driving on this leg: it exists only for inbox-linked PRs.
+                output={"inbox_review": inbox_review, "review_trigger": ReviewTrigger.SELF_DRIVING.value},
             )
             review_run_id = str(review_run.id)
             # A post-commit start failure propagates into the retry below; the retry re-enters

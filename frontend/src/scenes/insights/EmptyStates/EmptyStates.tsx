@@ -6,12 +6,15 @@ import { useEffect, useState } from 'react'
 import { TextMorph } from 'torph/react'
 
 import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
+import * as doctorPng from '@posthog/brand/hoggies/png/doctor-1'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
+import * as stampDeniedPng from '@posthog/brand/hoggies/png/stamp-denied'
+import * as trafficControllerPng from '@posthog/brand/hoggies/png/traffic-controller'
 import { IconArchive, IconFunnels, IconInfo, IconPlusSmall, IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
@@ -19,14 +22,13 @@ import { holidaysMatcher, isChristmas } from 'lib/holidays'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconChristmasOrnament, IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
-import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import posthog from 'lib/posthog-typed'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
-import { isTrustedPostHogUrl } from 'lib/utils/trustedUrl'
+import { renderDetailWithLinks } from 'lib/utils/renderDetailWithLinks'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic, insightOverridesPresent } from 'scenes/insights/insightLogic'
@@ -40,12 +42,12 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { VALIDATION_ERROR_STATUSES } from '~/queries/nodes/InsightViz/utils'
 import { FunnelsQuery, Node, NodeKind, QueryStatus } from '~/queries/schema/schema-general'
 import { isFunnelsDataWarehouseNode } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
+    DashboardPlacement,
     FilterType,
     InsightLogicProps,
     SavedInsightsTabs,
@@ -59,6 +61,10 @@ import { SampleDataState, SampleDataVariant } from './SampleDataState'
 import { sampleDataStateLogic } from './sampleDataStateLogic'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
+const HedgehogDoctor = pngHoggie(doctorPng)
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+const HedgehogStampDenied = pngHoggie(stampDeniedPng)
+const HedgehogTrafficController = pngHoggie(trafficControllerPng)
 
 // Matches ClickHouseQueryMemoryLimitExceeded.default_code on the backend. Keep the two in sync.
 const CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE = 'clickhouse_memory_limit_exceeded'
@@ -66,10 +72,6 @@ const CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE = 'clickhouse_memory_limit_exceeded'
 const MEMORY_LIMIT_AI_PROMPT = autoRunMaxPrompt(
     "This insight ran out of memory before it could finish. Help me work out why it's scanning so much data and how to fix it: a shorter date range, narrower filters, or materializing the data."
 )
-
-// Stop the capture before trailing sentence punctuation so a URL ending a sentence (".", ")") keeps
-// a clean href. No `g` flag needed: split() finds all matches and interleaves the captured URLs.
-const DETAIL_URL_REGEX = /(https?:\/\/[^\s]*[^\s.,;:!?)\]}'"])/
 
 export function InsightEmptyState({
     heading,
@@ -210,9 +212,11 @@ function QueryDebuggerButton({ query }: { query?: Record<string, any> | null }):
 const RetryButton = ({
     onRetry,
     query,
+    loading = false,
 }: {
     onRetry: () => void
     query?: Record<string, any> | Node | null
+    loading?: boolean
 }): JSX.Element => {
     const sideAction = query
         ? {
@@ -237,6 +241,7 @@ const RetryButton = ({
             data-attr="insight-retry-button"
             size="small"
             type="primary"
+            loading={loading}
             onClick={() => onRetry()}
             sideAction={sideAction}
         >
@@ -580,21 +585,6 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
     )
 }
 
-// Render embedded URLs (e.g. backend docs links) as clickable links. Only PostHog-host URLs are
-// linkified — error detail can echo user-controlled text.
-export function renderDetailWithLinks(detail: string): (string | JSX.Element)[] {
-    // Splitting on a capturing group interleaves text and URL matches, so odd indexes are the URLs
-    return detail.split(DETAIL_URL_REGEX).map((part, index) =>
-        index % 2 === 1 && isTrustedPostHogUrl(part) ? (
-            <Link key={index} to={part} target="_blank">
-                {part}
-            </Link>
-        ) : (
-            part
-        )
-    )
-}
-
 /** Kind of the query that errored, unwrapping InsightVizNode/DataTableNode wrappers to the source query. */
 function queryKindForReporting(query: Record<string, any> | Node | null | undefined): string | null {
     const record = query as Record<string, any> | null | undefined
@@ -607,16 +597,26 @@ export function InsightValidationError({
     query,
     onRetry,
     cta,
+    excludeActions = false,
+    placement,
 }: {
     detail: string
     validationErrorCode?: string | null
     query?: Record<string, any> | null
     onRetry?: () => void
     cta?: JSX.Element
+    excludeActions?: boolean
+    placement?: DashboardPlacement | 'SavedInsightGrid'
 }): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const debugWithAI = (): void => openSidePanel(SidePanelTab.Max, MEMORY_LIMIT_AI_PROMPT)
     const isMemoryLimitError = validationErrorCode === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE
+    const displayDetail = getInsightValidationDetail(detail)
+    const showQueryDebuggerInstruction =
+        query &&
+        displayDetail !== 'Check the query for errors, then run it again.' &&
+        placement !== DashboardPlacement.Export
+    const shouldExcludeActions = excludeActions || placement === DashboardPlacement.Export
     const defaultCta =
         cta ?? (onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />)
 
@@ -634,44 +634,43 @@ export function InsightValidationError({
             data-attr="insight-empty-state"
             className="flex flex-col items-center justify-center gap-2 rounded px-4 py-6 h-full w-full text-center text-balance"
         >
-            <IconWarning className="text-4xl shrink-0 text-muted mb-2" />
+            <InsightErrorHoggie kind="invalid_query" />
 
-            <h2
-                data-attr="insight-loading-too-long"
-                className="text-xl leading-tight font-bold mb-0"
-                // TODO: Use an actual `text-warning` color once @adamleithp changes are live
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{ color: 'var(--warning)' }}
-            >
-                There is a problem with this query
+            <h2 data-attr="insight-loading-too-long" className="text-xl leading-tight font-bold mb-0 text-danger">
+                We couldn't run this query
                 {/* Note that this phrasing above signals the issue is not intermittent, */}
                 {/* but rather that it's something with the definition of the query itself */}
             </h2>
 
-            <p className="text-sm text-muted max-w-120 mb-2">{renderDetailWithLinks(detail)}</p>
+            <p className="text-sm text-muted max-w-120 mb-2">{renderDetailWithLinks(displayDetail)}</p>
+
+            {showQueryDebuggerInstruction && !shouldExcludeActions && (
+                <p className="text-sm text-muted max-w-120 mb-2">Open the query debugger and correct the query.</p>
+            )}
 
             {/* For memory-limit errors, lead with the AI debugger but keep the retry/debugger action
                 beside it so users who decline AI consent (or lack AI access) still have a next step.
                 onClick fires when consent was already given (popover hidden); onApprove fires after
                 the consent flow completes — same pattern as InsightAIAnalysis. */}
-            {isMemoryLimitError && !cta ? (
-                <div className="flex items-center gap-2">
-                    <AIConsentPopoverWrapper onApprove={debugWithAI}>
-                        <LemonButton
-                            type="primary"
-                            onClick={debugWithAI}
-                            data-attr="insight-memory-limit-debug-with-ai"
-                        >
-                            Debug with PostHog AI
-                        </LemonButton>
-                    </AIConsentPopoverWrapper>
-                    {defaultCta}
-                </div>
-            ) : (
-                defaultCta
-            )}
+            {!shouldExcludeActions &&
+                (isMemoryLimitError && !cta ? (
+                    <div className="flex items-center gap-2">
+                        <AIConsentPopoverWrapper onApprove={debugWithAI}>
+                            <LemonButton
+                                type="primary"
+                                onClick={debugWithAI}
+                                data-attr="insight-memory-limit-debug-with-ai"
+                            >
+                                Debug with PostHog AI
+                            </LemonButton>
+                        </AIConsentPopoverWrapper>
+                        {defaultCta}
+                    </div>
+                ) : (
+                    defaultCta
+                ))}
 
-            {detail.includes('Exclusion') && (
+            {detail.includes('Exclusion') && placement !== DashboardPlacement.Export && (
                 <div className="mt-4">
                     <Link
                         data-attr="insight-funnels-emptystate-help"
@@ -690,19 +689,101 @@ export function InsightValidationError({
 const RAW_SERVER_ERROR_PATTERN =
     /Stack trace:|DB::Exception|Traceback \(most recent call last\)|object at 0x[0-9a-f]+|^[A-Za-z_.]+(Error|Exception)[:(]/
 
+function getInsightValidationDetail(detail: string): string {
+    if (isRawServerErrorTitle(detail)) {
+        return 'The query could not run.'
+    }
+    if (/^the query is invalid\.?$/i.test(detail.trim())) {
+        return 'Check the query for errors, then run it again.'
+    }
+    return detail
+}
+
 /**
  * A string title on this state can come straight from the backend, so it can be a raw exception
- * body instead of user-facing copy. Show those behind a collapsible, not in the heading, so the
- * page keeps a clear message with the retry and bug-report guidance. When the response status is
- * known, trust the backend's classification: VALIDATION_ERROR_STATUSES mark messages written for
- * the user (however long), anything else is a server-side failure. Exception markers demote even
- * on those statuses, because staff accounts receive raw traces there too.
+ * body instead of user-facing copy. Hide raw exception text and show curated remediation instead.
  */
 export function isRawServerErrorTitle(title: string, status?: number | null): boolean {
     if (RAW_SERVER_ERROR_PATTERN.test(title)) {
         return true
     }
-    return status != null && !VALIDATION_ERROR_STATUSES.has(status)
+    return status != null && status >= 500
+}
+
+type InsightErrorKind = 'rate_limit' | 'invalid_query' | 'permission' | 'transient' | 'server' | 'unknown'
+
+const ERROR_HOGGIES: Record<InsightErrorKind, React.ComponentType<{ className?: string }>> = {
+    rate_limit: HedgehogTrafficController,
+    invalid_query: HedgehogMagnifyingGlass,
+    permission: HedgehogStampDenied,
+    transient: HedgehogConstruction2,
+    server: HedgehogDoctor,
+    unknown: HedgehogDoctor,
+}
+
+function InsightErrorHoggie({ kind }: { kind: InsightErrorKind }): JSX.Element {
+    const Hoggie = ERROR_HOGGIES[kind]
+    return <Hoggie className="w-24 h-24 mb-2" />
+}
+
+function getInsightErrorKind(status?: number | null): InsightErrorKind {
+    if (status === 429) {
+        return 'rate_limit'
+    }
+    if (status === 400 || status === 422) {
+        return 'invalid_query'
+    }
+    if (status === 401 || status === 403) {
+        return 'permission'
+    }
+    if (status === 502 || status === 503 || status === 504) {
+        return 'transient'
+    }
+    if (status != null && status >= 500) {
+        return 'server'
+    }
+    return 'unknown'
+}
+
+function getInsightErrorTitle(
+    kind: InsightErrorKind,
+    fallback: string | JSX.Element | null | undefined,
+    titleStatus?: number | null
+): string | JSX.Element {
+    if (kind === 'invalid_query') {
+        return "We couldn't run this query"
+    }
+    if (kind === 'transient') {
+        return "This query couldn't run right now"
+    }
+    if (kind === 'server') {
+        return "PostHog couldn't complete this query"
+    }
+    if (kind === 'unknown') {
+        if (titleStatus == null) {
+            return fallback ?? 'There was a problem completing this query'
+        }
+        return "We couldn't complete this query"
+    }
+    return fallback ?? 'There was a problem completing this query'
+}
+
+function getInsightErrorRemediation(kind: InsightErrorKind, retryAfter?: string | null): string | null {
+    switch (kind) {
+        case 'rate_limit':
+            return `Try again ${retryAfter ?? 'later'}.`
+        case 'invalid_query':
+            return 'Open the query debugger and correct the query.'
+        case 'permission':
+            return 'Ask a project admin to grant you access to this insight.'
+        case 'transient':
+            return 'Try again in a moment.'
+        case 'server':
+        case 'unknown':
+            return 'Try again in a moment. If the problem continues, contact support.'
+        default:
+            return null
+    }
 }
 
 export interface InsightErrorStateProps {
@@ -711,6 +792,9 @@ export interface InsightErrorStateProps {
     titleStatus?: number | null
     query?: Record<string, any> | Node | null
     queryId?: string | null
+    retryAfter?: string | null
+    retryLoading?: boolean
+    placement?: DashboardPlacement | 'SavedInsightGrid'
     excludeDetail?: boolean
     excludeActions?: boolean
     supportOnly?: boolean
@@ -723,13 +807,22 @@ export function InsightErrorState({
     titleStatus,
     query,
     queryId,
+    retryAfter,
+    retryLoading = false,
+    placement,
     excludeDetail = false,
     excludeActions = false,
     supportOnly = false,
     fixWithAIComponent,
     onRetry,
 }: InsightErrorStateProps): JSX.Element {
-    const rawServerError = typeof title === 'string' && isRawServerErrorTitle(title, titleStatus) ? title : null
+    const errorKind = getInsightErrorKind(titleStatus)
+    const canRetry = errorKind !== 'invalid_query' && errorKind !== 'permission'
+    const safeTitle = typeof title === 'string' && isRawServerErrorTitle(title, titleStatus) ? null : title
+    const displayTitle = getInsightErrorTitle(errorKind, safeTitle, titleStatus)
+    const isExport = placement === DashboardPlacement.Export
+    const showBugReport = !isExport && (errorKind === 'transient' || errorKind === 'server' || errorKind === 'unknown')
+    const remediation = getInsightErrorRemediation(errorKind, retryAfter)
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -761,63 +854,47 @@ export function InsightErrorState({
             If this persists, submit a bug report.
         </Link>
     )
+    const showErrorIcon = errorKind === 'transient' || errorKind === 'server' || errorKind === 'unknown'
 
     return (
         <div
             data-attr="insight-empty-state"
-            className="flex flex-col items-center gap-2 justify-center rounded px-4 py-6 h-full w-full"
+            className="flex flex-1 min-h-0 flex-col items-center justify-center gap-2 rounded px-4 py-6 w-full text-center"
         >
-            <IconErrorOutline className="text-4xl shrink-0 text-danger" />
+            {showErrorIcon ? (
+                <IconErrorOutline className="text-4xl shrink-0 text-danger mb-2" />
+            ) : (
+                <InsightErrorHoggie kind={errorKind} />
+            )}
 
             <h2 className="text-xl text-danger leading-tight mb-6" data-attr="insight-loading-too-long">
                 {/* Note that this default phrasing signals the issue is intermittent, */}
                 {/* and that perhaps the query will complete on retry */}
-                {!rawServerError && title ? title : <span>There was a problem completing this query</span>}
+                {displayTitle}
             </h2>
 
-            {rawServerError && (
-                <LemonCollapse
-                    className="max-w-160 w-full"
-                    size="small"
-                    panels={[
-                        {
-                            key: 'error-details',
-                            header: 'Error details',
-                            content: (
-                                // Capped height: in fixed-height hosts (dashboard tiles), an uncapped
-                                // trace would push the collapse toggle out of the scrollable area
-                                <CodeSnippet wrap thing="error details" className="max-h-80 overflow-y-auto">
-                                    {rawServerError}
-                                </CodeSnippet>
-                            ),
-                        },
-                    ]}
-                />
-            )}
-
-            {!excludeDetail && !supportOnly && (
+            {!supportOnly && (
                 <div className="mt-4">
-                    We apologize for this unexpected situation. There are a couple of things you can do:
-                    <ol>
-                        <li>
-                            First and foremost you can <b>try again</b>. We recommend you wait a moment before doing so.
-                        </li>
-                        <li>{bugReportLink}</li>
-                    </ol>
+                    {remediation && <p>{remediation}</p>}
+                    {!excludeDetail && showBugReport && <p>{bugReportLink}</p>}
                 </div>
             )}
 
             {/* Outside the excludeDetail gate: self-hosted sets excludeDetail=true, but
                 supportOnly still needs the bug-report path or it dead-ends. */}
-            {supportOnly && <div className="mt-4">{bugReportLink}</div>}
+            {supportOnly && !isExport && <div className="mt-4">{bugReportLink}</div>}
 
-            {!excludeActions && (
+            {!excludeActions && errorKind !== 'permission' && (
                 <div className="flex gap-2 mt-4">
-                    {onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />}
+                    {onRetry && canRetry ? (
+                        <RetryButton onRetry={onRetry} query={query} loading={retryLoading} />
+                    ) : (
+                        <QueryDebuggerButton query={query} />
+                    )}
                     {fixWithAIComponent ?? null}
                 </div>
             )}
-            <QueryIdDisplay queryId={queryId} />
+            {!isExport && <QueryIdDisplay queryId={queryId} />}
         </div>
     )
 }

@@ -17,8 +17,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
-from posthog.rbac.subject_access_control import restricted_visible_membership_ids
-from posthog.rbac.user_access_control import UserAccessControl
+
+from products.access_control.backend.facade.subject_access_control import restricted_visible_membership_ids
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 logger = structlog.get_logger(__name__)
 

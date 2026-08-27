@@ -82,13 +82,13 @@ export function getAddTileMenuItems({
 }
 
 export function DashboardAddTileButton(): JSX.Element | null {
-    const { dashboard, dashboardWidgetsEnabled } = useValues(dashboardLogic)
+    const { dashboard, dashboardWidgetsEnabled, tiles } = useValues(dashboardLogic)
     const { loadDashboard, setAddWidgetModalOpen, setPendingInsertion, openAddInsightModal } =
         useActions(dashboardLogic)
     const { push } = useActions(router)
     const { reportDashboardAddMenuOpened } = useActions(eventUsageLogic)
 
-    if (!dashboard) {
+    if (!dashboard || tiles.length === 0) {
         return null
     }
 
@@ -222,12 +222,35 @@ export function DashboardEditSaveCancelButtons({
 }
 
 export function EditModeActions(): JSX.Element {
-    const { layoutEditMode } = useValues(dashboardLogic)
+    const { layoutEditMode, tiles, dashboardCustomizeMenuOpen } = useValues(dashboardLogic)
+    const { setDashboardCustomizeMenuOpen } = useActions(dashboardLogic)
+    const dashboardCustomizationEnabled = useFeatureFlag('DASHBOARD_CUSTOMIZATION')
 
     return (
         <>
             <DashboardSubscribeButton />
             {layoutEditMode && <DashboardEditSaveCancelButtons />}
+            {dashboardCustomizationEnabled && tiles.length > 0 && (
+                <LemonMenu
+                    items={[{ label: () => <DashboardCustomizeMenu /> }]}
+                    closeOnClickInside={false}
+                    placement="bottom-end"
+                    visible={dashboardCustomizeMenuOpen}
+                    onVisibilityChange={setDashboardCustomizeMenuOpen}
+                >
+                    <LemonButton
+                        type="secondary"
+                        data-attr="dashboard-edit-layout-customize-dropdown"
+                        size="small"
+                        icon={<IconGridMasonry fontSize="16" />}
+                        disabledReason={
+                            tiles.length === 0 ? 'Add at least one tile to customize this dashboard' : undefined
+                        }
+                    >
+                        Customize
+                    </LemonButton>
+                </LemonMenu>
+            )}
             <DashboardAddTileButton />
         </>
     )
@@ -267,28 +290,25 @@ export function ViewModeActions(): JSX.Element {
     return (
         <>
             <DashboardSubscribeButton />
-            <LemonButton
-                type="secondary"
-                data-attr="dashboard-share-button"
-                onClick={() => push(urls.dashboardSharing(dashboard.id))}
-                size="small"
-                icon={<IconShare fontSize="16" />}
-                disabledReason={
-                    tiles.length === 0
-                        ? 'Add at least one tile before sharing this dashboard'
-                        : (sharingDisabledReason ?? undefined)
-                }
-            >
-                Share
-            </LemonButton>
-            {canEditDashboard && (
+            {tiles.length > 0 && (
+                <LemonButton
+                    type="secondary"
+                    data-attr="dashboard-share-button"
+                    onClick={() => push(urls.dashboardSharing(dashboard.id))}
+                    size="small"
+                    icon={<IconShare fontSize="16" />}
+                    disabledReason={sharingDisabledReason ?? undefined}
+                >
+                    Share
+                </LemonButton>
+            )}
+            {canEditDashboard && tiles.length > 0 && (
                 <Shortcut
                     name="EnterEditMode"
                     scope={Scene.Dashboard}
                     keybind={[keyBinds.edit]}
                     intent="Enter edit mode"
                     interaction="click"
-                    disabled={tiles.length === 0}
                 >
                     <LemonButton
                         type="secondary"
@@ -298,17 +318,10 @@ export function ViewModeActions(): JSX.Element {
                         icon={<IconGridMasonry fontSize="16" />}
                         tooltip="Customize dashboard"
                         tooltipPlacement="top"
-                        disabledReason={
-                            tiles.length === 0 ? 'Add at least one tile to customize this dashboard' : undefined
-                        }
                         sideAction={
                             dashboardCustomizationEnabled
                                 ? {
                                       'data-attr': 'dashboard-edit-layout-customize-dropdown',
-                                      disabledReason:
-                                          tiles.length === 0
-                                              ? 'Add at least one tile to customize this dashboard'
-                                              : undefined,
                                       dropdown: {
                                           closeOnClickInside: false,
                                           placement: 'bottom-end',

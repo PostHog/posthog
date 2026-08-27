@@ -1,10 +1,12 @@
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { useMountedLogic } from 'kea'
+import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { wizardActiveSessionDetectorLogic } from 'scenes/onboarding/shared/wizard-sync/wizardActiveSessionDetectorLogic'
 import { SELF_DRIVING_WORKFLOW_ID } from 'scenes/onboarding/shared/wizard-sync/workflows'
+import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
@@ -16,14 +18,25 @@ import {
     mockSourceConfigs,
     mockTask,
     mockTeamConfig,
+    pullRequestReports,
 } from './__mocks__/inboxMocks'
-import { mockLargeScoutFleet, mockScoutConfigs } from './__mocks__/scoutConfigs'
+import { mockLargeScoutFleet, mockScoutConfigs, mockScoutRuns } from './__mocks__/scoutConfigs'
 import { InboxScene } from './InboxScene'
 import { INBOX_LAST_UI_STATE_STORAGE_KEY } from './logics/inboxOnboardingLogic'
 
 // Full Inbox scene with a populated report list. Use this to polish the holistic
-// layout: header, tab bar + single border, scope picker, filter bar, and the
-// centered list column. Switch tabs / scope inside the story to exercise each view.
+// layout: header, page tabs, the Reports view switcher, scope picker, filter bar, and the
+// centered list column. Switch tabs / views / scope inside the story to exercise each.
+
+// The scene reads its tab, view, and open surface from the URL.
+function routeTo(pathname: string, searchParams: Record<string, string> = {}): Decorator {
+    return (Story) => {
+        useEffect(() => {
+            router.actions.push(pathname, searchParams)
+        }, [])
+        return <Story />
+    }
+}
 
 const sceneMocks = mswDecorator({
     get: {
@@ -32,6 +45,10 @@ const sceneMocks = mswDecorator({
             { results: allReports, count: allReports.length, next: null, previous: null },
         ],
         '/api/projects/:id/signals/reports/available_reviewers': () => [200, mockReviewers],
+        '/api/projects/:id/signals/reports/:reportId': (req) => {
+            const report = allReports.find((candidate) => candidate.id === req.params.reportId)
+            return report ? [200, report] : [404, { detail: 'Not found.' }]
+        },
         '/api/projects/:id/signals/reports/:reportId/artefacts': (req) => [
             200,
             mockArtefacts(req.params.reportId as string),
@@ -61,6 +78,7 @@ const meta: Meta = {
         featureFlags: {
             [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
             [FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE]: 'empty-state',
+            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
         },
         // The scene shell keeps a loader element mounted past the VR wait window, so don't block on it.
         testOptions: { waitForLoadersToDisappear: false },
@@ -72,6 +90,58 @@ export default meta
 type Story = StoryObj
 
 export const Inbox: Story = {}
+
+// Triage mode over the Needs-a-decision queue: one report at a time, keyboard-driven.
+export const Triage: Story = {
+    decorators: [routeTo(urls.inboxTriage())],
+}
+
+export const Scouts: Story = {
+    decorators: [
+        routeTo(urls.inbox('scouts')),
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/scout/configs': () => [200, mockScoutConfigs],
+                '/api/projects/:id/signals/scout/runs/recent-per-scout': () => [200, mockScoutRuns(mockScoutConfigs)],
+            },
+        }),
+    ],
+}
+
+export const Settings: Story = {
+    decorators: [routeTo(urls.inbox('settings'))],
+}
+
+// The layout the flag replaces: one tab per report list, the Runs and Configuration tabs, and the
+// setup rail. Story parameters replace the meta's, so the meta-level flags are re-listed.
+const LEGACY_FLAGS = {
+    [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
+    [FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE]: 'empty-state',
+    [FEATURE_FLAGS.INBOX_REDESIGN]: false,
+}
+
+export const Legacy: Story = {
+    parameters: { featureFlags: LEGACY_FLAGS },
+    decorators: [routeTo(urls.inbox('pulls'))],
+}
+
+export const LegacyReport: Story = {
+    parameters: { featureFlags: LEGACY_FLAGS },
+    decorators: [routeTo(urls.inboxReport('pulls', pullRequestReports[0].id))],
+}
+
+export const LegacyScouts: Story = {
+    parameters: { featureFlags: LEGACY_FLAGS },
+    decorators: [
+        routeTo(urls.inbox('scouts')),
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/scout/configs': () => [200, mockScoutConfigs],
+                '/api/projects/:id/signals/scout/runs/recent-per-scout': () => [200, mockScoutRuns(mockScoutConfigs)],
+            },
+        }),
+    ],
+}
 
 // Set up (sources enabled) but no reports yet – exercises the empty list states.
 export const Empty: Story = {
@@ -91,6 +161,7 @@ export const EmptyControl: Story = {
         featureFlags: {
             [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
             [FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE]: 'control',
+            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
         },
     },
     decorators: [
@@ -154,7 +225,11 @@ export const SelfDrivingOnboarding: Story = {
 export const SelfDrivingOnboardingRedesign: Story = {
     parameters: {
         // Story parameters replace the meta's, so the meta-level flag is re-listed here.
-        featureFlags: { [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true, [FEATURE_FLAGS.INBOX_WELCOME_REDESIGN]: 'test' },
+        featureFlags: {
+            [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
+            [FEATURE_FLAGS.INBOX_WELCOME_REDESIGN]: 'test',
+            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+        },
     },
     decorators: [
         mswDecorator({

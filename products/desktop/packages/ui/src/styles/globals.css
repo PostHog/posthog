@@ -58,6 +58,7 @@
  * guarantees the primitive/component class strings get compiled.
  */
 @source "../../../../node_modules/@posthog/quill/dist/**/*.js";
+@source "../../../../node_modules/@posthog/quill-charts/dist/**/*.js";
 
 /*
  * Indeterminate "section loading" bar — a thin accent bar that swoops across the
@@ -1274,12 +1275,22 @@ body.ph-window-blurred .app-fade-in {
   --terminal-selection-fg: #e6e6e6;
 }
 
-/* Buttons and menu items should have pointer cursor */
-button,
-[type="button"],
-[role="button"],
-[role="menuitem"] {
-  cursor: pointer;
+/*
+ * Buttons and menu items should have pointer cursor.
+ *
+ * Layered, because unlayered declarations outrank every `@layer` - this rule
+ * used to beat any `cursor-*` utility written on a button, so a resize grip
+ * asking for `col-resize` and a disabled button asking for `not-allowed` both
+ * silently got `pointer` instead. In `base` it does what a reset should: set
+ * the default, and lose to anything that names a cursor of its own.
+ */
+@layer base {
+  button,
+  [type="button"],
+  [role="button"],
+  [role="menuitem"] {
+    cursor: pointer;
+  }
 }
 
 .quill-button.quill-button--variant-outline:hover {
@@ -1419,6 +1430,18 @@ button,
 }
 
 /*
+ * @posthog/quill toast — the pinned version sets `user-select: none` on the whole card, so an
+ * error message cannot be selected and copied out of the app at all. Quill carries the same rule
+ * now, plus `data-base-ui-swipe-ignore` on the message so a drag there selects instead of swiping
+ * the toast away, which CSS alone cannot do. Drop this block once the catalog version ships it.
+ */
+.quill-toast-card__title,
+.quill-toast-card__description {
+  cursor: text;
+  user-select: text;
+}
+
+/*
  * @posthog/quill Dialog — make the backdrop visible against this app's
  * dark theme (Quill defaults to opacity-20/dark:opacity-70 which barely
  * shows), and center the popup vertically (Quill anchors to ~10vh).
@@ -1433,6 +1456,16 @@ button,
 }
 
 /*
+ * @posthog/quill Drawer — the right panel expands into one, and its width is
+ * whatever the reader drags it to (an inline style on the popup). Quill's right
+ * drawer is a sheet: 75% of the window capped at 24rem, with its children in a
+ * centered 32rem column. Both caps have to come off for a panel that is expanded
+ * precisely to get more room, and the content column has to fill the popup's
+ * flex column instead of sitting in the middle of it. Unlayered, because those
+ * caps are utility classes on the elements themselves, and a rule inside
+ * @layer components would lose to them.
+ */
+/*
  * @posthog/quill Tabs — quill paints an active trigger `var(--background)` with
  * `!important`, and `!important` inverts cascade-layer order, so no utility
  * class on the trigger can outrank it however specific or `!`-marked. An
@@ -1446,5 +1479,19 @@ button,
   .quill-tabs-fill .quill-tabs__trigger:hover,
   .quill-tabs-fill .quill-tabs__trigger[data-active]:hover {
     background-color: var(--fill-selected) !important;
+  }
+}
+
+/*
+ * Spend-limit slider: the hatched overlay marking spend so far drifts, so a
+ * live figure reads as live rather than as a static striped fill. The stripe
+ * period is 6px, so translating by that lands back on an identical frame.
+ */
+@keyframes spend-usage-drift {
+  from {
+    background-position-x: 0;
+  }
+  to {
+    background-position-x: 6px;
   }
 }

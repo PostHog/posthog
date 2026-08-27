@@ -9,7 +9,7 @@ use crate::aperture;
 use crate::debug_recorder::{
     record_if, DebugEventKind, DebugRecorder, DispatcherLoad, LoadEntry, RoutingDebug, SubBatchInfo,
 };
-use crate::order_sentinel::KeyOrderSentinel;
+use crate::order_sentinel::{KeyOrderSentinel, SendKind};
 use crate::routing::{Router, RoutingStrategy, WorkerLoad};
 use crate::stash::{DeferredGroup, Stash};
 use crate::types::SerializedKafkaMessage;
@@ -339,7 +339,34 @@ impl Dispatcher {
     /// the stash and are flushed later via [`Dispatcher::flush_deferred`].
     pub fn assign(&self, batch_id: &str, messages: Vec<SerializedKafkaMessage>) -> Vec<SubBatch> {
         let mut table = self.pin_table.lock().unwrap();
+        self.assign_locked(&mut table, batch_id, messages)
+    }
 
+    /// Assign, then hand each sub-batch to `send` before releasing the pin
+    /// table. A key admitted here because nothing of its is deferred must
+    /// enter its worker stream before `defer_failed` can stash an older group for it:
+    /// with the lock released in between, the stash could land first, the
+    /// worker stream's fence could lift, and the newer group would ride the next
+    /// stream ahead of the older one. `send` must not block.
+    pub fn assign_and_send<T>(
+        &self,
+        batch_id: &str,
+        messages: Vec<SerializedKafkaMessage>,
+        send: impl FnMut(SubBatch) -> T,
+    ) -> Vec<T> {
+        let mut table = self.pin_table.lock().unwrap();
+        self.assign_locked(&mut table, batch_id, messages)
+            .into_iter()
+            .map(send)
+            .collect()
+    }
+
+    fn assign_locked(
+        &self,
+        table: &mut PinTable,
+        batch_id: &str,
+        messages: Vec<SerializedKafkaMessage>,
+    ) -> Vec<SubBatch> {
         let GroupedMessages {
             groups: key_groups,
             missing_header_count,
@@ -381,8 +408,11 @@ impl Dispatcher {
                     // ahead of it — honor it.
                     table.pins.get_mut(&group.routing_key).unwrap().ref_count += 1;
                     bump_load(&mut working_load, &worker, group.messages.len());
-                    self.key_sentinel
-                        .note_sent(&group.routing_key, &group.messages);
+                    self.key_sentinel.note_sent(
+                        &group.routing_key,
+                        &group.messages,
+                        SendKind::Fresh,
+                    );
                     assignments.add_group(worker, group);
                 }
                 Some(_) => {
@@ -482,7 +512,7 @@ impl Dispatcher {
                 },
             );
             self.key_sentinel
-                .note_sent(&group.routing_key, &group.messages);
+                .note_sent(&group.routing_key, &group.messages, SendKind::Fresh);
             assignments.add_group(worker, group);
         }
         drop(router);
@@ -559,9 +589,9 @@ impl Dispatcher {
     }
 
     /// Record a batch's arrival order for the stash. Must be called from the
-    /// consumer loop in true batch order, before the batch is processed —
-    /// per-batch assignment runs on spawned tasks and failed sends re-defer in
-    /// gather order, so no later call site can establish the order reliably.
+    /// consumer loop in true batch order, before `assign` — failed sends
+    /// re-defer in gather order, so no later call site can establish the
+    /// order reliably.
     pub fn register_batch(&self, batch_id: &str) {
         self.pin_table
             .lock()
@@ -706,6 +736,24 @@ impl Dispatcher {
     /// the consumer flushes batches oldest-first.
     pub fn flush_deferred(&self, batch_id: &str) -> Vec<SubBatch> {
         let mut table = self.pin_table.lock().unwrap();
+        self.flush_deferred_locked(&mut table, batch_id)
+    }
+
+    /// Flush, then hand each sub-batch to `send` before releasing the pin
+    /// table, for the same reason as `assign_and_send`. `send` must not block.
+    pub fn flush_deferred_and_send<T>(
+        &self,
+        batch_id: &str,
+        send: impl FnMut(SubBatch) -> T,
+    ) -> Vec<T> {
+        let mut table = self.pin_table.lock().unwrap();
+        self.flush_deferred_locked(&mut table, batch_id)
+            .into_iter()
+            .map(send)
+            .collect()
+    }
+
+    fn flush_deferred_locked(&self, table: &mut PinTable, batch_id: &str) -> Vec<SubBatch> {
         let groups = table.stash.take_batch(batch_id);
         if groups.is_empty() {
             return Vec::new();
@@ -763,7 +811,7 @@ impl Dispatcher {
                 }
             }
             self.key_sentinel
-                .note_sent(&group.routing_key, &group.messages);
+                .note_sent(&group.routing_key, &group.messages, SendKind::Resend);
             assignments.add_group(
                 worker,
                 MessageGroup {
@@ -972,7 +1020,8 @@ impl Dispatcher {
                     );
                 }
             }
-            self.key_sentinel.note_sent(key, &messages);
+            self.key_sentinel
+                .note_sent(key, &messages, SendKind::Resend);
             let mut assignments = WorkerAssignments::new();
             assignments.add_group(
                 worker.clone(),
@@ -2387,6 +2436,44 @@ mod tests {
         let flushed = dispatcher.flush_deferred("batch-1");
         assert_eq!(flushed.len(), 1);
         assert!(!dispatcher.has_deferred("batch-1"));
+    }
+
+    /// A `defer_failed` racing an in-progress assignment must not land between
+    /// a key's admission and its enqueue: the admitted newer group would then
+    /// ride the worker stream ahead of the stashed older one.
+    #[test]
+    fn test_assign_and_send_enqueues_before_a_racing_defer_failed_lands() {
+        let registry = healthy_registry(1);
+        let dispatcher = Arc::new(Dispatcher::new(registry));
+        let b1 = dispatcher.assign("batch-1", make_msgs(&[("t", "user-1")]));
+        assert_eq!(b1.len(), 1, "batch-1 pins the key with an in-flight send");
+
+        let racing = Arc::clone(&dispatcher);
+        let mut race = None;
+        let sent =
+            dispatcher.assign_and_send("batch-2", make_msgs(&[("t", "user-1")]), |sub_batch| {
+                // Admitted behind batch-1's live pin. batch-1's send now fails
+                // and tries to stash its messages before this group is enqueued.
+                let dispatcher = Arc::clone(&racing);
+                let handle = std::thread::spawn(move || {
+                    dispatcher.defer_failed("batch-1", make_msgs(&[("t", "user-1")]));
+                });
+                std::thread::sleep(Duration::from_millis(50));
+                assert!(
+                    !handle.is_finished(),
+                    "defer_failed must wait until the admitted group is enqueued"
+                );
+                race = Some(handle);
+                sub_batch
+            });
+        assert_eq!(sent.len(), 1, "batch-2 was admitted and handed to send");
+        race.take().expect("send ran").join().expect("defer_failed");
+
+        // The stash landed after the enqueue, so newer work for the key now
+        // queues behind it instead of being admitted.
+        let b3 = dispatcher.assign("batch-3", make_msgs(&[("t", "user-1")]));
+        assert!(b3.is_empty(), "newer work defers behind the stashed group");
+        assert!(dispatcher.has_deferred("batch-3"));
     }
 
     #[test]

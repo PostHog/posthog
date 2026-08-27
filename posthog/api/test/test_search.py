@@ -9,15 +9,14 @@ from posthog.api.search import ENTITY_MAP, class_queryset, search_entities
 from posthog.helpers.full_text_search import build_search_vector, process_query
 from posthog.models import OrganizationMembership, Team, User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
-
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestSearch(APIBaseTest):
@@ -401,18 +400,16 @@ class TestSearchAccessLevels(APIBaseTest):
             if result["type"] == entity_type
         }
 
-    def test_blocked_resource_results_are_annotated_none(self):
+    def test_blocked_resource_results_are_hidden_except_own(self):
         FeatureFlag.objects.create(key="searchable-a", team=self.team, created_by=self.other_user)
-        FeatureFlag.objects.create(key="searchable-b", team=self.team, created_by=self.other_user)
+        own = FeatureFlag.objects.create(key="searchable-b", team=self.team, created_by=self.user)
         EventDefinition.objects.create(team=self.team, name="searchable-event")
         AccessControl.objects.create(team=self.team, resource="feature_flag", resource_id=None, access_level="none")
 
         response = self.client.get("/api/projects/@current/search?q=searchable")
 
         assert response.status_code == 200
-        flag_levels = self._levels_by_result_id(response, "feature_flag")
-        assert len(flag_levels) == 2
-        assert set(flag_levels.values()) == {"none"}
+        assert set(self._levels_by_result_id(response, "feature_flag")) == {str(own.id)}
         assert set(self._levels_by_result_id(response, "event_definition").values()) == {None}
 
     def test_object_grants_resolve_by_pk_for_short_id_entities(self):
