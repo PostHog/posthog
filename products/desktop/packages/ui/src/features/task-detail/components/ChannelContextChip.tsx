@@ -8,17 +8,29 @@ import {
   TooltipTrigger,
 } from "@posthog/quill";
 
-type ChannelContextChipProps = {
+export function shouldShowChannelContextChip(
+  includeChannelContext: boolean,
+  contextLayerEnabled: boolean,
+): boolean {
+  return includeChannelContext && !contextLayerEnabled;
+}
+
+/**
+ * The channel CONTEXT.md riding along with the prompt, pinned inside the
+ * composer beside the send button rather than sitting in the attachments row.
+ * It isn't an attachment the writer chose: it comes with the space and travels
+ * with every prompt sent from it, so it keeps its own spot and shows its name
+ * instead of collapsing to an extension square like a real attachment does.
+ */
+export function ChannelContextChip({
+  channelName,
+  onView,
+  onRemove,
+}: {
   channelName?: string;
   onView?: () => void;
-} & (
-  | { source: "context-layer"; onRemove?: never }
-  | { source: "legacy"; onRemove: () => void }
-);
-
-export function ChannelContextChip(props: ChannelContextChipProps) {
-  const { channelName, onView, source } = props;
-  const label = source === "context-layer" ? "Context layer" : "CONTEXT.md";
+  onRemove: () => void;
+}) {
   const chip = (
     <Chip
       onClick={onView}
@@ -33,30 +45,28 @@ export function ChannelContextChip(props: ChannelContextChipProps) {
         !onView && "cursor-default",
       )}
     >
-      {label}
-      {source === "legacy" ? (
-        <ChipClose
-          aria-label={`Remove ${channelName ? `${channelDisplayLabel(channelName)} ` : ""}CONTEXT.md`}
-          className="mr-[-2.5px]"
-          onClick={(event) => {
-            event.stopPropagation();
-            props.onRemove();
-          }}
-        />
-      ) : null}
+      CONTEXT.md
+      {/* Always rendered, not revealed on hover: the chip sets the editor's
+          right padding, so a width that changes under the cursor would reflow
+          the text being typed. */}
+      <ChipClose
+        aria-label={`Remove ${channelName ? `${channelDisplayLabel(channelName)} ` : ""}CONTEXT.md`}
+        className="mr-[-2.5px]"
+        onClick={(event) => {
+          // The chip itself opens the file; removing it must not also do that.
+          event.stopPropagation();
+          onRemove();
+        }}
+      />
     </Chip>
   );
 
-  if (!onView && source === "legacy") return chip;
+  if (!onView) return chip;
 
   return (
     <Tooltip>
       <TooltipTrigger render={chip} />
-      <TooltipContent side="top">
-        {source === "context-layer"
-          ? "Context layer is always connected"
-          : "Click to view CONTEXT.md"}
-      </TooltipContent>
+      <TooltipContent side="top">Click to view CONTEXT.md</TooltipContent>
     </Tooltip>
   );
 }

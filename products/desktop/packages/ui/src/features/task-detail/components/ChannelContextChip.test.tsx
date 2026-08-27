@@ -2,7 +2,10 @@ import { Theme } from "@radix-ui/themes";
 import { render, screen } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { ChannelContextChip } from "./ChannelContextChip";
+import {
+  ChannelContextChip,
+  shouldShowChannelContextChip,
+} from "./ChannelContextChip";
 
 function renderChip(props: ComponentProps<typeof ChannelContextChip>): void {
   render(
@@ -13,16 +16,24 @@ function renderChip(props: ComponentProps<typeof ChannelContextChip>): void {
 }
 
 describe("ChannelContextChip", () => {
-  it("shows the context layer as an always-connected session resource", () => {
-    renderChip({ source: "context-layer" });
-
-    expect(screen.getByText("Context layer")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /remove/i })).toBeNull();
-  });
+  it.each([
+    ["context layer flag", true, true, false],
+    ["legacy CONTEXT.md", true, false, true],
+    ["dismissed legacy context", false, false, false],
+  ] as const)(
+    "shows the chip for %s: %s",
+    (_case, includeChannelContext, contextLayerEnabled, expected) => {
+      expect(
+        shouldShowChannelContextChip(
+          includeChannelContext,
+          contextLayerEnabled,
+        ),
+      ).toBe(expected);
+    },
+  );
 
   it("keeps legacy CONTEXT.md removable", () => {
     renderChip({
-      source: "legacy",
       channelName: "engineering",
       onRemove: vi.fn(),
     });

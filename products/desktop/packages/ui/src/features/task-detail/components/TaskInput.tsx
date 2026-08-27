@@ -64,6 +64,7 @@ import { useAutoresearchEnabled } from "../../autoresearch/useAutoresearchEnable
 import { useFileSearchStore } from "../../command/fileSearchStore";
 import { NewTaskFilePreview } from "../../command/NewTaskFilePreview";
 import { EnvironmentSelector } from "../../environments/EnvironmentSelector";
+import { useContextLayerFlag } from "../../feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "../../feature-flags/useFeatureFlag";
 import { useFeatureFlagsLoaded } from "../../feature-flags/useFeatureFlagsLoaded";
 import { AdditionalDirectoriesButton } from "../../folder-picker/AdditionalDirectoriesButton";
@@ -114,7 +115,10 @@ import { usePreviewConfig } from "../hooks/usePreviewConfig";
 import { useResolvedWorkspaceMode } from "../hooks/useResolvedWorkspaceMode";
 import { useTaskCreation } from "../hooks/useTaskCreation";
 import { useWarmTask } from "../hooks/useWarmTask";
-import { ChannelContextChip } from "./ChannelContextChip";
+import {
+  ChannelContextChip,
+  shouldShowChannelContextChip,
+} from "./ChannelContextChip";
 import { CloudGithubMissingNotice } from "./CloudGithubMissingNotice";
 import { NewTaskSuggestions } from "./ContinueCliSessions";
 import {
@@ -356,6 +360,7 @@ export function TaskInput({
   }, [channelContextSource]);
   const includeChannelContext =
     !!channelContextPath || (!!channelContext && !channelContextDismissed);
+  const contextLayerEnabled = useContextLayerFlag();
 
   const adapter = lastUsedAdapter;
   const prefillRequestKey = initialPromptKey ?? initialPrompt;
@@ -1473,21 +1478,15 @@ export function TaskInput({
                           </button>
                         ) : null}
                       </span>
-                    ) : includeChannelContext ? (
-                      channelContextPath ? (
-                        <ChannelContextChip
-                          source="context-layer"
-                          channelName={channelName}
-                          onView={onContextChipClick}
-                        />
-                      ) : (
-                        <ChannelContextChip
-                          source="legacy"
-                          channelName={channelName}
-                          onView={onContextChipClick}
-                          onRemove={() => setChannelContextDismissed(true)}
-                        />
-                      )
+                    ) : shouldShowChannelContextChip(
+                        includeChannelContext,
+                        contextLayerEnabled,
+                      ) ? (
+                      <ChannelContextChip
+                        channelName={channelName}
+                        onView={onContextChipClick}
+                        onRemove={() => setChannelContextDismissed(true)}
+                      />
                     ) : undefined
                   }
                   repoPath={selectedDirectory}
