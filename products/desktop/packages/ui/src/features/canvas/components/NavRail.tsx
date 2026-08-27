@@ -87,7 +87,7 @@ function NavIcon({
       />
       <TooltipContent side="right">
         {label}
-        {shortcut && <Kbd className="ml-1.5">{shortcut}</Kbd>}
+        {shortcut && <Kbd>{shortcut}</Kbd>}
       </TooltipContent>
     </Tooltip>
   );
@@ -307,6 +307,7 @@ export function NavRail() {
           <NavIcon
             icon={<GearSix size={16} />}
             label="Settings"
+            shortcut={formatHotkey(SHORTCUTS.SETTINGS)}
             isActive={false}
             onClick={() => {
               track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
