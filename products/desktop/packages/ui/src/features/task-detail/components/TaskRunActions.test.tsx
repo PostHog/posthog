@@ -1,7 +1,6 @@
 import type { Task } from "@posthog/shared/domain-types";
 import { Theme } from "@radix-ui/themes";
 import { render, screen } from "@testing-library/react";
-import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 const { useWorkspace, useWorkspaceLoaded } = vi.hoisted(() => ({
@@ -47,66 +46,35 @@ vi.mock("@posthog/ui/features/sessions/handoffDialogStore", () => ({
       closeConfirm: vi.fn(),
     }),
 }));
-vi.mock("@posthog/ui/features/code-review/hooks/useDiffStatsToggle", () => ({
-  useDiffStatsToggle: () => ({
-    filesChanged: 0,
-    linesAdded: 0,
-    linesRemoved: 0,
-    isOpen: false,
-    toggle: vi.fn(),
-  }),
-}));
-vi.mock("@posthog/ui/features/autoresearch/AutoresearchHeaderButton", () => ({
-  AutoresearchHeaderButton: () => null,
-}));
-vi.mock(
-  "@posthog/ui/features/git-interaction/components/BranchSelector",
-  () => ({
-    BranchSelector: () => null,
-  }),
-);
 vi.mock(
   "@posthog/ui/features/git-interaction/components/CloudGitInteractionHeader",
-  () => ({ CloudGitInteractionHeader: () => <div>cloud actions</div> }),
+  () => ({ CloudGitInteractionHeader: () => <div>cloud handoff</div> }),
 );
 vi.mock(
   "@posthog/ui/features/git-interaction/components/TaskActionsMenu",
   () => ({
-    TaskActionsMenu: () => <div>task menu</div>,
+    TaskActionsMenu: ({ isCloud }: { isCloud: boolean }) => (
+      <div>{isCloud ? "cloud task menu" : "local task menu"}</div>
+    ),
   }),
 );
 vi.mock("@posthog/ui/features/sessions/components/StopCloudRunButton", () => ({
   StopCloudRunButton: () => <div>stop cloud run</div>,
 }));
-vi.mock("@posthog/ui/features/diff-stats/DiffStatsBadge", () => ({
-  DiffStatsBadge: () => null,
-}));
-// Needs an authenticated client, so a TRPC provider these renders don't set up.
-vi.mock("./TaskAnalysisButton", () => ({
-  TaskAnalysisButton: () => null,
-}));
-// Reads the route, which these renders don't provide. The Code scene's answer
-// is false, and that is the row this test covers.
-vi.mock("@posthog/ui/features/navigation/useReviewInRightPanel", () => ({
-  useReviewInRightPanel: () => false,
-}));
-vi.mock("@posthog/ui/primitives/Tooltip", () => ({
-  Tooltip: ({ children }: { children: ReactNode }) => children,
-}));
 
-import { TaskHeaderActions } from "./TaskHeaderActions";
+import { TaskRunActions } from "./TaskRunActions";
 
 function renderActions(
   task: Task = { id: "task-1", title: "Fix the bug" } as Task,
 ) {
   render(
     <Theme>
-      <TaskHeaderActions task={task} />
+      <TaskRunActions task={task} />
     </Theme>,
   );
 }
 
-describe("TaskHeaderActions", () => {
+describe("TaskRunActions", () => {
   it("does not show workspace-dependent actions before workspaces load", () => {
     useWorkspace.mockReturnValue(null);
     useWorkspaceLoaded.mockReturnValue(false);
@@ -114,7 +82,7 @@ describe("TaskHeaderActions", () => {
     renderActions();
 
     expect(screen.queryByText("Continue in cloud")).not.toBeInTheDocument();
-    expect(screen.queryByText("task menu")).not.toBeInTheDocument();
+    expect(screen.queryByText("local task menu")).not.toBeInTheDocument();
   });
 
   it("shows cloud controls for a loaded cloud workspace", () => {
@@ -124,8 +92,8 @@ describe("TaskHeaderActions", () => {
     renderActions();
 
     expect(screen.getByText("stop cloud run")).toBeInTheDocument();
-    expect(screen.getByText("cloud actions")).toBeInTheDocument();
-    expect(screen.getByText("task menu")).toBeInTheDocument();
+    expect(screen.getByText("cloud handoff")).toBeInTheDocument();
+    expect(screen.getByText("cloud task menu")).toBeInTheDocument();
     expect(screen.queryByText("Continue in cloud")).not.toBeInTheDocument();
   });
 
@@ -140,7 +108,23 @@ describe("TaskHeaderActions", () => {
     } as Task);
 
     expect(screen.getByText("stop cloud run")).toBeInTheDocument();
-    expect(screen.getByText("cloud actions")).toBeInTheDocument();
+    expect(screen.getByText("cloud handoff")).toBeInTheDocument();
+    expect(screen.getByText("cloud task menu")).toBeInTheDocument();
     expect(screen.queryByText("Continue in cloud")).not.toBeInTheDocument();
+  });
+
+  it("shows local controls for a loaded local workspace", () => {
+    useWorkspace.mockReturnValue({
+      mode: "local",
+      folderPath: "/tmp/example",
+      branchName: "feature/example",
+    });
+    useWorkspaceLoaded.mockReturnValue(true);
+
+    renderActions();
+
+    expect(screen.getByText("Continue in cloud")).toBeInTheDocument();
+    expect(screen.getByText("local task menu")).toBeInTheDocument();
+    expect(screen.queryByText("stop cloud run")).not.toBeInTheDocument();
   });
 });

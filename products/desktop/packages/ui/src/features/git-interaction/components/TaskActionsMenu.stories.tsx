@@ -6,7 +6,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { GitActionControl } from "./TaskActionsMenu";
 
 // Runs the real computeGitInteractionState over a realistic GitState, so the
-// stories show exactly what the task header offers in each environment,
+// stories show exactly what the prompt footer offers in each environment,
 // including which actions are dropped rather than disabled.
 const baseState: GitState = {
   repoPath: "/Users/dev/example-repo",

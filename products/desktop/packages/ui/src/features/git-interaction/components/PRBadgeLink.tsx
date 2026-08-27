@@ -32,7 +32,7 @@ interface PRBadgeLinkProps {
 /**
  * The colored "open this PR on GitHub" badge — styled by the PR's lifecycle
  * state (open / draft / closed / merged) and rendered as an external anchor.
- * Shared between the task header (TaskActionsMenu) and the command center
+ * Shared between the prompt footer (TaskActionsMenu) and the command center
  * cell header.
  */
 export function PRBadgeLink({

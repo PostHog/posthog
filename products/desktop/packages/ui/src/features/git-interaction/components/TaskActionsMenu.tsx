@@ -76,7 +76,7 @@ const NO_WORK_SLOTS = new Set<GitMenuActionId>([
 ]);
 
 /**
- * Unified actions control shown in the task header. Combines:
+ * Unified actions control shown in the prompt footer. Combines:
  *   - Git interaction (commit/push/create-PR/branch) for local tasks
  *   - PR status badge + PR lifecycle actions (close/draft/ready) for any task
  *     whose branch has a PR
@@ -441,9 +441,8 @@ export function GitActionControl({
   const showDropdown = actions.length > 1;
   const isPrimaryDisabled = !primaryAction.enabled || isBusy;
 
-  // Outlined rather than solid: the git action is one of several things the
-  // header offers, not the header's call to action, and "Continue in cloud"
-  // sits right beside it.
+  // Outlined rather than solid because the git action sits beside the handoff
+  // control instead of acting as the footer's single primary action.
   const primaryButton = (
     <QButton
       size="sm"

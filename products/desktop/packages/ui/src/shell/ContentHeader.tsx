@@ -6,9 +6,8 @@ import { Flex } from "@radix-ui/themes";
 
 // The in-pane content header for the unified Bluebird chrome. Shows the active
 // view's title (pushed into the header store by each view) on the left and that
-// task's action row (TaskHeaderActions) on the right — the branch selector,
-// review-panel toggle, cloud/local handoff, skill buttons and task actions that
-// used to live in the Code header bar.
+// task's compact navigation actions on the right. Run and Git actions stay with
+// the prompt in its attached footer.
 //
 // This breadcrumb row is scoped to views that have somewhere to walk back to:
 // task detail, and the loop scenes (list / detail / form), which live outside
