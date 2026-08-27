@@ -66,6 +66,8 @@ describe('getManualCaptureExample', () => {
                 answer: '',
             },
         ])('completes $path with every answer on the completed event', (testCase) => {
+            // The sample wires its second capture to the follow-up closing, so a straight run
+            // reaches it on every path. `eventsSent` trims the run back to one real path.
             const sent = runSample(testCase).slice(0, testCase.eventsSent)
 
             const completed = sent.filter((event) => event.$survey_completed === true)
