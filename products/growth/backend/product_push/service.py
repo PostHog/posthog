@@ -74,7 +74,7 @@ class CustomProductPushBatchResult:
     would_create: int = 0  # dry-run only
 
 
-@dataclass(kw_only=True)
+@frozen(frozen=False)  # counters accumulate while the batch is processed
 class StartBatchResult:
     orgs_processed: int = 0
     started: int = 0
