@@ -280,11 +280,12 @@ jobs:
                               'with_entries(select((.key | startswith("products/")) and ($fresh[0][.key] == null)))' \
                               /tmp/previous_durations > /tmp/products_durations
                       else
-                          # The cache missed, so there is no slice to stand in. Publishing the
-                          # other segments without product entries beats failing this step and
-                          # publishing nothing at all.
-                          echo "::warning::No previous map to stand in; this refresh carries no product entries."
-                          echo '{}' > /tmp/products_durations
+                          # No cached slice to stand in and no fresh one. A map with no product
+                          # entries would still become the newest cache and the latest successful
+                          # artifact, so every consumer would fall back to the file-count estimate
+                          # and under-shard the fixture-heavy products. Leave the older map newest.
+                          echo "::error::Products slice failed with no previous map to stand in; refusing to publish a map without product entries"
+                          exit 1
                       fi
                   fi
 

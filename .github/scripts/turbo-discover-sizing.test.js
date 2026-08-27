@@ -96,7 +96,7 @@ test('buildMatrix splits a product to the shared wall target', () => {
     const matrix = buildMatrix(['big-one'], union, true)
 
     // 2000s of work, with the imbalance margin, over a (target - overhead) budget.
-    assert.equal(matrix.length, productSplitShards({ work: 2000, heavyCount: 0, lightWork: 2000, maxLight: 50 }))
+    assert.equal(matrix.length, productSplitShards({ work: 2000, heavyCount: 0, lightWork: 2000, maxLight: 50, testCount: 40 }))
     assert.match(matrix[0].group, /^big-one \(1\/\d+\)$/)
 })
 
@@ -123,8 +123,8 @@ test('a single-invocation entry keeps the pre-legs keys for unrebased branches',
 
 test('productSplitShards sizes the worst chunk, not the mean', () => {
     const budget = TARGET_WALL_SECONDS - PRODUCT_JOB_OVERHEAD_SECONDS
-    const evenly = { work: 1000, heavyCount: 0, lightWork: 1000, maxLight: 10 }
-    const coarse = { work: 1000, heavyCount: 0, lightWork: 1000, maxLight: 150 }
+    const evenly = { work: 1000, heavyCount: 0, lightWork: 1000, maxLight: 10, testCount: 100 }
+    const coarse = { work: 1000, heavyCount: 0, lightWork: 1000, maxLight: 150, testCount: 100 }
 
     // Same total work; the coarser grain cannot be cut as finely, so it needs more
     // shards to keep its worst chunk inside the budget.
@@ -139,17 +139,28 @@ test('tests above half the budget each hold a shard of their own', () => {
 
     // Ten tests this size cannot pair, so no count below ten holds the budget,
     // however the total work divides.
-    assert.equal(productSplitShards({ work: heavy * 10, heavyCount: 10, lightWork: 0, maxLight: 0 }), 10)
+    assert.equal(productSplitShards({ work: heavy * 10, heavyCount: 10, lightWork: 0, maxLight: 0, testCount: 10 }), 10)
     // One heavy test and a sliver stays bounded rather than asking for a shard per
-    // second of remainder. Three, not two: the cuts are contiguous, so light work
-    // on both sides of the heavy test cannot be gathered into one chunk.
-    assert.equal(productSplitShards({ work: budget + 1, heavyCount: 1, lightWork: 1, maxLight: 1 }), 3)
+    // second of remainder. Two tests cannot fill three shards, so the count stops
+    // there rather than planning one that collects nothing.
+    assert.equal(
+        productSplitShards({ work: budget + 1, heavyCount: 1, lightWork: 1, maxLight: 1, testCount: 2 }),
+        2
+    )
+})
+
+test('the count never exceeds the tests there are to place', () => {
+    // The fragmentation charge assumes a shape the suite may not have. Past the
+    // test count a shard collects nothing and spends a runner for it.
+    const many = { work: 10000, heavyCount: 3, lightWork: 100, maxLight: 10, testCount: 5 }
+
+    assert.equal(productSplitShards(many), 5)
 })
 
 test('a heavy test between light ones splits the light run', () => {
     // Ordered [53, 301, 133] against a 320s budget: either contiguous cut leaves a
     // 354s or 434s chunk, so two shards cannot hold the budget however it is cut.
-    assert.equal(productSplitShards({ work: 487, heavyCount: 1, lightWork: 186, maxLight: 133 }), 3)
+    assert.equal(productSplitShards({ work: 487, heavyCount: 1, lightWork: 186, maxLight: 133, testCount: 3 }), 3)
 })
 
 test('a product that fits one shard is packed, not split by its own margin', () => {
@@ -161,7 +172,7 @@ test('a product that fits one shard is packed, not split by its own margin', () 
     }
 
     assert.ok(300 <= TARGET_WALL_SECONDS - PRODUCT_JOB_OVERHEAD_SECONDS)
-    assert.equal(productSplitShards({ work: 300, heavyCount: 0, lightWork: 300, maxLight: 30 }), 1)
+    assert.equal(productSplitShards({ work: 300, heavyCount: 0, lightWork: 300, maxLight: 30, testCount: 10 }), 1)
 
     const matrix = buildMatrix(['mid-one'], union, true)
 
@@ -176,7 +187,7 @@ test("a split product's last shard absorbs a small product without leaking split
     }
     union['products/small_one/backend/test_s.py::test_s'] = 40
 
-    assert.equal(productSplitShards({ work: 330, heavyCount: 0, lightWork: 330, maxLight: 30 }), 2)
+    assert.equal(productSplitShards({ work: 330, heavyCount: 0, lightWork: 330, maxLight: 30, testCount: 11 }), 2)
 
     const matrix = buildMatrix(['big-one', 'small-one'], union, true)
 

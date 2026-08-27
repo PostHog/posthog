@@ -716,7 +716,7 @@ function productShardBudget() {
 // rather than summed; the rest are summed, with their own longest, because a
 // contiguous chunk of them runs at most one of them past the mean.
 function getProductShape(product, durations) {
-    const shape = { work: 0, maxTest: 0, heavyCount: 0, lightWork: 0, maxLight: 0 }
+    const shape = { work: 0, maxTest: 0, heavyCount: 0, lightWork: 0, maxLight: 0, testCount: 0 }
     if (!durations) {
         return shape
     }
@@ -728,6 +728,7 @@ function getProductShape(product, durations) {
             continue
         }
         shape.work += dur
+        shape.testCount += 1
         shape.maxTest = Math.max(shape.maxTest, dur)
         if (dur > heavyThreshold) {
             shape.heavyCount += 1
@@ -765,6 +766,7 @@ function resolveProductSizing(product, durations, productsScaled = false) {
                 heavyCount: 0,
                 lightWork: fallbackWork,
                 maxLight: STALENESS_FALLBACK_SECONDS_PER_FILE,
+                testCount: Math.max(shape.testCount, staleness.fileCount),
                 staleUnionWork: shape.work,
                 staleness,
             }
@@ -911,6 +913,10 @@ function calculateShards(totalWorkSeconds, overheadSeconds, minShards = DJANGO_M
 // light runs, and each run rounds up on its own, so the light side can cost H
 // shards beyond its own bound. Charge that whenever any light work exists.
 //
+// That charge assumes a fragmentation the suite may not have, so cap the count
+// at the number of tests. Past it a shard is guaranteed to collect nothing
+// (pytest exit 5) and spends a runner without shortening the critical path.
+//
 // Reading the distribution rather than a fitted ratio ties the sizing to the
 // map: a suite of heavy tests gets the shards they force, an evenly grained one
 // gets none it does not need, and no constant carries a past map's error.
@@ -919,13 +925,14 @@ function calculateShards(totalWorkSeconds, overheadSeconds, minShards = DJANGO_M
 // not apply to it -- an unsplit chunk is the work itself, with nothing on top.
 function productSplitShards(shape) {
     const budget = productShardBudget()
-    const { work = 0, heavyCount = 0, lightWork = 0, maxLight = 0 } = shape ?? {}
+    const { work = 0, heavyCount = 0, lightWork = 0, maxLight = 0, testCount = Infinity } = shape ?? {}
     if (work <= budget) {
         return 1
     }
     const lightShards = lightWork > 0 ? Math.ceil(lightWork / (budget - maxLight)) : 0
     const fragmentation = lightWork > 0 ? heavyCount : 0
-    return Math.max(2, Math.min(DJANGO_MAX_SHARDS, heavyCount + lightShards + fragmentation))
+    const wanted = Math.min(heavyCount + lightShards + fragmentation, testCount)
+    return Math.max(2, Math.min(DJANGO_MAX_SHARDS, wanted))
 }
 
 // Selector segment key -> Django matrix segment name.
