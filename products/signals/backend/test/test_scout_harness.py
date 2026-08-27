@@ -590,6 +590,13 @@ class TestPromptBuilder(BaseTest):
         assert "skill-file-get" in prompt
         assert "watch for spikes" not in prompt
         assert "refs/playbook.md" not in prompt
+        # Bootstrap distinguishes the two skill sources: `skill-get` serves this team's stored
+        # skills, while the `posthog:`-prefixed deep-dive skills scout bodies reference are baked
+        # into the sandbox as plugin skills and load via the native Skill tool, not `skill-get`.
+        # Without this, scouts call `skill-get` for `posthog:querying-posthog-data` and get nothing.
+        assert "posthog:querying-posthog-data" in prompt
+        assert "plugin skills" in prompt
+        assert "~/.claude/skills/" in prompt
         # Second bootstrap step orients the agent on the project via the
         # project-profile harness tool, eliminating the discovery-burn the
         # scout would otherwise pay on a fresh team.
