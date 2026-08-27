@@ -4,7 +4,10 @@ import { IconRefresh } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { AppMetricsTimeSeriesChart } from 'lib/components/AppMetrics/AppMetricsTimeSeriesChart'
+import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -36,6 +39,18 @@ const GRANULARITY_OPTIONS: { value: UsageGranularity; label: string }[] = [
 ]
 
 export function RealTimeUsage(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    // Kept out of the body below so a team without the flag never mounts the logic, which queries
+    // on mount against a table their project cannot resolve.
+    if (!featureFlags[FEATURE_FLAGS.BILLING_REAL_TIME_USAGE]) {
+        return <NotFound object="page" caption="Real-time usage is not available." />
+    }
+
+    return <RealTimeUsageBody />
+}
+
+function RealTimeUsageBody(): JSX.Element {
     const { usageData, usageDataError, usageDataLoading, usageGranularity, usageRange } = useValues(realTimeUsageLogic)
     const { loadUsageData, setUsageFilters } = useActions(realTimeUsageLogic)
 
