@@ -4489,9 +4489,23 @@ export interface Response2Api {
     warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
+export interface HogQLFixEditApi {
+    end: number
+    start: number
+    text: string
+}
+
+export interface HogQLFixActionApi {
+    /** Applied together as a single undoable edit. */
+    edits: HogQLFixEditApi[]
+    /** Shown as the quick-fix title. */
+    title: string
+}
+
 export interface HogQLNoticeApi {
     end?: number | null
     fix?: string | null
+    fix_action?: HogQLFixActionApi | null
     message: string
     start?: number | null
 }
@@ -4547,8 +4561,10 @@ export const QueryIndexUsageApi = {
 
 export interface UnprunedTableScanApi {
     end?: number | null
-    /** A predicate that would bound the partition key, ready to paste into the query. */
+    /** Advice naming a predicate that would bound the partition key. Prose, not replacement text. */
     fix: string
+    /** Absent when the query shape has no unambiguous place to write the bound. */
+    fix_action?: HogQLFixActionApi | null
     message: string
     /** Partition key the scan does not bound, e.g. `toYYYYMM(timestamp)`. */
     partition_key: string
