@@ -31,10 +31,12 @@ from products.exports.backend.models.subscription import (
     SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER,
     Subscription,
     SubscriptionDelivery,
+    SubscriptionDeliveryContext,
 )
 from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_CHARTS_KEY,
-    AI_REPORT_CONTEXT_SNAPSHOT_KEY,
+    AI_REPORT_DELIVERY_CONTEXT_MARKER_IDENTIFIER,
+    AI_REPORT_DELIVERY_CONTEXT_MARKER_KIND,
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_SNAPSHOT_KEY,
@@ -3442,14 +3444,22 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         subscription = self._subscription_for(
             prompt="How did signups do last week?", context_dashboards=[self.restricted_dashboard]
         )
-        self._delivery_for(
-            subscription,
-            content_snapshot={
-                AI_REPORT_CONTEXT_SNAPSHOT_KEY: {
-                    "version": 1,
-                    "resources": {"dashboard": {str(self.restricted_dashboard.id): True}},
-                }
-            },
+        delivery = self._delivery_for(subscription)
+        SubscriptionDeliveryContext.objects.for_team(self.team.id).bulk_create(
+            [
+                SubscriptionDeliveryContext(
+                    delivery=delivery,
+                    team=self.team,
+                    kind=AI_REPORT_DELIVERY_CONTEXT_MARKER_KIND,
+                    identifier=AI_REPORT_DELIVERY_CONTEXT_MARKER_IDENTIFIER,
+                ),
+                SubscriptionDeliveryContext(
+                    delivery=delivery,
+                    team=self.team,
+                    kind="dashboard",
+                    identifier=str(self.restricted_dashboard.id),
+                ),
+            ]
         )
 
         listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
@@ -3457,6 +3467,8 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
 
         retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}")
         assert retrieved.status_code == status.HTTP_200_OK, retrieved.json()
+        assert retrieved.json()["contexts"] == []
+        assert retrieved.json()["context_dashboards"] == []
 
         for forbidden_update in (
             {"prompt": "Send this report elsewhere"},
@@ -3488,6 +3500,19 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         deliveries = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/")
         assert deliveries.status_code == status.HTTP_200_OK
         assert deliveries.json()["results"] == []
+
+    def test_creator_with_context_access_can_edit_and_test_deliver(self):
+        subscription = self._subscription_for(
+            prompt="How did signups do last week?", context_dashboards=[self._dashboard_with_tiles(self.open_insight)]
+        )
+
+        updated = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", {"title": "Updated report"}
+        )
+        assert updated.status_code == status.HTTP_200_OK, updated.json()
+
+        delivered = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/test-delivery")
+        assert delivered.status_code == status.HTTP_202_ACCEPTED, delivered.json()
 
     def test_non_creator_cannot_recover_a_context_blocked_subscription(self):
         subscription = self._subscription_for(
@@ -3533,6 +3558,19 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_cannot_add_a_dashboard_context_with_a_restricted_tile(self):
+        dashboard = self._dashboard_with_tiles(self.open_insight, self.restricted_insight)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._payload(prompt="How did signups do?", context_dashboards=[dashboard.id]),
+        )
+
+        body = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, body
+        assert body["attr"] == "dashboard", body
+        assert "Viewer access to every insight" in body["detail"], body
 
     def _create_on_a_restricted_insight(self):
         return self.client.post(

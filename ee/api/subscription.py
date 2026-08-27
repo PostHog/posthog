@@ -7,7 +7,8 @@ from typing import Any, ClassVar, Optional
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import Manager, Q, QuerySet
+from django.db.models import CharField, Exists, Manager, OuterRef, Q, QuerySet, Subquery
+from django.db.models.functions import Cast
 from django.http import HttpRequest, JsonResponse
 from django.shortcuts import get_object_or_404
 
@@ -39,6 +40,7 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import get_request_analytics_properties, groups
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.integration import Integration
 from posthog.rate_limit import SubscriptionTestDeliveryThrottle
 from posthog.resource_limits import LimitKey, check_count_limit, get_organization_limit
@@ -55,6 +57,7 @@ from products.event_definitions.backend.models.event_definition import EventDefi
 from products.exports.backend.models.subscription import (
     Subscription,
     SubscriptionDelivery,
+    SubscriptionDeliveryContext,
     attribute_subscription_saves,
     unsubscribe_using_token,
 )
@@ -65,7 +68,8 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
 )
 from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_CHARTS_KEY,
-    AI_REPORT_CONTEXT_SNAPSHOT_KEY,
+    AI_REPORT_DELIVERY_CONTEXT_MARKER_IDENTIFIER,
+    AI_REPORT_DELIVERY_CONTEXT_MARKER_KIND,
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_SNAPSHOT_KEY,
@@ -85,6 +89,41 @@ MAX_AI_REPORT_CONTEXTS = 25
 
 def _summary_quota_cache_key(organization_id) -> str:
     return f"subscription:summary_quota:org:{organization_id}"
+
+
+def _log_subscription_context_changes(
+    subscription: Subscription, user, old_context_ids: dict[str, set[int]], new_context_ids: dict[str, set[int]]
+) -> None:
+    """Record M2M report-grounding changes with the request actor.
+
+    Model activity signals fire before DRF applies many-to-many fields, so the generic model
+    diff cannot observe these scope-affecting changes.
+    """
+    changes = [
+        Change(
+            type="Subscription",
+            field=field,
+            action="changed",
+            before=sorted(old_ids),
+            after=sorted(new_context_ids[field]),
+        )
+        for field, old_ids in old_context_ids.items()
+        if old_ids != new_context_ids[field]
+    ]
+    if not changes:
+        return
+    try:
+        log_activity(
+            organization_id=subscription.team.organization_id,
+            team_id=subscription.team_id,
+            user=user,
+            item_id=subscription.id,
+            scope="Subscription",
+            activity="updated",
+            detail=Detail(name=subscription.display_name, changes=changes),
+        )
+    except Exception as exc:
+        capture_exception(exc)
 
 
 def _summary_cap_hit_dedupe_key(organization_id) -> str:
@@ -474,6 +513,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(SubscriptionContextSerializer(many=True))
     def get_contexts(self, obj: Subscription) -> list[dict[str, str | int]]:
+        user_access_control = self.context.get("view").user_access_control if self.context.get("view") else None
         dashboards = [
             {
                 "kind": "dashboard",
@@ -483,6 +523,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             }
             for dashboard in obj.context_dashboards.all()
             if not dashboard.deleted
+            and (user_access_control is None or user_access_control.check_access_level_for_object(dashboard, "viewer"))
         ]
         insights = [
             {
@@ -493,8 +534,18 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             }
             for insight in obj.context_insights.all()
             if not insight.deleted
+            and (user_access_control is None or user_access_control.check_access_level_for_object(insight, "viewer"))
         ]
         return dashboards + insights
+
+    def to_representation(self, instance: Subscription) -> dict:
+        data = super().to_representation(instance)
+        # A creator may retrieve an otherwise inaccessible subscription solely to recover from
+        # losing access. Do not turn that recovery route into an identifier-disclosure endpoint.
+        if getattr(instance, "_is_context_recovery", False):
+            data["context_dashboards"] = []
+            data["context_insights"] = []
+        return data
 
     def get_resource_name(self, obj: Subscription) -> Optional[str]:
         info = obj.resource_info
@@ -582,6 +633,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                     _require_viewer_access(user_access_control, target, field)
                     if target.deleted:
                         raise ValidationError({field: [f"This {label} has been deleted."]})
+                    if field == "context_dashboards":
+                        self._require_viewer_access_to_every_live_tile(target)
 
             context_items = attrs.get("context_items")
             if context_items is None:
@@ -953,6 +1006,16 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         with attribute_subscription_saves(get_request_analytics_properties(request)):
             instance: Subscription = super().create(validated_data)
 
+        _log_subscription_context_changes(
+            instance,
+            request.user,
+            {"context_dashboards": set(), "context_insights": set()},
+            {
+                "context_dashboards": set(instance.context_dashboards.values_list("id", flat=True)),
+                "context_insights": set(instance.context_insights.values_list("id", flat=True)),
+            },
+        )
+
         # Bust the org-wide active-summary count cache so the next quota
         # fetch reflects this row, regardless of summary_enabled — over-busting
         # is cheap and removes the need to track the prior state.
@@ -1068,6 +1131,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         with attribute_subscription_saves(analytics_props):
             instance = super().update(instance, validated_data)
+        _log_subscription_context_changes(instance, request.user, old_context_ids, new_context_ids)
         _invalidate_summary_quota_cache(instance.team.organization_id)
 
         # Apply the M2M whenever the field is in the payload — including an empty list, which clears it.
@@ -1187,33 +1251,36 @@ def _viewable_delivery_filter(user_access_control: UserAccessControl, team_id: i
     if not has_object_rules and not denies_a_target_resource:
         return target_filter
 
-    blocked_insight_ids = list(
-        _blocked_target_ids(
-            user_access_control, _DELIVERY_TARGETS.insights.filter(team_id=team_id), "insight"
-        ).values_list("id", flat=True)
+    blocked_insight_identifiers = (
+        _blocked_target_ids(user_access_control, _DELIVERY_TARGETS.insights.filter(team_id=team_id), "insight")
+        .annotate(identifier=Cast("id", output_field=CharField()))
+        .values("identifier")
     )
-    blocked_dashboard_ids = list(
-        _blocked_target_ids(
-            user_access_control, _DELIVERY_TARGETS.dashboards.filter(team_id=team_id), "dashboard"
-        ).values_list("id", flat=True)
+    blocked_dashboard_identifiers = (
+        _blocked_target_ids(user_access_control, _DELIVERY_TARGETS.dashboards.filter(team_id=team_id), "dashboard")
+        .annotate(identifier=Cast("id", output_field=CharField()))
+        .values("identifier")
     )
-
-    hidden_historical_context = Q(pk__in=[])
-    for resource_name, resource_ids in (
-        ("dashboard", blocked_dashboard_ids),
-        ("insight", blocked_insight_ids),
-        ("dashboard_tile_insight", blocked_insight_ids),
-    ):
-        if resource_ids:
-            hidden_historical_context |= Q(
-                **{
-                    f"content_snapshot__{AI_REPORT_CONTEXT_SNAPSHOT_KEY}__resources__{resource_name}__has_any_keys": [
-                        str(resource_id) for resource_id in resource_ids
-                    ]
-                }
-            )
-
-    return target_filter & ~hidden_historical_context
+    delivery_contexts = SubscriptionDeliveryContext.objects.for_team(team_id).filter(delivery_id=OuterRef("pk"))
+    has_provenance = Exists(
+        delivery_contexts.filter(
+            kind=AI_REPORT_DELIVERY_CONTEXT_MARKER_KIND,
+            identifier=AI_REPORT_DELIVERY_CONTEXT_MARKER_IDENTIFIER,
+        )
+    )
+    has_blocked_context = Exists(
+        delivery_contexts.filter(
+            Q(kind="dashboard", identifier__in=Subquery(blocked_dashboard_identifiers))
+            | Q(kind__in=["insight", "dashboard_tile_insight"], identifier__in=Subquery(blocked_insight_identifiers))
+        )
+    )
+    # A mixed rolling deploy can write an AI delivery before the worker writing context rows is
+    # live. Hide such legacy rows whenever object-level access rules apply; an omitted provenance
+    # record must never read as proof that a report used no restricted grounding.
+    hidden_ai_delivery = Q(subscription__resource_type=Subscription.ResourceType.AI_PROMPT) & (
+        Q(~has_provenance) | Q(has_blocked_context)
+    )
+    return target_filter & ~hidden_ai_delivery
 
 
 def _target_filter(
@@ -1508,6 +1575,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         if self._can_view_subscription(subscription, include_anchors=True):
             return subscription
         if self._can_recover_context_access(subscription):
+            subscription._is_context_recovery = True
             return subscription
         raise exceptions.PermissionDenied(
             "You do not have viewer access to this subscription. Ask an organization admin to update your access."
@@ -1523,8 +1591,10 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         )
 
     def _can_recover_context_access(self, subscription: Subscription) -> bool:
-        return subscription.created_by_id == self.request.user.id and self._can_view_subscription(
-            subscription, include_anchors=False
+        return (
+            subscription.created_by_id == self.request.user.id
+            and not self._can_view_subscription(subscription, include_anchors=True)
+            and self._can_view_subscription(subscription, include_anchors=False)
         )
 
     def _validate_context_recovery_update(self, subscription: Subscription, data) -> None:

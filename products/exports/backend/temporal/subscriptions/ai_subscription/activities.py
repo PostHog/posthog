@@ -3,6 +3,7 @@ import datetime as dt
 import dataclasses
 from datetime import datetime
 
+from django.db import transaction
 from django.utils import timezone as tz
 
 import dateutil.parser
@@ -13,13 +14,15 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
 from posthog.models import OrganizationMembership
+from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 
-from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
+from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery, SubscriptionDeliveryContext
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     build_ai_subscription_report,
     build_chart_image_urls,
+    resolve_ai_subscription_context,
     send_email_ai_subscription_credit_limited,
     send_email_ai_subscription_report,
     send_slack_ai_subscription_report,
@@ -34,6 +37,8 @@ from products.exports.backend.temporal.subscriptions.delivery_common import (
 )
 from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_CHARTS_KEY,
+    AI_REPORT_DELIVERY_CONTEXT_MARKER_IDENTIFIER,
+    AI_REPORT_DELIVERY_CONTEXT_MARKER_KIND,
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_SNAPSHOT_KEY,
@@ -124,6 +129,41 @@ async def _persist_ai_report(delivery_id: uuid.UUID, result: AiReportResult, pro
             **({AI_REPORT_PROMPT_SNAPSHOT_KEY: strip_null_bytes(prompt)} if prompt else {}),
         }
         delivery.save(update_fields=["content_snapshot", "last_updated_at"])
+
+    await _write()
+
+
+async def _replace_delivery_context_references(
+    delivery_id: uuid.UUID, team_id: int, references: list[tuple[str, str]]
+) -> None:
+    """Persist the exact bounded anchor used by this generation attempt.
+
+    Replacing before generation makes an activity retry reflect its new, current anchor while
+    keeping the report and its provenance paired once a report has been persisted.
+    """
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _write() -> None:
+        with transaction.atomic():
+            delivery = SubscriptionDelivery.objects.select_for_update().get(pk=delivery_id, team_id=team_id)
+            canonical_team_id = resolve_effective_team_id(team_id)
+            contexts = SubscriptionDeliveryContext.objects.for_team(canonical_team_id, canonical=True)
+            contexts.filter(delivery=delivery).delete()
+            contexts.bulk_create(
+                [
+                    SubscriptionDeliveryContext(
+                        delivery=delivery,
+                        team_id=canonical_team_id,
+                        kind=kind,
+                        identifier=identifier,
+                    )
+                    for kind, identifier in [
+                        (AI_REPORT_DELIVERY_CONTEXT_MARKER_KIND, AI_REPORT_DELIVERY_CONTEXT_MARKER_IDENTIFIER),
+                        *references,
+                    ]
+                ],
+                ignore_conflicts=True,
+            )
 
     await _write()
 
@@ -280,7 +320,11 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
         return GenerateAIReportResult(skipped=True, target_type=subscription.target_type)
 
     try:
-        report_result = await build_ai_subscription_report(subscription)
+        context = await resolve_ai_subscription_context(subscription)
+        await _replace_delivery_context_references(
+            inputs.delivery_id, subscription.team_id, context.anchor.resource_references if context.anchor else []
+        )
+        report_result = await build_ai_subscription_report(subscription, context=context)
     except PromptRejectedError as exc:
         # Structurally permanent: no creator, prompt now fails sanitization, or the
         # planner returned a malformed plan. Re-firing wastes LLM tokens every cycle.

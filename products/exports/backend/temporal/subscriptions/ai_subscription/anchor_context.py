@@ -2,12 +2,18 @@ import json
 import hashlib
 from collections.abc import Iterator
 
+from django.db.models import IntegerField, Q, QuerySet, Value
+from django.db.models.fields.json import KeyTextTransform, KeyTransform
+from django.db.models.functions import Cast, Coalesce
+
 import structlog
 from pydantic import BaseModel, Field
 
 from posthog.exceptions_capture import capture_exception
 from posthog.security.llm_prompt_sanitization import sanitize_user_text
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import Subscription
 from products.product_analytics.backend.facade.models import Insight
@@ -39,6 +45,10 @@ class AnchorContext(BaseModel):
     # Hash of both planner inputs (`blob` and `event_names`); frozen with the query plan so an
     # anchor content change forces a re-plan.
     content_hash: str
+    # Stable references to exactly the resource records incorporated into `blob`. These are
+    # persisted with a delivery immediately before generation, so history access checks do not
+    # have to infer report scope from the subscription after it changes.
+    resource_references: list[tuple[str, str]] = Field(default_factory=list)
 
 
 class AnchorContextUnavailable(Exception):
@@ -99,6 +109,33 @@ def _dashboard_metadata_line(label: str, value: object) -> str | None:
     return f"  {label} (JSON): {serialized}" if serialized else None
 
 
+def _capped_dashboard_tiles(
+    dashboard, viewable_insights: QuerySet[Insight], limit: int
+) -> tuple[list[DashboardTile], int]:
+    """Return only the layout-first tiles needed for one bounded report anchor.
+
+    Ordering in SQL prevents a large dashboard from being materialized in a worker just to keep
+    the first few tiles. Dashboard layout values are numeric in the persisted schema; missing
+    coordinates retain the UI's existing fallback of 100, with ID as a deterministic tie-break.
+    """
+    tiles = dashboard.tiles.filter(insight_id__in=viewable_insights)
+    total = tiles.count()
+    if not limit:
+        return [], total
+    layout_sm = KeyTransform("sm", "layouts")
+    return (
+        list(
+            tiles.annotate(
+                layout_y=Coalesce(Cast(KeyTextTransform("y", layout_sm), IntegerField()), Value(100)),
+                layout_x=Coalesce(Cast(KeyTextTransform("x", layout_sm), IntegerField()), Value(100)),
+            )
+            .order_by("layout_y", "layout_x", "id")
+            .only("id", "insight_id", "filters_overrides")[:limit]
+        ),
+        total,
+    )
+
+
 def build_anchor_context(subscription: Subscription) -> AnchorContext | None:
     """The anchor's schema as planner context: names, descriptions, and query definitions only.
 
@@ -132,7 +169,27 @@ def _build_anchor_context(subscription: Subscription) -> AnchorContext | None:
         if isinstance(item, dict) and item.get("kind") == "event" and isinstance(item.get("event_name"), str)
     ]
     lines: list[str] = []
+    resource_references: list[tuple[str, str]] = []
     remaining_tiles = ANCHOR_TILES_LIMIT
+    user_access_control = (
+        UserAccessControl(subscription.created_by, subscription.team) if subscription.created_by is not None else None
+    )
+
+    def can_view(resource: Dashboard | Insight) -> bool:
+        return user_access_control is not None and user_access_control.check_access_level_for_object(resource, "viewer")
+
+    def viewable_dashboard_insights(dashboard: Dashboard) -> QuerySet[Insight]:
+        live_tiles = dashboard.tiles.filter(insight__isnull=False, insight__deleted=False).values("insight_id")
+        tile_insights = Insight.objects.filter(team_id=subscription.team_id, id__in=live_tiles)
+        if user_access_control is None:
+            return tile_insights.none()
+        viewable = user_access_control.filter_queryset_by_access_level(
+            tile_insights, include_all_if_admin=True, resource="insight"
+        )
+        if user_access_control.is_organization_admin or user_access_control.has_resource_access("insight"):
+            return viewable
+        allowed_ids = user_access_control.allowlisted_resource_ids_by_scope.get("insight", frozenset())
+        return viewable.filter(Q(id__in=allowed_ids) | Q(created_by=user_access_control.user))
 
     dashboards = subscription.context_dashboards.filter(deleted=False).order_by("id")
     insights = subscription.context_insights.filter(deleted=False).order_by("id")
@@ -142,8 +199,11 @@ def _build_anchor_context(subscription: Subscription) -> AnchorContext | None:
         lines.append(f"- Context event: {name}")
 
     for dashboard in dashboards:
+        if not can_view(dashboard):
+            continue
         name = sanitize_user_text(dashboard.name or "", ANCHOR_NAME_MAX_LENGTH) or "(unnamed)"
         lines.append(f"- Context dashboard: {name}")
+        resource_references.append(("dashboard", str(dashboard.id)))
         description = sanitize_user_text(dashboard.description or "", ANCHOR_DESCRIPTION_MAX_LENGTH)
         if description:
             lines.append(f"  Description: {description}")
@@ -151,17 +211,9 @@ def _build_anchor_context(subscription: Subscription) -> AnchorContext | None:
             metadata_line = _dashboard_metadata_line(label, value)
             if metadata_line:
                 lines.append(metadata_line)
-        # Sort on layout columns alone, then load only the insights that survive the cap: a
-        # dashboard's `query` JSON is its heaviest column, and a large dashboard would otherwise
-        # pull every tile's query to render 25 lines. order_by("id") gives ties (missing or equal
-        # layouts) a stable order, and the layout sort is stable, so without it the blob hash
-        # follows Postgres heap order and every flap invalidates the frozen plan.
-        tiles = DashboardTile.sort_tiles_by_layout(
-            dashboard.tiles.filter(insight__isnull=False, insight__deleted=False)
-            .order_by("id")
-            .only("id", "layouts", "insight_id", "filters_overrides")
+        capped_tiles, tile_count = _capped_dashboard_tiles(
+            dashboard, viewable_dashboard_insights(dashboard), remaining_tiles
         )
-        capped_tiles = tiles[:remaining_tiles]
         insights_by_id = {
             insight_row.id: insight_row
             for insight_row in Insight.objects.filter(id__in=[tile.insight_id for tile in capped_tiles]).only(
@@ -177,18 +229,22 @@ def _build_anchor_context(subscription: Subscription) -> AnchorContext | None:
         }
         for tile in capped_tiles:
             tile_insight = insights_by_id.get(tile.insight_id)
-            if tile_insight is not None:
+            if tile_insight is not None and can_view(tile_insight):
                 lines.extend(_insight_lines(tile_insight, events))
+                resource_references.append(("dashboard_tile_insight", str(tile_insight.id)))
                 tile_filters = _dashboard_metadata_line("Tile filters", tile.filters_overrides)
                 if tile_filters:
                     lines.append(f"  {tile_filters}")
         remaining_tiles -= len(capped_tiles)
-        if len(tiles) > len(capped_tiles):
-            lines.append(f"  ({len(tiles) - len(capped_tiles)} more tiles not shown)")
+        if tile_count > len(capped_tiles):
+            lines.append(f"  ({tile_count - len(capped_tiles)} more tiles not shown)")
 
     for insight in insights:
+        if not can_view(insight):
+            continue
         lines.append("- Context insight:")
         lines.extend(_insight_lines(insight, events))
+        resource_references.append(("insight", str(insight.id)))
 
     if not lines:
         return None
@@ -204,4 +260,5 @@ def _build_anchor_context(subscription: Subscription) -> AnchorContext | None:
         blob=blob,
         event_names=unique_events,
         content_hash=hashlib.sha256(hash_source.encode()).hexdigest(),
+        resource_references=resource_references,
     )

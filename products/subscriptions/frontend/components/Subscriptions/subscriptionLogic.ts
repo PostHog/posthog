@@ -510,12 +510,11 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     return {
                         ...subscription,
                         byweekday,
-                        context_dashboards: (subscription.contexts ?? [])
-                            .filter(({ kind }) => kind === 'dashboard')
-                            .map(({ id }) => id),
-                        context_insights: (subscription.contexts ?? [])
-                            .filter(({ kind }) => kind === 'insight')
-                            .map(({ id }) => id),
+                        // Keep the API's raw relation IDs. `contexts` omits deleted and inaccessible
+                        // resources for safe display, but reconstructing from it would silently remove
+                        // those relations on the next unrelated save.
+                        context_dashboards: subscription.context_dashboards ?? [],
+                        context_insights: subscription.context_insights ?? [],
                         // Write-only, so never present on the API response: default the edit form's
                         // "Send a test run now" toggle to on, matching the create flow.
                         send_test_now: true,

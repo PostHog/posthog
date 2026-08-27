@@ -28,7 +28,6 @@ from products.exports.backend.temporal.subscriptions.insight_snapshot import (
     build_insight_delivery_snapshot,
 )
 from products.exports.backend.temporal.subscriptions.types import (
-    AI_REPORT_CONTEXT_SNAPSHOT_KEY,
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
     CreateExportAssetsResult,
@@ -69,48 +68,6 @@ NO_ASSETS_REASON = "No assets to deliver — likely a transient export pipeline 
 NO_ASSETS_HUMAN_READABLE_REASON = (
     "Nothing could be generated to send this time. We'll try again on the next scheduled run."
 )
-
-
-def _ai_report_context_snapshot(subscription: Subscription) -> dict[str, typing.Any]:
-    """Return the resource references that grounded an AI report at delivery start.
-
-    This deliberately records stable references rather than planner data or rendered context. It
-    lets delivery history apply the access rules that existed for the report's inputs even after
-    the subscription is edited, while retaining ``context_items`` as the extensibility boundary.
-    """
-    if subscription.resource_type != Subscription.ResourceType.AI_PROMPT:
-        return {}
-
-    dashboard_ids = list(subscription.context_dashboards.values_list("id", flat=True))
-    insight_ids = list(subscription.context_insights.values_list("id", flat=True))
-    dashboard_tile_insight_ids = list(
-        DashboardTile.objects.filter(
-            dashboard_id__in=dashboard_ids,
-            insight_id__isnull=False,
-            deleted=False,
-            insight__deleted=False,
-        )
-        .values_list("insight_id", flat=True)
-        .distinct()
-    )
-    context_items = subscription.context_items if isinstance(subscription.context_items, list) else []
-    event_names = sorted(
-        item["event_name"]
-        for item in context_items
-        if isinstance(item, dict) and item.get("kind") == "event" and isinstance(item.get("event_name"), str)
-    )
-
-    return {
-        AI_REPORT_CONTEXT_SNAPSHOT_KEY: {
-            "version": 1,
-            "resources": {
-                "dashboard": {str(resource_id): True for resource_id in dashboard_ids},
-                "insight": {str(resource_id): True for resource_id in insight_ids},
-                "dashboard_tile_insight": {str(resource_id): True for resource_id in dashboard_tile_insight_ids},
-            },
-            "event_names": event_names,
-        }
-    }
 
 
 class NoExportableInsightsError(Exception):
@@ -597,10 +554,7 @@ async def create_delivery_record(inputs: CreateDeliveryRecordInputs) -> uuid.UUI
                 f"Subscription team_id ({subscription.team_id}) does not match inputs.team_id ({inputs.team_id})"
             )
 
-        content_snapshot = {
-            **build_initial_content_snapshot(subscription),
-            **_ai_report_context_snapshot(subscription),
-        }
+        content_snapshot = build_initial_content_snapshot(subscription)
 
         delivery, _created = SubscriptionDelivery.objects.get_or_create(
             idempotency_key=inputs.idempotency_key,

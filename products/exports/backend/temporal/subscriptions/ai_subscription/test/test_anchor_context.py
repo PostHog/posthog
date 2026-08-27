@@ -109,6 +109,9 @@ class TestBuildAnchorContext(APIBaseTest):
         assert context is not None
         assert "ghost" not in context.blob
         assert "2 more tiles not shown" in context.blob
+        # Provenance follows the bounded tile set supplied to the planner, rather than every
+        # tile on the dashboard. This keeps historical access checks bounded too.
+        assert len([ref for ref in context.resource_references if ref[0] == "dashboard_tile_insight"]) == 25
 
     def test_insight_anchor_and_hash_tracks_content(self) -> None:
         insight = Insight.objects.create(team=self.team, name="Signups", query=_TRENDS_QUERY)

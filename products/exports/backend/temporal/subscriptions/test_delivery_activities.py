@@ -12,11 +12,9 @@ from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.exports.types import ExportAssetResult
 
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.models.subscription import SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.activities import (
-    _ai_report_context_snapshot,
     advance_next_delivery_date,
     create_delivery_record,
     create_export_assets,
@@ -25,10 +23,14 @@ from products.exports.backend.temporal.subscriptions.activities import (
     update_delivery_record,
     validate_subscription_for_delivery,
 )
-from products.exports.backend.temporal.subscriptions.ai_subscription.activities import generate_ai_subscription_report
+from products.exports.backend.temporal.subscriptions.ai_subscription.activities import (
+    _replace_delivery_context_references,
+    generate_ai_subscription_report,
+)
 from products.exports.backend.temporal.subscriptions.snapshot_activities import snapshot_subscription_insights
 from products.exports.backend.temporal.subscriptions.types import (
-    AI_REPORT_CONTEXT_SNAPSHOT_KEY,
+    AI_REPORT_DELIVERY_CONTEXT_MARKER_IDENTIFIER,
+    AI_REPORT_DELIVERY_CONTEXT_MARKER_KIND,
     CreateExportAssetsResult,
     DeliverSubscriptionInputs,
     DeliverSubscriptionResult,
@@ -47,30 +49,30 @@ from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscr
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
 
-async def test_ai_report_context_snapshot_freezes_resource_references(team, user) -> None:
-    direct_insight = await sync_to_async(Insight.objects.create)(team=team, name="Direct context")
-    dashboard_insight = await sync_to_async(Insight.objects.create)(team=team, name="Dashboard context")
-    dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="Context dashboard")
-    await sync_to_async(DashboardTile.objects.create)(dashboard=dashboard, insight=dashboard_insight)
+async def test_ai_report_delivery_context_references_are_replaced_per_generation_attempt(team, user) -> None:
     subscription = await sync_to_async(create_subscription)(team=team, created_by=user, prompt="Weekly report")
-    await sync_to_async(subscription.context_dashboards.set)([dashboard])
-    await sync_to_async(subscription.context_insights.set)([direct_insight])
-    subscription.context_items = [{"kind": "event", "event_name": "$pageview"}]
-    await sync_to_async(subscription.save)(update_fields=["context_items"])
+    delivery = await sync_to_async(SubscriptionDelivery.objects.create)(
+        subscription=subscription,
+        team=team,
+        temporal_workflow_id="delivery-context-test",
+        idempotency_key="delivery-context-test",
+        trigger_type="manual",
+        target_type="email",
+        target_value="test@example.com",
+    )
 
-    snapshot = await sync_to_async(_ai_report_context_snapshot)(subscription)
+    await _replace_delivery_context_references(
+        delivery.id, team.id, [("dashboard", "1"), ("dashboard_tile_insight", "2")]
+    )
+    await _replace_delivery_context_references(delivery.id, team.id, [("insight", "3")])
 
-    assert snapshot == {
-        AI_REPORT_CONTEXT_SNAPSHOT_KEY: {
-            "version": 1,
-            "resources": {
-                "dashboard": {str(dashboard.id): True},
-                "insight": {str(direct_insight.id): True},
-                "dashboard_tile_insight": {str(dashboard_insight.id): True},
-            },
-            "event_names": ["$pageview"],
-        }
-    }
+    references = await sync_to_async(list)(
+        delivery.context_references.order_by("kind", "identifier").values_list("kind", "identifier")
+    )
+    assert references == [
+        (AI_REPORT_DELIVERY_CONTEXT_MARKER_KIND, AI_REPORT_DELIVERY_CONTEXT_MARKER_IDENTIFIER),
+        ("insight", "3"),
+    ]
 
 
 # v1 only exists as a Temporal history-compat shim for pre-patch workflows. Both

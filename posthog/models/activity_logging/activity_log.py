@@ -573,7 +573,10 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # which isn't JSON-serializable for the change detail (same reason FeatureFlag/Experiment
         # exclude their FK relations) — without this, editing a subscription's integration 500s the save.
         "integration",
-        # Same FK-diff hazard as integration: setting or clearing an anchor 500s the save otherwise.
+        # M2M managers are not JSON-serializable. SubscriptionSerializer writes explicit,
+        # actor-attributed change entries after it applies these report-grounding relations.
+        "context_dashboards",
+        "context_insights",
     ],
     "Cohort": [
         "version",

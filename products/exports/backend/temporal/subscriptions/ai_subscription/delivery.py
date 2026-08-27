@@ -208,8 +208,14 @@ def _persist_ai_query_plan(subscription_id: int, team_id: int, prompt: str | Non
     Subscription.objects.filter(id=subscription_id, team_id=team_id, prompt=prompt).update(ai_query_plan=plan)
 
 
-async def build_ai_subscription_report(subscription: Subscription) -> AiReportResult:
-    context = await database_sync_to_async(_resolve_subscription_context, thread_sensitive=False)(subscription)
+async def resolve_ai_subscription_context(subscription: Subscription) -> SubscriptionReportContext:
+    return await database_sync_to_async(_resolve_subscription_context, thread_sensitive=False)(subscription)
+
+
+async def build_ai_subscription_report(
+    subscription: Subscription, *, context: SubscriptionReportContext | None = None
+) -> AiReportResult:
+    context = context or await resolve_ai_subscription_context(subscription)
     # created_by is FK SET_NULL; the pipeline requires a non-None user
     if context.user is None:
         raise PromptRejectedError("AI subscription has no creator (created_by deleted); cannot deliver.")
@@ -448,6 +454,7 @@ async def send_slack_ai_subscription_report(
 
 __all__ = [
     "build_ai_subscription_report",
+    "resolve_ai_subscription_context",
     "build_chart_image_urls",
     "render_ai_email_html",
     "send_email_ai_subscription_report",
