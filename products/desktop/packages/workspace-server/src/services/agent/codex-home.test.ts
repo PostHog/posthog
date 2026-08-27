@@ -182,24 +182,45 @@ describe("prepareCodexHome", () => {
     expect(existsSync(path.join(homeB, "skills", "query-data"))).toBe(true);
   });
 
-  it("cleanupCodexHome removes the run's dir and is a no-op when absent", async () => {
+  it("cleanupCodexHome drops what prepare built but keeps codex's thread rollouts", async () => {
     await createSkill(bundledSkillsDir, "query-data");
+    const codexConfigDir = path.join(testHome.dir, ".codex");
+    await mkdir(codexConfigDir, { recursive: true });
+    await writeFile(
+      path.join(codexConfigDir, "config.toml"),
+      'model = "gpt-5-codex"\n',
+    );
     const codexHome = await prepareCodexHome({
       appDataPath,
       taskRunId,
       bundledSkillsDir,
       log: noopLog,
     });
-    expect(existsSync(codexHome)).toBe(true);
+    const rollout = path.join(
+      codexHome,
+      "sessions",
+      "2026",
+      "08",
+      "26",
+      "rollout-2026-08-26T17-14-19-thread-1.jsonl",
+    );
+    await mkdir(path.dirname(rollout), { recursive: true });
+    await writeFile(rollout, "{}\n");
 
     await cleanupCodexHome(appDataPath, taskRunId);
-    expect(existsSync(codexHome)).toBe(false);
-    expect(existsSync(getCodexHomeDir(appDataPath, taskRunId))).toBe(false);
 
-    // Second call on a now-absent dir must not throw.
+    expect(existsSync(path.join(codexHome, "skills"))).toBe(false);
+    expect(existsSync(path.join(codexHome, "config.toml"))).toBe(false);
+    expect(existsSync(rollout)).toBe(true);
+  });
+
+  it("cleanupCodexHome is a no-op when the run's dir was never created", async () => {
     await expect(
-      cleanupCodexHome(appDataPath, taskRunId),
+      cleanupCodexHome(appDataPath, "never-prepared"),
     ).resolves.toBeUndefined();
+    expect(existsSync(getCodexHomeDir(appDataPath, "never-prepared"))).toBe(
+      false,
+    );
   });
 
   it("rejects an unsafe taskRunId instead of escaping the codex-home dir", async () => {
