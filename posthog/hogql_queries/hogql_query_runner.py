@@ -160,6 +160,12 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     def _queried_table_names(self) -> set[str]:
         """Tables this query names, or empty when it is unparseable or reads an external connection.
 
+        Names only, so a table reached through a saved view is absent: the resolver inlines the view's
+        definition after the cache lookup. The printed guards still apply on that path, so what a read
+        through a view misses is the cache partitioning, not the enforcement. Following view definitions
+        here would put a saved-query lookup in front of every HogQL query's cache key, and the rest of
+        the fingerprinting in `queried_access_controlled_resources` stops at the same boundary.
+
         Cached because the freshness check and the cache key both need it, and neither rewrites the query
         text (dashboard filters and variables are applied at `to_query` time).
         """
