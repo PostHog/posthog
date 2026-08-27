@@ -900,6 +900,11 @@ These functions are not available in the current version of HogQL (NEVER USE THE
 def _render_taxonomy_group(group: str, root_tag: str, entry_tag: str) -> str:
     root = ET.Element(root_tag)
     for name, definition in visible_definitions(group):
+        # Virtual properties are computed in HogQL and absent from the globals a hog function
+        # filters against, so a filter on one compiles to a lookup that fails at CDP runtime
+        # instead of matching. The person renderer skips them for the same reason.
+        if definition.get("virtual"):
+            continue
         entry = ET.SubElement(root, entry_tag)
         ET.SubElement(entry, "name").text = name
         if prop_type := definition.get("type"):

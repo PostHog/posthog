@@ -28,7 +28,19 @@ class TestTaxonomyPrompts:
         ]
     )
     def test_render_covers_every_visible_taxonomy_entry(self, group, render):
-        assert _texts(render(), "name") == {name for name, _ in visible_definitions(group)}
+        # Virtual entries are excluded because a filter on one fails at CDP runtime; the events
+        # group carries none, so this stays a full-coverage check for that renderer.
+        assert _texts(render(), "name") == {
+            name for name, definition in visible_definitions(group) if not definition.get("virtual")
+        }
+
+    def test_render_event_properties_omit_virtual_entries(self):
+        # A virtual event property like `$virt_is_bot` compiles to a top-level global the CDP filter
+        # runtime never provides, so a saved filter on one fails instead of matching. Asserted
+        # against a literal name, not the renderer's own `virtual` check, so dropping the exclusion
+        # fails here rather than moving in lockstep with the completeness test above.
+        assert CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"]["$virt_is_bot"].get("virtual")
+        assert "$virt_is_bot" not in _texts(render_event_property_taxonomy(), "name")
 
     def test_render_person_properties_covers_every_visible_non_virtual_entry(self):
         # Virtual properties are excluded because a filter on one never matches at CDP runtime.
