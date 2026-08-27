@@ -1,8 +1,20 @@
 from typing import Any
 
+from prometheus_client import Counter
+
 from posthog.clickhouse.client import sync_execute
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.async_deletion.delete import AsyncDeletionProcess, logger
+
+COHORT_DELETION_MARK_FAILURE_COUNTER = Counter(
+    "posthog_cohort_deletion_mark_failure_total",
+    "Times cohort deletion mark failed",
+)
+
+COHORT_DELETION_RUN_FAILURE_COUNTER = Counter(
+    "posthog_cohort_deletion_run_failure_total",
+    "Times cohort deletion run failed",
+)
 
 
 class AsyncCohortDeletion(AsyncDeletionProcess):
@@ -86,3 +98,29 @@ class AsyncCohortDeletion(AsyncDeletionProcess):
                     key_param: key,
                 },
             )
+
+
+def sweep_cohort_deletions() -> list[str]:
+    """Run both cohort deletion passes and return the names of any that failed.
+
+    Each pass is guarded on its own: failing to tick off cohorts whose rows are already gone
+    must not stop the pass that actually removes rows.
+    """
+    runner = AsyncCohortDeletion()
+    failed = []
+
+    try:
+        runner.mark_deletions_done()
+    except Exception as e:
+        logger.error("Failed to mark cohort deletions done", error=e, exc_info=True)
+        COHORT_DELETION_MARK_FAILURE_COUNTER.inc()
+        failed.append("mark")
+
+    try:
+        runner.run()
+    except Exception as e:
+        logger.error("Failed to run cohort deletions", error=e, exc_info=True)
+        COHORT_DELETION_RUN_FAILURE_COUNTER.inc()
+        failed.append("run")
+
+    return failed
