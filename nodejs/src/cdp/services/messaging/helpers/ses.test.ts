@@ -1,3 +1,5 @@
+import { register } from 'prom-client'
+
 import { defaultConfig } from '~/common/config/config'
 
 import { SesWebhookHandler, normalizeClickUrl, resolveClickDestination } from './ses'
@@ -614,6 +616,39 @@ describe('SesWebhookHandler', () => {
         const result = await handler.handleWebhook({ body, headers: {} })
         expect(result.status).toBe(200)
         expect(result.metrics).toEqual([])
+    })
+
+    it('labels a dropped record "missing" when no code is present and "invalid" when it is present but unparseable', async () => {
+        // Read the specific label combination as a delta, so accumulation from other tests in the
+        // process cannot make this assertion flaky.
+        const droppedCount = async (reason: string): Promise<number> => {
+            const metric = await register.getSingleMetric('email_tracking_unattributed_total')!.get()
+            return metric.values.find((v) => v.labels.event_type === 'Open' && v.labels.reason === reason)?.value ?? 0
+        }
+        const missingBefore = await droppedCount('missing')
+        const invalidBefore = await droppedCount('invalid')
+
+        const open = { ipAddress: '1.2.3.4', userAgent: 'UA', timestamp: '2025-10-03T12:01:00Z' }
+        const body = [
+            // Neither carrier holds a value: the code is missing.
+            { eventType: 'Open', mail: { ...baseMail, tags: {}, headers: [] }, open },
+            // A signed header is present but its signature no longer verifies (e.g. after a signing
+            // key rotated out): the code is present but invalid, and this incident must not read as a
+            // carrier loss.
+            {
+                eventType: 'Open',
+                mail: {
+                    ...baseMail,
+                    tags: {},
+                    headers: [{ name: TRACKING_CODE_HEADER, value: 'stale-payload.badsignature' }],
+                },
+                open,
+            },
+        ]
+        const result = await handler.handleWebhook({ body, headers: {} })
+        expect(result.status).toBe(200)
+        expect(await droppedCount('missing')).toBe(missingBefore + 1)
+        expect(await droppedCount('invalid')).toBe(invalidBefore + 1)
     })
 
     // Real SNS SubscriptionConfirmation shape: SubscribeURL is a top-level envelope field and

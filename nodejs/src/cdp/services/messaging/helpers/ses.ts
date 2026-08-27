@@ -184,13 +184,16 @@ export type SesEventLogLine = {
     message: string
 }
 
-// Records that carry no tracking code on either carrier can't be attributed to a workflow, so
-// they're dropped. A silent drop hides systemic carrier loss (e.g. a configuration set that
-// stops emitting original headers or tags), so count what's dropped, by event type.
+// Records with no usable tracking code can't be attributed to a workflow, so they're dropped. A
+// silent drop hides systemic loss, so count what's dropped, by event type and reason. `reason`
+// separates two different failures with different owners: `missing` (no carrier value at all, for
+// example a configuration set that stops emitting the original headers or tags) from `invalid` (a
+// carrier value was present but did not parse, for example a signed header left over after a
+// signing key rotated out).
 const sesUnattributedEventsCounter = new Counter({
     name: 'email_tracking_unattributed_total',
-    help: 'SES webhook records dropped because no tracking code was found on either carrier',
-    labelNames: ['event_type'],
+    help: 'SES webhook records dropped because their tracking code was missing or unparseable',
+    labelNames: ['event_type', 'reason'],
 })
 
 // SES link tag naming an anchor's ordinal position in the email body. Set on each `<a>` at send
@@ -693,7 +696,8 @@ export class SesWebhookHandler {
                 (h) => h.name.toLowerCase() === TRACKING_CODE_HEADER_NAME.toLowerCase()
             )?.value
             const tagValue = rec.mail.tags?.ph_id?.[0]
-            const parsedCode = this.trackingCodeSigner.parse(headerValue ?? tagValue ?? '')
+            const rawCode = headerValue ?? tagValue ?? ''
+            const parsedCode = this.trackingCodeSigner.parse(rawCode)
             if (parsedCode) {
                 trackingCodeFormatCounter.inc({ format: parsedCode.format, source: 'ses' })
             }
@@ -701,7 +705,10 @@ export class SesWebhookHandler {
                 parsedCode || {}
 
             if (!functionId && !invocationId) {
-                sesUnattributedEventsCounter.inc({ event_type: rec.eventType })
+                // A present but unparseable code is a different incident from a wholly absent one, so
+                // record which occurred. An empty `rawCode` means neither carrier held a value.
+                const reason = rawCode === '' ? 'missing' : 'invalid'
+                sesUnattributedEventsCounter.inc({ event_type: rec.eventType, reason })
                 logger.error('[SesWebhookHandler] handleWebhook: No functionId or invocationId found', { rec })
                 continue
             }
