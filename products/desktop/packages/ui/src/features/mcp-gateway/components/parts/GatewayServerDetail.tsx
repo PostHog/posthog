@@ -852,9 +852,16 @@ function AccessSection({
             gap="3"
             className="rounded-md border border-gray-5 bg-gray-2 p-3"
           >
-            <Text as="div" className="font-medium text-sm">
-              Allow members to connect their own {server.name} account
-            </Text>
+            <div>
+              <Text as="div" className="font-medium text-sm">
+                Enabled for your organization
+              </Text>
+              <Text as="div" color="gray" className="text-[13px]">
+                {server.is_team_enabled
+                  ? `Anyone in your organization can find and use ${server.name}. Each person connects with their own account.`
+                  : `${server.name} is turned off for everyone in your organization.`}
+              </Text>
+            </div>
             <Switch
               checked={server.is_team_enabled}
               onCheckedChange={(enabled) => {

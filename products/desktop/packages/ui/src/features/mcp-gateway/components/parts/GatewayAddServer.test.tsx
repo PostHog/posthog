@@ -42,7 +42,7 @@ describe("GatewayAddServer", () => {
     );
 
     expect(
-      screen.getByText("Allow members to connect their own server account"),
+      screen.getByText("Enabled for your organization"),
     ).toBeInTheDocument();
     expect(screen.getByText("Share with agents")).toBeInTheDocument();
     expect(screen.getByText(account.name)).toBeInTheDocument();

@@ -53,11 +53,18 @@ export function GatewayAccessSection(): JSX.Element | null {
             {isAdmin && (
                 <>
                     <div className="border rounded p-3 flex items-center justify-between gap-3 bg-surface-secondary">
-                        <div className="font-semibold">Allow members to connect their own {server.name} account</div>
+                        <div>
+                            <div className="font-semibold">Enabled for your organization</div>
+                            <div className="text-sm text-secondary">
+                                {server.is_team_enabled
+                                    ? `Anyone in your organization can find and use ${server.name}. Each person connects with their own account.`
+                                    : `${server.name} is turned off for everyone in your organization.`}
+                            </div>
+                        </div>
                         <LemonSwitch
                             checked={server.is_team_enabled}
                             loading={allServersEnabledLoading || serverEnabledLoadingIds.has(server.id)}
-                            aria-label={`${server.is_team_enabled ? 'Turn off' : 'Turn on'} ${server.name} for the team`}
+                            aria-label={`${server.is_team_enabled ? 'Turn off' : 'Turn on'} ${server.name} for your organization`}
                             onChange={(checked) => toggleServerEnabled(server.id, checked)}
                         />
                     </div>
