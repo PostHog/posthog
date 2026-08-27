@@ -21,6 +21,7 @@ import {
     parseExecCallInnerToolName,
 } from '@/tools/exec'
 import { ExecHelpCatalog } from '@/tools/exec-help'
+import { GENERATED_TOOL_MAP } from '@/tools/generated'
 import { withInformationalResponse } from '@/tools/tool-utils'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import {
@@ -1560,6 +1561,78 @@ describe('exec tool', () => {
 
             expect(message).toMatch(/parameter "tags": /)
             expect(message).not.toContain('undefined')
+        })
+
+        // A tool whose whole payload sits under one required object is the shape
+        // agents flatten most often, and zod strips the misplaced keys — so
+        // "sent everything, unwrapped" and "sent nothing" both arrive as a bare
+        // `missing required parameter`. These lock in the disambiguation.
+        describe('a required object parameter the caller flattened', () => {
+            const wrapperSchema = z.object({
+                query: z.object({
+                    dateRange: z.object({ date_from: z.string() }).optional(),
+                    orderBy: z.enum(['latest', 'earliest']).optional(),
+                    limit: z.number().optional(),
+                }),
+            })
+
+            const formatFor = (input: unknown): string => {
+                const result = wrapperSchema.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+                return formatInputValidationError('query-logs', result.error!, input, wrapperSchema)
+            }
+
+            it('tells the caller to nest the fields it sent at the top level', () => {
+                const message = formatFor({ dateRange: { date_from: '-1h' }, limit: 10 })
+
+                expect(message).toBe(
+                    'Invalid input for "query-logs": missing required parameter: query; the fields you sent belong inside it, so resend them as {"query": {...}}'
+                )
+            })
+
+            it('still identifies the nesting when the nested fields have their own errors', () => {
+                // Without this the caller fixes `orderBy`, resends flattened, and
+                // fails again on the same ambiguous message.
+                const message = formatFor({ orderBy: 'newest', limit: 10 })
+
+                expect(message).toContain('resend them as {"query": {...}}')
+            })
+
+            it.each([
+                ['an empty input, which is a caller that sent nothing', {}],
+                ['keys the nested schema does not declare', { nonsense: 1, alsoNonsense: 2 }],
+                ['a non-object input', 'just a string'],
+            ])('does not claim a nesting mistake for %s', (_label, input) => {
+                expect(formatFor(input)).not.toContain('resend them')
+            })
+
+            it('names only schema-declared fields, never the values the caller sent', () => {
+                const message = formatFor({ dateRange: { date_from: 'secret-value' } })
+
+                expect(message).not.toContain('secret-value')
+            })
+
+            it('keeps the bare message when the caller gives no input or schema to compare', () => {
+                const input = { dateRange: { date_from: '-1h' } }
+                const result = wrapperSchema.safeParse(input, { reportInput: true })
+
+                expect(formatInputValidationError('query-logs', result.error!)).toBe(
+                    'Invalid input for "query-logs": missing required parameter: query'
+                )
+            })
+
+            it('fires for the real generated query-logs tool, not just a stand-in schema', () => {
+                // Guards the assumption behind this whole branch: that the shipped
+                // tool really does wrap its payload in one required `query` object.
+                const tool = GENERATED_TOOL_MAP['query-logs']!()
+                const input = { dateRange: { date_from: '-1h' }, limit: 10 }
+                const result = tool.schema.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+
+                expect(formatInputValidationError('query-logs', result.error!, input, tool.schema)).toContain(
+                    'resend them as {"query": {...}}'
+                )
+            })
         })
     })
 })
