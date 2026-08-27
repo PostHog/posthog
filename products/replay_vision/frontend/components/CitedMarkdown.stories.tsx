@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { expect } from 'storybook/test'
+
 import { CitedMarkdown } from './CitedMarkdown'
 
 const meta: Meta<typeof CitedMarkdown> = {
@@ -32,5 +34,32 @@ export const PlainProse: Story = {
     args: {
         text: 'The user opened the pricing page, scrolled to the comparison table, and left without starting a trial.',
         segments: [],
+    },
+}
+
+/**
+ * Reasoning is model output derived from a page a stranger wrote, so a link in it is a phishing vector.
+ * Every markdown form that reaches a link is here, including the reference forms that a regex over the
+ * source misses. The assertion runs in a real browser under `test-storybook`, which is the only place
+ * this can be checked: `react-markdown` is ESM-only and mocked out under Jest.
+ */
+export const HostileLinks: Story = {
+    args: {
+        text: [
+            'Inline [click here](https://evil.example/phish).',
+            'Reference [click here][ref] and collapsed [click here][].',
+            'Image by reference ![a banner][img].',
+            'Autolink <https://evil.example/auto> and bare https://evil.example/bare.',
+            'Scheme [click here](javascript:alert(1)).',
+            '',
+            '[ref]: https://evil.example/phish',
+            '[img]: https://evil.example/banner.png',
+        ].join('\n'),
+        segments: [],
+    },
+    play: async ({ canvasElement }) => {
+        await expect(canvasElement.querySelectorAll('a')).toHaveLength(0)
+        // The labels survive as plain text, so the reader still sees what the model wrote.
+        await expect(canvasElement.textContent).toContain('click here')
     },
 }

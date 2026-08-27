@@ -1,8 +1,6 @@
 import { TIMESTAMP_REF_PREFIX } from 'lib/lemon-ui/LemonMarkdown'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 
-import { defangMarkdownLinks } from './markdown'
-
 // `uuid` is legacy (only old event-uuid citations carry it). Timestamp citations use `timestamp_ms` alone.
 export type Segment = { kind: 'text'; value: string } | { kind: 'chip'; timestamp_ms: number; uuid?: string }
 
@@ -67,18 +65,19 @@ export function parseCitedSegments(text: string, segments: unknown): Segment[] {
  * to see one string, not a segment list — a bullet or a bold run that spans a citation would otherwise be
  * cut in half and parsed as two documents.
  *
- * Defanging runs on the prose only, before the citations go in, so the `t:` targets this writes are the
- * one kind of link that survives.
+ * Nothing here sanitizes the prose. The renderer is what holds the line on links and images (see
+ * `CitedMarkdown`): stripping syntax at this layer would have to out-guess every markdown form that
+ * reaches a link, and reference-style `[x][ref]` alone already defeats that.
  */
 export function citedMarkdown(text: string, segments: unknown): string {
     const list = parseCitedSegments(text, segments)
     if (list.length === 0) {
-        return defangMarkdownLinks(text)
+        return text
     }
     let out = ''
     for (const segment of list) {
         if (segment.kind === 'text') {
-            out += defangMarkdownLinks(segment.value)
+            out += segment.value
             continue
         }
         // Glued to the preceding word, matching how the chips render outside markdown — except after a

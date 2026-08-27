@@ -33,6 +33,11 @@ class TestPlainSnippet:
             ("numbered", "1. Reached payment\n2. Card rejected", "Reached payment. Card rejected"),
             ("blockquote", "> The user gave up.", "The user gave up."),
             ("link", "Landed on [the pricing page](https://example.com/p).", "Landed on the pricing page."),
+            ("reference_link", "Landed on [pricing][p].\n\n[p]: https://example.com/p", "Landed on pricing."),
+            # Brackets in prose are far more often literal than a shortcut reference, so they stay.
+            ("bracketed_prose", "The user clicked [Save].", "The user clicked [Save]."),
+            # Opens like a reference definition but is a sentence, so the line survives.
+            ("prose_after_bracket", "[Save]: clicked twice before it took", "[Save]: clicked twice before it took"),
             ("image", "![a screenshot](https://example.com/x.png) followed.", "a screenshot followed."),
             ("escaped_star", r"Priced at 5\* the usual.", "Priced at 5* the usual."),
             ("already_one_sentence_per_line", "Reached payment.\nCard rejected.", "Reached payment. Card rejected."),

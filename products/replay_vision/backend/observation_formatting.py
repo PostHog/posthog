@@ -19,6 +19,14 @@ _QUOTE_RE = re.compile(r"^\s{0,3}>\s?")
 _BULLET_RE = re.compile(r"^\s*(?:[-*+]|\d{1,9}[.)])\s+")
 _IMAGE_RE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
 _LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+# A link reference definition is a whole line of pure syntax, so the line goes. Its `[text][ref]` and
+# `[text][]` usages keep their label. Bare `[text]` is left alone: in prose it is far more often a real
+# bracket ("clicked [Save]") than a shortcut reference.
+# The definition has to be the entire line — a space-free destination and an optional title, nothing
+# after. Matching just the prefix would eat a sentence that merely opens the same way, such as
+# "[Save]: clicked twice before it took".
+_LINK_DEFINITION_RE = re.compile(r"^ {0,3}\[[^\]]+\]:\s*\S+(?:\s+(?:\"[^\"]*\"|'[^']*'|\([^)]*\)))?\s*$")
+_REFERENCE_RE = re.compile(r"!?\[([^\]]*)\]\[[^\]]*\]")
 _CODE_SPAN_RE = re.compile(r"`+([^`]*)`+")
 _STRONG_RE = re.compile(r"(\*\*|__)(?=\S)(.+?)(?<=\S)\1")
 _STRIKE_RE = re.compile(r"~~(?=\S)(.+?)(?<=\S)~~")
@@ -40,11 +48,12 @@ def flatten_markdown(text: str) -> str:
     """
     lines: list[str] = []
     for raw in text.split("\n"):
-        if _FENCE_RE.match(raw) or _RULE_RE.match(raw):
+        if _FENCE_RE.match(raw) or _RULE_RE.match(raw) or _LINK_DEFINITION_RE.match(raw):
             continue
         line = _BULLET_RE.sub("", _QUOTE_RE.sub("", _HEADING_RE.sub("", raw)))
         line = _IMAGE_RE.sub(r"\1", line)
         line = _LINK_RE.sub(r"\1", line)
+        line = _REFERENCE_RE.sub(r"\1", line)
         line = _CODE_SPAN_RE.sub(r"\1", line)
         line = _STRONG_RE.sub(r"\2", line)
         line = _STRIKE_RE.sub(r"\1", line)
