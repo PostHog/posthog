@@ -13,6 +13,7 @@ import type { ProductSetupStatus } from './types'
 
 describe('createSetupDetectionLogic', () => {
     beforeEach(() => {
+        localStorage.clear()
         initKeaTests()
     })
 
@@ -117,6 +118,32 @@ describe('createSetupDetectionLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(detect).toHaveBeenCalledTimes(2)
         expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('waiting-for-data')
+    })
+
+    it('with cacheHasData, remembers has-data and skips detection on the next mount', async () => {
+        const buildCached = (
+            detect: jest.Mock<Promise<ProductSetupStatus>, []>
+        ): ReturnType<ReturnType<typeof createSetupDetectionLogic>['build']> =>
+            createSetupDetectionLogic({
+                productKey: ProductKey.LOGS,
+                path: ['test', 'setupDetectionLogic'],
+                detect,
+                cacheHasData: true,
+            }).build()
+
+        const first = buildCached(jest.fn().mockResolvedValue('has-data'))
+        first.mount()
+        await expectLogic(first).toFinishAllListeners()
+        first.unmount()
+
+        // A stale-cached needs-setup would gate projects with real data, so only
+        // has-data may skip detection.
+        const detect = jest.fn<Promise<ProductSetupStatus>, []>().mockResolvedValue('needs-setup')
+        const second = buildCached(detect)
+        second.mount()
+        await expectLogic(second).toFinishAllListeners()
+        expect(detect).not.toHaveBeenCalled()
+        expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('has-data')
     })
 
     it('does not poll when no interval is configured', async () => {

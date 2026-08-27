@@ -2,6 +2,7 @@ import { BreakPointFunction, LogicWrapper, MakeLogicType, afterMount, connect, k
 import { loaders } from 'kea-loaders'
 
 import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
@@ -41,6 +42,14 @@ export interface SetupDetectionLogicOptions {
      * import time - it is evaluated when this logic mounts.
      */
     recheckActionTypes?: () => string[]
+    /**
+     * Remember a has-data answer in localStorage (keyed team + product) and skip
+     * detection on later mounts. Only that direction is cached - data never
+     * disappears once ingested, while needs-setup keeps re-checking. For products
+     * without a boot-time probe, this is what spares the returning user a spinner
+     * and a query on every scene entry.
+     */
+    cacheHasData?: boolean
 }
 
 export interface SetupDetectionValues {
@@ -48,6 +57,7 @@ export interface SetupDetectionValues {
     detectedStatusLoading: boolean
     setupStatus: ProductSetupStatus
     currentProjectId: number | null
+    currentTeamId: number | null
 }
 
 export interface SetupDetectionActions {
@@ -80,8 +90,31 @@ export type SetupDetectionLogicType = MakeLogicType<SetupDetectionValues, SetupD
  * Products whose detection drives more than the gate (extra selectors, multi-stage
  * dashboards like MCP analytics) keep a bespoke logic instead.
  */
+function hasDataCacheKey(teamId: number, productKey: ProductKey): string {
+    return `ph-product-setup-has-data/${teamId}/${productKey}`
+}
+
+// localStorage can throw (private modes, disabled storage); a cache miss is always safe.
+function readCachedHasData(teamId: number | null, productKey: ProductKey): boolean {
+    try {
+        return teamId !== null && window.localStorage.getItem(hasDataCacheKey(teamId, productKey)) === '1'
+    } catch {
+        return false
+    }
+}
+
+function writeCachedHasData(teamId: number | null, productKey: ProductKey): void {
+    try {
+        if (teamId !== null) {
+            window.localStorage.setItem(hasDataCacheKey(teamId, productKey), '1')
+        }
+    } catch {
+        // Nothing cached; the next mount just detects again.
+    }
+}
+
 export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): LogicWrapper<SetupDetectionLogicType> {
-    const { productKey, detect, pollIntervalMs, onDetected, recheckActionTypes } = options
+    const { productKey, detect, pollIntervalMs, onDetected, recheckActionTypes, cacheHasData } = options
     return buildKea<SetupDetectionLogicType>([
         path(options.path),
         connect(() => ({
@@ -91,6 +124,8 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
                 ['status as setupStatus'],
                 projectLogic,
                 ['currentProjectId'],
+                teamLogic,
+                ['currentTeamId'],
             ],
         })),
         loaders({
@@ -123,6 +158,9 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
                 // Data never disappears once it exists, so the poll's job is done.
                 if (detectedStatus === 'has-data') {
                     cache.disposables.dispose('poll')
+                    if (cacheHasData) {
+                        writeCachedHasData(values.currentTeamId, productKey)
+                    }
                 }
             },
             detectStatusFailure: () => {
@@ -141,6 +179,10 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
             },
         })),
         afterMount(({ actions, values, cache }) => {
+            if (cacheHasData && readCachedHasData(values.currentTeamId, productKey)) {
+                actions.setDetectedStatus('has-data')
+                return
+            }
             // The API layer resolves the project from bootstrap state, so a check fired
             // before that settles throws instead of answering - skip those ticks.
             const detectIfProjectKnown = (): void => {

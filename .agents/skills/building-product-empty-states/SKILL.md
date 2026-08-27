@@ -36,7 +36,7 @@ export const logsSetupLogic = createSetupDetectionLogic({
 })
 ```
 
-`detect` composes freely: retry inside it with `retryWithBackoff`, return `unknown` for "cannot tell" (e.g. no access), return `waiting-for-data` from an opt-in flag + count check. When the query is a fresh event count, use `refresh: 'force_blocking'` - a cached pre-ingestion `[0,0]` would otherwise stick.
+`detect` composes freely: retry inside it with `retryWithBackoff`, return `unknown` for "cannot tell" (e.g. no access), return `waiting-for-data` from an opt-in flag + count check. When the query is a fresh event count, use `refresh: 'force_blocking'` - a cached pre-ingestion `[0,0]` would otherwise stick. `recheckActionTypes` re-detects immediately when app state changes elsewhere (a team-setting opt-in). `cacheHasData` remembers a has-data answer in localStorage so returning users skip the spinner and the query - use it for products with no boot-time probe.
 
 Products whose detection drives more than the gate (extra selectors, staged dashboards) keep a bespoke logic instead - template: `products/mcp_analytics/frontend/mcpAnalyticsOnboardingLogic.ts`. It must push the status from a listener and handle failure the same way the factory does:
 
