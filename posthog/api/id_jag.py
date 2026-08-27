@@ -8,6 +8,7 @@ to us, or get a personal API token to programmatically access our API.
 """
 
 import uuid
+from dataclasses import field
 from datetime import UTC, datetime, timedelta
 from typing import Any, TypedDict, cast
 
@@ -122,7 +123,7 @@ class _VerifiedIdJag:
 
 @frozen
 class IssuedAccessToken:
-    access_token: str
+    access_token: str = field(repr=False)
     granted_scopes: list[str]
     expires_in_seconds: int
 
