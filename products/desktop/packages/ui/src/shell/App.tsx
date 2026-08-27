@@ -30,7 +30,10 @@ import { UpdateBanner } from "@posthog/ui/features/sidebar/components/UpdateBann
 import { PendingPromptRecovery } from "@posthog/ui/features/task-detail/components/PendingPromptRecovery";
 import { router } from "@posthog/ui/router/router";
 import { AppLoadingScreen } from "@posthog/ui/shell/AppLoadingScreen";
-import { isBackgroundAccessRecheck } from "@posthog/ui/shell/desktopAccessGate";
+import {
+  isBackgroundAccessRecheck,
+  nextLastAllowedProjectId,
+} from "@posthog/ui/shell/desktopAccessGate";
 import { ErrorBoundary } from "@posthog/ui/shell/ErrorBoundary";
 import { ensureSession } from "@posthog/ui/shell/firstRun";
 import { logger } from "@posthog/ui/shell/logger";
@@ -75,12 +78,21 @@ function App({ devToolbar }: AppProps) {
   // render.
   const lastAllowedProjectRef = useRef<number | null>(null);
   useEffect(() => {
-    if (!isAuthenticated) {
-      lastAllowedProjectRef.current = null;
-    } else if (hasDesktopAccess) {
-      lastAllowedProjectRef.current = authState.currentProjectId;
-    }
-  }, [isAuthenticated, hasDesktopAccess, authState.currentProjectId]);
+    lastAllowedProjectRef.current = nextLastAllowedProjectId(
+      lastAllowedProjectRef.current,
+      {
+        isAuthenticated,
+        currentProjectId: authState.currentProjectId,
+        accessIsCurrent: desktopAccessIsCurrent,
+        accessStatus: desktopAccess.status,
+      },
+    );
+  }, [
+    isAuthenticated,
+    authState.currentProjectId,
+    desktopAccessIsCurrent,
+    desktopAccess.status,
+  ]);
   const isRevalidatingAccess =
     desktopAccessIsCurrent &&
     isBackgroundAccessRecheck(

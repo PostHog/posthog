@@ -1338,8 +1338,13 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     if (this.session !== session) {
       // The session rotated while the check was in flight. The result is
       // scoped to (account, project): when the rotation kept both and nothing
-      // newer has answered, the result still applies, and dropping it would
-      // strand the published state on "checking" until an unrelated sync.
+      // newer has answered, an "allowed" result still applies, and dropping
+      // it would leave the published state on "checking" until the rotation's
+      // own check answers. Only "allowed" may apply from a stale check: every
+      // rotation runs its own check, so a stale failure or denial (a timeout
+      // on the old request, a rejected old token) must wait for that newer
+      // check instead of unmounting the app with a result the newer check
+      // will overturn.
       const current = this.session;
       const accountChanged =
         current !== null &&
@@ -1350,6 +1355,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
         current !== null &&
         !accountChanged &&
         current.currentProjectId === session.currentProjectId &&
+        desktopAccess.status === "allowed" &&
         this.state.desktopAccess.status === "checking" &&
         this.state.desktopAccess.projectId === session.currentProjectId;
       if (!stillAnswers) return;

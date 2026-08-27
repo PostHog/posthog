@@ -2407,21 +2407,38 @@ describe("AuthService", () => {
       expect(service.getState().desktopAccess.status).toBe("allowed");
     });
 
-    it("applies a check that finished after the session rotated to the same account and project", async () => {
-      // Dropping the result because the session object rotated mid-check
-      // strands the published state on "checking", which keeps the whole app
-      // unmounted until an unrelated sync happens to answer.
+    it.each([
+      {
+        // Dropping an allowed result because the session object rotated
+        // mid-check leaves the published state on "checking", which keeps the
+        // whole app unmounted until the rotation's own check answers.
+        name: "applies an allowed check that finished after a same-identity rotation",
+        staleResponse: () => okBody({ allowed: true, reason: null }),
+        statusAfterStale: "allowed",
+      },
+      {
+        // A timeout or a rejected old token on the stale check must not
+        // publish "error" and unmount the app while the rotation's own
+        // healthy check is still pending.
+        name: "drops a failed check that finished after a same-identity rotation",
+        staleResponse: () =>
+          ({
+            ok: false,
+            status: 500,
+            json: vi.fn().mockResolvedValue({}),
+          }) as unknown as Response,
+        statusAfterStale: "checking",
+      },
+    ])("$name", async ({ staleResponse, statusAfterStale }) => {
       stubAuthFetch();
       await service.initialize();
       expect(service.getState().desktopAccess.status).toBe("allowed");
 
-      const releases: Array<() => void> = [];
+      const releases: Array<(response: Response) => void> = [];
       stubAuthFetch({
         desktopAccessResponse: () =>
           new Promise<Response>((resolve) => {
-            releases.push(() =>
-              resolve(okBody({ allowed: true, reason: null })),
-            );
+            releases.push(resolve);
           }) as unknown as Response,
       });
       const retry = service.retryDesktopAccess();
@@ -2431,11 +2448,11 @@ describe("AuthService", () => {
       const refresh = service.refreshAccessToken();
       await vi.waitFor(() => expect(releases.length).toBe(2));
 
-      releases[0]();
+      releases[0](staleResponse());
       await retry;
-      expect(service.getState().desktopAccess.status).toBe("allowed");
+      expect(service.getState().desktopAccess.status).toBe(statusAfterStale);
 
-      releases[1]();
+      releases[1](okBody({ allowed: true, reason: null }));
       await refresh;
       expect(service.getState().desktopAccess.status).toBe("allowed");
     });
