@@ -1,5 +1,5 @@
 use anyhow::Error;
-use flate2::read::GzDecoder;
+use flate2::read::MultiGzDecoder;
 use serde::{Deserialize, Serialize};
 use std::panic::AssertUnwindSafe;
 use std::{
@@ -237,7 +237,7 @@ impl PartExtractor for PlainGzipExtractor {
     }
 }
 
-/// Decompress a single gzip member, streaming blocks to `tx`. Appends a trailing
+/// Decompress a gzip stream, streaming blocks to `tx`. Appends a trailing
 /// newline if the decompressed content is non-empty and didn't already end with
 /// one, so the downstream JSONL parser always sees a complete final line.
 ///
@@ -249,9 +249,11 @@ impl PartExtractor for PlainGzipExtractor {
 /// *non-gzip* compression header is a compression-setting mismatch worth naming
 /// up front, not corruption.
 ///
-/// `GzDecoder` decodes a single gzip member (it stops at the first member's end).
-/// This matches the previous materializing extractor; the export endpoints we
-/// consume emit single-member gzip streams, not concatenated members.
+/// `MultiGzDecoder` decodes every gzip member in the file, not just the first.
+/// PostHog's own S3 batch exports compress each record as its own gzip member
+/// and concatenate them, so a single-member decoder would stop after the first
+/// event and report a clean EOF, importing a truncated part as complete.
+/// Single-member streams (Mixpanel, Amplitude) decode identically.
 pub(crate) fn run_plain_gzip_producer(raw_file_path: PathBuf, tx: mpsc::Sender<Block>) {
     let mut file = match std::fs::File::open(&raw_file_path) {
         Ok(f) => f,
@@ -277,7 +279,7 @@ pub(crate) fn run_plain_gzip_producer(raw_file_path: PathBuf, tx: mpsc::Sender<B
     };
 
     let mut reader: Box<dyn Read> = match sniffed {
-        Some("gzip") => Box::new(GzDecoder::new(file)),
+        Some("gzip") => Box::new(MultiGzDecoder::new(file)),
         Some(fmt) => {
             let _unused = tx.blocking_send(Err(format!(
                 "The file appears to be {fmt}-compressed, but this import expects gzip \
@@ -367,7 +369,7 @@ pub(crate) fn run_zip_gzip_json_producer(raw_file_path: PathBuf, tx: mpsc::Sende
                 return;
             }
         };
-        let mut decoder = GzDecoder::new(zip_file);
+        let mut decoder = MultiGzDecoder::new(zip_file);
         let mut last_byte: Option<u8> = None;
         let mut entry_bytes: u64 = 0;
 
@@ -487,6 +489,16 @@ mod tests {
         Ok(())
     }
 
+    fn create_multi_member_gzip_file(members: &[&str], path: &std::path::Path) -> Result<()> {
+        let mut file = StdFile::create(path)?;
+        for content in members {
+            let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+            encoder.write_all(content.as_bytes())?;
+            file.write_all(&encoder.finish()?)?;
+        }
+        Ok(())
+    }
+
     fn create_test_zip_with_gzip_json(
         json_files: Vec<(&str, &str)>,
         zip_path: &std::path::Path,
@@ -565,7 +577,7 @@ mod tests {
         // message is actionable, instead of a bare "failed to decompress" string.
         let temp_dir = TempDir::new().unwrap();
         let zstd_file = temp_dir.path().join("actually.zst");
-        // A minimal zstd magic-led body is enough: GzDecoder rejects it at the header.
+        // A minimal zstd magic-led body is enough: the gzip decoder rejects it at the header.
         std::fs::write(&zstd_file, [0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x01, 0x02, 0x03]).unwrap();
 
         let mut reader = PlainGzipExtractor.open_reader(zstd_file);
@@ -662,6 +674,33 @@ mod tests {
             );
             assert_eq!(data, expected.as_bytes(), "data mismatch for case: {name}");
         }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_plain_gzip_extractor_concatenated_members() -> Result<()> {
+        // PostHog S3 batch exports gzip each record separately and concatenate
+        // the members into one file. A single-member decoder stops at the first
+        // member boundary and reports a clean EOF, which records a one-event
+        // truncation of the part as complete. Every member must decode, and
+        // newline normalization must apply to the reassembled stream.
+        let temp_dir = TempDir::new()?;
+        let gzip_file = temp_dir.path().join("multi.gz");
+        create_multi_member_gzip_file(
+            &[
+                "{\"event\":\"a\"}\n",
+                "{\"event\":\"b\"}\n",
+                "{\"event\":\"c\"}", // no trailing newline on the last member
+            ],
+            &gzip_file,
+        )?;
+
+        let mut reader = PlainGzipExtractor.open_reader(gzip_file);
+        let (data, size) = reader.read_to_end_for_test(8192).await;
+
+        let expected = "{\"event\":\"a\"}\n{\"event\":\"b\"}\n{\"event\":\"c\"}\n";
+        assert_eq!(size as usize, expected.len());
+        assert_eq!(data, expected.as_bytes());
         Ok(())
     }
 
