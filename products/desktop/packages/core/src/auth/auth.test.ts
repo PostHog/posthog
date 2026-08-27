@@ -161,7 +161,6 @@ describe("AuthService", () => {
         { name: string; projects: { id: number; name: string }[] }
       >;
       desktopAccessResponse?: (url: string) => Response;
-      redeemInviteCodeResponse?: () => Response;
     } = {},
   ) => {
     const accountKey =
@@ -203,13 +202,6 @@ describe("AuthService", () => {
               teams: orgs[orgId]?.projects ?? [],
             }),
           } as unknown as Response;
-        }
-
-        if (
-          url.includes("/api/code/invites/redeem/") &&
-          options.redeemInviteCodeResponse
-        ) {
-          return options.redeemInviteCodeResponse();
         }
 
         if (options.desktopAccessResponse) {
@@ -2312,33 +2304,6 @@ describe("AuthService", () => {
 
       available = true;
       const state = await service.retryDesktopAccess();
-
-      expect(state.desktopAccess).toEqual({
-        projectId: 42,
-        status: "allowed",
-        reason: null,
-      });
-    });
-
-    it("rechecks access after redeeming a legacy invite code", async () => {
-      let redeemed = false;
-      stubAuthFetch({
-        redeemInviteCodeResponse: () => {
-          redeemed = true;
-          return okBody({ success: true });
-        },
-        desktopAccessResponse: () =>
-          okBody(
-            redeemed
-              ? { allowed: true, reason: null }
-              : { allowed: false, reason: null },
-          ),
-      });
-
-      await service.initialize();
-      expect(service.getState().desktopAccess.status).toBe("blocked");
-
-      const state = await service.redeemInviteCode("test-code");
 
       expect(state.desktopAccess).toEqual({
         projectId: 42,
