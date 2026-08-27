@@ -4,6 +4,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
 from parameterized import parameterized
+from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
@@ -114,6 +115,34 @@ class TestAlertDeliveryPlanning(AlertTestMixin):
         assert planned[0].thread is not None
         assert planned[0].thread.id == thread.id
 
+    def test_multi_destination_alert_plans_per_destination(self):
+        alert = self._create_alert(triggers=["issue_created"])
+        with team_scope(self.team.id):
+            first_destination = alert.destinations.first()
+            second_destination = alert.destinations.create(
+                team=self.team,
+                channel_type="slack",
+                integration=self.integration,
+                config={"channel": "C0456"},
+            )
+            # Only the second destination has a rooted thread for this issue.
+            thread = ErrorTrackingAlertThread.objects.create(
+                team=self.team,
+                alert=alert,
+                issue=self.issue,
+                destination=second_destination,
+            )
+
+        opener = plan_alert_deliveries(self._inputs("$error_tracking_issue_created"))
+        assert len(opener) == 2
+        assert {planned.destination.id for planned in opener} == {first_destination.id, second_destination.id}
+
+        reply = plan_alert_deliveries(self._inputs("$error_tracking_issue_resolved"))
+        assert len(reply) == 1
+        assert reply[0].destination.id == second_destination.id
+        assert reply[0].thread is not None
+        assert reply[0].thread.id == thread.id
+
 
 class TestAlertDeliveryDispatch(AlertTestMixin):
     def _dispatch(self) -> None:
@@ -158,6 +187,8 @@ class TestAlertDeliveryDispatch(AlertTestMixin):
         assert args[0] == "error-tracking-alert-delivery"
         assert args[1].notification_id == "notif-1"
         assert kwargs["id"] == "error-tracking-alert-delivery-notif-1"
+        # A redelivered start after completion must be rejected, not rerun.
+        assert kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
 
     def test_dispatch_swallows_temporal_errors(self):
         self._create_alert()

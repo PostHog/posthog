@@ -11,6 +11,7 @@ import asyncio
 from django.conf import settings
 
 import structlog
+from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.temporal.common.client import sync_connect
@@ -67,6 +68,10 @@ def start_alert_delivery_workflow(
                 inputs,
                 id=ErrorTrackingAlertDeliveryWorkflow.workflow_id_for(notification_id),
                 task_queue=settings.ERROR_TRACKING_LIFECYCLE_TASK_QUEUE,
+                # A redelivered start after the first run completed must be a no-op
+                # (the default ALLOW_DUPLICATE would run it again); failed runs stay
+                # retryable by a fresh start.
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
             )
         )
     except WorkflowAlreadyStartedError:
