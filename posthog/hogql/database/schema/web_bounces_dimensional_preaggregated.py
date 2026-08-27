@@ -62,7 +62,7 @@ class WebBouncesDimensionalPreaggregatedTable(Table):
         "city_name": StringDatabaseField(name="city_name"),
         "region_code": StringDatabaseField(name="region_code"),
         "region_name": StringDatabaseField(name="region_name"),
-        # Presence flags only — the click-id values themselves are not stored.
+        # Presence flags only: the click-id values themselves are not stored.
         "has_gclid": BooleanDatabaseField(name="has_gclid"),
         "has_gad_source_paid_search": BooleanDatabaseField(name="has_gad_source_paid_search"),
         "has_fbclid": BooleanDatabaseField(name="has_fbclid"),

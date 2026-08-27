@@ -21,12 +21,14 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.visitor import TraversingVisitor
 
+from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import PropertyDefinition
 from posthog.models.team.team_marketing_analytics_config import MAX_ATTRIBUTION_WINDOW_DAYS
 from posthog.models.utils import uuid7
 from posthog.test.persons import create_person
 
 from products.actions.backend.models.action import Action
+from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.marketing_analytics.backend.hogql_queries.attribution_table_query_runner import (
     MarketingAnalyticsAttributionQueryRunner,
 )
@@ -904,3 +906,154 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         )
         with self.assertRaises(ValueError):
             MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team).to_query()
+
+
+# The two sides are FULL OUTER JOINed on `breakdown_value`, so a rendering divergence does not fail
+# loudly. It splits one dimension into a visitors-only row and a credit-only row, and reports five
+# wrong conversion rates. Only running both paths over real rows catches that.
+class TestAttributionReachPrecomputeParity(ClickhouseTestMixin, BaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self):
+        super().setUp()
+        PreaggregationJob.objects.filter(team_id=self.team.pk).delete()
+        # Rows are born expired against the real CH clock, so stop TTL merges to keep parts between
+        # INSERT and read. Server-global, so restore it on teardown.
+        sync_execute("SYSTEM STOP TTL MERGES sharded_web_bounces_dimensional_preaggregated")
+        self.addCleanup(sync_execute, "SYSTEM START TTL MERGES sharded_web_bounces_dimensional_preaggregated")
+
+        config = self.team.marketing_analytics_config
+        config.attribution_window_days = WINDOW_DAYS
+        config.conversion_goals = [
+            ConversionGoalFilter1(
+                kind="EventsNode",
+                event=CONVERSION_EVENT,
+                name="Purchases",
+                conversion_goal_id=GOAL_ID,
+                conversion_goal_name="Purchases",
+                schema_map={},
+                math=PropertyMathType.SUM,
+                math_property="revenue",
+                counts_as_revenue=True,
+            ).model_dump()
+        ]
+        config.save()
+
+    def _seed(self) -> None:
+        # Two sources, two campaigns and a repeat visitor, so the normalization branches run.
+        for distinct_id in ("p1", "p2", "p3", "p4", "p5"):
+            create_person(team=self.team, distinct_ids=[distinct_id])
+        self._session("p1", "2023-01-05T10:00:00Z", utm_source="google", utm_campaign="spring", utm_medium="cpc")
+        self._session("p1", "2023-01-06T10:00:00Z", utm_source="google", utm_campaign="spring", utm_medium="cpc")
+        self._session("p2", "2023-01-05T11:00:00Z", utm_source="Bing", utm_campaign="Spring", utm_medium="cpc")
+        self._session("p3", "2023-01-07T09:00:00Z", referring_domain="news.example.com")
+        # p4 sends the `$direct` sentinel, so it is the Direct row `excludeDirectTraffic` drops. p5
+        # sends no referrer at all, which the classifier cannot place, so it is the Unknown row
+        # `excludeUnattributed` drops. Without both, the exclusion cases assert on an unchanged
+        # result.
+        self._session("p4", "2023-01-06T08:00:00Z")
+        self._session("p5", "2023-01-06T09:00:00Z", referring_domain=None)
+        self._conversion("p1", "2023-01-08T12:00:00Z")
+        self._conversion("p2", "2023-01-08T12:00:00Z")
+        self._conversion("p4", "2023-01-08T12:00:00Z")
+        flush_persons_and_events()
+
+    def _session(
+        self,
+        distinct_id: str,
+        started_at: str,
+        *,
+        utm_campaign: str | None = None,
+        utm_source: str | None = None,
+        utm_medium: str | None = None,
+        referring_domain: str | None = "$direct",
+    ) -> None:
+        session_id = str(uuid7(started_at))
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            timestamp=started_at,
+            properties={
+                "$session_id": session_id,
+                "$current_url": "https://example.com/",
+                "$pathname": "/",
+                **({"$referring_domain": referring_domain} if referring_domain is not None else {}),
+                **({"utm_campaign": utm_campaign} if utm_campaign else {}),
+                **({"utm_source": utm_source} if utm_source else {}),
+                **({"utm_medium": utm_medium} if utm_medium else {}),
+            },
+        )
+
+    def _conversion(self, distinct_id: str, at: str) -> None:
+        _create_event(
+            team=self.team,
+            event=CONVERSION_EVENT,
+            distinct_id=distinct_id,
+            timestamp=at,
+            properties={"revenue": 100.0},
+        )
+
+    def _visitors(
+        self,
+        breakdown: MarketingAnalyticsAttributionBreakdown,
+        *,
+        precompute: bool,
+        exclude_direct: bool = False,
+        exclude_unattributed: bool = False,
+    ) -> dict[str, int]:
+        query = MarketingAnalyticsAttributionQuery(
+            dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
+            breakdownBy=breakdown,
+            conversionGoalId=GOAL_ID,
+            excludeDirectTraffic=exclude_direct,
+            excludeUnattributed=exclude_unattributed,
+            properties=[],
+        )
+        runner = MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team)
+        runner.config.reach_precomputation_enabled = precompute
+        response = runner.calculate()
+        assert runner._reach_precompute_used is precompute, (
+            "the precompute path fell back, so this case would compare the live scan with itself"
+        )
+        return {row.breakdownValue: row.visitors for row in response.results}
+
+    @parameterized.expand([(b.value, b) for b in MarketingAnalyticsAttributionBreakdown])
+    def test_visitors_match_the_live_scan(self, _name, breakdown):
+        self._seed()
+        self.assertEqual(
+            self._visitors(breakdown, precompute=False),
+            self._visitors(breakdown, precompute=True),
+        )
+
+    @parameterized.expand(
+        [
+            ("exclude_direct", True, False),
+            ("exclude_unattributed", False, True),
+            ("exclude_both", True, True),
+        ]
+    )
+    def test_visitors_match_the_live_scan_with_exclusions(self, _name, exclude_direct, exclude_unattributed):
+        self._seed()
+        breakdown = MarketingAnalyticsAttributionBreakdown.CHANNEL
+
+        baseline = self._visitors(breakdown, precompute=False)
+        live = self._visitors(
+            breakdown,
+            precompute=False,
+            exclude_direct=exclude_direct,
+            exclude_unattributed=exclude_unattributed,
+        )
+        # Without this the case proves nothing: with no row to remove, both legs return the
+        # unfiltered result and would match even with the mirror deleted.
+        assert live != baseline, "the exclusion dropped nothing, so this case cannot detect a divergence"
+
+        self.assertEqual(
+            live,
+            self._visitors(
+                breakdown,
+                precompute=True,
+                exclude_direct=exclude_direct,
+                exclude_unattributed=exclude_unattributed,
+            ),
+        )

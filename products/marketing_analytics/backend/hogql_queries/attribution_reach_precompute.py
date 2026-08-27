@@ -1,48 +1,59 @@
 """Pre-aggregated source for the attribution table's `influenced_reach` CTE.
 
 Reach is the denominator: unique visitors per dimension, converters or not. It is the one CTE in the
-attribution query that is *not* restricted to converters, so it scans every pageview in the
-lookback-extended window and joins each to `sessions` — measured, that join is what makes the query
-run out of memory on a high-volume team at a 60-day span while the converter-restricted CTEs return
+attribution query that is not restricted to converters, so it scans every pageview in the
+lookback-extended window and joins each to `sessions`. Measured, that join is what makes the query
+run out of memory on a high-volume team at a 60-day span, while the converter-restricted CTEs return
 instantly.
 
 Reach is also a plain rollup (`uniq(person_id)` grouped by one dimension, no per-person ordering), so
-unlike the credit side it can be served from a pre-aggregated table. `web_bounces_dimensional_preaggregated`
-is session-grain with the session's *entry* attribution already resolved, which is exactly the shape
+unlike the credit side it can come from a pre-aggregated table. `web_bounces_dimensional_preaggregated`
+is session-grain with the session's entry attribution already resolved, which is the shape
 `_build_reach_select` computes the slow way.
 
-Two things this deliberately keeps in lockstep with `AttributionQueryRunnerBase`:
+Two things stay in lockstep with `AttributionQueryRunnerBase`:
 
 - the display expression per breakdown, including the team's source/campaign normalization. The reach
-  rows are FULL OUTER JOINed to the credit rows on `breakdown_value`; if the two sides normalize
-  differently, a dimension splits into two rows — one with visitors and no credit, one with credit and
-  no visitors.
+  rows are FULL OUTER JOINed to the credit rows on `breakdown_value`, so if the two sides normalize
+  differently a dimension splits into a visitors-only row and a credit-only row.
 - the exclusion options, applied before aggregation.
 
-Known divergences, and how each is handled:
+Known divergences:
 
-- **Custom channel rules.** The pre-aggregated channel type ignores them (they can key on the full URL,
-  which no pre-aggregated table stores) while the credit side reads `sessions.$channel_type`, which
-  applies them. Gated out.
+- **Custom channel rules.** The pre-aggregated channel type ignores them, because they can key on the
+  full URL, which no pre-aggregated table stores. The credit side reads `sessions.$channel_type`,
+  which applies them. Gated out.
 - **Non-integer timezones.** `period_bucket` is an hourly UTC bucket, so a half-hour-offset team's
-  midnight lands mid-bucket. Gated out, same as web analytics does for its own reads.
-- **`$screen`-only sessions — NOT gated, and this one is a real known gap.** `BOUNCES_INSERT_TEMPLATE`
-  feeds on `$pageview` OR `$screen`, but `_touchpoint_condition` counts only `$pageview`. A mobile
-  session that never fires a pageview is therefore a visitor here and not one on the credit side, so a
-  team with app traffic gets a denominator inflated by those sessions (they carry no UTMs, so they land
-  under Direct) and correspondingly deflated conversion rates. The table cannot express the difference:
-  its `pageviews_count_state` counts both event types, so there is no column to filter on. Closing this
-  needs either a `$pageview`-only count column on the table or an accepted change to what the live path
-  counts as a touchpoint — neither belongs in this change. Until then the flag should stay off for teams
-  with meaningful `$screen` volume.
+  midnight lands mid-bucket. Gated out, as web analytics does for its own reads.
+- **Property-level access control, and an explicit `sessionsV2JoinMode`.** Gated out, as web
+  analytics does.
+- **Window edges are session-start, not event-time. NOT gated.** The insert buckets a session by
+  `toStartOfHour(min($start_timestamp))`, the credit side bounds `events.timestamp`. A session
+  starting before `window_start` with pageviews inside it counts as a touchpoint and not as a
+  visitor, biasing rates high by at most one session length.
+- **`gad_source` other than `'1'`. NOT gated, inherited from web analytics.** The table stores only
+  `has_gad_source_paid_search`, so the classifier rebuilds `gad_source` as `'1'` or NULL. Google
+  emits 1-5 and the builtin rule opens the Paid branch on `gad_source IS NOT NULL`, so `gad_source=3`
+  is Paid on the credit side and Organic here, splitting the CHANNEL row. Web analytics never meets
+  both classifications in one result set; this read does.
+- **Person IDs are frozen at insert time. NOT gated.** `persons_uniq_state` is built when the window
+  materializes, while the credit side applies person overrides at query time. After a merge, two IDs
+  collapse in the numerator and stay two in the cached denominator until that window is recomputed.
+- **`$screen`-only sessions. NOT gated, and a real gap.** `BOUNCES_INSERT_TEMPLATE` feeds on
+  `$pageview` or `$screen`, but `_touchpoint_condition` counts only `$pageview`. A mobile session
+  that never fires a pageview is a visitor here and not one on the credit side, so a team with app
+  traffic gets an inflated denominator (those sessions carry no UTMs, so they land under Direct) and
+  deflated rates. The table cannot express the difference, because `pageviews_count_state` counts
+  both event types. Closing it needs a `$pageview`-only column on the table, or a change to what the
+  live path counts as a touchpoint. Until then keep the flag off for teams with `$screen` volume.
 """
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Optional
 
 import structlog
 
-from posthog.schema import MarketingAnalyticsAttributionBreakdown
+from posthog.schema import MarketingAnalyticsAttributionBreakdown, SessionsV2JoinMode
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import create_preaggregated_channel_type_expr
@@ -50,15 +61,19 @@ from posthog.hogql.transforms.preaggregated_table_transformation import is_integ
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
-from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationTable
-from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import (
+from products.access_control.backend.facade.api import team_has_property_access_rules
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    LazyComputationTable,
+    parse_ttl_schedule,
+)
+from products.analytics_platform.backend.lazy_computation.web_dimensional_shared import (
     BOUNCES_INSERT_TEMPLATE,
     DIMENSIONAL_TTL_SECONDS,
     base_placeholders,
 )
 
 from .constants import UNKNOWN_CHANNEL
-from .marketing_lazy_precompute import marketing_ensure_precomputed
+from .marketing_lazy_precompute import handle_stale_served, marketing_ensure_precomputed
 from .metrics import ATTRIBUTION_REACH_PRECOMPUTE_FALLBACK_COUNTER, ATTRIBUTION_REACH_PRECOMPUTE_SUCCESS_COUNTER
 
 if TYPE_CHECKING:
@@ -67,6 +82,14 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 REACH_PRECOMPUTE_TABLE = "web_bounces_dimensional_preaggregated"
+
+# Matches web analytics' ceiling for these tables.
+REACH_MAX_WINDOW_DAYS = 90
+
+# The framework merges a fully-missing range into one INSERT, so without a cap a cold ensure scans
+# the whole span at once. Web analytics' Dagster job and marketing's costs precompute both chunk to
+# a day for the same reason.
+REACH_PRECOMPUTE_CHUNK_DAYS = 1
 
 # Column on the pre-aggregated table backing each breakdown. CHANNEL is absent on purpose: it has no
 # column and is computed from several of the others.
@@ -91,12 +114,14 @@ def _table_field(name: str) -> ast.Expr:
     return ast.Field(chain=[name])
 
 
-def reach_precompute_ineligible_reason(runner: "AttributionQueryRunnerBase") -> Optional[str]:
+def reach_precompute_ineligible_reason(
+    runner: "AttributionQueryRunnerBase", date_range: Optional[QueryDateRange] = None
+) -> Optional[str]:
     """Why this query cannot read reach from the pre-aggregated table, or None if it can.
 
-    Returns a reason string rather than a bool so the caller can label the fallback counter with it —
-    these reasons carry very different weight (permanent vs transient) and an unlabeled counter would
-    blur them together.
+    Returns a reason string rather than a bool so the caller can label the fallback counter with it.
+    The reasons carry very different weight, permanent against transient, and an unlabeled counter
+    would blur them together.
     """
     modifiers = runner.modifiers
     if modifiers is not None and modifiers.customChannelTypeRules:
@@ -112,11 +137,50 @@ def reach_precompute_ineligible_reason(runner: "AttributionQueryRunnerBase") -> 
         # analytics applies to its own reads of these tables (`NonIntegerTimezone`).
         return "non_integer_timezone"
 
+    # Raw modifiers, because resolution defaults `sessionsV2JoinMode` to UUID for every query and
+    # gating on the resolved value would refuse everything. The custom-rules check above needs the
+    # opposite, since team-level rules are merged in during resolution.
+    query_modifiers = runner.query.modifiers
+    if query_modifiers is not None and query_modifiers.sessionsV2JoinMode == SessionsV2JoinMode.UUID:
+        # Changes what counts as one session on the credit side, while the rows keep the semantics
+        # they were materialized with.
+        return "sessions_v2_uuid_mode"
+
+    if team_has_property_access_rules(team_id=runner.team.id):
+        # The rows are userless and shared by a user-independent cache key, so they cannot honor
+        # per-user property restrictions. The live scan runs under the requesting user and can.
+        return "property_access_controlled"
+
+    if date_range is not None and _window_days(runner, date_range) > REACH_MAX_WINDOW_DAYS:
+        # Width, not age: this bounds what one request can materialize inline, it does not promise
+        # the window is warm. The span includes the lookback, so a team on the maximum attribution
+        # window never qualifies.
+        return "window_over_max"
+
     return None
 
 
-def can_use_reach_precompute(runner: "AttributionQueryRunnerBase") -> bool:
-    return reach_precompute_ineligible_reason(runner) is None
+def _window_days(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -> int:
+    window_start, window_end = _reach_window(runner, date_range)
+    return (window_end - window_start).days
+
+
+def _reach_window(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -> tuple[datetime, datetime]:
+    """The bounds this read asks the pre-aggregated table for, in UTC.
+
+    Same span as `_lookback_date_conditions`: the display range extended back by the attribution
+    window, so a visitor who arrived before the range still counts toward the denominator of a
+    conversion inside it. Reach and credit must agree here or rates can exceed 100%.
+
+    Converted to UTC *before* subtracting, for two reasons. Subtracting from a team-local aware
+    datetime is wall-clock arithmetic, so a lookback crossing a DST transition would land an hour
+    away from the credit side's `toDateTime(...) - toIntervalSecond(...)`, which ClickHouse
+    evaluates in absolute seconds. And the job grid reinterprets the datetime's date fields as UTC,
+    so a team-local bound would leave the day's final |offset| hours with no job while this read
+    still asks for them.
+    """
+    window_start = date_range.date_from().astimezone(UTC) - timedelta(seconds=runner.attribution_window_seconds)
+    return window_start, date_range.date_to().astimezone(UTC)
 
 
 def build_reach_from_precompute(
@@ -127,17 +191,13 @@ def build_reach_from_precompute(
     Returns None rather than raising so the caller keeps one fallback path for "not eligible", "not
     warmed yet" and "blew up".
     """
-    ineligible = reach_precompute_ineligible_reason(runner)
+    ineligible = reach_precompute_ineligible_reason(runner, date_range)
     if ineligible is not None:
         ATTRIBUTION_REACH_PRECOMPUTE_FALLBACK_COUNTER.labels(reason=ineligible).inc()
         logger.info("attribution_reach_precompute", outcome=f"fallback_{ineligible}", team_id=runner.team.pk)
         return None
 
-    # Same bounds as `_lookback_date_conditions`: the display range extended back by the attribution
-    # window, so a visitor who arrived before the range still counts toward the denominator of a
-    # conversion inside it. Reach and credit must agree here or rates can exceed 100%.
-    window_start = date_range.date_from() - timedelta(seconds=runner.attribution_window_seconds)
-    window_end = date_range.date_to()
+    window_start, window_end = _reach_window(runner, date_range)
 
     try:
         # Goes through the marketing wrapper, not web analytics' own `ensure_web_bounces_dimensional_precomputed`,
@@ -149,7 +209,11 @@ def build_reach_from_precompute(
                 insert_query=BOUNCES_INSERT_TEMPLATE,
                 time_range_start=window_start,
                 time_range_end=window_end,
-                ttl_seconds=DIMENSIONAL_TTL_SECONDS,
+                ttl_seconds=parse_ttl_schedule(
+                    DIMENSIONAL_TTL_SECONDS,
+                    runner.team.timezone,
+                    max_window_days=REACH_PRECOMPUTE_CHUNK_DAYS,
+                ),
                 table=LazyComputationTable.WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED,
                 placeholders=base_placeholders(),
                 query_type="web_bounces_dimensional_insert",
@@ -159,14 +223,34 @@ def build_reach_from_precompute(
         logger.exception("attribution_reach_precompute_failed", team_id=runner.team.pk)
         return None
 
-    if not result.ready:
-        ATTRIBUTION_REACH_PRECOMPUTE_FALLBACK_COUNTER.labels(reason="not_ready").inc()
-        logger.info("attribution_reach_precompute", outcome="fallback_not_ready", team_id=runner.team.pk)
-        return None
     if result.stale:
-        runner._precompute_stale = True
+        # Before the guards, because a result can be stale and not ready at once. Handling it
+        # after would fall back without enqueueing the revalidation. Called here rather than
+        # flagging the runner, whose `to_query` override skips the base runner's stale handling.
+        handle_stale_served(team=runner.team, query=runner.query)
 
+    if not result.job_ids:
+        # `ready=True` with no jobs is reachable, and an empty `job_id IN ()` is a ClickHouse
+        # syntax error raised at execute time, outside the try above, so it would 500 the table
+        # instead of falling back.
+        ATTRIBUTION_REACH_PRECOMPUTE_FALLBACK_COUNTER.labels(reason="no_jobs").inc()
+        logger.info("attribution_reach_precompute", outcome="fallback_no_jobs", team_id=runner.team.pk)
+        return None
+
+    if not result.ready:
+        reason = "not_ready_oom" if result.memory_exceeded else "not_ready"
+        ATTRIBUTION_REACH_PRECOMPUTE_FALLBACK_COUNTER.labels(reason=reason).inc()
+        logger.info(
+            "attribution_reach_precompute",
+            outcome=f"fallback_{reason}",
+            team_id=runner.team.pk,
+            errors=result.errors or None,
+        )
+        return None
+
+    runner._reach_precompute_used = True
     ATTRIBUTION_REACH_PRECOMPUTE_SUCCESS_COUNTER.inc()
+    logger.info("attribution_reach_precompute", outcome="served", team_id=runner.team.pk)
     breakdown_expr = _preagg_breakdown_expr(runner)
     where: list[ast.Expr] = [
         ast.Call(
@@ -216,7 +300,7 @@ def _raw_breakdown_field(runner: "AttributionQueryRunnerBase") -> ast.Expr:
 def _preagg_breakdown_expr(runner: "AttributionQueryRunnerBase") -> ast.Expr:
     """Mirror of `AttributionQueryRunnerBase._breakdown_expr` against the pre-aggregated columns.
 
-    The two must produce identical strings for the same underlying traffic — see the module docstring
+    The two must produce identical strings for the same underlying traffic. See the module docstring
     on the FULL OUTER JOIN.
     """
     breakdown = runner.breakdown
@@ -251,7 +335,7 @@ def _preagg_exclusion_conditions(runner: "AttributionQueryRunnerBase") -> list[a
         )
 
     if runner.query.excludeUnattributed:
-        from .attribution_base import UNATTRIBUTED_SESSION_VALUES  # noqa: PLC0415 — avoids an import cycle
+        from .session_breakdown_base import UNATTRIBUTED_SESSION_VALUES  # noqa: PLC0415 (import cycle)
 
         field = _raw_breakdown_field(runner)
         conditions.append(
@@ -271,5 +355,4 @@ def _preagg_exclusion_conditions(runner: "AttributionQueryRunnerBase") -> list[a
 
 __all__ = [
     "build_reach_from_precompute",
-    "can_use_reach_precompute",
 ]

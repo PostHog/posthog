@@ -291,6 +291,8 @@ class MarketingAnalyticsAttributionQueryRunner(AttributionQueryRunnerBase[Market
     # ------------------------------------------------------------------ main query
 
     def to_query(self) -> ast.SelectQuery:
+        # Read after `to_query` to report which path served the denominator.
+        self._reach_precompute_used = False
         date_range = self.query_date_range
 
         ctes: dict[str, ast.CTE] = {}

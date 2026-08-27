@@ -1,7 +1,7 @@
 """The reach denominator served from the pre-aggregated table instead of a live pageview scan.
 
 Reach feeds `conversionRate = conversions / visitors` for all five models at once, so a wrong
-denominator here does not crash — it produces five plausible-looking but wrong rates. These tests are
+denominator here does not crash, it produces five plausible-looking but wrong rates. These tests are
 therefore mostly about the two sides *agreeing*: the pre-aggregated path has to render a dimension to
 the same string the credit side does, or the FULL OUTER JOIN in `_build_rows_select` splits it into a
 visitors-only row and a credit-only row.
@@ -66,7 +66,11 @@ class TestAttributionReachPrecompute(ClickhouseTestMixin, BaseTest):
         for attr in ("_ma_precompute_flags", "_ma_multi_touch_flag"):
             if hasattr(self.team, attr):
                 delattr(self.team, attr)
-        self.team._ma_precompute_flags = {"conversion": False, "costs": False, "reach": enabled}
+        self.team._ma_precompute_flags = {  # type: ignore[attr-defined]
+            "conversion": False,
+            "costs": False,
+            "reach": enabled,
+        }
 
     def _sql(self, *, breakdown=MarketingAnalyticsAttributionBreakdown.CHANNEL, modifiers=None, **query_kwargs) -> str:
         query = MarketingAnalyticsAttributionQuery(
@@ -108,13 +112,10 @@ class TestAttributionReachPrecompute(ClickhouseTestMixin, BaseTest):
 
         assert REACH_PRECOMPUTE_TABLE not in sql
 
+    # The pre-aggregated channel type cannot apply custom rules, because they can key on the full
+    # URL, which no pre-aggregated table stores. The credit side reads `sessions.$channel_type`,
+    # which does apply them, so serving reach from the precompute would disagree with the numerator.
     def test_falls_back_for_a_team_with_custom_channel_rules(self):
-        """The decisive correctness guard.
-
-        The pre-aggregated channel type cannot apply custom rules (they can key on the full URL, which
-        no pre-aggregated table stores), but the credit side reads `sessions.$channel_type`, which does.
-        Serving reach from the precompute for such a team would silently disagree with the numerator.
-        """
         modifiers = HogQLQueryModifiers(
             customChannelTypeRules=[
                 CustomChannelRule(
@@ -132,12 +133,8 @@ class TestAttributionReachPrecompute(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand([("half_hour", "Asia/Kolkata"), ("three_quarter_hour", "Asia/Kathmandu")])
     def test_falls_back_for_a_non_integer_offset_timezone(self, _name: str, tz: str):
-        """`period_bucket` is an hourly UTC bucket, so a window boundary is only expressible to the hour.
-
-        An integer-offset team's midnight lands exactly on a bucket edge and the comparison is exact. A
-        half-hour-offset team's lands mid-bucket, silently moving up to an hour of sessions across each
-        edge — a denominator that quietly disagrees with the credit side.
-        """
+        # An integer-offset team's midnight lands on a bucket edge, so the comparison is exact. A
+        # half-hour-offset team's lands mid-bucket, moving up to an hour of sessions across each edge.
         self.team.timezone = tz
         self.team.save()
         with patch(ENSURE_PATH, return_value=self._ready()) as ensure:
@@ -193,11 +190,8 @@ class TestAttributionReachPrecompute(ClickhouseTestMixin, BaseTest):
         assert "uniqMerge" in sql
 
     def test_window_extends_back_by_the_attribution_window(self):
-        """Reach must span the same lookback the credit side does.
-
-        Bounding visitors to the display range while conversions can be credited to an earlier touch
-        puts a person in the numerator but not the denominator — rates above 100%.
-        """
+        # Bounding visitors to the display range while conversions can be credited to an earlier
+        # touch puts a person in the numerator but not the denominator, giving rates above 100%.
         captured = {}
 
         def _capture(**kwargs):

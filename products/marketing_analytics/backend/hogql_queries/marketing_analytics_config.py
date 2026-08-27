@@ -147,7 +147,7 @@ class MarketingAnalyticsConfig:
             # Separate flag from the two above: this one swaps the attribution table's *denominator*
             # onto a web analytics pre-aggregated table. Different table, different failure mode (a
             # silent divergence between the reach and credit sides rather than a slow query), and a
-            # different audience — only teams the web dimensional precompute job actually warms.
+            # different audience, being the teams the web dimensional precompute job warms.
             "reach": feature_enabled_or_false(
                 "marketing-analytics-reach-precomputation",
                 str(team.uuid),

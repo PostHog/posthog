@@ -173,6 +173,9 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         self._costs_precompute_used: bool = False
         self._costs_sources_materialized: int = 0
         self._costs_grain: Optional[str] = None
+        # Without this, a rollout where every query falls back to the live scan looks identical to
+        # one that works.
+        self._reach_precompute_used: bool = False
         # Set when any read-path ensure (costs, touchpoints, conversions) was served from
         # expired-within-grace rows rather than rebuilt inline. Reset on each to_query.
         self._precompute_stale: bool = False
@@ -221,6 +224,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                 "costs_precompute_used": self._costs_precompute_used,
                 "costs_sources_materialized": self._costs_sources_materialized,
                 "costs_grain": self._costs_grain,
+                "reach_precompute_used": self._reach_precompute_used,
             }
             if error is None:
                 props["timings"] = [{"k": t.k, "t": t.t} for t in self.timings.to_list()]

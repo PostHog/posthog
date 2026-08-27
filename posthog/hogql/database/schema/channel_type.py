@@ -389,7 +389,7 @@ def create_preaggregated_channel_type_expr(timings=None) -> ast.Expr:
 
     Known gap: custom channel rules are not applied. Those can key on the full URL, which no
     pre-aggregated table stores, so a team with custom rules gets the built-in classification here and
-    the custom one from `sessions.$channel_type` — the two will disagree. Callers that mix a
+    the custom one from `sessions.$channel_type`, the two will disagree. Callers that mix a
     pre-aggregated channel with a live-session channel in one result must fall back to the live path
     for such teams.
     """
