@@ -20,6 +20,7 @@ from posthog.temporal.proxy_service.cloudflare import (
     CloudflareAPIError,
     delete_custom_hostname,
     get_custom_hostname_by_domain,
+    update_cloudflare_proxy_root_redirect,
 )
 from posthog.temporal.proxy_service.common import (
     NonRetriableException,
@@ -55,6 +56,7 @@ class DeleteManagedProxyInputs:
     proxy_record_id: uuid.UUID
     domain: str
     target_cname: str = ""  # Used to determine if proxy is Cloudflare or legacy
+    root_redirect_url: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, t.Any]:
@@ -152,6 +154,13 @@ async def delete_cloudflare_proxy(inputs: DeleteManagedProxyInputs):
     except CloudflareAPIError as e:
         logger.warning("Failed to delete Cloudflare Custom Hostname for domain %s: %s", inputs.domain, e)
         errors.append(f"Custom Hostname deletion failed: {e}")
+
+    if inputs.root_redirect_url:
+        try:
+            await asyncio.to_thread(update_cloudflare_proxy_root_redirect, inputs.domain, None)
+        except CloudflareAPIError as e:
+            logger.warning("Failed to delete root redirect for domain %s: %s", inputs.domain, e)
+            errors.append(f"Root redirect deletion failed: {e}")
 
     if errors:
         raise NonRetriableException(f"Cloudflare API errors: {'; '.join(errors)}")

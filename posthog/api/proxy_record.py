@@ -33,7 +33,7 @@ from posthog.temporal.proxy_service import CreateManagedProxyInputs, DeleteManag
 from posthog.temporal.proxy_service.cloudflare import (
     CloudflareAPIError,
     get_custom_hostname_by_domain,
-    update_custom_hostname_metadata,
+    update_cloudflare_proxy_root_redirect,
 )
 from posthog.temporal.proxy_service.common import is_cloudflare_proxy_by_cname
 
@@ -317,7 +317,6 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                 serializer = ProxyRecordUpdateSerializer(data=request.data, context={"record": record})
                 serializer.is_valid(raise_exception=True)
                 root_redirect_url = serializer.validated_data["root_redirect_url"]
-                previous_root_redirect_url = record.root_redirect_url
 
                 try:
                     hostname = get_custom_hostname_by_domain(record.domain)
@@ -326,7 +325,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                             {"detail": "Cloudflare could not find this managed proxy hostname."},
                             status=status.HTTP_502_BAD_GATEWAY,
                         )
-                    update_custom_hostname_metadata(hostname, {"root_redirect_url": root_redirect_url or ""})
+                    update_cloudflare_proxy_root_redirect(record.domain, root_redirect_url)
                 except (CloudflareAPIError, requests.RequestException) as error:
                     capture_exception(error, {"domain": record.domain, "proxy_record_id": str(record.id)})
                     return Response(
@@ -338,13 +337,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                 try:
                     record.save(update_fields=["root_redirect_url", "updated_at"])
                 except DatabaseError:
-                    try:
-                        update_custom_hostname_metadata(
-                            hostname, {"root_redirect_url": previous_root_redirect_url or ""}
-                        )
-                    except (CloudflareAPIError, requests.RequestException) as rollback_error:
-                        reconciliation_required = True
-                        capture_exception(rollback_error, {"domain": record.domain, "proxy_record_id": str(record.id)})
+                    reconciliation_required = True
                     raise
         except ProxyRecord.DoesNotExist:
             raise NotFound()
@@ -548,6 +541,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                     proxy_record_id=record.id,
                     domain=record.domain,
                     target_cname=record.target_cname,
+                    root_redirect_url=record.root_redirect_url,
                 )
                 workflow_id = f"proxy-delete-{inputs.proxy_record_id}"
                 asyncio.run(

@@ -1,7 +1,8 @@
 import uuid
+from types import SimpleNamespace
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import temporalio.worker
 from temporalio import activity
@@ -17,6 +18,7 @@ from posthog.temporal.proxy_service.create import (
     CreateManagedProxyWorkflow,
     ScheduleMonitorJobInputs,
     WaitForDNSRecordsInputs,
+    create_cloudflare_custom_hostname,
 )
 
 
@@ -80,6 +82,24 @@ def _make_workflow_inputs():
         domain="test.example.com",
         target_cname="target.example.com",
     )
+
+
+class TestCreateCloudflareCustomHostname:
+    @patch("posthog.temporal.proxy_service.create.update_cloudflare_proxy_root_redirect")
+    @patch("posthog.temporal.proxy_service.create.create_custom_hostname")
+    @patch("posthog.temporal.proxy_service.create.get_record", new_callable=AsyncMock)
+    async def test_skips_kv_when_no_root_redirect_is_configured(self, get_record, create_hostname, update_redirect):
+        inputs = CreateCloudflareProxyInputs(
+            organization_id=uuid.uuid4(),
+            proxy_record_id=uuid.uuid4(),
+            domain="test.example.com",
+        )
+        get_record.return_value = SimpleNamespace(root_redirect_url=None)
+        create_hostname.return_value = SimpleNamespace(id="hostname-id", status=SimpleNamespace(value="active"))
+
+        await create_cloudflare_custom_hostname(inputs)
+
+        update_redirect.assert_not_called()
 
 
 @pytest.mark.django_db(transaction=True)
