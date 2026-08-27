@@ -41,6 +41,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     SESSION_SETTLING_SECONDS,
     STALE_WHILE_REVALIDATE_SECONDS,
     TEAM_SHAPE_SET_TTL_SECONDS,
+    DateRangeOverMax,
     PerQueryOptedOut,
     PropertyAccessControlled,
     UnsupportedFilterType,
@@ -53,6 +54,8 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     host_filter_expr,
     is_precompute_enabled_for_team,
     is_team_oom_pinned,
+    lazy_precompute_ineligible_reason,
+    log_eligibility_outcome,
     pin_team_oom,
     try_reserve_precompute_shape,
     web_ensure_precomputed,
@@ -160,6 +163,23 @@ class TestCheckCommonEligibility(BaseTest):
         with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
             with self.assertRaises(PropertyAccessControlled):
                 self._check(use_precompute=None)
+
+
+class TestEligibilityReasonTagging(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        reset_query_tags()
+
+    def test_rejection_reason_is_tagged_then_cleared_once_a_gate_admits(self) -> None:
+        # The reason is what separates "this team missed the cache" from "this team was never
+        # allowed near it" on a live read, so a gate that stops reporting it collapses the two.
+        log_eligibility_outcome(log_prefix="web_goals", team_id=self.team.pk, error=DateRangeOverMax(120))
+        assert lazy_precompute_ineligible_reason() == "DateRangeOverMax"
+
+        # A stats-table read consults several gates in turn. A rejection surviving onto a query a
+        # later gate admits would report a precompute-served response as a gate rejection.
+        log_eligibility_outcome(log_prefix="web_goals", team_id=self.team.pk, error=None)
+        assert lazy_precompute_ineligible_reason() is None
 
 
 class TestCacheKeyVariesWithRolloutState(BaseTest):

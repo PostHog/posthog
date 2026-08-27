@@ -14851,6 +14851,10 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "preComputeIneligibleReason": {
+                    "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                    "type": "string"
+                },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                 },
@@ -15069,6 +15073,10 @@
                 },
                 "next_allowed_client_refresh": {
                     "format": "date-time",
+                    "type": "string"
+                },
+                "preComputeIneligibleReason": {
+                    "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                     "type": "string"
                 },
                 "preComputeStrategy": {
@@ -15299,6 +15307,10 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "preComputeIneligibleReason": {
+                    "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                    "type": "string"
+                },
                 "preComputeStale": {
                     "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
                     "type": "boolean"
@@ -15409,6 +15421,10 @@
                 },
                 "next_allowed_client_refresh": {
                     "format": "date-time",
+                    "type": "string"
+                },
+                "preComputeIneligibleReason": {
+                    "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                     "type": "string"
                 },
                 "preComputeStrategy": {
@@ -17342,6 +17358,10 @@
                                     "$ref": "#/definitions/HogQLQueryModifiers",
                                     "description": "Modifiers used when performing the query"
                                 },
+                                "preComputeIneligibleReason": {
+                                    "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                                    "type": "string"
+                                },
                                 "preComputeStrategy": {
                                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                                 },
@@ -17425,6 +17445,10 @@
                                 },
                                 "offset": {
                                     "$ref": "#/definitions/integer"
+                                },
+                                "preComputeIneligibleReason": {
+                                    "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                                    "type": "string"
                                 },
                                 "preComputeStale": {
                                     "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
@@ -17679,6 +17703,10 @@
                                 "offset": {
                                     "$ref": "#/definitions/integer"
                                 },
+                                "preComputeIneligibleReason": {
+                                    "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                                    "type": "string"
+                                },
                                 "preComputeStrategy": {
                                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                                 },
@@ -17751,6 +17779,10 @@
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
                                     "description": "Modifiers used when performing the query"
+                                },
+                                "preComputeIneligibleReason": {
+                                    "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                                    "type": "string"
                                 },
                                 "preComputeStrategy": {
                                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
@@ -40796,6 +40828,10 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "preComputeIneligibleReason": {
+                            "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                            "type": "string"
+                        },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                         },
@@ -40879,6 +40915,10 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "preComputeIneligibleReason": {
+                            "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                            "type": "string"
                         },
                         "preComputeStale": {
                             "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
@@ -41213,6 +41253,10 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "preComputeIneligibleReason": {
+                            "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                            "type": "string"
+                        },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                         },
@@ -41285,6 +41329,10 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "preComputeIneligibleReason": {
+                            "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                            "type": "string"
                         },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
@@ -42346,6 +42394,10 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "preComputeIneligibleReason": {
+                            "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                            "type": "string"
+                        },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                         },
@@ -42429,6 +42481,10 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "preComputeIneligibleReason": {
+                            "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                            "type": "string"
                         },
                         "preComputeStale": {
                             "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
@@ -42683,6 +42739,10 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "preComputeIneligibleReason": {
+                            "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                            "type": "string"
+                        },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                         },
@@ -42755,6 +42815,10 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "preComputeIneligibleReason": {
+                            "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                            "type": "string"
                         },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
@@ -55302,6 +55366,10 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "preComputeIneligibleReason": {
+                    "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                    "type": "string"
+                },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                 },
@@ -55695,6 +55763,10 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "preComputeIneligibleReason": {
+                    "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                    "type": "string"
                 },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
@@ -56102,6 +56174,10 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "preComputeIneligibleReason": {
+                    "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                    "type": "string"
+                },
                 "preComputeStale": {
                     "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
                     "type": "boolean"
@@ -56327,6 +56403,10 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "preComputeIneligibleReason": {
+                    "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                    "type": "string"
                 },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"

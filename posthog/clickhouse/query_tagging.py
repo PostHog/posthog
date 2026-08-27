@@ -448,6 +448,10 @@ class QueryTags(BaseModel):
     # True on precompute READ queries served from expired-within-grace jobs (serve-stale path),
     # so query_log can compare stale-served vs fresh reads without joining Prometheus.
     precompute_stale: Optional[bool] = None
+    # Why a web analytics read fell through to the live path: the `LazyPrecomputeIneligible`
+    # subclass name the eligibility gate refused it with. A live read is otherwise
+    # indistinguishable from a precompute miss, so without this the two get counted together.
+    precompute_ineligible_reason: Optional[str] = None
     entity_math: Optional[list[str]] = None
 
     # replays

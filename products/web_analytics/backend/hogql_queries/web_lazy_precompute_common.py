@@ -31,7 +31,7 @@ from posthog.hogql.property import get_property_type, property_to_expr
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
 from posthog import redis
-from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import clear_tag, get_query_tag_value, tag_queries
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 
@@ -717,14 +717,30 @@ def log_eligibility_outcome(*, log_prefix: str, team_id: int, error: Optional[La
     """Emit the same `*_rejected` / `*_eligible` info log shape used by every
     lazy path so a single Loki query can attribute all fall-throughs."""
     if error is not None:
+        reason = type(error).__name__
+        tag_queries(precompute_ineligible_reason=reason)
         logger.info(
             f"{log_prefix}_rejected",
             team_id=team_id,
-            reason=type(error).__name__,
+            reason=reason,
             detail=str(error) or None,
         )
     else:
+        # A stats-table read consults several gates in turn, so an earlier gate's rejection must
+        # not survive onto a query a later one admits.
+        clear_tag("precompute_ineligible_reason")
         logger.info(f"{log_prefix}_eligible", team_id=team_id)
+
+
+def lazy_precompute_ineligible_reason() -> Optional[str]:
+    """The gate rejection reason for this read, or None when the query was eligible.
+
+    Both eligibility gates stamp this via `tag_queries`; runners put it on the response so the
+    frontend's `query completed` telemetry can attribute a live read to a reason. Without it a
+    gate rejection and a precompute miss both surface as `precompute_strategy=live`, which hides
+    whether a team is missing the cache or was never allowed near it.
+    """
+    return get_query_tag_value("precompute_ineligible_reason")
 
 
 def compute_filters_eligibility_hash(query: Any, team_timezone: str) -> str:
