@@ -26,7 +26,7 @@ interface EventContentConversationProps {
     errorData?: unknown
     httpStatus?: unknown
     raisedError?: boolean
-    outputTokens?: number
+    outputTokens?: unknown
     searchQuery?: string
     displayOption?: ConversationDisplayOption
     /** Original $ai_input index to auto-expand (e.g. from sentiment tab deep link) */

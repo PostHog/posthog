@@ -10,6 +10,7 @@ import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
 import { IconExclamation, IconEyeHidden } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { isObject } from 'lib/utils/guards'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { aiBlobRenderHandlers, resolveAiBlobUrl, resolveDataUri } from '../aiBlob'
@@ -71,6 +72,13 @@ function getInitialMessageShowStates(
     return { input: inputStates, output: outputStates }
 }
 
+// `$ai_output_tokens` arrives straight off untyped event properties, so a provider that reports it
+// as a string still has to reach the empty-output notice.
+function billedTokenCount(value: unknown): number | null {
+    const parsed = typeof value === 'string' ? Number(value) : value
+    return typeof parsed === 'number' && Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
 export function ConversationMessagesDisplay({
     inputNormalized,
     outputNormalized,
@@ -94,7 +102,7 @@ export function ConversationMessagesDisplay({
     httpStatus?: number
     raisedError?: boolean
     /** `$ai_output_tokens`, used to explain an output the provider billed for but never sent. */
-    outputTokens?: number
+    outputTokens?: unknown
     bordered?: boolean
     searchQuery?: string
     displayOption?: ConversationDisplayOption
@@ -287,7 +295,7 @@ export function ConversationMessagesDisplay({
 
     // Billed output tokens with nothing to render means the provider produced content that never
     // reached the event. Name that, so an empty box isn't mistaken for a provider that said nothing.
-    const billedOutputTokens = typeof outputTokens === 'number' && outputTokens > 0 ? outputTokens : null
+    const billedOutputTokens = billedTokenCount(outputTokens)
 
     return (
         <>
@@ -316,9 +324,9 @@ export function ConversationMessagesDisplay({
                                 <div className="italic">No output</div>
                                 {billedOutputTokens !== null && (
                                     <div className="mt-1 text-xs">
-                                        The provider reported {billedOutputTokens.toLocaleString()} output tokens but no
-                                        content was captured. This can happen when a response is cut short, or when the
-                                        model returns only reasoning tokens.
+                                        The provider reported {humanFriendlyNumber(billedOutputTokens)} output tokens
+                                        but no content was captured. This can happen when a response is cut short, or
+                                        when the model returns only reasoning tokens.
                                     </div>
                                 )}
                             </div>
