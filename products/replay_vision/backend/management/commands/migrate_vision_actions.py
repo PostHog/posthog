@@ -58,7 +58,7 @@ SCOUTS_FLAG_KEY = "replay-vision-scout-digests"
 _FREQ_TO_MINUTES = {"MINUTELY": 15, "HOURLY": 60, "DAILY": 1440, "WEEKLY": 10080}
 
 
-@dataclass
+@dataclass(frozen=False)
 class _Report:
     alerts_created: int = 0
     scouts_created: int = 0
@@ -169,12 +169,17 @@ class Command(BaseCommand):
     def _migrate_org(
         self, org_id: Any, org_actions: list[VisionAction], execute: bool, flag_team_id: int, report: _Report
     ) -> None:
+        # "This org has migrated rows", not "this run migrated something": an interrupted run that
+        # already moved the rows must still be able to flag the org on a re-run, or its users sit on
+        # the legacy surface with their legacy actions disabled — no alerting at all.
         migrated_any = False
+        org_problems = 0
         for action in org_actions:
             stamp_field = "alert_config" if action.mode == ActionMode.ALERT else "synthesis_config"
             stamps = getattr(action, stamp_field) or {}
             if stamps.get("migrated_to") or stamps.get("retired"):
                 report.skipped_already += 1
+                migrated_any = migrated_any or bool(stamps.get("migrated_to"))
                 continue
             try:
                 if action.mode == ActionMode.ALERT:
@@ -184,9 +189,15 @@ class Command(BaseCommand):
                 else:
                     self._retire_default(action, execute, report)
             except Exception as error:
+                org_problems += 1
                 report.problems.append(f"{action.mode} {action.id} ({action.name!r}, team {action.team_id}): {error}")
                 logger.exception("vision_action_migration.row_failed", action_id=str(action.id))
 
+        if org_problems:
+            # Flagging now would put the org on the new surface while the failed row's legacy action
+            # is still enabled on the old one — the double-notification case.
+            report.problems.append(f"org {org_id}: not flagged, {org_problems} row(s) need attention")
+            return
         if migrated_any:
             self._flag_org(org_id, execute, flag_team_id, report)
 
@@ -198,6 +209,7 @@ class Command(BaseCommand):
         acting = _acting_user(action)
 
         new_ids: list[str] = []
+        staged: list[dict[str, Any]] = []
         for index, scanner_id in enumerate(scanner_ids):
             base = action.name if len(scanner_ids) == 1 else f"{action.name} ({index + 1})"
             kwargs: dict[str, Any] = {
@@ -230,21 +242,29 @@ class Command(BaseCommand):
             if not execute:
                 new_ids.append("(dry-run)")
                 continue
-            with transaction.atomic():
+            staged.append(kwargs)
+        report.alerts_created += len(scanner_ids)
+
+        if not execute:
+            return True
+        # One transaction for every alert this action becomes AND its stamp: a partial commit would
+        # leave unstamped alerts that a re-run duplicates, and both copies would then fire.
+        with transaction.atomic():
+            for kwargs in staged:
                 alert = VisionAlertConfiguration.objects.for_team(action.team_id).create(**kwargs)
                 self._create_destinations(alert, action, acting)
                 new_ids.append(str(alert.id))
-        report.alerts_created += len(scanner_ids)
-
-        if execute:
             action.alert_config = {**config, "migrated_to": new_ids, "migrated_at": timezone.now().isoformat()}
             action.enabled = False
             action.save(update_fields=["alert_config", "enabled", "updated_at"])
         return True
 
     def _create_destinations(self, alert: VisionAlertConfiguration, action: VisionAction, acting: User | None) -> None:
-        from products.alerts.backend.destination_configs import AlertDestinationData, DestinationType
-        from products.alerts.backend.facade.api import (
+        from products.alerts.backend.destination_configs import (  # noqa: PLC0415 — keeps the alerts API surface off the command's import path
+            AlertDestinationData,
+            DestinationType,
+        )
+        from products.alerts.backend.facade.api import (  # noqa: PLC0415 — keeps the alerts API surface off the command's import path
             build_alert_destination_config,
             create_alert_destination_hog_functions,
         )
@@ -274,7 +294,9 @@ class Command(BaseCommand):
             )
 
     def _migrate_digest(self, action: VisionAction, execute: bool, report: _Report) -> bool:
-        from products.signals.backend.facade import api as signals_facade
+        from products.signals.backend.facade import (  # noqa: PLC0415 — keeps the signals API surface off the command's import path
+            api as signals_facade,
+        )
 
         acting = _acting_user(action)
         if acting is None:
@@ -347,7 +369,9 @@ class Command(BaseCommand):
     def _flag_org(self, org_id: Any, execute: bool, flag_team_id: int, report: _Report) -> None:
         # Resolved through the app registry: products.feature_flags is not on this
         # product's dependency surface, and a one-shot command doesn't justify adding it.
-        from django.apps import apps
+        from django.apps import (
+            apps,  # noqa: PLC0415 — registry lookup keeps products.feature_flags off this product's dependency surface
+        )
 
         FeatureFlag = apps.get_model("feature_flags", "FeatureFlag")
 

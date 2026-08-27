@@ -34,6 +34,7 @@ from products.replay_vision.backend.api import vision_actions_shim
 from products.replay_vision.backend.api.delivery import archive_delivery, provision_delivery
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_process_vision_action_workflow
+from products.replay_vision.backend.api.vision_actions_shim import redact_webhook_url as _redact_webhook_url
 from products.replay_vision.backend.digest import digest_name_for_scanner, unique_digest_name
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
@@ -246,19 +247,6 @@ MAX_ENABLED_ALERTS_PER_SCANNER = 10
 # Each delivery target provisions one enabled HogFunction that POSTs to its destination on every run,
 # so cap the list to stop a single action from being turned into a webhook fan-out to many hosts.
 MAX_DELIVERY_TARGETS = 5
-
-
-def _redact_webhook_url(url: str) -> str:
-    # Show the scheme + host so a viewer can see *where* it delivers, but drop everything a credential
-    # can hide in: the path, the query, AND any `user:pass@` userinfo (which `netloc` would carry, so
-    # rebuild the authority from hostname/port only). IPv6 hosts keep their brackets. Falls back to a
-    # fully-opaque marker if the URL can't be parsed.
-    parsed = urlparse(url)
-    if parsed.scheme and parsed.hostname:
-        host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
-        authority = f"{host}:{parsed.port}" if parsed.port else host
-        return f"{parsed.scheme}://{authority}/…"
-    return "(hidden)"
 
 
 class VisionActionSerializer(serializers.ModelSerializer):
@@ -678,10 +666,47 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ):
             raise PermissionDenied("Configuring a Replay Vision action requires session_recording read access.")
 
+    def _accessible_scanner_ids(self) -> list[str]:
+        scanners = self.user_access_control.filter_queryset_by_access_level(
+            ReplayScanner.objects.filter(team_id=self.team_id)
+        )
+        return [str(scanner_id) for scanner_id in scanners.values_list("id", flat=True)]
+
+    def _authorized_scanner(self, pk: str) -> ReplayScanner:
+        """The scanner behind a shim-served id, object-checked the way the legacy path checked it.
+
+        The flag branches return before `safely_get_object` runs, so the object-level check that
+        `vision_action` inherits from `replay_scanner` has to happen here explicitly.
+        """
+        scanner_id = vision_actions_shim.scanner_id_for(self.team, str(pk))
+        if scanner_id is None:
+            raise NotFound()
+        scanner = ReplayScanner.objects.filter(team_id=self.team_id, id=scanner_id).first()
+        if scanner is None:
+            raise NotFound()
+        _check_action_scanner_access(self, scanner, None)
+        return scanner
+
+    def _can_edit_scanner(self, scanner: ReplayScanner) -> bool:
+        return self.user_access_control.check_access_level_for_object(scanner, required_level="editor")
+
+    def _validated_legacy_payload(self, request: Request, *, partial: bool) -> dict[str, Any]:
+        """Run the incoming payload through the legacy serializer without saving a legacy row.
+
+        This is what keeps the shim's writes as safe as the legacy path: the serializer team-scopes
+        `scanner`, checks Slack integrations belong to this team, rejects non-https and userinfo
+        webhook URLs, and applies the selection allowlist.
+        """
+        serializer = VisionActionSerializer(data=request.data, partial=partial, context=self.get_serializer_context())
+        serializer.is_valid(raise_exception=True)
+        return dict(serializer.validated_data)
+
     def _serves_new_systems(self) -> bool:
         # One switch for the whole surface, shared with the UI: while the org is flagged onto the
         # new alerts product, the legacy contract is served from the new systems.
-        from posthog.ph_client import feature_enabled_or_false
+        from posthog.ph_client import (
+            feature_enabled_or_false,  # noqa: PLC0415 — keeps the analytics client off the import path
+        )
 
         user = self.request.user
         return feature_enabled_or_false(
@@ -692,34 +717,48 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        if self._serves_new_systems():
-            scanner_id = request.query_params.get("scanner")
-            actions = vision_actions_shim.list_actions(self.team, [scanner_id] if scanner_id else None)
-            return Response({"count": len(actions), "next": None, "previous": None, "results": actions})
-        return super().list(request, *args, **kwargs)
+        if not self._serves_new_systems():
+            return super().list(request, *args, **kwargs)
+        scanner_ids = self._accessible_scanner_ids()
+        requested = request.query_params.get("scanner")
+        if requested:
+            scanner_ids = [scanner_id for scanner_id in scanner_ids if scanner_id == requested]
+        can_edit = self.user_access_control.check_access_level_for_resource("replay_scanner", "editor")
+        actions = vision_actions_shim.list_actions(self.team, scanner_ids, can_edit=can_edit)
+        return Response({"count": len(actions), "next": None, "previous": None, "results": actions})
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        if self._serves_new_systems():
-            return Response(vision_actions_shim.retrieve_action(self.team, self.kwargs["pk"]))
-        return super().retrieve(request, *args, **kwargs)
+        if not self._serves_new_systems():
+            return super().retrieve(request, *args, **kwargs)
+        scanner = self._authorized_scanner(self.kwargs["pk"])
+        return Response(
+            vision_actions_shim.retrieve_action(self.team, self.kwargs["pk"], can_edit=self._can_edit_scanner(scanner))
+        )
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        if self._serves_new_systems():
-            return Response(
-                vision_actions_shim.create_action(self.team, cast(User, request.user), request.data), status=201
-            )
-        return super().create(request, *args, **kwargs)
+        if not self._serves_new_systems():
+            return super().create(request, *args, **kwargs)
+        validated = self._validated_legacy_payload(request, partial=False)
+        # Same object-level check `perform_create` makes, against the scanner the payload names and
+        # every scanner its selection reads from.
+        _check_action_scanner_access(self, validated["scanner"], validated.get("selection"))
+        return Response(vision_actions_shim.create_action(self.team, cast(User, request.user), validated), status=201)
 
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        if self._serves_new_systems():
-            return Response(vision_actions_shim.update_action(self.team, self.kwargs["pk"], request.data))
-        return super().partial_update(request, *args, **kwargs)
+        if not self._serves_new_systems():
+            return super().partial_update(request, *args, **kwargs)
+        self._authorized_scanner(self.kwargs["pk"])
+        validated = self._validated_legacy_payload(request, partial=True)
+        if "scanner" in validated:
+            _check_action_scanner_access(self, validated["scanner"], validated.get("selection"))
+        return Response(vision_actions_shim.update_action(self.team, self.kwargs["pk"], validated))
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        if self._serves_new_systems():
-            vision_actions_shim.destroy_action(self.team, self.kwargs["pk"])
-            return Response(status=204)
-        return super().destroy(request, *args, **kwargs)
+        if not self._serves_new_systems():
+            return super().destroy(request, *args, **kwargs)
+        self._authorized_scanner(self.kwargs["pk"])
+        vision_actions_shim.destroy_action(self.team, self.kwargs["pk"])
+        return Response(status=204)
 
     def safely_get_object(self, queryset: QuerySet[VisionAction]) -> VisionAction:
         action = get_object_or_404(queryset, pk=self.kwargs["pk"])

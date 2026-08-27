@@ -8,13 +8,16 @@ MCP and agent callers keep their contract without knowing anything moved.
 """
 
 import re
+import uuid
 from types import SimpleNamespace
 from typing import Any, cast
+from urllib.parse import urlparse
 
 from django.utils import timezone
 
 from rest_framework.exceptions import NotFound, ValidationError
 
+from posthog.api.shared import UserBasicSerializer
 from posthog.models import Team, User
 
 from products.alerts.backend.destination_configs import AlertDestinationData, DestinationType
@@ -38,6 +41,37 @@ from products.signals.backend.facade import api as signals_facade
 from products.signals.backend.facade.api import ScoutSummary
 
 _CRON_DAY_TO_RRULE = {"0": "SU", "1": "MO", "2": "TU", "3": "WE", "4": "TH", "5": "FR", "6": "SA", "7": "SU"}
+
+
+def redact_webhook_url(url: str) -> str:
+    # Show the scheme + host so a viewer can see *where* it delivers, but drop everything a credential
+    # can hide in: the path, the query, AND any `user:pass@` userinfo (which `netloc` would carry, so
+    # rebuild the authority from hostname/port only). IPv6 hosts keep their brackets. Falls back to a
+    # fully-opaque marker if the URL can't be parsed.
+    parsed = urlparse(url)
+    if parsed.scheme and parsed.hostname:
+        host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+        authority = f"{host}:{parsed.port}" if parsed.port else host
+        return f"{parsed.scheme}://{authority}/…"
+    return "(hidden)"
+
+
+def _is_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(str(value))
+    except (ValueError, AttributeError, TypeError):
+        return False
+    return True
+
+
+def _user_basic(user_id: int | None) -> dict[str, Any] | None:
+    """The legacy surface rendered `created_by` through UserBasicSerializer, not as a bare id."""
+    if user_id is None:
+        return None
+    user = User.objects.filter(id=user_id).first()
+    return UserBasicSerializer(user).data if user is not None else None
+
+
 _DAY_TO_CRON = {"SU": 0, "MO": 1, "TU": 2, "WE": 3, "TH": 4, "FR": 5, "SA": 6}
 
 
@@ -113,8 +147,11 @@ def cron_to_rrule(cron: str | None) -> str:
     return f"FREQ=WEEKLY;BYDAY={days};BYHOUR={hour};BYMINUTE={minute}"
 
 
-def _delivery_config_for_alert(alert: VisionAlertConfiguration) -> list[dict[str, Any]]:
-    """Rebuild the legacy delivery target list from the alert's destination hog functions."""
+def _delivery_config_for_alert(alert: VisionAlertConfiguration, *, can_edit: bool = True) -> list[dict[str, Any]]:
+    """Rebuild the legacy delivery target list from the alert's destination hog functions.
+
+    A webhook URL can carry a bearer token, so it stays redacted for readers without edit
+    access — the same bar the legacy representation applied."""
     targets: list[dict[str, Any]] = []
     seen: set[tuple[Any, ...]] = set()
     hog_functions = owned_alert_destinations_qs(
@@ -135,11 +172,11 @@ def _delivery_config_for_alert(alert: VisionAlertConfiguration) -> list[dict[str
             key = ("webhook", url, None)
             if url and key not in seen:
                 seen.add(key)
-                targets.append({"type": "webhook", "url": url})
+                targets.append({"type": "webhook", "url": url if can_edit else redact_webhook_url(url)})
     return targets
 
 
-def _scout_delivery_config(summary: ScoutSummary) -> list[dict[str, Any]]:
+def _scout_delivery_config(summary: ScoutSummary, *, can_edit: bool = True) -> list[dict[str, Any]]:
     targets: list[dict[str, Any]] = []
     destinations = summary.output_destinations or {}
     slack = destinations.get("slack")
@@ -155,11 +192,12 @@ def _scout_delivery_config(summary: ScoutSummary) -> list[dict[str, Any]]:
         )
     webhook = destinations.get("webhook")
     if webhook and webhook.get("url"):
-        targets.append({"type": "webhook", "url": webhook["url"]})
+        url = webhook["url"]
+        targets.append({"type": "webhook", "url": url if can_edit else redact_webhook_url(url)})
     return targets
 
 
-def render_alert_as_action(alert: VisionAlertConfiguration) -> dict[str, Any]:
+def render_alert_as_action(alert: VisionAlertConfiguration, *, can_edit: bool = True) -> dict[str, Any]:
     if alert.kind == VisionAlertKind.MATCH:
         alert_config: dict[str, Any] = {"frequency": "every_match", "metric": alert.metric or "count"}
     else:
@@ -182,16 +220,17 @@ def render_alert_as_action(alert: VisionAlertConfiguration) -> dict[str, Any]:
         "selection": alert.selection or {},
         "synthesis_config": {},
         "alert_config": alert_config,
-        "delivery_config": _delivery_config_for_alert(alert),
+        "delivery_config": _delivery_config_for_alert(alert, can_edit=can_edit),
+        "hog_flow": None,
         "next_run_at": alert.next_check_at.isoformat() if alert.next_check_at else None,
         "last_run_at": alert.last_checked_at.isoformat() if alert.last_checked_at else None,
         "created_at": alert.created_at.isoformat(),
-        "created_by": alert.created_by_id,
+        "created_by": _user_basic(alert.created_by_id),
         "updated_at": alert.updated_at.isoformat(),
     }
 
 
-def render_scout_as_action(summary: ScoutSummary) -> dict[str, Any]:
+def render_scout_as_action(summary: ScoutSummary, *, can_edit: bool = True) -> dict[str, Any]:
     return {
         "id": summary.config_id,
         "name": summary.skill_name,
@@ -204,69 +243,104 @@ def render_scout_as_action(summary: ScoutSummary) -> dict[str, Any]:
         "selection": {},
         "synthesis_config": {"prompt_guide": summary.description},
         "alert_config": {},
-        "delivery_config": _scout_delivery_config(summary),
+        "delivery_config": _scout_delivery_config(summary, can_edit=can_edit),
+        "hog_flow": None,
         "next_run_at": None,
         "last_run_at": summary.last_run_at.isoformat() if summary.last_run_at else None,
         "created_at": summary.created_at.isoformat() if summary.created_at else None,
-        "created_by": summary.created_by_id,
+        "created_by": _user_basic(summary.created_by_id),
         "updated_at": None,
     }
 
 
-def list_actions(team: Team, scanner_ids: list[str] | None = None) -> list[dict[str, Any]]:
-    alerts = VisionAlertConfiguration.objects.for_team(team.id).select_related("scanner").order_by("created_at")
-    if scanner_ids:
-        alerts = alerts.filter(scanner_id__in=scanner_ids)
+def list_actions(team: Team, scanner_ids: list[str], *, can_edit: bool = True) -> list[dict[str, Any]]:
+    """Every alert and scout on the caller's accessible scanners, in the legacy shape.
+
+    `scanner_ids` is the caller's accessible set, resolved by the viewset — an empty list means
+    nothing is visible, so the surface stays closed rather than falling back to "all".
+    """
+    if not scanner_ids:
+        return []
+    alerts = (
+        VisionAlertConfiguration.objects.for_team(team.id)
+        .filter(scanner_id__in=scanner_ids)
+        .select_related("scanner")
+        .order_by("created_at")
+    )
     scouts = signals_facade.list_scouts_for_source(
         (team.parent_team or team).id, SCOUT_SOURCE_PRODUCT, source_ids=scanner_ids
     )
-    return [render_alert_as_action(alert) for alert in alerts] + [render_scout_as_action(s) for s in scouts]
+    return [render_alert_as_action(alert, can_edit=can_edit) for alert in alerts] + [
+        render_scout_as_action(scout, can_edit=can_edit) for scout in scouts
+    ]
 
 
 def _resolve(team: Team, pk: str) -> tuple[str, Any] | None:
-    """Resolve an id from any of the three id spaces to ('alert', obj) or ('scout', summary)."""
-    alert = VisionAlertConfiguration.objects.for_team(team.id).filter(id=pk).first()
-    if alert is not None:
-        return ("alert", alert)
-    scouts = {
-        s.config_id: s
-        for s in signals_facade.list_scouts_for_source((team.parent_team or team).id, SCOUT_SOURCE_PRODUCT)
-    }
-    if pk in scouts:
-        return ("scout", scouts[pk])
+    """Resolve an id from any of the three id spaces to ('alert', obj) or ('scout', summary).
+
+    A digest's `migrated_to` stamp is its scout *name*, not a uuid, so every uuid-column lookup is
+    guarded — an unguarded filter raises on a name before the name lookup is ever reached.
+    """
+    if _is_uuid(pk):
+        alert = VisionAlertConfiguration.objects.for_team(team.id).filter(id=pk).first()
+        if alert is not None:
+            return ("alert", alert)
+    for scout in signals_facade.list_scouts_for_source((team.parent_team or team).id, SCOUT_SOURCE_PRODUCT):
+        if pk in (scout.config_id, scout.skill_name):
+            return ("scout", scout)
+    if not _is_uuid(pk):
+        return None
     legacy = VisionAction.objects.for_team(team.id).filter(id=pk).first()
-    if legacy is not None:
-        stamps = (legacy.alert_config or {}) if legacy.mode == ActionMode.ALERT else (legacy.synthesis_config or {})
-        migrated = stamps.get("migrated_to")
-        if isinstance(migrated, list) and migrated:
-            migrated = migrated[0]
-        if migrated:
-            return _resolve(team, str(migrated)) or _resolve_scout_by_name(team, str(migrated))
-    return None
+    if legacy is None:
+        return None
+    stamps = (legacy.alert_config or {}) if legacy.mode == ActionMode.ALERT else (legacy.synthesis_config or {})
+    migrated = stamps.get("migrated_to")
+    if isinstance(migrated, list):
+        migrated = migrated[0] if migrated else None
+    return _resolve(team, str(migrated)) if migrated else None
 
 
-def _resolve_scout_by_name(team: Team, name: str) -> tuple[str, ScoutSummary] | None:
-    for summary in signals_facade.list_scouts_for_source((team.parent_team or team).id, SCOUT_SOURCE_PRODUCT):
-        if summary.skill_name == name:
-            return ("scout", summary)
-    return None
+def scanner_id_for(team: Team, pk: str) -> str | None:
+    """The scanner an id belongs to, so the viewset can object-check before acting on it."""
+    resolved = _resolve(team, pk)
+    if resolved is None:
+        return None
+    kind, entity = resolved
+    return str(entity.scanner_id) if kind == "alert" else entity.source_id
 
 
-def retrieve_action(team: Team, pk: str) -> dict[str, Any]:
+def retrieve_action(team: Team, pk: str, *, can_edit: bool = True) -> dict[str, Any]:
     resolved = _resolve(team, pk)
     if resolved is None:
         raise NotFound()
     kind, entity = resolved
-    return render_alert_as_action(entity) if kind == "alert" else render_scout_as_action(entity)
+    if kind == "alert":
+        return render_alert_as_action(entity, can_edit=can_edit)
+    return render_scout_as_action(entity, can_edit=can_edit)
 
 
 def create_action(team: Team, user: User, data: dict[str, Any]) -> dict[str, Any]:
+    """Create the new-system entity a legacy create asks for.
+
+    `data` must be validated legacy payload — the viewset runs it through `VisionActionSerializer`
+    first, which is what team-scopes the scanner, checks integration ownership on Slack targets,
+    enforces https-only webhooks, and applies the selection allowlist. Nothing here re-derives
+    those, so callers must not hand it raw request data.
+    """
     mode = data.get("mode", ActionMode.GROUP_SUMMARY)
     if mode == ActionMode.ALERT:
         return _create_alert(team, user, data)
     if mode == ActionMode.GROUP_SUMMARY:
         return _create_scout(team, user, data)
     raise ValidationError({"mode": f"Unsupported mode {mode!r}."})
+
+
+def _validated_scanner_id(data: dict[str, Any]) -> str:
+    """The scanner from an already-validated payload, where it arrives as the model instance."""
+    scanner = data.get("scanner") or data.get("scanner_id")
+    if scanner is None:
+        raise ValidationError({"scanner": "This field is required."})
+    return str(getattr(scanner, "id", scanner))
 
 
 def _legacy_destination_data(entry: dict[str, Any]) -> "AlertDestinationData | None":
@@ -290,9 +364,7 @@ def _legacy_destination_data(entry: dict[str, Any]) -> "AlertDestinationData | N
 def _create_alert(team: Team, user: User, data: dict[str, Any]) -> dict[str, Any]:
     config = data.get("alert_config") or {}
     frequency = config.get("frequency", "every_match")
-    scanner_id = data.get("scanner") or data.get("scanner_id")
-    if not scanner_id:
-        raise ValidationError({"scanner": "This field is required."})
+    scanner_id = _validated_scanner_id(data)
     kwargs: dict[str, Any] = {
         "team_id": team.id,
         "scanner_id": scanner_id,
@@ -358,9 +430,7 @@ def _scout_destinations_from_legacy(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _create_scout(team: Team, user: User, data: dict[str, Any]) -> dict[str, Any]:
-    scanner_id = data.get("scanner") or data.get("scanner_id")
-    if not scanner_id:
-        raise ValidationError({"scanner": "This field is required."})
+    scanner_id = _validated_scanner_id(data)
     name = data.get("name") or "digest"
     rrule = (data.get("trigger_config") or {}).get("rrule") or "FREQ=DAILY;BYHOUR=8;BYMINUTE=0"
     try:
@@ -375,7 +445,7 @@ def _create_scout(team: Team, user: User, data: dict[str, Any]) -> dict[str, Any
         team=team.parent_team or team,
         user=user,
         name=scout_name,
-        description=f'Replay Vision digest "{name}".',
+        description=(data.get("synthesis_config") or {}).get("prompt_guide") or f'Replay Vision digest "{name}".',
         body=compose_scout_body(name, str(scanner_id), data.get("selection") or {}, data.get("synthesis_config") or {}),
         files=[],
         config_options={
@@ -420,14 +490,15 @@ def update_action(team: Team, pk: str, data: dict[str, Any]) -> dict[str, Any]:
         except ValueError as error:
             raise ValidationError({"trigger_config": str(error)})
     destinations = _scout_destinations_from_legacy(data) if "delivery_config" in data else None
-    signals_facade.update_scout_for_source(
+    if not signals_facade.update_scout_for_source(
         (team.parent_team or team).id,
         SCOUT_SOURCE_PRODUCT,
         entity.config_id,
         enabled=data.get("enabled"),
         run_cron_schedule=cron,
         output_destinations=destinations,
-    )
+    ):
+        raise NotFound()
     return retrieve_action(team, entity.config_id)
 
 
@@ -442,6 +513,7 @@ def destroy_action(team: Team, pk: str) -> None:
         )
         entity.delete()
         return
-    signals_facade.delete_scout_for_source(
+    if not signals_facade.delete_scout_for_source(
         team=team.parent_team or team, source_product=SCOUT_SOURCE_PRODUCT, config_id=entity.config_id
-    )
+    ):
+        raise NotFound()

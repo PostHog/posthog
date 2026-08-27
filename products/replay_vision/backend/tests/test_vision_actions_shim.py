@@ -6,6 +6,9 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.models import Organization, Team
+from posthog.models.integration import Integration
+
 from products.replay_vision.backend.api.vision_actions_shim import cron_to_rrule, rrule_to_cron
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.models.vision_action import ActionMode, TriggerType, VisionAction
@@ -44,6 +47,14 @@ class TestVisionActionsShim(APIBaseTest):
             scanner_config={"prompt": "watch checkout"},
             model=ScannerModel.GEMINI_3_7_FLASH,
         )
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_TEST",
+            config={"team": {"name": "Test Workspace"}},
+            sensitive_config={"access_token": "test-token"},
+            created_by=self.user,
+        )
         self.base_url = f"/api/projects/{self.team.id}/vision/actions/"
         self._flag = patch("posthog.ph_client.feature_enabled_or_false", return_value=True)
         self._flag.start()
@@ -71,8 +82,10 @@ class TestVisionActionsShim(APIBaseTest):
                     "trigger_type": "schedule",
                     "trigger_config": {"rrule": "FREQ=DAILY;BYHOUR=8;BYMINUTE=0", "timezone": "UTC"},
                     "alert_config": {"frequency": "every_match", "metric": "count"},
-                    "selection": {"verdict": ["fail"]},
-                    "delivery_config": [{"type": "slack", "integration_id": 7, "channel": "C9|#alerts"}],
+                    "selection": {"verdict": ["yes"]},
+                    "delivery_config": [
+                        {"type": "slack", "integration_id": self.integration.id, "channel": "C9|#alerts"}
+                    ],
                 },
                 format="json",
             )
@@ -82,8 +95,13 @@ class TestVisionActionsShim(APIBaseTest):
         assert data["alert_config"]["frequency"] == "every_match"
         alert = VisionAlertConfiguration.objects.for_team(self.team.id).get(id=data["id"])
         assert alert.kind == VisionAlertKind.MATCH
-        assert alert.selection == {"verdict": ["fail"]}
-        destinations.assert_called_once()
+        assert alert.selection == {"verdict": ["yes"]}
+        configs = destinations.call_args.args[0]
+        assert destinations.call_args.kwargs["alert_id"] == str(alert.id)
+        # One destination per match-kind event, all on this team, pointed at the posted channel.
+        assert len(configs) == 1
+        assert all(config.team.id == self.team.id for config in configs)
+        assert "C9" in str(configs[0].payload)
         assert VisionAction.objects.unscoped().filter(team=self.team).count() == 0
 
     def test_flagged_on_breach_create_maps_to_metric(self) -> None:
@@ -209,6 +227,112 @@ class TestVisionActionsShim(APIBaseTest):
             response = self.client.delete(f"{self.base_url}{summary.config_id}/")
         assert response.status_code == 204
         assert delete_scout.call_args.kwargs["config_id"] == summary.config_id
+
+    def test_migrated_digest_legacy_id_resolves_to_scout_by_name(self) -> None:
+        summary = _scout(skill_name="signals-scout-weekly-abc123", source_id=str(self.scanner.id))
+        legacy = VisionAction.objects.unscoped().create(
+            team=self.team,
+            scanner=self.scanner,
+            name="Old digest",
+            mode=ActionMode.GROUP_SUMMARY,
+            trigger_type=TriggerType.SCHEDULE,
+            enabled=False,
+            synthesis_config={"migrated_to": summary.skill_name},
+        )
+        with patch(f"{_SHIM}.signals_facade.list_scouts_for_source", return_value=[summary]):
+            response = self.client.get(f"{self.base_url}{legacy.id}/")
+        assert response.status_code == 200, response.json()
+        assert response.json()["id"] == summary.config_id
+
+    def test_malformed_id_is_not_found_rather_than_server_error(self) -> None:
+        with patch(f"{_SHIM}.signals_facade.list_scouts_for_source", return_value=[]):
+            response = self.client.get(f"{self.base_url}not-a-uuid/")
+        assert response.status_code == 404
+
+    def test_webhook_url_is_redacted_for_readers(self) -> None:
+        summary = _scout(
+            source_id=str(self.scanner.id),
+            output_destinations={"webhook": {"url": "https://hooks.example.com/t/secret-token?k=v"}},
+        )
+        with (
+            patch(f"{_SHIM}.signals_facade.list_scouts_for_source", return_value=[summary]),
+            patch(f"{_VIEWSET}.VisionActionViewSet._accessible_scanner_ids", return_value=[str(self.scanner.id)]),
+            patch(
+                "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource",
+                side_effect=lambda resource, required_level="viewer", **kwargs: required_level != "editor",
+            ),
+        ):
+            response = self.client.get(self.base_url)
+        assert response.status_code == 200, response.json()
+        url = response.json()["results"][0]["delivery_config"][0]["url"]
+        assert url == "https://hooks.example.com/…"
+        assert "secret-token" not in url
+
+    def test_scanner_from_another_team_is_rejected(self) -> None:
+        other_team = Team.objects.create(organization=Organization.objects.create(name="Other"), name="Other")
+        foreign_scanner = ReplayScanner.objects.create(
+            team=other_team,
+            name="Foreign",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "x"},
+            model=ScannerModel.GEMINI_3_7_FLASH,
+        )
+        response = self.client.post(
+            self.base_url,
+            {
+                "name": "Cross team",
+                "scanner": str(foreign_scanner.id),
+                "mode": "alert",
+                "alert_config": {"frequency": "every_match"},
+            },
+            format="json",
+        )
+        assert response.status_code == 400, response.json()
+        assert VisionAlertConfiguration.objects.for_team(other_team.id).count() == 0
+
+    def test_slack_integration_from_another_team_is_rejected(self) -> None:
+        other_team = Team.objects.create(organization=Organization.objects.create(name="Other2"), name="Other2")
+        foreign = Integration.objects.create(
+            team=other_team, kind="slack", integration_id="T_FOREIGN", created_by=self.user
+        )
+        response = self.client.post(
+            self.base_url,
+            {
+                "name": "Borrowed integration",
+                "scanner": str(self.scanner.id),
+                "mode": "alert",
+                "alert_config": {"frequency": "every_match"},
+                "delivery_config": [{"type": "slack", "integration_id": foreign.id, "channel": "C9|#x"}],
+            },
+            format="json",
+        )
+        assert response.status_code == 400, response.json()
+
+    def test_non_https_webhook_is_rejected(self) -> None:
+        response = self.client.post(
+            self.base_url,
+            {
+                "name": "Cleartext",
+                "scanner": str(self.scanner.id),
+                "mode": "alert",
+                "alert_config": {"frequency": "every_match"},
+                "delivery_config": [{"type": "webhook", "url": "http://example.com/hook"}],
+            },
+            format="json",
+        )
+        assert response.status_code == 400, response.json()
+
+    def test_list_hides_scanners_the_caller_cannot_access(self) -> None:
+        VisionAlertConfiguration.objects.for_team(self.team.id).create(
+            team_id=self.team.id, scanner=self.scanner, name="Hidden", kind=VisionAlertKind.MATCH, selection={}
+        )
+        with (
+            patch(f"{_SHIM}.signals_facade.list_scouts_for_source", return_value=[]),
+            patch(f"{_VIEWSET}.VisionActionViewSet._accessible_scanner_ids", return_value=[]),
+        ):
+            response = self.client.get(self.base_url)
+        assert response.status_code == 200
+        assert response.json()["results"] == []
 
     def test_unflagged_requests_keep_legacy_behavior(self) -> None:
         self._flag.stop()
