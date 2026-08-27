@@ -35,7 +35,8 @@ class AnchorContext(BaseModel):
     blob: str
     # Raw event names referenced by the anchor's queries, pinned into event selection.
     event_names: list[str] = Field(default_factory=list)
-    # Hash of `blob`; frozen with the query plan so an anchor content change forces a re-plan.
+    # Hash of both planner inputs (`blob` and `event_names`); frozen with the query plan so an
+    # anchor content change forces a re-plan.
     content_hash: str
 
 
@@ -162,8 +163,13 @@ def _build_anchor_context(subscription: Subscription) -> AnchorContext | None:
 
     blob = "\n".join(lines)
     unique_events = list(dict.fromkeys(events))[:ANCHOR_EVENT_NAMES_LIMIT]
+    # Hash both planner inputs, not just `blob`. event_names is pinned into event selection on its
+    # own and is derived from the untruncated query, so an event edit that lands past the blob's
+    # query-JSON truncation changes the pins while leaving the truncated blob byte-identical.
+    # Hashing blob alone would miss that edit and keep replaying the stale frozen plan.
+    hash_source = json.dumps({"blob": blob, "events": unique_events}, separators=(",", ":"), sort_keys=True)
     return AnchorContext(
         blob=blob,
         event_names=unique_events,
-        content_hash=hashlib.sha256(blob.encode()).hexdigest(),
+        content_hash=hashlib.sha256(hash_source.encode()).hexdigest(),
     )

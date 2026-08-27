@@ -8,6 +8,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.temporal.subscriptions.ai_subscription.anchor_context import (
+    ANCHOR_QUERY_JSON_MAX_CHARS,
     ANCHOR_TILES_LIMIT,
     AnchorContextUnavailable,
     build_anchor_context,
@@ -98,6 +99,28 @@ class TestBuildAnchorContext(APIBaseTest):
         assert context is not None
         assert "Query definition (JSON)" in context.blob
         assert context.event_names == ["$pageview"]
+
+    def test_hash_covers_event_pins_past_query_truncation(self) -> None:
+        # event_names is a separate planner input (pinned into event selection) derived from the
+        # untruncated query. An event edit past the blob's query-JSON truncation leaves the blob
+        # byte-identical, so a blob-only hash would not invalidate the frozen plan.
+        filler = "x" * (ANCHOR_QUERY_JSON_MAX_CHARS + 1000)
+
+        def _anchor(event: str):
+            # `aaa_filler` sorts first under sort_keys, pushing the event past the truncation cut.
+            query = {"aaa_filler": filler, "source": {"series": [{"event": event}]}}
+            insight = Insight.objects.create(team=self.team, name="Big", query=query)
+            return build_anchor_context(self._subscription(anchor_insight=insight))
+
+        a = _anchor("event_a")
+        b = _anchor("event_b")
+
+        assert a is not None and b is not None
+        # The edit lands past the truncation, so the blobs match...
+        assert a.blob == b.blob
+        # ...but the pins differ, so the content hash must differ too.
+        assert a.event_names != b.event_names
+        assert a.content_hash != b.content_hash
 
     def test_soft_deleted_anchor_degrades_to_none(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Gone", deleted=True)
