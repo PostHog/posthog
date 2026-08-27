@@ -264,7 +264,7 @@ def build_resolution_preview(team: Team, user_access_control: UserAccessControl)
     if not team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
         return []
 
-    rows = [row for row in AccessControl.objects.filter(team=team) if row.resource not in _SKIPPED_RESOURCES]
+    rows = list(AccessControl.objects.filter(team=team).exclude(resource__in=_SKIPPED_RESOURCES))
     if not rows:
         return []
 
