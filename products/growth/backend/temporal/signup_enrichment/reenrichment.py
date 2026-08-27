@@ -36,10 +36,11 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.exceptions_capture import capture_exception
-from posthog.ph_client import get_regional_ph_client
+from posthog.ph_client import get_regional_ph_client, ph_scoped_capture
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
+from posthog.utils import get_instance_region
 
 from products.growth.backend.temporal.signup_enrichment.workflow import ENRICH_ACTIVITY_TIMEOUT, MAX_ENRICH_ATTEMPTS
 
@@ -319,20 +320,19 @@ SWEEP_RUN_EVENT = "icp_reenrichment_sweep_completed"
 
 
 @activity.defn
-async def report_sweep_run_activity(summary: SweepRunSummary) -> None:
+def report_sweep_run_activity(summary: SweepRunSummary) -> None:
     """One event per run, so an alert can see a sweep that stopped firing or selects nothing."""
-    pha_client = get_regional_ph_client()
-    if pha_client is None:
+    region = get_instance_region()
+    if region not in ("US", "EU"):
         LOGGER.error("icp_reenrichment_no_regional_client")
         return
-    try:
-        pha_client.capture(
+
+    with ph_scoped_capture(region=region) as capture:
+        capture(
             distinct_id="icp-reenrichment-sweep",
             event=SWEEP_RUN_EVENT,
             properties=dataclasses.asdict(summary),
         )
-    finally:
-        pha_client.shutdown()
 
 
 @workflow.defn(name="icp-reenrichment-sweep")
@@ -379,6 +379,7 @@ class IcpReenrichmentSweepWorkflow(PostHogWorkflow):
                 failed += 1
 
         summary = SweepRunSummary(selected=len(candidates), attempted=attempted, matched=matched, failed=failed)
+        # Keep analytics I/O in an activity so workflow replay remains deterministic.
         # Patched so an execution recorded before this activity existed still replays.
         if workflow.patched("icp-sweep-run-summary-2026-08"):
             await workflow.execute_activity(

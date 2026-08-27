@@ -271,14 +271,29 @@ class TestReenrichOrganizationActivity(BaseTest):
         assert {k: properties[k] for k in expected} == expected
 
     def test_run_summary_emits_one_event_with_the_counts(self):
-        pha_client = MagicMock()
-        with patch(f"{_MODULE}.get_regional_ph_client", return_value=pha_client):
-            async_to_sync(report_sweep_run_activity)(SweepRunSummary(selected=3, attempted=3, matched=1, failed=1))
+        capture = MagicMock()
+        scoped_capture = MagicMock()
+        scoped_capture.__enter__.return_value = capture
+        with (
+            patch(f"{_MODULE}.get_instance_region", return_value="EU"),
+            patch(f"{_MODULE}.ph_scoped_capture", return_value=scoped_capture) as scoped_capture_factory,
+        ):
+            report_sweep_run_activity(SweepRunSummary(selected=3, attempted=3, matched=1, failed=1))
 
-        event = pha_client.capture.call_args.kwargs
+        scoped_capture_factory.assert_called_once_with(region="EU")
+        event = capture.call_args.kwargs
         assert event["event"] == "icp_reenrichment_sweep_completed"
         assert event["properties"] == {"selected": 3, "attempted": 3, "matched": 1, "failed": 1}
-        pha_client.shutdown.assert_called_once()
+        scoped_capture.__exit__.assert_called_once()
+
+    def test_run_summary_skips_outside_a_cloud_region(self):
+        with (
+            patch(f"{_MODULE}.get_instance_region", return_value=None),
+            patch(f"{_MODULE}.ph_scoped_capture") as scoped_capture_factory,
+        ):
+            report_sweep_run_activity(SweepRunSummary(selected=0, attempted=0, matched=0, failed=0))
+
+        scoped_capture_factory.assert_not_called()
 
     def test_skips_an_org_deleted_after_selection_without_writing_anything(self):
         doomed = Organization.objects.create(name="doomed.example")
