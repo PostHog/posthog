@@ -1,1 +1,1 @@
-0305_logs_retention_days
+0306_logs_pattern_kafka

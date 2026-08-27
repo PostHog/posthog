@@ -410,6 +410,12 @@ SQL
     column "retention_days" {
       type = "Nullable(Int32)"
     }
+    column "pattern" {
+      type = "Nullable(String)"
+    }
+    column "pattern_version" {
+      type = "Nullable(Int32)"
+    }
     engine "kafka" {
       broker_list          = "warpstream_logs"
       topic_list           = "kafka_topic_list = 'clickhouse_logs'"
@@ -494,6 +500,12 @@ SQL
     }
     column "_bytes_compressed" {
       type = "Nullable(Int64)"
+    }
+    column "pattern" {
+      type = "String"
+    }
+    column "pattern_version" {
+      type = "UInt8"
     }
   }
 }
