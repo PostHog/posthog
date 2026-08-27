@@ -1,13 +1,9 @@
-import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { PRODUCT_ENGINEER_PROMPT } from "@posthog/shared/product-engineer-prompt";
 import { describe, expect, it } from "vitest";
 import { createProductEngineerExtension } from "./extension";
 
-const PRODUCT_ENGINEER_PROMPT = readFileSync(
-  new URL("./prompts/product-engineer.md", import.meta.url),
-  "utf8",
-).trim();
 const UPSTREAM_SYSTEM_PROMPT = "Upstream pi instructions that may change.";
 
 type BeforeAgentStart = (event: { systemPrompt: string }) => {

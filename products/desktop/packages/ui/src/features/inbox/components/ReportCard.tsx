@@ -230,8 +230,8 @@ export function ReportCardView(props: ReportCardViewProps) {
         variant="soft"
         color="gray"
         size="1"
-        aria-label="Restore this report to the inbox"
-        tooltipContent="Restore to inbox"
+        aria-label="Restore this report to Self-driving"
+        tooltipContent="Restore to Self-driving"
         loading={props.isRestorePending}
         disabled={props.isRestorePending}
         onClick={(event) => {
@@ -325,17 +325,15 @@ export function ReportCard(props: ReportCardProps) {
 
   const detailRoute = isArchived
     ? {
-        to: "/code/inbox/dismissed/$reportId" as const,
+        to: "/inbox/dismissed/$reportId" as const,
         params: { reportId: report.id },
       }
     : {
-        to: "/code/inbox/reports/$reportId" as const,
+        to: "/inbox/reports/$reportId" as const,
         params: { reportId: report.id },
       };
-  const { prefetch, pointerHandlers } = useInboxReportDetailPrefetch(
-    report,
-    detailRoute,
-  );
+  const { prefetch, pointerHandlers } =
+    useInboxReportDetailPrefetch(detailRoute);
   const navigate = useNavigate();
   // Archived rows are read-only, so skip the artefact fetch that powers the
   // repo slug + suggested-reviewer stack — neither is shown when archived.

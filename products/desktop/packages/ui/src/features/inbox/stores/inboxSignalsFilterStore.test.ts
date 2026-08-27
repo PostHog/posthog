@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { useInboxSignalsFilterStore } from "./inboxSignalsFilterStore";
+import {
+  hasActiveInboxFilters,
+  useInboxSignalsFilterStore,
+} from "./inboxSignalsFilterStore";
 
 describe("inboxSignalsFilterStore", () => {
   beforeEach(() => {
@@ -10,6 +13,7 @@ describe("inboxSignalsFilterStore", () => {
       searchQuery: "",
       sourceProductFilter: [],
       priorityFilter: [],
+      prFilter: "all",
     });
   });
 
@@ -141,6 +145,55 @@ describe("inboxSignalsFilterStore", () => {
     expect(state.sortField).toBe("created_at");
     expect(state.sortDirection).toBe("asc");
   });
+
+  it.each([
+    ["no filters", () => {}, false],
+    [
+      "a search query",
+      (s: ReturnType<typeof useInboxSignalsFilterStore.getState>) =>
+        s.setSearchQuery("login"),
+      true,
+    ],
+    [
+      "a whitespace-only search query",
+      (s: ReturnType<typeof useInboxSignalsFilterStore.getState>) =>
+        s.setSearchQuery("   "),
+      false,
+    ],
+    [
+      "a source filter",
+      (s: ReturnType<typeof useInboxSignalsFilterStore.getState>) =>
+        s.toggleSourceProduct("github"),
+      true,
+    ],
+    [
+      "a priority filter",
+      (s: ReturnType<typeof useInboxSignalsFilterStore.getState>) =>
+        s.setPriorityFilter(["P0"]),
+      true,
+    ],
+    [
+      "a PR filter",
+      (s: ReturnType<typeof useInboxSignalsFilterStore.getState>) =>
+        s.setPrFilter("with_pr"),
+      true,
+    ],
+    // Sort only reorders the list, so it must not read as an active filter.
+    [
+      "only a non-default sort",
+      (s: ReturnType<typeof useInboxSignalsFilterStore.getState>) =>
+        s.setSort("created_at", "asc"),
+      false,
+    ],
+  ] as const)(
+    "hasActiveInboxFilters is %s -> %s",
+    (_label, apply, expected) => {
+      apply(useInboxSignalsFilterStore.getState());
+      expect(hasActiveInboxFilters(useInboxSignalsFilterStore.getState())).toBe(
+        expected,
+      );
+    },
+  );
 
   it("migrates pre-v2 localStorage by dropping the dead filter slots", () => {
     localStorage.setItem(

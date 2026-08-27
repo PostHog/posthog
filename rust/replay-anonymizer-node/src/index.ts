@@ -42,6 +42,13 @@ export interface AnonymizeUrlEntry {
     domain: string
 }
 
+export interface AnonymizeImageSourceCount {
+    source: 'css' | 'html'
+    property: string
+    kind: 'inline' | 'url'
+    count: number
+}
+
 /** Envelope + per-event metadata parsed from {@link AnonymizeKafkaPayloadResult.meta}. */
 export interface AnonymizeMeta {
     distinctId: string
@@ -63,6 +70,8 @@ export interface AnonymizeMeta {
     images?: AnonymizeImageEntry[]
     /** Collected remote image URLs (hash-sorted); present only when the URL lane was enabled and URLs were collected. */
     urls?: AnonymizeUrlEntry[]
+    /** Collected ref occurrences by bounded replay location, property, and inline or URL lane. */
+    imageSources?: AnonymizeImageSourceCount[]
     /** Counts by reason for the URLs the collector refused. Absent when it refused none. */
     urlDeclines?: { reason: string; count: number }[]
 }
@@ -137,12 +146,11 @@ export function initAnonymizer(allow: AllowListsInput): void {
  * blur, and the original bytes come back in `images`/`meta.images` for the caller to produce to
  * the scrub topic.
  *
- * `urlKey` enables the URL-collection lane alongside it: a remote image's `src` keeps the media
- * placeholder, a namespaced sibling attribute carries its ref, and its original URL comes back in
- * `meta.urls` for the caller to hand to the fetch lane.
+ * `urlKey` enables the URL-collection lane independently. It is the global URL HMAC key. A remote
+ * image's `src` keeps the media placeholder, a namespaced sibling attribute carries its ref, and
+ * its original URL comes back in `meta.urls` for the caller to hand to the fetch lane.
  *
- * The two lanes are independent: either, both, or neither. Both need `pseudoTeam`, because the ref
- * embeds it, so a `contentKey` or a `urlKey` without one throws.
+ * The two lanes are independent: either, both, or neither. Only `contentKey` needs `pseudoTeam`.
  */
 export async function anonymizeKafkaPayload(
     payload: Buffer,
@@ -196,4 +204,15 @@ export function politenessKey(host: string): string {
  */
 export function isPublicHost(host: string): boolean {
     return native.isPublicHost(host)
+}
+
+export interface CanonicalUrl {
+    fetch: string
+    dedup: string
+    host: string
+    domain: string
+}
+
+export function canonicalizeUrl(url: string): CanonicalUrl | null {
+    return native.canonicalizeUrl(url)
 }

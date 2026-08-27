@@ -806,7 +806,7 @@ def _record_merged_pull_request(payload: dict[str, Any], delivery_id: str) -> No
         # landed and its ownership names the teams whose code moved. The digest has neither.
         pr_obj.summary_line = approving_run.change_summary
         update_fields.append("summary_line")
-        audiences = resolve_audiences(repo_config, pr, approving_run.gate_result)
+        audiences = resolve_audiences(repo_config, approving_run.gate_result)
     else:
         audiences = []
     if not audiences:

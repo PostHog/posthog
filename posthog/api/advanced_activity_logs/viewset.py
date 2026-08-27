@@ -33,6 +33,7 @@ from posthog.permissions import PremiumFeaturePermission
 from posthog.tasks import exporter
 
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.source_authentication import get_export_source_authentication
 
 from .field_discovery import AdvancedActivityLogFieldDiscovery
 from .filters import AdvancedActivityLogFilterManager, validate_detail_filters
@@ -675,7 +676,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         available_filters = self.field_discovery.get_available_filters(queryset)
         return Response(available_filters)
 
-    @action(detail=False, methods=["POST"])
+    @action(detail=False, methods=["POST"], required_scopes=["activity_log:read"])
     def export(self, request, **kwargs):
         export_format = request.data.get("format", "csv")
 
@@ -707,6 +708,12 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         try:
             serializable_filters = self._make_filters_serializable(filters_serializer.validated_data)
             filename = self._generate_export_filename(serializable_filters, export_format)
+            source_authentication = get_export_source_authentication(request.successful_authenticator)
+            if source_authentication is None:
+                return Response(
+                    {"error": "Exports from API endpoints do not support this authentication method."},
+                    status=400,
+                )
 
             exported_asset = ExportedAsset.objects.create(
                 team=self.team,
@@ -718,6 +725,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                     "filename": filename,
                 },
                 created_by=request.user,
+                **source_authentication,
             )
 
             exporter.export_asset.delay(exported_asset.id)

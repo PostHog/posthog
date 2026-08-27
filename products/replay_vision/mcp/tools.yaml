@@ -162,6 +162,36 @@ tools:
             - created_by
             - updated_at
         requires_ai_consent: true
+    vision-alerts-create:
+        operation: vision_alerts_create
+        enabled: false
+    vision-alerts-destinations-create:
+        operation: vision_alerts_destinations_create
+        enabled: false
+    vision-alerts-destinations-delete-create:
+        operation: vision_alerts_destinations_delete_create
+        enabled: false
+    vision-alerts-destroy:
+        operation: vision_alerts_destroy
+        enabled: false
+    vision-alerts-events-list:
+        operation: vision_alerts_events_list
+        enabled: false
+    vision-alerts-list:
+        operation: vision_alerts_list
+        enabled: false
+    vision-alerts-partial-update:
+        operation: vision_alerts_partial_update
+        enabled: false
+    vision-alerts-reset-create:
+        operation: vision_alerts_reset_create
+        enabled: false
+    vision-alerts-retrieve:
+        operation: vision_alerts_retrieve
+        enabled: false
+    vision-alerts-update:
+        operation: vision_alerts_update
+        enabled: false
     vision-observations-create-task-create:
         operation: vision_observations_create_task_create
         enabled: false
@@ -253,6 +283,30 @@ tools:
     vision-observations-retry-create:
         operation: vision_observations_retry_create
         enabled: false
+    vision-observations-search:
+        operation: vision_observations_search_retrieve
+        enabled: true
+        scopes:
+            - replay_scanner:read
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Semantically search replay vision observations
+        description: >
+            Search replay vision observations by meaning, not keywords: `q` is a natural-language description of what to
+            find (e.g. "users confused by the pricing page") and results come back under `results`, most relevant first.
+            Each result pairs the `observation` with its `distance` to the query (lower is closer, only comparable
+            within one response) and `matched_content`, the excerpt of the observation's text that matched (may be empty
+            for old rows). The search ranks each observation's LLM output (a summarizer's intent/outcome/friction
+            facets, other scanners' reasoning) by semantic similarity, so it finds sessions described differently from
+            the query. Scope with `scanner_id` to search one scanner, otherwise every scanner the caller can read is
+            searched. Narrow by exact outcome with `verdict` (comma-separated, e.g. `yes,inconclusive`), `tags`
+            (comma-separated classifier tags), and `min_score`/`max_score` (scorer bounds). These filter, while `q`
+            ranks. `limit` defaults to 20 (max 50). Use `vision-observations-retrieve` for a result's full detail, or
+            `vision-observations-list` for everything observed about one session.
+        requires_ai_consent: true
     vision-quota-retrieve:
         operation: environment_vision_quota_retrieve
         enabled: true
@@ -656,6 +710,15 @@ tools:
             you're examining. A scanner can observe a given session only once — re-triggering it on a session that
             already has an observation (even a failed or ineligible one) is a no-op and will not produce a fresh scan.
         requires_ai_consent: true
+    vision-scanners-scout-reports-list:
+        operation: vision_scanners_scout_reports_list
+        enabled: false
+    vision-scanners-scout-reports-retrieve:
+        operation: vision_scanners_scout_reports_retrieve
+        enabled: false
+    vision-scanners-scouts-create:
+        operation: vision_scanners_scouts_create
+        enabled: false
     vision-scanners-self-driving-stats-retrieve:
         operation: vision_scanners_self_driving_stats_retrieve
         enabled: false

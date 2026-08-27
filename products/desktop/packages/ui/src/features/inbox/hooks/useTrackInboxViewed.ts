@@ -10,29 +10,36 @@ import { useEffect, useRef } from "react";
  * with the counts the user sees on load (tab badges, total, ready, and the
  * priority/actionability breakdown of the visible reports).
  *
- * Restores the event dropped when Inbox 2.0 deleted `InboxSignalsTab`. Mounted
- * from `InboxView`, so it fires once per visit and survives tab switches (the
- * shell stays mounted while the `<Outlet />` swaps tab bodies).
+ * Mounted from `InboxView` for the legacy tabbed inbox, so it fires once per
+ * visit and survives tab switches. The sectioned reports inbox tracks from its
+ * existing list and count data to avoid mounting these legacy queries.
  */
-export function useTrackInboxViewed(): void {
+export function useTrackInboxViewed(options?: { enabled?: boolean }): void {
+  const enabled = options?.enabled ?? true;
   const {
     scopedReports,
     totalCount,
     counts,
     scope,
     isSuccess,
+    countsReady,
     sourceProductFilter,
     priorityFilter,
     searchQuery,
-  } = useInboxAllReports();
+    // The badge counts come from their own requests, so opt in here too or the
+    // event records a zero the user never saw.
+  } = useInboxAllReports({ enabled, withReportsCount: true });
 
   const firedRef = useRef(false);
   useEffect(() => {
-    if (firedRef.current) return;
+    if (!enabled || firedRef.current) return;
     // Gate on a successful load, not just `!isLoading`: an errored initial
     // request also leaves `isLoading` false with an empty list, and `firedRef`
     // would then lock in a bogus empty-inbox view that a later refetch can't fix.
     if (!isSuccess) return;
+    // The event carries the tab badges and fires once, so a list that settles
+    // ahead of the count requests would lock in counts of zero.
+    if (!countsReady) return;
     firedRef.current = true;
     track(
       ANALYTICS_EVENTS.INBOX_VIEWED,
@@ -51,6 +58,7 @@ export function useTrackInboxViewed(): void {
     );
   }, [
     isSuccess,
+    countsReady,
     scopedReports,
     totalCount,
     counts,
@@ -58,5 +66,6 @@ export function useTrackInboxViewed(): void {
     sourceProductFilter,
     priorityFilter,
     searchQuery,
+    enabled,
   ]);
 }

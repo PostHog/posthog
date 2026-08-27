@@ -2,30 +2,7 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-)
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.anthropic import AnthropicResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.source import AnthropicSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-
-class TestAnthropicSourceConfig:
-    def test_source_type(self) -> None:
-        assert AnthropicSource().source_type == ExternalDataSourceType.ANTHROPIC
-
-    def test_config_exposes_single_secret_api_key_field(self) -> None:
-        config = AnthropicSource().get_source_config
-        assert config.name == SchemaExternalDataSourceType.ANTHROPIC
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/anthropic"
-        assert config.unreleasedSource is None
-        fields = [f for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert [f.name for f in fields] == ["api_key"]
-        assert fields[0].secret is True and fields[0].required is True
 
 
 class TestAnthropicSchemas:
@@ -74,13 +51,6 @@ class TestAnthropicSchemas:
     def test_names_filter(self) -> None:
         schemas = AnthropicSource().get_schemas(MagicMock(), team_id=1, names=["usage_report"])
         assert [s.name for s in schemas] == ["usage_report"]
-
-
-class TestAnthropicResumableManager:
-    def test_manager_bound_to_resume_config(self) -> None:
-        inputs = MagicMock()
-        manager = AnthropicSource().get_resumable_source_manager(inputs)
-        assert manager._data_class is AnthropicResumeConfig
 
 
 class TestAnthropicSourceForPipeline:

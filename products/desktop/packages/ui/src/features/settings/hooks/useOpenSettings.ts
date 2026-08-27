@@ -42,6 +42,15 @@ export function prepareSettingsPage(
 }
 
 /**
+ * Leave the settings page for a route the caller navigates to itself. Resets
+ * the store without the history pop `closeSettings` does, which would land the
+ * user back on the prior route after their own navigation.
+ */
+export function leaveSettings(): void {
+  useSettingsPageStore.getState().reset();
+}
+
+/**
  * Close the settings page — returns the user to their prior route via
  * router history. If they came in via a deep link, falls back to /code.
  */
@@ -51,7 +60,7 @@ export function closeSettings(): void {
   if (nav.canGoBackInHistory()) {
     nav.goBackInHistory();
   } else {
-    nav.navigateToCode();
+    nav.navigateToNewTask();
   }
 }
 

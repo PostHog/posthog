@@ -6,10 +6,12 @@ from functools import lru_cache
 from typing import Any, Union, cast
 
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
-from django.db.models import Count, Exists, F, Max, OuterRef, Prefetch, QuerySet, Subquery
+from django.db.models import Count, F, Max, QuerySet
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
+from django.utils.functional import SimpleLazyObject
 from django.utils.text import slugify
 from django.utils.timezone import now
 
@@ -25,7 +27,7 @@ from pydantic import (
     RootModel,
     ValidationError as PydanticValidationError,
 )
-from rest_framework import relations, request, serializers, status, viewsets
+from rest_framework import request, serializers, status, viewsets
 from rest_framework.exceptions import APIException, ParseError, PermissionDenied, ValidationError
 from rest_framework.parsers import JSONParser
 from rest_framework.renderers import BaseRenderer
@@ -48,14 +50,9 @@ from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.query_coalescer import QueryCoalescingMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
-from posthog.api.sharing_publish_gate import (
-    blocked_access_for_user,
-    check_can_add_insight_to_shared_dashboard,
-    is_publicly_shared,
-)
+from posthog.api.sharing_publish_gate import blocked_access_for_user, is_publicly_shared
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action, format_paginated_url
 from posthog.auth import (
@@ -120,12 +117,6 @@ from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import (
-    UserAccessControlError,
-    UserAccessControlSerializerMixin,
-    access_level_satisfied_for_resource,
-)
 from posthog.renderers import SafeJSONRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade import upgrade
@@ -143,17 +134,52 @@ from posthog.utils import (
     variables_override_requested_by_client,
 )
 
-from products.alerts.backend.models.alert import AlertConfiguration
-from products.cohorts.backend.models.cohort import Cohort
-from products.dashboards.backend.access import (
+from products.access_control.backend.facade.user_access_control import (
+    UserAccessControlError,
+    access_level_satisfied_for_resource,
+)
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
+from products.alerts.backend.facade.api import delete_insight_alerts, insight_alerts_prefetch, serialize_insight_alerts
+from products.dashboards.backend.facade.access import (
     DashboardAccessMethod,
     dashboard_access_method,
     record_dashboard_cache_outcome,
 )
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.facade.api import map_stale_to_latest, plan_test_account_filter_update
-from products.product_analytics.backend.facade.models import Insight, InsightVariable, InsightViewed
+from products.dashboards.backend.facade.api import (
+    CannotAddToDashboard,
+    CannotRemoveFromDashboard,
+    DashboardNotFound,
+    DashboardTileBasicSerializer,
+    InsightTilePlacement,
+    active_tile_count,
+    dashboard_refs,
+    hide_tiles_for_insights,
+    insight_has_listed_tile,
+    insight_ids_on_dashboard,
+    plan_insight_tile_placement,
+    restore_tiles_for_insights,
+    tile_for_insight_on_dashboard,
+    tile_for_render,
+    tile_ids_prefetch,
+    tile_permissions_prefetch,
+    unknown_dashboard_ids,
+    update_insight_dashboard_membership,
+)
+from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
+from products.product_analytics.backend.facade.account_filters import plan_test_account_filter_update
+from products.product_analytics.backend.facade.api import (
+    insight_variables_for_team,
+    map_stale_to_latest,
+    recent_viewers_by_insight,
+    recently_viewed_insights,
+    record_insight_view,
+    record_insight_views,
+    with_last_viewed_at,
+)
+from products.product_analytics.backend.facade.models import Insight
 from products.product_analytics.backend.presentation.insight_metadata import (
     InsightMetadataTimeoutError,
     generate_insight_metadata,
@@ -319,28 +345,20 @@ class QuerySchemaParser(JSONParser):
             return data
 
 
-class _DashboardsFromTilesManyField(serializers.ManyRelatedField):
+class DashboardIdsField(serializers.ListField):
+    """The dashboard ids an insight sits on.
+
+    Written as a plain id list, read back off the prefetched tiles rather than the `dashboards`
+    m2m, so serializing a page of insights costs no extra query per insight.
+    """
+
+    child = serializers.IntegerField()
+
     def get_attribute(self, instance: Insight) -> list[int]:
         return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
 
-    def to_representation(self, iterable: Sequence[Any]) -> list[Any]:
-        return list(iterable)
-
-
-class TeamScopedDashboardsField(TeamScopedPrimaryKeyRelatedField):
-    @classmethod
-    def many_init(cls, *args, **kwargs):
-        list_kwargs: dict[str, Any] = {"child_relation": cls(*args, **kwargs)}
-        for key in kwargs:
-            if key in relations.MANY_RELATION_KWARGS:
-                list_kwargs[key] = kwargs[key]
-        return _DashboardsFromTilesManyField(**list_kwargs)
-
-
-class DashboardTileBasicSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = DashboardTile
-        fields = ["id", "dashboard_id", "deleted"]
+    def to_representation(self, data: Sequence[Any]) -> list[Any]:
+        return list(data)
 
 
 INCLUDE_DASHBOARDS_PARAM = "include_dashboards"
@@ -620,7 +638,7 @@ class InsightSerializer(InsightBasicSerializer):
     effective_privilege_level = serializers.SerializerMethodField()
     timezone = serializers.SerializerMethodField(help_text="The timezone this chart is displayed in.")
     last_viewed_at = serializers.SerializerMethodField(read_only=True)
-    dashboards = TeamScopedDashboardsField(  # type: ignore[assignment]
+    dashboards = DashboardIdsField(  # type: ignore[assignment]
         help_text="""
         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
         A dashboard ID for each of the dashboards that this insight is displayed on.
@@ -628,9 +646,7 @@ class InsightSerializer(InsightBasicSerializer):
         is passed. Once opt-in enforcement is enabled, API-token callers (personal API keys, OAuth)
         must opt in the same way. Do not rely on it being present.
         """,
-        many=True,
         required=False,
-        queryset=Dashboard.objects.all(),
     )
     dashboard_tiles = DashboardTileBasicSerializer(
         many=True,
@@ -720,26 +736,41 @@ class InsightSerializer(InsightBasicSerializer):
         ):
             raise PermissionDenied("Creating or updating insights with legacy filters is not available for this user.")
 
-        new_dashboards = attrs.get("dashboards")
-        if new_dashboards is not None:
+        new_dashboard_ids = attrs.get("dashboards")
+        if new_dashboard_ids is not None:
             team = self.context["get_team"]()
+            dashboard_names = {dashboard.id: dashboard.name for dashboard in dashboard_refs(new_dashboard_ids)}
             existing_dashboard_ids: set[int] = set()
             if self.instance is not None:
                 existing_dashboard_ids = set(
                     self.instance.dashboard_tiles.exclude(deleted=True).values_list("dashboard_id", flat=True)
                 )
-            for dashboard in new_dashboards:
-                if dashboard.id in existing_dashboard_ids:
+            for dashboard_id in new_dashboard_ids:
+                if dashboard_id in existing_dashboard_ids:
                     continue
-                current_tiles = DashboardTile.objects.filter(dashboard_id=dashboard.id).exclude(deleted=True).count()
                 check_count_limit(
                     team=team,
                     key=LimitKey.MAX_INSIGHTS_PER_DASHBOARD,
-                    current_count=current_tiles,
+                    current_count=active_tile_count(dashboard_id),
                     user=self.context["request"].user,
+                    resource_properties={
+                        "dashboard_id": dashboard_id,
+                        "dashboard_name": dashboard_names.get(dashboard_id) or "",
+                    },
                 )
 
         return super().validate(attrs)
+
+    def validate_dashboards(self, value: list[int]) -> list[int]:
+        # Fails safe like the team-scoped related field this replaced: without a team in context,
+        # no id resolves.
+        team_id = self.context.get("team_id")
+        unknown = list(value) if not team_id else unknown_dashboard_ids(value, team_id=team_id)
+        if unknown:
+            raise serializers.ValidationError(
+                f"Dashboard not found: {', '.join(str(dashboard_id) for dashboard_id in unknown)}"
+            )
+        return value
 
     def validate_query(self, value: dict[str, Any] | None) -> dict[str, Any] | None:
         """Auto-wrap bare query sources in the wrapper node the UI renders.
@@ -772,33 +803,28 @@ class InsightSerializer(InsightBasicSerializer):
         team_id = self.context["team_id"]
 
         created_by = validated_data.pop("created_by", request.user)
-        dashboards = validated_data.pop("dashboards", None)
+        dashboard_ids = validated_data.pop("dashboards", None)
 
         # Validate dashboard access before creating anything: create() runs in autocommit,
         # so raising mid-way would otherwise leave an orphaned insight (and emit user actions
         # for tiles that never persist on multi-dashboard requests).
-        target_dashboards: list[Dashboard] = []
-        if dashboards is not None:
+        placement: InsightTilePlacement | None = None
+        if dashboard_ids is not None:
             # Per-dashboard limit (analytics.max_insights_per_dashboard) is enforced
             # in validate(); see InsightSerializer.validate above.
-            # nosemgrep: idor-lookup-without-team
-            target_dashboards = list(Dashboard.objects.filter(id__in=[d.id for d in dashboards]))
-            for dashboard in target_dashboards:
-                # Mirror the update path: adding a tile is an edit of the dashboard, so a
-                # restricted dashboard the user can't edit must not be writable on create either.
-                if (
-                    self.user_permissions.dashboard(dashboard).effective_privilege_level
-                    != Dashboard.PrivilegeLevel.CAN_EDIT
-                ):
-                    raise PermissionDenied(f"You don't have permission to add insights to dashboard: {dashboard.id}")
-
-                if dashboard.team_id != team_id:
-                    raise serializers.ValidationError("Dashboard not found")
-
-                # The dashboard's public link must not expose a query the editor can't run.
-                check_can_add_insight_to_shared_dashboard(
-                    request.user, dashboard, validated_data.get("query"), self.user_access_control
+            try:
+                placement = plan_insight_tile_placement(
+                    dashboard_ids=dashboard_ids,
+                    team_id=team_id,
+                    query=validated_data.get("query"),
+                    user=request.user,
+                    user_permissions=self.user_permissions,
+                    user_access_control=self.user_access_control,
                 )
+            except CannotAddToDashboard as error:
+                raise PermissionDenied(f"You don't have permission to add insights to dashboard: {error.dashboard_id}")
+            except DashboardNotFound:
+                raise serializers.ValidationError("Dashboard not found")
 
             # Counts the field being accepted as write input (even an empty list), after
             # permission checks so rejected requests don't inflate the metric.
@@ -811,23 +837,21 @@ class InsightSerializer(InsightBasicSerializer):
             **validated_data,
         )
 
-        InsightViewed.objects.create(team_id=team_id, user=request.user, insight=insight, last_viewed_at=now())
+        record_insight_view(insight_id=insight.pk, team_id=team_id, user_id=request.user.pk)
 
-        for dashboard in target_dashboards:
-            DashboardTile.objects.create(
-                insight=insight, dashboard=dashboard, team_id=dashboard.team_id, last_refresh=now()
-            )
-            report_user_action(
-                self.context["request"].user,
-                "dashboard tile added",
-                {
-                    "tile_type": "insight",
-                    "insight_type": get_insight_type(insight),
-                    "dashboard_id": dashboard.id,
-                },
-                team=insight.team,
-                request=self.context["request"],
-            )
+        if placement is not None:
+            for dashboard in placement.create_tiles(insight):
+                report_user_action(
+                    self.context["request"].user,
+                    "dashboard tile added",
+                    {
+                        "tile_type": "insight",
+                        "insight_type": get_insight_type(insight),
+                        "dashboard_id": dashboard.id,
+                    },
+                    team=insight.team,
+                    request=self.context["request"],
+                )
 
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, insight)
@@ -901,13 +925,13 @@ class InsightSerializer(InsightBasicSerializer):
                 )
 
         if validated_data.get("deleted", False):
-            DashboardTile.objects_including_soft_deleted.filter(insight__id=instance.id).update(deleted=True)
+            hide_tiles_for_insights([instance.id])
             for alert in instance.alertconfiguration_set.all():
                 alert.delete()
         else:
-            dashboards = validated_data.pop("dashboards", None)
-            if dashboards is not None:
-                self._update_insight_dashboards(dashboards, instance)
+            dashboard_ids = validated_data.pop("dashboards", None)
+            if dashboard_ids is not None:
+                self._update_insight_dashboards(dashboard_ids, instance)
 
         updated_insight = super().update(instance, validated_data)
         # Delete linked alerts only when the insight can no longer carry any alert. A switch between
@@ -980,93 +1004,64 @@ class InsightSerializer(InsightBasicSerializer):
 
         return []
 
-    def _update_insight_dashboards(self, dashboards: list[Dashboard], instance: Insight) -> None:
+    def _update_insight_dashboards(self, dashboard_ids: list[int], instance: Insight) -> None:
         # Counts the field being accepted as write input — before the no-op early return, so
         # integrations that round-trip an unchanged dashboards list still register as writers.
         _record_deprecated_dashboards_field_used(self.context, usage="write")
 
-        old_dashboard_ids = [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
-        new_dashboard_ids = [d.id for d in dashboards if not d.deleted]
+        try:
+            change = update_insight_dashboard_membership(
+                insight=instance,
+                dashboard_ids=dashboard_ids,
+                user=self.context["request"].user,
+                user_permissions=self.user_permissions,
+                user_access_control=self.user_access_control,
+            )
+        except CannotAddToDashboard as error:
+            raise PermissionDenied(f"You don't have permission to add insights to dashboard: {error.dashboard_id}")
+        except CannotRemoveFromDashboard as error:
+            raise PermissionDenied(f"You don't have permission to remove insights from dashboard: {error.dashboard_id}")
+        except DashboardNotFound:
+            raise serializers.ValidationError("Dashboard not found")
 
-        if sorted(old_dashboard_ids) == sorted(new_dashboard_ids):
+        if change is None:
             return
 
-        ids_to_add = [id for id in new_dashboard_ids if id not in old_dashboard_ids]
-        ids_to_remove = [id for id in old_dashboard_ids if id not in new_dashboard_ids]
-        # nosemgrep: idor-lookup-without-team (team check after lookup)
-        candidate_dashboards = Dashboard.objects.filter(id__in=ids_to_add)
-        dashboard: Dashboard
-        for dashboard in candidate_dashboards:
-            # does this user have permission on dashboards to add... if they are restricted
-            # it will mean this dashboard becomes restricted because of the patch
-            if (
-                self.user_permissions.dashboard(dashboard).effective_privilege_level
-                != Dashboard.PrivilegeLevel.CAN_EDIT
-            ):
-                raise PermissionDenied(f"You don't have permission to add insights to dashboard: {dashboard.id}")
-
-            if dashboard.team != instance.team:
-                raise serializers.ValidationError("Dashboard not found")
-
-            # The dashboard's public link must not expose a query the editor can't run.
-            check_can_add_insight_to_shared_dashboard(
-                self.context["request"].user, dashboard, instance.query, self.user_access_control
-            )
-
-            tile, _ = DashboardTile.objects_including_soft_deleted.get_or_create(insight=instance, dashboard=dashboard)
-
-            if tile.deleted:
-                tile.deleted = False
-                tile.save()
-
+        for dashboard_id in change.added_dashboard_ids:
             report_user_action(
                 self.context["request"].user,
                 "dashboard tile added",
                 {
                     "tile_type": "insight",
                     "insight_type": get_insight_type(instance),
-                    "dashboard_id": dashboard.id,
+                    "dashboard_id": dashboard_id,
                 },
                 team=instance.team,
                 request=self.context["request"],
             )
 
-        if ids_to_remove:
-            # Check permission before removing insight from dashboards
-            # nosemgrep: idor-lookup-without-team (team check after lookup)
-            dashboards_to_remove = Dashboard.objects.filter(id__in=ids_to_remove)
-            for dashboard in dashboards_to_remove:
-                if (
-                    self.user_permissions.dashboard(dashboard).effective_privilege_level
-                    != Dashboard.PrivilegeLevel.CAN_EDIT
-                ):
-                    raise PermissionDenied(
-                        f"You don't have permission to remove insights from dashboard: {dashboard.id}"
-                    )
-
-            # Capture the still-active tiles before soft-deleting so we report one
-            # "dashboard tile removed" per tile that is actually removed.
-            tiles_to_remove = list(DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance))
-            DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).update(deleted=True)
-
-            for tile in tiles_to_remove:
-                report_user_action(
-                    self.context["request"].user,
-                    "dashboard tile removed",
-                    {
-                        "tile_type": "insight",
-                        "insight_type": get_insight_type(instance),
-                        "dashboard_id": tile.dashboard_id,
-                    },
-                    team=instance.team,
-                    request=self.context["request"],
-                )
+        for dashboard_id in change.removed_dashboard_ids:
+            report_user_action(
+                self.context["request"].user,
+                "dashboard tile removed",
+                {
+                    "tile_type": "insight",
+                    "insight_type": get_insight_type(instance),
+                    "dashboard_id": dashboard_id,
+                },
+                team=instance.team,
+                request=self.context["request"],
+            )
 
         # Dashboard membership is mutated through separate querysets above, so the instance's
         # prefetched relation no longer reflects what was persisted. The response serializer must
         # reload it because session callers now derive membership exclusively from dashboard_tiles.
         getattr(instance, "_prefetched_objects_cache", {}).pop("dashboard_tiles", None)
-        self.context["after_dashboard_changes"] = [describe_change(d) for d in dashboards if not d.deleted]
+        # Same shape describe_change() renders a dashboard as, so this lines up with the "before"
+        # side of the synthetic dashboards change further up.
+        self.context["after_dashboard_changes"] = [
+            {"id": dashboard.id, "name": dashboard.name} for dashboard in change.dashboards
+        ]
 
     @extend_schema_field(OpenApiTypes.ANY)
     def get_result(self, insight: Insight):
@@ -1155,13 +1150,11 @@ class InsightSerializer(InsightBasicSerializer):
 
         # Use prefetched alerts data
         alerts = getattr(insight, "_prefetched_alerts", [])
-        from products.alerts.backend.api.alert import AlertSerializer
-
-        return AlertSerializer(alerts, many=True, context=self.context).data
+        return serialize_insight_alerts(alerts, self.context)
 
     @extend_schema_field(InsightFilterOverrideContext)  # type: ignore[arg-type]
     def get_filter_override_context(self, insight: Insight) -> dict[str, object] | None:
-        dashboard: Dashboard | None = self.context.get("dashboard")
+        dashboard: Any = self.context.get("dashboard")
         request: Request | None = self.context.get("request")
         if request is None:
             return None
@@ -1183,14 +1176,14 @@ class InsightSerializer(InsightBasicSerializer):
         resolved_layers = resolve_filter_layers_by_priority(dashboard_filters, tile_filters_override)
         return {key: value or None for key, value in resolved_layers.items()}
 
-    def get_effective_restriction_level(self, insight: Insight) -> Dashboard.RestrictionLevel:
+    def get_effective_restriction_level(self, insight: Insight) -> RestrictionLevel:
         if self.context.get("is_shared"):
-            return Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+            return RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         return self.user_permissions.insight(insight).effective_restriction_level
 
-    def get_effective_privilege_level(self, insight: Insight) -> Dashboard.PrivilegeLevel:
+    def get_effective_privilege_level(self, insight: Insight) -> PrivilegeLevel:
         if self.context.get("is_shared"):
-            return Dashboard.PrivilegeLevel.CAN_VIEW
+            return PrivilegeLevel.CAN_VIEW
         return self.user_permissions.insight(insight).effective_privilege_level
 
     def to_representation(self, instance: Insight):
@@ -1220,7 +1213,7 @@ class InsightSerializer(InsightBasicSerializer):
                 described_dashboard["id"] for described_dashboard in self.context["after_dashboard_changes"]
             ]
 
-        dashboard: Dashboard | None = self.context.get("dashboard")
+        dashboard: Any = self.context.get("dashboard")
         request: Request | None = self.context.get("request")
         is_shared = self.context.get("is_shared", False)
         dashboard_filters_override = (
@@ -1300,7 +1293,7 @@ class InsightSerializer(InsightBasicSerializer):
     def insight_result(self, insight: Insight) -> InsightResult:
         from posthog.caching.calculate_results import calculate_for_query_based_insight
 
-        dashboard: Dashboard | None = self.context.get("dashboard")
+        dashboard: Any = self.context.get("dashboard")
 
         # Check if we have an expected cache key from the image exporter
         export_cache_keys: dict[int, str] | None = self.context.get("export_cache_keys")
@@ -1454,7 +1447,7 @@ class InsightSerializer(InsightBasicSerializer):
     def _degraded_insight_result(
         self,
         insight: Insight,
-        dashboard: Dashboard | None,
+        dashboard: Any,
         *,
         error_message: str,
         error_code: str | None,
@@ -1489,17 +1482,15 @@ class InsightSerializer(InsightBasicSerializer):
         )
 
     @lru_cache(maxsize=1)  # noqa: B019 - short-lived serializer, one insight/tile combo
-    def dashboard_tile_from_context(self, insight: Insight, dashboard: Dashboard | None) -> DashboardTile | None:
-        dashboard_tile: DashboardTile | None = self.context.get("dashboard_tile", None)
+    def dashboard_tile_from_context(self, insight: Insight, dashboard: Any) -> Any:
+        dashboard_tile: Any = self.context.get("dashboard_tile", None)
 
         if dashboard_tile and dashboard_tile.deleted:
             self.context.update({"dashboard_tile": None})
             dashboard_tile = None
 
         if not dashboard_tile and dashboard:
-            dashboard_tile = DashboardTile.dashboard_queryset(
-                DashboardTile.objects.filter(insight=insight, dashboard=dashboard)
-            ).first()
+            dashboard_tile = tile_for_render(insight=insight, dashboard=dashboard)
 
         return dashboard_tile
 
@@ -1852,7 +1843,9 @@ class InsightViewSet(
             # Sharing-token API refreshes authenticate as the shared-link viewer; expose it under
             # the same context key the /shared/ page render uses (SharingViewerPageViewSet).
             context["shared_link_user"] = self.request.user
-        context["insight_variables"] = InsightVariable.objects.filter(team=self.team).all()
+        # Deferred: every insight and dashboard response carries this, but only payloads that
+        # hold variables read it, so resolving it eagerly costs a query on every list request.
+        context["insight_variables"] = SimpleLazyObject(lambda: insight_variables_for_team(self.team.pk))
         context["compute_surface"] = (
             ComputeSurface.INSIGHT_LIST if self.action == "list" else ComputeSurface.INSIGHT_DETAIL
         )
@@ -1887,27 +1880,11 @@ class InsightViewSet(
         is_basic = self._is_basic_request()
 
         if is_basic:
-            queryset = queryset.prefetch_related(
-                Prefetch(
-                    "dashboard_tiles",
-                    queryset=DashboardTile.objects.only("id", "dashboard_id", "deleted", "insight_id"),
-                ),
-            )
+            queryset = queryset.prefetch_related(tile_ids_prefetch())
         else:
             queryset = queryset.prefetch_related(
-                Prefetch(
-                    "dashboard_tiles",
-                    queryset=DashboardTile.objects.select_related("dashboard__team__organization"),
-                ),
-                Prefetch(
-                    "alertconfiguration_set",
-                    # AlertSerializer emits threshold and subscribed_users per alert; without these,
-                    # every alert in the list costs two extra queries
-                    queryset=AlertConfiguration.objects.select_related("created_by", "threshold").prefetch_related(
-                        "subscribed_users"
-                    ),
-                    to_attr="_prefetched_alerts",
-                ),
+                tile_permissions_prefetch(),
+                insight_alerts_prefetch(to_attr="_prefetched_alerts"),
             )
 
         # Add access level filtering for list actions if not sharing access token
@@ -1921,12 +1898,7 @@ class InsightViewSet(
 
         if self.action == "list":
             queryset = queryset.prefetch_related("tagged_items__tag")
-            last_viewed_at = (
-                InsightViewed.objects.filter(insight=OuterRef("pk"))
-                .order_by("-last_viewed_at")
-                .values("last_viewed_at")[:1]
-            )
-            queryset = queryset.annotate(last_viewed_at=Subquery(last_viewed_at))
+            queryset = with_last_viewed_at(queryset)
             queryset = self._filter_request(self.request, queryset)
 
         return self.order_queryset(queryset)
@@ -1965,18 +1937,7 @@ class InsightViewSet(
         """
         Returns basic details about the last 5 insights viewed by this user. Most recently viewed first.
         """
-        insight_queryset = (
-            InsightViewed.objects.filter(team=self.team, user=cast(User, request.user))
-            .select_related("insight")
-            .exclude(insight__deleted=True)
-            .only("insight", "last_viewed_at")
-        )
-
-        recently_viewed = []
-        for rv in insight_queryset.order_by("-last_viewed_at")[:5]:
-            insight = rv.insight
-            insight.last_viewed_at = rv.last_viewed_at
-            recently_viewed.append(insight)
+        recently_viewed = recently_viewed_insights(team_id=self.team.pk, user_id=cast(User, request.user).pk, limit=5)
 
         response = InsightBasicSerializer(recently_viewed, many=True)
         return Response(data=response.data, status=status.HTTP_200_OK)
@@ -2040,23 +2001,12 @@ class InsightViewSet(
         insights = list(queryset)
 
         # Batch fetch viewers once to avoid N+1 queries
-        all_viewers = (
-            InsightViewed.objects.filter(
-                team=self.team,
-                insight_id__in=[insight.pk for insight in insights],
-                last_viewed_at__gte=cutoff_date,
-                user__isnull=False,
-            )
-            .select_related("user")
-            .order_by("insight_id", "-last_viewed_at")
+        viewers_by_insight = recent_viewers_by_insight(
+            team_id=self.team.pk,
+            insight_ids=[insight.pk for insight in insights],
+            since=cutoff_date,
+            max_per_insight=3,
         )
-
-        viewers_by_insight: dict[int, list] = {}
-        for viewer in all_viewers:
-            iid = viewer.insight_id
-            bucket = viewers_by_insight.setdefault(iid, [])
-            if len(bucket) < 3:
-                bucket.append(viewer.user)
 
         for insight in insights:
             insight.viewers = viewers_by_insight.get(insight.pk, [])
@@ -2087,10 +2037,7 @@ class InsightViewSet(
         for key in filters:
             if key == "saved":
                 if str_to_bool(request.GET["saved"]):
-                    visible_tile_for_insight = DashboardTile.objects.filter(insight=OuterRef("pk")).exclude(
-                        dashboard__creation_mode="unlisted"
-                    )
-                    queryset = queryset.filter(Q(saved=True) | Exists(visible_tile_for_insight))
+                    queryset = queryset.filter(Q(saved=True) | insight_has_listed_tile())
                 else:
                     queryset = queryset.filter(Q(saved=False))
             elif key == "feature_flag":
@@ -2175,11 +2122,7 @@ class InsightViewSet(
                     dashboards_ids = json.loads(dashboards_filter)
                     for dashboard_id in dashboards_ids:
                         # filter by dashboards one at a time so the filter is AND not OR
-                        queryset = queryset.filter(
-                            id__in=DashboardTile.objects.filter(dashboard__id=dashboard_id)
-                            .values_list("insight__id", flat=True)
-                            .all()
-                        )
+                        queryset = queryset.filter(id__in=insight_ids_on_dashboard(dashboard_id))
             elif key == "tags":
                 tags_filter = request.GET["tags"]
                 if tags_filter:
@@ -2250,14 +2193,10 @@ When set, the specified dashboard's filters and date range override will be appl
         instance = self.get_object()
         serializer_context = self.get_serializer_context()
 
-        dashboard_tile: DashboardTile | None = None
+        dashboard_tile: Any = None
         dashboard_id = request.query_params.get("from_dashboard", None)
         if dashboard_id is not None:
-            dashboard_tile = (
-                DashboardTile.objects.filter(dashboard__id=dashboard_id, insight__id=instance.id)
-                .select_related("dashboard")
-                .first()
-            )
+            dashboard_tile = tile_for_insight_on_dashboard(insight_id=instance.id, dashboard_id=dashboard_id)
 
             if dashboard_tile is not None:
                 authenticator = request.successful_authenticator
@@ -2502,7 +2441,10 @@ When set, the specified dashboard's filters and date range override will be appl
             raise ValidationError(str(e), getattr(e, "code_name", None))
         except UserAccessControlError as e:
             raise ValidationError(str(e))
-        except Cohort.DoesNotExist as e:
+        except ObjectDoesNotExist as e:
+            # The legacy filter path resolves cohort and action ids while building the query, and a
+            # dangling id surfaces as that model's DoesNotExist. The request is what is wrong, so it
+            # is a 400 rather than a 500.
             raise ValidationError(str(e))
 
         filter = Filter(request=request, team=self.team)
@@ -2575,7 +2517,8 @@ When set, the specified dashboard's filters and date range override will be appl
         description=(
             "Record that the current user has just viewed one or more insights. "
             "Submitted ids that do not belong to the current project or that point at deleted insights "
-            "are silently dropped. Returns 201 on success regardless of how many ids were retained."
+            "are silently dropped, as are views from impersonated staff-support sessions. "
+            "Returns 201 on success regardless of how many ids were retained."
         ),
     )
     @action(methods=["POST"], detail=False, required_scopes=["insight:read"])
@@ -2584,6 +2527,11 @@ When set, the specified dashboard's filters and date range override will be appl
         Update insight view timestamps in bulk.
         Expects: {"insight_ids": [1, 2, 3, ...]}
         """
+        # Views during staff impersonation aren't the team's own activity - skip the write
+        # so support sessions don't bump the team-facing "Last viewed" column.
+        if is_impersonated(request):
+            return Response(status=status.HTTP_201_CREATED)
+
         insight_ids: list[int] = request.validated_data["insight_ids"]
 
         visible_insight_ids = list(
@@ -2594,23 +2542,11 @@ When set, the specified dashboard's filters and date range override will be appl
             ).values_list("id", flat=True)
         )
 
-        if visible_insight_ids:
-            viewed_at = now()
-            user = cast(User, request.user)
-            InsightViewed.objects.bulk_create(
-                [
-                    InsightViewed(
-                        team=self.team,
-                        user=user,
-                        insight_id=insight_id,
-                        last_viewed_at=viewed_at,
-                    )
-                    for insight_id in visible_insight_ids
-                ],
-                update_conflicts=True,
-                unique_fields=["team", "user", "insight"],
-                update_fields=["last_viewed_at"],
-            )
+        record_insight_views(
+            team_id=self.team.pk,
+            user_id=cast(User, request.user).pk,
+            last_viewed_at_by_insight_id=dict.fromkeys(visible_insight_ids, now()),
+        )
 
         return Response(status=status.HTTP_201_CREATED)
 
@@ -2671,11 +2607,9 @@ When set, the specified dashboard's filters and date range override will be appl
                 Insight.objects_including_soft_deleted.filter(
                     id__in=insight_ids, team__project_id=self.team.project_id
                 ).update(deleted=True, last_modified_at=now(), last_modified_by=current_user)
-                # Match InsightSerializer.update: hide the insights' tiles and remove linked alerts. Alerts are
-                # deleted one at a time (not a queryset .delete()) so ModelActivityMixin.delete logs each removal.
-                DashboardTile.objects_including_soft_deleted.filter(insight_id__in=insight_ids).update(deleted=True)
-                for alert in AlertConfiguration.objects.filter(insight_id__in=insight_ids):
-                    alert.delete()
+                # Match InsightSerializer.update: hide the insights' tiles and remove linked alerts.
+                hide_tiles_for_insights(insight_ids)
+                delete_insight_alerts(insight_ids)
 
                 activity_log_entries: list[LogActivityEntry] = []
                 for insight in insights:
@@ -2726,23 +2660,7 @@ When set, the specified dashboard's filters and date range override will be appl
                 Insight.objects_including_soft_deleted.filter(
                     id__in=insight_ids, team__project_id=self.team.project_id
                 ).update(deleted=False, last_modified_at=now(), last_modified_by=current_user)
-                # Re-activate tiles linking these insights to live dashboards, but only ones the requester may
-                # edit — mirrors the per-dashboard CAN_EDIT check in InsightSerializer._update_insight_dashboards
-                # so a restore can't force an insight back onto a dashboard the user can only view. Tiles removed
-                # before the bulk delete may also reappear; acceptable for the immediate-undo case this backs.
-                candidate_tiles = DashboardTile.objects_including_soft_deleted.filter(
-                    insight_id__in=insight_ids, deleted=True, dashboard__deleted=False
-                ).select_related("dashboard")
-                restorable_tile_ids = [
-                    tile.id
-                    for tile in candidate_tiles
-                    if self.user_permissions.dashboard(tile.dashboard).effective_privilege_level
-                    == Dashboard.PrivilegeLevel.CAN_EDIT
-                ]
-                if restorable_tile_ids:
-                    DashboardTile.objects_including_soft_deleted.filter(id__in=restorable_tile_ids).update(
-                        deleted=False
-                    )
+                restore_tiles_for_insights(insight_ids, user_permissions=self.user_permissions)
 
                 activity_log_entries: list[LogActivityEntry] = []
                 for insight in insights:

@@ -87,6 +87,7 @@ depends_on = [
     "products.business_knowledge",
     "products.canvas",
     "products.cdp",
+    "products.context_layer",
     "products.conversations",
     "products.customer_analytics",
     "products.dashboards",
@@ -147,7 +148,7 @@ depends_on = [
     "products.cdp",
     "products.experiments",
     "products.feature_flags",
-    "products.product_analytics",
+    "products.product_analytics", "products.access_control",
 ]
 layer = "modules"
 
@@ -162,7 +163,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.cdp",
-    "products.product_analytics",
+    "products.product_analytics", "products.access_control",
 ]
 layer = "modules"
 
@@ -179,7 +180,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.feature_flags",
-    "products.notifications",
+    "products.notifications", "products.access_control",
 ]
 layer = "modules"
 
@@ -215,7 +216,7 @@ layer = "modules"
 path = "products.conversations"
 depends_on = [
     "ee",
-    "posthog", "products.tasks", "products.business_knowledge", "products.warehouse_sources", "products.customer_analytics",
+    "posthog", "products.tasks", "products.business_knowledge", "products.warehouse_sources", "products.customer_analytics", "products.access_control",
 ]
 layer = "modules"
 
@@ -239,7 +240,7 @@ depends_on = [
     "products.notifications",
     "products.product_analytics",
     "products.conversations",
-    "products.surveys",
+    "products.surveys", "products.access_control",
 ]
 layer = "modules"
 
@@ -250,7 +251,7 @@ depends_on = [
     "products.data_tools",
     "products.data_warehouse",
     "products.revenue_analytics",
-    "products.warehouse_sources",
+    "products.warehouse_sources", "products.access_control",
 ]
 layer = "modules"
 
@@ -323,7 +324,7 @@ depends_on = [
     "products.revenue_analytics",
     "products.warehouse_sources_queue",
     "products.workflows",
-    "products.managed_warehouse",
+    "products.managed_warehouse", "products.access_control",
 ]
 layer = "modules"
 
@@ -337,7 +338,7 @@ depends_on = [
     "products.data_modeling",
     "products.revenue_analytics", "products.warehouse_sources", "products.data_tools", "products.batch_exports",
     "products.warehouse_sources_queue",
-    "products.managed_warehouse",
+    "products.managed_warehouse", "products.access_control",
 ]
 layer = "modules"
 
@@ -364,7 +365,7 @@ path = "products.early_access_features"
 depends_on = [
     "posthog",
     "ee",
-    "products.feature_flags",
+    "products.feature_flags", "products.access_control",
 ]
 layer = "modules"
 
@@ -376,7 +377,7 @@ depends_on = [
     "products.data_warehouse",
     "products.product_analytics",
     "products.signals", "products.warehouse_sources",
-    "products.managed_warehouse",
+    "products.managed_warehouse", "products.access_control",
 ]
 layer = "modules"
 
@@ -389,7 +390,7 @@ depends_on = [
     "products.cdp",
     "products.notifications",
     "products.signals",
-    "products.warehouse_sources",
+    "products.warehouse_sources", "products.access_control",
 ]
 layer = "modules"
 
@@ -436,7 +437,7 @@ depends_on = [
     "products.exports",
     "products.product_analytics",
     "products.product_tours",
-    "products.surveys",
+    "products.surveys", "products.access_control",
 ]
 layer = "modules"
 
@@ -444,7 +445,7 @@ layer = "modules"
 path = "products.growth"
 depends_on = [
     "ee",
-    "posthog",
+    "posthog", "products.access_control",
 ]
 layer = "modules"
 
@@ -459,7 +460,7 @@ layer = "modules"
 path = "products.live_debugger"
 depends_on = [
     "ee",
-    "posthog",
+    "posthog", "products.access_control",
 ]
 layer = "modules"
 
@@ -471,7 +472,7 @@ depends_on = [
     "posthog",
     "products.dashboards",
     "products.exports",
-    "products.workflows",
+    "products.workflows", "products.access_control",
 ]
 layer = "modules"
 
@@ -492,7 +493,7 @@ depends_on = [
     "products.apm",
     "products.cdp",
     "products.exports",
-    "products.signals",
+    "products.signals", "products.access_control",
 ]
 layer = "modules"
 
@@ -503,6 +504,15 @@ depends_on = [
     "posthog",
     "products.alerts",
     "products.cdp",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.context_layer"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.tasks", "products.access_control",
 ]
 layer = "modules"
 
@@ -518,7 +528,7 @@ layer = "modules"
 path = "products.mcp_analytics"
 depends_on = [
     "posthog",
-    "products.dashboards",
+    "products.dashboards", "products.access_control",
 ]
 layer = "modules"
 
@@ -526,7 +536,7 @@ layer = "modules"
 path = "products.mcp_store"
 depends_on = [
     "ee",
-    "posthog",
+    "posthog", "products.access_control",
 ]
 layer = "modules"
 
@@ -539,7 +549,7 @@ layer = "modules"
 
 [[modules]]
 path = "products.metrics"
-depends_on = ["posthog"]
+depends_on = ["posthog", "products.access_control"]
 layer = "modules"
 
 [[interfaces]]
@@ -557,7 +567,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.product_analytics",
-    "products.tasks",
+    "products.tasks", "products.access_control",
 ]
 layer = "modules"
 
@@ -572,7 +582,7 @@ depends_on = [
     "products.dashboards",
     "products.experiments",
     "products.exports",
-    "products.product_analytics",
+    "products.product_analytics", "products.access_control",
 ]
 layer = "modules"
 
@@ -588,7 +598,7 @@ layer = "modules"
 path = "products.notifications"
 depends_on = [
     "ee",
-    "posthog",
+    "posthog", "products.access_control",
 ]
 layer = "modules"
 
@@ -624,7 +634,7 @@ depends_on = [
     "products.dashboards",
     "products.event_definitions",
     "products.annotations",
-    "products.warehouse_sources",
+    "products.warehouse_sources", "products.access_control",
 ]
 layer = "modules"
 
@@ -651,7 +661,7 @@ depends_on = [
     "posthog",
     "products.approvals",
     "products.feature_flags",
-    "products.surveys",
+    "products.surveys", "products.access_control",
 ]
 layer = "modules"
 
@@ -674,7 +684,7 @@ layer = "modules"
 path = "products.replay"
 depends_on = [
     "ee",
-    "posthog",
+    "posthog", "products.access_control",
 ]
 layer = "modules"
 
@@ -683,13 +693,14 @@ path = "products.replay_vision"
 depends_on = [
     "ee",
     "posthog",
+    "products.alerts",
     "products.cdp",
     "products.cohorts",
     "products.experiments",
     "products.exports",
     "products.notifications",
     "products.signals",
-    "products.tasks",
+    "products.tasks", "products.access_control",
 ]
 layer = "modules"
 
@@ -697,7 +708,7 @@ layer = "modules"
 path = "products.revenue_analytics"
 depends_on = [
     "ee",
-    "posthog", "products.warehouse_sources", "products.data_modeling", "products.data_tools",
+    "posthog", "products.warehouse_sources", "products.data_modeling", "products.data_tools", "products.access_control",
 ]
 layer = "modules"
 
@@ -720,7 +731,6 @@ layer = "modules"
 path = "products.signals"
 depends_on = [
     "ee",
-    "products.canvas",
     "products.cohorts",
     "posthog",
     "products.actions",
@@ -734,7 +744,13 @@ depends_on = [
     "products.data_warehouse",
     "products.error_tracking",
     "products.experiments",
+    # Facade-only: scout report Slack delivery renders report charts to PNG through the
+    # exports facade and mints their delivery urls there.
+    "products.exports",
     "products.feature_flags",
+    # Facade-only: the scout harness pre-resolves the external MCP servers a run's sandbox will
+    # mount so the run prompt can name them.
+    "products.mcp_store",
     "products.notebooks",
     "products.product_analytics",
     # Facade-only: Replay Vision authorizes signal emission per scanner rather than through a
@@ -744,7 +760,7 @@ depends_on = [
     "products.surveys",
     "products.tasks",
     "products.warehouse_sources",
-    "products.workflows", "products.business_knowledge",
+    "products.workflows", "products.business_knowledge", "products.access_control",
 ]
 layer = "modules"
 
@@ -755,7 +771,7 @@ path = "products.skills"
 depends_on = [
     "ee",
     "posthog",
-    "products.ai_observability",
+    "products.ai_observability", "products.access_control",
 ]
 layer = "modules"
 
@@ -768,7 +784,7 @@ depends_on = [
     "products.dashboards",
     "products.product_analytics",
     "products.signals",
-    "products.tasks",
+    "products.tasks", "products.access_control",
 ]
 layer = "modules"
 
@@ -781,7 +797,7 @@ depends_on = [
     "products.actions",
     "products.feature_flags",
     "products.product_analytics",
-    "products.product_tours",
+    "products.product_tours", "products.access_control",
 ]
 layer = "modules"
 
@@ -797,7 +813,7 @@ depends_on = [
     "products.notifications",
     "products.product_analytics",
     "products.warehouse_sources",
-    "products.workflows",
+    "products.workflows", "products.access_control",
 ]
 layer = "modules"
 
@@ -829,6 +845,8 @@ path = "products.tasks"
 depends_on = [
     "ee",
     "posthog",
+    "products.canvas",
+    "products.context_layer",
     "products.error_tracking",
     "products.event_definitions",
     "products.exports",
@@ -838,7 +856,7 @@ depends_on = [
     "products.notifications",
     "products.posthog_ai",
     "products.signals",
-    "products.slack_app",
+    "products.slack_app", "products.access_control",
 ]
 layer = "modules"
 
@@ -865,14 +883,7 @@ from = [
 
 [[interfaces]]
 expose = [
-    "backend\\.report_canvas.*",
-]
-from = [
-    "products.canvas",
-]
-
-[[interfaces]]
-expose = [
+    "backend\\.teaching.*",
     "backend\\.artifacts.*",
     "backend\\.tasks.*",
 ]
@@ -903,7 +914,7 @@ from = [
 [[modules]]
 path = "products.tracing"
 depends_on = [
-    "posthog",
+    "posthog", "products.access_control",
 ]
 layer = "modules"
 
@@ -912,7 +923,7 @@ path = "products.user_interviews"
 depends_on = [
     "ee",
     "posthog",
-    "products.ai_observability",
+    "products.ai_observability", "products.access_control",
 ]
 layer = "modules"
 
@@ -957,7 +968,7 @@ depends_on = [
     "products.notifications",
     # Facade-only: the AI task action's endpoint creates tasks through
     # products.tasks.backend.facade.workflow_tasks.
-    "products.tasks",
+    "products.tasks", "products.access_control",
 ]
 layer = "modules"
 
@@ -1009,6 +1020,7 @@ expose = [
     "backend\\.temporal\\.WORKFLOWS",
     "backend\\.temporal\\.recalculation_metrics.*",
     "backend\\.temporal\\.schedule\\.create_experiment_precompute_canary_schedule",
+    "backend\\.temporal\\.schedule\\.create_experiment_precompute_enrollment_census_schedule",
 ]
 from = [
     "products.experiments",
@@ -1166,6 +1178,9 @@ layer = "modules"
 [[interfaces]]
 expose = [
     "backend\\.facade.*",
+    # Shared RBAC viewset/serializer mixins: DRF code cannot live in facade.*, so external
+    # consumers import these from presentation instead
+    "backend\\.presentation\\.access_control.*",
     "backend\\.presentation\\.views.*",
     "backend\\.routes.*",
 ]
@@ -1251,7 +1266,7 @@ from = [
 
 [[modules]]
 path = "products.engineering_analytics"
-depends_on = ["posthog", "products.data_modeling", "products.warehouse_sources", "products.signals"]
+depends_on = ["posthog", "products.data_modeling", "products.warehouse_sources", "products.signals", "products.access_control"]
 layer = "modules"
 
 [[interfaces]]
@@ -1266,7 +1281,7 @@ from = [
 
 [[modules]]
 path = "products.exports"
-depends_on = ["posthog", "products.actions", "products.dashboards", "ee", "products.annotations", "products.ai_observability", "products.posthog_ai", "products.product_analytics"]
+depends_on = ["posthog", "products.actions", "products.dashboards", "ee", "products.annotations", "products.ai_observability", "products.posthog_ai", "products.product_analytics", "products.access_control"]
 layer = "modules"
 
 [[modules]]
@@ -1300,7 +1315,7 @@ depends_on = [
     "products.data_tools",
     "products.product_analytics",
     "products.warehouse_sources",
-    "products.data_modeling",
+    "products.data_modeling", "products.access_control",
 ]
 layer = "modules"
 
@@ -1324,7 +1339,7 @@ depends_on = [
     "posthog",
     "products.data_modeling",
     "products.notifications",
-    "products.warehouse_sources",
+    "products.warehouse_sources", "products.access_control",
 ]
 layer = "modules"
 

@@ -1,5 +1,6 @@
 import './PropertyGroupFilters.scss'
 
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import React from 'react'
 
@@ -9,14 +10,35 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { InsightQueryNode, ProductAnalyticsInsightQueryNode } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, InsightLogicProps, PropertyGroupFilterValue } from '~/types'
+import {
+    AnyPropertyFilter,
+    BehavioralEventType,
+    BehavioralPropertyFilter,
+    InsightLogicProps,
+    PropertyFilterType,
+    PropertyGroupFilterValue,
+    TimeUnitType,
+} from '~/types'
 
 import { InsightTestAccountFilter } from '../filters/InsightTestAccountFilter'
 import { AndOrFilterSelect } from './AndOrFilterSelect'
 import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
+
+function newBehavioralFilter(): BehavioralPropertyFilter {
+    return {
+        type: PropertyFilterType.Behavioral,
+        value: BehavioralEventType.PerformEvent,
+        key: '$pageview',
+        event_type: 'events',
+        time_value: 30,
+        time_interval: TimeUnitType.Day,
+    }
+}
 
 type PropertyGroupFiltersProps = {
     insightProps: InsightLogicProps
@@ -38,6 +60,7 @@ export function PropertyGroupFilters({
     hasDataWarehouseSeries,
 }: PropertyGroupFiltersProps): JSX.Element {
     const logicProps = { query, setQuery, pageKey }
+    const { featureFlags } = useValues(featureFlagLogic)
     const { propertyGroupFilter } = useValues(propertyGroupFilterLogic(logicProps))
     const {
         addFilterGroup,
@@ -48,6 +71,7 @@ export function PropertyGroupFilters({
         setPropertyFilters,
     } = useActions(propertyGroupFilterLogic(logicProps))
 
+    const behavioralFiltersEnabled = !!featureFlags[FEATURE_FLAGS.BEHAVIORAL_PROPERTY_FILTER]
     const showHeader = propertyGroupFilter.type && propertyGroupFilter.values.length > 1
     const disabledReason = hasDataWarehouseSeries
         ? 'Filter groups cannot be added to insights with a data warehouse series. Please use individual series filters instead.'
@@ -100,16 +124,37 @@ export function PropertyGroupFilters({
                                 (group: PropertyGroupFilterValue, propertyGroupIndex: number) => {
                                     return (
                                         <React.Fragment key={propertyGroupIndex}>
-                                            <div className="property-group">
-                                                <div className="flex justify-between items-center mb-2">
+                                            <div
+                                                className={
+                                                    behavioralFiltersEnabled
+                                                        ? 'property-group--framed flex min-w-0 flex-col overflow-hidden rounded border'
+                                                        : 'property-group'
+                                                }
+                                            >
+                                                <div
+                                                    className={clsx(
+                                                        'flex items-center',
+                                                        behavioralFiltersEnabled
+                                                            ? 'gap-x-2 border-b px-2.5 py-2'
+                                                            : 'justify-between mb-2'
+                                                    )}
+                                                >
                                                     <AndOrFilterSelect
                                                         onChange={(type) =>
                                                             setInnerPropertyGroupType(type, propertyGroupIndex)
                                                         }
                                                         value={group.type}
+                                                        shortSuffix={behavioralFiltersEnabled ? 'in group' : undefined}
                                                     />
-                                                    <LemonDivider className="flex-1 mx-2 @max-[410px]/editor-panel:hidden" />
-                                                    <div className="flex items-center gap-1 shrink-0">
+                                                    {!behavioralFiltersEnabled && (
+                                                        <LemonDivider className="flex-1 mx-2 @max-[410px]/editor-panel:hidden" />
+                                                    )}
+                                                    <div
+                                                        className={clsx(
+                                                            'flex shrink-0 items-center gap-1',
+                                                            behavioralFiltersEnabled && 'ml-auto'
+                                                        )}
+                                                    >
                                                         <LemonButton
                                                             icon={<IconCopy />}
                                                             onClick={() => duplicateFilterGroup(propertyGroupIndex)}
@@ -122,24 +167,52 @@ export function PropertyGroupFilters({
                                                         />
                                                     </div>
                                                 </div>
-                                                <PropertyFilters
-                                                    addText="Filter"
-                                                    propertyFilters={
-                                                        isPropertyGroupFilterLike(group)
-                                                            ? (group.values as AnyPropertyFilter[])
-                                                            : null
+                                                <div
+                                                    className={
+                                                        behavioralFiltersEnabled
+                                                            ? 'bg-primary px-2.5 py-2.5'
+                                                            : undefined
                                                     }
-                                                    onChange={(properties) => {
-                                                        setPropertyFilters(properties, propertyGroupIndex)
-                                                    }}
-                                                    pageKey={`${keyForInsightLogicProps('new')(
-                                                        insightProps
-                                                    )}-PropertyGroupFilters-${propertyGroupIndex}`}
-                                                    taxonomicGroupTypes={taxonomicGroupTypes}
-                                                    eventNames={eventNames}
-                                                    propertyGroupType={group.type}
-                                                    orFiltering
-                                                />
+                                                >
+                                                    <PropertyFilters
+                                                        addText="Filter"
+                                                        propertyFilters={
+                                                            isPropertyGroupFilterLike(group)
+                                                                ? (group.values as AnyPropertyFilter[])
+                                                                : null
+                                                        }
+                                                        onChange={(properties) => {
+                                                            setPropertyFilters(properties, propertyGroupIndex)
+                                                        }}
+                                                        pageKey={`${keyForInsightLogicProps('new')(
+                                                            insightProps
+                                                        )}-PropertyGroupFilters-${propertyGroupIndex}`}
+                                                        taxonomicGroupTypes={taxonomicGroupTypes}
+                                                        eventNames={eventNames}
+                                                        propertyGroupType={group.type}
+                                                        orFiltering
+                                                        logicalRowDivider={behavioralFiltersEnabled}
+                                                        hasRowOperator={!behavioralFiltersEnabled}
+                                                        addFilterDivider={behavioralFiltersEnabled}
+                                                        addFilterSuffix={
+                                                            behavioralFiltersEnabled
+                                                                ? (addFilter) => (
+                                                                      <LemonButton
+                                                                          data-attr={`${pageKey}-add-behavioral-filter`}
+                                                                          type="secondary"
+                                                                          icon={<IconPlusSmall />}
+                                                                          sideIcon={null}
+                                                                          onClick={() =>
+                                                                              addFilter(newBehavioralFilter())
+                                                                          }
+                                                                      >
+                                                                          Performed
+                                                                      </LemonButton>
+                                                                  )
+                                                                : null
+                                                        }
+                                                    />
+                                                </div>
                                             </div>
                                             {propertyGroupIndex !== propertyGroupFilter.values.length - 1 && (
                                                 <div className="property-group-and-or-separator">
