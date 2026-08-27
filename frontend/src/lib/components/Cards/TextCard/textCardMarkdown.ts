@@ -1,12 +1,15 @@
+import { JSONContent } from '@tiptap/core'
 import { Image } from '@tiptap/extension-image'
 
 import {
     MARKDOWN_BASE_EDITABLE_EXTENSIONS,
     MARKDOWN_BASE_READONLY_EXTENSIONS,
 } from 'lib/components/MarkdownEditor/shared/markdownExtensions'
-import { createTiptapMarkdownConverter } from 'lib/utils/markdown'
+import { createTiptapMarkdownConverter, TiptapMarkdownConverter } from 'lib/utils/markdown'
 
 import { WordArtExtension } from './WordArt/WordArtExtension'
+
+type Mark = NonNullable<JSONContent['marks']>[number]
 
 function escapeHtmlAttribute(value: string): string {
     return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
@@ -67,4 +70,53 @@ export const TEXT_CARD_MARKDOWN_READONLY_EXTENSIONS = [
     }),
 ]
 
-export const textCardConverter = createTiptapMarkdownConverter(TEXT_CARD_MARKDOWN_EXTENSIONS)
+// The `@tiptap/markdown` parser leaves a link written inside a code span as literal text: it keeps
+// `[label](url)` visible instead of making it clickable. These helpers promote such a code span into
+// a text node that carries both a `code` and a `link` mark, the same shape the parser already
+// produces for `[`label`](url)`, so authors get a link whichever way they nest the backticks.
+const CODE_SPAN_LINK_RE = /^\[([^\]]+)\]\(([^)\s]+)\)$/
+const BARE_URL_RE = /^https?:\/\/\S+$/
+
+function isCodeMarked(node: JSONContent): boolean {
+    return node.type === 'text' && !!node.marks?.some((mark) => mark.type === 'code')
+}
+
+// Ask the parser for the exact `link` mark it emits for a given href, so we match its attrs.
+function linkMarkForHref(converter: TiptapMarkdownConverter, href: string): Mark | null {
+    const doc = converter.markdownToDoc(`[link](${href})`)
+    const textNode = doc.content?.[0]?.content?.[0]
+    return textNode?.marks?.find((mark) => mark.type === 'link') ?? null
+}
+
+function promoteCodeSpanLinks(converter: TiptapMarkdownConverter, doc: JSONContent): JSONContent {
+    const visit = (node: JSONContent): JSONContent => {
+        if (isCodeMarked(node) && node.text) {
+            const match = CODE_SPAN_LINK_RE.exec(node.text)
+            const [label, href] = match
+                ? [match[1], match[2]]
+                : BARE_URL_RE.test(node.text)
+                  ? [node.text, node.text]
+                  : []
+            if (href) {
+                const linkMark = linkMarkForHref(converter, href)
+                if (linkMark) {
+                    return { ...node, text: label, marks: [...(node.marks ?? []), linkMark] }
+                }
+            }
+        }
+        if (node.content) {
+            return { ...node, content: node.content.map(visit) }
+        }
+        return node
+    }
+
+    return visit(doc)
+}
+
+const baseTextCardConverter = createTiptapMarkdownConverter(TEXT_CARD_MARKDOWN_EXTENSIONS)
+
+export const textCardConverter: TiptapMarkdownConverter = {
+    ...baseTextCardConverter,
+    markdownToDoc: (markdown) =>
+        promoteCodeSpanLinks(baseTextCardConverter, baseTextCardConverter.markdownToDoc(markdown)),
+}

@@ -194,6 +194,40 @@ describe('textCardMarkdown', () => {
         expect(textCardConverter.isRoundTripSafe(markdown)).toBe(true)
     })
 
+    it('makes a markdown link written inside a code span clickable', () => {
+        const doc = textCardConverter.markdownToDoc('`[table_name](https://us.posthog.com/x)`')
+        const textNode = doc.content?.[0]?.content?.[0]
+
+        expect(textNode).toMatchObject({ type: 'text', text: 'table_name' })
+        expect(textNode?.marks?.map((m) => m.type).sort()).toEqual(['code', 'link'])
+        expect(textNode?.marks?.find((m) => m.type === 'link')?.attrs?.href).toBe('https://us.posthog.com/x')
+    })
+
+    it('makes a bare URL inside a code span clickable', () => {
+        const doc = textCardConverter.markdownToDoc('`https://us.posthog.com/x`')
+        const textNode = doc.content?.[0]?.content?.[0]
+
+        expect(textNode).toMatchObject({ type: 'text', text: 'https://us.posthog.com/x' })
+        expect(textNode?.marks?.map((m) => m.type).sort()).toEqual(['code', 'link'])
+        expect(textNode?.marks?.find((m) => m.type === 'link')?.attrs?.href).toBe('https://us.posthog.com/x')
+    })
+
+    it('round-trips a link written inside a code span to canonical markdown', () => {
+        const doc = textCardConverter.markdownToDoc('`[table_name](https://us.posthog.com/x)`')
+        const markdown = textCardConverter.docToMarkdown(doc)
+
+        expect(markdown).toBe('[`table_name`](https://us.posthog.com/x)')
+        expect(textCardConverter.markdownToDoc(markdown)).toEqual(doc)
+    })
+
+    it('leaves an ordinary code span untouched', () => {
+        const doc = textCardConverter.markdownToDoc('`SELECT * FROM events`')
+        const textNode = doc.content?.[0]?.content?.[0]
+
+        expect(textNode).toMatchObject({ type: 'text', text: 'SELECT * FROM events' })
+        expect(textNode?.marks?.map((m) => m.type)).toEqual(['code'])
+    })
+
     it('uses non-clickable links while editing and clickable links in readonly', () => {
         const editableLink = TEXT_CARD_MARKDOWN_EXTENSIONS.find((extension) => extension.name === 'link')
         const readonlyLink = TEXT_CARD_MARKDOWN_READONLY_EXTENSIONS.find((extension) => extension.name === 'link')
