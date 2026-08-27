@@ -96,6 +96,24 @@ describe('nodeDetailSceneLogic', () => {
         expect(logic.values.availableTabs).toEqual(['query', 'lineage', 'materialization', 'tests'])
     })
 
+    // The tab is gated on the node's saved_query_id, not the loaded saved query, so a load failure
+    // leaves it available for its panel to show the error and retry, and a deep link to it holds.
+    it('keeps the materialization tab when the saved query fails to load', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/data_modeling_nodes/lineage/': { nodes: [], edges: [] },
+                '/api/environments/:team_id/data_modeling_nodes/:id/': () => [200, node],
+                '/api/environments/:team_id/warehouse_saved_queries/:id/': () => [500, {}],
+            },
+        })
+
+        await mountScene(urls.nodeDetail(NODE_ID, 'materialization'))
+
+        expect(logic.values.savedQueryError).toBe(true)
+        expect(logic.values.availableTabs).toContain('materialization')
+        expect(logic.values.effectiveTab).toEqual('materialization')
+    })
+
     // Deep links from the data quality overview outlive the flag that created them.
     it('falls back to the default tab when the URL names a tab this model does not have', async () => {
         flagsLogic.actions.setFeatureFlags([], {})

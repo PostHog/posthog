@@ -327,10 +327,9 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 !!node && (!node.saved_query_id || savedQuerySettled),
         ],
         availableTabs: [
-            (s) => [s.node, s.savedQuery, s.sceneResolved, s.featureFlags],
+            (s) => [s.node, s.sceneResolved, s.featureFlags],
             (
                 node: DataModelingNode | null,
-                savedQuery: DataWarehouseSavedQuery | null,
                 sceneResolved: boolean,
                 featureFlags: FeatureFlagsSet
             ): NodeDetailSceneTab[] => {
@@ -342,9 +341,11 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                     tabs.push('query')
                 }
                 tabs.push('lineage')
+                // Gate on the node's saved_query_id, not the loaded savedQuery, so the tab
+                // survives a saved-query load failure and its panel can show the error and retry.
                 // Not gated on `is_materialized`: the panel carries its own Materialize call to
                 // action, which is how a plain view becomes materialized from this page.
-                if (savedQuery) {
+                if (node.saved_query_id) {
                     tabs.push('materialization')
                 }
                 if (featureFlags[FEATURE_FLAGS.DATA_QUALITY_CHECKS] && node.saved_query_id) {
