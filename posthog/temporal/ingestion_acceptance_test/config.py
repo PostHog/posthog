@@ -51,7 +51,7 @@ class Config(BaseSettings):
         if self.grafana_url:
             return self.grafana_url.rstrip("/")
         env = self.environment_name
-        if env.startswith("prod-"):
+        if env in _KNOWN_ENVIRONMENTS:
             return f"https://grafana.{env}.posthog.dev"
         return None
 
@@ -72,6 +72,7 @@ _ENVIRONMENT_BY_API_HOST = {
     "us.posthog.com": "prod-us",
     "eu.posthog.com": "prod-eu",
 }
+_KNOWN_ENVIRONMENTS = frozenset({"prod-us", "prod-eu", "dev"})
 
 
 def _environment_from_api_host(api_host: str) -> str:

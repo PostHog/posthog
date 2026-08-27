@@ -101,7 +101,7 @@ class TestEnvironmentName:
         [
             ("https://us.posthog.com", None, "prod-us", "https://grafana.prod-us.posthog.dev"),
             ("https://eu.posthog.com/", None, "prod-eu", "https://grafana.prod-eu.posthog.dev"),
-            ("https://app.dev.posthog.dev", None, "dev", None),
+            ("https://app.dev.posthog.dev", None, "dev", "https://grafana.dev.posthog.dev"),
             ("https://us.posthog.com", "staging", "staging", None),
         ],
         ids=["us", "eu", "dev", "explicit_override"],

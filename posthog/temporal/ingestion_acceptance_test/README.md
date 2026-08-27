@@ -94,7 +94,7 @@ All configuration is loaded from environment variables with the `INGESTION_ACCEP
 | `POLL_INTERVAL_SECONDS` | No       | 10.0                | Interval between query attempts                                                          |
 | `SLACK_WEBHOOK_URL`     | No       | -                   | Slack incoming webhook for failure notifications                                         |
 | `ENVIRONMENT`           | No       | derived             | Deployment name in alerts (`prod-us`, `prod-eu`, `dev`); derived from `API_HOST`         |
-| `GRAFANA_URL`           | No       | derived             | Grafana base URL for the Loki link; `https://grafana.<environment>.posthog.dev` for prod |
+| `GRAFANA_URL`           | No       | derived             | Grafana base URL for the Loki link; `https://grafana.<environment>.posthog.dev` for `prod-us`, `prod-eu`, `dev` |
 | `LOKI_DATASOURCE_UID`   | No       | `P44D702D3E93867EC` | Loki datasource UID used in the Grafana Explore link                                     |
 | `RUNBOOK_URL`           | No       | -                   | Runbook link included in alerts                                                          |
 
