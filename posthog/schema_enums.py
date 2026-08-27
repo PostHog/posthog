@@ -2540,6 +2540,7 @@ class ExternalDataSourceType(StrEnum):
     SIDE_SHIFT = "SideShift"
     DUCK_LAKE = "DuckLake"
     STARBURST = "Starburst"
+    TRINO = "Trino"
     EASYBILL = "Easybill"
     BEXIO = "Bexio"
     UMAMI = "Umami"
@@ -3456,6 +3457,21 @@ class PlanningStepStatus(StrEnum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
+
+
+class PredicateIndexVerdict(StrEnum):
+    INDEXED = "indexed"
+    BLOCKED = "blocked"
+    UNINDEXED_COLUMN = "unindexed_column"
+    UNINDEXED_JSON = "unindexed_json"
+    OPERATOR_NOT_INDEXABLE = "operator_not_indexable"
+
+
+class PredicateScope(StrEnum):
+    EVENT = "event"
+    PERSON = "person"
+    GROUP = "group"
+    UNKNOWN = "unknown"
 
 
 class ProductIntentContext(StrEnum):

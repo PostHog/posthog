@@ -142,7 +142,9 @@ export const PersonsListQueryParams = /* @__PURE__ */ zod.object({
     search: zod
         .string()
         .optional()
-        .describe('Search persons, either by email (full text search) or distinct_id (exact match).'),
+        .describe(
+            'Search persons by email, name, person ID, or distinct ID. Partial values match. When the term is a complete email address or UUID that exactly matches a distinct ID or person ID, only that person is returned.'
+        ),
 })
 
 /**

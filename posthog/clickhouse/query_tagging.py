@@ -139,6 +139,9 @@ class Feature(StrEnum):
     POSTHOG_AI = "posthog_ai"
     MCP = "mcp"
     SEMANTIC_SEARCH = "semantic_search"
+    # A 30 day aggregate that runs on every AI observability dashboard mount and trace view, so its
+    # load is worth attributing separately from the tab queries it sits alongside.
+    INSTRUMENTATION_CHECKLIST = "instrumentation_checklist"
 
 
 class FallbackTags(TypedDict):

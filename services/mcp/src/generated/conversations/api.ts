@@ -159,7 +159,7 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
             )
             .optional()
             .describe(
-                'Ticket status: new, open, pending, on_hold, or resolved\n\n\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+                'Ticket status: new, open, pending, on_hold, or resolved.\n\n\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
             ),
         priority: zod
             .union([
@@ -171,16 +171,32 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Ticket priority: low, medium, high, or critical. Null if unset.\n\n\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical'
+                'Ticket priority: low, medium, high, or critical. Pass null to clear it.\n\n\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical'
             ),
-        sla_due_at: zod.iso
+        assignee: zod
+            .union([
+                zod.union([
+                    zod.object({
+                        type: zod.enum(['user']).describe('Assign the ticket to a user.'),
+                        id: zod.number().describe('User ID.'),
+                    }),
+                    zod.object({
+                        type: zod.enum(['role']).describe('Assign the ticket to a role.'),
+                        id: zod.string().describe('Role ID.'),
+                    }),
+                ]),
+                zod.null(),
+            ])
+            .optional()
+            .describe('User or role to assign. Pass null to remove the current assignee.'),
+        sla_due_at: zod.iso.datetime({ offset: true }).nullish().describe('SLA deadline. Pass null to clear it.'),
+        snoozed_until: zod.iso
             .datetime({ offset: true })
             .nullish()
-            .describe('SLA deadline set via workflows. Null means no SLA.'),
-        snoozed_until: zod.iso.datetime({ offset: true }).nullish(),
-        tags: zod.array(zod.unknown()).optional(),
+            .describe('Time to reopen the ticket. Pass null to reopen it now.'),
+        tags: zod.array(zod.string()).optional().describe('Tag names to set on the ticket.'),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe('Fields accepted when updating a ticket.')
 
 /**
  * Return the message thread for a ticket, ordered chronologically (paginated).

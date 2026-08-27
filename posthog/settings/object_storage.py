@@ -99,6 +99,14 @@ AI_BLOB_S3_PREFIX = os.getenv("AI_BLOB_S3_PREFIX", "aio/")
 # tables and mlhog training via a separate read-only credential.
 INBOX_RANKING_DATASET_S3_BUCKET = os.getenv("INBOX_RANKING_DATASET_S3_BUCKET", "")
 INBOX_RANKING_DATASET_S3_PREFIX = os.getenv("INBOX_RANKING_DATASET_S3_PREFIX", "inbox_ranking")
+# Training dag (products/signals/dags/inbox_ranking/training): how many daily snapshots back the
+# examples reach, how many trailing days of reports grade a candidate, and whether a winning
+# candidate rewrites the champion pointer on its own. Promotion stays manual until the first shadow
+# read has a frozen champion to read against; the candidate is still trained and graded daily.
+INBOX_RANKING_TRAINING_LOOKBACK_DAYS = get_from_env("INBOX_RANKING_TRAINING_LOOKBACK_DAYS", 60, type_cast=int)
+INBOX_RANKING_TRAINING_HOLDOUT_DAYS = get_from_env("INBOX_RANKING_TRAINING_HOLDOUT_DAYS", 7, type_cast=int)
+INBOX_RANKING_AUTO_PROMOTE = get_from_env("INBOX_RANKING_AUTO_PROMOTE", False, type_cast=str_to_bool)
+INBOX_RANKING_PROMOTION_MIN_DAYS = get_from_env("INBOX_RANKING_PROMOTION_MIN_DAYS", 3, type_cast=int)
 
 # Identity matching scratch storage (products/growth `identity_matching_job`). The job writes
 # per-run Parquet objects via ClickHouse `INSERT INTO FUNCTION s3(...)` and the read API globs
@@ -126,3 +134,25 @@ if TEST or DEBUG:
     )
 else:
     IDENTITY_MATCHING_S3_ENDPOINT = os.getenv("IDENTITY_MATCHING_S3_ENDPOINT", "") or None
+
+# Dictionary staging (posthog/dags/common/staged_dictionary.py), used by deletes_job and by the
+# person-overrides squash. A dictionary reaches every host of the main cluster because its
+# source table is replicated, and
+# replication is exactly what stops at a cluster boundary: a cluster with its own Keeper can never
+# join that replica set. So when a target's storage lives on another cluster, the job stages the
+# dictionary rows here as Parquet and each host there loads the same object for itself.
+# Written and read by the ClickHouse cluster via `INSERT INTO FUNCTION s3(...)` / `s3(...)`, so
+# only the cluster needs bucket access; the Dagster process never touches boto3. Nothing deletes
+# these objects, so infra must expire the prefix through the bucket lifecycle policy. They hold
+# team ids and the person uuids already recorded on the Postgres AsyncDeletion rows.
+DICTIONARY_STAGING_S3_BUCKET = os.getenv("DICTIONARY_STAGING_S3_BUCKET") or OBJECT_STORAGE_BUCKET
+DICTIONARY_STAGING_S3_PREFIX = os.getenv("DICTIONARY_STAGING_S3_PREFIX", "deletes_dictionaries")
+DICTIONARY_STAGING_S3_REGION = os.getenv("DICTIONARY_STAGING_S3_REGION") or OBJECT_STORAGE_REGION
+# Must be an endpoint the ClickHouse cluster can reach, which is not always OBJECT_STORAGE_ENDPOINT;
+# see the IDENTITY_MATCHING_S3_ENDPOINT note above for why localhost breaks under TEST.
+if TEST or DEBUG:
+    DICTIONARY_STAGING_S3_ENDPOINT: Optional[str] = (
+        os.getenv("DICTIONARY_STAGING_S3_ENDPOINT", "http://objectstorage:19000") or None
+    )
+else:
+    DICTIONARY_STAGING_S3_ENDPOINT = os.getenv("DICTIONARY_STAGING_S3_ENDPOINT", "") or None

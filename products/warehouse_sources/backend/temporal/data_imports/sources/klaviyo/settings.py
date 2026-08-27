@@ -652,6 +652,23 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         page_size=0,
         incremental_fields=[],
     ),
+    # Custom object records only exist per object type, so fan out over /object-types and pull each
+    # type's records. The endpoint exposes no timestamp filter or sort, so it is full refresh only.
+    # Klaviyo's compound record id (object_type_id:::record_id) is globally unique, so the default
+    # ["id"] primary key holds table-wide; object_type_id rides along as its own column for joins.
+    "custom_object_records": KlaviyoEndpointConfig(
+        name="custom_object_records",
+        path="/object-types/{object_type_id}/object-records",
+        page_size=100,  # object-records caps page[size] at 100
+        incremental_fields=[],
+        fan_out=KlaviyoFanOutConfig(
+            # /object-types exposes no page[size] param; parent_page_size=0 pages it by cursor alone.
+            parent_path="/object-types",
+            parent_page_size=0,
+            parent_id_column="object_type_id",
+        ),
+        description="One row per custom object record, carrying the object_type_id it belongs to",
+    ),
 }
 
 ENDPOINTS = tuple(KLAVIYO_ENDPOINTS.keys())

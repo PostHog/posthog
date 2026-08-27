@@ -766,10 +766,54 @@ export enum QueryIndexUsage {
     Yes = 'yes',
 }
 
+export enum PredicateIndexVerdict {
+    /** A skip index on the source column prunes granules for this predicate. */
+    Indexed = 'indexed',
+    /** The source carries an index this operator could use, but a type mismatch defeats it. */
+    Blocked = 'blocked',
+    /** The property reads from a dedicated column, but no index prunes this operator. */
+    UnindexedColumn = 'unindexed_column',
+    /** The property is parsed out of the JSON blob on every row. */
+    UnindexedJson = 'unindexed_json',
+    /** Negations, regexes and case-sensitive LIKE cannot be pruned by any skip index. */
+    OperatorNotIndexable = 'operator_not_indexable',
+}
+
+export enum PredicateScope {
+    Event = 'event',
+    Person = 'person',
+    Group = 'group',
+    Unknown = 'unknown',
+}
+
+/** How one property filter in the query reads its data, decided before the query runs. */
+export interface PredicateIndexUsage {
+    property_name: string
+    scope: PredicateScope
+    /** HogQL comparison operator, e.g. `==`, `in`, `ilike`. */
+    operator: string
+    /** Where the value is physically read from, e.g. `materialized column` or `JSON blob`. */
+    source_label: string
+    column_name?: string
+    /** Type the property definition declares. */
+    semantic_type: string
+    /** Type the value is physically stored as. */
+    physical_type: string
+    /** Skip indexes this predicate can actually use. */
+    usable_indexes: string[]
+    verdict: PredicateIndexVerdict
+    message: string
+    fix?: string
+    start?: integer
+    end?: integer
+}
+
 export interface HogQLMetadataResponse {
     query?: string
     isValid?: boolean
     isUsingIndices?: QueryIndexUsage
+    /** One entry per property filter, in query order. */
+    index_usage?: PredicateIndexUsage[]
     errors: HogQLNotice[]
     warnings: HogQLNotice[]
     notices: HogQLNotice[]
@@ -877,6 +921,8 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     variables?: Record<string, HogQLVariable>
     /** Enable more verbose output, usually run from the /debug page */
     debug?: boolean
+    /** Analyze how each property filter reads its data. Costs a second type-resolution pass, so only editors that render the result should ask for it. */
+    indexUsage?: boolean
 }
 
 export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
@@ -1310,6 +1356,18 @@ export interface ScatterChartSettings {
     showBestFit?: boolean
 }
 
+export interface BoxPlotSettings {
+    xAxisColumn?: string | null
+    seriesColumn?: string | null
+    minColumn?: string
+    p25Column?: string
+    medianColumn?: string
+    meanColumn?: string
+    p75Column?: string
+    maxColumn?: string
+    excludeOutliers?: boolean
+}
+
 export interface YAxisSettings {
     label?: string
     scale?: 'linear' | 'logarithmic'
@@ -1344,6 +1402,7 @@ export interface ChartSettings {
     heatmap?: HeatmapSettings
     pie?: PieChartSettings
     scatter?: ScatterChartSettings
+    boxPlot?: BoxPlotSettings
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: Record<string, ResultCustomizationByValue>
     /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
@@ -9147,6 +9206,7 @@ export const externalDataSources = [
     'SideShift',
     'DuckLake',
     'Starburst',
+    'Trino',
     'Easybill',
     'Bexio',
     'Umami',

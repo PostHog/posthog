@@ -824,6 +824,11 @@
         "params": ["tab", "reportId"],
         "scope": "project"
     },
+    "inboxRuns": {
+        "template": "/inbox/scouts/runs",
+        "params": [],
+        "scope": "project"
+    },
     "inboxScout": {
         "template": "/inbox/scouts/{skillName}",
         "params": ["skillName"],
@@ -831,6 +836,11 @@
     },
     "inboxScratchpad": {
         "template": "/inbox/scouts/scratchpad",
+        "params": [],
+        "scope": "project"
+    },
+    "inboxTriage": {
+        "template": "/inbox/reports/triage",
         "params": [],
         "scope": "project"
     },
