@@ -13,6 +13,8 @@ from products.workflows.backend.services.email_sending_tier import (
     SendingHistoryWindows,
     SesTenantState,
     TeamSendingHistory,
+    TierDecision,
+    apply_tier_decision,
     decide_tier,
     highest_qualifying_tier,
     recompute_email_sending_tiers,
@@ -352,6 +354,22 @@ class TestRecomputeEmailSendingTiers(BaseTest):
         self._run({})
 
         assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == 0
+
+    @parameterized.expand([("pinned_after_snapshot", "pin"), ("tier_set_after_snapshot", "retier")])
+    def test_stale_decision_does_not_overwrite_a_concurrent_staff_change(self, _name: str, change: str) -> None:
+        # The sweep read the row at tier 1 and decided to promote to 2. Staff then pinned or re-set
+        # the tier before the write. The stale decision must not clobber the staff change.
+        config = self._config(email_sending_tier=1, email_sending_tier_pinned=False)
+        if change == "pin":
+            TeamWorkflowsConfig.objects.filter(team=self.team).update(email_sending_tier_pinned=True)
+            expected_tier = 1
+        else:
+            TeamWorkflowsConfig.objects.filter(team=self.team).update(email_sending_tier=5)
+            expected_tier = 5
+
+        decision = TierDecision(team_id=self.team.id, previous_tier=1, new_tier=2, reason="clean_and_used")
+        assert apply_tier_decision(config, decision) is False
+        assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == expected_tier
 
     @parameterized.expand([("promotion", 0), ("demotion", 3)])
     def test_pinned_team_never_moves(self, _name: str, tier: int) -> None:

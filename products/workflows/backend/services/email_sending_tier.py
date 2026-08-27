@@ -354,9 +354,23 @@ def apply_tier_decision(config: TeamWorkflowsConfig, decision: TierDecision) -> 
     if not decision.changed:
         return False
 
-    config.email_sending_tier = decision.new_tier
-    config.email_sending_tier_updated_at = timezone.now()
-    config.save(update_fields=["email_sending_tier", "email_sending_tier_updated_at"])
+    # Compare-and-set against the state the decision was read from. The fleet sweep loads every
+    # config in one snapshot and writes later in the loop, so a staff pin, suspension, or manual
+    # tier set that lands in that gap must not be clobbered by a stale computed value. Every admin
+    # writer of this row locks it; the sweep instead conditions the write, so it no-ops when the
+    # row moved underneath and the next run recomputes from the new state.
+    updated = TeamWorkflowsConfig.objects.filter(
+        team_id=decision.team_id,
+        email_sending_tier=decision.previous_tier,
+        email_sending_tier_pinned=False,
+        email_sending_suspended_at__isnull=config.email_sending_suspended_at is None,
+    ).update(
+        email_sending_tier=decision.new_tier,
+        email_sending_tier_updated_at=timezone.now(),
+    )
+    if not updated:
+        return False
+
     logger.info(
         "workflows_email_sending_tier_changed",
         team_id=decision.team_id,
