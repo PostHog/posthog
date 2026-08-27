@@ -54,6 +54,7 @@ describe("usageLimitContent", () => {
       canManageBilling: true,
     });
     expect(content.title).toBe("Free usage used up");
+    expect(content.description).toContain("2,000 included credits (≈ $20)");
     expect(content.description).toContain("Resets in 3h");
   });
 
@@ -78,6 +79,7 @@ describe("usageLimitContent", () => {
       canManageBilling: false,
     });
     expect(content.description).toContain("organization administrator");
+    expect(content.description).toContain("1 credit is $0.01");
     expect(content.actionLabel).toBeNull();
   });
 });

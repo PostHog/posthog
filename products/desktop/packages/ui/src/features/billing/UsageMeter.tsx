@@ -1,4 +1,4 @@
-import { formatUsdAmount } from "@posthog/core/billing/usageDisplay";
+import { formatCreditsWithUsd } from "@posthog/core/billing/usageDisplay";
 import { cn } from "@posthog/quill";
 import { Flex, Progress, Text } from "@radix-ui/themes";
 
@@ -120,14 +120,14 @@ function SegmentedUsageBar({
         <Flex align="center" gap="2">
           <span className={cn("size-2 rounded-full", includedDot)} />
           <Text className="text-(--gray-9) text-[13px]">
-            {formatUsdAmount(includedUsd)} included
+            {formatCreditsWithUsd(includedUsd)} included
           </Text>
         </Flex>
         {hasPaidSegment && (
           <Flex align="center" gap="2">
             <span className={cn("size-2 rounded-full", paidDot)} />
             <Text className="text-(--gray-9) text-[13px]">
-              {formatUsdAmount(spendLimitUsd)} org spend limit
+              {formatCreditsWithUsd(spendLimitUsd)} org spend limit
             </Text>
           </Flex>
         )}

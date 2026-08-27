@@ -37,6 +37,9 @@ export const getDesktopUsageComponents = (summary: UsageSummary): DesktopUsageCo
 const formatQuantity = (value: number, divisor: number, unit: string): string =>
     `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 3 }).format(value / divisor)} ${unit}`
 
+const formatCredits = (credits: number): string =>
+    `${Math.round(credits).toLocaleString('en-US')} credits (≈ ${humanFriendlyCurrency(credits / 100)})`
+
 const MixLegend = ({
     color,
     label,
@@ -96,15 +99,16 @@ export const DesktopUsageBreakdown = ({ summary }: { summary: UsageSummary }): J
                     color="bg-accent"
                     label="Tokens"
                     percent={roundedTokenPercent}
-                    value={humanFriendlyCurrency(components.tokenCredits / 100)}
+                    value={formatCredits(components.tokenCredits)}
                 />
                 <MixLegend
                     color="bg-[var(--data-color-2)]"
                     label="Cloud compute"
                     percent={computePercent}
-                    value={humanFriendlyCurrency(components.computeCredits / 100)}
+                    value={formatCredits(components.computeCredits)}
                 />
             </div>
+            <p className="mb-0 text-xs text-secondary">1 credit is $0.01.</p>
             <p className="mb-0 text-xs text-secondary">Compute resources: {resourceDetails}</p>
             <p className="mb-0 text-xs text-secondary">Usage reporting may be delayed by 15–20 minutes.</p>
         </div>

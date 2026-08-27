@@ -1,8 +1,8 @@
 import { Circle } from "@phosphor-icons/react";
 import {
+  formatCreditsWithUsd,
   formatResetTime,
   formatUsageBreakdown,
-  formatUsdAmount,
 } from "@posthog/core/billing/usageDisplay";
 import {
   Button,
@@ -62,11 +62,11 @@ export function UsageButton() {
   const buttonLabel = blocked
     ? "Usage: limit reached"
     : meter.kind === "dollars"
-      ? `Usage: ${formatUsdAmount(meter.usedUsd)}`
+      ? `Usage: ${formatCreditsWithUsd(meter.usedUsd)}`
       : `Usage: ${percent}%`;
   const amountLabel =
     meter.kind === "dollars"
-      ? `${formatUsdAmount(meter.usedUsd)} of ${formatUsdAmount(meter.limitUsd)} used`
+      ? `${formatCreditsWithUsd(meter.usedUsd)} of ${formatCreditsWithUsd(meter.limitUsd)} used`
       : `${percent}% used`;
   const resetLabel =
     meter.kind === "dollars"

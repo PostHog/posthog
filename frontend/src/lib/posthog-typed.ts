@@ -443,6 +443,7 @@ interface EventSchemas {
     'billing invoice payment failed': Record<string, any>
     'billing license activated': Record<string, any>
     'billing limits reset': Record<string, any>
+    'billing limit update blocked': Record<string, any>
     'billing limits updated': Record<string, any>
     'billing locked screen shown': Record<string, any>
     'billing log': Record<string, any>

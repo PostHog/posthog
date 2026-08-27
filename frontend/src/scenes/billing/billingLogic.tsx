@@ -871,6 +871,7 @@ export const billingLogic = kea<billingLogicType>([
                 updateBillingLimits: async (limits: { [key: string]: number | null }) => {
                     try {
                         const response = await api.update('api/billing', { custom_limits_usd: limits })
+                        posthog.capture('billing limits updated', { products: Object.keys(limits) })
                         lemonToast.success('Billing limits updated')
                         actions.loadBilling()
                         return parseBillingResponse(response)
