@@ -6,7 +6,7 @@
             "type": "string"
         },
         "dashboard": {
-            "description": "Filter by dashboard ID.",
+            "description": "Filter by dashboard ID. Includes AI report subscriptions anchored to the dashboard.",
             "type": "number"
         },
         "dashboard_tiles": {
@@ -14,11 +14,11 @@
             "type": "number"
         },
         "insight": {
-            "description": "Filter by insight ID.",
+            "description": "Filter by insight ID. Includes AI report subscriptions anchored to the insight.",
             "type": "number"
         },
         "insights": {
-            "description": "Filter by a comma-separated list of insight IDs.",
+            "description": "Filter by a comma-separated list of insight IDs. Includes AI report subscriptions anchored to one of them.",
             "type": "string"
         },
         "limit": {

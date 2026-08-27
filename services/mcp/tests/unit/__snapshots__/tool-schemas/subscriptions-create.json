@@ -46,6 +46,28 @@
             },
             "type": "object"
         },
+        "anchor_dashboard": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "AI report subscriptions only: dashboard whose insights ground the generated report (usually the dashboard the subscription was created from). The report may still draw on the whole project. Mutually exclusive with anchor_insight."
+        },
+        "anchor_insight": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "AI report subscriptions only: insight that grounds the generated report. The report may still draw on the whole project. Mutually exclusive with anchor_dashboard."
+        },
         "bysetpos": {
             "anyOf": [
                 {
