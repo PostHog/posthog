@@ -87,7 +87,8 @@ function normalizeItemId(itemId: string | undefined): number | null {
 // Tag a new insight's query with the product_analytics productKey (on the executed source query) so
 // ClickHouse doesn't reject it as untagged. Leaves an existing productKey untouched.
 function withDefaultProductAnalyticsTags(query: Node): Node {
-    if (isInsightVizNode(query) && !query.source.tags?.productKey) {
+    // A malformed node from the URL can lack `source`, so guard it before we read `source.tags`.
+    if (isInsightVizNode(query) && query.source && !query.source.tags?.productKey) {
         return {
             ...query,
             source: { ...query.source, tags: { ...query.source.tags, ...PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } },
@@ -95,7 +96,7 @@ function withDefaultProductAnalyticsTags(query: Node): Node {
     }
     // EventsNode is the only DataTableNode source kind without a `tags` field and its schema forbids
     // extra keys, so tagging it would make the payload invalid.
-    if (isDataTableNode(query) && query.source.kind !== NodeKind.EventsNode) {
+    if (isDataTableNode(query) && query.source && query.source.kind !== NodeKind.EventsNode) {
         const source = query.source as { tags?: QueryLogTags | null }
         if (!source.tags?.productKey) {
             return {
