@@ -6312,6 +6312,18 @@ snapshots:
         hash: v1.k794b7964.fadc2b2c0b5eedb49391586e0b3e5ea2aa845dd0b27c006cfad7389017158568.9Gke9ur_lx2xjtG29fVYUTYyUhDzjVg-dWWgpo5znTQ
     scenes-app-discussions--threads--light:
         hash: v1.k794b7964.28ac830bf83be5cbb6d7a397d67c9b9c61711904a822de38402b82220b0f7a49.7wENY7hvo1-qAJwq5fcsvKGJsfRAF_vDkpnM8iqFZcc
+    scenes-app-engineering-analytics-dora--dora--dark:
+        hash: v1.k794b7964.e270fd527252868750217d81f75b7c7cae11b0ead88b0e926bfb4239ccbb358d.ql7GBZK8rZ6u5BcZnkhCFUFZuUzjNu6-IROPndr0FNE
+    scenes-app-engineering-analytics-dora--dora--light:
+        hash: v1.k794b7964.a470a17b0a8883755cef5c62e5f6787eabd02784b8f5215f0314853ed108ab72.5IEqIkkfn7hYSRnb7ZjoFuPCfkDjWMCAbxT9M9tzsis
+    scenes-app-engineering-analytics-dora--dora-without-deploy-data--dark:
+        hash: v1.k794b7964.d2b6d8d10e837d9deb7fc9a776c8232bffa227d6e0ada859febbc5ce2f99dd87.0IzkznJ71jQS7tqBXq6rVulCRD8ciPrHNyq7NcAUZ6k
+    scenes-app-engineering-analytics-dora--dora-without-deploy-data--light:
+        hash: v1.k794b7964.51a06cdf8a978673c6170ab31e2eedc51653d05ce8ad14377efb447a8a03ac8c.h93kQDei0_Oy3HOjlIe6Q-9Ap-E53oowu2SHi2WacpU
+    scenes-app-engineering-analytics-merge-to-deploy-box-plot--default--dark:
+        hash: v1.k794b7964.1c0d26b47aadd2aa58a53db3c1c43d50bf74204bf46fa0aa1206e77a96049c07.hdnRtkYHoot4Nik9IeOYVGzQP5bsA0b93Jb6jkvZ-h0
+    scenes-app-engineering-analytics-merge-to-deploy-box-plot--default--light:
+        hash: v1.k794b7964.f9dd9678e343abe67837ac9177e67678b401b1a483b2737ab864c68b4e709e96.wQEuD6-8vgiJ-VBOdfNXccMoMwGBy2OLrzoGnFq_hSU
     scenes-app-engineering-analytics-repo-overview--repo-overview--dark:
         hash: v1.k794b7964.93f0784927beb8f29f7060b98795fc4200dc169ef7f5da3fe255cf5e143c0ff3.-5znSrlummkvLSBLsYSKNzJ3Co4GxMNxsndYCtHeMms
     scenes-app-engineering-analytics-repo-overview--repo-overview--light:
