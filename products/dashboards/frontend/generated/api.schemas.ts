@@ -8625,6 +8625,18 @@ export interface DataTableNodeApi {
     version?: number | null
 }
 
+export interface BoxPlotSettingsApi {
+    excludeOutliers?: boolean | null
+    maxColumn?: string | null
+    meanColumn?: string | null
+    medianColumn?: string | null
+    minColumn?: string | null
+    p25Column?: string | null
+    p75Column?: string | null
+    seriesColumn?: string | null
+    xAxisColumn?: string | null
+}
+
 export interface HeatmapGradientStopApi {
     color: string
     value: number
@@ -8771,6 +8783,7 @@ export interface ChartAxisApi {
 export type ChartSettingsApiResultCustomizations = { [key: string]: ResultCustomizationByValueApi } | null
 
 export interface ChartSettingsApi {
+    boxPlot?: BoxPlotSettingsApi | null
     /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
     chartStyle?: ChartStyleApi | null
     goalLines?: GoalLineApi[] | null
