@@ -334,8 +334,8 @@ describe('CdpCohortMembershipConsumer', () => {
             ['a newer version is applied', VERSION, NEWER_VERSION, false, NEWER_VERSION],
             ['any version beats a versionless row', undefined, OLDER_VERSION, false, OLDER_VERSION],
             // A change that lost its version (sanitized off-format stamp) is still a membership
-            // transition: it must apply while leaving the row's stamp in place, not silently
-            // no-op against the NULL comparison.
+            // transition: it must apply while leaving the row's stamp in place, instead of losing
+            // to every stamped row and no-opping.
             ['a versionless change applies without moving the version', VERSION, undefined, false, VERSION],
         ])(
             'should apply last-writer-wins on replay: %s',
@@ -491,11 +491,12 @@ describe('CdpCohortMembershipConsumer', () => {
 
             const membership = await hub.postgres.query(
                 PostgresUse.BEHAVIORAL_COHORTS_RW,
-                'SELECT in_cohort, version FROM cohort_membership WHERE team_id = $1 AND person_id = $2',
+                `SELECT in_cohort, version = '-infinity'::timestamp AS unversioned
+                 FROM cohort_membership WHERE team_id = $1 AND person_id = $2`,
                 [teamId, personId1],
                 'testQuery'
             )
-            expect(membership.rows).toEqual([{ in_cohort: true, version: null }])
+            expect(membership.rows).toEqual([{ in_cohort: true, unversioned: true }])
 
             const sweeps = await hub.postgres.query(
                 PostgresUse.BEHAVIORAL_COHORTS_RW,

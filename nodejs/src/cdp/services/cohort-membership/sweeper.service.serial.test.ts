@@ -22,6 +22,8 @@ describe('CohortMembershipSweeper', () => {
     const THRESHOLD = '2026-05-26 12:00:00.000000'
     const BELOW_THRESHOLD = '2026-05-26 11:00:00.000000'
     const ABOVE_THRESHOLD = '2026-05-26 13:00:00.000000'
+    /** What the column defaults to, so it is what every row written before the feature reads as. */
+    const UNVERSIONED = '-infinity'
 
     const config: CohortMembershipSweepConfig = {
         COHORT_MEMBERSHIP_SWEEP_INTERVAL_MS: 60000,
@@ -32,6 +34,7 @@ describe('CohortMembershipSweeper', () => {
     }
 
     const CLUSTER = 'test-cluster'
+    const TOPIC = 'cohort_membership_changed'
 
     let postgres: PostgresRouter
     let sweeper: CohortMembershipSweeper
@@ -45,6 +48,7 @@ describe('CohortMembershipSweeper', () => {
         runId = new UUIDT().toString()
         sweeper = new CohortMembershipSweeper(config, postgres, {
             cluster: CLUSTER,
+            topic: TOPIC,
             captureMembershipWatermarks: () => Promise.resolve(watermarks),
             refreshConsumerProgress: () => Promise.resolve(),
         })
@@ -83,7 +87,7 @@ describe('CohortMembershipSweeper', () => {
 
     const readSweep = async (): Promise<Record<string, any>> => {
         const rows = await query<Record<string, any>>(
-            `SELECT marker_bits, status, swept_rows, membership_hwms,
+            `SELECT marker_bits, status, swept_rows, membership_hwms, membership_cluster, membership_topic,
                     to_char(min_marker_version, 'YYYY-MM-DD HH24:MI:SS.US') AS min_marker_version
              FROM cohort_membership_sweeps WHERE run_id = $1 AND cohort_id = $2`,
             [runId, COHORT_ID]
@@ -91,7 +95,7 @@ describe('CohortMembershipSweeper', () => {
         return rows[0]
     }
 
-    const insertMembership = async (teamId: number, cohortId: number, version: string | null): Promise<string> => {
+    const insertMembership = async (teamId: number, cohortId: number, version: string): Promise<string> => {
         const personId = new UUIDT().toString()
         await query(
             `INSERT INTO cohort_membership (team_id, cohort_id, person_id, in_cohort, version)
@@ -111,9 +115,10 @@ describe('CohortMembershipSweeper', () => {
         await query(
             `INSERT INTO cohort_membership_sweeps
                 (run_id, cohort_id, team_id, marker_bits, min_marker_version, min_snapshot_version,
-                 membership_hwms, status, ready_at)
-             VALUES ($1, $2, $3, -1, $4::timestamp, $5::timestamp, $6::jsonb, 'ready', CURRENT_TIMESTAMP)`,
-            [runId, COHORT_ID, TEAM_ID, MARKER_VERSION, THRESHOLD, JSON.stringify(watermarks)]
+                 membership_hwms, membership_cluster, membership_topic, status, ready_at)
+             VALUES ($1, $2, $3, -1, $4::timestamp, $5::timestamp, $6::jsonb, $7, $8, 'ready',
+                     CURRENT_TIMESTAMP)`,
+            [runId, COHORT_ID, TEAM_ID, MARKER_VERSION, THRESHOLD, JSON.stringify(watermarks), CLUSTER, TOPIC]
         )
     }
 
@@ -179,6 +184,8 @@ describe('CohortMembershipSweeper', () => {
             marker_bits: '-1',
             status: 'ready',
             membership_hwms: { 0: 10, 3: 4 },
+            membership_cluster: CLUSTER,
+            membership_topic: TOPIC,
             min_marker_version: MARKER_VERSION,
         })
     })
@@ -210,22 +217,20 @@ describe('CohortMembershipSweeper', () => {
         const stale1 = await insertMembership(TEAM_ID, COHORT_ID, BELOW_THRESHOLD)
         const stale2 = await insertMembership(TEAM_ID, COHORT_ID, BELOW_THRESHOLD)
         const stale3 = await insertMembership(TEAM_ID, COHORT_ID, BELOW_THRESHOLD)
-        // Only versioned rows are sweepable: a NULL was written either before the feature or by a
-        // rolled-back image asserting current membership, and the two cannot be told apart here.
-        const neverVersioned = await insertMembership(TEAM_ID, COHORT_ID, null)
+        // A row written before the feature sorts below every producer stamp, so the run that did
+        // not re-assert it deletes it. Those rows are most of what the first sweep has to remove.
+        const preFeature = await insertMembership(TEAM_ID, COHORT_ID, UNVERSIONED)
         const asserted = await insertMembership(TEAM_ID, COHORT_ID, THRESHOLD)
         const liveChange = await insertMembership(TEAM_ID, COHORT_ID, ABOVE_THRESHOLD)
         const otherCohort = await insertMembership(TEAM_ID, COHORT_ID + 1, BELOW_THRESHOLD)
         const otherTeam = await insertMembership(TEAM_ID + 1, COHORT_ID, BELOW_THRESHOLD)
 
-        expect(await sweeper.runOnce()).toMatchObject({ swept: 1, rowsDeleted: 3 })
+        expect(await sweeper.runOnce()).toMatchObject({ swept: 1, rowsDeleted: 4 })
 
         const surviving = await survivingPersonIds()
-        expect(surviving).toEqual(
-            [neverVersioned, asserted, liveChange, otherCohort, otherTeam].sort((a, b) => a.localeCompare(b))
-        )
-        expect(surviving).not.toEqual(expect.arrayContaining([stale1, stale2, stale3]))
-        expect(await readSweep()).toMatchObject({ status: 'swept', swept_rows: '3' })
+        expect(surviving).toEqual([asserted, liveChange, otherCohort, otherTeam].sort((a, b) => a.localeCompare(b)))
+        expect(surviving).not.toEqual(expect.arrayContaining([stale1, stale2, stale3, preFeature]))
+        expect(await readSweep()).toMatchObject({ status: 'swept', swept_rows: '4' })
 
         // A second cycle must not re-sweep a finished run.
         expect(await sweeper.runOnce()).toMatchObject({ swept: 0, rowsDeleted: 0 })
@@ -234,6 +239,10 @@ describe('CohortMembershipSweeper', () => {
     it.each([
         ['it never observed the snapshot it is supposed to have asserted', 'min_snapshot_version = NULL'],
         ['its watermark capture came back empty', `membership_hwms = '{}'::jsonb`],
+        // Offsets from one feed prove nothing about another, so a run that outlived a broker
+        // repoint or a topic change must not sweep on the watermarks it captured before it.
+        ['its watermarks came from another cluster', `membership_cluster = 'moved-cluster'`],
+        ['its watermarks came from another topic', `membership_topic = 'moved_topic'`],
     ])('should refuse to sweep a run when %s', async (_label, damage) => {
         watermarks = { 0: 10 }
         await readyRun()
@@ -241,10 +250,10 @@ describe('CohortMembershipSweeper', () => {
         await query(`UPDATE cohort_membership_sweeps SET ${damage} WHERE run_id = $1`, [runId])
 
         const live = await insertMembership(TEAM_ID, COHORT_ID, ABOVE_THRESHOLD)
-        const unversioned = await insertMembership(TEAM_ID, COHORT_ID, null)
+        const stale = await insertMembership(TEAM_ID, COHORT_ID, BELOW_THRESHOLD)
 
         expect(await sweeper.runOnce()).toMatchObject({ swept: 0, rowsDeleted: 0 })
-        expect(await survivingPersonIds()).toEqual([live, unversioned].sort((a, b) => a.localeCompare(b)))
+        expect(await survivingPersonIds()).toEqual([live, stale].sort((a, b) => a.localeCompare(b)))
     })
 
     it('should reclaim a sweep whose pod died mid-run', async () => {

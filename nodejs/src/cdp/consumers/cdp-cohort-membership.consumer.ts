@@ -29,8 +29,16 @@ export type CdpCohortMembershipConsumerConfig = CdpConsumerBaseConfig &
         | 'COHORT_MEMBERSHIP_SWEEP_ABANDON_AFTER_DAYS'
     >
 
-// Markers from runs that predate the sweeper are useless — the next reconcile heals anyway.
+// Markers from runs that predate the sweeper are useless, because the next reconcile heals anyway.
 const startAtLatest = { ['auto.offset.reset' as keyof RdKafkaConsumerConfig]: 'latest' as never }
+
+/**
+ * The stamp for a membership row the pipeline never versioned. Must stay equal to the column
+ * default in `20260826000001_add_version_to_cohort_membership.sql`: every row written before that
+ * migration reads as this value, and the sweep deletes below a threshold, so a sentinel that does
+ * not sort below every producer stamp would leave stale rows behind.
+ */
+const VERSIONLESS = '-infinity'
 
 /**
  * The broker list the membership consumer resolves, mirroring the consumer's own config
@@ -165,6 +173,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
             )
             this.sweeper = new CohortMembershipSweeper(config, deps.postgres, {
                 cluster: this.membershipCluster,
+                topic: KAFKA_COHORT_MEMBERSHIP_CHANGED,
                 captureMembershipWatermarks: () => this.captureMembershipWatermarks(),
                 refreshConsumerProgress: () => this.refreshConsumerProgressFromCommittedOffsets(),
             })
@@ -312,12 +321,13 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
      * The version guard is what makes an at-least-once replay safe: offsets commit after the write,
      * so a crash replays a batch, and a stale reconcile row must not overwrite a newer live change
      * that was already applied. It is the same last-writer-wins rule ClickHouse applies to this
-     * data. A stored row with no version counts as the oldest.
+     * data. A row stamped `-infinity` counts as the oldest, which is what the column default makes
+     * every row written before this feature.
      *
      * An incoming change with no version cannot be ordered, but it is still a membership
-     * transition: it applies unconditionally (the pre-version behavior) while COALESCE keeps the
-     * row's existing stamp. Without both, `EXCLUDED.version >= version` evaluates to NULL against
-     * a versioned row and the change is silently dropped, leaving the member stuck.
+     * transition: it applies unconditionally (the pre-version behavior) while GREATEST keeps the
+     * row's existing stamp. Without both, an unordered change would lose to every stamped row and
+     * be silently dropped, leaving the member stuck.
      */
     private async upsertMembershipRows(tx: TransactionClient, changes: CohortMembershipChange[]): Promise<void> {
         const values: any[] = []
@@ -335,7 +345,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
                 change.cohort_id,
                 change.person_id,
                 change.status === 'entered',
-                change.last_updated ?? null
+                change.last_updated ?? VERSIONLESS
             )
             paramIndex += 5
         }
@@ -349,9 +359,8 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
                 DO UPDATE SET
                     in_cohort = EXCLUDED.in_cohort,
                     last_updated = CURRENT_TIMESTAMP,
-                    version = COALESCE(EXCLUDED.version, cohort_membership.version)
-                WHERE cohort_membership.version IS NULL
-                   OR EXCLUDED.version IS NULL
+                    version = GREATEST(cohort_membership.version, EXCLUDED.version)
+                WHERE EXCLUDED.version = '${VERSIONLESS}'
                    OR EXCLUDED.version >= cohort_membership.version
             `,
             values,
@@ -359,7 +368,13 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
         )
     }
 
-    /** The flag-off shape: no version column, no transaction, valid against the pre-sweep schema. */
+    /**
+     * The flag-off shape: no version column, no transaction, valid against the pre-sweep schema.
+     *
+     * Once the schema is migrated, rows this path creates take the column default and are therefore
+     * sweepable. Flip the flag fleet-wide rather than leaving pods mixed: a sweeping pod can delete
+     * a row a flag-off pod wrote after the reconcile snapshot, and only the next reconcile heals it.
+     */
     private async upsertMembershipRowsWithoutVersion(changes: CohortMembershipChange[]): Promise<void> {
         const values: any[] = []
         const placeholders: string[] = []

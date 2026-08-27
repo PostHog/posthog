@@ -76,6 +76,8 @@ type ClaimableRun = {
     cohort_id: string
     team_id: string
     membership_hwms: MembershipWatermarks | null
+    membership_cluster: string | null
+    membership_topic: string | null
     threshold: string | null
     claim_token: string | null
 }
@@ -140,6 +142,8 @@ export class CohortMembershipSweeper {
         private kafka: {
             /** Broker identity the progress rows are keyed by; offsets are only comparable within one cluster. */
             cluster: string
+            /** Membership topic the watermarks and the progress offsets both describe. */
+            topic: string
             captureMembershipWatermarks: () => Promise<MembershipWatermarks>
             refreshConsumerProgress: () => Promise<void>
         }
@@ -252,11 +256,12 @@ export class CohortMembershipSweeper {
                 `
                     UPDATE cohort_membership_sweeps
                     SET status = 'ready', membership_hwms = $1::jsonb,
+                        membership_cluster = $4, membership_topic = $5,
                         ready_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
                     WHERE run_id = $2 AND cohort_id = $3
                       AND status = 'collecting' AND marker_bits = ${ALL_MARKERS}
                 `,
-                [JSON.stringify(watermarks), run.run_id, run.cohort_id],
+                [JSON.stringify(watermarks), run.run_id, run.cohort_id, this.kafka.cluster, this.kafka.topic],
                 'readyCohortMembershipSweep'
             )
 
@@ -340,6 +345,7 @@ export class CohortMembershipSweeper {
             PostgresUse.BEHAVIORAL_COHORTS_RW,
             `
                 SELECT run_id, cohort_id, team_id, membership_hwms,
+                       membership_cluster, membership_topic,
                        LEAST(min_snapshot_version, min_marker_version) AS threshold, claim_token
                 FROM cohort_membership_sweeps
                 WHERE min_snapshot_version IS NOT NULL
@@ -385,6 +391,23 @@ export class CohortMembershipSweeper {
             return false
         }
 
+        // An offset only means something against the feed it was read from. If the consumer's
+        // brokers were repointed or the processor's output topic changed after this run captured
+        // its watermarks, the two sides of the comparison describe different feeds and the gate
+        // proves nothing. Refusing holds the run until it ages into abandonment, and the next
+        // reconcile produces a run stamped with the current feed.
+        if (run.membership_cluster !== this.kafka.cluster || run.membership_topic !== this.kafka.topic) {
+            logger.warn('Refusing to sweep a run whose watermarks came from another feed', {
+                run_id: run.run_id,
+                cohort_id: run.cohort_id,
+                captured_cluster: run.membership_cluster,
+                captured_topic: run.membership_topic,
+                current_cluster: this.kafka.cluster,
+                current_topic: this.kafka.topic,
+            })
+            return false
+        }
+
         const blocked: number[] = []
 
         for (const [partition, highWatermark] of watermarks) {
@@ -425,6 +448,7 @@ export class CohortMembershipSweeper {
                   AND (status = 'ready'
                        OR (status = 'sweeping' AND claimed_at < CURRENT_TIMESTAMP - $3::interval))
                 RETURNING run_id, cohort_id, team_id, membership_hwms,
+                          membership_cluster, membership_topic,
                           LEAST(min_snapshot_version, min_marker_version) AS threshold, claim_token
             `,
             [
@@ -473,6 +497,11 @@ export class CohortMembershipSweeper {
         // Keyset cursor over the (team_id, cohort_id, version) index order. Deleted index entries
         // stay visible to a scan until VACUUM, so restarting each page from the range start would
         // walk past every previously-deleted entry again.
+        //
+        // The cursor starts at the same sentinel the column defaults to, and `>` on the row
+        // constructor still advances through those rows by id. `to_char` returns NULL for an
+        // infinite timestamp, so the RETURNING clause restores the sentinel text: without it the
+        // cursor would take a NULL and the next page would match nothing.
         let cursorVersion = '-infinity'
         let cursorId = '0'
 
@@ -496,7 +525,9 @@ export class CohortMembershipSweeper {
                     DELETE FROM cohort_membership m
                     USING candidates c
                     WHERE m.id = c.id AND m.version < $3::timestamp
-                    RETURNING to_char(m.version, 'YYYY-MM-DD HH24:MI:SS.US') AS version, m.id
+                    RETURNING COALESCE(
+                        to_char(m.version, 'YYYY-MM-DD HH24:MI:SS.US'), '-infinity'
+                    ) AS version, m.id
                 `,
                 [
                     run.team_id,
