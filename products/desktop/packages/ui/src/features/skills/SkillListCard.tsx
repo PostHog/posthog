@@ -4,19 +4,16 @@ interface SkillListCardProps {
   /** Forwarded to the row element (e.g. for scroll-into-view). */
   cardRef?: Ref<HTMLDivElement>;
   icon: ReactNode;
-  /** Tailwind classes for the icon chip; defaults to the neutral gray chip. */
   iconClass?: string;
   title: string;
   subtitle?: string;
   isSelected: boolean;
-  /** Renders the row muted (e.g. a switched-off skill). */
   dimmed?: boolean;
   onClick: () => void;
   /** Badges or counts rendered after the text block. */
   trailing?: ReactNode;
 }
 
-/** One dense row, shared by every skills list (local, team, marketplace). */
 export function SkillListCard({
   cardRef,
   icon,

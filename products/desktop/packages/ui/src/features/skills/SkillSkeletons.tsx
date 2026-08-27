@@ -1,6 +1,5 @@
 import { Skeleton } from "@posthog/quill";
 
-/** Row placeholders that match the real list row, so nothing jumps. */
 export function SkillListSkeleton({ rows = 8 }: { rows?: number }) {
   return (
     <div className="flex flex-col gap-0.5">
@@ -25,7 +24,6 @@ export function SkillListSkeleton({ rows = 8 }: { rows?: number }) {
   );
 }
 
-/** Paragraph placeholders for a rendered file or skill body. */
 export function SkillBodySkeleton() {
   return (
     <div className="flex flex-col gap-4 px-3 py-2.5">

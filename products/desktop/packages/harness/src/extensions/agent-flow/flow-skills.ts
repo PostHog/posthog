@@ -12,7 +12,6 @@ export interface FlowSkill {
   dirName: string;
 }
 
-/** Skill roots that can hold flow skills (a directory with a flow.json). */
 function flowSkillRoots(cwd: string): string[] {
   return [
     join(homedir(), ".claude", "skills"),
@@ -54,7 +53,6 @@ export function listFlowSkills(cwd: string): FlowSkill[] {
   return found;
 }
 
-/** Finds a flow skill by its skill folder name or its display name. */
 export function findFlowSkill(query: string, cwd: string): FlowSkill | null {
   const needle = query.trim().toLowerCase();
   if (!needle) {

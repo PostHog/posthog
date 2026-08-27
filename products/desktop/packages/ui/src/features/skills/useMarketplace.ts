@@ -25,7 +25,6 @@ export function useMarketplaceSearch(query: string) {
   );
 }
 
-/** The default list, so the tab is never empty before you search. */
 export function useMarketplacePopular(enabled: boolean) {
   const trpc = useHostTRPC();
   return useQuery(

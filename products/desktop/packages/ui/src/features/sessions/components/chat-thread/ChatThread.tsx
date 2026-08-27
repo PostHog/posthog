@@ -278,11 +278,6 @@ export function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
 
   for (const item of items) {
     if (isToolCallItem(item)) {
-      // A plan presented for approval renders as the full PlanApprovalView
-      // card — folded into a "N tool calls" chip, the plan the user is being
-      // asked to approve is invisible. Same exemption as buildThreadGroups.
-      // Flow step and handoff review cards are whole subagent runs and
-      // interactive reviews, so they stay standalone too.
       if (
         isPlanItem(item) ||
         isAgentFlowCardId((item.update as { toolCallId?: string }).toolCallId)

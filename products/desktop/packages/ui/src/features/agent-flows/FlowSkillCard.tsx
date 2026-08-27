@@ -3,7 +3,6 @@ import { SkillListCard } from "@posthog/ui/features/skills/SkillListCard";
 import { SkillChip } from "@posthog/ui/features/skills/SkillPanelHeader";
 import type { AgentFlowRecord } from "./useAgentFlows";
 
-/** List row for a flow-skill on the Skills page; opens the flow editor. */
 export function FlowSkillCard({
   flow,
   isSelected,

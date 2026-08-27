@@ -2,27 +2,20 @@ import { CheckIcon, PencilSimpleIcon, XIcon } from "@phosphor-icons/react";
 import { Button } from "@posthog/quill";
 import { useState } from "react";
 
-/** Longer than this, the read view clamps and offers "Show more". */
 const CLAMP_AT_CHARS = 190;
 
 interface InlineEditProps {
   value: string;
   placeholder: string;
   ariaLabel: string;
-  /** Tailwind classes for the text, in both read mode and edit mode. */
   textClass: string;
   multiline?: boolean;
-  /** Clamps long text to three lines in read mode. */
   clamp?: boolean;
   editable?: boolean;
   saving?: boolean;
   onSave: (value: string) => void;
 }
 
-/**
- * Click the text to edit it, then save. Nothing is written until you save,
- * because a skill description is what makes an agent pick the skill.
- */
 export function InlineEdit({
   value,
   placeholder,

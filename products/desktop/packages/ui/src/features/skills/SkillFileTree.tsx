@@ -66,12 +66,9 @@ interface SkillFileTreeProps {
   files: SkillFileEntry[];
   selectedPath: string | null;
   onSelect: (path: string) => void;
-  /** When set, every file row gets an edit action. */
   onEditFile?: (path: string) => void;
-  /** When set, file rows other than SKILL.md get rename and delete actions. */
   onRenameFile?: (path: string) => void;
   onDeleteFile?: (path: string) => void;
-  /** When set, an "Add file" row closes the list. */
   onAddFile?: () => void;
 }
 

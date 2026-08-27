@@ -9,7 +9,6 @@ export interface CommandLike {
     source: Exclude<SkillSource, "bundled">;
     path: string;
   };
-  /** Present when the command cannot run in the current session; shown and blocks selection. */
   disabledReason?: string;
 }
 

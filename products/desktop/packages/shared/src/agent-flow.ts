@@ -103,7 +103,6 @@ export const agentFlowMessageDetailsSchema = z.object({
   stepName: z.string().optional(),
   approvalId: z.string().optional(),
   approvalOutcome: z.enum(["approved", "rejected"]).optional(),
-  /** The full composed prompt the step's subagent received. */
   stepPrompt: z.string().optional(),
 });
 
@@ -121,24 +120,20 @@ export function isAgentFlowTerminalStatus(
 
 export const AGENT_FLOW_STEP_CARD_ID_PREFIX = "agent-flow:";
 
-/** Conversation tool-call id of a flow step's card in the chat. */
 export function agentFlowStepCardId(flowId: string, stepIndex: number): string {
   return `${AGENT_FLOW_STEP_CARD_ID_PREFIX}${flowId}:${stepIndex}`;
 }
 
 const STEP_CARD_ID_PATTERN = /^agent-flow:[^:]+:\d+$/;
 
-/** True only for a step card id, not for its child tool calls. */
 export function isAgentFlowStepCardId(id: string | undefined): boolean {
   return id !== undefined && STEP_CARD_ID_PATTERN.test(id);
 }
 
-/** True for any top-level flow card: a step card or a review card. */
 export function isAgentFlowCardId(id: string | undefined): boolean {
   return isAgentFlowStepCardId(id) || isAgentFlowApprovalCardId(id);
 }
 
-/** Conversation tool-call id of a handoff review card. */
 export function agentFlowApprovalCardId(
   flowId: string,
   approvalId: string,
@@ -153,7 +148,6 @@ export function isAgentFlowApprovalCardId(id: string | undefined): boolean {
   );
 }
 
-/** The command a client sends to answer a handoff review. */
 export function buildAgentFlowRespondCommand(
   approvalId: string,
   outcome: "approve" | "reject",
@@ -185,11 +179,6 @@ export function parseAgentFlowRespondArgs(
   };
 }
 
-/**
- * Live work of an in-process flow step, injected into the parent session's
- * event stream for display. Never persisted and never in LLM context; hosts
- * that do not know the type ignore it.
- */
 export const AGENT_FLOW_STEP_EVENT_TYPE = "posthog_flow_step_event";
 
 export const agentFlowStepStreamEventSchema = z.object({
@@ -241,11 +230,6 @@ export function parseAgentFlowRunPayload(value: string): AgentFlowRunPayload {
   return agentFlowRunPayloadSchema.parse(JSON.parse(decodeURIComponent(value)));
 }
 
-/**
- * A saved flow is a skill directory: SKILL.md (manifest read by agent
- * harnesses) plus this JSON file, the machine-readable flow definition that
- * the deterministic runner executes.
- */
 export const AGENT_FLOW_SKILL_FILE = "flow.json";
 
 export function parseAgentFlowSkillFile(
@@ -262,7 +246,6 @@ export function serializeAgentFlowSkillFile(flow: AgentFlowDefinition): string {
   return `${JSON.stringify(flow, null, 2)}\n`;
 }
 
-/** Skill directory name for a flow: lowercase, hyphenated, max 64 chars. */
 export function agentFlowSkillSlug(name: string): string {
   const slug = name
     .toLowerCase()
@@ -280,11 +263,6 @@ export function buildAgentFlowSkillDescription(
   return `Multi-agent flow: ${chain}. Use when the user asks to run the "${flow.name}" flow.`;
 }
 
-/**
- * The SKILL.md body. In the desktop app the deterministic runner executes
- * flow.json directly; in other harnesses the model reads this body and
- * follows the steps itself, so it spells them out.
- */
 export function buildAgentFlowSkillBody(flow: AgentFlowDefinition): string {
   const steps = flow.steps
     .map((step, index) => {

@@ -131,9 +131,6 @@ export function ToolCallBlock({
     );
   }
 
-  // A flow step is a whole subagent run; render it exactly like a native
-  // subagent tool call, with its live child tool calls and its streamed
-  // text/handoff in the body.
   if (isAgentFlowStepCardId(toolCall.toolCallId)) {
     const stepChildItems = childItems ?? [];
     const turnContext: TurnContext = {

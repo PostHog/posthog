@@ -69,7 +69,6 @@ export const SOURCE_CONFIG: Record<
 interface SkillCardProps {
   skill: SkillInfo;
   isSelected: boolean;
-  /** Hidden when every skill in the section comes from the same repo. */
   showRepoBadge?: boolean;
   onClick: () => void;
   /** When true, scroll this card into view once (used for deep-linked skills). */

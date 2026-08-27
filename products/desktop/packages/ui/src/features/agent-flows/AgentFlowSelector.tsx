@@ -28,7 +28,6 @@ export function AgentFlowSelector({
   flows: AgentFlowDefinition[];
   selectedFlowId: string | null;
   disabled?: boolean;
-  /** When set, the trigger is disabled and explains why on hover. */
   disabledReason?: string;
   onChange: (flowId: string | null) => void;
 }) {

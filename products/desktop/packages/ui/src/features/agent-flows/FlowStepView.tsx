@@ -12,12 +12,6 @@ interface FlowStepViewProps extends ToolViewProps {
   turnContext: TurnContext;
 }
 
-/**
- * A flow step: the native subagent card (title + live child tool calls) plus
- * the step's text — its streamed commentary while running, replaced by the
- * handoff when it finishes. SubagentToolView alone never shows card content,
- * which left handoffs invisible.
- */
 export function FlowStepView(props: FlowStepViewProps) {
   const text = (props.toolCall.content ?? [])
     .flatMap((block) =>

@@ -18,9 +18,7 @@ export interface LocalSkillCommand {
 
 export type EditorAvailableCommand = AvailableCommand & {
   localSkill?: LocalSkillCommand;
-  /** The command drives a saved agent flow, which only the Pi runtime can run. */
   piOnly?: boolean;
-  /** Present when the command cannot run here; shown in the menu and blocks selection. */
   disabledReason?: string;
 };
 
@@ -56,7 +54,6 @@ export interface SuggestionItem {
   skillPath?: string;
   skillSource?: UploadableSkillSource;
   skillName?: string;
-  /** Rendered muted; selection is blocked. */
   disabled?: boolean;
   disabledReason?: string;
 }

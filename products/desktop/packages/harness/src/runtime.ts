@@ -125,8 +125,6 @@ export async function createHarnessRuntime(
         }),
       resourceLoaderOptions: {
         ...runtimeOptions.resourceLoaderOptions,
-        // The desktop app manages user skills (including saved agent flows)
-        // in the Claude Code skill root; make pi discover them too.
         additionalSkillPaths: [
           join(homedir(), ".claude", "skills"),
           ...(runtimeOptions.resourceLoaderOptions?.additionalSkillPaths ?? []),

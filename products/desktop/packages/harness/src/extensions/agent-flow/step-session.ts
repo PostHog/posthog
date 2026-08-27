@@ -1,10 +1,3 @@
-/**
- * Runs one flow step as an in-process pi session — the pattern the pi
- * subagent ecosystem converged on (see tintinweb/pi-subagents): no child
- * process, and the parent's model runtime and auth are shared directly. The
- * step persists as a real pi session parented to the flow's session, so its
- * full transcript stays inspectable.
- */
 import {
   type AgentSession,
   createAgentSession,
@@ -16,12 +9,10 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { AgentConfig } from "../subagent/agents";
 
-/** Steer the model to wrap up at the soft cap; hard-abort a few turns later. */
 const MAX_STEP_TURNS = 80;
 const GRACE_TURNS = 5;
 const TOOL_OUTPUT_PREVIEW_CAP = 2_000;
 
-/** Display-only stream of a step's work, forwarded to the parent session. */
 export type StepStreamEvent =
   | {
       kind: "tool_start";
@@ -40,8 +31,6 @@ export type StepStreamEvent =
     }
   | { kind: "assistant_text"; text: string };
 
-/** The slice of extension context the runner needs; both `ExtensionContext`
- * and `ExtensionCommandContext` satisfy it. */
 export interface StepSessionContext {
   cwd: string;
   modelRegistry: ExtensionContext["modelRegistry"];
@@ -57,8 +46,6 @@ export interface RunStepSessionOptions {
   task: string;
   signal: AbortSignal;
   onStreamEvent?: (event: StepStreamEvent) => void;
-  /** Receives a steer function while the step runs, so user messages can be
-   * routed into the running step. */
   onSteerAvailable?: (steer: (text: string) => void) => void;
 }
 
@@ -70,7 +57,6 @@ export interface StepSessionResult {
 
 export interface StepSessionHandle {
   result: StepSessionResult;
-  /** Runs another prompt on the still-open step session. */
   revise(feedback: string): Promise<StepSessionResult>;
   dispose(): void;
 }
@@ -96,7 +82,6 @@ function toolInputPath(args: unknown): string | undefined {
   return typeof path === "string" && path.trim() ? path.trim() : undefined;
 }
 
-/** Edit/write args carry the change itself; surface it as a native diff. */
 function toolInputDiff(
   toolName: string,
   args: unknown,
@@ -219,8 +204,6 @@ export async function runStepSession(
   const loader = new DefaultResourceLoader({
     cwd: ctx.cwd,
     agentDir,
-    // Steps are single-purpose personas: no ambient extensions or slash
-    // surfaces. Skills and project context files stay available.
     noExtensions: true,
     noPromptTemplates: true,
     noThemes: true,
@@ -228,9 +211,6 @@ export async function runStepSession(
   });
   await loader.reload();
 
-  // The registry is pi's read facade over the runtime that createAgentSession
-  // wants; reaching through it is how in-process subagents inherit the
-  // parent's providers and auth (same approach as tintinweb/pi-subagents).
   const parentModelRuntime = (
     ctx.modelRegistry as unknown as { runtime?: unknown }
   ).runtime;
@@ -346,8 +326,6 @@ export async function runStepSession(
 
   return {
     result,
-    // Rejected handoffs come back to the same session (same model, full step
-    // context) so the reviser knows everything it already did.
     revise: (feedback) => runPrompt(feedback),
     dispose,
   };

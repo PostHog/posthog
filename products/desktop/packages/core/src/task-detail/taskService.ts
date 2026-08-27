@@ -62,12 +62,6 @@ export class TaskService {
   private readonly log: ReturnType<RootLogger["scope"]>;
   private readonly pendingCreations = new Map<string, Promise<void>>();
 
-  /**
-   * Resolves when the creation saga that produced this task settles. The task
-   * view opens as soon as the task row exists, while the saga is still
-   * starting the agent session; connecting before then fails with a missing
-   * session. Undefined when no creation is in flight for the task.
-   */
   public whenCreationSettled(taskId: string): Promise<void> | undefined {
     return this.pendingCreations.get(taskId);
   }

@@ -87,7 +87,6 @@ export class SkillsService {
     return dedupeCodexSkills(skills, new Set(mirrorState.mirrored));
   }
 
-  /** Switches a skill on or off by renaming SKILL.md to SKILL.md.disabled; agents only discover enabled skills. */
   async setSkillEnabled(skillPath: string, enabled: boolean): Promise<void> {
     const skillDir = await this.resolveWritableSkillDir(skillPath);
     const activePath = path.join(skillDir, "SKILL.md");

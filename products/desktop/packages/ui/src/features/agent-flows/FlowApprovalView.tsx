@@ -10,7 +10,6 @@ import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-/** The approval id is the tail of `agent-flow:<flowId>:approval:<approvalId>`. */
 function approvalIdFromCardId(cardId: string): string | undefined {
   const marker = ":approval:";
   const index = cardId.indexOf(marker);
@@ -27,10 +26,6 @@ function cardText(toolCall: ToolViewProps["toolCall"]): string {
     .join("\n");
 }
 
-/**
- * A flow handoff review, inline in the chat: approve to continue the flow, or
- * send it back with feedback so the same step's model revises its handoff.
- */
 export function FlowApprovalView({ toolCall }: ToolViewProps) {
   const controller = useService<PiSessionController>(PI_SESSION_CONTROLLER);
   const taskId = useSessionTaskId();
@@ -40,9 +35,6 @@ export function FlowApprovalView({ toolCall }: ToolViewProps) {
 
   const approvalId = approvalIdFromCardId(toolCall.toolCallId);
   const text = cardText(toolCall);
-  // The card's own status is the only truth: the chat thread closes turn
-  // segments eagerly mid-flow, so turnComplete/turnCancelled say nothing
-  // about whether this review is still waiting.
   const resolvedApproved = toolCall.status === "completed";
   const resolvedRejected = toolCall.status === "failed";
   const pending = !resolvedApproved && !resolvedRejected;

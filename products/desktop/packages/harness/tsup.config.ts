@@ -174,7 +174,6 @@ export default defineConfig({
         recursive: true,
       },
     );
-    // tsup inlines agents.ts into independent entry files, so each output needs an adjacent copy of the Markdown definitions.
     for (const targetDirectory of [
       "dist/bundled-agents",
       "dist/extensions/bundled-agents",

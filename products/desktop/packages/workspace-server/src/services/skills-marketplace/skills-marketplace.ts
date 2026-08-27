@@ -25,8 +25,6 @@ const MAX_PREVIEW_FILE_BYTES = 256 * 1024;
 const ARCHIVE_CACHE_TTL_MS = 5 * 60_000;
 const ARCHIVE_CACHE_MAX_ENTRIES = 4;
 const SEARCH_TIMEOUT_MS = 10_000;
-// skills.sh has no listing endpoint, so the default view samples the index
-// with broad queries and ranks what comes back by installs.
 const POPULAR_SEED_QUERIES = ["code", "git", "review", "test", "docs", "web"];
 const POPULAR_LIMIT = 40;
 const POPULAR_CACHE_TTL_MS = 30 * 60_000;
@@ -120,7 +118,6 @@ export class SkillsMarketplaceService {
     output: MarketplaceSearchOutput;
   } | null = null;
 
-  /** The most installed skills the index returns for a sample of queries. */
   async popular(): Promise<MarketplaceSearchOutput> {
     const cached = this.popularCache;
     if (cached && Date.now() - cached.fetchedAt < POPULAR_CACHE_TTL_MS) {

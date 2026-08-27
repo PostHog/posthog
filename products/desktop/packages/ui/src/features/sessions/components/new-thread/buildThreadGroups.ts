@@ -131,14 +131,6 @@ function isArtifactItem(item: ConversationItem): boolean {
   return hasInlineArtifact(resolved ?? (item.update as unknown as ToolCall));
 }
 
-/**
- * Whether an item folds into a tool-call group rather than getting its own row.
- * A group is a maximal run of these; anything else flushes the run. Grouping is
- * keyed on item type alone, never on turn boundaries — a run can straddle the
- * end of one turn and the start of the next.
- */
-/** A flow step card is the visible surface of a whole subagent run, so it
- * must never fold behind a "ran N tools" summary. */
 function isFlowStepItem(item: ConversationItem): boolean {
   return (
     item.type === "session_update" &&

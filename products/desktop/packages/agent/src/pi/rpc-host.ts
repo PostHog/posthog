@@ -171,9 +171,6 @@ process.on("message", (message: unknown) => {
   }
 });
 
-// During a flow the main session looks busy, so clients deliver user input
-// as steer/follow-up. Those must reach the flow (running step or next-step
-// guidance), not the idle main agent's queue.
 const steerMain = runtime.session.steer.bind(runtime.session);
 runtime.session.steer = async (text, images) => {
   if (tryRouteFlowInput(text, "steer")) {
@@ -189,10 +186,6 @@ runtime.session.followUp = async (text, images) => {
   return followUpMain(text, images);
 };
 
-// Flow steps run as in-process sessions with no presence on the parent
-// session's stream. Splice their display-only events into subscriptions made
-// from here on (rpc mode's outgoing stream); the persistence subscribers
-// above stay untouched. Clients that do not know the event type ignore it.
 const subscribeSession = runtime.session.subscribe.bind(runtime.session);
 runtime.session.subscribe = (listener) => {
   const unsubscribeSession = subscribeSession(listener);

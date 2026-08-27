@@ -20,7 +20,6 @@ import { ToolRow } from "./ToolRow";
 interface SubagentToolViewProps extends ToolViewProps {
   childItems: ConversationItem[];
   turnContext: TurnContext;
-  /** Start with the child list visible (each child still collapses its own output). */
   defaultExpanded?: boolean;
 }
 

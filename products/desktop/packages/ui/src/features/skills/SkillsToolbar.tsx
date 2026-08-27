@@ -2,7 +2,6 @@ import { MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { Input } from "@posthog/quill";
 import type { ReactNode, Ref } from "react";
 
-/** The search band every skills tab shares, so the tabs never jump. */
 export function SkillsToolbar({
   placeholder,
   value,
@@ -15,9 +14,7 @@ export function SkillsToolbar({
   value: string;
   onChange: (value: string) => void;
   inputRef?: Ref<HTMLInputElement>;
-  /** Controls on the right of the search field. */
   actions?: ReactNode;
-  /** Chips under the search field. */
   filters?: ReactNode;
 }) {
   return (

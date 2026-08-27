@@ -65,7 +65,6 @@ export async function findSkillDirs(
     .filter(
       (e) =>
         ((e.isDirectory() || e.isSymbolicLink()) &&
-          // Hidden dirs are never skills (also hides install staging dirs).
           !e.name.startsWith(".") &&
           fs.existsSync(path.join(sourceSkillsDir, e.name, "SKILL.md"))) ||
         fs.existsSync(path.join(sourceSkillsDir, e.name, DISABLED_SKILL_MD)),

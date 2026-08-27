@@ -31,11 +31,6 @@ type HistoryMessage = Parameters<
   ReturnType<typeof createPiConversationTranslator>["translateHistoryMessage"]
 >[0];
 
-/**
- * Mirrors pi's `sessionEntryToContextMessages` for the entry types the chat
- * renders. Runs in the renderer, so it cannot import pi's runtime (Node-only);
- * a type-only mirror keeps the shapes checked against pi's `SessionEntry`.
- */
 function entryToHistoryMessages(entry: SessionEntry): HistoryMessage[] {
   if (entry.type === "message") {
     return [entry.message];
@@ -63,8 +58,6 @@ export async function getRemotePiConversation(
   const events: AgentConversationEvent[] = [];
 
   for (const entry of entries.entries) {
-    // Mapping only "message" entries dropped agent flow transcripts (custom
-    // messages) from reopened sessions.
     for (const message of entryToHistoryMessages(entry)) {
       const translated = translator.translateHistoryMessage(message);
       events.push(

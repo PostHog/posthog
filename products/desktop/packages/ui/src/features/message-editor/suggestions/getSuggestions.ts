@@ -131,8 +131,6 @@ export function getCommandSuggestions(
   const codeCommands = supportsSideQuestion
     ? CODE_COMMANDS
     : CODE_COMMANDS.filter((cmd) => cmd.name !== BTW_COMMAND_NAME);
-  // Flow-skill commands only run on the Pi runtime; a Claude or Codex
-  // session can read the skill but cannot execute the flow.
   const gated = mergeCommands(codeCommands, agentCommands).map(
     (cmd: EditorAvailableCommand) =>
       cmd.piOnly &&

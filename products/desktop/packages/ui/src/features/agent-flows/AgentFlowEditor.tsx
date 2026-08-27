@@ -14,6 +14,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   Select,
@@ -124,7 +125,6 @@ export function AgentFlowEditor({
   initialName: string;
   initialRoles: AgentFlowRole[];
   saving?: boolean;
-  /** Skill-level menu entries (publish, open files, delete). */
   menuItems?: ReactNode;
   onSave: (flow: AgentFlowDefinition) => void;
   onClose: () => void;
@@ -167,7 +167,6 @@ export function AgentFlowEditor({
       }
     : null;
 
-  // Compares the saved fields only: the flow record also carries its path.
   const flowKey = (value: AgentFlowDefinition) =>
     JSON.stringify({ name: value.name.trim(), steps: value.steps });
   const isDirty =
@@ -244,6 +243,26 @@ export function AgentFlowEditor({
             }
           />
           <DropdownMenuContent align="end" className="min-w-[200px]">
+            {flow ? null : (
+              <>
+                <DropdownMenuLabel>Start from a preset</DropdownMenuLabel>
+                {FLOW_PRESETS.map((preset) => (
+                  <DropdownMenuItem
+                    key={preset.name}
+                    onClick={() => {
+                      setName(preset.name);
+                      setSteps(
+                        initialSteps(undefined, preset.roles, defaultModel),
+                      );
+                    }}
+                  >
+                    {preset.name}
+                    <FlowRoleDots roles={preset.roles} />
+                  </DropdownMenuItem>
+                ))}
+                <DropdownMenuSeparator />
+              </>
+            )}
             <DropdownMenuItem
               onClick={() => setView(view === "code" ? "design" : "code")}
             >
@@ -273,29 +292,6 @@ export function AgentFlowEditor({
             backgroundSize: "16px 16px",
           }}
         >
-          {flow ? null : (
-            <div className="mb-3 flex flex-col gap-1">
-              {FLOW_PRESETS.map((preset) => (
-                <button
-                  key={preset.name}
-                  type="button"
-                  className="flex items-center gap-2 rounded-lg border border-gray-5 bg-gray-1 px-2.5 py-1.5 text-left transition-colors hover:border-gray-7 hover:bg-gray-2"
-                  onClick={() => {
-                    setName(preset.name);
-                    setSteps(
-                      initialSteps(undefined, preset.roles, defaultModel),
-                    );
-                  }}
-                >
-                  <FlowRoleDots roles={preset.roles} />
-                  <span className="min-w-0 flex-1 truncate text-[12px] text-gray-11">
-                    {preset.name}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-
           {steps.map((step, stepIndex) => {
             const selectedModel = models.find(
               (model) => model.id === step.modelId,

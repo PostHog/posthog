@@ -72,7 +72,6 @@ export interface PromptInputProps {
   // capabilities
   enableBashMode?: boolean;
   enableCommands?: boolean;
-  /** The runtime the composed prompt will run on; gates Pi-only commands like flows. */
   runtime?: string;
   // toolbar slots
   modelSelector?: React.ReactElement | null | false;

@@ -26,7 +26,6 @@ export interface FlowEditorState {
   roles: AgentFlowRole[];
 }
 
-/** The flow editor in the Skills page right sidebar, like the skill detail panel. */
 export function FlowEditorPanel({
   state,
   models,

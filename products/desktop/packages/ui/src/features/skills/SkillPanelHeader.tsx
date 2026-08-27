@@ -8,7 +8,6 @@ import {
 import type { ReactNode } from "react";
 import { InlineEdit } from "./InlineEdit";
 
-/** The one chip style used by every skill panel and list row. */
 export function SkillChip({
   children,
   tone = "neutral",
@@ -30,21 +29,14 @@ export function SkillChip({
 interface SkillPanelHeaderProps {
   name: string;
   description?: string;
-  /** Set to edit the name and the description in place. */
   onEdit?: (fields: { name?: string; description?: string }) => void;
   saving?: boolean;
-  /** Small chips under the description. */
   badges?: ReactNode;
-  /** Buttons shown before the menu. */
   actions?: ReactNode;
   menuItems?: ReactNode;
   onClose: () => void;
 }
 
-/**
- * One header for every skill sidebar. Every block starts on the panel's left
- * edge, so the title, the description, the chips and the body share one line.
- */
 export function SkillPanelHeader({
   name,
   description,

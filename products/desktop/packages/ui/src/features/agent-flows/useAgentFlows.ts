@@ -15,11 +15,6 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 
-/**
- * A saved flow is a user skill directory holding a flow.json. The desktop
- * runner executes flow.json deterministically; agent harnesses (pi included)
- * discover the same directory as a normal skill.
- */
 export interface AgentFlowRecord extends AgentFlowDefinition {
   skillPath: string;
 }

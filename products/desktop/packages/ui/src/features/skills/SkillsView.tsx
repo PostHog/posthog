@@ -103,7 +103,6 @@ export function SkillsView() {
   );
 
   const { data: teamListing, isLoading: teamLoading } = useTeamSkills(skills);
-  // Warm the marketplace list while you read the installed one.
   useMarketplacePopular(true);
   const teamAvailable = teamListing?.available ?? false;
   // Team access revoked mid-session: fall back to Installed.
@@ -244,8 +243,6 @@ export function SkillsView() {
     0,
   );
 
-  // Arrow keys walk the visible rows and open each one in the sidebar; "/"
-  // jumps to search, the way a long list is normally driven.
   useEffect(() => {
     if (activeTab !== "installed") return;
     const onKeyDown = (event: KeyboardEvent) => {

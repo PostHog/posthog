@@ -90,10 +90,8 @@ export function SkillDetailPanel({
   const files = contents?.files ?? [];
   const isSkillMd = selectedFile === "SKILL.md";
   const body = isSkillMd && fileContent ? stripFrontmatter(fileContent) : null;
-  // Any markdown file reads better rendered; the editor is one click away.
   const isMarkdown = selectedFile.toLowerCase().endsWith(".md");
   const preview = isSkillMd ? body : fileContent;
-  // The manifest write replaces the whole file, so it needs the current body.
   const canEditManifest = skill.editable && body !== null && !isEditing;
 
   const writeManifest = async (fields: {

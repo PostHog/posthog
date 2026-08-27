@@ -125,21 +125,12 @@ const AGENT_FLOW_STOP_REASONS: Partial<Record<AgentFlowMessageStatus, string>> =
     failed: "error",
   };
 
-/** Open step card per flow id, so a terminal message can close it. */
 type FlowStepCards = Map<string, string>;
 
-/** Assistant text accumulated on a running step card, replaced by the
- * handoff when the step finishes. */
 type FlowStepCardText = Map<string, string>;
 
 const STEP_CARD_TEXT_CAP = 4_000;
 
-/**
- * Live work of an in-process flow step: its tool calls render as children of
- * the step card, and its interim text streams into the card body. These
- * events are display-only — they are not persisted, so reopened sessions
- * show the step's final handoff instead.
- */
 function flowStepStreamEvents(
   payload: AgentFlowStepStreamEvent,
   cardText: FlowStepCardText,
@@ -179,8 +170,6 @@ function flowStepStreamEvents(
   }
 
   if (stepEvent.kind === "tool_end") {
-    // Edit/write children already carry their diff from tool_start; a text
-    // preview here would replace it.
     const keepsDiff =
       stepEvent.toolName === "edit" || stepEvent.toolName === "write";
     return [
@@ -235,13 +224,6 @@ function agentFlowDetails(
   return details.success ? details.data : undefined;
 }
 
-/**
- * Renders flow steps as native tool-call cards: step_started opens a card,
- * step_finished completes it with the handoff inside, and a terminal flow
- * message fails any card still open. Flows run outside the main agent loop,
- * so no agent_settled ends their turn; the terminal flow message is the turn
- * boundary instead — without it the session would stay streaming forever.
- */
 function agentFlowEvents(
   timestamp: number,
   text: string,
@@ -313,8 +295,6 @@ function agentFlowEvents(
         },
       },
     ];
-    // The step's prompt renders as the first child row, same shape as the
-    // step's tool calls: a collapsed row that expands on click.
     if (details.stepPrompt) {
       cardEvents.push({
         type: "tool_call_started",

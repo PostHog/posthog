@@ -1,12 +1,3 @@
-/**
- * Runs a saved agent flow (an ordered sequence of role-based subagent steps)
- * inside a pi session. The `agent-flow-run` command validates its payload and
- * returns immediately; the flow itself executes in the background so the
- * initial prompt RPC resolves within pi's 30s response timeout instead of
- * blocking for the whole run. Progress streams to the session as
- * `posthog-agent-flow` custom messages, which the desktop translator turns
- * into chat output and turn-completion signals.
- */
 import {
   defineTool,
   type ExtensionAPI,
@@ -54,7 +45,6 @@ interface ActiveFlow {
   flow: AgentFlowDefinition;
   controller: AbortController;
   pendingGuidance: string[];
-  /** Steers the step that is running right now, when one is. */
   steerCurrentStep: ((text: string) => void) | null;
   currentStepName: string | null;
   pendingApprovals: Map<string, (response: ApprovalResponse) => void>;
@@ -62,9 +52,7 @@ interface ActiveFlow {
 }
 
 export interface AgentFlowExtensionOptions {
-  /** Test seam: replaces the in-process step runner. */
   runStep?: RunStepFn;
-  /** Test seam: replaces the on-disk flow skill lookup. */
   findFlow?: typeof findFlowSkill;
   listFlows?: typeof listFlowSkills;
 }
@@ -76,8 +64,6 @@ function flowMessage(
 ): SendMessageInput {
   return {
     customType: AGENT_FLOW_MESSAGE_TYPE,
-    // Consecutive custom messages merge into one chat bubble downstream, so
-    // every message carries its own paragraph separator.
     content: `${content}\n\n`,
     display: true,
     details: { flowId: flow.id, flowName: flow.name, ...details },
@@ -87,8 +73,6 @@ function flowMessage(
 const CHANNEL_CONTEXT_PATTERN = /<channel_context[\s\S]*?<\/channel_context>/g;
 
 function quoted(text: string, cap: number): string {
-  // The task creation saga appends a machine-facing channel-context block to
-  // the prompt; keep it out of the quote a person reads.
   const trimmed = text.replace(CHANNEL_CONTEXT_PATTERN, "").trim();
   const capped = trimmed.length > cap ? `${trimmed.slice(0, cap)}…` : trimmed;
   return capped
@@ -104,7 +88,6 @@ function formatDuration(ms: number): string {
   return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
 }
 
-/** The last <handoff> block wins; without one, the whole output is the handoff. */
 export function extractHandoff(output: string): string {
   let last: string | undefined;
   for (const match of output.matchAll(HANDOFF_PATTERN)) {
@@ -361,9 +344,6 @@ export function createAgentFlowExtension(
       setFlowInputRouter(null);
     });
 
-    // "steer" reaches the running step now; "followUp" waits for the next
-    // step. Prompts land here through the input event; steer/follow-up
-    // commands land through the rpc host's flow-input router.
     const routeFlowInput = (text: string, mode: "steer" | "followUp") => {
       if (!active) return false;
       const steer = mode === "steer" ? active.steerCurrentStep : null;
@@ -464,9 +444,7 @@ export function createAgentFlowExtension(
 
       pi.sendMessage(startMessage(flow, prompt));
 
-      // Intentionally not awaited: the caller (a command handler or a tool
-      // call) must return before pi acknowledges its RPC; the flow executes
-      // in the background and reports through custom messages.
+      // Not awaited: the flow runs in the background so the RPC resolves first.
       void executeFlow({
         pi,
         ctx,

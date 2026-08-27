@@ -13,10 +13,6 @@ interface SkillManifestEditorProps {
   onSaved: () => void;
 }
 
-/**
- * Edit mode for SKILL.md. The name, the description and the invocation mode
- * are edited in the panel header, so this is the body only.
- */
 export function SkillManifestEditor({
   skill,
   initialBody,

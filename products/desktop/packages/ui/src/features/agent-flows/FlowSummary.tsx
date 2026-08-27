@@ -1,7 +1,6 @@
 import type { AgentFlowDefinition } from "@posthog/shared";
 import { AGENT_FLOW_EFFORT_LABELS, AGENT_FLOW_ROLE_META } from "./roleMeta";
 
-/** Read-only view of a saved flow: the same step chain, without the controls. */
 export function FlowSummary({ flow }: { flow: AgentFlowDefinition }) {
   return (
     <div
