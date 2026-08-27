@@ -538,13 +538,13 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
 
-    @patch("posthoganalytics.capture")
-    def test_send_email_verification_code(self, mock_capture: MagicMock, MockEmailMessage: MagicMock) -> None:
+    @patch("posthog.tasks.email.ph_scoped_capture")
+    def test_send_email_verification_code(self, mock_scoped_capture: MagicMock, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
         send_email_verification_code(user.id, "123456")
 
-        mock_capture.assert_called_once_with(
+        mock_scoped_capture.return_value.__enter__.return_value.assert_called_once_with(
             event="verification code sent",
             distinct_id=user.distinct_id,
             groups={"organization": str(user.current_organization_id)},
