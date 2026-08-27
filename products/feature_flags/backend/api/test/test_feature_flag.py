@@ -70,6 +70,7 @@ from products.feature_flags.backend.encrypted_flag_payloads import (
 from products.feature_flags.backend.flag_status import FeatureFlagStatus
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
 from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
+from products.feature_flags.backend.test.replay_gate_fixtures import set_linked_flag, set_trigger_groups, trigger_groups
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius, get_user_blast_radius_persons
 from products.product_analytics.backend.facade.models import Insight
 from products.product_tours.backend.models import ProductTour
@@ -4187,6 +4188,50 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             response.json()["detail"]
             == "This feature flag is used in session replay settings. Please remove it from replay settings before deleting."
         )
+
+    @parameterized.expand(["string_form", "object_form", "object_form_with_a_stale_key"])
+    def test_soft_delete_blocked_when_a_replay_trigger_group_gates_on_the_flag(self, stored_shape: str) -> None:
+        # A trigger group stores `conditions.flag` as either a bare key or an object, and the guard
+        # reaches each through a different half of the scanned gate: a bare key matches on key, an
+        # object on id. The stale case names the flag by id alone, so deleting it would take away
+        # the only record of what the key meant and the repair command could no longer fix it.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-flag")
+        stored_by_shape: dict[str, Any] = {
+            "string_form": flag.key,
+            "object_form": {"id": flag.id, "key": flag.key, "variant": "test"},
+            "object_form_with_a_stale_key": {"id": flag.id, "key": "what-it-used-to-be"},
+        }
+        stored_flag: Any = stored_by_shape[stored_shape]
+        set_trigger_groups(self.team, {"flag": stored_flag})
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
+
+        assert response.status_code == 400
+        assert (
+            response.json()["detail"]
+            == "This feature flag is used in session replay settings. Please remove it from replay settings before deleting."
+        )
+
+    @parameterized.expand(
+        [
+            ("key_only_appears_in_events", {"events": ["replay-flag"]}),
+            ("another_flag_whose_key_starts_the_same", {"flag": "replay-flag-v2"}),
+            ("group_gates_on_no_flag_at_all", {"urls": [{"url": "/checkout", "matching": "regex"}]}),
+        ]
+    )
+    def test_soft_delete_allowed_when_no_replay_trigger_group_gates_on_the_flag(
+        self, _name: str, conditions: dict[str, Any]
+    ) -> None:
+        # The probes have to reach `conditions.flag` exactly. A looser match would make flags that
+        # merely share a prefix, or appear elsewhere in the group, permanently undeletable.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-flag")
+        set_trigger_groups(self.team, conditions)
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
+
+        assert response.status_code == 200, response.content
+        flag.refresh_from_db()
+        assert flag.deleted is True
 
     def test_is_used_in_replay_settings_serializer_field(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-flag")
@@ -12692,31 +12737,35 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         # Key is freed up for reuse
         assert flag.key == f"stopped_experiment_flag:deleted:{flag.id}"
 
-    def test_bulk_delete_blocks_a_flag_used_in_session_replay(self):
-        # bulk_delete bypasses the serializer, so it needs its own replay guard; without one,
-        # this delete would silently stop the linking team's recording.
-        linked_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay_gate")
-        unlinked_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="unrelated")
-        self.team.session_recording_linked_flag = {"id": linked_flag.id, "key": "replay_gate"}
-        self.team.save()
+    @parameterized.expand(["linked_flag", "trigger_group"])
+    def test_bulk_delete_blocks_a_flag_gating_session_replay(self, stored_in: str):
+        # Deleting a flag a team gates recording on stops that team recording, and bulk_delete
+        # writes through bulk_update, so no signal fires to relink them. The batch gate matches a
+        # linked flag by id and a trigger group by key, since a group usually stores a bare key
+        # carrying no id, so both columns are exercised.
+        gated_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay_gate")
+        unrelated_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="unrelated")
+        if stored_in == "linked_flag":
+            set_linked_flag(self.team, {"id": gated_flag.id, "key": "replay_gate"})
+        else:
+            set_trigger_groups(self.team, {"flag": "replay_gate"})
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
-            {"ids": [linked_flag.id, unlinked_flag.id]},
+            {"ids": [gated_flag.id, unrelated_flag.id]},
         )
 
         assert response.status_code == 200
         data = response.json()
-        # The rest of the batch still deletes, so one linked flag does not block the whole call.
-        assert {d["id"] for d in data["deleted"]} == {unlinked_flag.id}
-        assert len(data["errors"]) == 1
-        assert data["errors"][0]["id"] == linked_flag.id
+        # The rest of the batch still deletes, so one gated flag does not block the whole call.
+        assert {d["id"] for d in data["deleted"]} == {unrelated_flag.id}
+        assert [e["id"] for e in data["errors"]] == [gated_flag.id]
         assert "session replay settings" in data["errors"][0]["reason"]
 
-        linked_flag.refresh_from_db()
-        unlinked_flag.refresh_from_db()
-        assert linked_flag.deleted is False
-        assert unlinked_flag.deleted is True
+        gated_flag.refresh_from_db()
+        unrelated_flag.refresh_from_db()
+        assert gated_flag.deleted is False
+        assert unrelated_flag.deleted is True
 
     def test_bulk_delete_blocks_a_flag_a_sibling_team_links(self):
         # Replay links are project-scoped: a team can gate recording on a flag owned by a sibling
@@ -12768,6 +12817,27 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         assert data["errors"] == []
         flag.refresh_from_db()
         assert flag.deleted is True
+
+    @parameterized.expand([("same_project", True, False), ("other_project", False, True)])
+    def test_bulk_delete_gate_reaches_trigger_groups_within_the_project_only(
+        self, _name: str, same_project: bool, expect_deleted: bool
+    ) -> None:
+        # Trigger groups match by key, and keys are unique only within a project, so an unscoped
+        # scan would refuse to delete a flag that a different project happens to share a key with.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay_gate")
+        gating_team = Team.objects.create(
+            organization=self.organization, **({"project": self.team.project} if same_project else {})
+        )
+        set_trigger_groups(gating_team, {"flag": "replay_gate"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"ids": [flag.id]},
+        )
+
+        assert response.status_code == 200
+        flag.refresh_from_db()
+        assert flag.deleted is expect_deleted
 
     def test_bulk_delete_requires_filters_or_ids(self):
         """Test validation error when neither filters nor ids provided."""
@@ -14471,10 +14541,6 @@ class TestFeatureFlagFiltersMetrics(APIBaseTest):
 
 
 class TestFeatureFlagReplayLinkFollowsRename(APIBaseTest):
-    def _link_flag(self, team: Team, linked_flag: dict[str, Any]) -> None:
-        team.session_recording_linked_flag = linked_flag
-        team.save()
-
     def _rename(self, flag: FeatureFlag, new_key: str) -> Response:
         # The relink runs on transaction commit, which a TestCase never reaches on its own.
         with self.captureOnCommitCallbacks(execute=True):
@@ -14484,7 +14550,7 @@ class TestFeatureFlagReplayLinkFollowsRename(APIBaseTest):
         # A rename from the Django admin or a shell never reaches FeatureFlagSerializer, so the
         # relink hangs off the model signal instead.
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
-        self._link_flag(self.team, {"id": flag.id, "key": "replay-gate"})
+        set_linked_flag(self.team, {"id": flag.id, "key": "replay-gate"})
 
         flag.key = "replay-gate-v2"
         with self.captureOnCommitCallbacks(execute=True):
@@ -14503,7 +14569,7 @@ class TestFeatureFlagReplayLinkFollowsRename(APIBaseTest):
         linking_team = Team.objects.create(
             organization=self.organization, **({"project": self.team.project} if same_project else {})
         )
-        self._link_flag(linking_team, {"id": flag.id, "key": "replay-gate"})
+        set_linked_flag(linking_team, {"id": flag.id, "key": "replay-gate"})
 
         response = self._rename(flag, "replay-gate-v2")
 
@@ -14513,7 +14579,7 @@ class TestFeatureFlagReplayLinkFollowsRename(APIBaseTest):
 
     def test_rename_rewrites_stored_key_for_the_flags_own_team_and_keeps_the_variant(self) -> None:
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
-        self._link_flag(self.team, {"id": flag.id, "key": "replay-gate", "variant": "control"})
+        set_linked_flag(self.team, {"id": flag.id, "key": "replay-gate", "variant": "control"})
 
         response = self._rename(flag, "replay-gate-v2")
 
@@ -14531,14 +14597,16 @@ class TestFeatureFlagReplayLinkFollowsRename(APIBaseTest):
         # team that gates recording on the same flag only gets a fresh SDK payload if we save it.
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
         sibling_team = Team.objects.create(organization=self.organization, project=self.team.project)
-        self._link_flag(sibling_team, {"id": flag.id, "key": "replay-gate"})
+        set_linked_flag(sibling_team, {"id": flag.id, "key": "replay-gate"})
 
         response = self._rename(flag, "replay-gate-v2")
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert sibling_team.id in {call.args[0] for call in mock_refresh.call_args_list}
 
-    @parameterized.expand([("stored_key_already_matches",), ("links_a_different_flag",)])
+    @parameterized.expand(
+        [("stored_key_already_matches",), ("links_a_different_flag",), ("group_names_the_flag_by_id_only",)]
+    )
     @patch("posthog.models.remote_config._update_team_remote_config")
     def test_rename_does_not_save_teams_it_has_nothing_to_change(self, scope: str, mock_refresh: MagicMock) -> None:
         # Every team save enqueues a RemoteConfig sync, so a rewrite that changes nothing costs a
@@ -14546,17 +14614,23 @@ class TestFeatureFlagReplayLinkFollowsRename(APIBaseTest):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
         sibling_team = Team.objects.create(organization=self.organization, project=self.team.project)
         if scope == "stored_key_already_matches":
-            self._link_flag(sibling_team, {"id": flag.id, "key": "replay-gate-v2"})
+            set_linked_flag(sibling_team, {"id": flag.id, "key": "replay-gate-v2"})
+        elif scope == "group_names_the_flag_by_id_only":
+            # The id probe selects this team, but the key being renamed is not the one it holds.
+            # Moving it would gate the team on a key it never stored; the repair command owns it.
+            set_trigger_groups(sibling_team, {"flag": {"id": flag.id, "key": "long-gone"}})
         else:
             other_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="other-gate")
-            self._link_flag(sibling_team, {"id": other_flag.id, "key": "other-gate"})
+            set_linked_flag(sibling_team, {"id": other_flag.id, "key": "other-gate"})
         linked_flag_before = sibling_team.session_recording_linked_flag
+        trigger_groups_before = sibling_team.session_recording_trigger_groups
 
         response = self._rename(flag, "replay-gate-v2")
 
         assert response.status_code == status.HTTP_200_OK, response.content
         sibling_team.refresh_from_db()
         assert sibling_team.session_recording_linked_flag == linked_flag_before
+        assert sibling_team.session_recording_trigger_groups == trigger_groups_before
         assert sibling_team.id not in {call.args[0] for call in mock_refresh.call_args_list}
 
     def test_rename_still_relinks_teams_while_the_activity_signal_is_muted(self) -> None:
@@ -14564,7 +14638,7 @@ class TestFeatureFlagReplayLinkFollowsRename(APIBaseTest):
         # signal thousands of times would be wasteful, but it silences every @mutable_receiver
         # indiscriminately. Muting the audit log must not also stop teams recording sessions.
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
-        self._link_flag(self.team, {"id": flag.id, "key": "replay-gate"})
+        set_linked_flag(self.team, {"id": flag.id, "key": "replay-gate"})
 
         with self.captureOnCommitCallbacks(execute=True):
             with mute_selected_signals():
@@ -14583,7 +14657,7 @@ class TestFeatureFlagReplayLinkFollowsRename(APIBaseTest):
         # path frees the key inside the update transaction, where the tombstone and the claiming
         # flag each schedule their own relink, so it needs its own coverage.
         old_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate", deleted=True)
-        self._link_flag(self.team, {"id": old_flag.id, "key": "replay-gate"})
+        set_linked_flag(self.team, {"id": old_flag.id, "key": "replay-gate"})
 
         with self.captureOnCommitCallbacks(execute=True):
             if mode == "create":
@@ -14603,3 +14677,79 @@ class TestFeatureFlagReplayLinkFollowsRename(APIBaseTest):
         assert old_flag.key == f"replay-gate:deleted:{old_flag.id}"
         self.team.refresh_from_db()
         assert self.team.session_recording_linked_flag == {"id": old_flag.id, "key": old_flag.key}
+
+    @parameterized.expand(["string_form", "object_form"])
+    def test_rename_rewrites_a_trigger_group_reference_in_its_stored_shape(self, stored_shape: str) -> None:
+        # An object reference carries an id and a variant that the SDK payload still needs, so the
+        # rewrite has to move the key and leave the shape it was stored in alone.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        as_string = stored_shape == "string_form"
+        stored_flag: Any = "replay-gate" if as_string else {"id": flag.id, "key": "replay-gate", "variant": "control"}
+        set_trigger_groups(self.team, {"flag": stored_flag})
+
+        response = self._rename(flag, "replay-gate-v2")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        self.team.refresh_from_db()
+        expected: Any = (
+            "replay-gate-v2" if as_string else {"id": flag.id, "key": "replay-gate-v2", "variant": "control"}
+        )
+        assert self.team.session_recording_trigger_groups["groups"][0]["conditions"]["flag"] == expected
+
+    def test_rename_rewrites_only_the_group_that_names_the_flag(self) -> None:
+        # RemoteConfig ships every group to the SDK, so a group the rename does not name — and the
+        # rest of the named group — has to survive byte for byte.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        set_trigger_groups(
+            self.team,
+            {"events": ["$pageview"]},
+            {"flag": "another-gate"},
+            {"flag": "replay-gate", "minDurationMs": 5000},
+        )
+        groups_before = self.team.session_recording_trigger_groups["groups"]
+
+        response = self._rename(flag, "replay-gate-v2")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        self.team.refresh_from_db()
+        assert self.team.session_recording_trigger_groups["groups"] == [
+            groups_before[0],
+            groups_before[1],
+            {**groups_before[2], "conditions": {**groups_before[2]["conditions"], "flag": "replay-gate-v2"}},
+        ]
+
+    def test_rename_leaves_a_linked_flag_naming_a_different_flag_alone(self) -> None:
+        # The team is reached through its trigger group, but its linked flag names another flag.
+        # Rewriting that too would gate the team's recording on a key that flag never had.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        other_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="other-gate")
+        self.team.session_recording_linked_flag = {"id": other_flag.id, "key": "other-gate"}
+        set_trigger_groups(self.team, {"flag": "replay-gate"})
+
+        response = self._rename(flag, "replay-gate-v2")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        self.team.refresh_from_db()
+        assert self.team.session_recording_linked_flag == {"id": other_flag.id, "key": "other-gate"}
+        assert self.team.session_recording_trigger_groups["groups"][0]["conditions"]["flag"] == "replay-gate-v2"
+
+    @patch("posthog.models.remote_config._update_team_remote_config")
+    def test_rename_saves_a_team_holding_both_kinds_of_reference_once(self, mock_refresh: MagicMock) -> None:
+        # Every save queues a RemoteConfig rebuild, so rewriting the two columns in separate saves
+        # would bill the team twice for one rename.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        sibling_team = Team.objects.create(organization=self.organization, project=self.team.project)
+        sibling_team.session_recording_linked_flag = {"id": flag.id, "key": "replay-gate"}
+        sibling_team.session_recording_trigger_groups = trigger_groups({"flag": "replay-gate"})
+        # Drained here so the setup's own rebuild doesn't land inside the rename's capture block.
+        with self.captureOnCommitCallbacks(execute=True):
+            sibling_team.save()
+        mock_refresh.reset_mock()
+
+        response = self._rename(flag, "replay-gate-v2")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [call.args[0] for call in mock_refresh.call_args_list].count(sibling_team.id) == 1
+        sibling_team.refresh_from_db()
+        assert sibling_team.session_recording_linked_flag == {"id": flag.id, "key": "replay-gate-v2"}
+        assert sibling_team.session_recording_trigger_groups["groups"][0]["conditions"]["flag"] == "replay-gate-v2"

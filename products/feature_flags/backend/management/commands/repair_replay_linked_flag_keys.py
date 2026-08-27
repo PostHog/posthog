@@ -25,7 +25,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.feature_flags.backend.session_recording_links import linked_flag_id, update_linked_flag_key
+from products.feature_flags.backend.session_recording_links import stored_flag_id, update_linked_flag_key
 
 
 class Outcome(StrEnum):
@@ -108,7 +108,7 @@ class Command(BaseCommand):
 
     def _load_flags(self, teams: list[Team]) -> dict[int, _FlagRow]:
         flag_ids = {
-            flag_id for team in teams if (flag_id := linked_flag_id(team.session_recording_linked_flag)) is not None
+            flag_id for team in teams if (flag_id := stored_flag_id(team.session_recording_linked_flag)) is not None
         }
         if not flag_ids:
             return {}
@@ -126,7 +126,7 @@ class Command(BaseCommand):
         linked_flag = team.session_recording_linked_flag
         detail: dict[str, Any] = {"team_id": team.id, "project_id": team.project_id, "linked_flag": linked_flag}
 
-        stored_id = linked_flag_id(linked_flag)
+        stored_id = stored_flag_id(linked_flag)
         if stored_id is None:
             return Outcome.MALFORMED, detail
 
