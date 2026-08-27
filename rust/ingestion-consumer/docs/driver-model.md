@@ -2,9 +2,9 @@
 
 Status: **draft, for discussion** — nothing here is implemented.
 
-This doc proposes a restructuring of the ingestion consumer around components shaped like its invariants (partitions and routing keys) instead of around the Kafka batch. It is written against the code as of the gRPC-lanes work (#85238); the mechanisms it discusses are those in `consumer.rs`, `dispatcher.rs`, `stash.rs`, `transport.rs`, and `grpc_transport.rs`. It is a companion to the elastic-dispatch plan (target-sized worker batches, demand-proportional concurrency, one-signal processor autoscaling): the redesign is the shape in which those goals stop needing a controller at all.
+This doc proposes a restructuring of the ingestion consumer around components shaped like its invariants (partitions and routing keys) instead of around the Kafka batch. It is written against the code as of the gRPC worker-stream work (#85238, since merged); the mechanisms it discusses are those in `consumer.rs`, `dispatcher.rs`, `stash.rs`, `transport.rs`, and `grpc_transport.rs`. Terms are used as defined in §8 (Nomenclature); §2 keeps the names the code has today. It is a companion to the elastic-dispatch plan (target-sized worker batches, demand-proportional concurrency, one-signal worker autoscaling): the redesign is the shape in which those goals stop needing a controller at all.
 
-The argument, in one paragraph: the consumer enforces two invariants — per-key send order and per-partition contiguous commits — but its unit of everything (ownership, completion, commit, flush pacing, concurrency) is the Kafka batch, which appears in neither invariant. Bridging that mismatch is what the stash, the deferral rules, the eager-flush ledgers, the lane fences, and the oldest-first completion serialization are for. Re-founding the consumer on partition- and key-shaped components makes most of that machinery either disappear or shrink to a local rule, and yields the elastic-dispatch scaling behavior as a side effect of the structure rather than as a feedback loop bolted on top.
+The argument, in one paragraph: the consumer enforces two invariants — per-key send order and per-partition contiguous commits — but its unit of everything (ownership, completion, commit, flush pacing, concurrency) is the Kafka batch, which appears in neither invariant. Bridging that mismatch is what the stash, the deferral rules, the eager-flush accounting, the worker-stream fences, and the oldest-first completion serialization are for. Re-founding the consumer on partition- and key-shaped components makes most of that machinery either disappear or shrink to a local rule, and yields the elastic-dispatch scaling behavior as a side effect of the structure rather than as a feedback loop bolted on top.
 
 ## 1. The two invariants
 
@@ -29,7 +29,7 @@ An index, then a subsection per construct. Each subsection states the problem, t
 | 2.5 | Stash / deferral | order across worker drain, death, unroutability |
 | 2.6 | Completion-time flush | draining the stash; commit gate; stall watchdog |
 | 2.7 | Eager deferred flush | breaking the hot-key deferral cascade |
-| 2.8 | gRPC lanes, ledger, fences | feed order on the wire; failure atomicity |
+| 2.8 | gRPC worker streams, ledger, fences | feed order on the wire; failure atomicity |
 | 2.9 | Transport retry / 503 handling | transient faults vs deliberate backpressure |
 | 2.10 | Body splitting + 413 handling | worker body limits without reordering |
 | 2.11 | Worker registry | health, drains, dead workers, discovery |
@@ -38,9 +38,9 @@ An index, then a subsection per construct. Each subsection states the problem, t
 
 ### 2.1 Batch collection and the in-flight window
 
-The loop collects up to `CONSUMER_BATCH_SIZE` messages (or `CONSUMER_BATCH_SIZE_KB`, or `CONSUMER_BATCH_TIMEOUT_MS`) into a batch, and runs at most `CONSUMER_MAX_BACKGROUND_TASKS` batches concurrently. The window bounds uncommitted work — the crash-replay exposure — and is the *only* source of dispatch concurrency.
+The loop collects up to `CONSUMER_BATCH_SIZE` messages (or `CONSUMER_BATCH_SIZE_KB`, or `CONSUMER_BATCH_TIMEOUT_MS`) into a batch, and runs at most `CONSUMER_MAX_BACKGROUND_TASKS` batches concurrently — the **in-flight window** (the field is `max_in_flight_batches`; one *slot* below means one in-flight batch). The in-flight window bounds uncommitted work — the crash-replay exposure — and is the *only* source of dispatch concurrency.
 
-**Cost:** concurrency is a fixed constant. Per-pod throughput is capped at `slots × batch / round-trip` regardless of backlog depth, and the consumer spends its wall time awaiting ACKs at low CPU — which blinds a CPU-based HPA and starves the processor pool's in-flight-based HPA at the same time : a deep backlog can sit for hours with both autoscalers reading "idle", until an operator raises `minPods` by hand. The batch is also the unit of *ownership*: every downstream mechanism (stash entries, flush loops, eager ledgers) is keyed by which batch a message arrived in, a fact neither invariant cares about.
+**Cost:** concurrency is a fixed constant. Per-pod throughput is capped at `slots × batch / round-trip` regardless of backlog depth, and the consumer spends its wall time awaiting ACKs at low CPU — which blinds a CPU-based HPA and starves the worker pool's in-flight-based HPA at the same time: a deep backlog can sit for hours with both autoscalers reading "idle", until an operator raises `minPods` by hand. The batch is also the unit of *ownership*: every downstream mechanism (stash entries, flush loops, eager accounting) is keyed by which batch a message arrived in, a fact neither invariant cares about.
 
 ### 2.2 Oldest-first completion and commit
 
@@ -62,7 +62,7 @@ While a key has sends in flight, it is pinned to one worker with a ref-count (`P
 
 ### 2.5 The stash (deferral)
 
-When a key can't be sent — pinned to a draining/dead worker, or the whole pool unroutable — its group is *stashed* rather than re-routed, because its earlier messages are still in flight and re-routing would reorder the key. Critically, once a key defers once, **every newer group for it must also defer** (the cascade rule), or it would race ahead of the stashed ones. The stash orders a key's entries by batch *sequence* (registered on the consumer loop, because deferrals can arrive out of batch order), keeps per-batch live counts (so batches can complete), and per-key outstanding counts (which stay elevated from `defer` until the flushed group actually *lands*, closing the window where a flushed-but-unACKed group could be raced).
+When a key can't be sent — pinned to a draining/dead worker, or the whole pool unroutable — its group is *stashed* rather than re-routed, because its earlier messages are still in flight and re-routing would reorder the key. Critically, once a key defers once, **every newer group for it must also defer** (the cascade rule), or it would race ahead of the stashed ones. The stash orders a key's entries by batch *sequence* (registered on the consumer loop, because deferrals can arrive out of batch order), keeps per-batch live counts (so batches can complete), and per-key outstanding counts (which stay elevated from `defer` until the flushed group actually *lands*, closing the race window where a flushed-but-unACKed group could be overtaken — this is why `is_deferring` answers *does this key have unlanded work*, not *is anything physically stashed*).
 
 **Cost:** the stash is a second queue system living beside the primary send path, with its own ordering key (batch sequence), its own occupancy accounting, and subtle state ("outstanding" ≠ "physically stashed"). All of it is per-key queueing — expressed batch-scoped.
 
@@ -74,19 +74,19 @@ When a key can't be sent — pinned to a draining/dead worker, or the whole pool
 
 ### 2.7 Eager deferred flush
 
-`DISPATCHER_EAGER_DEFERRED_FLUSH` (default off) attacks 2.6's pacing problem: the moment the send blocking a key resolves (pin ref-count zero, stash non-empty, send succeeded), the dispatcher pops the key's *oldest* stashed group, re-routes it, and hands it to a sidecar task to send. Each ACK releases the next group — the chain drains at ACK round-trip speed instead of completion speed, which is what lets a hot key actually catch up and exit deferral.
+`DISPATCHER_EAGER_DEFERRED_FLUSH` (default off) attacks 2.6's pacing problem: the moment the send blocking a key resolves (pin ref-count zero, stash non-empty, send succeeded), the dispatcher pops the key's *oldest* stashed group, re-routes it, and hands it to the eager-flush task to send. Each ACK releases the next group — the chain drains at ACK round-trip speed instead of completion speed, which is what lets a hot key actually catch up and exit deferral.
 
 **Cost:** a second drain path over the same stash, reconciled with the first through dedicated glue: `eager_pending` (batches can't commit with eager sends in flight), `eager_accepted` / `take_eager_accepted` (acceptances credited across paths), stall-deadline resets on eager progress, and `send_failed` suppression so a flapping worker doesn't tight-loop between the paths. Every subtle interaction in the dispatcher today lives at this seam. The eager path is the *correct* drain model — the completion path is what forces it to be an add-on rather than the design.
 
-### 2.8 gRPC lanes, the ledger, and fences (#85238)
+### 2.8 gRPC worker streams, the ledger, and fences (#85238)
 
-One ordered stream per worker: enqueue order is send order is the worker's feed order — the per-key guarantee concurrent HTTP requests can't give, which is why `begin_send` must be called synchronously where send order is decided (the consumer loop, the serialized flush paths, the eager loop's receive-order). The lane's ledger resolves ACKs only as a consecutive prefix (a later send must not release its keys while an earlier one can still fail), and a failure **fences the whole lane**: every queued and un-ACKed item is resolved in order with its messages handed back, and each carries a `FenceGuard` — the lane refuses new work until every guard is dropped, closing the race where the consumer loop could enqueue a fenced key's next group before the failure finished re-stashing.
+One ordered stream per worker: enqueue order is send order is the worker's feed order — the per-key guarantee concurrent HTTP requests can't give, which is why `begin_send` must be called synchronously where send order is decided (the consumer loop, the serialized flush paths, the eager loop's receive-order). The stream's ledger resolves ACKs only as a consecutive prefix (a later send must not release its keys while an earlier one can still fail), and a failure **fences the whole worker stream**: every queued and un-ACKed item is resolved in order with its messages handed back, and each carries a `FenceGuard` — the stream refuses new work until every guard is dropped, closing the race where the consumer loop could enqueue a fenced key's next group before the failure finished re-stashing.
 
-**Cost:** the fence machinery exists because send *origination is distributed*: scatter tasks, two flush paths, and the eager sidecar all enqueue concurrently, so the lane cannot know when a failure's cleanup is complete except by explicit guard hand-off. The ledger's resolve-in-send-order rule exists because many sends ride the stream concurrently on behalf of batch-scoped callers.
+**Cost:** the fence machinery exists because send *origination is distributed*: scatter tasks, two flush paths, and the eager-flush task all enqueue concurrently, so the stream cannot know when a failure's cleanup is complete except by explicit guard hand-off. The ledger's resolve-in-send-order rule exists because many sends ride the stream concurrently on behalf of batch-scoped callers.
 
 ### 2.9 Transport retry and 503 handling
 
-The transport distinguishes deliberate backpressure from faults: HTTP 503 (`WorkerBusy`) and lane-busy get a longer, jittered backoff (250 ms·2ⁿ capped at 5 s + jitter, vs 100 ms·2ⁿ for errors) and are **excluded from passive health** (`is_backpressure`), so a worker at capacity is throttled but not marked sick. 4xx is non-retriable; retries mark `replay` so worker-side sentinels count repeats correctly; per-worker semaphores softly cap in-flight requests to match the worker's `concurrentBatches`.
+The transport distinguishes deliberate backpressure from faults: HTTP 503 (`WorkerBusy`) and stream-busy get a longer, jittered backoff (250 ms·2ⁿ capped at 5 s + jitter, vs 100 ms·2ⁿ for errors) and are **excluded from passive health** (`is_backpressure`), so a worker at capacity is throttled but not marked sick. 4xx is non-retriable; retries mark `replay` so worker-side sentinels count repeats correctly; per-worker semaphores softly cap in-flight requests to match the worker's `concurrentBatches`.
 
 **Cost:** essentially none — this layer is well-factored and survives the redesign intact.
 
@@ -119,8 +119,8 @@ Unpinned keys route by BinPack (exclusive pools), P2C (shared pools, herd resist
 Four structural findings fall out of the inventory:
 
 1. **The batch is the unit of everything, and no invariant is batch-shaped.** Ownership, completion, commit, stash scoping, flush pacing, and concurrency are all batch-scoped; the invariants are key- and partition-scoped. Every construct in §2.4–2.8 is bridge machinery between those two shapes.
-2. **Two drain paths over one stash, plus reconciliation glue.** The eager path (2.7) is the right model; the completion path (2.6) is the incumbent it must coexist with. The ledgers, credits, and suppression rules exist only because there are two.
-3. **Ordering by discipline, not by structure.** Per-key order holds because `begin_send` is called in the right places in the right order across four call sites on three tasks. The lane fences (2.8) are the cost of distributed origination; the sentinels (2.3, 2.13) are the audit of it.
+2. **Two drain paths over one stash, plus reconciliation glue.** The eager path (2.7) is the right model; the completion path (2.6) is the incumbent it must coexist with. The cross-path accounting, credits, and suppression rules exist only because there are two.
+3. **Ordering by discipline, not by structure.** Per-key order holds because `begin_send` is called in the right places in the right order across four call sites on three tasks. The worker-stream fences (2.8) are the cost of distributed origination; the sentinels (2.3, 2.13) are the audit of it.
 4. **Concurrency and request size are constants and accidents.** The slot count can't respond to backlog (the autoscaling blindness), and request size is whatever division produces (the fan-out inversion).
 
 ## 4. The driver model
@@ -131,64 +131,64 @@ Four structural findings fall out of the inventory:
 consumer driver                 (1 per pod)
   ├── partition driver          (1 per assigned partition)
   │     └── key driver          (1 per active routing key, passive)
-  └── worker batcher            (1 per pod; bins per worker lane)
+  └── worker batcher            (1 per pod; bins per worker stream)
 
-shared services: worker registry · router/aperture · transport lanes
+shared services: worker registry · router/aperture · worker streams
 ```
 
-The hierarchy follows containment in the *data*: a partition contains key streams; a key stream is consumed in **chunks** (one poll's messages for one key — today's "group"). The Kafka batch is demoted to an input format: it exists during collection and **dissolves at demux**. Nothing downstream tracks it.
+The hierarchy follows containment in the *data*: a partition contains per-key message sequences; a key's sequence is consumed in **groups** (one poll's messages for one key — the code's `MessageGroup`). The Kafka batch is demoted to an input format: it exists during collection and **dissolves at demux**. Nothing downstream tracks it. A *driver* here means exactly one thing: the single owner of one unit's state, advanced only by events.
 
 - **Consumer driver** — polls rdkafka, demultiplexes messages to partition drivers, applies backpressure (§4.4), owns rebalance lifecycle: partition assigned ⇒ create a partition driver; revoked ⇒ tear it down wholesale, with its key drivers and pending state. The rebalance unit and the component unit coincide.
-- **Partition driver** — splits its messages by routing key into chunks and hands them to key drivers; owns the **offset ledger**: the set of pending offsets and the highest contiguous completed offset (the watermark), which is what gets committed, on a cadence. Contiguity becomes *constructive* — the ledger computes exactly the committable frontier — instead of a property to verify after the fact.
-- **Key driver** — a passive state machine (a struct in a map, not a task; key cardinality is unbounded): a FIFO of chunks, **at most one chunk released at a time** (buffered in a lane or in flight), the rest queued behind it. On ACK: report offsets to the partition ledger, release the next chunk. On failure: take the chunk back, arm a backoff timer, re-route on expiry per current worker health. Created on first chunk, evicted when idle and empty. Holds the sticky-pin identity (its current worker).
-- **Worker batcher** — per-worker bins that coalesce released chunks into target-sized requests and fan resolutions back out to the contributing key drivers. Placement and composition rules in §4.3.
+- **Partition driver** — splits its messages by routing key into groups and hands them to key drivers; owns the **offset ledger**: the set of pending offsets and the highest contiguous completed offset (the **frontier**), which is what gets committed, on a cadence. Contiguity becomes *constructive* — the ledger computes exactly the committable frontier — instead of a property to verify after the fact.
+- **Key driver** — a passive state machine (a struct in a map, not a task; key cardinality is unbounded): a FIFO of groups, **at most one group released at a time** (buffered in a worker stream's bin or in flight), the rest queued behind it. On ACK: report offsets to the partition ledger, release the next group. On failure: take the group back, arm a backoff timer, re-route on expiry per current worker health. Created on first group, evicted when idle and empty. Holds the sticky-pin identity (its current worker).
+- **Worker batcher** — per-worker bins that coalesce released groups into target-sized requests and fan resolutions back out to the contributing key drivers. Placement and composition rules in §4.3.
 
 ### 4.2 One event loop, synchronous cascades
 
 All state transitions run on a single event loop (sharding noted in §4.6) driven by three event sources:
 
-1. **Poll delivered** — demux to partition drivers → key drivers enqueue → released chunks land in lane bins → flush every *idle* lane touched this cycle.
-2. **Send resolved** — settle the request's chunks: ACK ⇒ ledger updates, key drivers advance, next chunks land in bins; failure ⇒ chunks return to their key drivers, backoff timers arm. Then refill the lane if its bin is non-empty.
-3. **Timer fired** — key-driver backoff expiry (re-route and re-release), gather-timer expiry (fire an undersized bin), commit cadence.
+1. **Poll delivered** — demux to partition drivers → key drivers enqueue → released groups land in the worker streams' bins → flush every *idle* stream touched this cycle.
+2. **Send resolved** — resolve the request's groups: ACK ⇒ ledger updates, key drivers advance, next groups land in bins; failure ⇒ groups return to their key drivers, backoff timers arm. Then refill the stream if its bin is non-empty.
+3. **Timer fired** — key-driver backoff expiry (re-route and re-release), linger-timer expiry (fire an undersized bin), commit cadence.
 
-The only spawned tasks are the sends themselves: encode, transmit, await, post a `SendResolved` event back. Because every enqueue and every failure cleanup runs to completion on one thread, **ordering is a property of the structure**: nothing can slip a newer chunk past a failure being processed, which is exactly the race the lane fences exist to close today. Send origination has one call site instead of four.
+The only spawned tasks are the sends themselves: encode, transmit, await, post a `SendResolved` event back. Because every enqueue and every failure cleanup runs to completion on one thread, **ordering is a property of the structure**: nothing can slip a newer group past a failure being processed, which is exactly the race the worker-stream fences exist to close today. Send origination has one call site instead of four.
 
 ### 4.3 The batcher: packing, placement, composition
 
 **Trigger conditions** (no linger timer in the common path):
 
-- *Idle lane, end of demux cycle*: fire the accumulated bin as one request. Coalescing comes from the synchronous demux of a whole poll — this reproduces today's one-sub-batch-per-worker-per-batch behavior with zero added latency.
-- *Busy lane, on resolution*: chunks accumulate while a request is in flight; when it resolves, fire what accumulated. Adaptive batching: fast workers get small low-latency requests, slow workers automatically get fuller ones instead of deeper queues. This *is* the eager chain, generalized from one key to the lane.
-- *Target cap `TARGET_WORKER_BATCH_EVENTS` / `_KB`*: a bin at target fires immediately; an over-target bin splits into consecutive requests.
-- *Gather timer*: bounds latency for undersized bins at low traffic. Set well under end-to-end latency budgets; the one timer the trigger design needs.
+- *Idle stream, end of demux cycle*: fire the accumulated bin as one request. Coalescing comes from the synchronous demux of a whole poll — this reproduces today's one-sub-batch-per-worker-per-batch behavior with zero added latency.
+- *Busy stream, on resolution*: groups accumulate while a request is in flight; when it resolves, fire what accumulated. Adaptive batching: fast workers get small low-latency requests, slow workers automatically get fuller ones instead of deeper queues. This *is* the eager chain, generalized from one key to the whole stream.
+- *Target cap `TARGET_REQUEST_EVENTS` / `_KB`*: a bin at target fires immediately; an over-target bin splits into consecutive requests.
+- *Linger timer*: bounds latency for undersized bins at low traffic. Set well under end-to-end latency budgets; the one timer the trigger design needs.
 
-**Placement** (which worker a chunk's key uses): pins are placement *constraints* — a pinned key's chunk must go to its worker, and its volume counts toward that bin's fill. Fresh keys fill open, in-slice, below-target bins first (load-checked), then rotating P2C opens further slice workers. Fan-out is **emergent**: demand ÷ target, clamped below by the aperture coverage floor, with slice coverage achieved over seconds by rotation rather than within every batch. The elastic-dispatch fan-out formula stops being a formula.
+**Placement** (which worker a group's key uses): pins are placement *constraints* — a pinned key's group must go to its worker, and its volume counts toward that bin's fill. Fresh keys fill open, in-slice, below-target bins first (load-checked), then rotating P2C opens further slice workers. Fan-out is **emergent**: demand ÷ target, clamped below by the aperture coverage floor, with slice coverage achieved over seconds by rotation rather than within every batch. The elastic-dispatch fan-out formula stops being a formula.
 
-**Composition** (which chunks ride together): each chunk carries an opaque **cohort** hint — stamped by the consumer driver with the partition id, but the batcher knows only the preference rule: *minimize distinct cohorts per request, choosing cohorts oldest-head-first*. A lane's bin holds at most one chunk per key (key drivers release one at a time), and cross-key order is unconstrained, so composition is free to group. Cohort-pure requests mean a failed request wounds one partition's frontier, not eight (blast radius), and a slow request delays few watermarks (frontier coupling). Oldest-first keeps the grouping strictly latency-safe. Hint-affinity also acts as a placement *tie-break* among otherwise-equivalent bins — never overriding load or fill, so a hot partition cannot become a hot worker.
+**Composition** (which groups ride together): each group carries an opaque **affinity** hint — stamped by the consumer driver with the partition id, but the batcher knows only the preference rule: *minimize distinct affinities per request, choosing affinities oldest-head-first*. A stream's bin holds at most one group per key (key drivers release one at a time), and cross-key order is unconstrained, so composition is free to pack. Affinity-pure requests mean a failed request wounds one partition's frontier, not eight (blast radius), and a slow request delays few frontiers (frontier coupling). Oldest-first keeps the packing strictly latency-safe. The affinity hint also acts as a placement *tie-break* among otherwise-equivalent bins — never overriding load or fill, so a hot partition cannot become a hot worker.
 
-**Lane depth: 1.** One un-ACKed request per lane. The stream still provides ordered delivery; depth 1 means a failure's cleanup involves exactly one request's chunks, no ledger of un-ACKed successors, no fence. Pipelining depth becomes a tunable only if ACK round-trip proves to be the ceiling.
+**Stream depth: 1.** One un-ACKed request per worker stream. The stream still provides ordered delivery; depth 1 means a failure's cleanup involves exactly one request's groups, no ledger of un-ACKed successors, no fence. Pipelining depth becomes a tunable only if ACK round-trip proves to be the ceiling.
 
 ### 4.4 Two constants instead of a controller
 
-- **`T`** — target request size (events and KB, whichever binds), at the batcher. Chosen from the knee where per-request fixed cost stops mattering; sized under the worker body limit so §2.10's splitting becomes a rarely-hit defense instead of a routine repair.
-- **`B`** — the uncommitted-work budget (events and bytes), at the consumer driver: **poll only while total uncommitted work < B.**
+- **`T`** — target request size (`TARGET_REQUEST_EVENTS` / `_KB`, whichever binds), at the batcher. Chosen from the knee where per-request fixed cost stops mattering; sized under the worker body limit so §2.10's splitting becomes a rarely-hit defense instead of a routine repair.
+- **`B`** — the uncommitted-work budget (`CONSUMER_UNCOMMITTED_BUDGET_EVENTS` / `_BYTES`), at the consumer driver: **poll only while total uncommitted work < B.**
 
-Concurrency then self-clocks. Fast workers: ACKs return quickly, watermarks advance, uncommitted stays low, the poll gate never closes — throughput is CPU-limited and consumer CPU is a truthful autoscaling signal. Slow workers or backlog: uncommitted fills to B, polling pauses, up to ~B/T target-sized requests sit in flight at the workers — which is the processor HPA's signal, now denominated in a meaningful unit because every request is target-normalized. The elastic-dispatch controller (EWMA smoothing, ±1/tick slot stepping, the batch-duration budget) existed to steer batch slots toward exactly this behavior; with B and T it is the only behavior the structure can produce.
+Concurrency then self-clocks. Fast workers: ACKs return quickly, frontiers advance, uncommitted stays low, the poll gate never closes — throughput is CPU-limited and consumer CPU is a truthful autoscaling signal. Slow workers or backlog: uncommitted fills to B, polling pauses, up to ~B/T target-sized requests sit in flight at the workers — which is the worker pool's HPA signal, now denominated in a meaningful unit because every request is target-normalized. The elastic-dispatch controller (EWMA smoothing, ±1/tick slot stepping, the batch-duration budget) existed to steer batch slots toward exactly this behavior; with B and T it is the only behavior the structure can produce.
 
 `B` is also the **crash-replay window, enforced directly**. The elastic plan bounded replay through a duration budget because Little's law was the only handle batch slots offered; here the bound is the number itself. The memory provisioning contract becomes literal — `baseline + librdkafka caps + B_bytes + headroom`, verified at boot — with no ×2 estimation.
 
 ### 4.5 Failure handling in the new shape
 
-- **503 / lane busy**: unchanged — the transport's jittered backoff absorbs deliberate backpressure below the model, excluded from passive health.
-- **Send failure (fault)**: the resolution event synchronously returns the request's chunks to their key drivers; each holds its chunk at queue head, arms backoff, re-routes on expiry against current health. This replaces `defer_failed` + re-stash + both flush paths' retry pacing with one local rule. The order argument is trivial: the key's queue *is* the order, and nothing for that key was in flight behind the failure (depth-1 lanes, one-release key drivers).
-- **Draining/dead worker**: the registry is unchanged; the *consequence* becomes local. A key pinned to a drainer simply doesn't release until its in-flight resolves, then re-routes at its next release. The cascade rule is the queue: newer chunks are behind older ones by construction. No stash, no batch-sequence bookkeeping, no outstanding-count subtlety.
-- **Unroutable pool**: key drivers hold, backoff timers re-check; the partition watermarks stall; the watchdog below bounds it.
-- **Stall watchdog**: per-partition — a watermark stuck for the timeout while work is pending fails the process, replaying that exposure (≤ B). Today's `deferred_flush_timeout` semantics, at the granularity where a wedge actually lives. A wedged key stalls *its partition's* frontier while healthy partitions keep committing — today it stalls every partition on the pod.
-- **Rebalance**: revoke tears down the partition driver; in-flight requests containing its chunks resolve and are discarded against the dead ledger; the assignment-epoch stamp (from #85238) keeps worker-side sentinels re-baselined. No batch-scoped state cuts across the revocation.
+- **503 / stream busy**: unchanged — the transport's jittered backoff absorbs deliberate backpressure below the model, excluded from passive health.
+- **Send failure (fault)**: the resolution event synchronously returns the request's groups to their key drivers; each holds its group at queue head, arms backoff, re-routes on expiry against current health. This replaces `defer_failed` + re-stash + both flush paths' retry pacing with one local rule. The order argument is trivial: the key's queue *is* the order, and nothing for that key was in flight behind the failure (depth-1 streams, one-release key drivers).
+- **Draining/dead worker**: the registry is unchanged; the *consequence* becomes local. A key pinned to a drainer simply doesn't release until its in-flight resolves, then re-routes at its next release. The cascade rule is the queue: newer groups are behind older ones by construction. No stash, no batch-sequence bookkeeping, no outstanding-count subtlety.
+- **Unroutable pool**: key drivers hold, backoff timers re-check; the partition frontiers stall; the watchdog below bounds it.
+- **Stall watchdog**: per-partition — a frontier stuck for the timeout while work is pending fails the process, replaying that exposure (≤ B). Today's `deferred_flush_timeout` semantics, at the granularity where a wedge actually lives. A wedged key stalls *its partition's* frontier while healthy partitions keep committing — today it stalls every partition on the pod.
+- **Rebalance**: revoke tears down the partition driver; in-flight requests containing its groups resolve and are discarded against the dead ledger; the assignment-epoch stamp (from #85238) keeps worker-side sentinels re-baselined. No batch-scoped state cuts across the revocation.
 
 ### 4.6 CPU concurrency
 
-The event loop stays pure bookkeeping; CPU parallelism lives in two places. **Leaves:** encode/compress on the send tasks, which already ride the multi-threaded runtime. **Shards:** partition is the natural sharding unit — both invariants are per-partition — so the loop can be sharded by partition (lanes then per shard×worker; registry load read as snapshots) with no cross-shard ordering concerns. Ship single-shard with the boundary designed in (no shared mutable state between partition drivers), instrument loop occupancy the way `assign_duration_seconds` is watched today, and shard only when the metric says the loop is the ceiling. Fleet-level parallelism remains partition assignment across pods.
+The event loop stays pure bookkeeping; CPU parallelism lives in two places. **Leaves:** encode/compress on the send tasks, which already ride the multi-threaded runtime. **Shards:** partition is the natural sharding unit — both invariants are per-partition — so the loop can be sharded by partition (worker streams then per shard×worker; registry load read as snapshots) with no cross-shard ordering concerns. Ship single-shard with the boundary designed in (no shared mutable state between partition drivers), instrument loop occupancy the way `assign_duration_seconds` is watched today, and shard only when the metric says the loop is the ceiling. Fleet-level parallelism remains partition assignment across pods.
 
 ## 5. Construct-by-construct disposition
 
@@ -196,19 +196,19 @@ The event loop stays pure bookkeeping; CPU parallelism lives in two places. **Le
 |-------|---------------------|
 | Batch collection | Unchanged as input format; batch dissolves at demux |
 | In-flight batch window (2.1) | Retired; replaced by budget `B` (poll gate) |
-| Oldest-first completion (2.2) | Retired; per-partition watermark ledger commits the contiguous frontier |
+| Oldest-first completion (2.2) | Retired; per-partition offset ledger commits the contiguous frontier |
 | Commit sentinel (2.3) | Kept as a cheap assert; contiguity is now constructed, not emergent |
 | Commit monitor (2.3) | Kept as-is (librdkafka async-commit blindness is unchanged) |
 | Sticky pins (2.4) | The key driver's current-worker field; eviction = driver eviction |
 | Stash + cascade rule (2.5) | The key driver's FIFO; the cascade is the queue |
 | Completion-time flush (2.6) | Retired; commit gate → ledger, retry pacing → per-key backoff timers, watchdog → per-partition stall deadline |
-| Eager flush + ledgers (2.7) | Becomes the *only* drain mechanism (resolution cascade + lane refill); `eager_pending`/`eager_accepted`/`take_eager_accepted` deleted |
-| Lane ledger + fences (2.8) | Depth-1 lanes + single-threaded origination; ordered stream kept, fences and consecutive-prefix resolution deleted |
+| Eager flush + its accounting (2.7) | Becomes the *only* drain mechanism (resolution cascade + stream refill); `eager_pending`/`eager_accepted`/`take_eager_accepted` deleted |
+| Worker-stream ledger + fences (2.8) | Depth-1 streams + single-threaded origination; ordered stream kept, fences and consecutive-prefix resolution deleted |
 | 503/backoff/backpressure classification (2.9) | Unchanged |
 | Body split + 413 (2.10) | Kept as defense; `T` makes routine splitting stop happening |
 | Worker registry (2.11) | Unchanged; drain consequences become key-driver-local |
 | Aperture + P2C (2.12) | Kept for placement; fan-out formula retired (emergent from demand ÷ `T`); `STICKY_PIN_LOAD_SLACK` re-derived against `T` |
-| Key-order sentinel (2.13) | Kept as a cheap assert; order is now structural (one origination site, one-release key drivers, depth-1 lanes) |
+| Key-order sentinel (2.13) | Kept as a cheap assert; order is now structural (one origination site, one-release key drivers, depth-1 streams) |
 | Debug recorder | Kept; event points move to the drivers (arguably richer: per-key and per-partition state is now first-class) |
 
 The through-line: the mechanisms that survive are the ones facing the outside world (transport classification, registry, discovery, sentinels-as-audit). The mechanisms that dissolve are the ones that bridged batch-shaped machinery to key/partition-shaped invariants.
@@ -219,18 +219,80 @@ The elastic-dispatch plan's three changes map onto the model as follows:
 
 1. **Target-sized worker batches** — the batcher's `T` and packing rules (§4.3) *are* stage 1 of the plan, with the fan-out clamp formula replaced by emergence and the pins-as-constraints packing expressed structurally.
 2. **Demand-proportional concurrency** — the plan's controller (fill-EWMA → slots, duration budget, shed policy) is subsumed by `B` + self-clocking (§4.4). The behaviors the controller had to *steer toward* — MIN concurrency when drained, MAX under backlog, held pressure during worker saturation, bounded replay window, walk-down during a wedge (per-partition stalls now localize it) — are the only behaviors the structure permits. No EWMA, no tick, no shed policy, nothing to mis-tune.
-3. **One-signal processor HPA** — unchanged from the plan (`ingestion_api_batch_seconds_in_flight_total`, time-weighted concurrent batches per pod), and *strengthened*: every request is target-normalized, so "concurrent batches" is an honest unit of held work.
+3. **One-signal worker HPA** (the elastic plan's "processor HPA") — unchanged from the plan (`ingestion_api_event_seconds_in_flight_total`, time-weighted in-flight events per pod), and *strengthened*: every request is target-normalized, so in-flight work per worker is an honest, comparable unit.
 
 The two scaling regimes the plan demands fall out of the poll gate:
 
 - **Workers fast, backlog draining**: the gate stays open, the consumer is CPU-bound (demux, packing, encode), its CPU-only HPA is truthful — pods scale when the consumer is the bottleneck, and only then.
-- **Workers slow / pool undersized**: uncommitted work fills `B`, polling pauses at low CPU (the consumer fleet correctly *doesn't* scale), and B/T requests held in flight drive the processor pool out. The transport's jittered backoff bounds futile traffic; a 503'd request never counts as worker occupancy, so the scale-out signal can't be starved — same reasoning as the plan's "no congestion input" argument, unchanged.
+- **Workers slow / pool undersized**: uncommitted work fills `B`, polling pauses at low CPU (the consumer fleet correctly *doesn't* scale), and B/T requests held in flight drive the worker pool out. The transport's jittered backoff bounds futile traffic; a 503'd request never counts as worker occupancy, so the scale-out signal can't be starved — same reasoning as the plan's "no congestion input" argument, unchanged.
 
 ## 7. Open questions
 
 1. **Build order.** The elastic plan's stages 1–2 can land on the current architecture (they're specced that way); the driver model delivers the same behavior by structure. Options: (a) elastic stages on the current code first, redesign later — two migrations, faster relief; (b) build the driver model and ship the elastic behavior with it — one migration, longer lead. The controller-free shape argues for (b) if the incident pressure allows; the stage 1 packing changes are the piece most worth doing early either way, since the packer carries over almost verbatim.
-2. **Gather timer default** — small enough not to show in end-to-end latency; exact value from lane traffic percentiles.
-3. **Lane pipelining depth** — start at 1; revisit only if ACK round-trip caps a lane's throughput below what one worker can absorb.
-4. **Partition fairness at the poll gate** — one global `B` lets a deep partition monopolize the budget. Levers, in escalation order: none (watch it), rdkafka per-partition pause/resume, fencing hot partitions to dedicated pods at the assignment level. Don't build until observed.
+2. **Linger timer default** — small enough not to show in end-to-end latency; exact value from stream traffic percentiles.
+3. **Stream pipelining depth** — start at 1; revisit only if ACK round-trip caps a stream's throughput below what one worker can absorb.
+4. **Partition fairness at the poll gate** — one global `B` lets a deep partition monopolize the budget. Levers, in escalation order: none (watch it), rdkafka per-partition pause/resume, isolating hot partitions on dedicated pods at the assignment level. Don't build until observed.
 5. **Shard count** — single-shard until loop occupancy says otherwise (§4.6).
 6. **`B` and `T` defaults** — `T` from the per-request-cost knee (the elastic plan's stage 1 calibration, unchanged); `B` from the acceptable replay window and the memory contract, with the plan's ~"MAX × batch" residual exposure as the anchor.
+
+## 8. Nomenclature
+
+The consumer's vocabulary has to survive three audiences at once: this crate, the Node.js worker across the wire, and the rest of PostHog — where `lane`, `group`, `chunk`, `cohort`, and `fence` already mean things. The rules of this doc: §2 describes today's constructs under the names the code actually uses; §4 onward uses only the canonical terms below. A "never" entry reserves the word — new type, config, metric, and proto names must not reuse it for another concept.
+
+### 8.1 Canonical terms
+
+| Term | Means | Never |
+|---|---|---|
+| `lane` | the deployment axis (`INGESTION_LANE`; global `ingestion_lane` metric label) | anything consumer-internal |
+| `worker` | one Node.js ingestion-api process (proto `WorkerIngest`) | processor |
+| `worker stream` | the ordered gRPC connection to one worker (`WorkerStream`) | lane |
+| `batch` | one Kafka collection unit; dissolves at demux | the worker-facing unit |
+| `sub-batch` | today's worker-facing unit (proto `SubBatch`); retired by this design | — |
+| `request` | this design's worker-facing unit: one target-sized send | batch, sub-batch |
+| `group` | one routing key's messages from one poll (`MessageGroup`) | chunk |
+| `consumer group` | the Kafka sense, always spelled in full | bare "group" |
+| `chunk` | a body-size split of one request (the transport's 413 path) | the per-key unit |
+| `routing key` | `token:distinct_id`, the per-key order unit | "distinct_ids" when counting keys |
+| `defer` | hold a key's newer work until its older work lands | stash, in new names |
+| `frontier` | highest contiguous completed offset, per partition | watermark |
+| `watermark` | highest ACKed offset, per key (the order sentinel's sense) | high-water mark |
+| `ledger` | the partition driver's offset accounting | the eager-flush accounting |
+| `fence` | the worker stream's failure barrier (`FenceGuard`) | partition→pod isolation |
+| `affinity` | the batcher's composition hint (today: the partition id) | cohort |
+| `linger timer` | the undersized-bin latency bound (Kafka's `linger.ms` sense) | gather timer |
+| `bin` | the batcher's per-stream accumulation buffer | — |
+| `resolve` | a send finished, success or failure | settle |
+| `eager-flush task` | the ACK-speed drain task (`run_eager_flush_loop`) | sidecar |
+| `window` | always qualified: in-flight, passive, stall, replay window | bare "the window" |
+| `driver` | the single owner of one unit's state, advanced only by events | — |
+
+### 8.2 Why these words are reserved
+
+- **`lane`** is claimed three times over: capture's `Lane { Main, Overflow, Historical }` routing enum (plus the AI lane's topics), the Node deployment lanes (`INGESTION_LANE`, one namespace per lane, the `ingestion_lane` Prometheus label), and this binary stamps that label on every metric it emits. Drafts of #85238 called the gRPC construct a lane; the merged code says `WorkerStream`, and this doc follows the code.
+- **`worker`, not `processor`**: every artifact of the downstream fleet says worker — the proto package `ingestion.worker.v1`, `INGESTION_WORKER_CONCURRENT_BATCHES`, `rust/ingestion-worker-proto`, the `worker` metric label. "Processor" is the elastic-dispatch plan's word for the same fleet (kept there, mapped in §6); in code, `*Processor` already means an in-process pipeline stage in both Rust and Node. One fleet, one name.
+- **`group`, not `chunk`**, for the per-key unit: this crate's `MessageGroup`/`DeferredGroup` and the Node framework's `concurrentlyPerGroup(getTokenAndDistinctId, …)` are the same concept with the same key on both ends of the wire. `chunk` is doubly taken: the transport's 413 split (kept by §5), and the Node framework's per-stage unit (`ChunkPipeline`, whose docs explicitly contrast chunks with batches). The price is that the Kafka sense must always be written "consumer group".
+- **`cohort` → `affinity`**: cohort is a core product noun (user cohorts, the cohorts API, five `rust/cohort-*` crates). The hint is the partition id used as a packing preference; affinity says exactly that.
+- **`fence`** stays only because the merged worker-stream code uses it in the same sense personhog does — a barrier that stops the old flow before new work may start. Partition→pod placement (§7.4) is *isolation*, not fencing.
+- **`frontier` vs `watermark`**: the code already uses watermark for the per-key ACK point (order sentinel); the per-partition commit point gets its own word instead of overloading it. Earlier drafts used the two interchangeably.
+- **`linger`, not `gather`**: `gather` is this crate's scatter/gather verb — failed sends "land in gather order" — and the timer is Kafka's `linger.ms` concept, which every reader of an ingestion codebase already knows.
+
+### 8.3 Cleanups this implies in today's code
+
+Independent of the redesign; each is a small standalone chore PR.
+
+1. Metrics `ingestion_consumer_stashed_{batches,groups,messages}` → `deferred_*` — one queue is graphed under two prefixes today, while the config surface (`CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS`, `DISPATCHER_EAGER_DEFERRED_FLUSH`) only says deferred.
+2. `Stash::completed` → `routed` — its own docstring says "mark … as routed"; every other `complete_*` in the crate means finished.
+3. `Stash::is_deferring` → `has_unlanded_work` — deliberately true while the queue is empty (§2.5); the name should state the predicate callers branch on.
+4. `PinTable` → `DispatchState` — it holds pins, in-flight counts, the stash, and the eager accounting; its own doc comment calls it "mutable assignment state".
+5. `intra_group_disorder` → `intra_key_disorder`; the `distinct_ids` debug fields and `ingestion_consumer_distinct_ids_per_batch` count routing keys, so name them that (one distinct_id under two tokens is two keys).
+6. `send_batch` → `send_sub_batch`; document `IngestBatchRequest.batch_id` as a provenance tag (one Kafka batch fans out across workers, splits, and retries), not a request identity.
+7. Comment drift: one dispatcher comment calls a group's flushed work a "chunk"; the `on_sub_batch_resolved` contract comment sits on `on_sub_batch_acked`; `retry_backoff`'s docstring sits on `make_consumer_id`; the `SubBatchResolved` debug event says "(ACK)" but fires on failures too.
+
+### 8.4 Enforcement
+
+Vocabulary rules decay unless something checks them.
+
+1. **A vocabulary test in the crate**: a `#[test]` that scans `src/` for reserved words out of place — `lane` outside the `INGESTION_LANE` sites, `cohort` or `processor` anywhere, `chunk` outside the transport's split path — each entry carrying a one-line reason, so the failure message teaches the rule it enforces.
+2. **A metric-name fixture test**: assert the crate's emitted metric names against a checked-in list, so every new or renamed metric is a reviewed diff; the list doubles as the dashboard author's index.
+3. **`lib.rs` points here**: one paragraph in the crate docstring naming this section as the vocabulary authority, because that is the first file a new reader opens.
+4. **Names come from the table**: a new env var, metric, type, or proto field either reuses a canonical term or extends the table in the same PR — never a new synonym for an existing concept.
