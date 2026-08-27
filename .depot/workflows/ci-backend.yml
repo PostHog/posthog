@@ -67,6 +67,8 @@
 #   the pool, as canonical did before this cache existed) until then: bounded, documented, and
 #   harmless because the shadow never gates merges.
 # - GITHUB_TOKEN / OTEL_SERVICE_NAME neutralized (ambient on Depot, not on GHA)
+# - GitHub App IDs: canonical reads several from org variables (vars.GH_APP_*_APP_ID);
+#   the shadow strips those app-token steps, so there is nothing to mirror
 # - Three data-modeling tests deselected (Depot-only MinIO 403 quarantine)
 # - COMPOSE_PROJECT_NAME pinned to posthog because bin/wait-for-docker filters by that
 #   project name and checkout directory names are not stable across CI providers
