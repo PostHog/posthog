@@ -768,6 +768,13 @@ If this override is incorrect, request batching:
                 score=3,
                 reason="RunSQL with ALTER may cause locks",
                 details={"sql": sql},
+                guidance=f"""A raw `ALTER` takes an ACCESS EXCLUSIVE lock. Under deploy traffic that lock queues behind in-flight queries, and every later query queues behind it.
+
+- Wrap the statement so a blocked attempt fails fast instead of piling up: `SET LOCAL lock_timeout = '5s'; ALTER ...`. The deploy retries the migration.
+- Make the statement idempotent (`IF EXISTS` / `IF NOT EXISTS`) so a retry after a cancelled attempt re-runs cleanly.
+- Skip the `ALTER` if a later migration drops the same object — an index or column about to disappear does not need altering first.
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL})""",
             )
         elif "CREATE" in sql and "INDEX" in sql:
             # Non-concurrent index creation (would have been caught earlier if CONCURRENTLY)

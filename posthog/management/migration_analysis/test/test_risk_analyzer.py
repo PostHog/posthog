@@ -405,6 +405,7 @@ class TestRunSQLOperations:
 
         assert risk.score == 3
         assert risk.level == RiskLevel.NEEDS_REVIEW
+        assert risk.guidance is not None and "lock_timeout" in risk.guidance
 
     def test_run_sql_does_not_match_keywords_inside_identifiers(self):
         op = create_mock_operation(

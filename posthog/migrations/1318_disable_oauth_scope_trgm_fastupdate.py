@@ -10,13 +10,10 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        # State-only: migration 1320 drops "oauthaccesstoken_scope_trgm" the next day,
+        # so the ALTER INDEX ... SET (fastupdate = off) that used to sit here only took
+        # an ACCESS EXCLUSIVE lock on an index about to disappear.
         migrations.SeparateDatabaseAndState(
-            database_operations=[
-                migrations.RunSQL(
-                    sql='ALTER INDEX IF EXISTS "oauthaccesstoken_scope_trgm" SET (fastupdate = off);',
-                    reverse_sql='ALTER INDEX IF EXISTS "oauthaccesstoken_scope_trgm" SET (fastupdate = on);',
-                ),
-            ],
             state_operations=[
                 migrations.RemoveIndex(
                     model_name="oauthaccesstoken",

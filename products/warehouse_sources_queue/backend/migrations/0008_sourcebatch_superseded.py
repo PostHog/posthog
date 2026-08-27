@@ -11,9 +11,11 @@ _INDEX_PREDICATE = "latest_state = 'failed'"
 # Guarded with to_regclass so the migration no-ops on DBs without the sourcebatch
 # table, following 0006. ADD COLUMN ... DEFAULT false is metadata-only on PG11+,
 # but still takes a brief ACCESS EXCLUSIVE lock on the parent and every child —
-# lock_timeout keeps a blocked attempt from queueing behind long claim queries
-# (bin/migrate retries). The raw DEFAULT is load-bearing: producer INSERTs list
-# their columns explicitly and never mention superseded.
+# lock_timeout keeps a blocked attempt from queueing behind long claim queries.
+# This runs as a product-database migration, so the retry comes from
+# migrate_product_databases, not bin/migrate's main-database loop. The raw DEFAULT
+# is load-bearing: producer INSERTs list their columns explicitly and never
+# mention superseded.
 #
 # ON ONLY creates the parent index as metadata alone, leaving it invalid until
 # every partition has a matching index attached. Building those per partition
