@@ -19,8 +19,15 @@ class TestInsightWriteValidation(BaseTest):
         *,
         query: dict[str, Any] | None = None,
         filters: dict[str, Any] | None = None,
+        unchanged_query: dict[str, Any] | None = None,
     ) -> InsightWriteRejection | None:
-        return find_insight_write_rejection(query=query, filters=filters, team=self.team, user=self.user)
+        return find_insight_write_rejection(
+            query=query,
+            filters=filters,
+            unchanged_query=unchanged_query,
+            team=self.team,
+            user=self.user,
+        )
 
     @parameterized.expand(
         [
@@ -81,20 +88,33 @@ class TestInsightWriteValidation(BaseTest):
                 "trends with a series",
                 {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": PAGEVIEW_SERIES}},
                 None,
+                None,
             ),
-            ("hogql", {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "select 1"}}, None),
-            ("a kind no runner owns", {"kind": "SomeQueryWeDoNotHave", "series": []}, None),
-            ("a payload no runner can parse", {"kind": "TrendsQuery", "series": [{"nope": True}]}, None),
-            ("legacy filters with an event", None, {"insight": "TRENDS", "events": PAGEVIEW_FILTER_EVENTS}),
+            (
+                "hogql",
+                {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "select 1"}},
+                None,
+                None,
+            ),
+            ("a kind no runner owns", {"kind": "SomeQueryWeDoNotHave", "series": []}, None, None),
+            ("a payload no runner can parse", {"kind": "TrendsQuery", "series": [{"nope": True}]}, None, None),
+            ("legacy filters with an event", None, {"insight": "TRENDS", "events": PAGEVIEW_FILTER_EVENTS}, None),
             (
                 "a query that renders, alongside filters that would not",
                 {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": PAGEVIEW_SERIES}},
                 {"insight": "TRENDS", "events": []},
+                None,
             ),
-            ("nothing written", None, None),
+            (
+                "filters the rules refuse, on an insight whose stored query renders",
+                None,
+                {"insight": "TRENDS", "events": []},
+                {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": PAGEVIEW_SERIES}},
+            ),
+            ("nothing written", None, None, None),
         ]
     )
     def test_accepts_everything_the_rules_do_not_refuse(
-        self, _name: str, query: dict | None, filters: dict | None
+        self, _name: str, query: dict | None, filters: dict | None, unchanged_query: dict | None
     ) -> None:
-        assert self._find(query=query, filters=filters) is None
+        assert self._find(query=query, filters=filters, unchanged_query=unchanged_query) is None

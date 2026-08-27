@@ -740,6 +740,8 @@ class InsightSerializer(InsightBasicSerializer):
         validate_insight_write(
             query=query,
             filters=attrs.get("filters"),
+            # A write that omits `query` keeps the stored one, which is still what renders.
+            unchanged_query=None if "query" in attrs else getattr(self.instance, "query", None),
             team=self.context["get_team"](),
             user=self.context["request"].user,
             request=self.context["request"],

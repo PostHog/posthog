@@ -56,12 +56,19 @@ def validate_insight_write(
     *,
     query: dict[str, Any] | None,
     filters: dict[str, Any] | None,
+    unchanged_query: dict[str, Any] | None = None,
     team: Team,
     user: Writer,
     request: Request | None = None,
 ) -> None:
     """Record, and once enforced reject, an insight write that no runner could execute."""
-    rejection = find_insight_write_rejection(query=query, filters=filters, team=team, user=user)
+    rejection = find_insight_write_rejection(
+        query=query,
+        filters=filters,
+        unchanged_query=unchanged_query,
+        team=team,
+        user=user,
+    )
     if rejection is None:
         return
 
@@ -79,18 +86,22 @@ def find_insight_write_rejection(
     *,
     query: dict[str, Any] | None,
     filters: dict[str, Any] | None,
+    unchanged_query: dict[str, Any] | None = None,
     team: Team,
     user: Writer,
 ) -> InsightWriteRejection | None:
     """The first validation rule the written query breaks, or None if every rule passes.
 
-    A write that carries both fields renders from the query, so the filters are ignored here
-    too.
+    An insight renders from `query` whenever it has one, and falls back to `filters` only
+    when it does not. So a written query is what the rules must judge, and written filters
+    matter only when no query remains on the insight after this write. `unchanged_query` is
+    the stored query this write leaves in place, which keeps a filters write from being
+    judged on a field that nothing renders.
     """
     if query:
         return _rejection_for(query, write_source="query", team=team, user=user)
 
-    if filters:
+    if filters and not unchanged_query:
         try:
             source = filter_to_query(filters)
         except Exception:
