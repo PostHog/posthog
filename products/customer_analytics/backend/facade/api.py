@@ -53,7 +53,7 @@ from django.db.models import (
     Value,
 )
 from django.db.models.fields.json import KeyTextTransform
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone
 
 import structlog
@@ -90,7 +90,7 @@ from products.conversations.backend.facade.api import (
     trigger_immediate_channel_summary,
 )
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
-from products.customer_analytics.backend.events import emit_account_tags_added
+from products.customer_analytics.backend.events import emit_account_tags_added, emit_account_tags_removed
 from products.customer_analytics.backend.facade.contracts import (
     InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
 )
@@ -613,7 +613,12 @@ def list_external_accounts(
 def _apply_external_tags(account: Account, tags: list[str], mode: str, workflow_id: str | None = None) -> None:
     normalized = list({tagify(t) for t in tags})
     if mode == "remove":
+        removed_tags = [
+            tagged_item.tag
+            for tagged_item in account.tagged_items.filter(tag__name__in=normalized).select_related("tag")
+        ]
         account.tagged_items.filter(tag__name__in=normalized).delete()
+        _schedule_account_tags_removed(account, removed_tags, actor=None, workflow_id=workflow_id)
     elif mode == "set":
         _set_tags(normalized, account, workflow_id=workflow_id)
     else:
@@ -900,24 +905,45 @@ def _set_tags(
         tagged_item_objects.append(tagged_item_instance)
         if created:
             added_tags.append(tag_instance)
-    for tagged_item in account.tagged_items.exclude(tag__name__in=deduped_tags):
+    removed_tags: list[Tag] = []
+    for tagged_item in account.tagged_items.exclude(tag__name__in=deduped_tags).select_related("tag"):
+        removed_tags.append(tagged_item.tag)
         tagged_item.delete()
     Tag.objects.filter(Q(team_id=account.team_id) & Q(tagged_items__isnull=True)).delete()
     account.prefetched_tags = tagged_item_objects  # type: ignore[attr-defined]
     _schedule_account_tags_added(account, added_tags, actor, workflow_id=workflow_id)
+    _schedule_account_tags_removed(account, removed_tags, actor, workflow_id=workflow_id)
 
 
 def _schedule_account_tags_added(
     account: Account, tags: list[Tag], actor: "User | None", workflow_id: str | None = None
 ) -> None:
-    """Single emission point for $account_tag_added: post-commit, newly created rows only —
-    so a workflow re-adding its own trigger tag fires nothing."""
+    """Emit $account_tag_added after commit for newly created rows only.
+
+    A workflow that adds its trigger tag again must not emit another event.
+    """
     if not tags:
         return
 
     def emit() -> None:
         try:
             emit_account_tags_added(account, tags, actor, workflow_id=workflow_id)
+        except Exception as e:
+            capture_exception(e)
+
+    transaction.on_commit(emit)
+
+
+def _schedule_account_tags_removed(
+    account: Account, tags: list[Tag], actor: "User | None", workflow_id: str | None = None
+) -> None:
+    """Emit $account_tag_removed after commit for deleted rows only."""
+    if not tags:
+        return
+
+    def emit() -> None:
+        try:
+            emit_account_tags_removed(account, tags, actor, workflow_id=workflow_id)
         except Exception as e:
             capture_exception(e)
 
@@ -1381,9 +1407,28 @@ class CustomPropertySourceValidationError(Exception):
     already source-backed (→ 400)."""
 
 
-def _to_sync_run_view(run: "CustomPropertySyncRun") -> contracts.CustomPropertySyncRunView:
+def _temporal_run_url(run: "CustomPropertySyncRun") -> str | None:
+    if not run.workflow_id or not run.workflow_run_id:
+        return None
+    base = settings.TEMPORAL_UI_HOST
+    namespace = settings.TEMPORAL_NAMESPACE
+    if not base or not namespace:
+        return None
+    return f"{base.rstrip('/')}/namespaces/{namespace}/workflows/{run.workflow_id}/{run.workflow_run_id}"
+
+
+def _to_sync_run_view(
+    run: "CustomPropertySyncRun", *, include_temporal_url: bool = False
+) -> contracts.CustomPropertySyncRunView:
     return contracts.CustomPropertySyncRunView(
         id=run.id,
+        job_id=run.job_id,
+        account_segment=run.segment,
+        sync_phase=run.phase,
+        attempt=run.attempt,
+        workflow_id=run.workflow_id if include_temporal_url else None,
+        workflow_run_id=run.workflow_run_id if include_temporal_url else None,
+        temporal_url=_temporal_run_url(run) if include_temporal_url else None,
         trigger=run.trigger,
         status=run.status,
         started_at=run.started_at,
@@ -1752,22 +1797,26 @@ _WAREHOUSE_PROFILE_TARGETS = (TargetType.PERSON.value, TargetType.GROUP.value)
 _ONE_PROFILE_BINDING_ERROR = "A person/group property source needs exactly one of external_data_schema and saved_query."
 
 
-# A run row only reaches a terminal state when its activity records one, so a sync that died before
-# getting there — an import that failed ahead of the person-property step, a killed worker — would sit
-# "running" forever, misreporting the source and keeping its sync/backfill buttons disabled. Six hours
-# matches the sync activity's start_to_close timeout, so nothing live is behind an older row.
+# A run row only reaches a terminal state when its activity records one. Account segment workflows can
+# retry for a full day, while profile sync activities time out after six hours.
 STALE_RUNNING_RUN_AFTER = timedelta(hours=6)
-STALE_RUNNING_RUN_ERROR = "This run never reported a result. The sync may have failed before it ran."
+STALE_ACCOUNT_RUNNING_RUN_AFTER = timedelta(hours=25)
+STALE_RUNNING_RUN_ERROR = (
+    "This run stopped reporting progress. Run the warehouse source again. If it keeps failing, contact support."
+)
 
 
 def _expire_stale_running_runs(team_id: int, runs: "Iterable[CustomPropertySyncRun | None]") -> None:
     """Fail abandoned 'running' rows, both in the database and in the passed-in objects so the caller
     serializes what it just wrote. Runs on the read paths the UI polls, so a stuck row self-heals."""
-    cutoff = timezone.now() - STALE_RUNNING_RUN_AFTER
+    now = timezone.now()
     stale = [
         run
         for run in runs
-        if run is not None and run.status == SyncStatus.RUNNING.value and (run.started_at or run.created_at) < cutoff
+        if run is not None
+        and run.status == SyncStatus.RUNNING.value
+        and (run.started_at or run.created_at)
+        < now - (STALE_ACCOUNT_RUNNING_RUN_AFTER if run.segment is not None else STALE_RUNNING_RUN_AFTER)
     ]
     if not stale:
         return
@@ -2200,20 +2249,42 @@ def delete_custom_property_source(
 
 
 def list_custom_property_sync_runs(
-    team_id: int, source_id: str, offset: int, limit: int, user_access_control: "UserAccessControl | None" = None
+    team_id: int,
+    source_id: str,
+    offset: int,
+    limit: int,
+    user_access_control: "UserAccessControl | None" = None,
+    include_temporal_urls: bool = False,
+    search: str | None = None,
 ) -> tuple[list[contracts.CustomPropertySyncRunView], int]:
-    """Person-property sync/backfill runs for a source, newest first. Returns ``(page, total_count)``.
-    Scoped by team and source, so a run of another team's/source's is never returned. The runs expose
-    the warehouse object's row counts and raw sync errors, so reading them requires the caller's viewer
-    access on it (→ 403 via ``ResourceForbiddenError``)."""
+    """Warehouse-backed custom property sync runs for a source, newest first. Returns ``(page, total_count)``.
+    Scoped by team and source, so another team's or source's runs are never returned. Profile-source
+    histories require viewer access to their warehouse object; account-source histories are visible to
+    the same callers who can view the source."""
     source = CustomPropertySource.objects.for_team(team_id).select_related("definition").filter(id=source_id).first()
     if source is not None:
         _assert_warehouse_viewer(team_id, _profile_binding(source), user_access_control)
-    queryset = CustomPropertySyncRun.objects.for_team(team_id).filter(source_id=source_id).order_by("-created_at")
+    queryset: QuerySet[CustomPropertySyncRun] = CustomPropertySyncRun.objects.for_team(team_id).filter(
+        source_id=source_id
+    )
+    if search:
+        queryset = cast(
+            "QuerySet[CustomPropertySyncRun]",
+            queryset.annotate(workflow_run_id_text=Cast("workflow_run_id", output_field=CharField())).filter(
+                Q(job_id__icontains=search)
+                | Q(workflow_id__icontains=search)
+                | Q(workflow_run_id_text__icontains=search)
+                | Q(status__icontains=search)
+                | Q(segment__icontains=search)
+                | Q(trigger__icontains=search)
+                | Q(error__icontains=search)
+            ),
+        )
+    queryset = queryset.order_by("-created_at")
     total_count = queryset.count()
     page = list(queryset[offset : offset + limit])
     _expire_stale_running_runs(team_id, page)
-    return [_to_sync_run_view(run) for run in page], total_count
+    return [_to_sync_run_view(run, include_temporal_url=include_temporal_urls) for run in page], total_count
 
 
 FeatureRequestValidationError = _feature_requests_logic.FeatureRequestValidationError
@@ -3901,11 +3972,22 @@ def list_account_meetings(
             | Q(participants__display_name__icontains=search)
         ).distinct()
     count = queryset.count()
-    meetings = queryset.order_by("-start_time").prefetch_related("participants")[offset : offset + limit]
+    meetings = list(queryset.order_by("-start_time").prefetch_related("participants")[offset : offset + limit])
+
+    from products.customer_analytics.backend.logic.gong import (  # noqa: PLC0415 — keeps HogQL off the facade import path
+        get_gong_urls_by_meeting_id,
+    )
+
+    team = user_access_control.team
+    if team is None or team.id != team_id:
+        team = Team.objects.get(id=team_id)
+    gong_urls_by_meeting_id = get_gong_urls_by_meeting_id(team=team, user=user_access_control.user, meetings=meetings)
+
     views = [
         contracts.MeetingView(
             id=meeting.id,
             title=meeting.title,
+            gong_url=gong_urls_by_meeting_id.get(meeting.id),
             start_time=meeting.start_time,
             end_time=meeting.end_time,
             organizer_email=meeting.organizer_email,

@@ -88,6 +88,7 @@ import type {
     UsersIntegrationsListParams,
     UsersListParams,
     UsersLoginSessionsListParams,
+    VerifyEmailRequestApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -3103,11 +3104,14 @@ export const getUsersVerifyEmailCreateUrl = () => {
     return `/api/users/verify_email/`
 }
 
-export const usersVerifyEmailCreate = async (userApi: NonReadonly<UserApi>, options?: RequestInit): Promise<void> => {
+export const usersVerifyEmailCreate = async (
+    verifyEmailRequestApi: VerifyEmailRequestApi,
+    options?: RequestInit
+): Promise<void> => {
     return apiMutator<void>(getUsersVerifyEmailCreateUrl(), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(userApi),
+        body: JSON.stringify(verifyEmailRequestApi),
     })
 }

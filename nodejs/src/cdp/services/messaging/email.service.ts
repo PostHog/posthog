@@ -117,9 +117,6 @@ export interface EmailServiceConfig {
     // Configuration set without open/click tracking. Empty means not provisioned: tracking-off
     // sends fall back to the tracked set (with a warning) rather than failing.
     sesUntrackedConfigurationSet: string
-    // When true, sends carry TenantName so SES attributes reputation per team. Requires every
-    // sending identity to have a tenant resource association — see EMAIL_SES_TENANT_ATTRIBUTION_ENABLED.
-    sesTenantAttributionEnabled: boolean
 }
 
 /**
@@ -730,19 +727,17 @@ export class EmailService {
             FeedbackForwardingEmailAddress: from.email,
         }
 
-        if (this.sesConfig.sesTenantAttributionEnabled) {
-            // Attributes the send to the team's SES tenant so AWS tracks reputation per team and
-            // its reputation policy can pause one tenant instead of the shared account. `team-<id>`
-            // is the provisioning convention (products/workflows/backend/providers/ses.py and
-            // posthog/management/commands/migrate_ses_tenants.py). Deliberately NOT gated on
-            // isTest: test-panel sends are real over-the-wire SES sends, so leaving them
-            // unattributed would (a) push their bounces onto the shared account's reputation and
-            // (b) let a paused tenant keep sending via "Run test". The isTest skips elsewhere in
-            // this class only shield our internal metrics, a separate concern from SES-side
-            // attribution; test volume is far below the representative volume AWS needs for a
-            // reputation finding.
-            sendEmailParams.TenantName = `team-${result.invocation.teamId}`
-        }
+        // Attributes the send to the team's SES tenant so AWS tracks reputation per team and
+        // its reputation policy can pause one tenant instead of the shared account. `team-<id>`
+        // is the provisioning convention (products/workflows/backend/providers/ses.py and
+        // posthog/management/commands/migrate_ses_tenants.py). Deliberately NOT gated on
+        // isTest: test-panel sends are real over-the-wire SES sends, so leaving them
+        // unattributed would (a) push their bounces onto the shared account's reputation and
+        // (b) let a paused tenant keep sending via "Run test". The isTest skips elsewhere in
+        // this class only shield our internal metrics, a separate concern from SES-side
+        // attribution; test volume is far below the representative volume AWS needs for a
+        // reputation finding.
+        sendEmailParams.TenantName = `team-${result.invocation.teamId}`
 
         // Authoritative tracking-code carrier: a custom MIME header. Header values aren't
         // 256-char-bounded the way SES tag values are, so they safely carry the signed code

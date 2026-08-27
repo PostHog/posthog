@@ -5,6 +5,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { isLaunched } from 'scenes/experiments/experimentStatus'
 import { projectLogic } from 'scenes/projectLogic'
 
 import type { FeatureFlagsSet } from '~/lib/logic/featureFlagLogic'
@@ -21,8 +22,6 @@ import type {
     ExperimentMetricsRecalculationApi,
     TriggerEnumApi,
 } from 'products/experiments/frontend/generated/api.schemas'
-
-import { isLaunched } from './experimentsLogic'
 
 type ExperimentSavedMetric = {
     metadata: {

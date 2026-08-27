@@ -21,10 +21,12 @@ from products.tasks.backend.constants import (
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
     PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
+    PR_LOOP_ENABLED_STATE_KEY,
     RTK_DISABLED_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
     SANDBOX_ROTATION_FEATURE_FLAG,
     get_vm_sandbox_flag_payload,
+    is_same_run_resume_state,
     vm_sandbox_allowed_origin_products,
     vm_sandbox_default_base_origin_products,
     vm_sandbox_default_custom_image,
@@ -181,7 +183,7 @@ class TaskProcessingContext:
     @property
     def is_snapshot_resume(self) -> bool:
         state = self.state or {}
-        has_resume_source = isinstance(state.get("resume_from_run_id"), str) or state.get("handoff_resumed") is True
+        has_resume_source = isinstance(state.get("resume_from_run_id"), str) or is_same_run_resume_state(state)
         return has_resume_source and isinstance(state.get("snapshot_external_id"), str)
 
     @property
@@ -768,7 +770,7 @@ def _resolve_sandbox_backend(
 
     # Hard gates: a "hogland" result (override OR flag) is only allowed when hogland can
     # actually run this run. These sit ahead of the override so a stale or forged `hogland`
-    # (e.g. carried across a cloud handoff) can't defeat the EU guard or the Modal-only
+    # carried across a cloud resume can't defeat the EU guard or the Modal-only
     # fallbacks and leave the run with unenforced egress.
     if not settings.HOGLAND_API_URL or not (settings.HOGLAND_API_TOKEN_FILE or settings.HOGLAND_API_TOKEN):
         return "modal"
@@ -1068,6 +1070,10 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         or False
     )  # Ensure we get a boolean value even if the flag is missing
     emit_agent_log(run_id, "debug", f"pr_loop_enabled: {pr_loop_enabled} for this task run")
+    try:
+        TaskRun.update_state_atomic(task_run.id, updates={PR_LOOP_ENABLED_STATE_KEY: pr_loop_enabled})
+    except Exception as e:
+        log_with_activity_context("pr_loop_enabled_stamp_failed", run_id=run_id, error=str(e))
     pi_persistent_streaming = task.runtime == Task.Runtime.PI and not is_slack_interaction_state(state)
     sandbox_event_ingest_override = state.get("sandbox_event_ingest_enabled")
     if pi_persistent_streaming and not isinstance(sandbox_event_ingest_override, bool):

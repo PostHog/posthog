@@ -70,11 +70,6 @@ NEVER share sensitive information in a PR description. Users may share sensitive
 
 **Screenshots:** Upload frontend/visual changes with `hogli pr:upload-image <file>` and embed the printed markdown. The first run only warns and uploads nothing; re-run with `--yes` to confirm. Only PostHog employees can upload, but the public can permanently view these assets, so only upload the image if you're certain it doesn't contain customer data (including customer names), secrets, or sensitive internal info.
 
-### Local review before opening
-
-When instructed to open a PR or a draft PR, run `hogli review` once on the committed branch before `gh pr create` — it runs the same Greptile reviewer that comments on every PR, so findings become pre-push edits instead of bot comments and CI re-runs.
-Invoke `/reviewing-before-pr` for the full flow: auth and the no-access fallback, the run-once contract, the `no-greptile` label gate (`hogli review --check`), and recording findings in the PR description.
-
 ### Rules
 
 - Scope is optional but encouraged when the change is specific to a feature area
@@ -269,7 +264,6 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/writing-user-facing-copy` — writing or editing any text a user reads (UI labels, tooltips, empty/error states, notifications, docs, support replies), or any code change that adds or changes a visible string
 - `/writing-code-comments` — writing or editing a code comment in any language, or reviewing a diff that adds comments
 - `/writing-pr-descriptions` — writing or editing any PR body, before `gh pr create` or `gh pr edit --body`
-- `/reviewing-before-pr` — when instructed to open a PR or a draft PR: one local Greptile review (`hogli review`) of the committed branch, before `gh pr create`
 
 **Invoke when in the area:**
 
@@ -280,6 +274,7 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/implementing-mcp-tools` — adding/modifying endpoints or `tools.yaml`
 - `/modifying-taxonomic-filter` — any TaxonomicFilter change
 - `/placing-product-frontend-code` — adding a frontend file or directory for a product, or deciding between `products/<name>/frontend/` and `frontend/src/scenes/<name>/`
+- `/integrating-with-posthog-ai` — making a product surface work with PostHog AI: injecting scene context or custom instructions, reacting to the agent's tool calls, or rendering your product's tool cards in a thread
 - `/sending-notifications` — adding notification support
 - `/writing-skills` — creating or updating skills in `.agents/skills/`
 - `/writing-evals` — adding or changing eval suites, cases, scorers, or seeders under `products/posthog_ai/evals/` or `products/*/evals/`, touching the harness in `products/posthog_ai/eval_harness/`, or running those evals
