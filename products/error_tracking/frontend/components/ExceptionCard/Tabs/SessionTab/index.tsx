@@ -108,7 +108,7 @@ export function SessionTimelineTab({
     }, [properties, sessionId, timestamp, uuid])
 
     return (
-        <TabsContent value="timeline" className="min-h-0 min-w-0 flex-1 overflow-y-auto text-sm">
+        <TabsContent value="timeline" keepMounted className="min-h-0 min-w-0 flex-1 overflow-y-auto text-sm">
             {collector && (
                 <SessionTimeline
                     ref={sessionTimelineRef}
