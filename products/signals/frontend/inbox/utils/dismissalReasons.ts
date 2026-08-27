@@ -43,6 +43,24 @@ export interface DismissalFeedback {
     correctedRepository: string | null
 }
 
+/**
+ * The dismissal fields of a `state`/`bulk-state` request body, so every surface maps
+ * {@link DismissalFeedback} to the API the same way. Spread into `{ state: 'suppressed', ... }`.
+ * The note is clamped to the API's 4000-character cap.
+ */
+export function suppressDismissalPayload(dismissal: DismissalFeedback): {
+    dismissal_reason: DismissalReasonValue
+    dismissal_note?: string
+    corrected_repository?: string
+} {
+    const note = dismissal.note.trim().slice(0, 4000)
+    return {
+        dismissal_reason: dismissal.reason,
+        ...(note ? { dismissal_note: note } : {}),
+        ...(dismissal.correctedRepository ? { corrected_repository: dismissal.correctedRepository } : {}),
+    }
+}
+
 // Reason codes persisted by flows outside the dismiss dialog (never user-selectable there), so the
 // dismissal chip still renders a label instead of the raw code. `refunded` is written by the PR
 // refund action, which archives the report as part of the refund.

@@ -1704,6 +1704,8 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
             latest = json.loads(selections[-1].content)
             assert latest["repository"] == "acme/checkout"
             assert selections[-1].created_by_id == self.user.id
+            # A correction names a target, not PR intent, so it must never grant autostart.
+            assert latest["autostart_eligible"] is False
         else:
             assert len(selections) == 1
 

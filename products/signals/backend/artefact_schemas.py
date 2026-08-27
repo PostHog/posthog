@@ -225,6 +225,11 @@ class ChannelAssignment(BaseModel):
     channel_id: UUID | None = Field(description="Channel UUID, or null to leave the report unassigned.")
 
 
+# Reason code shared by the dismissal writer (the state API) and the corrections reader
+# (`repo_corrections`), defined here so the two cannot drift apart.
+DISMISSAL_REASON_WRONG_REPO = "wrong_repo"
+
+
 class Dismissal(BaseModel):
     """Content schema for a `dismissal` artefact: feedback captured when a report is dismissed/snoozed.
 

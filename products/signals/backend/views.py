@@ -69,6 +69,7 @@ from posthog.user_permissions import UserPermissions
 
 from products.data_warehouse.backend.facade.api import trigger_external_data_workflow
 from products.signals.backend.artefact_schemas import (
+    DISMISSAL_REASON_WRONG_REPO,
     NON_WRITABLE_ARTEFACT_TYPES,
     SIGNALS_PRODUCT,
     ArtefactContentValidationError,
@@ -461,10 +462,6 @@ SIGNAL_REPORT_DISMISSAL_REASON_CHOICES = [
     ("other", "Something else…"),
 ]
 
-# Reason code that carries the optional corrected_repository payload and triggers the
-# selected-repository denormalization onto the dismissal artefact.
-DISMISSAL_REASON_WRONG_REPO = "wrong_repo"
-
 _DISMISSAL_REASON_HELP_TEXT = (
     "Optional canonical reason code for the dismissal. Must be one of: already_fixed, "
     "report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, other — "
@@ -575,7 +572,7 @@ class SignalReportBulkStateRequestSerializer(SignalReportStateRequestSerializer)
             "Report ids to transition to `state` in one call (1–"
             f"{SIGNAL_REPORT_BULK_STATE_MAX_IDS}). Duplicates are de-duplicated; each id is "
             "processed independently so one disallowed transition does not block the rest. "
-            "`dismissal_reason`, `dismissal_note` and `snooze_for` apply to every id."
+            "`dismissal_reason`, `dismissal_note`, `corrected_repository` and `snooze_for` apply to every id."
         ),
     )
 
@@ -2054,6 +2051,9 @@ class SignalReportViewSet(
             content=RepoSelectionResult(
                 repository=corrected_repository,
                 reason="A reviewer dismissed this report as targeting the wrong repository and named this one instead.",
+                # A correction names the repo a person would target; it never signals PR intent, so
+                # it must not outrank an earlier selection's False stamp on the autostart path.
+                autostart_eligible=False,
             ),
             attribution=self._request_attribution(),
         )
@@ -2084,7 +2084,7 @@ class SignalReportViewSet(
 
         `corrected_repository` (validated upstream: wrong_repo dismissals only) is recorded on the
         dismissal artefact, and additionally appended as the report's newest repo_selection artefact
-        when the repository is connected — see `_append_corrected_repo_selection`.
+        when the repository is connected; see `_append_corrected_repo_selection`.
         """
         target_status = SignalReport.Status(target)
 

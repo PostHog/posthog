@@ -5,7 +5,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 
 import { captureInboxReportAction } from '../inboxAnalytics'
-import type { DismissalFeedback } from '../utils/dismissalReasons'
+import { type DismissalFeedback, suppressDismissalPayload } from '../utils/dismissalReasons'
 
 /** Tally of a bulk operation that ran one request per selected report. */
 interface BulkActionResult {
@@ -136,7 +136,6 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
                 actions.bulkDismissFailure()
                 return
             }
-            const trimmedNote = dismissal.note.trim().slice(0, 4000)
             // Only the structured reason and repo correction — the free-form note can carry proprietary text.
             captureInboxReportAction({
                 actionType: 'dismiss',
@@ -154,11 +153,7 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
                 reportIds.map((id) =>
                     api.signalReports.setState(id, {
                         state: 'suppressed',
-                        dismissal_reason: dismissal.reason,
-                        ...(trimmedNote ? { dismissal_note: trimmedNote } : {}),
-                        ...(dismissal.correctedRepository
-                            ? { corrected_repository: dismissal.correctedRepository }
-                            : {}),
+                        ...suppressDismissalPayload(dismissal),
                     })
                 )
             )

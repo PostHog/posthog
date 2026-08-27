@@ -228,11 +228,11 @@ import type {
     ColumnConfigurationApi,
     PaginatedColumnConfigurationListApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
+import type { SignalReportStateRequestApi } from 'products/signals/frontend/generated/api.schemas'
 import {
     SignalReport,
     SignalReportArtefact,
     SignalReportArtefactResponse,
-    SignalReportStateRequest,
     SignalScoutEmission,
     SignalScoutEmissionReportLink,
     SignalScoutRunSummary,
@@ -5205,7 +5205,7 @@ const api = {
             return await new ApiRequest().signalReport(id).withAction('reingest').create()
         },
         // State transitions: suppress (dismiss) or snooze back to potential. Backend: `state` action.
-        async setState(id: SignalReport['id'], data: SignalReportStateRequest): Promise<SignalReport> {
+        async setState(id: SignalReport['id'], data: SignalReportStateRequestApi): Promise<SignalReport> {
             return await new ApiRequest().signalReport(id).withAction('state').create({ data })
         },
         // Backend returns a flat `{ [user_uuid]: { name, email } }` map (not paginated).

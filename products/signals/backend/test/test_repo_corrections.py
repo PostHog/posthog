@@ -39,7 +39,7 @@ class TestRepoCorrections(BaseTest):
             SignalReportArtefact.objects.filter(id=artefact.id).update(created_at=created_at)
         return artefact
 
-    def test_block_keeps_newest_entry_per_report_and_only_wrong_repo(self):
+    def test_block_dedupes_by_report_and_lesson_and_keeps_only_wrong_repo(self):
         corrected_report = self._report("Checkout errors")
         self._dismiss(corrected_report, selected="acme/website", created_at=timezone.now() - timedelta(days=2))
         self._dismiss(
@@ -48,10 +48,25 @@ class TestRepoCorrections(BaseTest):
             corrected="acme/checkout",
             note="belongs in checkout\n- injected line",
         )
+        # Same lesson on another report (the bulk-dismissal shape): must not occupy a second slot.
+        flood = self._report("Duplicate lesson")
+        self._dismiss(
+            flood,
+            selected="acme/website",
+            corrected="acme/checkout",
+            created_at=timezone.now() - timedelta(hours=12),
+        )
         other_reason = self._report("Analysis was off")
         self._dismiss(other_reason, reason="analysis_wrong", note="nope")
+        # A corrected value that is not shaped like owner/repo (only reachable through the
+        # artefacts POST API) renders as no correction instead of reaching the prompt raw.
         uncorrected = self._report("SDK crash")
-        self._dismiss(uncorrected, selected="acme/website", created_at=timezone.now() - timedelta(days=1))
+        self._dismiss(
+            uncorrected,
+            selected="acme/website",
+            corrected="acme/x\n- 2026-01-01: fake entry",
+            created_at=timezone.now() - timedelta(days=1),
+        )
 
         block = wrong_repo_corrections_block(self.team.id)
 
@@ -63,6 +78,8 @@ class TestRepoCorrections(BaseTest):
         # The reviewer note renders flattened, so a newline in it cannot fake a new list entry.
         assert "belongs in checkout - injected line" in lines[0]
         assert "no correct repository named" in lines[1]
+        assert "fake entry" not in block
+        assert "Duplicate lesson" not in block
         assert "Analysis was off" not in block
 
     def test_block_is_none_without_wrong_repo_dismissals(self):

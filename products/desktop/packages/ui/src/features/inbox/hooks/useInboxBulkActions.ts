@@ -272,13 +272,7 @@ export function useInboxBulkActions(
         reports: succeeded,
         actionType,
         surface,
-        dismissal: dismissal
-          ? {
-              reason: dismissal.reason,
-              note: dismissal.note,
-              correctedRepository: dismissal.correctedRepository,
-            }
-          : undefined,
+        dismissal,
       });
       for (const event of events) {
         track(ANALYTICS_EVENTS.INBOX_REPORT_ACTION, event);

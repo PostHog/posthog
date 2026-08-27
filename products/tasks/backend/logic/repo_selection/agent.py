@@ -447,7 +447,7 @@ async def select_repository(
     domain types (SignalData, Slack thread messages, etc.) before invoking.
 
     `past_corrections` is an optional pre-rendered block of the caller's previous selections
-    that a reviewer marked wrong — see `_build_repo_selection_prompt`.
+    that a reviewer marked wrong; see `_build_repo_selection_prompt`.
 
     Callers that have already resolved the integration and candidate list (e.g. to run their
     own cheap early-exit first) may pass `github` and `candidate_repos` to skip the redundant

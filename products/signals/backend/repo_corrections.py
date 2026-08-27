@@ -16,14 +16,17 @@ builder catches everything and returns None on failure.
 
 from __future__ import annotations
 
-import json
+import re
 import logging
 from datetime import timedelta
 
 from django.utils import timezone
 
+from pydantic import ValidationError
+
 from posthog.dataclasses import frozen
 
+from products.signals.backend.artefact_schemas import DISMISSAL_REASON_WRONG_REPO, Dismissal
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 
 logger = logging.getLogger(__name__)
@@ -33,13 +36,24 @@ logger = logging.getLogger(__name__)
 # letting a long-retired repo layout steer selections forever.
 MAX_CORRECTIONS = 20
 CORRECTIONS_WINDOW = timedelta(days=180)
-# Dismissal artefacts scanned newest-first before Python-side reason filtering. `content` is a
-# JSON text column, so the reason code cannot be filtered in SQL.
+# Rows fetched (newest first) before Python-side verification. The SQL `content` prefilter below
+# already narrows to wrong-repo rows, so this is a backstop against pathological volume, not the
+# working limit.
 _SCAN_CAP = 500
 _MAX_TITLE_CHARS = 120
 _MAX_NOTE_CHARS = 200
 
-_WRONG_REPO_REASON = "wrong_repo"
+# Rendered repository names must look like 'owner/repo'. The state API validates its input the
+# same way, but dismissal and repo_selection artefacts are also writable through the artefacts
+# POST API with no format constraint, and these values land in a prompt where a newline could
+# fake extra list entries. Anything else renders as "unrecorded".
+_REPO_SHAPE_RE = re.compile(r"^[^/\s]+/[^/\s]+$")
+_MAX_REPO_CHARS = 140
+
+# `content` is compact JSON written by pydantic's model_dump_json, so a wrong_repo dismissal
+# always contains this exact substring (values with quotes are escaped, so a note can only
+# false-positive into the scan, where the typed parse below re-checks the reason).
+_WRONG_REPO_CONTENT_NEEDLE = f'"reason":"{DISMISSAL_REASON_WRONG_REPO}"'
 
 
 @frozen
@@ -54,10 +68,12 @@ class RepoCorrection:
 
 
 def recent_wrong_repo_corrections(team_id: int) -> list[RepoCorrection]:
-    """The team's recent wrong-repo dismissals, newest first, one per report.
+    """The team's recent wrong-repo dismissals, newest first, deduplicated.
 
-    One dismissal per report: a report dismissed twice as wrong-repo teaches the same lesson
-    twice, and the newest entry carries the freshest correction.
+    One entry per report, and one entry per distinct (selected, corrected) lesson: a bulk
+    dismissal applies the same correction to every selected report, and without the lesson
+    dedupe one sweep would fill the whole block with copies of a single lesson and evict the
+    older, distinct ones.
     """
     cutoff = timezone.now() - CORRECTIONS_WINDOW
     rows = (
@@ -65,24 +81,28 @@ def recent_wrong_repo_corrections(team_id: int) -> list[RepoCorrection]:
             team_id=team_id,
             type=SignalReportArtefact.ArtefactType.DISMISSAL,
             created_at__gte=cutoff,
+            content__contains=_WRONG_REPO_CONTENT_NEEDLE,
         )
         .order_by("-created_at")
         .values_list("report_id", "content", "created_at", named=True)[:_SCAN_CAP]
     )
 
-    kept: list[tuple[str, dict, str]] = []
+    kept: list[tuple[str, Dismissal, str]] = []
     seen_reports: set[str] = set()
+    seen_lessons: set[tuple[str | None, str | None]] = set()
     for artefact in rows:
         try:
-            content = json.loads(artefact.content)
-        except (json.JSONDecodeError, TypeError, ValueError):
+            content = Dismissal.model_validate_json(artefact.content)
+        except ValidationError:
             continue
-        if not isinstance(content, dict) or content.get("reason") != _WRONG_REPO_REASON:
+        if content.reason != DISMISSAL_REASON_WRONG_REPO:
             continue
         report_id = str(artefact.report_id)
-        if report_id in seen_reports:
+        lesson = (_repo_or_none(content.selected_repository), _repo_or_none(content.corrected_repository))
+        if report_id in seen_reports or lesson in seen_lessons:
             continue
         seen_reports.add(report_id)
+        seen_lessons.add(lesson)
         kept.append((report_id, content, artefact.created_at.date().isoformat()))
         if len(kept) >= MAX_CORRECTIONS:
             break
@@ -99,9 +119,9 @@ def recent_wrong_repo_corrections(team_id: int) -> list[RepoCorrection]:
     return [
         RepoCorrection(
             report_title=titles.get(report_id),
-            selected_repository=_clean(content.get("selected_repository")),
-            corrected_repository=_clean(content.get("corrected_repository")),
-            note=_clean(content.get("note")),
+            selected_repository=_repo_or_none(content.selected_repository),
+            corrected_repository=_repo_or_none(content.corrected_repository),
+            note=_clean(content.note),
             dismissed_on=dismissed_on,
         )
         for report_id, content, dismissed_on in kept
@@ -132,10 +152,14 @@ def _render(correction: RepoCorrection) -> str:
     return f"- {correction.dismissed_on}: a report{title_clause} selected {selected}; {verdict}.{note_clause}"
 
 
-def _clean(value: object) -> str | None:
-    if not isinstance(value, str):
+def _repo_or_none(value: str | None) -> str | None:
+    if not value or len(value) > _MAX_REPO_CHARS or not _REPO_SHAPE_RE.match(value):
         return None
-    cleaned = value.strip()
+    return value
+
+
+def _clean(value: str | None) -> str | None:
+    cleaned = (value or "").strip()
     return cleaned or None
 
 

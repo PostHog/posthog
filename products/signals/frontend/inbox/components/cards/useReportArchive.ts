@@ -4,7 +4,7 @@ import api from 'lib/api'
 
 import { captureInboxReportAction, InboxReportActionSurface } from '../../inboxAnalytics'
 import { SignalReport } from '../../types'
-import { DismissalFeedback } from '../../utils/dismissalReasons'
+import { DismissalFeedback, suppressDismissalPayload } from '../../utils/dismissalReasons'
 import { openDismissReportDialog } from '../shell/DismissReportDialog'
 
 /**
@@ -63,9 +63,7 @@ export function useReportArchive({
                 try {
                     await api.signalReports.setState(reportId, {
                         state: 'suppressed',
-                        dismissal_reason: reason,
-                        ...(note ? { dismissal_note: note } : {}),
-                        ...(correctedRepository ? { corrected_repository: correctedRepository } : {}),
+                        ...suppressDismissalPayload(dismissal),
                     })
                     onArchived?.()
                 } finally {

@@ -14,7 +14,7 @@ import {
     InboxSortField,
 } from 'products/signals/frontend/inbox/logics/inboxFiltersLogic'
 import { SignalReport, SignalReportPriority, SignalReportStatus } from 'products/signals/frontend/inbox/types'
-import { DismissalFeedback } from 'products/signals/frontend/inbox/utils/dismissalReasons'
+import { DismissalFeedback, suppressDismissalPayload } from 'products/signals/frontend/inbox/utils/dismissalReasons'
 
 import type { UserType } from '../../../../../frontend/src/types'
 
@@ -268,9 +268,7 @@ export const feedLogic = kea<feedLogicType>([
             try {
                 await api.signalReports.setState(reportId, {
                     state: 'suppressed',
-                    dismissal_reason: dismissal.reason,
-                    ...(dismissal.note ? { dismissal_note: dismissal.note } : {}),
-                    ...(dismissal.correctedRepository ? { corrected_repository: dismissal.correctedRepository } : {}),
+                    ...suppressDismissalPayload(dismissal),
                 })
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to archive report')
