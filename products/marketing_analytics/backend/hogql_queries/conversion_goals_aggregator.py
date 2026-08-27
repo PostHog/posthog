@@ -71,10 +71,8 @@ class ConversionGoalsAggregator:
         if not self.processors:
             raise ValueError("Cannot create unified CTE without conversion goal processors")
 
-        # The touchpoints precompute is goal-agnostic: every goal drives the exact same
-        # ensure_precomputed for the same window. Share one handle so it is materialized once for the
-        # whole read instead of once per goal. Every processor in a read carries the same query, so the
-        # first one's test-account setting speaks for all of them.
+        # Goal-agnostic, so one handle materializes it once per read rather than once per goal. Reading
+        # processor 0 for the flag is safe: every processor in a read came from the same query.
         touchpoints = SharedTouchpointsPrecompute(
             self.processors[0].team, self.config, self.processors[0].filter_test_accounts
         )

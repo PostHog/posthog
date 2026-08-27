@@ -715,8 +715,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     },
                 },
             ],
-            // Off by default, matching web analytics next door, so no existing team's numbers move until
-            // someone asks for it. Persisted per team the same way.
+            // Off by default and persisted per team, matching web analytics next door.
             shouldFilterTestAccounts: [
                 false as boolean,
                 persistConfig,

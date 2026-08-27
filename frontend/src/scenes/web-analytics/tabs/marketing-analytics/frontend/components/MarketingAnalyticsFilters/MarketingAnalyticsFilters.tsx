@@ -52,8 +52,7 @@ export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.
                         >
                             <AddIntegrationButton />
                         </Shortcut>
-                        {/* Only the event side honors this. Ad spend comes from the platforms, which
-                            never saw your staff, so the cost columns are unaffected either way. */}
+                        {/* Only the event side honors this: ad spend comes from the platforms. */}
                         <TestAccountFilterSwitch
                             checked={shouldFilterTestAccounts}
                             onChange={setShouldFilterTestAccounts}

@@ -18,12 +18,8 @@ logger = structlog.get_logger(__name__)
 def test_account_conditions(team: Team, enabled: bool) -> list[ast.Expr]:
     """The team's test-account filters, for an `events` scan that opted into them.
 
-    Every marketing surface that reads events goes through this, so a team's idea of internal traffic
-    cannot mean one thing on the attribution table and another on the cost table.
-
-    Empty when the toggle is off, which keeps the query shape identical to what it was before the toggle
-    existed. That matters beyond tidiness: the lazy precompute hashes the insert query's AST, so an
-    unconditional wrapper would repoint every team at a cold materialization.
+    Empty when the toggle is off, which keeps the query shape byte-identical: the lazy precompute hashes
+    the insert query's AST, so an unconditional wrapper would repoint every team at a cold job.
     """
     if not enabled or not team.test_account_filters:
         return []

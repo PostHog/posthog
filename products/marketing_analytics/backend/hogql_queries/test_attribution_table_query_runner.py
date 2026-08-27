@@ -151,9 +151,9 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
 
     @parameterized.expand([("off", False, 2.0), ("on", True, 1.0)])
     def test_filter_test_accounts_drops_internal_traffic(self, _name, filter_test_accounts, expected_conversions):
-        # Both arms have to honor the filter. Applied only to the conversion scan, the internal person's
-        # touchpoints still dilute every model's weights; applied only to the touchpoint scan, their
-        # conversion survives as unattributed. Asserting the conversion count catches either half.
+        # The conversion count catches either arm being missed: filtering only the conversion scan leaves
+        # the internal person's touchpoints diluting the weights, only the touchpoint scan leaves their
+        # conversion unattributed.
         self.team.test_account_filters = [
             {"key": "email", "value": "@internal.example.com", "operator": "not_icontains", "type": "person"}
         ]

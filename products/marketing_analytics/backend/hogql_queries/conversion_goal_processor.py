@@ -299,9 +299,7 @@ class ConversionGoalProcessor:
     # Set when this goal's precompute was served from expired-within-grace rows instead of rebuilt. Read
     # by the runner after the goal pool joins, to schedule one background revalidation for the read.
     precompute_stale: bool = False
-    # Whether to drop the team's test accounts from every events scan below. The query carries it, and a
-    # processor has no query, so the runner passes it down. It reaches the precompute queries too, which
-    # is what gives a filtered read its own materialization rather than the unfiltered team's rows.
+    # Passed down by the runner, since a processor has no query of its own to read it from.
     filter_test_accounts: bool = False
 
     _UTM_LEVEL_FIELD_MAP: ClassVar[dict[MarketingAnalyticsDrillDownLevel, str]] = {
@@ -600,14 +598,11 @@ class ConversionGoalProcessor:
     def _test_account_filters_restricted_for_user(self) -> bool:
         """True when dropping test accounts inside the precompute could leak a property this user can't read.
 
-        The precompute evaluates the team's test-account rules with no user attached, so those rules are
-        compared against real values rather than masked ones. Someone denied a property that a rule reads
-        could otherwise toggle the filter and diff the aggregates to learn how many rows match it.
+        The precompute evaluates the rules with no user attached, so they compare against real values
+        rather than masked ones, and toggling the filter would report how many rows match.
 
-        Deliberately coarse: it asks whether the user has any restriction at all, rather than which
-        properties the rules name. Reading those names means walking arbitrary filter trees, including
-        nested groups and cohorts, and a miss there fails open. Over-refusing only costs this user the
-        precompute on a filtered read, and the direct path it falls back to masks correctly.
+        Coarse on purpose: it asks whether the user has any restriction, not which properties the rules
+        name, since reading those means walking arbitrary filter trees where a miss fails open.
         """
         if not self.filter_test_accounts or not self.team.test_account_filters:
             return False
@@ -1134,8 +1129,7 @@ class ConversionGoalProcessor:
             # For general queries, apply date conditions to all events
             event_filter = self._build_general_event_filter(date_conditions)
 
-        # Combine all conditions. Test accounts are dropped outside the event filter, which is an OR over
-        # the conversion and pageview arms, so one condition covers both rather than being repeated.
+        # Test accounts sit outside `event_filter`, which is an OR over the conversion and pageview arms.
         all_conditions = [
             event_filter,
             *non_event_conditions,
