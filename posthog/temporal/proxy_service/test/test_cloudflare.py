@@ -11,6 +11,7 @@ from posthog.temporal.proxy_service.cloudflare import (
     _parse_hostname,
     create_custom_hostname,
     parse_cloudflare_error_code,
+    update_custom_hostname_metadata,
 )
 
 # Every status Cloudflare can send, which is a superset of what the enums name. Re-derive with:
@@ -77,12 +78,13 @@ class TestCloudflareAPIErrorIsRateLimited(TestCase):
         self.assertEqual(error.is_rate_limited(), expected)
 
 
-def _hostname_payload(status="active", ssl_status="active"):
+def _hostname_payload(status="active", ssl_status="active", custom_metadata=None):
     return {
         "id": "abc123",
         "hostname": "p.example.com",
         "status": status,
         "ssl": {"status": ssl_status, "validation_errors": []},
+        "custom_metadata": custom_metadata or {},
     }
 
 
@@ -117,17 +119,20 @@ class TestParseHostnameStatuses(SimpleTestCase):
         self.assertNotEqual(info.status, CustomHostnameStatus.ACTIVE)
 
 
+@override_settings(CLOUDFLARE_API_TOKEN="token", CLOUDFLARE_ZONE_ID="zone")
 class TestCreateCustomHostname(SimpleTestCase):
-    @override_settings(CLOUDFLARE_API_TOKEN="token", CLOUDFLARE_ZONE_ID="zone")
     @patch("posthog.temporal.proxy_service.cloudflare.requests.post")
-    def test_sets_minimum_tls_version(self, post):
+    def test_sets_minimum_tls_version_and_redirect_metadata(self, post_request):
         response = Mock()
-        response.json.return_value = {"success": True, "result": _hostname_payload()}
-        post.return_value = response
+        response.json.return_value = {
+            "success": True,
+            "result": _hostname_payload(custom_metadata={"root_redirect_url": "https://example.com/"}),
+        }
+        post_request.return_value = response
 
-        create_custom_hostname("p.example.com")
+        create_custom_hostname("p.example.com", "https://example.com/")
 
-        post.assert_called_once_with(
+        post_request.assert_called_once_with(
             "https://api.cloudflare.com/client/v4/zones/zone/custom_hostnames",
             headers={"Authorization": "Bearer token", "Content-Type": "application/json"},
             json={
@@ -137,9 +142,43 @@ class TestCreateCustomHostname(SimpleTestCase):
                     "type": "dv",
                     "settings": {"min_tls_version": "1.2"},
                 },
+                "custom_metadata": {"root_redirect_url": "https://example.com/"},
             },
             timeout=8.0,
         )
+
+    @patch("posthog.temporal.proxy_service.cloudflare.requests.post")
+    def test_omits_redirect_metadata_when_root_redirect_is_disabled(self, post_request):
+        response = Mock()
+        response.json.return_value = {"success": True, "result": _hostname_payload()}
+        post_request.return_value = response
+
+        create_custom_hostname("p.example.com")
+
+        request_payload = post_request.call_args.kwargs["json"]
+        assert "custom_metadata" not in request_payload
+
+    @patch("posthog.temporal.proxy_service.cloudflare.requests.patch")
+    def test_preserves_existing_metadata(self, patch_request):
+        hostname = _parse_hostname(_hostname_payload(custom_metadata={"existing": "value"}))
+        response = Mock()
+        response.json.return_value = {
+            "success": True,
+            "result": _hostname_payload(
+                custom_metadata={"existing": "value", "root_redirect_url": "https://example.com/"}
+            ),
+        }
+        patch_request.return_value = response
+
+        updated = update_custom_hostname_metadata(hostname, {"root_redirect_url": "https://example.com/"})
+
+        patch_request.assert_called_once_with(
+            "https://api.cloudflare.com/client/v4/zones/zone/custom_hostnames/abc123",
+            headers={"Authorization": "Bearer token", "Content-Type": "application/json"},
+            json={"custom_metadata": {"existing": "value", "root_redirect_url": "https://example.com/"}},
+            timeout=8.0,
+        )
+        self.assertEqual(updated.custom_metadata["root_redirect_url"], "https://example.com/")
 
 
 class TestParseCloudflareErrorCode(SimpleTestCase):
