@@ -34,6 +34,7 @@ registerAsyncFunction('fetch', {
             body,
             headers: pickBy(headers, (v) => typeof v == 'string'),
             ...(fetchOptions?.aws_sigv4 ? { aws_sigv4: fetchOptions.aws_sigv4 } : {}),
+            ...(fetchOptions?.standard_webhooks ? { standard_webhooks: fetchOptions.standard_webhooks } : {}),
         })
 
         result.invocation.queueParameters = fetchQueueParameters

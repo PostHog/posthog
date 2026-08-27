@@ -17,6 +17,12 @@ let payload := {
   'method': inputs.method
 }
 
+if (not empty(inputs.signing_secret)) {
+  payload['standard_webhooks'] := {
+    'secret_input': 'signing_secret'
+  }
+}
+
 if (inputs.debug) {
   print('Request', inputs.url, payload)
 }
@@ -88,6 +94,15 @@ if (inputs.debug) {
             required: false,
             default: { 'Content-Type': 'application/json' },
             description: 'HTTP headers to send in the request.',
+        },
+        {
+            key: 'signing_secret',
+            type: 'string',
+            label: 'Signing secret',
+            secret: true,
+            required: false,
+            description:
+                'If set, each request includes signed webhook-id, webhook-timestamp, and webhook-signature headers following the Standard Webhooks spec. Paste the secret from the receiving service, with or without the whsec_ prefix.',
         },
         {
             key: 'debug',

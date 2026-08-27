@@ -115,6 +115,14 @@ export const CyclotronInvocationQueueParametersFetchAwsSigV4Schema = z.object({
     session_token_input: z.string().optional(),
 })
 
+// When `standard_webhooks` is present on a fetch queue payload, the cyclotron
+// fetch executor signs the request per the Standard Webhooks spec immediately
+// before each attempt. Like `aws_sigv4` above, `secret_input` is an input-key
+// reference resolved at fetch time, because the queue payload is plaintext JSON.
+export const CyclotronInvocationQueueParametersFetchStandardWebhooksSchema = z.object({
+    secret_input: z.string(),
+})
+
 export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     type: z.literal('fetch'),
     url: z.string(),
@@ -123,6 +131,7 @@ export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     max_tries: z.number().optional(),
     headers: z.record(z.string(), z.string()).optional(),
     aws_sigv4: CyclotronInvocationQueueParametersFetchAwsSigV4Schema.optional(),
+    standard_webhooks: CyclotronInvocationQueueParametersFetchStandardWebhooksSchema.optional(),
 })
 
 export const MAX_WORKFLOW_EMAIL_SENDERS = 10
@@ -163,6 +172,9 @@ export type PushNotificationPayloadType = z.infer<typeof PushNotificationPayload
 
 export type CyclotronInvocationQueueParametersFetchAwsSigV4Type = z.infer<
     typeof CyclotronInvocationQueueParametersFetchAwsSigV4Schema
+>
+export type CyclotronInvocationQueueParametersFetchStandardWebhooksType = z.infer<
+    typeof CyclotronInvocationQueueParametersFetchStandardWebhooksSchema
 >
 export type CyclotronInvocationQueueParametersFetchType = z.infer<typeof CyclotronInvocationQueueParametersFetchSchema>
 export type CyclotronInvocationQueueParametersEmailType = z.infer<typeof CyclotronInvocationQueueParametersEmailSchema>
