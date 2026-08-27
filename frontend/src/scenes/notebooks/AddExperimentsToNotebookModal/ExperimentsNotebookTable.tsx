@@ -8,8 +8,9 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { getExperimentStatus } from 'scenes/experiments/experimentStatus'
 
-import { StatusTag } from '~/scenes/experiments/ExperimentView/StatusTag'
 import { Experiment } from '~/types'
+
+import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
 
 import { addExperimentsToNotebookModalLogic } from './addExperimentsToNotebookModalLogic'
 
