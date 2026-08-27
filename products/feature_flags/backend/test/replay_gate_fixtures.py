@@ -1,7 +1,7 @@
 """Builders for the session replay recording gate a team stores on `Team`.
 
-The shape these emit is the contract the production matchers key off, so both the API suite and the
-repair command suite build it here rather than each keeping their own copy to drift.
+The shape these emit is the contract the production matchers key off, so every suite that needs a
+gated team builds it here rather than keeping its own copy to drift.
 """
 
 from typing import Any

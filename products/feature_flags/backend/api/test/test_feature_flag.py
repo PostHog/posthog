@@ -14757,7 +14757,7 @@ class TestFeatureFlagReplayLinkFollowsRename(APIBaseTest):
         # Rewriting that too would gate the team's recording on a key that flag never had.
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
         other_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="other-gate")
-        self.team.session_recording_linked_flag = {"id": other_flag.id, "key": "other-gate"}
+        set_linked_flag(self.team, {"id": other_flag.id, "key": "other-gate"})
         set_trigger_groups(self.team, {"flag": "replay-gate"})
 
         response = self._rename(flag, "replay-gate-v2")

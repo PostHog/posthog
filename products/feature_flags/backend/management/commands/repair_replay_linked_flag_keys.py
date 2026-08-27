@@ -25,7 +25,12 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.feature_flags.backend.session_recording_links import stored_flag_id, update_linked_flag_key
+from products.feature_flags.backend.session_recording_links import (
+    ReplayGateRewrite,
+    rewritten_linked_flag,
+    save_replay_gate_rewrites,
+    stored_flag_id,
+)
 
 
 class Outcome(StrEnum):
@@ -144,7 +149,14 @@ class Command(BaseCommand):
         detail["old_key"] = linked_flag.get("key")
         detail["new_key"] = flag.key
         if not dry_run:
-            update_linked_flag_key(team, stored_id, flag.key)
+            save_replay_gate_rewrites(
+                team.pk,
+                lambda locked: ReplayGateRewrite(
+                    linked_flag=rewritten_linked_flag(
+                        locked.session_recording_linked_flag, flag_id=stored_id, new_key=flag.key
+                    )
+                ),
+            )
         return Outcome.REPAIRED, detail
 
     def _report(self, report: dict[str, Any], *, as_json: bool) -> None:

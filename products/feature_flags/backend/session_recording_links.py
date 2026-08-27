@@ -8,7 +8,6 @@ builds resolves both by key alone, and both the browser and React Native SDKs tr
 can't resolve as "do not record", so a stale key silently turns replay off for the team rather than
 surfacing an error anywhere.
 
-A trigger group reference is matched by key, and by id as well when the object form carries one.
 The replay settings UI writes the bare string form, so a reference usually has no id to match on.
 Flag keys are unique within a project, so a key alone identifies one flag there, which is why every
 matcher here is project-scoped.
@@ -37,19 +36,12 @@ REPLAY_LINKED_FLAG_DELETE_ERROR = (
     "This feature flag is used in session replay settings. Please remove it from replay settings before deleting."
 )
 
-# A team storing a recording gate in either column. Shared so a scan and a guard can't drift into
-# visiting different populations.
-STORES_A_REPLAY_GATE = Q(session_recording_linked_flag__isnull=False) | Q(
-    session_recording_trigger_groups__isnull=False
-)
-
 
 @dataclass(frozen=True, kw_only=True)
 class TriggerGroupFlagRef:
     """One trigger group's reference to a feature flag, and where in the stored config it sits."""
 
     group_index: int
-    group_id: Any
     stored_flag: Any
     key: str | None
     flag_id: int | None
@@ -72,6 +64,14 @@ class ReplayFlagGates:
 
     def gates(self, feature_flag: FeatureFlag) -> bool:
         return feature_flag.id in self.flag_ids or feature_flag.key in self.flag_keys
+
+    def as_q(self) -> Q:
+        """`gates` as a queryset predicate, for annotating a page of flags in one go.
+
+        Sorted so the `IN` lists keep a stable order: set iteration order varies per process,
+        which would churn query snapshots.
+        """
+        return Q(id__in=sorted(self.flag_ids)) | Q(key__in=sorted(self.flag_keys))
 
 
 def stored_flag_id(stored_flag: Any) -> int | None:
@@ -108,20 +108,13 @@ def _trigger_group_flag_key(stored_flag: Any) -> str | None:
     return None
 
 
-def trigger_groups_readable(trigger_groups: Any) -> bool:
-    """Whether a stored trigger groups column is shaped well enough to read references out of."""
-    return isinstance(trigger_groups, dict) and isinstance(trigger_groups.get("groups"), list)
-
-
 def trigger_group_flag_refs(trigger_groups: Any) -> list[TriggerGroupFlagRef]:
     """Every `conditions.flag` reference in a team's stored trigger groups.
 
     Empty for a column that gates on no flag and for one too malformed to read, since neither holds
-    a reference to act on; `trigger_groups_readable` separates those for the one caller that
-    reports on the stored shape. Groups carrying no `conditions.flag` yield nothing, since most gate
-    on events or URLs instead and counting them would bury the references that matter.
+    a reference to act on.
     """
-    if not trigger_groups_readable(trigger_groups):
+    if not isinstance(trigger_groups, dict) or not isinstance(trigger_groups.get("groups"), list):
         return []
 
     groups = trigger_groups["groups"]
@@ -134,7 +127,6 @@ def trigger_group_flag_refs(trigger_groups: Any) -> list[TriggerGroupFlagRef]:
         refs.append(
             TriggerGroupFlagRef(
                 group_index=index,
-                group_id=group.get("id"),
                 stored_flag=stored_flag,
                 key=_trigger_group_flag_key(stored_flag),
                 flag_id=stored_flag_id(stored_flag),
@@ -176,8 +168,9 @@ def teams_gating_replay_on_flag(feature_flag: FeatureFlag, *, key: str) -> Query
 def teams_linking_flag_in_project(project_id: int, flag_id: int) -> QuerySet[Team]:
     """Every team in this project whose linked flag column points at the flag with this id.
 
-    Narrower than `teams_gating_replay_on_flag` on purpose: it takes an id rather than a flag, for
-    a caller that has one without wanting to load the row.
+    Reads the linked flag column only, unlike `teams_gating_replay_on_flag`, so a team gating on
+    a trigger group is not returned. Its one caller frees a soft-deleted flag's key for reuse, and
+    a trigger group naming that flag by id alone would go unseen there.
     """
     return Team.objects.filter(
         project_id=project_id,
@@ -188,17 +181,15 @@ def teams_linking_flag_in_project(project_id: int, flag_id: int) -> QuerySet[Tea
 def replay_gated_flags(project_id: int) -> ReplayFlagGates:
     """Every flag a team in this project gates session recording on, from both columns.
 
-    One query for the whole project, for callers checking many flags at once.
-    `teams_gating_replay_on_flag` is the per-flag equivalent; calling it in a loop is a query per
-    flag, and the two have to agree on what counts as gated. Matching trigger groups by key is
+    One query for the whole project, for callers checking many flags at once;
+    `teams_gating_replay_on_flag` is the per-flag equivalent. Matching trigger groups by key is
     unambiguous here because both this scan and the flags its result is tested against are scoped
     to the one project.
     """
-    stored = (
-        Team.objects.filter(project_id=project_id)
-        .filter(STORES_A_REPLAY_GATE)
-        .values_list("session_recording_linked_flag", "session_recording_trigger_groups")
-    )
+    stored = Team.objects.filter(
+        Q(session_recording_linked_flag__isnull=False) | Q(session_recording_trigger_groups__isnull=False),
+        project_id=project_id,
+    ).values_list("session_recording_linked_flag", "session_recording_trigger_groups")
 
     flag_ids: set[int] = set()
     flag_keys: set[str] = set()
@@ -233,10 +224,9 @@ def rewritten_trigger_groups(trigger_groups: Any, renames: Mapping[int, str]) ->
     one, including references the caller deliberately left alone, and would collapse two groups
     naming one stale key onto whichever flag was resolved first.
 
-    Every reference keeps the shape it was stored in: a bare key stays a string, and an object
-    keeps its `id` and `variant` with only `key` rewritten. RemoteConfig hands these groups to the
-    SDK nearly verbatim, so a rewrite that dropped `sampleRate`, `urls`, or the group id would
-    break the gate outright rather than merely mistarget it.
+    RemoteConfig hands these groups to the SDK nearly verbatim, so a rewrite that dropped
+    `sampleRate`, `urls`, or the group id would break the gate outright rather than merely
+    mistarget it. Every reference therefore keeps the shape it was stored in.
     """
     refs = trigger_group_flag_refs(trigger_groups)
     if not refs:
@@ -296,39 +286,6 @@ def save_replay_gate_rewrites(team_id: int, compute: Callable[[Team], ReplayGate
         team.save(update_fields=update_fields)
 
 
-def update_linked_flag_key(team: Team, expected_flag_id: int, new_key: str) -> None:
-    """Rewrite the stored key on a team's replay link, leaving teams that no longer need it alone."""
-    # Locks the row and re-reads inside the lock, rather than trusting `team`'s in-memory copy:
-    # callers load teams in a batch before looping over them, so another edit to this team's
-    # linked flag could land before its turn comes up. The lock closes the window between the
-    # read and the save below; taking it here is safe because it's the only row this function
-    # locks and the transaction commits before returning, so it can't deadlock against another
-    # call doing the same for a different team (see `relink_teams_on_key_change` for the case
-    # that does require avoiding a lock).
-    with transaction.atomic():
-        linked_flag = (
-            Team.objects.select_for_update()
-            .filter(pk=team.pk)
-            .values_list("session_recording_linked_flag", flat=True)
-            .first()
-        )
-        # Don't route this through `stored_flag_id`: it stays loose to match the jsonb comparison
-        # `teams_gating_replay_on_flag` selected on, where a stored float id equals an int one.
-        if not isinstance(linked_flag, dict) or linked_flag.get("id") != expected_flag_id:
-            # Someone pointed the team at a different flag since the caller looked it up; that
-            # edit isn't ours to touch, and this rename has nothing left to fix here.
-            return
-        if linked_flag.get("key") == new_key:
-            # A no-op save would still spend a write, a Celery task, and a RemoteConfig rebuild.
-            return
-
-        team.session_recording_linked_flag = {**linked_flag, "key": new_key}
-        # Saving the instance rather than issuing a queryset `update()` is what fires the `post_save`
-        # receiver that refreshes the team's RemoteConfig; a bulk update would leave the cached SDK
-        # payload holding the old key.
-        team.save(update_fields=["session_recording_linked_flag"])
-
-
 def relink_teams(feature_flag: FeatureFlag, *, old_key: str) -> None:
     """Point every team gating replay on this flag at its current key.
 
@@ -357,8 +314,9 @@ def relink_teams(feature_flag: FeatureFlag, *, old_key: str) -> None:
         except Exception:
             # This runs after the rename has committed, so raising would fail a request that
             # already succeeded, and the retry would find the key unchanged and skip the relink
-            # entirely. Report instead and leave the row for `repair_replay_linked_flag_keys`.
-            # Per team, so one unwritable row doesn't strand the others.
+            # entirely. Report instead, per team, so one unwritable row doesn't strand the others.
+            # `repair_replay_linked_flag_keys` picks the linked flag column back up later; it does
+            # not read trigger groups, so a group left here stays stale until the next rename.
             logger.exception("replay_relink_failed", flag_id=feature_flag.pk, team_id=team_id)
             capture_exception()
 
@@ -408,16 +366,13 @@ def relink_teams_on_key_change(
         return
     old_key = before["key"]
 
-    # Unlike `repair_replay_linked_flag_keys`, this has no `instance.deleted` guard, including
-    # for the tombstone rename `_free_key_held_by_soft_deleted_flags` does when freeing a
-    # soft-deleted flag's key for reuse. That's intentional: relinking still rewrites a team's
-    # stored key to the flag's new, id-suffixed tombstone, which no live flag's key can equal.
-    # Skipping the rewrite would leave the team pointing at the now-freed original key, which a
-    # new flag could reuse next, silently gating replay on a flag the team never linked.
-
-    # Matching on the old key means a flag that claims the freed key before this callback runs would
-    # collect its references instead. The alternative is leaving every trigger group that named the
-    # flag pointing at a key nothing resolves. The linked flag column matches on id and is immune.
+    # No `instance.deleted` guard, unlike `repair_replay_linked_flag_keys`, so the tombstone rename
+    # `_free_key_held_by_soft_deleted_flags` does when freeing a soft-deleted flag's key relinks
+    # too. Skipping it would leave the team on the now-freed original key, which a new flag could
+    # claim next, silently gating replay on a flag the team never linked. Matching on the old key
+    # does mean a flag that claims the freed key before this callback runs collects the trigger
+    # groups instead; the alternative leaves them pointing at a key nothing resolves. The linked
+    # flag column matches on id and is immune either way.
 
     # Deferred to commit because the serializer renames inside a transaction that holds
     # `select_for_update` on the flag row, and taking team locks in that window invites deadlocks.

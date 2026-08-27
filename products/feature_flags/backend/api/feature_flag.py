@@ -2080,9 +2080,10 @@ class FeatureFlagSerializer(
             # Check for other flags that depend on this flag
             raise_if_flag_has_dependents(instance, action="delete")
 
-            # Reuses the annotation the queryset already carries, falling back to a query only for
-            # callers that built the serializer with an unannotated instance.
-            if self.get_is_used_in_replay_settings(instance):
+            # Asks the database rather than reading `is_used_in_replay_settings`: that field can be
+            # served from an annotation resolved when the queryset was built, which is fine for
+            # rendering a badge and too stale to decide a delete on.
+            if teams_gating_replay_on_flag(instance, key=instance.key).exists():
                 raise exceptions.ValidationError(REPLAY_LINKED_FLAG_DELETE_ERROR)
 
             # If the flag is linked to any experiment, rename the key to free it up.
@@ -3082,14 +3083,14 @@ class FeatureFlagViewSet(
 
     @functools.cached_property
     def _replay_gates(self) -> ReplayFlagGates:
-        """The project's replay gates, resolved once per request.
+        """The project's replay gates, scanned once per request.
 
-        `get_object` builds the queryset twice, so a detail action would otherwise scan twice.
+        `bulk_delete` tests every flag in the batch against these, and `safely_get_queryset` runs
+        more than once per request, so both share one scan.
         """
         return replay_gated_flags(self.project_id)
 
     def safely_get_queryset(self, queryset) -> QuerySet:
-
         from products.early_access_features.backend.models import EarlyAccessFeature
         from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 
@@ -3120,17 +3121,14 @@ class FeatureFlagViewSet(
             )
         )
 
-        # One project-wide scan resolves the annotation for every flag on the page. A correlated
-        # subquery would instead run a JSONB containment probe per stored reference shape against
-        # every team in the project, for every flag row. Sorted so the `IN` lists keep a stable
-        # order: set iteration order varies per process, which would churn query snapshots.
-        replay_gates = self._replay_gates
-        queryset = queryset.annotate(
-            is_used_in_replay_settings_annotation=Q(id__in=sorted(replay_gates.flag_ids))
-            | Q(key__in=sorted(replay_gates.flag_keys))
-        )
-
         if self.action == "list":
+            # One project-wide scan resolves `is_used_in_replay_settings` for every flag on the
+            # page. A correlated subquery would instead run a JSONB containment probe per stored
+            # reference shape against every team in the project, for every flag row. Only the list
+            # page serializes enough flags to earn the scan: elsewhere the serializer's per-flag
+            # fallback costs the same single query, and most detail actions never read the field.
+            queryset = queryset.annotate(is_used_in_replay_settings_annotation=self._replay_gates.as_q())
+
             queryset = (
                 queryset.filter(deleted=False)
                 .prefetch_related("analytics_dashboards")
