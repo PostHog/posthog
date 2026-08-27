@@ -18,7 +18,7 @@ from pydantic import ValidationError as PydanticValidationError
 from rest_framework.exceptions import ValidationError
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_default_hogql_global_settings
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
@@ -152,7 +152,7 @@ COHORT_STATS_COLLECTION_DELAY_SECONDS = 60  # Short delay to allow query_log to 
 logger = structlog.get_logger(__name__)
 
 
-def save_recovery_bookkeeping(save_fn: Callable[[], None], *, cohort_id: int, team_id: int) -> None:
+def save_recovery_bookkeeping(save_fn: Callable[[], None], *, cohort_id: int, team_id: int | None = None) -> None:
     """Persist post-calculation bookkeeping, surviving a Postgres connection dropped mid-recalculation.
 
     A long recalculation can outlive its connection (the server closes it unexpectedly); the first
@@ -956,7 +956,20 @@ def _recalculate_cohortpeople_for_team_hogql(
             cohort_id=cohort.pk,
             team_id=team.id,
         )
-        hogql_global_settings = HogQLGlobalSettings()
+        settings = get_default_hogql_global_settings(team_id=team.id).model_dump(exclude_none=True)
+        # This runs INSERT INTO cohortpeople; readonly=2 (a HogQLGlobalSettings default) would make
+        # ClickHouse reject the write, so drop it — same as the preaggregation INSERT path.
+        settings.pop("readonly", None)
+        settings.update(
+            {
+                "max_execution_time": COHORT_QUERY_TIMEOUT_SECONDS,
+                "send_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
+                "receive_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
+                "optimize_on_insert": 0,
+                "max_bytes_ratio_before_external_group_by": 0.5,
+                "max_bytes_ratio_before_external_sort": 0.5,
+            }
+        )
 
         return sync_execute(
             recalculate_cohortpeople_sql,
@@ -966,16 +979,7 @@ def _recalculate_cohortpeople_for_team_hogql(
                 "team_id": team.id,
                 "new_version": pending_version,
             },
-            settings={
-                "max_execution_time": COHORT_QUERY_TIMEOUT_SECONDS,
-                "send_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
-                "receive_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
-                "optimize_on_insert": 0,
-                "max_ast_elements": hogql_global_settings.max_ast_elements,
-                "max_expanded_ast_elements": hogql_global_settings.max_expanded_ast_elements,
-                "max_bytes_ratio_before_external_group_by": 0.5,
-                "max_bytes_ratio_before_external_sort": 0.5,
-            },
+            settings=settings,
             workload=Workload.OFFLINE,
             ch_user=ClickHouseUser.COHORTS,
             team_id=team.id,

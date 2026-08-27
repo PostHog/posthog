@@ -860,6 +860,39 @@ class TestPersonalOrProjectSecretApiKeyRateThrottle(APIBaseTest):
         self.assertTrue(_PSAKThrottleForTest().get_cache_key(self._psak_request(key_id=42), Mock()).endswith("psak:42"))
 
 
+class TestUserVerifyEmailThrottle(SimpleTestCase):
+    CANONICAL_UUID = "12345678-1234-5678-1234-567812345678"
+
+    def _request(self, uuid_value):
+        return Mock(data={"uuid": uuid_value}, user=None)
+
+    @parameterized.expand(
+        [
+            ("uppercase", "12345678-1234-5678-1234-567812345678".upper()),
+            ("hyphen_free", "12345678123456781234567812345678"),
+            ("brace_wrapped", "{12345678-1234-5678-1234-567812345678}"),
+            ("urn_prefixed", "urn:uuid:12345678-1234-5678-1234-567812345678"),
+        ]
+    )
+    def test_alternate_uuid_spellings_share_one_bucket(self, _name, variant):
+        throttle = rate_limit.UserVerifyEmailThrottle()
+        self.assertEqual(
+            throttle.get_cache_key(self._request(self.CANONICAL_UUID), Mock()),
+            throttle.get_cache_key(self._request(variant), Mock()),
+        )
+
+    def test_distinct_uuids_use_distinct_buckets(self):
+        throttle = rate_limit.UserVerifyEmailThrottle()
+        self.assertNotEqual(
+            throttle.get_cache_key(self._request(self.CANONICAL_UUID), Mock()),
+            throttle.get_cache_key(self._request("87654321-4321-8765-4321-876543218765"), Mock()),
+        )
+
+    def test_unparseable_uuid_falls_back_without_raising(self):
+        throttle = rate_limit.UserVerifyEmailThrottle()
+        self.assertIsNotNone(throttle.get_cache_key(self._request("not-a-uuid"), Mock()))
+
+
 class TestAIObservabilitySummarizationRateThrottle(SimpleTestCase):
     def setUp(self) -> None:
         cache.clear()

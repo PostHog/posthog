@@ -5,7 +5,7 @@ import { Tooltip } from '@posthog/lemon-ui'
 
 import { IconTrendingDown } from 'lib/lemon-ui/icons'
 
-import { experimentsLogic } from './experimentsLogic'
+import { experimentsLogic } from '../../../../products/experiments/frontend/scenes/experimentsLogic'
 
 export function ExperimentVelocityStats(): JSX.Element | null {
     const { experimentsStats, experimentsStatsLoading } = useValues(experimentsLogic)

@@ -17,6 +17,10 @@ from products.tasks.backend.facade.workflow_tasks import (
     WorkflowTaskLimitExceeded,
     WorkflowTaskOriginKeyConflict,
     WorkflowTaskOwnerIneligible,
+    WorkflowTaskRateCapped,
+    WorkflowTaskSlackContext,
+    WorkflowTaskTeamRateCapped,
+    WorkflowTaskUsageLimited,
     create_workflow_task,
 )
 from products.workflows.backend.models import HogFlow
@@ -40,8 +44,46 @@ class WorkflowTasksJWTAuthentication(ScopedServiceJWTAuthentication):
         return user, hog_flow_id
 
 
+class WorkflowTaskSlackContextSerializer(serializers.Serializer):
+    integration_id = serializers.IntegerField(
+        help_text="PostHog Slack integration that received the triggering message."
+    )
+    channel = serializers.CharField(max_length=64, help_text="Slack channel ID of the triggering message.")
+    thread_ts = serializers.CharField(max_length=64, help_text="Slack thread timestamp the task replies under.")
+    message_ts = serializers.CharField(
+        max_length=64,
+        required=False,
+        allow_blank=True,
+        help_text="Timestamp of the triggering message itself. Differs from thread_ts when a reply started the run.",
+    )
+    slack_user_id = serializers.CharField(
+        max_length=64,
+        required=False,
+        allow_blank=True,
+        help_text="Slack user who posted the triggering message. Empty when a bot posted it.",
+    )
+    slack_team_id = serializers.CharField(
+        max_length=64,
+        required=False,
+        allow_blank=True,
+        help_text="Slack workspace ID, the fallback for resolving the integration when the stamped ID is stale.",
+    )
+    is_ext_shared_channel = serializers.BooleanField(
+        required=False,
+        help_text="Whether the channel is shared with another Slack workspace. Such a channel needs an approval on file before the task replies in it.",
+    )
+
+
 class WorkflowTaskCreateSerializer(serializers.Serializer):
     prompt = serializers.CharField(help_text="Instructions for the agent.")
+    event = serializers.DictField(
+        required=False,
+        help_text="The event that triggered the workflow run. Rendered into the agent's prompt as data.",
+    )
+    slack_context = WorkflowTaskSlackContextSerializer(
+        required=False,
+        help_text="Slack thread that triggered the workflow. The task posts its updates there.",
+    )
     title = serializers.CharField(
         max_length=255, required=False, allow_blank=True, help_text="Task title. Derived from the prompt when omitted."
     )
@@ -107,7 +149,11 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
             ),
             409: OpenApiResponse(
                 response=WorkflowTaskRejectedSerializer,
-                description="The workflow already has its maximum runs in flight, or the idempotency key belongs to another workflow",
+                description=(
+                    "The task was not created: the workflow is at its in-flight or daily limit, "
+                    "the project is at its daily limit of workflow-created tasks, "
+                    "the owner is over the AI usage limit, or the idempotency key belongs to another workflow"
+                ),
             ),
             422: OpenApiResponse(
                 response=WorkflowTaskRejectedSerializer,
@@ -144,6 +190,10 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
                 posthog_mcp_scopes=data["posthog_mcp_scopes"],
                 max_parallel_tasks=data["max_parallel_tasks"],
                 origin_key=data.get("idempotency_key"),
+                event=data.get("event"),
+                slack_context=(
+                    WorkflowTaskSlackContext(**data["slack_context"]) if data.get("slack_context") else None
+                ),
             )
         except WorkflowTaskConnectorsInvalid as error:
             raise serializers.ValidationError(
@@ -162,6 +212,41 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
             )
             return _rejected(
                 f"Workflow already has {error.in_flight} tasks in flight (limit {error.limit}).",
+                status.HTTP_409_CONFLICT,
+            )
+        except WorkflowTaskRateCapped as error:
+            logger.info(
+                "workflow_task_create_rate_capped",
+                team_id=team_id,
+                hog_flow_id=str(hog_flow_id),
+                cap=error.cap,
+            )
+            return _rejected(
+                f"This workflow reached its daily limit of {error.cap} tasks. "
+                "The event was skipped. Task creation resumes automatically within 24 hours.",
+                status.HTTP_409_CONFLICT,
+            )
+        except WorkflowTaskTeamRateCapped as error:
+            logger.info(
+                "workflow_task_create_team_rate_capped",
+                team_id=team_id,
+                hog_flow_id=str(hog_flow_id),
+                cap=error.cap,
+            )
+            return _rejected(
+                f"This project reached its daily limit of {error.cap} tasks created by workflows. "
+                "The event was skipped. Task creation resumes automatically within 24 hours.",
+                status.HTTP_409_CONFLICT,
+            )
+        except WorkflowTaskUsageLimited:
+            logger.info(
+                "workflow_task_create_usage_limited",
+                team_id=team_id,
+                hog_flow_id=str(hog_flow_id),
+            )
+            return _rejected(
+                "The workflow owner is over the AI usage limit, so no task was created. "
+                "Task creation resumes when the limit resets.",
                 status.HTTP_409_CONFLICT,
             )
 

@@ -5,8 +5,9 @@ import contextvars
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.db import InterfaceError, OperationalError
+from django.db import InterfaceError, InternalError, OperationalError
 
+import psycopg.errors
 from parameterized import parameterized
 
 from posthog.exceptions_capture import ambient_exception_properties
@@ -43,6 +44,14 @@ PENDING_TARGET = {
     "trigger_reason": "proactive_threshold",
     "attempts": 0,
 }
+
+
+def _read_only_transaction_error() -> InternalError:
+    # Mirrors how Django's DatabaseErrorWrapper re-raises a psycopg error: the driver exception
+    # (carrying SQLSTATE 25006) becomes __cause__.
+    error = InternalError("cannot execute UPDATE in a read-only transaction")
+    error.__cause__ = psycopg.errors.ReadOnlySqlTransaction("cannot execute UPDATE in a read-only transaction")
+    return error
 
 
 def _schema(
@@ -192,11 +201,23 @@ class TestRewriteDeadline:
             else MagicMock(return_value=info)
         )
 
+        with patch(f"{MODULE}.activity.info", info_fn):
+            assert _rewrite_deadline(1000.0) == expected
+
+    def test_deadline_is_anchored_to_the_activity_start_not_now(self) -> None:
+        # The deadline must be measured from when the activity began, because Temporal counts the
+        # start_to_close_timeout from the same point. Time already spent before the rewrite starts
+        # (log measurement on a fragmented table can run into minutes) has to shrink the rewrite's
+        # window, not be handed to it on top of the full budget — otherwise the rewrite outlives the
+        # timeout and Temporal kills it before it records an outcome.
+        info = MagicMock()
+        info.start_to_close_timeout = dt.timedelta(hours=6)
         with (
-            patch(f"{MODULE}.activity.info", info_fn),
-            patch(f"{MODULE}.time", MagicMock(monotonic=MagicMock(return_value=1000.0))),
+            patch(f"{MODULE}.activity.info", MagicMock(return_value=info)),
+            # A later wall reading must not move the deadline: it depends only on the passed anchor.
+            patch(f"{MODULE}.time", MagicMock(monotonic=MagicMock(return_value=9_999_999.0))),
         ):
-            assert _rewrite_deadline() == expected
+            assert _rewrite_deadline(1000.0) == 22300.0
 
 
 class TestBudgetExhaustion:
@@ -532,6 +553,10 @@ class TestTransientObjectStoreFailure:
                 ),
             ),
             ("interface_error", InterfaceError("connection already closed")),
+            # A primary-DB failover routes a rewrite write onto a read-only standby mid-run: psycopg
+            # raises ReadOnlySqlTransaction (25006), wrapped by Django as InternalError. It clears on
+            # the next sync, so it must stand down like the other infra blips, not burn an attempt.
+            ("read_only_transaction_failover", _read_only_transaction_error()),
         ]
     )
     @patch(f"{MODULE}.capture_exception")

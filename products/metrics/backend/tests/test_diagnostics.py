@@ -140,6 +140,30 @@ class TestBucketDecomposition(ClickhouseTestMixin, APIBaseTest):
         # +20, then a restart whose post-reset reading is itself the increase.
         assert decomposition.reference_value == 25.0
 
+    def test_lone_cumulative_sample_has_no_increase_on_either_side(self) -> None:
+        seed_metric(
+            team_id=self.team.pk,
+            metric_name="bytes_total",
+            metric_type="sum",
+            aggregation_temporality="cumulative",
+            is_monotonic=True,
+            points=[(BUCKET, 100.0)],
+        )
+
+        decomposition = decompose_bucket(
+            team=self.team,
+            metric_name="bytes_total",
+            aggregation="increase",
+            bucket_start=BUCKET,
+            interval="minute_5",
+        )
+
+        # The sample's history is unknown, so both the reference and the chart
+        # return no value — a 0 on either side would fabricate a flat counter.
+        assert decomposition.reference_value is None
+        assert decomposition.actual_value is None
+        assert decomposition.agrees is True
+
     def test_empty_bucket_reports_no_series_rather_than_zero(self) -> None:
         decomposition = decompose_bucket(
             team=self.team,
@@ -265,6 +289,35 @@ class TestCounterBoundary(ClickhouseTestMixin, APIBaseTest):
         # a value the chart never plotted.
         assert decomposition.reference_value == 40.0
         assert decomposition.actual_value == 40.0
+        assert decomposition.agrees is True
+
+    def test_agrees_when_the_predecessor_sits_further_back_than_one_bucket(self) -> None:
+        # A minute chart of a series scraped every few minutes: the reference
+        # reduction and the runner have to reach back over the same window, or
+        # one of them finds a predecessor the other doesn't and the tab reports
+        # a disagreement the chart never had.
+        seed_metric(
+            team_id=self.team.pk,
+            metric_name="packets_total",
+            metric_type="sum",
+            aggregation_temporality="cumulative",
+            is_monotonic=True,
+            points=[
+                (BUCKET - dt.timedelta(minutes=3), 100.0),
+                (BUCKET + dt.timedelta(seconds=30), 120.0),
+            ],
+        )
+
+        decomposition = decompose_bucket(
+            team=self.team,
+            metric_name="packets_total",
+            aggregation="increase",
+            bucket_start=BUCKET,
+            interval="minute",
+        )
+
+        assert decomposition.reference_value == 20.0
+        assert decomposition.actual_value == 20.0
         assert decomposition.agrees is True
 
     def test_rate_normalizes_the_boundary_increase_too(self) -> None:
