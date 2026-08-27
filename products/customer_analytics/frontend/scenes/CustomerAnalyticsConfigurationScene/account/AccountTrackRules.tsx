@@ -222,6 +222,7 @@ export function AccountTrackRules(): JSX.Element {
                             [TaxonomicFilterGroupType.AccountCustomProperties]: customPropertyTaxonomicOptions,
                         }}
                         operatorAllowlist={ACCOUNT_FILTER_OPERATOR_ALLOWLIST}
+                        allowRelativeDateOptions
                         staticValueOptions={accountFilterStaticValueOptions}
                         editable={!restrictionReason}
                         disabledReason={restrictionReason ?? undefined}

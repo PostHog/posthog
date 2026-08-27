@@ -34,6 +34,7 @@ from products.customer_analytics.backend.logic.account_track_rules import (
     update_account_track_rules,
 )
 from products.customer_analytics.backend.models import (
+    Account,
     AccountTrackRuleRun,
     AccountTrackRuleRunStatus,
     AccountTrackRuleRunTrigger,
@@ -445,6 +446,37 @@ class TestAccountTrackRuleLogic(AccountTrackRulesTestMixin, BaseTest):
         }
         churned.refresh_from_db()
         assert churned.ignored_at == datetime(2025, 1, 4, tzinfo=UTC)
+
+    def test_preview_evaluates_relative_date_conditions(self) -> None:
+        recent = create_account(team_id=self.team.id, name="Recent")
+        older = create_account(team_id=self.team.id, name="Older")
+        Account.objects.for_team(self.team.id).filter(id=recent.id).update(created_at=datetime(2026, 8, 1, tzinfo=UTC))
+        Account.objects.for_team(self.team.id).filter(id=older.id).update(created_at=datetime(2026, 7, 1, tzinfo=UTC))
+        self.save_config(
+            {
+                "schema_version": 1,
+                "version": 1,
+                "enabled": True,
+                "groups": [
+                    {
+                        "conditions": [
+                            {
+                                "field": {"kind": "account_field", "field": "created_at"},
+                                "operator": "is_date_after",
+                                "values": ["-30d"],
+                            }
+                        ]
+                    }
+                ],
+            }
+        )
+
+        preview = preview_account_track_rules(self.team.id)
+
+        assert preview.tracked == 1
+        assert preview.ignored == 1
+        assert [sample.id for sample in preview.tracked_samples] == [recent.id]
+        assert [sample.id for sample in preview.ignored_samples] == [older.id]
 
     def test_apply_batches_preserve_ignored_timestamps_and_restore_matches(self) -> None:
         definition, paying, vip, unmatched, ignored, churned = self.create_rule_fixtures()
