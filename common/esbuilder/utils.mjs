@@ -617,8 +617,9 @@ export async function buildOrWatch(config) {
                     path.resolve(absWorkingDir, '../products/*/frontend/**/*'),
                 ],
                 {
-                    ignored: /.*(Type|\.test\.stories)\.[tj]sx?$/,
+                    ignored: [/.*(Type|\.test\.stories)\.[tj]sx?$/, /(^|[\/\\])node_modules([\/\\]|$)/],
                     ignoreInitial: true,
+                    followSymlinks: false,
                 }
             )
             .on('all', async (event, filePath) => {

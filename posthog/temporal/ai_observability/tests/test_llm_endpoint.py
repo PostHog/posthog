@@ -82,6 +82,7 @@ class TestBuildOpenAIChatClient:
 
         headers = mock_chat.call_args.kwargs["default_headers"]
         assert headers == {
+            "X-PostHog-Product": "aio_clustering",
             "X-PostHog-Properties": json.dumps(
                 {
                     "team_id": "42",
