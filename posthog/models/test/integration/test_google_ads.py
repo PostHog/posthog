@@ -6,9 +6,10 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 import requests
+from rest_framework.exceptions import ValidationError
 
 from posthog.models.integration import GoogleAdsIntegration, Integration
 
@@ -152,5 +153,39 @@ class TestGoogleAdsIntegrationModel(BaseTest):
 
         with pytest.raises(requests.exceptions.ReadTimeout):
             GoogleAdsIntegration(self._integration()).list_google_ads_accessible_accounts()
+
+        assert mock_request.call_count == 3
+
+
+class TestGoogleAdsConversionActionRetries(SimpleTestCase):
+    # The retry logic reads only the in-memory integration config, so it needs no database row.
+    def _integration(self) -> Integration:
+        return Integration(kind="google-ads", sensitive_config={"access_token": "token"})
+
+    @override_settings(GOOGLE_ADS_DEVELOPER_TOKEN="dev_token")
+    @patch("tenacity.nap.time.sleep")
+    @patch("posthog.models.integration.google_ads.requests.request")
+    def test_conversion_actions_rides_out_one_transient_503(self, mock_request, mock_sleep):
+        # A routine 503 on Google's side used to fail the lookup with an internal error. It must instead
+        # be retried and succeed.
+        unavailable = MagicMock(status_code=503, text="UNAVAILABLE")
+        ok = MagicMock(status_code=200)
+        ok.json.return_value = [{"results": [{"conversionAction": {"id": "1", "name": "Purchase"}}]}]
+        mock_request.side_effect = [unavailable, ok]
+
+        actions = GoogleAdsIntegration(self._integration()).list_google_ads_conversion_actions("6501924158")
+
+        assert actions[0]["results"][0]["conversionAction"]["id"] == "1"
+
+    @override_settings(GOOGLE_ADS_DEVELOPER_TOKEN="dev_token")
+    @patch("tenacity.nap.time.sleep")
+    @patch("posthog.models.integration.google_ads.requests.request")
+    def test_conversion_actions_raises_friendly_error_after_repeated_503(self, mock_request, mock_sleep):
+        # A persistent 503 must surface a retry-me message rather than a 500 "internal error", and it must
+        # stop after the bounded retries rather than loop forever.
+        mock_request.return_value = MagicMock(status_code=503, text="UNAVAILABLE")
+
+        with pytest.raises(ValidationError, match="temporarily unavailable"):
+            GoogleAdsIntegration(self._integration()).list_google_ads_conversion_actions("6501924158")
 
         assert mock_request.call_count == 3

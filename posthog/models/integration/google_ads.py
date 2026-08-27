@@ -23,19 +23,34 @@ def google_ads_hierarchy_level(account: dict) -> int:
     return int(account.get("level") or 0)
 
 
+class GoogleAdsUnavailableError(Exception):
+    """A transient Google Ads response we retry: 429 rate limit or 5xx server error."""
+
+    def __init__(self, response: requests.Response) -> None:
+        self.response = response
+        super().__init__(f"Google Ads returned {response.status_code}")
+
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_fixed(2),
-    retry=retry_if_exception_type((requests.exceptions.Timeout, requests.exceptions.ConnectionError)),
+    retry=retry_if_exception_type(
+        (requests.exceptions.Timeout, requests.exceptions.ConnectionError, GoogleAdsUnavailableError)
+    ),
     reraise=True,
 )
 def _google_ads_request(method: str, url: str, **kwargs) -> requests.Response:
-    """`requests.request` with retries for a transient timeout/connection blip.
+    """`requests.request` with retries for a transient blip on Google's side.
 
-    `list_google_ads_accessible_accounts` walks the account hierarchy with a chain of sequential
-    requests, so a single transient blip on any one of them would otherwise fail the whole walk.
+    Retries a timeout, a connection error, and a 429 or 5xx response, all of which Google recovers
+    from on its own. `list_google_ads_accessible_accounts` walks the account hierarchy with a chain
+    of sequential requests, so a single transient blip on any one of them would otherwise fail the
+    whole walk.
     """
-    return requests.request(method, url, **kwargs)
+    response = requests.request(method, url, **kwargs)
+    if response.status_code == 429 or response.status_code >= 500:
+        raise GoogleAdsUnavailableError(response)
+    return response
 
 
 class GoogleAdsIntegration:
@@ -52,20 +67,28 @@ class GoogleAdsIntegration:
         return WebClient(self.integration.sensitive_config["access_token"])
 
     def list_google_ads_conversion_actions(self, customer_id, parent_id=None) -> list[dict]:
-        response = requests.request(
-            "POST",
-            f"https://googleads.googleapis.com/v24/customers/{customer_id}/googleAds:searchStream",
-            json={
-                "query": "SELECT conversion_action.id, conversion_action.name FROM conversion_action WHERE conversion_action.status != 'REMOVED'"
-            },
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
-                "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
-                **({"login-customer-id": parent_id} if parent_id else {}),
-            },
-            timeout=10,
-        )
+        try:
+            response = _google_ads_request(
+                "POST",
+                f"https://googleads.googleapis.com/v24/customers/{customer_id}/googleAds:searchStream",
+                json={
+                    "query": "SELECT conversion_action.id, conversion_action.name FROM conversion_action WHERE conversion_action.status != 'REMOVED'"
+                },
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                    "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
+                    **({"login-customer-id": parent_id} if parent_id else {}),
+                },
+                timeout=10,
+            )
+        except GoogleAdsUnavailableError as e:
+            logger.warning(
+                "GoogleAdsIntegration: Google Ads unavailable listing conversion actions",
+                status_code=e.response.status_code,
+                integration_id=self.integration.id,
+            )
+            raise ValidationError("Google Ads is temporarily unavailable. Try again in a moment.")
 
         if response.status_code == 401:
             logger.warning(
@@ -97,16 +120,24 @@ class GoogleAdsIntegration:
     # Google Ads manager accounts can have access to other accounts (including other manager accounts).
     # Filter out duplicates where a user has direct access and access through a manager account, while prioritizing direct access.
     def list_google_ads_accessible_accounts(self) -> list[dict[str, Any]]:
-        response = _google_ads_request(
-            "GET",
-            "https://googleads.googleapis.com/v24/customers:listAccessibleCustomers",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
-                "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
-            },
-            timeout=10,
-        )
+        try:
+            response = _google_ads_request(
+                "GET",
+                "https://googleads.googleapis.com/v24/customers:listAccessibleCustomers",
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                    "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
+                },
+                timeout=10,
+            )
+        except GoogleAdsUnavailableError as e:
+            logger.warning(
+                "GoogleAdsIntegration: Google Ads unavailable listing accessible accounts",
+                status_code=e.response.status_code,
+                integration_id=self.integration.id,
+            )
+            raise ValidationError("Google Ads is temporarily unavailable. Try again in a moment.")
 
         if response.status_code == 401:
             logger.warning(
@@ -137,20 +168,23 @@ class GoogleAdsIntegration:
         def dfs(account_id, accounts=None, parent_id=None) -> list[dict]:
             if accounts is None:
                 accounts = []
-            response = _google_ads_request(
-                "POST",
-                f"https://googleads.googleapis.com/v24/customers/{account_id}/googleAds:searchStream",
-                json={
-                    "query": "SELECT customer_client.descriptive_name, customer_client.client_customer, customer_client.level, customer_client.manager, customer_client.status FROM customer_client WHERE customer_client.level <= 5"
-                },
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
-                    "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
-                    **({"login-customer-id": parent_id} if parent_id else {}),
-                },
-                timeout=10,
-            )
+            try:
+                response = _google_ads_request(
+                    "POST",
+                    f"https://googleads.googleapis.com/v24/customers/{account_id}/googleAds:searchStream",
+                    json={
+                        "query": "SELECT customer_client.descriptive_name, customer_client.client_customer, customer_client.level, customer_client.manager, customer_client.status FROM customer_client WHERE customer_client.level <= 5"
+                    },
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                        "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
+                        **({"login-customer-id": parent_id} if parent_id else {}),
+                    },
+                    timeout=10,
+                )
+            except GoogleAdsUnavailableError:
+                return accounts
 
             if response.status_code != 200:
                 return accounts
