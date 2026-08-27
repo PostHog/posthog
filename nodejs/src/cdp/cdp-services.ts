@@ -148,7 +148,6 @@ export type CdpCoreServicesConfig = Pick<
         | 'SES_ENDPOINT'
         | 'SES_TRACKED_CONFIGURATION_SET'
         | 'SES_UNTRACKED_CONFIGURATION_SET'
-        | 'EMAIL_SES_TENANT_ATTRIBUTION_ENABLED'
         | 'EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
         | 'CDP_FETCH_RETRIES'
@@ -421,7 +420,6 @@ export function createCdpCoreServices(
             sesEndpoint: config.SES_ENDPOINT,
             sesTrackedConfigurationSet: config.SES_TRACKED_CONFIGURATION_SET,
             sesUntrackedConfigurationSet: config.SES_UNTRACKED_CONFIGURATION_SET,
-            sesTenantAttributionEnabled: config.EMAIL_SES_TENANT_ATTRIBUTION_ENABLED,
         },
         deps.integrationManager,
         teamWorkflowsConfigService,
