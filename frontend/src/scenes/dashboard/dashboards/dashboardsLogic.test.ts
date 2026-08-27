@@ -4,7 +4,12 @@ import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
 
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
-import { DashboardsFilters, DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
+import {
+    DashboardsFilters,
+    DashboardsTab,
+    DEFAULT_FILTERS,
+    dashboardsLogic,
+} from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -119,6 +124,27 @@ describe('dashboardsLogic', () => {
         expect(router.values.searchParams).toEqual(
             expect.objectContaining({ created_by: [OTHER_USER.id], pinned: true, shared: true, tags: ['finance'] })
         )
+    })
+
+    it('does not restore filters saved by another user', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setFilters({ pinned: true })
+        }).toFinishAllListeners()
+
+        logic.unmount()
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            current_user: { ...MOCK_DEFAULT_USER, uuid: 'ANOTHER_USER_UUID' },
+        } as unknown as AppContext
+        router.actions.push('/settings')
+        router.actions.push('/dashboard')
+
+        logic = dashboardsLogic({ tabId: '1' })
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.filters).toEqual(DEFAULT_FILTERS)
     })
 
     it('clears the created by filter when switching to my dashboards', async () => {

@@ -6,7 +6,7 @@ import api, { PaginatedResponse } from 'lib/api'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { buildTeamScopedPersistenceConfig } from 'lib/logic/persistence'
+import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectClean, objectsEqual } from 'lib/utils/objects'
@@ -239,7 +239,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
         setShowTagPopover: (visible: boolean) => ({ visible }),
     }),
     reducers(() => {
-        const filtersPersistence = buildTeamScopedPersistenceConfig('dashboard_list_filters__')
+        const filtersPersistence = buildUserScopedPersistenceConfig('dashboard_list_filters__')
         return {
             tableSorting: [
                 DEFAULT_SORTING,
