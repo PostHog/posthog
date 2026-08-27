@@ -4992,6 +4992,7 @@ export const IntegrationKindApi = {
     Apns: 'apns',
     Postgresql: 'postgresql',
     AwsS3: 'aws-s3',
+    AwsRedshift: 'aws-redshift',
     S3Compatible: 's3-compatible',
     Snowflake: 'snowflake',
     YoutubeAnalytics: 'youtube-analytics',
