@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, quote, urlencode, urlparse, urlunparse
 
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, FuzzyInt
 from unittest.mock import patch
 
 from django.conf import settings
@@ -1698,6 +1698,26 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json().get("scope", ""), "")
 
+    def test_refresh_of_an_empty_grant_rejected_for_first_party_apps(self):
+        self.confidential_application.is_first_party = True
+        self.confidential_application.scopes = ["experiment:read"]
+        self.confidential_application.save()
+
+        refresh_token = self._create_refreshable_token_pair("")
+
+        response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token.token,
+                "client_id": self.confidential_application.client_id,
+                "client_secret": "test_confidential_client_secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_grant")
+
     def test_refresh_rejected_when_token_scopes_outside_ceiling(self):
         self.confidential_application.scopes = ["experiment:read"]
         self.confidential_application.save()
@@ -2916,6 +2936,49 @@ class TestOAuthAPI(APIBaseTest):
             # while others may only mark them as suspicious for future use
 
     @freeze_time("2025-01-01 00:00:00")
+    def test_refresh_token_reuse_detection_query_count_is_constant_in_family_size(self):
+        # A rotating client grows its token family by one row per refresh, so a long-lived
+        # session can sit on a family of hundreds. Detecting reuse of a stale token must
+        # revoke the family in a constant number of queries, not one loop per member.
+        refresh_data = {
+            "grant_type": "refresh_token",
+            "client_id": self.confidential_application.client_id,
+            "client_secret": "test_confidential_client_secret",
+        }
+
+        for historical_members in (0, 5, 15):
+            response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
+            code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+            token_response = self.post("/oauth/token/", {**self.base_token_body, "code": code})
+            stale_refresh_token = token_response.json()["refresh_token"]
+
+            first_refresh_response = self.post("/oauth/token/", {**refresh_data, "refresh_token": stale_refresh_token})
+            self.assertEqual(first_refresh_response.status_code, status.HTTP_200_OK)
+            live_refresh_token = first_refresh_response.json()["refresh_token"]
+            live_access_token = first_refresh_response.json()["access_token"]
+
+            family = OAuthRefreshToken.objects.get(token=live_refresh_token).token_family
+            for i in range(historical_members):
+                OAuthRefreshToken.objects.create(
+                    user=self.user,
+                    application=self.confidential_application,
+                    token=f"historical_rt_{family}_{i}",
+                    token_family=family,
+                    revoked=timezone.now(),
+                )
+
+            # Present the stale token after the grace period: reuse detection fires and
+            # the whole family is revoked. The query count must not scale with family size.
+            with freeze_time("2025-01-01 00:10:00"):
+                with self.assertNumQueries(FuzzyInt(12, 16)):
+                    reuse_response = self.post("/oauth/token/", {**refresh_data, "refresh_token": stale_refresh_token})
+                self.assertEqual(reuse_response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertEqual(reuse_response.json()["error"], "invalid_grant")
+
+                self.assertEqual(OAuthRefreshToken.objects.filter(token_family=family, revoked__isnull=True).count(), 0)
+                self.assertFalse(OAuthAccessToken.objects.filter(token=live_access_token).exists())
+
+    @freeze_time("2025-01-01 00:00:00")
     def test_multiple_refresh_token_rotations_preserve_token_family(self):
         # Get initial tokens
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
@@ -3539,6 +3602,130 @@ class TestOAuthAPI(APIBaseTest):
         data = response.json()
         self.assertFalse(data["active"])
         self.assertEqual(len(data), 1)
+
+    @parameterized.expand(["access_token", "refresh_token"])
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_introspection_ignores_a_spoofed_basic_auth_header(self, token_type):
+        # Assertion auth short-circuits before the Basic header is ever validated, so a caller
+        # can authenticate as itself with a signed assertion while stapling a Basic header
+        # naming another client. The ownership check must bind to the verified assertion
+        # identity, not the unverified header, or the caller reads that other client's token.
+        access_token, refresh_token = self._create_access_and_refresh_tokens()
+        token = access_token if token_type == "access_token" else refresh_token
+
+        app, _grant, private_key = self._create_private_key_jwt_app_and_grant()
+        assertion, jwks = self._signed_assertion_and_jwks(app, private_key)
+
+        with (
+            patch(
+                "posthog.api.oauth.client_assertion.fetch_client_json_document",
+                return_value=(jwks, None),
+            ),
+            patch("posthog.api.oauth.views.enqueue_cimd_refresh_if_stale"),
+        ):
+            response = self.post(
+                "/oauth/introspect/",
+                {
+                    "token": token.token,
+                    "client_assertion_type": CLIENT_ASSERTION_TYPE_JWT_BEARER,
+                    "client_assertion": assertion,
+                },
+                headers={"Authorization": self.get_basic_auth_header("test_confidential_client_id", "anything")},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["active"])
+        self.assertEqual(len(data), 1)
+
+    def _create_token_pair_for_app(
+        self, app: OAuthApplication, *, scope: str = "openid"
+    ) -> tuple[OAuthAccessToken, OAuthRefreshToken]:
+        access_token = OAuthAccessToken.objects.create(
+            application=app,
+            user=self.user,
+            token=f"at_{app.id}",
+            expires=timezone.now() + timedelta(hours=1),
+            scope=scope,
+            scoped_teams=[],
+            scoped_organizations=[str(self.organization.id)],
+        )
+        refresh_token = OAuthRefreshToken.objects.create(
+            application=app,
+            user=self.user,
+            token=f"rt_{app.id}",
+            access_token=access_token,
+            scoped_teams=[],
+            scoped_organizations=[str(self.organization.id)],
+        )
+        return access_token, refresh_token
+
+    @parameterized.expand(["access_token", "refresh_token"])
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_introspection_with_client_assertion_rejects_a_different_clients_token(self, token_type):
+        # A private_key_jwt CIMD client carries its identity in the assertion's `sub`, not in
+        # HTTP Basic auth or a `client_id` form field. The ownership check must still bind to
+        # that identity, or an assertion-authenticated caller can introspect any client's token.
+        access_token, refresh_token = self._create_access_and_refresh_tokens()
+        token = access_token if token_type == "access_token" else refresh_token
+
+        app, _grant, private_key = self._create_private_key_jwt_app_and_grant()
+        assertion, jwks = self._signed_assertion_and_jwks(app, private_key)
+
+        with (
+            patch(
+                "posthog.api.oauth.client_assertion.fetch_client_json_document",
+                return_value=(jwks, None),
+            ),
+            patch("posthog.api.oauth.views.enqueue_cimd_refresh_if_stale"),
+        ):
+            response = self.post(
+                "/oauth/introspect/",
+                {
+                    "token": token.token,
+                    "client_assertion_type": CLIENT_ASSERTION_TYPE_JWT_BEARER,
+                    "client_assertion": assertion,
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["active"])
+        self.assertEqual(len(data), 1)
+
+    @parameterized.expand(["access_token", "refresh_token"])
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_introspection_with_client_assertion_allows_own_token(self, token_type):
+        # A CIMD client's wire identity is its cimd_metadata_url (effective_client_id), not
+        # the opaque client_id PostHog assigns at registration. Comparing against the opaque
+        # value would reject a CIMD client introspecting even its own token.
+        app, _grant, private_key = self._create_private_key_jwt_app_and_grant()
+        access_token, refresh_token = self._create_token_pair_for_app(app)
+        token = access_token if token_type == "access_token" else refresh_token
+
+        assertion, jwks = self._signed_assertion_and_jwks(app, private_key)
+
+        with (
+            patch(
+                "posthog.api.oauth.client_assertion.fetch_client_json_document",
+                return_value=(jwks, None),
+            ),
+            patch("posthog.api.oauth.views.enqueue_cimd_refresh_if_stale"),
+        ):
+            response = self.post(
+                "/oauth/introspect/",
+                {
+                    "token": token.token,
+                    "client_id": app.cimd_metadata_url,
+                    "client_assertion_type": CLIENT_ASSERTION_TYPE_JWT_BEARER,
+                    "client_assertion": assertion,
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertTrue(data["active"])
+        self.assertEqual(data["client_id"], app.client_id)
 
     def test_introspection_with_bearer_token_requires_introspection_scope(self):
         access_token, _ = self._create_access_and_refresh_tokens(scopes="openid")
@@ -4567,6 +4754,7 @@ class TestOAuthAPI(APIBaseTest):
             code_challenge_method="S256",
             redirect_uri="https://example.com/callback",
             expires=timezone.now() + timedelta(minutes=5),
+            scope="openid experiment:read",
             scoped_organizations=[str(self.organization.id)],
             scoped_teams=[],
         )

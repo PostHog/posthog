@@ -34,8 +34,11 @@ from products.signals.backend.report_generation.repo_activity import (
 )
 from products.signals.backend.scout_harness.inactivity import sweep_inactive_scouts
 from products.signals.backend.scout_harness.slack_delivery import (
+    DELIVERABLE_REPORT_STATUSES,
     ScoutSlackOutputType,
     ScoutSlackPermanentDeliveryError,
+    clear_latest_scout_report_delivery,
+    mark_latest_scout_report_delivery,
     post_scout_emission_to_slack,
     post_scout_report_to_slack,
     slack_api_error_code,
@@ -70,7 +73,6 @@ _OUT_OF_PERIOD_SYNC_ERROR = "billing: refund period no longer creditable at sync
 _SCOUT_SLACK_MAX_RETRIES = 5
 _SCOUT_SLACK_RETRY_BASE_SECONDS = 60
 _SCOUT_SLACK_RETRY_MAX_SECONDS = 3600
-_SCOUT_SLACK_DELIVERABLE_REPORT_STATUSES = frozenset((SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT))
 
 
 @shared_task(
@@ -81,24 +83,6 @@ _SCOUT_SLACK_DELIVERABLE_REPORT_STATUSES = frozenset((SignalReport.Status.READY,
 @with_team_scope()
 def close_dismissed_report_pr(report_id: str, team_id: int, reason: PrCloseReason = "suppressed") -> None:
     close_implementation_pr_for_report(team_id, report_id, reason=reason)
-
-
-@shared_task(
-    name="products.signals.backend.tasks.refresh_report_canvases_for_task",
-    ignore_result=True,
-    max_retries=0,
-)
-@skip_team_scope_audit  # SignalReport still uses RootTeamManager; this lookup intentionally spans teams.
-def refresh_report_canvases_for_task(task_id: str) -> None:
-    from asgiref.sync import async_to_sync  # noqa: PLC0415 — keeps Temporal off Celery task discovery
-
-    from products.signals.backend.temporal.report_canvas import (  # noqa: PLC0415 — keeps Temporal off Celery task discovery
-        start_report_canvas_workflow,
-    )
-
-    reports = SignalReport.objects.filter(SignalReport.reports_for_task_filter(task_id)).values_list("team_id", "id")
-    for team_id, report_id in reports:
-        async_to_sync(start_report_canvas_workflow)(team_id=team_id, report_id=str(report_id))
 
 
 def _slack_retry_after_seconds(exc: Exception) -> int | None:
@@ -138,6 +122,7 @@ def deliver_scout_slack_output(
     integration_id: int,
     channel: str,
     edit_note: str | None = None,
+    thread_reports: bool = False,
 ) -> None:
     context = {
         "team_id": team_id,
@@ -167,7 +152,7 @@ def deliver_scout_slack_output(
             if report is None or run is None:
                 logger.warning("signals_scout.slack_delivery_output_missing", **context)
                 return
-            if report.status not in _SCOUT_SLACK_DELIVERABLE_REPORT_STATUSES:
+            if report.status not in DELIVERABLE_REPORT_STATUSES:
                 logger.info(
                     "signals_scout.slack_delivery_report_not_surfaced",
                     **context,
@@ -181,6 +166,7 @@ def deliver_scout_slack_output(
                 integration_id=integration_id,
                 channel=channel,
                 edit_note=edit_note,
+                thread_reports=thread_reports,
             )
         else:
             logger.warning("signals_scout.slack_delivery_output_type_invalid", **context)
@@ -233,12 +219,25 @@ def enqueue_scout_slack_delivery(
     integration_id: int,
     channel: str,
     edit_note: str | None = None,
+    thread_reports: bool = False,
 ) -> None:
     """Publish after commit, capturing broker failures without affecting the completed emit."""
+    # Only a full report delivery supersedes an earlier one: a note-only update leaves the
+    # report message to the delivery that is still building it.
+    supersedes = output_type == "report" and edit_note is None
     try:
-        # `edit_note` rides as a kwarg only when set, so every delivery without one keeps the
+        # Claim before publishing: an earlier delivery of the same report reads this marker to decide
+        # whether to yield, and between the two calls it would see no claim and post the report that
+        # this delivery is about to post again.
+        if supersedes:
+            mark_latest_scout_report_delivery(output_id, delivery_id, integration_id, channel)
+        # Each optional arg rides as a kwarg only when set, so a delivery without one keeps the
         # payload shape workers running the previous task signature still accept.
-        extra_kwargs: dict[str, str] = {"edit_note": edit_note} if edit_note is not None else {}
+        extra_kwargs: dict[str, str | bool] = {}
+        if edit_note is not None:
+            extra_kwargs["edit_note"] = edit_note
+        if thread_reports:
+            extra_kwargs["thread_reports"] = True
         deliver_scout_slack_output.delay(
             team_id,
             output_type,
@@ -250,6 +249,10 @@ def enqueue_scout_slack_delivery(
             **extra_kwargs,
         )
     except Exception as exc:
+        # The claim now names a delivery that will never run, and would silence every later delivery
+        # of this report until it expired, so give it up before reporting the failure.
+        if supersedes:
+            clear_latest_scout_report_delivery(output_id, delivery_id, integration_id, channel)
         capture_exception(
             exc,
             {
@@ -538,7 +541,7 @@ def pause_inactive_signal_scouts() -> None:
     """Daily sweep: warn, then auto-pause scouts nothing comes of.
 
     Runs here rather than on the coordinator's 30-minute tick — that tick is deliberately
-    short-lived and bounded, and inactivity doesn't change by the half hour. See
+    bounded, and inactivity doesn't change by the half hour. See
     `scout_harness/inactivity.py` for what counts as productive.
     """
     outcome = sweep_inactive_scouts()

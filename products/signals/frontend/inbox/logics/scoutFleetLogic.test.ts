@@ -4,8 +4,10 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api-error'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
@@ -13,6 +15,7 @@ import {
     signalsScoutChatTasksCreate,
     signalsScoutConfigList,
     signalsScoutConfigUpdate,
+    signalsScoutRunsRecentPerScout,
 } from 'products/signals/frontend/generated/api'
 import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -26,6 +29,8 @@ jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutConfigList: jest.fn(),
     signalsScoutConfigUpdate: jest.fn(),
     signalsScoutRunsFindingsSummary: jest.fn(),
+    signalsScoutRunsList: jest.fn(),
+    signalsScoutRunsRecentPerScout: jest.fn(),
 }))
 
 const mockSignalsScoutChatTasksCreate = signalsScoutChatTasksCreate as jest.MockedFunction<
@@ -33,6 +38,9 @@ const mockSignalsScoutChatTasksCreate = signalsScoutChatTasksCreate as jest.Mock
 >
 const mockSignalsScoutConfigList = signalsScoutConfigList as jest.MockedFunction<typeof signalsScoutConfigList>
 const mockSignalsScoutConfigUpdate = signalsScoutConfigUpdate as jest.MockedFunction<typeof signalsScoutConfigUpdate>
+const mockSignalsScoutRunsRecentPerScout = signalsScoutRunsRecentPerScout as jest.MockedFunction<
+    typeof signalsScoutRunsRecentPerScout
+>
 
 const BASE_CONFIG: SignalScoutConfigApi = {
     id: 'config-1',
@@ -54,6 +62,8 @@ const BASE_CONFIG: SignalScoutConfigApi = {
     auto_pause_exempt: false,
     network_access: 'trusted',
     model: null,
+    source_product: null,
+    source_id: null,
     created_at: '2026-07-22T00:00:00Z',
 }
 
@@ -94,6 +104,7 @@ describe('scoutFleetLogic', () => {
         mockSignalsScoutChatTasksCreate.mockReset()
         mockSignalsScoutConfigList.mockReset().mockResolvedValue([])
         mockSignalsScoutConfigUpdate.mockReset()
+        mockSignalsScoutRunsRecentPerScout.mockReset().mockResolvedValue([])
         logic = scoutFleetLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -142,9 +153,8 @@ describe('scoutFleetLogic', () => {
         expect(logic.values.updatingScoutIds).toEqual([])
     })
 
-    // The roster is the only consumer of the tag filter, so assert through the buckets it renders.
-    const rosterConfigIds = (): string[] =>
-        logic.values.rosterBuckets.flatMap((bucket) => bucket.configs.map((config) => config.id))
+    // The roster is the only consumer of the tag filter, so assert through the rows it renders.
+    const rosterConfigIds = (): string[] => logic.values.rosterScouts.map((row) => row.config.id)
 
     it('filters scouts by any selected tag and stops applying tags that are no longer in use', () => {
         const revenueScout = { ...BASE_CONFIG, tags: ['revenue'] }
@@ -175,7 +185,7 @@ describe('scoutFleetLogic', () => {
         expect(rosterConfigIds()).toHaveLength(3)
     })
 
-    it('groups the roster by lifecycle, leading with the scouts that are producing', () => {
+    it('lists the whole roster A→Z and tags each row with its lifecycle group', () => {
         logic.actions.loadScoutConfigsSuccess([
             { ...BASE_CONFIG, id: 'quiet', skill_name: 'signals-scout-quiet' },
             { ...BASE_CONFIG, id: 'busy', skill_name: 'signals-scout-busy' },
@@ -198,48 +208,13 @@ describe('scoutFleetLogic', () => {
         // `busy` filed a report in the window, which is what separates Working from Watching.
         logic.actions.loadScoutRunsSuccess([makeRun({ skill_name: 'signals-scout-busy', emitted_report_ids: ['r-1'] })])
 
-        expect(logic.values.rosterBuckets.map((bucket) => bucket.key)).toEqual([
-            'working',
-            'needs_you',
-            'watching',
-            'off',
+        // One flat list ordered by name, not split across lifecycle sections.
+        expect(logic.values.rosterScouts.map((row) => [row.config.id, row.group])).toEqual([
+            ['broken', 'needs_you'],
+            ['busy', 'working'],
+            ['off', 'off'],
+            ['quiet', 'watching'],
         ])
-        expect(logic.values.rosterGroupCounts).toMatchObject({ working: 1, needs_you: 1, watching: 1, off: 1 })
-    })
-
-    it('leaves a row where it is when its switch is flipped, instead of relocating it mid-click', async () => {
-        logic.actions.loadScoutConfigsSuccess([
-            { ...BASE_CONFIG, id: 'quiet', skill_name: 'signals-scout-quiet' },
-            { ...BASE_CONFIG, id: 'other', skill_name: 'signals-scout-other' },
-        ])
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.rosterBuckets.map((bucket) => bucket.key)).toEqual(['watching'])
-
-        // The optimistic half of a toggle: the switch reads off immediately...
-        logic.actions.patchScoutConfigLocally('quiet', { enabled: false })
-
-        // ...but the row stays in the group it was rendered in, rather than jumping to Off.
-        expect(logic.values.rosterBuckets.map((bucket) => bucket.key)).toEqual(['watching'])
-        expect(rosterConfigIds()).toEqual(['other', 'quiet'])
-        expect(logic.values.scoutConfigs?.find((config) => config.id === 'quiet')?.enabled).toBe(false)
-    })
-
-    it('re-places rows once server data lands', async () => {
-        logic.actions.loadScoutConfigsSuccess([{ ...BASE_CONFIG, id: 'quiet', skill_name: 'signals-scout-quiet' }])
-        await expectLogic(logic).toFinishAllListeners()
-
-        logic.actions.loadScoutConfigsSuccess([
-            {
-                ...BASE_CONFIG,
-                id: 'quiet',
-                skill_name: 'signals-scout-quiet',
-                enabled: false,
-                status: 'paused_by_user',
-            },
-        ])
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(logic.values.rosterBuckets.map((bucket) => bucket.key)).toEqual(['off'])
     })
 
     it('keeps configs unresolved until the current team is available', async () => {
@@ -253,6 +228,36 @@ describe('scoutFleetLogic', () => {
 
         expect(mockSignalsScoutConfigList).not.toHaveBeenCalled()
         expect(logic.values.scoutConfigs).toBeNull()
+    })
+
+    // The roster mounts from short-lived components, so an unmount mid-request is routine. The
+    // loader reconciles against `values.scoutConfigs`, and that read throws once the reducer branch
+    // leaves the store — a silent error report from a page the user has already left.
+    it('reports nothing when the roster unmounts while its config request is in flight', async () => {
+        const request = deferred<SignalScoutConfigApi[]>()
+        mockSignalsScoutConfigList.mockReturnValueOnce(request.promise)
+
+        logic.actions.loadScoutConfigs()
+        logic.unmount()
+        request.resolve([BASE_CONFIG])
+        // Drain the microtasks the loader resumes on, so the assertion sees its full continuation.
+        await new Promise(setImmediate)
+
+        expect(posthog.captureException).not.toHaveBeenCalled()
+    })
+
+    // The 500 row is the point of this case: a guard wide enough to swallow it would leave a real
+    // scout-configs outage looking identical to a project the user simply cannot reach.
+    it.each([
+        [403, 'loadScoutConfigsSuccess'],
+        [404, 'loadScoutConfigsSuccess'],
+        [500, 'loadScoutConfigsFailure'],
+    ])('resolves a %s from the config list to %s', async (status, expectedAction) => {
+        mockSignalsScoutConfigList.mockRejectedValueOnce(new ApiError('nope', status))
+
+        logic.actions.loadScoutConfigs()
+
+        await expectLogic(logic).toDispatchActions([expectedAction])
     })
 
     it('sends newer queued updates after an earlier request fails', async () => {
@@ -318,7 +323,7 @@ describe('scoutFleetLogic', () => {
         expect(mockSignalsScoutChatTasksCreate).not.toHaveBeenCalled()
     })
 
-    it('reports roster filtering without leaking the search term', async () => {
+    it('reports roster filtering with the search length, not the term', async () => {
         jest.useFakeTimers()
         try {
             const capture = posthog.capture as jest.Mock
@@ -348,6 +353,181 @@ describe('scoutFleetLogic', () => {
         }
     })
 
+    it('drops the delayed search write when the user navigates before the debounce settles', async () => {
+        jest.useFakeTimers()
+        try {
+            router.actions.push(urls.inbox('scouts'))
+            logic.actions.setScoutSearch('rev')
+            // Open a scout's detail before the debounce elapses; the roster logic stays mounted beside it.
+            router.actions.push(urls.inboxScout('signals-scout-revenue'))
+            await jest.advanceTimersByTimeAsync(600)
+
+            // The stale roster filter must not land on the detail route it does not own.
+            expect(router.values.location.pathname).toContain('signals-scout-revenue')
+            expect(router.values.searchParams.scoutSearch).toBeUndefined()
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('writes non-default roster filters to the URL and keeps the bare view clean', async () => {
+        jest.useFakeTimers()
+        try {
+            // The URL only carries tags the fleet still uses, so the roster needs a scout wearing one.
+            logic.actions.loadScoutConfigsSuccess([{ ...BASE_CONFIG, tags: ['revenue'] }])
+            logic.actions.setScoutEnabledFilter('disabled')
+            logic.actions.setScoutTagFilter(['revenue'])
+            logic.actions.setScoutSearch('rev')
+            // The search param is written on a debounce, so let its pause elapse.
+            await jest.advanceTimersByTimeAsync(600)
+
+            expect(router.values.searchParams).toMatchObject({
+                scoutEnabled: 'disabled',
+                scoutTags: 'revenue',
+                scoutSearch: 'rev',
+            })
+
+            logic.actions.setScoutEnabledFilter('all')
+            logic.actions.setScoutTagFilter([])
+            logic.actions.setScoutSearch('')
+            await jest.advanceTimersByTimeAsync(600)
+
+            expect(router.values.searchParams.scoutEnabled).toBeUndefined()
+            expect(router.values.searchParams.scoutTags).toBeUndefined()
+            expect(router.values.searchParams.scoutSearch).toBeUndefined()
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('restores roster filters from a shared URL', async () => {
+        router.actions.push(urls.inbox('scouts'), {
+            scoutEnabled: 'enabled',
+            scoutTags: 'revenue,on-call',
+            scoutSearch: 'rev',
+        })
+        await expectLogic(logic).toDispatchActions(['hydrateRosterFilters'])
+
+        expect(logic.values.scoutEnabledFilter).toEqual('enabled')
+        expect(logic.values.selectedScoutTags).toEqual(['revenue', 'on-call'])
+        expect(logic.values.scoutSearch).toEqual('rev')
+    })
+
+    it('resets the roster filters when Back or Forward reaches a bare URL', async () => {
+        // A filtered roster, reached by a shared link or by toggling the controls.
+        router.actions.push(urls.inbox('scouts'), { scoutEnabled: 'enabled', scoutTags: 'revenue' })
+        await expectLogic(logic).toDispatchActions(['hydrateRosterFilters'])
+        expect(logic.values.scoutEnabledFilter).toEqual('enabled')
+        expect(logic.values.selectedScoutTags).toEqual(['revenue'])
+
+        // Back or Forward onto the bare entry arrives as a POP carrying no roster params.
+        await expectLogic(logic, () => {
+            router.actions.locationChanged({
+                method: 'POP',
+                pathname: urls.inbox('scouts'),
+                search: '',
+                searchParams: {},
+                hash: '',
+                hashParams: {},
+                url: urls.inbox('scouts'),
+            })
+        }).toDispatchActions(['hydrateRosterFilters'])
+
+        expect(logic.values.scoutEnabledFilter).toEqual('all')
+        expect(logic.values.selectedScoutTags).toEqual([])
+        expect(logic.values.scoutSearch).toEqual('')
+        // The bare entry is left as-is, so a second Back still reaches the entries beneath it.
+        expect(router.values.searchParams.scoutEnabled).toBeUndefined()
+        expect(router.values.searchParams.scoutTags).toBeUndefined()
+    })
+
+    it('reflects a persisted filter back into a bare roster URL on fresh navigation', async () => {
+        // The user filtered the roster, then opened the bare roster URL afresh (a PUSH, not Back).
+        router.actions.push(urls.inbox('scouts'), { scoutEnabled: 'enabled' })
+        await expectLogic(logic).toDispatchActions(['hydrateRosterFilters'])
+        expect(logic.values.scoutEnabledFilter).toEqual('enabled')
+
+        router.actions.push(urls.inbox('scouts'))
+        await expectLogic(logic).toFinishAllListeners()
+
+        // The filter persists and is written back so the restored view stays shareable.
+        expect(logic.values.scoutEnabledFilter).toEqual('enabled')
+        expect(router.values.searchParams.scoutEnabled).toEqual('enabled')
+    })
+
+    it('drops a typed search that a URL hydration has already replaced', async () => {
+        jest.useFakeTimers()
+        try {
+            const capture = posthog.capture as jest.Mock
+            router.actions.push(urls.inbox('scouts'))
+            logic.actions.setScoutSearch('reve')
+            capture.mockClear()
+
+            // A shared link or Back reaches the same route with a different search before the
+            // debounce settles. Hydration does not abort the breakpoint, so the stale query must
+            // not report itself or write itself back over the hydrated URL.
+            router.actions.push(urls.inbox('scouts'), { scoutSearch: 'rev' })
+            await jest.advanceTimersByTimeAsync(600)
+
+            expect(capture.mock.calls.filter(([event]) => event === 'Scout action')).toEqual([])
+            expect(router.values.searchParams.scoutSearch).toEqual('rev')
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('keeps the roster filters out of a bare URL that a sibling logic replaces', async () => {
+        router.actions.push(urls.inbox('scouts'), { scoutEnabled: 'enabled' })
+        await expectLogic(logic).toDispatchActions(['hydrateRosterFilters'])
+
+        // A sibling inbox logic restores its own params by replacing the bare URL, which happens
+        // while a Back onto that bare entry is still being handled.
+        await expectLogic(logic, () => {
+            router.actions.locationChanged({
+                method: 'REPLACE',
+                pathname: urls.inbox('scouts'),
+                search: '?scope=all',
+                searchParams: { scope: 'all' },
+                hash: '',
+                hashParams: {},
+                url: `${urls.inbox('scouts')}?scope=all`,
+            })
+        }).toFinishAllListeners()
+
+        // Riding along here would leave the URL filtered once the Back resets the controls.
+        expect(router.values.searchParams.scoutEnabled).toBeUndefined()
+    })
+
+    it('restores a search that the router parsed as a number', async () => {
+        // Opening the link parses the query string, and kea-router turns `scoutSearch=123` into the
+        // number 123, which a string-only read drops.
+        router.actions.push(`${urls.inbox('scouts')}?scoutSearch=123`)
+        await expectLogic(logic).toDispatchActions(['hydrateRosterFilters'])
+
+        expect(logic.values.scoutSearch).toEqual('123')
+    })
+
+    it('drops a tag from the URL once no scout uses it', async () => {
+        jest.useFakeTimers()
+        try {
+            const revenueScout = { ...BASE_CONFIG, tags: ['revenue'] }
+            logic.actions.loadScoutConfigsSuccess([revenueScout])
+            logic.actions.setScoutTagFilter(['revenue'])
+            expect(router.values.searchParams.scoutTags).toEqual('revenue')
+
+            // Retagging the last scout empties the tag control, so the roster is visibly unfiltered.
+            // A URL that still carries the tag would re-filter on refresh if the tag came back.
+            logic.actions.patchScoutConfigLocally(revenueScout.id, { tags: [] })
+            logic.actions.setScoutSearch('rev')
+            await jest.advanceTimersByTimeAsync(600)
+
+            expect(logic.values.activeScoutTags).toEqual([])
+            expect(router.values.searchParams.scoutTags).toBeUndefined()
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it('resets the in-flight chat type when the kickoff fails', async () => {
         mockSignalsScoutChatTasksCreate.mockRejectedValue(new Error('over the usage limit'))
 
@@ -355,5 +535,124 @@ describe('scoutFleetLogic', () => {
         await expectLogic(logic).toDispatchActions(['startScoutChatTaskFailure'])
 
         expect(logic.values.runningChatType).toBeNull()
+    })
+
+    // The 60s roster poll returns freshly parsed objects every cycle. Without per-item
+    // reconciliation, every poll replaces every reference and the memoized roster re-renders on
+    // an idle page. With it, an unchanged response must preserve identity end-to-end.
+    describe('poll identity stability', () => {
+        // Mirror what a real poll gets from the API: every response is a fresh JSON parse,
+        // so identical content still arrives as all-new object references.
+        const freshConfigs = (...configs: SignalScoutConfigApi[]): SignalScoutConfigApi[] =>
+            configs.map((config) => JSON.parse(JSON.stringify(config)))
+
+        it('keeps the configs array and every config reference when a poll changes nothing', async () => {
+            mockSignalsScoutConfigList.mockImplementation(async () => freshConfigs(BASE_CONFIG))
+
+            logic.actions.loadScoutConfigs()
+            await expectLogic(logic).toDispatchActions(['loadScoutConfigs', 'loadScoutConfigsSuccess'])
+            const first = logic.values.scoutConfigs
+
+            logic.actions.loadScoutConfigs()
+            await expectLogic(logic).toDispatchActions(['loadScoutConfigs', 'loadScoutConfigsSuccess'])
+            const second = logic.values.scoutConfigs
+
+            expect(second).toBe(first)
+            expect(second?.[0]).toBe(first?.[0])
+        })
+
+        it('keeps unchanged config references when a poll changes one config', async () => {
+            const otherConfig = { ...BASE_CONFIG, id: 'config-2', skill_name: 'signals-scout-revenue' }
+            mockSignalsScoutConfigList.mockImplementation(async () => freshConfigs(BASE_CONFIG, otherConfig))
+
+            logic.actions.loadScoutConfigs()
+            await expectLogic(logic).toDispatchActions(['loadScoutConfigs', 'loadScoutConfigsSuccess'])
+            const first = logic.values.scoutConfigs
+
+            mockSignalsScoutConfigList.mockImplementation(async () =>
+                freshConfigs({ ...BASE_CONFIG, enabled: false }, otherConfig)
+            )
+            logic.actions.loadScoutConfigs()
+            await expectLogic(logic).toDispatchActions(['loadScoutConfigs', 'loadScoutConfigsSuccess'])
+            const second = logic.values.scoutConfigs
+
+            expect(second).not.toBe(first)
+            expect(second?.[0].enabled).toBe(false)
+            expect(second?.[1]).toBe(first?.[1])
+        })
+
+        it('moves scouts out of cold start when an unchanged runs poll crosses the boundary', async () => {
+            jest.useFakeTimers()
+            try {
+                jest.setSystemTime(Date.UTC(2026, 7, 4))
+                const settledRun = makeRun({ run_id: 'run-settled', status: 'completed' })
+                mockSignalsScoutRunsRecentPerScout.mockImplementation(async () => [
+                    JSON.parse(JSON.stringify(settledRun)),
+                ])
+                logic.unmount()
+                logic = scoutFleetLogic()
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+                logic.actions.loadScoutConfigsSuccess([BASE_CONFIG])
+                logic.actions.loadScoutRuns()
+                await expectLogic(logic).toDispatchActions(['loadScoutRuns', 'loadScoutRunsSuccess'])
+                const firstRuns = logic.values.scoutRuns
+
+                expect(logic.values.rosterScouts[0].group).toBe('settling_in')
+
+                jest.setSystemTime(Date.UTC(2026, 7, 6))
+                logic.actions.loadScoutRuns()
+                await expectLogic(logic).toDispatchActions(['loadScoutRuns', 'loadScoutRunsSuccess'])
+
+                expect(logic.values.scoutRuns).toBe(firstRuns)
+                expect(logic.values.rosterScouts[0].group).toBe('watching')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('keeps the runs array and settled run references when a poll changes nothing', async () => {
+            const settledRun = makeRun({ run_id: 'run-settled', status: 'completed' })
+            mockSignalsScoutRunsRecentPerScout.mockImplementation(async () => [JSON.parse(JSON.stringify(settledRun))])
+
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRuns', 'loadScoutRunsSuccess'])
+            const first = logic.values.scoutRuns
+            const firstRoster = logic.values.rosterScouts
+
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRuns', 'loadScoutRunsSuccess'])
+            const second = logic.values.scoutRuns
+
+            expect(second).toBe(first)
+            expect(second[0]).toBe(first[0])
+            expect(logic.values.rosterScouts).toBe(firstRoster)
+        })
+
+        it('keeps settled run references but not live ones when a poll reruns with a live run', async () => {
+            const settledRun = makeRun({ run_id: 'run-settled', status: 'completed' })
+            const liveRun = makeRun({ run_id: 'run-live', status: 'in_progress' })
+            mockSignalsScoutRunsRecentPerScout.mockImplementation(async () =>
+                [settledRun, liveRun].map((run) => JSON.parse(JSON.stringify(run)))
+            )
+
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRuns', 'loadScoutRunsSuccess'])
+            const first = logic.values.scoutRuns
+
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRuns', 'loadScoutRunsSuccess'])
+            const second = logic.values.scoutRuns
+
+            // A live run must refresh identity — its rows render wall-clock durations that have
+            // to advance with each poll. Settled neighbours stay reference-stable.
+            expect(second).not.toBe(first)
+            expect(second.find((run) => run.run_id === 'run-settled')).toBe(
+                first.find((run) => run.run_id === 'run-settled')
+            )
+            expect(second.find((run) => run.run_id === 'run-live')).not.toBe(
+                first.find((run) => run.run_id === 'run-live')
+            )
+        })
     })
 })

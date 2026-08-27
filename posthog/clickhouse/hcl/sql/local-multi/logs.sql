@@ -1,22 +1,6 @@
 -- AUTO-GENERATED from the declarative HCL by ops/gen-sql.sh — do not edit.
 -- Full CREATE schema for the local-multi/logs node. Apply to a fresh ClickHouse to build it.
 
-CREATE TABLE posthog.kafka_logs_avro (
-  uuid String,
-  trace_id String,
-  span_id String,
-  trace_flags Int32,
-  timestamp DateTime64(6),
-  observed_timestamp DateTime64(6),
-  body String,
-  severity_text String,
-  severity_number Int32,
-  service_name String,
-  resource_attributes Map(LowCardinality(String), String),
-  instrumentation_scope String,
-  event_name String,
-  attributes Map(LowCardinality(String), String)
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_logs', kafka_format = 'kafka_format = \'Avro\'', kafka_group_name = 'kafka_group_name = \'clickhouse-logs-avro-new\'', kafka_num_consumers = 8, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'kafka_topic_list = \'clickhouse_logs\'';
 CREATE TABLE posthog.kafka_trace_spans_avro (
   uuid String,
   trace_id String,
@@ -181,6 +165,8 @@ CREATE TABLE posthog.logs34 (
   _bytes_uncompressed UInt64,
   _bytes_compressed UInt64,
   _record_count UInt64,
+  pattern String,
+  pattern_version UInt8,
   INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
   INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
@@ -247,7 +233,9 @@ CREATE TABLE posthog.logs_distributed (
   _offset UInt64,
   _bytes_uncompressed UInt64,
   _bytes_compressed UInt64,
-  _record_count UInt64
+  _record_count UInt64,
+  pattern String,
+  pattern_version UInt8
 ) ENGINE = Distributed('posthog_single_shard', 'posthog', 'logs34');
 CREATE TABLE posthog.logs_kafka_metrics (
   _partition UInt32,
@@ -499,6 +487,8 @@ CREATE TABLE posthog.trace_spans (
   INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 16,
   INDEX idx_trace_bloom_part trace_id TYPE bloom_filter(0.00001) GRANULARITY 99999,
   INDEX idx_span_id_bloom_part span_id TYPE bloom_filter(0.00001) GRANULARITY 99999,
+  PROJECTION projection_index_span_id (SELECT _part_offset
+ORDER BY span_id),
   PROJECTION projection_aggregate_counts (SELECT
   team_id,
   time_bucket,
@@ -509,8 +499,6 @@ CREATE TABLE posthog.trace_spans (
   count() AS event_count
 GROUP BY
   team_id, time_bucket, toStartOfMinute(timestamp), service_name, resource_fingerprint, is_root_span),
-  PROJECTION projection_index_span_id (SELECT _part_offset
-ORDER BY span_id),
   PROJECTION projection_index_trace_id (SELECT _part_offset
 ORDER BY trace_id)
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.trace_spans', '{replica}-{shard}') ORDER BY (team_id, time_bucket, service_name, resource_fingerprint, status_code, name, timestamp) PARTITION BY toDate(original_expiry_timestamp) TTL original_expiry_timestamp SETTINGS allow_part_offset_column_in_projections = 1, index_granularity = 8192, index_granularity_bytes = 104857600, map_serialization_version = 'with_buckets', ttl_only_drop_parts = 1;
@@ -562,33 +550,6 @@ CREATE TABLE posthog.trace_spans_kafka_metrics (
   max_created_at SimpleAggregateFunction(max, DateTime64(9)),
   max_lag SimpleAggregateFunction(max, UInt64)
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.trace_spans_kafka_metrics', '{replica}-{shard}') ORDER BY (_topic, _partition) SETTINGS index_granularity = 8192;
-CREATE MATERIALIZED VIEW posthog.kafka_logs34_avro_mv TO posthog.logs34 (uuid String, trace_id String, span_id String, trace_flags Int32, timestamp DateTime64(6), observed_timestamp DateTime64(6), body String, severity_text String, severity_number Int32, service_name String, instrumentation_scope String, event_name String, attributes_map_str Map(String, String), resource_attributes Map(String, String), team_id Int32, original_expiry_timestamp DateTime64(6), _partition UInt64, _topic LowCardinality(String), _offset UInt64, _record_count Int64, _bytes_uncompressed Nullable(Int64), _bytes_compressed Nullable(Int64)) AS SELECT
-  uuid,
-  trace_id,
-  span_id,
-  trace_flags,
-  timestamp,
-  observed_timestamp,
-  body,
-  severity_text,
-  severity_number,
-  service_name,
-  instrumentation_scope,
-  event_name,
-  mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
-  mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
-  toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-  observed_timestamp
-  + toIntervalDay(
-    toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15))
-  ) AS original_expiry_timestamp,
-  _partition,
-  _topic,
-  _offset,
-  toInt64OrDefault(_headers.value[indexOf(_headers.name, 'record_count')], toInt64(1)) AS _record_count,
-  toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) / _record_count AS _bytes_uncompressed,
-  toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed
-FROM posthog.kafka_logs_avro;
 CREATE MATERIALIZED VIEW posthog.kafka_logs_avro_billing_metrics_mv TO posthog.logs_billing_metrics (team_id Int32, time_bucket DateTime, service_name LowCardinality(String), bytes_uncompressed SimpleAggregateFunction(sum, Float64), bytes_compressed SimpleAggregateFunction(sum, Float64), record_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
   time_bucket,
@@ -810,6 +771,39 @@ FROM
     GROUP BY
       team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, severity_text, resource_attributes
   );
+CREATE MATERIALIZED VIEW posthog.logs34_to_volume_buckets TO posthog.logs_volume_buckets (team_id Int32, time_bucket DateTime('UTC'), service_name LowCardinality(String), namespace LowCardinality(String), environment LowCardinality(String), severity_text LowCardinality(String), log_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
+  team_id,
+  time_bucket,
+  service_name,
+  namespace,
+  environment,
+  severity_text,
+  sumSimpleState(1) AS log_count
+FROM
+  (
+    SELECT
+      team_id,
+      toStartOfInterval(timestamp, toIntervalSecond(300), 'UTC') AS time_bucket,
+      service_name,
+      if(
+        (resource_attributes['k8s.namespace.name']) != '',
+        resource_attributes['k8s.namespace.name'],
+        resource_attributes['service.namespace']
+      ) AS namespace,
+      if(
+        (resource_attributes['deployment.environment.name']) != '',
+        resource_attributes['deployment.environment.name'],
+        if(
+          (resource_attributes['deployment.environment']) != '',
+          resource_attributes['deployment.environment'],
+          resource_attributes['env']
+        )
+      ) AS environment,
+      lower(severity_text) AS severity_text
+    FROM posthog.logs34
+  )
+GROUP BY
+  team_id, time_bucket, service_name, namespace, environment, severity_text;
 CREATE MATERIALIZED VIEW posthog.trace_span_to_attributes TO posthog.trace_attributes (team_id Int32, original_expiry_time_bucket DateTime64(0), time_bucket DateTime64(0), service_name LowCardinality(String), resource_fingerprint UInt64, attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
   original_expiry_time_bucket,

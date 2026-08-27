@@ -7,6 +7,8 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
@@ -30,7 +32,9 @@ from products.replay_vision.backend.queries import excluded_sessions
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEFAULT_CANDIDATE_LIMIT,
     SWEEP_EVENTS_LOOKBACK,
+    CandidateBatch,
     CandidateSession,
+    build_candidate_batch,
 )
 from products.replay_vision.backend.temporal import SweepScannerWorkflow
 from products.replay_vision.backend.temporal.activities.advance_scanner_watermark import (
@@ -54,6 +58,8 @@ from products.replay_vision.backend.temporal.constants import (
     MAX_IN_FLIGHT_APPLIES_PER_TEAM,
     ON_DEMAND_RESERVED_SCANNER_SLOTS,
     ON_DEMAND_RESERVED_TEAM_SLOTS,
+    PRIMING_LOOKBACK,
+    PRIMING_SCAN_SESSIONS,
     SWEEP_READ_BUDGET_BYTES_24H,
     build_process_vision_action_workflow_id,
 )
@@ -79,6 +85,20 @@ _OBSERVATION_CREDITS = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLA
 _ACTIVITY = "products.replay_vision.backend.temporal.activities.find_scanner_candidates"
 
 
+def _wire_batch(mock_query: MagicMock) -> None:
+    """Let tests keep expressing the fetched batch as `run.return_value`.
+
+    The activity asks for a `CandidateBatch` now; building it from the same list keeps the old
+    meaning (keyset at the last fetched row, saturated when the batch filled).
+    """
+
+    def run_batch(dispatch_limit: int, **_: object) -> CandidateBatch:
+        fetched = mock_query.return_value.run() or []
+        return build_candidate_batch(fetched, fetched, dispatch_limit, dispatch_limit)
+
+    mock_query.return_value.run_batch.side_effect = run_batch
+
+
 @contextmanager
 def _patched_queries() -> Iterator[tuple[MagicMock, MagicMock]]:
     """Patch both candidate queries at the activity's import site, with an empty fast batch by default."""
@@ -89,6 +109,7 @@ def _patched_queries() -> Iterator[tuple[MagicMock, MagicMock]]:
         MockQuery.return_value.run.return_value = []
         MockQuery.return_value.matches_on_events.return_value = True
         MockDeep.return_value.run.return_value = []
+        _wire_batch(MockQuery)
         yield MockQuery, MockDeep
 
 
@@ -105,6 +126,8 @@ def _make_scanner(**overrides) -> ReplayScanner:
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "p"},
         "model": ScannerModel.GEMINI_3_7_FLASH,
+        # Primed by default so only the priming-specific tests exercise the one-off pass.
+        "primed_at": timezone.now(),
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
@@ -180,11 +203,22 @@ class TestFindScannerCandidatesActivity:
             )
         assert result == FindScannerCandidatesOutput(candidates=[], saturated=False)
 
+    def test_targeted_scanner_with_no_creator_skips_instead_of_failing(self) -> None:
+        # The exposure filter refuses userless principals, so a deleted creator would otherwise
+        # raise out of the activity and fail every scheduled tick forever. The skip also keeps the
+        # watermark still, so access restored later resumes from where scanning stopped.
+        scanner = _make_scanner(created_by=None, experiment_targeting={"experiment_id": 12345})
+        result = find_scanner_candidates_activity(
+            FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+        )
+        assert result == FindScannerCandidatesOutput(candidates=[], saturated=False)
+
     def test_proceeds_when_created_by_is_null(self) -> None:
         scanner = _make_scanner(created_by=None)
         with patch(
             "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
         ) as MockQuery:
+            _wire_batch(MockQuery)
             MockQuery.return_value.run.return_value = []
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
@@ -205,6 +239,7 @@ class TestFindScannerCandidatesActivity:
         with patch(
             "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
         ) as MockQuery:
+            _wire_batch(MockQuery)
             MockQuery.return_value.run.return_value = [candidate_a, candidate_b]
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
@@ -239,6 +274,7 @@ class TestFindScannerCandidatesActivity:
         with patch(
             "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
         ) as MockQuery:
+            _wire_batch(MockQuery)
             MockQuery.return_value.run.return_value = [candidate_ok, candidate_stuck]
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
@@ -252,6 +288,7 @@ class TestFindScannerCandidatesActivity:
         with patch(
             "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
         ) as MockQuery:
+            _wire_batch(MockQuery)
             MockQuery.return_value.run.return_value = []
             find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
@@ -273,6 +310,7 @@ class TestFindScannerCandidatesActivity:
         with patch(
             "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
         ) as MockQuery:
+            _wire_batch(MockQuery)
             MockQuery.return_value.run.return_value = candidates
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
@@ -433,6 +471,7 @@ class TestFindScannerCandidatesActivity:
         with patch(
             "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
         ) as MockQuery:
+            _wire_batch(MockQuery)
             find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
@@ -700,6 +739,7 @@ class TestFindScannerCandidatesActivity:
         with patch(
             "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
         ) as MockQuery:
+            _wire_batch(MockQuery)
             MockQuery.return_value.run.return_value = []
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
@@ -726,6 +766,7 @@ class TestFindScannerCandidatesActivity:
             patch(f"{_ACTIVITY}.ScannerCandidateQuery") as MockQuery,
             patch.object(excluded_sessions, "excluded_session_ids", return_value={"blocked"}),
         ):
+            _wire_batch(MockQuery)
             MockQuery.return_value.run.return_value = fetched
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
@@ -744,6 +785,7 @@ class TestFindScannerCandidatesActivity:
             patch(f"{_ACTIVITY}.ScannerCandidateQuery") as MockQuery,
             patch.object(excluded_sessions, "excluded_session_ids", side_effect=RuntimeError("clickhouse down")),
         ):
+            _wire_batch(MockQuery)
             MockQuery.return_value.run.return_value = [
                 CandidateSession(session_id="sess-a", session_end=dt.datetime(2026, 5, 1, 10, 0, tzinfo=dt.UTC))
             ]
@@ -762,6 +804,101 @@ class TestFindScannerCandidatesActivity:
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
         assert exc_info.value.non_retryable is True
+
+    def test_priming_pass_runs_once_for_a_never_swept_scanner(self) -> None:
+        scanner = _make_scanner(primed_at=None)
+        primed = [
+            CandidateSession(session_id="prime-a", session_end=dt.datetime(2026, 5, 1, 9, 0, tzinfo=dt.UTC)),
+            CandidateSession(session_id="prime-b", session_end=dt.datetime(2026, 5, 1, 8, 0, tzinfo=dt.UTC)),
+        ]
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+            ) as MockFast,
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
+            ) as MockWindowed,
+        ):
+            _wire_batch(MockFast)
+            MockFast.return_value.run.return_value = []
+            MockWindowed.return_value.run.return_value = primed
+            result = find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+            )
+
+        assert [c.session_id for c in result.priming_candidates] == ["prime-a", "prime-b"]
+        windowed_kwargs = MockWindowed.call_args.kwargs
+        # Priming ignores the scanner's sampling rate (examples now) and stays behind the fast walk.
+        assert windowed_kwargs["sampling_rate"] == 1.0
+        assert windowed_kwargs["candidate_limit"] == PRIMING_SCAN_SESSIONS
+        assert windowed_kwargs["window_end"] == scanner.last_swept_at
+        scanner.refresh_from_db()
+        assert scanner.primed_at is not None
+
+        # One-shot: the next tick must not prime again.
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+            ) as MockFast,
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
+            ) as MockWindowed,
+        ):
+            _wire_batch(MockFast)
+            MockFast.return_value.run.return_value = []
+            result = find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+            )
+        assert result.priming_candidates == []
+        MockWindowed.assert_not_called()
+
+    def test_priming_defers_when_the_fast_batch_spends_the_whole_headroom(self) -> None:
+        # Priming shares the tick's in-flight budget; without headroom it must wait for a later tick
+        # (and stay armed), never dispatch past the caps.
+        scanner = _make_scanner(primed_at=None)
+        fast = [
+            CandidateSession(session_id=f"sess-{i}", session_end=dt.datetime(2026, 5, 1, 10, i, tzinfo=dt.UTC))
+            for i in range(2)
+        ]
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+            ) as MockFast,
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
+            ) as MockWindowed,
+        ):
+            _wire_batch(MockFast)
+            MockFast.return_value.run.return_value = fast
+            result = find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id, candidate_limit=2)
+            )
+        assert result.priming_candidates == []
+        MockWindowed.assert_not_called()
+        scanner.refresh_from_db()
+        assert scanner.primed_at is None
+
+    def test_priming_skipped_but_marked_when_watermark_covers_the_window(self) -> None:
+        # A scanner that sat unswept for over the priming lookback has nothing behind the fast walk to
+        # prime from; the pass must still be marked done so it never re-arms.
+        scanner = _make_scanner(primed_at=None, last_swept_at=timezone.now() - PRIMING_LOOKBACK * 2)
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+            ) as MockFast,
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
+            ) as MockWindowed,
+        ):
+            _wire_batch(MockFast)
+            MockFast.return_value.run.return_value = []
+            result = find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+            )
+        assert result.priming_candidates == []
+        MockWindowed.assert_not_called()
+        scanner.refresh_from_db()
+        assert scanner.primed_at is not None
 
 
 # advance_scanner_watermark_activity
@@ -1070,9 +1207,8 @@ def test_limit_notification_excludes_users_denied_on_the_scanner() -> None:
     from posthog.constants import AvailableFeature
     from posthog.models import OrganizationMembership, User
 
+    from products.access_control.backend.models.access_control import AccessControl
     from products.notifications.backend.facade.enums import TargetType
-
-    from ee.models.rbac.access_control import AccessControl
 
     limit = 20 * _OBSERVATION_CREDITS
     scanner = _make_scanner(credit_limit=limit)

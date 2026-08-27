@@ -410,6 +410,62 @@ tools:
             `*_rate_limit_value` to null to remove that limit. WARNING: exception events above a rate limit are dropped
             at ingestion and cannot be recovered. Lowering a limit silently discards volume — confirm the threshold with
             the user before reducing it.
+    error-tracking-severity-rules-create:
+        operation: error_tracking_severity_rules_create
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create error tracking severity rule
+        description: >
+            Create an error tracking severity rule for the current project. Provide `filters` and the `severity` to
+            assign when a newly created issue first matches this rule. Supported severities are `low`, `medium`, `high`,
+            and `critical`. Use `order_key` to set the evaluation priority. Lower values run first, and only the first
+            matching rule applies. Rules do not change existing issues.
+    error-tracking-severity-rules-destroy:
+        operation: error_tracking_severity_rules_destroy
+        enabled: false
+    error-tracking-severity-rules-list:
+        operation: error_tracking_severity_rules_list
+        enabled: true
+        scopes:
+            - error_tracking:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List error tracking severity rules
+        description: >
+            List error tracking severity rules for the current project. Returns rules in evaluation order with their
+            filters, assigned severity, order key, and disabled state. Read the existing rules before creating or
+            updating one because only the first matching rule applies.
+    error-tracking-severity-rules-partial-update:
+        operation: error_tracking_severity_rules_partial_update
+        enabled: false
+    error-tracking-severity-rules-reorder-partial-update:
+        operation: error_tracking_severity_rules_reorder_partial_update
+        enabled: false
+    error-tracking-severity-rules-retrieve:
+        operation: error_tracking_severity_rules_retrieve
+        enabled: false
+    error-tracking-severity-rules-update:
+        operation: error_tracking_severity_rules_update
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update error tracking severity rule
+        description: >
+            Update an error tracking severity rule by ID. Include `filters`, `severity`, or both. Omitted fields keep
+            their existing values. Supported severities are `low`, `medium`, `high`, and `critical`. Updating filters
+            recompiles the rule and clears any auto-disable state. Changes apply only to issues created after the
+            update.
     error-tracking-spike-detection-config-list:
         operation: error_tracking_spike_detection_config_list
         enabled: false
@@ -615,6 +671,7 @@ tools:
                 - name
                 - description
                 - status
+                - severity
                 - first_seen
                 - last_seen
                 - library

@@ -186,15 +186,9 @@ export const useSessionIsCloud = (taskId: string | undefined): boolean => {
   });
 };
 
-/** Whether a cloud handoff is in progress for a task. Primitive selector — see
- * {@link useSessionIsCloud}. */
-export const useSessionHandoffInProgress = (
-  taskId: string | undefined,
-): boolean => {
+export const useTaskSessionStarting = (taskId: string | undefined): boolean => {
   return useSessionStore((s) => {
     if (!taskId) return false;
-    const taskRunId = s.taskIdIndex[taskId];
-    if (!taskRunId) return false;
-    return s.sessions[taskRunId]?.handoffInProgress ?? false;
+    return s.startingTaskIds[taskId] === true;
   });
 };

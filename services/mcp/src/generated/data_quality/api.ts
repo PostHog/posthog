@@ -88,7 +88,7 @@ export const WarehouseSavedQueriesChecksCreateBody = /* @__PURE__ */ zod
     .describe('The subject is implied by the URL (the parent saved query or table), never part of the body.')
 
 /**
- * CRUD for one subject's checks, plus the actions that run them and report on them.
+ * Edit this check in place, including what it asserts (check_type, column_name, config). The table or view it audits is fixed, and the check keeps its id, run history, latest status, and latest run time. A definition or name already held by another active check comes back as a field error, with nothing written.
  */
 export const WarehouseSavedQueriesChecksPartialUpdateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this data quality check.'),
@@ -299,7 +299,7 @@ export const WarehouseTablesChecksCreateBody = /* @__PURE__ */ zod
     .describe('The subject is implied by the URL (the parent saved query or table), never part of the body.')
 
 /**
- * CRUD for one subject's checks, plus the actions that run them and report on them.
+ * Edit this check in place, including what it asserts (check_type, column_name, config). The table or view it audits is fixed, and the check keeps its id, run history, latest status, and latest run time. A definition or name already held by another active check comes back as a field error, with nothing written.
  */
 export const WarehouseTablesChecksPartialUpdateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this data quality check.'),

@@ -388,7 +388,8 @@ suppressed → resolved (resolve an archived report straight out of the archive;
 # - suppressed transitions back to potential, or straight to the researched status it held before
 #   being archived (ready | pending_input | resolved | failed) — see restore_target_status()
 # - any non-deleted status can transition to deleted or suppressed
-# - snooze = transition to potential with snooze_for=N (sets signals_at_run = signal_count + N)
+# - reset/snooze = transition in_progress | pending_input | ready | resolved | failed → potential;
+#   snooze_for=N sets signals_at_run = signal_count + N
 suppressed → potential
 any (except deleted) → deleted
 any (except deleted) → suppressed
@@ -494,8 +495,8 @@ Per-team singleton config for Signals settings, including the default autonomy p
 Notes:
 
 - Auto-created as a team extension via `register_team_extension_signal`
-- `default_autostart_priority` defaults to `P4` (every report priority auto-starts). The threshold is no longer user-configurable in the inbox UI; everyone runs on this default.
-- `SignalUserAutonomyConfig.autostart_priority` can still hold a per-user override at the data layer (`null` = use the team default), but there is no UI to set it.
+- `default_autostart_priority` defaults to `P4` (every report priority auto-starts). The inbox UI exposes it as the "Project threshold" control on the PR generation card.
+- `SignalUserAutonomyConfig.autostart_priority` holds a per-user override (`null` = use the team default). The inbox UI exposes it as the "My threshold" control on the same card, where a "Default" segment maps to `null` and inherits the project threshold.
 
 ### `SignalUserAutonomyConfig`
 
@@ -556,7 +557,7 @@ Per-scout binding for the headless **Signals agent**: one row per `(team, skill_
 | `pause_reason`         | Char (nullable)      | Why the system paused or warned: `no_output` (warn-only: silence flags a scout but never pauses it) / `ignored` (nobody acts on its reports: warns, then pauses) / `repeated_failures`. Also names the writer that owns the pause: a system writer may only move a pause carrying a reason it owns, and the inactivity sweep owns both of its reasons (`transition_status_by_system()`). Null outside `pending_pause` / `paused_by_system`. |
 | `status_changed_at`    | DateTime (nullable)  | When `status` last changed. Anchors the cold-start grace window (`in_cold_start_grace()`): any move back to `active` re-anchors it, deliberately independent of the actor so the window survives account deletion.                                                                                                                                                                                                                          |
 | `status_changed_by`    | FK → User (nullable) | The human behind the last status change; null on system transitions, so a human re-enable and a system resume are distinguishable and a system pause never reads as a person's action.                                                                                                                                                                                                                                                      |
-| `auto_pause_exempt`    | Boolean              | Opt-out from the daily inactivity sweep (`scout_harness/inactivity.py`, the `no_output` / `ignored` writer), for watchdog scouts whose whole job is staying quiet. Defaults `False`. Also set automatically when a human re-enables a scout the sweep paused, so the sweep never overrules a person twice.                                                                                                                                  |
+| `auto_pause_exempt`    | Boolean              | Opt-out from the daily inactivity sweep (`scout_harness/inactivity.py`, the `no_output` / `ignored` writer), for watchdog scouts whose whole job is staying quiet. Defaults `False` and only ever set explicitly: a human re-enable of a swept scout relies on the `in_cold_start_grace` re-anchor for its fresh window instead of minting permanent immunity.                                                                              |
 | `emit`                 | Boolean              | Dry-run vs emit. Defaults `True`: a freshly authored scout is live from its first tick. Flip to `False` for dry-run — the scout runs and logs but `emit_finding` writes nothing — to validate it on a team before its findings reach the inbox.                                                                                                                                                                                             |
 | `run_interval_minutes` | PositiveInteger      | Minutes between runs. The coordinator dispatches rolling schedules when `last_run_at is None or now - last_run_at >= run_interval_minutes`. Default `1440` (daily). Validated `30 <= N <= 43200`.                                                                                                                                                                                                                                           |
 | `run_cron_schedule`    | Char (nullable)      | Optional five-field cron expression anchoring runs to wall-clock slots; takes precedence over `run_interval_minutes` when set. Interpreted in the project's timezone so daylight-saving changes are applied automatically. Occurrences must be ≥ 30 minutes apart. Null keeps the rolling interval behavior.                                                                                                                                |
@@ -596,18 +597,21 @@ Thin bridge from a Tasks `TaskRun` to the scout skill that ran inside it: one sc
 
 Narrow per-team scratchpad surface the scout fleet writes during runs and reads back on future runs (known issues, false positives, dedupe fingerprints, learned team quirks). Distinct from `SignalProjectProfile`: profile is _deterministic ground truth_, scratchpad is the _scout's inferred learnings_ (possibly wrong). MCP-readable across agents so PostHog AI and other scouts can see what the fleet has learned about a team.
 
-| Field            | Type                           | Description                                                                               |
-| ---------------- | ------------------------------ | ----------------------------------------------------------------------------------------- |
-| `team`           | FK → Team                      | Owning team (`related_name="signal_scratchpads"`)                                         |
-| `key`            | CharField(300)                 | Semantic key, agent-chosen; unique per team                                               |
-| `content`        | TextField                      | Prose for prompt injection — the agent reads this verbatim                                |
-| `created_by_run` | FK → SignalScoutRun (SET_NULL) | The run that wrote this entry; `SET_NULL` so deleting a run row doesn't destroy the entry |
-| `created_at`     | DateTime                       | Auto-set on creation                                                                      |
-| `updated_at`     | DateTime                       | Auto-set on save                                                                          |
+| Field            | Type                           | Description                                                                                      |
+| ---------------- | ------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `team`           | FK → Team                      | Owning team (`related_name="signal_scratchpads"`)                                                |
+| `key`            | CharField(300)                 | Semantic key, agent-chosen; unique per team                                                      |
+| `content`        | TextField                      | Prose for prompt injection — the agent reads this verbatim                                       |
+| `created_by_run` | FK → SignalScoutRun (SET_NULL) | The run that wrote this entry; `SET_NULL` so deleting a run row doesn't destroy the entry        |
+| `expires_at`     | DateTime (nullable)            | Optional TTL — null (the default) is durable; past expiry drops the row from `search_scratchpad` |
+| `created_at`     | DateTime                       | Auto-set on creation                                                                             |
+| `updated_at`     | DateTime                       | Auto-set on save                                                                                 |
 
 **Constraints:** Unique on `(team, key)`.
 
-`authority`, `tags`, and `expires_at` (with their backing GIN / expiry indexes) were dropped in the PR2 review simplification — retrieval is now plain ILIKE over `key` + `content`, and every entry is durable per-team scratchpad.
+`authority` and `tags` (with their backing GIN index) were dropped in the PR2 review simplification — retrieval is now plain ILIKE over `key` + `content`.
+
+`expires_at` was dropped in that same pass and later restored: a scout that wrote a time-boxed memory almost never came back to `forget` it, so stale entries kept loading into run prompts. Entries stay durable by default. Expiry hides a row from `search_scratchpad` (`include_expired=True` is the human audit path); it never deletes one, so the key stays taken and both `forget` and the `remember` upsert still find it. `remember` writes the whole entry, so a write that omits `expires_at` clears an expiry an earlier write set. A `followup:` key may not carry one — `remember` rejects that, since an expired follow-up would vanish from the self-validation queue before the scout could work it.
 
 ### `SignalProjectProfile`
 

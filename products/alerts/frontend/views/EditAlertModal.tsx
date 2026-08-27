@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useCallback, useMemo } from 'react'
 
+import { ProjectTimezoneNotice } from 'lib/components/ScheduledRunStatus'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -19,7 +20,7 @@ import { isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
 import { FunnelVizType, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/AlertAdvancedOptionsSection'
-import { AlertStateIndicator, AlertTimezoneNotice } from 'products/alerts/frontend/components/AlertDefinition'
+import { AlertErrorBanner, AlertStateIndicator } from 'products/alerts/frontend/components/AlertDefinition'
 import { AlertDefinitionSection } from 'products/alerts/frontend/components/AlertDefinitionSection'
 import {
     AlertEditor,
@@ -166,6 +167,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         simulationResult,
         simulationResultLoading,
         simulationDateFrom,
+        clearSnoozeLoading,
         thresholdBoundsFormError,
         hogqlAlertPreview,
         funnelAlertPreview,
@@ -306,6 +308,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             onDeleteAlert={deleteAlert}
             onSnoozeAlert={snoozeAlert}
             onClearSnooze={clearSnooze}
+            clearSnoozeLoading={clearSnoozeLoading}
             onSendTestDelivery={sendTestDelivery}
             testDeliveryLoading={testDeliveryResultLoading}
             testDeliveryDisabledReason={
@@ -363,7 +366,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
                 canCheckOngoingInterval={can_check_ongoing_interval}
                 onSetAlertFormValue={setAlertFormValue}
             />
-            <AlertTimezoneNotice
+            <ProjectTimezoneNotice
                 timezone={projectTimezone}
                 settingsUrl={urls.settings('environment-customization', 'date-and-time')}
             />
@@ -507,6 +510,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
                                                     </div>
                                                 ) : undefined
                                             }
+                                            statusNode={alert ? <AlertErrorBanner alert={alert} /> : undefined}
                                             tabs={tabs}
                                         />
                                     )

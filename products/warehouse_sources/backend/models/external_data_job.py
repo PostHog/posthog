@@ -7,19 +7,13 @@ from django.db.models import Prefetch
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
 
+from products.warehouse_sources.backend.types import ExternalDataJobPipelineVersion, ExternalDataJobStatus
+
 
 class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
-    class Status(models.TextChoices):
-        RUNNING = "Running", "Running"
-        FAILED = "Failed", "Failed"
-        COMPLETED = "Completed", "Completed"
-        BILLING_LIMIT_REACHED = "BillingLimitReached", "BillingLimitReached"
-        BILLING_LIMIT_TOO_LOW = "BillingLimitTooLow", "BillingLimitTooLow"
-
-    class PipelineVersion(models.TextChoices):
-        V1 = "v1-dlt-sync", "v1-dlt-sync"
-        V2 = "v2-non-dlt", "v2-non-dlt"
-        V3 = "v3-kafka-s3", "v3-kafka-s3"
+    # Kept on the model so the nested names and the `choices=` below stay unchanged.
+    Status = ExternalDataJobStatus
+    PipelineVersion = ExternalDataJobPipelineVersion
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     pipeline = models.ForeignKey("warehouse_sources.ExternalDataSource", related_name="jobs", on_delete=models.CASCADE)

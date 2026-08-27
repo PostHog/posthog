@@ -359,8 +359,8 @@ impl Cli {
             Err(e) => {
                 if no_fail {
                     match &e.exception_id {
-                        Some(id) => eprintln!("Oops! {} (ID: {})", e.inner, id),
-                        None => eprintln!("Oops! {:?}", e.inner),
+                        Some(id) => crate::safe_eprintln!("Oops! {} (ID: {})", e.inner, id),
+                        None => crate::safe_eprintln!("Oops! {:?}", e.inner),
                     };
                     Ok(None)
                 } else {

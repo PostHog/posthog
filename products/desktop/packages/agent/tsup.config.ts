@@ -48,6 +48,14 @@ function copyAssets() {
   const distDir = resolve(import.meta.dirname, "dist");
   const templatesDir = resolve(distDir, "templates");
   const claudeCliDir = resolve(distDir, "claude-cli");
+  const productEngineerResourcesSource = resolve(
+    import.meta.dirname,
+    "../harness/dist/extensions/product-engineer",
+  );
+  const productEngineerResourcesTarget = resolve(
+    distDir,
+    "pi/product-engineer",
+  );
   const enricherGrammarsSource = resolve(
     import.meta.dirname,
     "../enricher/grammars",
@@ -56,6 +64,14 @@ function copyAssets() {
 
   mkdirSync(templatesDir, { recursive: true });
   mkdirSync(claudeCliDir, { recursive: true });
+  if (!existsSync(productEngineerResourcesSource)) {
+    throw new Error(
+      `Missing product engineer resources at ${productEngineerResourcesSource}`,
+    );
+  }
+  cpSync(productEngineerResourcesSource, productEngineerResourcesTarget, {
+    recursive: true,
+  });
   cpSync(enricherGrammarsSource, enricherGrammarsTarget, {
     recursive: true,
   });
@@ -136,12 +152,12 @@ export default defineConfig([
       "src/acp-extensions.ts",
       "src/agent.ts",
       "src/gateway-models.ts",
-      "src/handoff-checkpoint.ts",
       "src/posthog-api.ts",
       "src/posthog-products.ts",
       "src/pr-url-detector.ts",
       "src/pi/rpc-client.ts",
       "src/pi/runtime.ts",
+      "src/pi/task-system-prompt.ts",
       "src/pi/types.ts",
       "src/pi/conversation/translatePiConversation.ts",
       "src/resume.ts",

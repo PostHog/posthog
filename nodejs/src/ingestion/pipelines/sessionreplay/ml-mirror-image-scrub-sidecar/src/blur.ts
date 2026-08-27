@@ -1,34 +1,21 @@
 // These params must stay in sync with rust/replay-anonymizer/src/blur.rs, or the mirror diverges from the inline anonymizer.
-import sharp from 'sharp'
+import {
+    PermanentImageError,
+    inspectImage,
+    sharpForImage,
+    undecodableImageErrorFromDecodeFailure,
+} from './image-input.ts'
 
-// One libvips thread per op and no cross-request cache, so N concurrent scrubs cost ~N threads (not N x CPU)
-// and no shared cache: bounds sidecar CPU/RSS under the concurrency ceiling.
-sharp.concurrency(1)
-sharp.cache(false)
-
-// The producer decides an image is collectable from the MIME type written in its data URI, but libvips
-// picks a decoder by sniffing magic bytes, so `data:image/png;base64,<anything>` reaches whichever loader
-// the bytes actually match. Narrow that to the formats a browser can inline: no page emits TIFF or the
-// native VIPS format, so anything arriving as one is already anomalous and belongs on the dead-letter
-// topic rather than in a decoder. Blocked loaders make the whole class of libvips decoder CVEs in these
-// two formats unreachable, independent of the pinned version. GIF is deliberately absent: pages do inline
-// GIFs, and blocking it would dead-letter every one of them.
-sharp.block({ operation: ['VipsForeignLoadTiff', 'VipsForeignLoadVips'] })
+export { LIMIT_INPUT_PIXELS, UndecodableImageError } from './image-input.ts'
 
 const DOWNSAMPLE_RATIO = 0.12
 const BLUR_SIGMA = 2.34
 const MAX_LONG_SIDE = 96
-// Cap decoded pixels: compressed bytes expand many-fold in libvips, so this guards RSS, not input size.
-// Every sharp() decode of raw request bytes (here and in the ML path's src-image.ts) must pass this.
-export const LIMIT_INPUT_PIXELS = 50_000_000
-
 // 1x1 transparent PNG: the output substituted for an image the NSFW/gore gate rejects (see advancedScrub).
 export const BLANK_PNG = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
     'base64'
 )
-
-export class UndecodableImageError extends Error {}
 
 function targetDims(w: number, h: number): [number, number] {
     const scale = Math.min(DOWNSAMPLE_RATIO, MAX_LONG_SIDE / Math.max(w, h))
@@ -39,22 +26,10 @@ export async function blurOnly(input: Buffer): Promise<Buffer> {
     // Any libvips failure — bad header OR a corrupt/truncated body that fails mid-decode — is permanent for
     // these bytes, so map it all to UndecodableImageError (422/skip). A 500 here would poison the partition.
     try {
-        const meta = await sharp(input, { limitInputPixels: LIMIT_INPUT_PIXELS }).metadata()
-        if (!meta.width || !meta.height) {
-            throw new UndecodableImageError('image has invalid dimensions')
-        }
-        // Reject oversized images from the cheap header read, before the full-resolution decode allocates
-        // ~4 bytes/pixel. (The decode enforces the same cap, but only after starting to allocate.)
-        if (meta.width * meta.height > LIMIT_INPUT_PIXELS) {
-            throw new UndecodableImageError('image exceeds the pixel limit')
-        }
-        const [tw, th] = targetDims(meta.width, meta.height)
-        return await sharp(input, { limitInputPixels: LIMIT_INPUT_PIXELS })
-            .resize(tw, th, { fit: 'fill' })
-            .blur(BLUR_SIGMA)
-            .png()
-            .toBuffer()
+        const description = await inspectImage(input)
+        const [tw, th] = targetDims(description.width, description.height)
+        return await sharpForImage(input).resize(tw, th, { fit: 'fill' }).blur(BLUR_SIGMA).png().toBuffer()
     } catch (e) {
-        throw e instanceof UndecodableImageError ? e : new UndecodableImageError(String(e))
+        throw e instanceof PermanentImageError ? e : undecodableImageErrorFromDecodeFailure(e)
     }
 }

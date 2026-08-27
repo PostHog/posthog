@@ -17,6 +17,12 @@ export const SignalsReportsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const SignalsReportsListQueryParams = /* @__PURE__ */ zod.object({
+    channel_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.'
+        ),
     has_implementation_pr: zod
         .boolean()
         .optional()
@@ -224,7 +230,7 @@ export const SignalsReportArtefactsListQueryParams = /* @__PURE__ */ zod.object(
 })
 
 /**
- * Append an artefact to a report (see artefact_type for the writable types). Everything is append-only: log entries (code reference, commit, task run, note) accumulate, while status types (safety / actionability / priority judgments, repo selection, suggested reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. Content is validated against the type's schema.
+ * Append an artefact to a report (see artefact_type for the writable types). Everything is append-only: log entries (code reference, commit, task run, note) accumulate, while status types (safety / actionability / priority judgments, repo selection, suggested reviewers, channel assignments) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. Content is validated against the type's schema.
  * @summary Append an artefact to a report
  */
 export const SignalsReportArtefactsCreateParams = /* @__PURE__ */ zod.object({
@@ -254,7 +260,7 @@ export const SignalsReportArtefactsCreateBody = /* @__PURE__ */ zod
         artefact_type: zod
             .string()
             .describe(
-                "The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
+                "The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
             ),
         content: zod
             .unknown()
@@ -424,6 +430,7 @@ export const signalsScoutCreateBodyConfigOneRunIntervalMinutesMax = 43200
 
 export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneChannelMax = 255
 
+export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault = false
 export const signalsScoutCreateBodyConfigOneRunCronScheduleMax = 100
 
 export const signalsScoutCreateBodyConfigOneModelMax = 200
@@ -504,12 +511,35 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                                         .describe(
                                             "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
                                         ),
+                                    thread_reports: zod
+                                        .boolean()
+                                        .default(
+                                            signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault
+                                        )
+                                        .describe(
+                                            "When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
+                                        ),
                                 }),
                                 zod.null(),
                             ])
                             .optional()
                             .describe(
                                 'Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery.'
+                            ),
+                        webhook: zod
+                            .union([
+                                zod.object({
+                                    hog_function_id: zod
+                                        .string()
+                                        .describe(
+                                            "Id of the CDP destination delivering this scout's reports. Set by the product that provisioned it, so it can find that destination again to update or remove it."
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe(
+                                "The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle."
                             ),
                     })
                     .optional()
@@ -609,6 +639,7 @@ export const signalsScoutConfigCreateBodyRunIntervalMinutesMax = 43200
 
 export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneChannelMax = 255
 
+export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneThreadReportsDefault = false
 export const signalsScoutConfigCreateBodyRunCronScheduleMax = 100
 
 export const signalsScoutConfigCreateBodyModelMax = 200
@@ -652,12 +683,33 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
                                 .describe(
                                     "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
                                 ),
+                            thread_reports: zod
+                                .boolean()
+                                .default(signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneThreadReportsDefault)
+                                .describe(
+                                    "When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
+                                ),
                         }),
                         zod.null(),
                     ])
                     .optional()
                     .describe(
                         'Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery.'
+                    ),
+                webhook: zod
+                    .union([
+                        zod.object({
+                            hog_function_id: zod
+                                .string()
+                                .describe(
+                                    "Id of the CDP destination delivering this scout's reports. Set by the product that provisioned it, so it can find that destination again to update or remove it."
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        "The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle."
                     ),
             })
             .optional()
@@ -740,6 +792,7 @@ export const signalsScoutConfigUpdateBodyRunCronScheduleMax = 100
 
 export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneChannelMax = 255
 
+export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneThreadReportsDefault = false
 export const signalsScoutConfigUpdateBodyModelMax = 200
 
 export const signalsScoutConfigUpdateBodyTagsMax = 10
@@ -791,12 +844,33 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
                                 .describe(
                                     "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
                                 ),
+                            thread_reports: zod
+                                .boolean()
+                                .default(signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneThreadReportsDefault)
+                                .describe(
+                                    "When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
+                                ),
                         }),
                         zod.null(),
                     ])
                     .optional()
                     .describe(
                         'Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery.'
+                    ),
+                webhook: zod
+                    .union([
+                        zod.object({
+                            hog_function_id: zod
+                                .string()
+                                .describe(
+                                    "Id of the CDP destination delivering this scout's reports. Set by the product that provisioned it, so it can find that destination again to update or remove it."
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        "The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle."
                     ),
             })
             .optional()
@@ -1153,6 +1227,10 @@ export const signalsScoutEditReportBodyChartsItemCaptionMax = 500
 
 export const signalsScoutEditReportBodyChartsMax = 20
 
+export const signalsScoutEditReportBodySuggestedPromptsItemMax = 200
+
+export const signalsScoutEditReportBodySuggestedPromptsMax = 3
+
 export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
     .object({
         report_id: zod.string().describe('Id of the report to edit (must belong to this project).'),
@@ -1252,6 +1330,13 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
             .describe(
                 "The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so send every chart you want kept. Omit the field (or send null) to leave the report's existing charts untouched, and send an empty list to take them all down."
             ),
+        suggested_prompts: zod
+            .array(zod.string().max(signalsScoutEditReportBodySuggestedPromptsItemMax))
+            .max(signalsScoutEditReportBodySuggestedPromptsMax)
+            .nullish()
+            .describe(
+                "The full set of follow-up questions the report should offer above its `Ask AI` box. Replaces the report's questions rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them answering the old report."
+            ),
     })
     .describe(
         "Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones."
@@ -1314,6 +1399,10 @@ export const signalsScoutEmitReportBodyChartsItemTitleMax = 200
 export const signalsScoutEmitReportBodyChartsItemCaptionMax = 500
 
 export const signalsScoutEmitReportBodyChartsMax = 20
+
+export const signalsScoutEmitReportBodySuggestedPromptsItemMax = 200
+
+export const signalsScoutEmitReportBodySuggestedPromptsMax = 3
 
 export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
     .object({
@@ -1468,6 +1557,13 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Optional charts to attach to the report — the inbox renders them inline, so a metric move is something the reader sees rather than a number they take on trust. Attach one whenever the finding rests on a trend, a spike, or a comparison you already queried.'
+            ),
+        suggested_prompts: zod
+            .array(zod.string().max(signalsScoutEmitReportBodySuggestedPromptsItemMax))
+            .max(signalsScoutEmitReportBodySuggestedPromptsMax)
+            .optional()
+            .describe(
+                "Optional follow-up questions to offer above the report's `Ask AI` box. The reader clicks one to fill the box with it, then sends or edits it. Write the questions your own research left open, phrased as the reader would ask them."
             ),
     })
     .describe('Request body for `emit-report`. Run attribution is taken from the URL path.')
@@ -1661,7 +1757,7 @@ export const SignalsScoutRunsRecentEmissionsQueryParams = /* @__PURE__ */ zod.ob
 })
 
 /**
- * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 1000.
+ * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 1000.
  * @summary Search the scout scratchpad
  */
 export const SignalsScoutScratchpadSearchParams = /* @__PURE__ */ zod.object({
@@ -1674,6 +1770,7 @@ export const SignalsScoutScratchpadSearchParams = /* @__PURE__ */ zod.object({
 
 export const signalsScoutScratchpadSearchQueryContentMaxCharsMin = 0
 
+export const signalsScoutScratchpadSearchQueryIncludeExpiredDefault = false
 export const signalsScoutScratchpadSearchQueryLimitMax = 1000
 
 export const SignalsScoutScratchpadSearchQueryParams = /* @__PURE__ */ zod.object({
@@ -1693,6 +1790,12 @@ export const SignalsScoutScratchpadSearchQueryParams = /* @__PURE__ */ zod.objec
         .optional()
         .describe(
             'ISO-8601 exclusive upper bound on `updated_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `updated_at` of the oldest entry from the prior page).'
+        ),
+    include_expired: zod
+        .boolean()
+        .default(signalsScoutScratchpadSearchQueryIncludeExpiredDefault)
+        .describe(
+            'Include entries whose `expires_at` has passed. Off by default so a time-boxed memory retires itself; turn it on to audit what the fleet remembered and when it lapsed.'
         ),
     key: zod
         .string()
@@ -1720,7 +1823,7 @@ export const SignalsScoutScratchpadSearchQueryParams = /* @__PURE__ */ zod.objec
 })
 
 /**
- * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place.
+ * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted.
  * @summary Remember a scratchpad entry
  */
 export const SignalsScoutScratchpadRememberParams = /* @__PURE__ */ zod.object({
@@ -1752,6 +1855,12 @@ export const SignalsScoutScratchpadRememberBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 "Run that authored this memory; persisted as `created_by_run_id` for lineage. Best-effort — a `run_id` that isn't a run on this project is dropped (lineage left null), not rejected, so the memory write is never lost."
+            ),
+        expires_at: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe(
+                "Optional ISO-8601 expiry for a memory that's only true for a while (a cooldown, a window you're watching). After this time the entry drops out of searches, so you don't have to come back and forget it. Omit for a durable memory — every write sets the whole entry, so omitting it on a later write clears an expiry set earlier."
             ),
     })
     .describe('Request body for `remember`.')
@@ -1869,12 +1978,15 @@ export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
             'endpoint_breakdown_limit_exceeded',
             'scanner_finding',
             'anomaly_investigation',
+            'feedback',
+            'review',
             'ci_flaky_check',
             'ci_broken_default_branch',
             'ci_duration_regression',
+            'search_opportunity',
         ])
         .describe(
-            '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation_report` - Evaluation report\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue\n\* `endpoint_execution_failed` - Endpoint execution failed\n\* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n\* `scanner_finding` - Scanner finding\n\* `anomaly_investigation` - Anomaly investigation\n\* `ci_flaky_check` - CI flaky check\n\* `ci_broken_default_branch` - CI broken default branch\n\* `ci_duration_regression` - CI duration regression'
+            '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation_report` - Evaluation report\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue\n\* `endpoint_execution_failed` - Endpoint execution failed\n\* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n\* `scanner_finding` - Scanner finding\n\* `anomaly_investigation` - Anomaly investigation\n\* `feedback` - Feedback\n\* `review` - Review\n\* `ci_flaky_check` - CI flaky check\n\* `ci_broken_default_branch` - CI broken default branch\n\* `ci_duration_regression` - CI duration regression\n\* `search_opportunity` - Search opportunity'
         ),
     enabled: zod.boolean().optional(),
     config: zod
@@ -1975,12 +2087,15 @@ export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
             'endpoint_breakdown_limit_exceeded',
             'scanner_finding',
             'anomaly_investigation',
+            'feedback',
+            'review',
             'ci_flaky_check',
             'ci_broken_default_branch',
             'ci_duration_regression',
+            'search_opportunity',
         ])
         .describe(
-            '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation_report` - Evaluation report\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue\n\* `endpoint_execution_failed` - Endpoint execution failed\n\* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n\* `scanner_finding` - Scanner finding\n\* `anomaly_investigation` - Anomaly investigation\n\* `ci_flaky_check` - CI flaky check\n\* `ci_broken_default_branch` - CI broken default branch\n\* `ci_duration_regression` - CI duration regression'
+            '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation_report` - Evaluation report\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue\n\* `endpoint_execution_failed` - Endpoint execution failed\n\* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n\* `scanner_finding` - Scanner finding\n\* `anomaly_investigation` - Anomaly investigation\n\* `feedback` - Feedback\n\* `review` - Review\n\* `ci_flaky_check` - CI flaky check\n\* `ci_broken_default_branch` - CI broken default branch\n\* `ci_duration_regression` - CI duration regression\n\* `search_opportunity` - Search opportunity'
         ),
     enabled: zod.boolean().optional(),
     config: zod
@@ -2073,13 +2188,16 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
             'endpoint_breakdown_limit_exceeded',
             'scanner_finding',
             'anomaly_investigation',
+            'feedback',
+            'review',
             'ci_flaky_check',
             'ci_broken_default_branch',
             'ci_duration_regression',
+            'search_opportunity',
         ])
         .optional()
         .describe(
-            '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation_report` - Evaluation report\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue\n\* `endpoint_execution_failed` - Endpoint execution failed\n\* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n\* `scanner_finding` - Scanner finding\n\* `anomaly_investigation` - Anomaly investigation\n\* `ci_flaky_check` - CI flaky check\n\* `ci_broken_default_branch` - CI broken default branch\n\* `ci_duration_regression` - CI duration regression'
+            '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation_report` - Evaluation report\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue\n\* `endpoint_execution_failed` - Endpoint execution failed\n\* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n\* `scanner_finding` - Scanner finding\n\* `anomaly_investigation` - Anomaly investigation\n\* `feedback` - Feedback\n\* `review` - Review\n\* `ci_flaky_check` - CI flaky check\n\* `ci_broken_default_branch` - CI broken default branch\n\* `ci_duration_regression` - CI duration regression\n\* `search_opportunity` - Search opportunity'
         ),
     enabled: zod.boolean().optional(),
     config: zod

@@ -1272,6 +1272,55 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()[0]["content"] == "abcd"
 
+    @parameterized.expand([("default", "", ["live"]), ("include_expired", "?include_expired=true", ["live", "lapsed"])])
+    def test_search_hides_expired_entries_unless_asked_for(
+        self, _name: str, query: str, expected_keys: list[str]
+    ) -> None:
+        SignalScratchpad.objects.create(team=self.team, key="live", content="still true")
+        SignalScratchpad.objects.create(
+            team=self.team, key="lapsed", content="cooldown", expires_at=timezone.now() - timedelta(days=1)
+        )
+        response = self.client.get(f"{self._list_url()}{query}")
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted(row["key"] for row in response.json()) == sorted(expected_keys)
+
+    def test_remember_stores_and_returns_expires_at(self) -> None:
+        expiry = timezone.now() + timedelta(days=2)
+        response = self.client.post(
+            self._list_url(),
+            data={"key": "cooldown", "content": "hold off", "expires_at": expiry.isoformat()},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["expires_at"] == expiry.isoformat()
+        assert SignalScratchpad.objects.get(team=self.team, key="cooldown").expires_at == expiry
+
+    def test_remember_rejects_expiry_on_a_followup_queue_entry(self) -> None:
+        # Wiring guard: the invariant lives in `remember`, so the endpoint has to surface it as a
+        # 400 rather than writing a follow-up that vanishes from the scout's queue.
+        response = self.client.post(
+            self._list_url(),
+            data={
+                "key": f"{FOLLOWUP_KEY_PREFIX}signals-scout-errors:checkout",
+                "content": "pending",
+                "expires_at": (timezone.now() + timedelta(days=3)).isoformat(),
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not SignalScratchpad.objects.filter(team=self.team).exists()
+
+    def test_remember_rejects_expires_at_in_the_past(self) -> None:
+        # A memory that's already lapsed on write is invisible the moment it lands, so it's a
+        # mistake worth a 400 rather than a silently useless row.
+        response = self.client.post(
+            self._list_url(),
+            data={"key": "k1", "content": "v", "expires_at": "2020-01-01T00:00:00Z"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not SignalScratchpad.objects.filter(team=self.team, key="k1").exists()
+
     def test_search_does_not_leak_other_teams_memory(self) -> None:
         other = Team.objects.create(organization=self.organization, name="Other")
         SignalScratchpad.objects.create(team=other, key="theirs", content="leaked?")
@@ -1489,8 +1538,9 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         # notes instead — writes consult the same `llm_skill` RBAC gate as skill edits.
         # Deny only the `llm_skill` resource: a blanket False would also fail unrelated
         # resource checks in the request cycle and 403 the read path for the wrong reason.
-        from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
         from posthog.scopes import APIScopeObject
+
+        from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 
         note = SignalScoutNote.objects.create(team=self.team, content="pre-existing")
         real_check = UserAccessControl.check_access_level_for_resource
@@ -1972,21 +2022,29 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("default_marks_exempt", {"enabled": True}, True),
-            ("explicit_false_wins", {"enabled": True, "auto_pause_exempt": False}, False),
+            ("no_output", SignalScoutConfig.PauseReason.NO_OUTPUT, {"enabled": True}, False),
+            ("ignored", SignalScoutConfig.PauseReason.IGNORED, {"enabled": True}, False),
+            ("repeated_failures", SignalScoutConfig.PauseReason.REPEATED_FAILURES, {"enabled": True}, False),
+            (
+                "explicit_true_wins",
+                SignalScoutConfig.PauseReason.IGNORED,
+                {"enabled": True, "auto_pause_exempt": True},
+                True,
+            ),
         ]
     )
-    def test_re_enabling_an_inactivity_paused_scout_marks_it_exempt(
-        self, _name: str, payload: dict, expected_exempt: bool
+    def test_re_enabling_a_system_paused_scout_does_not_mark_it_exempt(
+        self, _name: str, pause_reason: SignalScoutConfig.PauseReason, payload: dict, expected_exempt: bool
     ) -> None:
-        # A re-enable is a human overruling the sweep, and the sweep must not overrule them back:
-        # the same quiet fortnight would re-qualify the scout as soon as its grace window lapses.
+        # A resume re-anchors the cold-start grace, which already keeps the sweep from
+        # re-judging the scout soon; minting the exemption here would remove it from the
+        # sweep's jurisdiction forever on every revert. Exemption stays an explicit choice.
         config = SignalScoutConfig.objects.create(
             team=self.team,
             skill_name="signals-scout-foo",
             enabled=False,
             status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
-            pause_reason=SignalScoutConfig.PauseReason.NO_OUTPUT,
+            pause_reason=pause_reason,
         )
 
         response = self.client.patch(self._detail_url(str(config.id)), data=payload, format="json")
@@ -2018,24 +2076,6 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         (call,) = [c for c in capture.call_args_list if c.kwargs.get("event") == "signals_scout_auto_pause_reverted"]
         assert call.kwargs["properties"]["pause_reason"] == SignalScoutConfig.PauseReason.IGNORED
         assert call.kwargs["properties"]["reverted_within_24h"] is True
-
-    def test_re_enabling_a_breaker_paused_scout_does_not_mark_it_exempt(self) -> None:
-        # The exemption belongs to the inactivity sweep; a re-enable after repeated failures says
-        # nothing about whether the scout's silence is wanted.
-        config = SignalScoutConfig.objects.create(
-            team=self.team,
-            skill_name="signals-scout-foo",
-            enabled=False,
-            status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
-            pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
-        )
-
-        response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": True}, format="json")
-
-        assert response.status_code == status.HTTP_200_OK
-        config.refresh_from_db()
-        assert config.status == SignalScoutConfig.Status.ACTIVE
-        assert config.auto_pause_exempt is False
 
     def test_exempting_a_scout_clears_its_pending_warning(self) -> None:
         # Exempting takes the scout out of the sweep, so nothing else would ever clear the
@@ -2124,7 +2164,12 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["output_destinations"] == destination
+        # A partial update skips the `thread_reports` default, so the flag reaches the reader
+        # through the response only and the stored destination keeps the shape it was sent in.
+        assert response.json()["output_destinations"] == {
+            "slack": {**destination["slack"], "thread_reports": False},
+            "webhook": None,
+        }
         config.refresh_from_db()
         assert config.output_destinations == destination
 
@@ -3156,6 +3201,22 @@ class TestScoutRunDerivedMetadata(APIBaseTest):
             created_at=run.created_at + created_offset, updated_at=run.created_at + updated_offset
         )
         assert self._stamp(run)["has_self_validation"] is expected
+
+    def test_self_validation_still_counts_a_followup_entry_that_has_expired(self) -> None:
+        # The follow-up queue is read straight off the manager, deliberately unfiltered: this flag
+        # records that the run did the work, and an entry lapsing afterwards doesn't undo that.
+        # Routing this read through `search_scratchpad` would silently start dropping such runs.
+        run = _make_run(self.team)
+        entry = SignalScratchpad.objects.create(
+            team=self.team,
+            key=f"{FOLLOWUP_KEY_PREFIX}{run.skill_name}:checkout-errors",
+            content="validated",
+            expires_at=timezone.now() - timedelta(days=1),
+        )
+        SignalScratchpad.all_teams.filter(pk=entry.pk).update(
+            created_at=run.created_at - timedelta(hours=2), updated_at=run.created_at + timedelta(minutes=1)
+        )
+        assert self._stamp(run)["has_self_validation"] is True
 
     def test_sibling_skills_queue_does_not_count(self) -> None:
         run = _make_run(self.team)

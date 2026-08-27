@@ -20,7 +20,12 @@ import {
   buildPosthogProjectHeaderLines,
   buildPosthogPropertyHeaderLines,
 } from "@posthog/shared/posthog-property-headers";
+import {
+  applyContextWikiEnv,
+  resolveContextWikiPath,
+} from "../../../context-wiki";
 import type { FileEnrichmentDeps } from "../../../enrichment/file-enricher";
+import type { ContextWikiEnv } from "../../../types";
 import { IS_ROOT } from "../../../utils/common";
 import type { Logger } from "../../../utils/logger";
 import type { TaskState } from "../conversion/task-state";
@@ -39,7 +44,7 @@ import { type CodeExecutionMode, toSdkPermissionMode } from "../tools";
 import type { EffortLevel } from "../types";
 import { buildAppendedInstructions } from "./instructions";
 import { loadUserClaudeJsonMcpServers } from "./mcp-config";
-import { DEFAULT_MODEL, FALLBACK_MODEL } from "./models";
+import { DEFAULT_MODEL, resolveFallbackModel } from "./models";
 import { createRtkRewriteHook, resolveRtkPrefix } from "./rtk";
 import type { SettingsManager } from "./settings";
 
@@ -112,14 +117,17 @@ export interface BuildOptionsParams {
   gatewayEnv?: GatewayEnv;
   /** Matched `bedrock-llm-gateway` variant; `test` serves this session from Bedrock. */
   bedrockGatewayVariant?: BedrockGatewayVariant;
+  /** Per-session context wiki mount — prevents global process.env mutation. */
+  contextWiki?: ContextWikiEnv;
 }
 
 export function buildSystemPrompt(
   customPrompt?: unknown,
-  opts?: { spokenNarration?: boolean },
+  opts?: { spokenNarration?: boolean; contextWikiPath?: string },
 ): Options["systemPrompt"] {
   const appendedInstructions = buildAppendedInstructions({
     spokenNarration: opts?.spokenNarration === true,
+    contextWikiPath: resolveContextWikiPath(opts?.contextWikiPath),
   });
   const defaultPrompt: Options["systemPrompt"] = {
     type: "preset",
@@ -166,6 +174,7 @@ function buildEnvironment(
   gateway?: GatewayEnv,
   sessionId?: string,
   bedrockGatewayVariant?: BedrockGatewayVariant,
+  contextWiki?: ContextWikiEnv,
 ): Record<string, string> {
   // Custom HTTP headers reach the model only through the Claude CLI subprocess,
   // which reads them from this env var (newline-delimited `name: value` lines)
@@ -274,6 +283,7 @@ function buildEnvironment(
     delete env.TRACEPARENT;
     delete env.TRACESTATE;
   }
+  applyContextWikiEnv(env, contextWiki);
   return env;
 }
 
@@ -541,6 +551,7 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
       params.gatewayEnv,
       params.sessionId,
       params.bedrockGatewayVariant,
+      params.contextWiki,
     ),
     hooks: buildHooks(
       params.userProvidedOptions?.hooks,
@@ -588,8 +599,10 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     options.model = DEFAULT_MODEL;
   }
 
-  if (!options.fallbackModel && options.model !== FALLBACK_MODEL) {
-    options.fallbackModel = FALLBACK_MODEL;
+  if (!options.fallbackModel) {
+    options.fallbackModel = resolveFallbackModel(
+      options.model ?? DEFAULT_MODEL,
+    );
   }
 
   if (params.additionalDirectories) {

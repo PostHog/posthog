@@ -16,7 +16,7 @@ from posthog.models.integration import Integration
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.tasks.subscriptions.slack_subscriptions import (
     _block_for_asset,

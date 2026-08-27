@@ -14,7 +14,7 @@ from dataclasses import (
     dataclass as stdlib_dataclass,
     field,
 )
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
 from typing import Any, TypedDict
 from uuid import UUID
@@ -70,6 +70,7 @@ class AccountProperties:
     Mirrors ``models.account.AccountProperties`` as a stable, framework-free shape.
     """
 
+    website_domain: str | None = None
     stripe_customer_id: str | None = None
     hubspot_deal_id: str | None = None
     billing_id: str | None = None
@@ -166,6 +167,7 @@ class MeetingView:
 
     id: UUID
     title: str
+    gong_url: str | None
     start_time: datetime
     end_time: datetime | None
     organizer_email: str
@@ -235,6 +237,25 @@ class AccountTableAccountIdFilter:
     account_id: UUID
 
 
+class AccountTableFieldOperator(str, Enum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+    CONTAINS = "icontains"
+    DOES_NOT_CONTAIN = "not_icontains"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+    DATE_EXACT = "is_date_exact"
+    DATE_BEFORE = "is_date_before"
+    DATE_AFTER = "is_date_after"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableFieldFilter:
+    field: AccountTableField
+    operator: AccountTableFieldOperator
+    values: tuple[str, ...] = ()
+
+
 class AccountTableCustomPropertyOperator(str, Enum):
     EXACT = "exact"
     IS_NOT = "is_not"
@@ -266,8 +287,82 @@ AccountTableFilter = (
     | AccountTableAssignedToFilter
     | AccountTableUnassignedFilter
     | AccountTableAccountIdFilter
+    | AccountTableFieldFilter
     | AccountTableCustomPropertyFilter
 )
+
+
+class AccountTrackRuleFieldKind(str, Enum):
+    ACCOUNT_FIELD = "account_field"
+    CUSTOM_PROPERTY = "custom_property"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRuleField:
+    kind: AccountTrackRuleFieldKind
+    field: AccountTableField | None = None
+    definition_id: UUID | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRuleCondition:
+    field: AccountTrackRuleField
+    operator: str
+    values: tuple[float | bool | str, ...] = ()
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRuleGroup:
+    conditions: tuple[AccountTrackRuleCondition, ...]
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRulesConfig:
+    schema_version: int = 1
+    version: int = 0
+    enabled: bool = False
+    groups: tuple[AccountTrackRuleGroup, ...] = ()
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRuleSample:
+    id: UUID
+    name: str
+    external_id: str | None
+    rule_values: dict[str, float | bool | str | None]
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRulePreview:
+    config_version: int
+    eligible_active: int
+    skipped_churned: int
+    tracked: int
+    ignored: int
+    newly_ignored: int
+    restored: int
+    tracked_samples: tuple[AccountTrackRuleSample, ...]
+    ignored_samples: tuple[AccountTrackRuleSample, ...]
+    validation_errors: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRuleRunView:
+    id: UUID
+    config_version: int
+    trigger: str
+    status: str
+    eligible_active: int
+    skipped_churned: int
+    tracked: int
+    ignored: int
+    newly_ignored: int
+    restored: int
+    started_at: datetime | None
+    finished_at: datetime | None
+    error: str | None
+    created_by: int | None
+    created_at: datetime
 
 
 class AccountTableSortKind(str, Enum):
@@ -341,6 +436,7 @@ class AccountTableRow:
     id: UUID
     name: str
     external_id: str | None
+    logo_domain: str | None = None
     account_fields: dict[AccountTableField, str | None] = field(default_factory=dict)
     tags: list[str] | None = None
     note_count: int | None = None
@@ -572,6 +668,31 @@ class FeatureRequestAccountView:
 
 
 @stdlib_dataclass(frozen=True)
+class FeatureRequestEvidenceView:
+    id: UUID | None = None
+    summary: str = ""
+    customer_quote: str = ""
+    evidence_source: str = "conversation"
+    source_url: str = ""
+    requested_on: date | None = None
+    image_ids: list[UUID] = field(default_factory=list)
+    created_by: int | None = None
+    updated_by: int | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@stdlib_dataclass(frozen=True)
+class FeatureRequestAccountLinkView:
+    id: UUID | None = None
+    account: FeatureRequestAccountView | None = None
+    evidence: list[FeatureRequestEvidenceView] = field(default_factory=list)
+    evidence_count: int = 0
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@stdlib_dataclass(frozen=True)
 class FeatureRequestView:
     id: UUID | None = None
     title: str = ""
@@ -582,7 +703,9 @@ class FeatureRequestView:
     archived_at: datetime | None = None
     archived_by: int | None = None
     version: int = 1
+    can_update: bool = False
     account: FeatureRequestAccountView | None = None
+    account_links: list[FeatureRequestAccountLinkView] = field(default_factory=list)
     product_areas: list[FeatureRequestProductAreaView] = field(default_factory=list)
     created_by: int | None = None
     updated_by: int | None = None
@@ -625,8 +748,19 @@ class FeatureRequestListFilters:
     priorities: tuple[str, ...] = ()
     product_area_ids: tuple[UUID, ...] = ()
     account_ids: tuple[UUID, ...] = ()
+    created_by_ids: tuple[int, ...] = ()
     archive_state: str = "active"
     ordering: str = "-updated_at"
+
+
+@dataclass(frozen=True)
+class FeatureRequestEvidenceInput:
+    summary: str
+    customer_quote: str
+    evidence_source: str
+    source_url: str
+    requested_on: date | None
+    image_ids: tuple[UUID, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -636,6 +770,7 @@ class CreateFeatureRequestInput:
     account_id: UUID
     product_area_ids: tuple[UUID, ...]
     idempotency_key: UUID
+    evidence: FeatureRequestEvidenceInput | None = None
 
 
 @dataclass(frozen=True)
@@ -649,11 +784,48 @@ class UpdateFeatureRequestInput:
     expected_version: int
     title: str | None = None
     description: str | None = None
-    account_id: UUID | None = None
+    account_ids: tuple[UUID, ...] | None = None
     product_area_ids: tuple[UUID, ...] | None = None
     request_status: str | None = None
     request_priority: str | None = None
     request_priority_is_set: bool = False
+
+
+@dataclass(frozen=True)
+class AddFeatureRequestAccountInput:
+    expected_version: int
+    account_id: UUID
+    evidence: FeatureRequestEvidenceInput | None = None
+
+
+@dataclass(frozen=True)
+class CreateFeatureRequestEvidenceInput:
+    expected_version: int
+    account_link_id: UUID
+    summary: str
+    customer_quote: str
+    evidence_source: str
+    source_url: str
+    requested_on: date | None
+    image_ids: tuple[UUID, ...] = ()
+
+
+@dataclass(frozen=True)
+class UpdateFeatureRequestEvidenceInput:
+    expected_version: int
+    evidence_id: UUID
+    summary: str
+    customer_quote: str
+    evidence_source: str
+    source_url: str
+    requested_on: date | None
+    image_ids: tuple[UUID, ...] | None = None
+
+
+@dataclass(frozen=True)
+class DeleteFeatureRequestEvidenceInput:
+    expected_version: int
+    evidence_id: UUID
 
 
 @stdlib_dataclass(frozen=True)
@@ -768,11 +940,16 @@ class CustomPropertySourceView:
 
 @stdlib_dataclass(frozen=True)
 class CustomPropertySyncRunView:
-    """One person-property sync/backfill run, as returned by the source ``runs`` endpoint and nested
-    on a source as ``latest_run``. The counts are the sync funnel (read -> changed -> existing (=
-    persons affected) -> produced; skipped_missing_person is changed rows with no matching person)."""
+    """One warehouse-backed custom property sync run."""
 
     id: UUID | None = None
+    job_id: str | None = None
+    account_segment: str | None = None
+    sync_phase: str | None = None
+    attempt: int | None = None
+    workflow_id: str | None = None
+    workflow_run_id: UUID | None = None
+    temporal_url: str | None = None
     trigger: str = ""
     status: str = ""
     started_at: datetime | None = None

@@ -12,7 +12,6 @@ import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/oauth/oauthClient'
-import { assertNotReadOnly } from 'lib/readOnlyGuard'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
@@ -1745,6 +1744,10 @@ export class ApiRequest {
         return this.query(teamId).addPathComponent(queryId).addPathComponent('log')
     }
 
+    public queryCancel(clientQueryId: string, teamId?: TeamType['id']): ApiRequest {
+        return this.query(teamId).addPathComponent(clientQueryId)
+    }
+
     // Endpoints
     public endpoint(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('endpoints')
@@ -2398,10 +2401,7 @@ const api = {
         ): Promise<CountedPaginatedResponse<ScheduledChangeType>> {
             return await new ApiRequest().featureFlagScheduledChanges(teamId, featureFlagId).get()
         },
-        async createScheduledChange(
-            teamId: TeamType['id'],
-            data: any
-        ): Promise<{ scheduled_change: ScheduledChangeType }> {
+        async createScheduledChange(teamId: TeamType['id'], data: any): Promise<ScheduledChangeType> {
             return await new ApiRequest().featureFlagCreateScheduledChange(teamId).create({ data })
         },
         async deleteScheduledChange(
@@ -2668,6 +2668,16 @@ const api = {
             projectId: ProjectType['id'] = ApiConfig.getCurrentProjectId()
         ): Promise<ActivityLogPaginatedResponse<ActivityLogItem>> {
             const scopes = Array.isArray(props.scope) ? [...props.scope] : [props.scope]
+
+            // The experiment activity endpoint merges in entries from the experiment's holdout
+            // and shared metrics, which the generic /activity_log scope+item_id filter can't express.
+            if (scopes.length === 1 && scopes[0] === ActivityScope.EXPERIMENT && props.id) {
+                return new ApiRequest()
+                    .experimentsDetail(props.id as number, projectId)
+                    .withAction('activity')
+                    .withQueryString(toParams({ page: page || 1, limit: ACTIVITY_PAGE_SIZE }))
+                    .get()
+            }
 
             // Opt into the new /activity_log API
             if (
@@ -3628,8 +3638,8 @@ const api = {
 
         async listForOrg(
             organizationId: OrganizationType['id'],
-            params: { limit?: number; offset?: number } = {}
-        ): Promise<CountedPaginatedResponse<Pick<OrganizationMemberType, 'id' | 'user'>>> {
+            params: { limit?: number; offset?: number; search?: string } = {}
+        ): Promise<CountedPaginatedResponse<Pick<OrganizationMemberType, 'id' | 'user' | 'level'>>> {
             return await new ApiRequest()
                 .organizationMembersForAccount()
                 .withQueryString({ organization_id: organizationId, ...params })
@@ -3718,8 +3728,11 @@ const api = {
                     },
                 })
         },
-        async list(params: PersonListParams = {}): Promise<CountedPaginatedResponse<PersonType>> {
-            return await new ApiRequest().persons().withQueryString(toParams(params)).get()
+        async list(
+            params: PersonListParams = {},
+            options?: ApiMethodOptions
+        ): Promise<CountedPaginatedResponse<PersonType>> {
+            return await new ApiRequest().persons().withQueryString(toParams(params)).get(options)
         },
         determineListUrl(params: PersonListParams = {}): string {
             return new ApiRequest().persons().withQueryString(toParams(params)).assembleFullUrl()
@@ -3794,8 +3807,8 @@ const api = {
     },
 
     search: {
-        async list(params: SearchListParams): Promise<SearchResponse> {
-            return await new ApiRequest().search().withQueryString(toParams(params, true)).get()
+        async list(params: SearchListParams, options?: ApiMethodOptions): Promise<SearchResponse> {
+            return await new ApiRequest().search().withQueryString(toParams(params, true)).get(options)
         },
     },
 
@@ -4759,7 +4772,9 @@ const api = {
         },
         async update(
             notebookId: NotebookType['short_id'],
-            data: Partial<Pick<NotebookType, 'version' | 'content' | 'text_content' | 'title' | '_create_in_folder'>>
+            data: Partial<
+                Pick<NotebookType, 'version' | 'content' | 'text_content' | 'title' | 'variables' | '_create_in_folder'>
+            >
         ): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).update({ data })
         },
@@ -4907,6 +4922,7 @@ const api = {
                 node_id: string
                 code: string
                 refs?: Record<string, { node_id: string; kind: 'hogql' | 'local' }>
+                variables?: { name: string; type: 'string' | 'number' | 'boolean' | 'date'; value: unknown }[]
                 node_type?: 'hogql' | 'python'
                 output_name?: string
                 connection_id?: string | null
@@ -5036,7 +5052,8 @@ const api = {
             id: BatchExportConfiguration['id'],
             params: Record<string, any> = {}
         ): Promise<PaginatedResponse<RawBatchExportRun>> {
-            return await new ApiRequest().batchExportRuns(id).withQueryString(toParams(params)).get()
+            // Explode arrays, as the runs endpoint reads repeated parameters (`?status=Failed&status=Running`).
+            return await new ApiRequest().batchExportRuns(id).withQueryString(toParams(params, true)).get()
         },
         async createBackfill(
             id: BatchExportConfiguration['id'],
@@ -6802,6 +6819,14 @@ const api = {
         return new ApiRequest().query(undefined, queryKind).assembleFullUrl(true)
     },
 
+    /**
+     * Stop the ClickHouse query that a request named with its `client_query_id`. Dropping the HTTP
+     * request does not reach ClickHouse, which keeps working on the query until it finishes.
+     */
+    async cancelQuery(clientQueryId: string): Promise<void> {
+        await new ApiRequest().queryCancel(clientQueryId).delete()
+    },
+
     async query<T extends Record<string, any> = QuerySchema>(
         query: T,
         queryOptions?: {
@@ -7147,7 +7172,6 @@ const api = {
     ): Promise<T> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
-        assertNotReadOnly(method, url)
         const isFormData = data instanceof FormData
 
         const response = await handleFetch(url, method, async () => {
@@ -7184,7 +7208,6 @@ const api = {
     async createResponse(url: string, data?: any, options?: ApiMethodOptions): Promise<Response> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
-        assertNotReadOnly('POST', url)
         const isFormData = data instanceof FormData
 
         return await handleFetch(url, 'POST', async () =>
@@ -7206,7 +7229,6 @@ const api = {
     async delete(url: string): Promise<any> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
-        assertNotReadOnly('DELETE', url)
         return await handleFetch(url, 'DELETE', async () =>
             fetch(url, {
                 method: 'DELETE',
@@ -7463,6 +7485,31 @@ function requestPathname(url: string): string {
     }
 }
 
+/**
+ * The browser rejects a fetch that never reached the server with a `TypeError`, but `instanceof
+ * TypeError` alone misses two real cases: an error thrown in another realm (an iframe, a worker)
+ * carries that realm's `TypeError`, and a `fetch` replaced by a browser extension can reject with
+ * its own error shape. Both keep the class name and the engine-specific message, so we match those
+ * as well before a connectivity failure falls through to an unclassified `ApiError`.
+ */
+const BROWSER_FETCH_FAILURE_MESSAGES = [
+    'Failed to fetch',
+    'Load failed',
+    'NetworkError when attempting to fetch resource',
+]
+
+function isBrowserFetchFailure(error: unknown): boolean {
+    if (error instanceof TypeError) {
+        return true
+    }
+    const candidate = error as { name?: unknown; message?: unknown } | null
+    if (candidate?.name === 'TypeError') {
+        return true
+    }
+    const message = candidate?.message
+    return typeof message === 'string' && BROWSER_FETCH_FAILURE_MESSAGES.some((known) => message.includes(known))
+}
+
 function classifyNetworkFailure(): NetworkFailureReason {
     if (documentUnloading) {
         return 'navigating'
@@ -7517,7 +7564,7 @@ async function handleFetch(
         // was offline or going away. Anything else thrown by the fetcher is a genuine fault in the
         // request path, so it keeps surfacing as an unclassified `ApiError` rather than being
         // relabelled as a connectivity problem and filtered out of error tracking.
-        if (error instanceof TypeError) {
+        if (isBrowserFetchFailure(error)) {
             const reason = classifyNetworkFailure()
             captureClientRequestFailure({
                 pathname: requestPathname(url),
