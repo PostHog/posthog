@@ -111,11 +111,9 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
 
     // For the purposes of $initial properties, $os_name is treated as a fallback alias of $os, starting August 2024
     // It's a special case due to _some_ SDKs using $os_name: https://github.com/PostHog/posthog-js-lite/issues/244
+    // normalizeOsAlias fills the event's own $os from $os_name; this block covers the person side.
     const osName = properties.$os_name
     if (osName !== undefined && !skipServerHostOs) {
-        if (!('$os' in properties)) {
-            properties.$os = osName
-        }
         if (!('$os' in $set)) {
             $set.$os = osName
         }

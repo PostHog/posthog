@@ -102,9 +102,10 @@ describe('personInitialAndUTMProperties()', () => {
         })
     })
     it('treats $os_name as fallback for $os', () => {
+        // normalizeOsAlias fills the event's own $os upstream, so here $os_name only decides the
+        // person properties.
         const propertiesOsNameOnly = { $os_name: 'Android' }
         expect(personInitialAndUTMProperties(propertiesOsNameOnly)).toEqual({
-            $os: 'Android',
             $os_name: 'Android',
             $set_once: { $initial_os: 'Android' },
             $set: { $os: 'Android' },
