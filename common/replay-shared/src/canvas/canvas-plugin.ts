@@ -98,9 +98,9 @@ export const CanvasReplayerPlugin = (
 
             if ('commands' in data) {
                 const commands = await Promise.all(
-                    data.commands.map(async (c) => {
+                    (data.commands ?? []).map(async (c) => {
                         const args = await Promise.all(
-                            (c.args as CanvasArg[]).map(deserializeCanvasArg(imageMap, null, status))
+                            ((c.args ?? []) as CanvasArg[]).map(deserializeCanvasArg(imageMap, null, status))
                         )
                         return { ...c, args }
                     })
@@ -110,7 +110,7 @@ export const CanvasReplayerPlugin = (
                 }
             } else {
                 const args = await Promise.all(
-                    (data.args as CanvasArg[]).map(deserializeCanvasArg(imageMap, null, status))
+                    ((data.args ?? []) as CanvasArg[]).map(deserializeCanvasArg(imageMap, null, status))
                 )
                 if (status.isUnchanged === false) {
                     canvasEventMap.set(event, { ...data, args })
@@ -190,7 +190,7 @@ export const CanvasReplayerPlugin = (
     const processMutation = async (e: CanvasEventWithTime, replayer: Replayer): Promise<void> => {
         pruneBuffer(e)
         pruneQueue.push(e)
-        void preload(e)
+        void preload(e).catch(onError)
 
         const data = e.data as canvasMutationData
         const source = replayer.getMirror().getNode(data.id) as HTMLCanvasElement
@@ -354,7 +354,7 @@ export const CanvasReplayerPlugin = (
         }
     }
 
-    void preload()
+    void preload().catch(onError)
 
     return {
         onBuild: (node, { id }) => {
