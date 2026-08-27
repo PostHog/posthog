@@ -278,7 +278,7 @@ class TestHedgeboxMatrixDemoWarehouseTables(SimpleTestCase):
     def test_save_demo_data_warehouse_tables_writes_source_team_files(self, mock_write):
         matrix = HedgeboxMatrix(seed="warehouse-test", n_clusters=0)
         matrix.is_complete = True
-        matrix.clusters = []  # ty: ignore[invalid-assignment]  # no people -> empty rows, keys are what matters
+        matrix.clusters = []  # no people -> empty rows, keys are what matters
         source_team = cast(Any, SimpleNamespace(pk=0))
 
         matrix.save_demo_data_warehouse_tables(source_team)

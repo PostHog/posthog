@@ -232,7 +232,7 @@ class TestRelaySlackMessage(TestCase):
         _mock_update,
         _mock_flag,
     ):
-        # Run-manifest artifacts are internal (checkpoints, inputs, raw agent outputs).
+        # Run-manifest artifacts are internal (inputs, context, raw agent outputs).
         # Even with living artifacts enabled they must not leak into the posted text,
         # and their presence must not suppress the unconfirmed-attachment notice.
         self.task_run.artifacts = [

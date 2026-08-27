@@ -82,7 +82,7 @@ if TYPE_CHECKING:
     from products.dashboards.backend.models.dashboard import Dashboard
     from products.dashboards.backend.models.dashboard_tile import DashboardTile
     from products.feature_flags.backend.sdk_cache_provider import HyperCacheFlagProvider
-    from products.product_analytics.backend.facade.models import InsightVariable
+    from products.product_analytics.backend.facade.contracts import InsightVariableDefinition
 
 DATERANGE_MAP = {
     "second": datetime.timedelta(seconds=1),
@@ -1843,7 +1843,7 @@ def filters_override_requested_by_client(
 def variables_override_requested_by_client(
     request: Optional[Request],
     dashboard: Optional["Dashboard"],
-    variables: list["InsightVariable"],
+    variables: list["InsightVariableDefinition"],
     is_shared: bool = False,
 ) -> Optional[dict[str, dict]]:
     from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication

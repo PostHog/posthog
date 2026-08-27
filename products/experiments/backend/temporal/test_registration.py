@@ -1,5 +1,8 @@
 from products.experiments.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.experiments.backend.temporal.canary_workflow import ExperimentPrecomputeCanaryWorkflow
+from products.experiments.backend.temporal.enrollment_census_workflow import (
+    ExperimentPrecomputeEnrollmentCensusWorkflow,
+)
 from products.experiments.backend.temporal.recalculation_workflow import ExperimentMetricsRecalculationWorkflow
 
 
@@ -12,8 +15,13 @@ def test_activities_registered():
         "sample_experiment_canary_targets",
         "run_experiment_metric_canary",
         "report_experiment_canary_results",
+        "run_experiment_enrollment_census",
     }
 
 
 def test_workflow_registered():
-    assert WORKFLOWS == [ExperimentMetricsRecalculationWorkflow, ExperimentPrecomputeCanaryWorkflow]
+    assert WORKFLOWS == [
+        ExperimentMetricsRecalculationWorkflow,
+        ExperimentPrecomputeCanaryWorkflow,
+        ExperimentPrecomputeEnrollmentCensusWorkflow,
+    ]

@@ -1,4 +1,5 @@
 import ipaddress
+from dataclasses import replace
 
 from unittest.mock import MagicMock, patch
 
@@ -135,8 +136,7 @@ class TestCheckCloudflare(TestCase):
     @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
     def test_fail_when_hostname_blocked_despite_active_cert(self, _name, status, remediation_word, get_mock):
         # An active SSL certificate must not let a blocked or moved hostname pass the check.
-        info = _hostname_info(ssl_status=CustomHostnameSSLStatus.ACTIVE)
-        info.status = status
+        info = replace(_hostname_info(ssl_status=CustomHostnameSSLStatus.ACTIVE), status=status)
         get_mock.return_value = info
 
         result, _ = diagnostics._check_cloudflare(_record())

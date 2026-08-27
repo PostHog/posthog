@@ -201,8 +201,8 @@ class FourthwallSource(
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Fourthwall",
             caption=(
-                "Sync your Fourthwall shop's orders, products, collections, donations, members, "
-                "membership tiers, promotions and mailing list into PostHog.\n\n"
+                "Sync your Fourthwall shop's orders, products, product templates, collections, "
+                "donations, members, membership tiers, promotions and mailing list into PostHog.\n\n"
                 f"{DEVELOPER_SETTINGS_HELP}"
             ),
             keywords=["merch", "memberships", "creator commerce"],

@@ -128,7 +128,10 @@ class SessionRecording(UUIDTModel):
             self.set_start_url_from_urls(first_url=metadata["first_url"])
             self.mouse_activity_count = metadata["mouse_activity_count"]
             self.active_seconds = metadata["active_seconds"]
-            self.inactive_seconds = metadata["duration"] - metadata["active_seconds"]
+            # `active_seconds` sums per-block active time, so blocks that overlap in wall clock
+            # (concurrent tabs in one session) each count their own and the total can exceed the
+            # elapsed span. Only the totals are stored, so the overlap cannot be subtracted out.
+            self.inactive_seconds = max(metadata["duration"] - metadata["active_seconds"], 0)
             self.console_log_count = metadata["console_log_count"]
             self.console_warn_count = metadata["console_warn_count"]
             self.console_error_count = metadata["console_error_count"]

@@ -25,6 +25,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     update_last_synced_at,
     validate_schema_and_update_table,
 )
+from products.warehouse_sources.backend.types import (
+    DataWarehouseTableCreatedVia,
+    DataWarehouseTableFormat,
+    ExternalDataJobStatus,
+)
 
 _PIPELINE_SYNC_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync"
 _DB_RETRY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry"
@@ -123,7 +128,7 @@ def _register_companion_sync(
     schema_id: uuid.UUID,
     resource_name: str,
     row_count: int,
-    table_format: DataWarehouseTable.TableFormat,
+    table_format: DataWarehouseTableFormat,
     queryable_folder: str,
     table_schema_dict: dict[str, str] | None = None,
     set_as_schema_table: bool = False,
@@ -198,7 +203,7 @@ class TestRegisterCDCCompanionTable(BaseTest):
             team_id=self.team.pk,
             pipeline=source,
             schema=schema,
-            status=ExternalDataJob.Status.RUNNING,
+            status=ExternalDataJobStatus.RUNNING,
             rows_synced=0,
         )
         return source, job, schema
@@ -214,7 +219,7 @@ class TestRegisterCDCCompanionTable(BaseTest):
             schema_id=schema.id,
             resource_name="orders_cdc",
             row_count=100,
-            table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
             queryable_folder="s3://bucket/cdc_folder",
             table_schema_dict={"id": "Int64", "name": "String"},
         )
@@ -242,7 +247,7 @@ class TestRegisterCDCCompanionTable(BaseTest):
             schema_id=schema.id,
             resource_name="orders_cdc",
             row_count=100,
-            table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
             queryable_folder="s3://bucket/cdc_folder_v1",
         )
 
@@ -252,7 +257,7 @@ class TestRegisterCDCCompanionTable(BaseTest):
             schema_id=schema.id,
             resource_name="orders_cdc",
             row_count=200,
-            table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
             queryable_folder="s3://bucket/cdc_folder_v2",
         )
 
@@ -279,7 +284,7 @@ class TestRegisterCDCCompanionTable(BaseTest):
             schema_id=schema.id,
             resource_name="orders_cdc",
             row_count=50,
-            table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
             queryable_folder="s3://bucket/cdc_folder",
             set_as_schema_table=True,
         )
@@ -298,7 +303,7 @@ class TestRegisterCDCCompanionTable(BaseTest):
             schema_id=schema.id,
             resource_name="orders_cdc",
             row_count=0,
-            table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
             queryable_folder="s3://bucket/cdc_folder",
         )
 
@@ -320,7 +325,7 @@ class TestValidateSchemaAndUpdateTable:
         )
         schema = ExternalDataSchema.objects.create(name="orders", team=team, source=source)
         job = ExternalDataJob.objects.create(
-            team=team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING, rows_synced=10
+            team=team, pipeline=source, schema=schema, status=ExternalDataJobStatus.RUNNING, rows_synced=10
         )
         return schema, job
 
@@ -346,7 +351,7 @@ class TestValidateSchemaAndUpdateTable:
                 team_id=team.pk,
                 schema_id=schema.id,
                 row_count=10,
-                table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
                 queryable_folder="s3://bucket/orders",
             )
 
@@ -356,7 +361,7 @@ class TestValidateSchemaAndUpdateTable:
         assert schema.table is None
         table = DataWarehouseTable.objects.get(external_data_source=schema.source, deleted=False)
         assert not table.columns
-        assert table.created_via == DataWarehouseTable.CreatedVia.SOURCE
+        assert table.created_via == DataWarehouseTableCreatedVia.SOURCE
 
 
 class TestUpdateLastSyncedAt:
