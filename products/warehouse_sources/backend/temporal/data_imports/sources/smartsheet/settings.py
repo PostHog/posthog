@@ -25,7 +25,9 @@ from products.warehouse_sources.backend.types import IncrementalField
 PAGE_SIZE = 100
 
 
-@dataclass
+# Mutable so instances satisfy the shared FanoutEndpointLike protocol, which declares settable
+# attributes; a frozen dataclass would fail that structural check.
+@dataclass(frozen=False)
 class SmartsheetEndpointConfig:
     name: str
     path: str
