@@ -2,13 +2,29 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonDialog, Spinner } from '@posthog/lemon-ui'
 
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { pluralize } from 'lib/utils/strings'
+
+import { AvailableFeature } from '~/types'
 
 import { NOTIFICATION_CONCEPTS } from '../shared/notificationSettingDescriptors'
 import { NotificationConceptRow } from './NotificationConceptRow'
 import { notificationGovernanceLogic } from './notificationGovernanceLogic'
 
 export function NotificationGovernanceSetting(): JSX.Element {
+    // Wrapping rather than gating inside: an unentitled organization must not mount the logic,
+    // whose first act is a request the server answers with a payment prompt.
+    return (
+        <PayGateMini
+            feature={AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}
+            featureDetail="organization-member-notifications"
+        >
+            <MemberNotifications />
+        </PayGateMini>
+    )
+}
+
+function MemberNotifications(): JSX.Element {
     const { members, pendingChangeCount, affectedMemberCount, savingChanges, loadFailed } =
         useValues(notificationGovernanceLogic)
     const { discardChanges, saveChanges, loadMembers } = useActions(notificationGovernanceLogic)
