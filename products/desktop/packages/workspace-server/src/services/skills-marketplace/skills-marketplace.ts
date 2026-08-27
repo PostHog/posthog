@@ -4,6 +4,7 @@ import { isIgnoredSkillPath, SKILL_EXISTS_MARKER } from "@posthog/shared";
 import type { Unzipped } from "fflate";
 import { injectable } from "inversify";
 import { unzipAsync } from "../posthog-plugin/extract-zip";
+import { parseSkillFrontmatter } from "../skills/parse-skill-frontmatter";
 import { getUserSkillsDir, isProbablyText } from "../skills/skill-discovery";
 import { validateSkillDirName } from "../skills/skills";
 import {
@@ -69,7 +70,8 @@ async function writeInstalledState(state: InstalledSkillsFile): Promise<void> {
 
 /**
  * Finds the archive prefix of the directory named `skillId` that contains a
- * SKILL.md, e.g. "repo-HEAD/skills/commit/". Prefers the shallowest match.
+ * SKILL.md, e.g. "repo-HEAD/skills/commit/". Prefers the shallowest match, and
+ * falls back to a repository that is itself one skill.
  */
 export function findSkillDirPrefix(
   entries: Unzipped,
@@ -80,8 +82,32 @@ export function findSkillDirPrefix(
     .filter((key) => key.endsWith(suffix))
     .sort((a, b) => a.split("/").length - b.split("/").length);
   const match = matches[0];
-  if (!match) return null;
-  return match.slice(0, match.length - "SKILL.md".length);
+  if (match) return match.slice(0, match.length - "SKILL.md".length);
+  return findRootSkillPrefix(entries, skillId);
+}
+
+/**
+ * The prefix for a repository that holds one skill rather than a collection of
+ * them: its SKILL.md sits at the top level, so no directory is named after the
+ * skill for the search above to find. codeload still wraps the tree in a single
+ * "<repo>-<ref>/" directory, which is the prefix to install from.
+ *
+ * The name the SKILL.md declares has to be the one being asked for. Without
+ * that check, asking a repository for a skill it does not have would install
+ * whichever single skill sat at its root under the requested name.
+ */
+function findRootSkillPrefix(
+  entries: Unzipped,
+  skillId: string,
+): string | null {
+  for (const [key, bytes] of Object.entries(entries)) {
+    const segments = key.split("/");
+    if (segments.length !== 2 || segments[1] !== "SKILL.md") continue;
+    const frontmatter = parseSkillFrontmatter(new TextDecoder().decode(bytes));
+    if (frontmatter?.name !== skillId) continue;
+    return `${segments[0]}/`;
+  }
+  return null;
 }
 
 /** Rejects zip entries that would escape the install directory (zip-slip). */

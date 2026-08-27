@@ -77,6 +77,27 @@ describe("findSkillDirPrefix", () => {
   it("returns null when absent", () => {
     expect(findSkillDirPrefix({}, "commit")).toBeNull();
   });
+
+  // A repository that is one skill has no directory named after it, so the
+  // archive root is the skill directory.
+  it("falls back to the archive root when it declares the skill id", () => {
+    const entries = {
+      "asd-ste100-skill-HEAD/SKILL.md": strToU8("---\nname: asd-ste100\n---\n"),
+      "asd-ste100-skill-HEAD/references/writing-rules.md": strToU8("x"),
+    };
+
+    expect(findSkillDirPrefix(entries, "asd-ste100")).toBe(
+      "asd-ste100-skill-HEAD/",
+    );
+  });
+
+  it("leaves a root skill alone when it declares a different id", () => {
+    const entries = {
+      "repo-HEAD/SKILL.md": strToU8("---\nname: something-else\n---\n"),
+    };
+
+    expect(findSkillDirPrefix(entries, "asd-ste100")).toBeNull();
+  });
 });
 
 describe("collectSkillFiles", () => {

@@ -12,6 +12,12 @@
  * system prompt. Its authors measured the same text as a skill folder at
  * -0.5%, so no one-click install can deliver it. Adopting it means shipping
  * the rules in the prompt every harness appends, which is its own change.
+ *
+ * Simplified Technical English is the weakest cost case here and sits last for
+ * that reason. Nobody has measured it, and its saving is indirect: text a model
+ * cannot misread is text it does not act on wrongly and then redo. It is a
+ * clarity tool first, so a rewrite that has to keep a hedge can come out longer
+ * than it went in. It earns its slot on rework, not on tokens.
  */
 
 export interface LeanSkill {
@@ -108,6 +114,22 @@ export const LEAN_SKILLS: readonly LeanSkill[] = [
     // The repository is MIT with several runtime directories carved out under
     // BSL-1.1. Only the MIT-covered skills directory is fetched.
     license: "MIT (skills directory)",
+  },
+  {
+    name: "Simplified Technical English",
+    source: "danyuchn/asd-ste100-skill",
+    ref: "d5ce157870cf9c41efd1d6e836706a2be3c7b9da",
+    skillId: "asd-ste100",
+    summary:
+      "Rewrites text an agent has to read so it carries one meaning, not two.",
+    approach:
+      'ASD-STE100, the controlled English that aerospace maintenance manuals are written in, aimed at the text a model parses with nobody nearby to ask what it meant: tool descriptions, error messages, prompts. One instruction per sentence, active voice, no phrasal verbs, twenty words for an instruction. It leaves hedges where it finds them, so "may have failed" does not become "failed", and it names the rules it cannot check without ASD\'s licensed dictionary rather than implying it checked them.',
+    example: {
+      ask: "Tightening a tool description",
+      without: "Perform an inspection of the filter.",
+      with: "Inspect the filter.",
+    },
+    license: "MIT",
   },
 ];
 
