@@ -16,6 +16,7 @@ from posthog.dags.common.staged_dictionary import (
     create_on_every_cluster,
     load_and_verify_on_every_cluster,
 )
+from posthog.dataclasses import frozen
 from posthog.models.deletion_targets import EVENTS_JSON, EVENTS_TARGETS, placement_for, sweep_clusters
 from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
@@ -71,7 +72,7 @@ class PersonOverridesSnapshotTable(OverridesSnapshotTable):
         )
 
 
-@dataclass
+@frozen
 class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
     source: PersonOverridesSnapshotTable
 
@@ -241,7 +242,7 @@ def create_snapshot_dictionary(
     table: PersonOverridesSnapshotTable,
 ) -> PersonOverridesSnapshotDictionary:
     """Create the snapshot dictionary on every cluster the person_id rewrite will run on."""
-    dictionary = PersonOverridesSnapshotDictionary(table)
+    dictionary = PersonOverridesSnapshotDictionary(source=table)
     create_on_every_cluster(
         context,
         _squash_clusters(cluster),
@@ -267,7 +268,7 @@ def get_existing_dictionary_for_run_id(
     This does not create the dictionary or ensure that it or any of its dependencies exist.
     """
     table = PersonOverridesSnapshotTable(uuid.UUID(config.id))
-    return PersonOverridesSnapshotDictionary(table)
+    return PersonOverridesSnapshotDictionary(source=table)
 
 
 @dagster.op

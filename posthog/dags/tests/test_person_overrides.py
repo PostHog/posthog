@@ -92,7 +92,7 @@ def test_full_job(cluster: ClickhouseCluster):
 
     # ensure we cleaned up after ourselves
     table = PersonOverridesSnapshotTable(UUID(limited_run_result.dagster_run.run_id))
-    dictionary = PersonOverridesSnapshotDictionary(table)
+    dictionary = PersonOverridesSnapshotDictionary(source=table)
     assert not any(cluster.map_all_hosts(table.exists).result().values())
     assert not any(cluster.map_all_hosts(dictionary.exists).result().values())
 
@@ -110,7 +110,7 @@ def test_full_job(cluster: ClickhouseCluster):
 
     # ensure we cleaned up after ourselves again
     table = PersonOverridesSnapshotTable(UUID(full_run_result.dagster_run.run_id))
-    dictionary = PersonOverridesSnapshotDictionary(table)
+    dictionary = PersonOverridesSnapshotDictionary(source=table)
     assert not any(cluster.map_all_hosts(table.exists).result().values())
     assert not any(cluster.map_all_hosts(dictionary.exists).result().values())
 
@@ -136,7 +136,7 @@ def test_cleanup_job(cluster: ClickhouseCluster) -> None:
 
     # ensure we left some resources dangling around due to the op selection
     table = PersonOverridesSnapshotTable(UUID(partial_squash_run_result.dagster_run.run_id))
-    dictionary = PersonOverridesSnapshotDictionary(table)
+    dictionary = PersonOverridesSnapshotDictionary(source=table)
     assert all(cluster.map_all_hosts(table.exists).result().values())
     assert all(cluster.map_all_hosts(dictionary.exists).result().values())
 
@@ -164,7 +164,7 @@ def _create_snapshot_with(cluster: ClickhouseCluster, rows: list[tuple]) -> Pers
         client.execute(f"INSERT INTO {table.qualified_name} (team_id, distinct_id, person_id, version) VALUES", rows)
 
     cluster.any_host(insert).result()
-    return PersonOverridesSnapshotDictionary(table)
+    return PersonOverridesSnapshotDictionary(source=table)
 
 
 @pytest.mark.django_db

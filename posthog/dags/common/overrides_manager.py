@@ -9,6 +9,7 @@ from clickhouse_driver import Client
 from posthog import settings
 from posthog.clickhouse.cluster import AlterTableMutationRunner, LightweightDeleteMutationRunner
 from posthog.dags.common.staged_dictionary import StagedDictionary
+from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
     pass
@@ -61,7 +62,7 @@ class OverridesSnapshotTable(ABC):
 TOverridesSnapshotTable = TypeVar("TOverridesSnapshotTable", bound=OverridesSnapshotTable)
 
 
-@dataclass
+@frozen
 class OverridesSnapshotDictionary(ABC, Generic[TOverridesSnapshotTable]):
     source: TOverridesSnapshotTable
 
