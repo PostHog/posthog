@@ -1,11 +1,50 @@
+from types import SimpleNamespace
+
 from posthog.test.base import APIBaseTest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, call, patch
+
+from django.db import DatabaseError
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.proxy_record import ProxyRecordUpdateSerializer
 from posthog.models import ProxyRecord
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.temporal.proxy_service.cloudflare import (
+    CloudflareAPIError,
+    CustomHostname,
+    CustomHostnameSSL,
+    CustomHostnameSSLStatus,
+    CustomHostnameStatus,
+)
+
+
+class TestProxyRecordUpdateSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("apex", "e.example.com", "https://example.com/"),
+            ("sibling", "e.example.com", "https://www.example.com/"),
+            ("nested", "e.example.com", "https://technology.info.example.com/welcome"),
+            ("multipart_suffix", "e.example.co.uk", "https://www.example.co.uk/"),
+        ]
+    )
+    def test_accepts_redirects_on_the_proxy_root_domain(self, _name: str, proxy_domain: str, redirect_url: str) -> None:
+        serializer = ProxyRecordUpdateSerializer(
+            data={"root_redirect_url": redirect_url}, context={"record": SimpleNamespace(domain=proxy_domain)}
+        )
+
+        assert serializer.is_valid(), serializer.errors
+
+    def test_rejects_another_registrable_domain_with_the_same_public_suffix(self) -> None:
+        serializer = ProxyRecordUpdateSerializer(
+            data={"root_redirect_url": "https://other.co.uk/"},
+            context={"record": SimpleNamespace(domain="e.example.co.uk")},
+        )
+
+        assert not serializer.is_valid()
+        assert "example.co.uk" in serializer.errors["root_redirect_url"][0]
 
 
 class TestProxyRecordAPI(APIBaseTest):
@@ -41,6 +80,36 @@ class TestProxyRecordAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert data["max_proxy_records"] == 2
+
+    def test_list_reports_root_redirect_support_for_each_proxy(self) -> None:
+        ProxyRecord.objects.bulk_create(
+            [
+                ProxyRecord(
+                    organization=self.organization,
+                    created_by=self.user,
+                    domain="cloudflare.example.com",
+                    target_cname="cloudflare.cf-proxy.example.net",
+                ),
+                ProxyRecord(
+                    organization=self.organization,
+                    created_by=self.user,
+                    domain="legacy.example.com",
+                    target_cname="legacy.proxy.example.net",
+                ),
+            ]
+        )
+
+        with self.settings(CLOUDFLARE_PROXY_BASE_CNAME="cf-proxy.example.net"):
+            response = self.client.get(f"/api/organizations/{self.organization.id}/proxy_records/")
+
+        assert response.status_code == status.HTTP_200_OK
+        support_by_domain = {
+            record["domain"]: record["root_redirect_supported"] for record in response.json()["results"]
+        }
+        assert support_by_domain == {
+            "cloudflare.example.com": True,
+            "legacy.example.com": False,
+        }
 
     @patch("posthog.api.proxy_record.sync_connect")
     @patch("posthoganalytics.capture")
@@ -107,6 +176,143 @@ class TestProxyRecordAPI(APIBaseTest):
             {"domain": ""},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch("posthog.api.proxy_record.update_custom_hostname_metadata")
+    @patch("posthog.api.proxy_record.get_custom_hostname_by_domain")
+    @patch("posthoganalytics.capture")
+    def test_updates_root_redirect_metadata(self, _capture, get_hostname, update_metadata):
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain="proxy.example.com",
+            target_cname="abc.cf-prod-us-proxy.proxyhog.com",
+            status=ProxyRecord.Status.VALID,
+        )
+        hostname = CustomHostname(
+            id="hostname-id",
+            hostname=record.domain,
+            status=CustomHostnameStatus.ACTIVE,
+            ssl=CustomHostnameSSL(status=CustomHostnameSSLStatus.ACTIVE, validation_errors=[]),
+        )
+        get_hostname.return_value = hostname
+
+        with self.settings(CLOUDFLARE_PROXY_BASE_CNAME="cf-prod-us-proxy.proxyhog.com"):
+            response = self.client.patch(
+                f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/",
+                {"root_redirect_url": "https://www.example.com/welcome"},
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["root_redirect_url"] == "https://www.example.com/welcome"
+        record.refresh_from_db()
+        assert record.root_redirect_url == "https://www.example.com/welcome"
+        update_metadata.assert_called_once_with(hostname, {"root_redirect_url": "https://www.example.com/welcome"})
+
+    @patch("posthog.api.proxy_record.update_custom_hostname_metadata")
+    @patch("posthog.api.proxy_record.get_custom_hostname_by_domain")
+    @patch("posthog.api.proxy_record.reconcile_proxy_root_redirect.delay")
+    def test_reconciles_root_redirect_when_database_write_and_cloudflare_rollback_fail(
+        self, reconcile_root_redirect, get_hostname, update_metadata
+    ):
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain="proxy.example.com",
+            target_cname="abc.cf-prod-us-proxy.proxyhog.com",
+            root_redirect_url="https://old.example.com/",
+            status=ProxyRecord.Status.VALID,
+        )
+        hostname = CustomHostname(
+            id="hostname-id",
+            hostname=record.domain,
+            status=CustomHostnameStatus.ACTIVE,
+            ssl=CustomHostnameSSL(status=CustomHostnameSSLStatus.ACTIVE, validation_errors=[]),
+        )
+        get_hostname.return_value = hostname
+        update_metadata.side_effect = [None, CloudflareAPIError("rollback failed")]
+
+        with (
+            self.settings(CLOUDFLARE_PROXY_BASE_CNAME="cf-prod-us-proxy.proxyhog.com"),
+            patch("posthog.models.ProxyRecord.save", side_effect=DatabaseError("write failed")),
+        ):
+            response = self.client.patch(
+                f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/",
+                {"root_redirect_url": "https://new.example.com/"},
+            )
+
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY
+        update_metadata.assert_has_calls(
+            [
+                call(hostname, {"root_redirect_url": "https://new.example.com/"}),
+                call(hostname, {"root_redirect_url": "https://old.example.com/"}),
+            ]
+        )
+        reconcile_root_redirect.assert_called_once_with(str(record.id))
+
+    @parameterized.expand(
+        [
+            ("insecure", "proxy.example.com", "http://www.example.com", "https://"),
+            ("credentials", "proxy.example.com", "https://user:password@example.com", "credentials"),
+            ("loop", "proxy.example.com", "https://proxy.example.com/", "managed proxy domain"),
+            ("loop_trailing_dot", "proxy.example.com", "https://proxy.example.com./", "managed proxy domain"),
+            ("unrelated_domain", "proxy.example.com", "https://google.com/", "example.com"),
+            ("root_domain_prefix", "proxy.example.com", "https://example.com.attacker.com/", "example.com"),
+            ("private_suffix", "proxy.victim.dynv6.net", "https://attacker.dynv6.net/", "victim.dynv6.net"),
+        ]
+    )
+    @patch("posthog.api.proxy_record.update_custom_hostname_metadata")
+    @patch("posthog.api.proxy_record.get_custom_hostname_by_domain")
+    def test_rejects_unsafe_root_redirect(
+        self, _name, proxy_domain, redirect_url, expected_error, get_hostname, _update_metadata
+    ):
+        get_hostname.return_value = SimpleNamespace(custom_metadata={})
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain=proxy_domain,
+            target_cname="abc.cf-prod-us-proxy.proxyhog.com",
+            status=ProxyRecord.Status.VALID,
+        )
+
+        with self.settings(CLOUDFLARE_PROXY_BASE_CNAME="cf-prod-us-proxy.proxyhog.com"):
+            response = self.client.patch(
+                f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/",
+                {"root_redirect_url": redirect_url},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "root_redirect_url"
+        assert expected_error in response.json()["detail"]
+        _update_metadata.assert_not_called()
+
+    @patch("posthog.api.proxy_record.update_custom_hostname_metadata")
+    @patch("posthog.api.proxy_record.get_custom_hostname_by_domain")
+    def test_clears_root_redirect_metadata(self, get_hostname, update_metadata):
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain="proxy.example.com",
+            target_cname="abc.cf-prod-us-proxy.proxyhog.com",
+            root_redirect_url="https://www.example.com/",
+            status=ProxyRecord.Status.VALID,
+        )
+        hostname = CustomHostname(
+            id="hostname-id",
+            hostname=record.domain,
+            status=CustomHostnameStatus.ACTIVE,
+            ssl=CustomHostnameSSL(status=CustomHostnameSSLStatus.ACTIVE, validation_errors=[]),
+        )
+        get_hostname.return_value = hostname
+
+        with self.settings(CLOUDFLARE_PROXY_BASE_CNAME="cf-prod-us-proxy.proxyhog.com"):
+            response = self.client.patch(
+                f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/",
+                {"root_redirect_url": None},
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["root_redirect_url"] is None
+        update_metadata.assert_called_once_with(hostname, {"root_redirect_url": ""})
 
     def test_diagnose_fails_closed_on_a_stored_domain_that_is_not_a_hostname(self):
         # Rows predate write-time validation, so the endpoint has to report a failed check
