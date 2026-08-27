@@ -1504,6 +1504,7 @@ class TestTaskAPI(BaseTaskAPITest):
         mock_find_warm_run.assert_called_once_with(
             self.team.id,
             self.user.id,
+            origin_product=Task.OriginProduct.USER_CREATED,
             repository="posthog/posthog",
             repositories=["posthog/posthog", "posthog/code"],
             github_integration_id=integration.id,
@@ -1513,6 +1514,7 @@ class TestTaskAPI(BaseTaskAPITest):
             reasoning_effort=None,
             sandbox_environment_id=None,
             custom_image_id=None,
+            initial_permission_mode=None,
         )
 
         update = self.client.patch(

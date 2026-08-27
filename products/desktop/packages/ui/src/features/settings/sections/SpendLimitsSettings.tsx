@@ -11,10 +11,12 @@ import {
   useSpendTotals,
 } from "@posthog/ui/features/billing/useSpendTotals";
 import {
+  USER_SPEND_LIMIT_FLAG,
   USER_SPEND_LIMIT_QUERY_KEY,
   useSetUserSpendLimit,
   useUserSpendLimit,
 } from "@posthog/ui/features/billing/useUserSpendLimit";
+import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { SettingsSubsection } from "@posthog/ui/features/settings/components/SettingsSubsection";
 import { SpendLimitCard } from "@posthog/ui/features/settings/sections/SpendLimitCard";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
@@ -30,6 +32,7 @@ import { useEffect } from "react";
 const MONTH_WINDOW_SECONDS = 30 * 24 * 60 * 60;
 
 export function SpendLimitsSettings() {
+  const enabled = useFeatureFlag(USER_SPEND_LIMIT_FLAG);
   const spendLimits = useSettingsStore((state) => state.spendLimits);
   const setSpendLimits = useSettingsStore((state) => state.setSpendLimits);
   const totals = useSpendTotals();
@@ -80,6 +83,10 @@ export function SpendLimitsSettings() {
       },
     );
   };
+
+  if (!enabled) {
+    return null;
+  }
 
   return (
     <SpendLimitsSettingsView

@@ -24,6 +24,8 @@ _LAZY = {
     "materialize_saved_query": "logic.node_materialization",
     "run_saved_query_materialization": "logic.node_materialization",
     "get_materialized_table_uri": "logic.saved_query_reads",
+    "get_node_ids_for_saved_queries": "logic.saved_query_reads",
+    "get_saved_query_columns": "logic.saved_query_reads",
     "get_saved_query_ids_for_nodes": "logic.saved_query_reads",
     "get_saved_query_summary": "logic.saved_query_reads",
     "saved_query_materialized_at": "logic.saved_query_freshness",

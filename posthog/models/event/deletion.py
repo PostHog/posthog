@@ -16,21 +16,24 @@ from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.models.deletion_targets import (
     EVENTS_JSON,
     EVENTS_TARGETS,
-    is_present,
+    dispatchable_here,
     resolve_data_targets_via_sync_execute,
     resolve_read_targets_via_sync_execute,
-    resolve_targets,
+    resolve_targets_here,
 )
 
 
 def cluster_has_events_json_table(cluster: ClickhouseCluster) -> bool:
-    """Whether any data node carries the native-JSON events data table."""
-    return is_present(cluster, EVENTS_JSON)
+    """Whether this handle's own data nodes carry the native-JSON events data table.
+
+    Refuses rather than answering False when another cluster's do; see ``dispatchable_here``.
+    """
+    return dispatchable_here(cluster, EVENTS_JSON)
 
 
 def events_data_tables(cluster: ClickhouseCluster) -> list[str]:
     """The physical events data tables that deletions/mutations must target, for Dagster jobs."""
-    return [target.data_table for target in resolve_targets(cluster, EVENTS_TARGETS)]
+    return [target.data_table for target in resolve_targets_here(cluster, EVENTS_TARGETS)]
 
 
 def events_data_tables_via_sync_execute() -> list[str]:
