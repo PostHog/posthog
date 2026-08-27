@@ -1,51 +1,22 @@
 """Pre-aggregated source for the attribution table's `influenced_reach` CTE.
 
-Reach is the denominator: unique visitors per dimension, converters or not. It is the one CTE in the
-attribution query that is not restricted to converters, so it scans every pageview in the
-lookback-extended window and joins each to `sessions`. Measured, that join is what makes the query
-run out of memory on a high-volume team at a 60-day span, while the converter-restricted CTEs return
-instantly.
+Reach is the denominator: unique visitors per dimension, converters or not. It is the one CTE not
+restricted to converters, so it joins every pageview in the window to `sessions`, and that join is
+what runs the query out of memory on a high-volume team. Being a plain rollup, it can come from a
+pre-aggregated table instead.
 
-Reach is also a plain rollup (`uniq(person_id)` grouped by one dimension, no per-person ordering), so
-unlike the credit side it can come from a pre-aggregated table. `web_bounces_dimensional_preaggregated`
-is session-grain with the session's entry attribution already resolved, which is the shape
-`_build_reach_select` computes the slow way.
+The reach rows are FULL OUTER JOINed to the credit rows on `breakdown_value`, so both sides must
+render a dimension to the same string or it splits into a visitors-only row and a credit-only row.
+That is what `_preagg_breakdown_expr` and `_preagg_exclusion_conditions` below mirror.
 
-Two things stay in lockstep with `AttributionQueryRunnerBase`:
+Divergences this does NOT gate, in rough order of impact:
 
-- the display expression per breakdown, including the team's source/campaign normalization. The reach
-  rows are FULL OUTER JOINed to the credit rows on `breakdown_value`, so if the two sides normalize
-  differently a dimension splits into a visitors-only row and a credit-only row.
-- the exclusion options, applied before aggregation.
-
-Known divergences:
-
-- **Custom channel rules.** The pre-aggregated channel type ignores them, because they can key on the
-  full URL, which no pre-aggregated table stores. The credit side reads `sessions.$channel_type`,
-  which applies them. Gated out.
-- **Non-integer timezones.** `period_bucket` is an hourly UTC bucket, so a half-hour-offset team's
-  midnight lands mid-bucket. Gated out, as web analytics does for its own reads.
-- **Property-level access control, and an explicit `sessionsV2JoinMode`.** Gated out, as web
-  analytics does.
-- **Window edges are session-start, not event-time. NOT gated.** The insert buckets a session by
-  `toStartOfHour(min($start_timestamp))`, the credit side bounds `events.timestamp`. A session
-  starting before `window_start` with pageviews inside it counts as a touchpoint and not as a
-  visitor, biasing rates high by at most one session length.
-- **`gad_source` other than `'1'`. NOT gated, inherited from web analytics.** The table stores only
-  `has_gad_source_paid_search`, so the classifier rebuilds `gad_source` as `'1'` or NULL. Google
-  emits 1-5 and the builtin rule opens the Paid branch on `gad_source IS NOT NULL`, so `gad_source=3`
-  is Paid on the credit side and Organic here, splitting the CHANNEL row. Web analytics never meets
-  both classifications in one result set; this read does.
-- **Person IDs are frozen at insert time. NOT gated.** `persons_uniq_state` is built when the window
-  materializes, while the credit side applies person overrides at query time. After a merge, two IDs
-  collapse in the numerator and stay two in the cached denominator until that window is recomputed.
-- **`$screen`-only sessions. NOT gated, and a real gap.** `BOUNCES_INSERT_TEMPLATE` feeds on
-  `$pageview` or `$screen`, but `_touchpoint_condition` counts only `$pageview`. A mobile session
-  that never fires a pageview is a visitor here and not one on the credit side, so a team with app
-  traffic gets an inflated denominator (those sessions carry no UTMs, so they land under Direct) and
-  deflated rates. The table cannot express the difference, because `pageviews_count_state` counts
-  both event types. Closing it needs a `$pageview`-only column on the table, or a change to what the
-  live path counts as a touchpoint. Until then keep the flag off for teams with `$screen` volume.
+- `$screen`-only sessions count as visitors here and not on the credit side, so a team with app
+  traffic gets an inflated denominator. The table has no column to filter them out.
+- `gad_source` other than `'1'` is Paid on the credit side and Organic here, splitting a CHANNEL row.
+  Inherited from web analytics, which never meets both classifications in one result set.
+- Person IDs are frozen at insert time, while the credit side applies overrides at query time.
+- Window edges are session-start here and event-time on the credit side.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -87,8 +58,7 @@ REACH_PRECOMPUTE_TABLE = "web_bounces_dimensional_preaggregated"
 REACH_MAX_WINDOW_DAYS = 90
 
 # The framework merges a fully-missing range into one INSERT, so without a cap a cold ensure scans
-# the whole span at once. Web analytics' Dagster job and marketing's costs precompute both chunk to
-# a day for the same reason.
+# the whole span at once.
 REACH_PRECOMPUTE_CHUNK_DAYS = 1
 
 # Column on the pre-aggregated table backing each breakdown. CHANNEL is absent on purpose: it has no
@@ -130,31 +100,24 @@ def reach_precompute_ineligible_reason(
         return "custom_channel_rules"
 
     if not is_integer_timezone(runner.team.timezone):
-        # `period_bucket` is an hourly UTC bucket, so a window boundary can only be expressed to the
-        # hour. An integer-offset team's midnight lands exactly on a bucket edge and the comparison is
-        # exact; a half-hour-offset team's (Asia/Kolkata, Asia/Kathmandu, Australia/Adelaide) lands
-        # mid-bucket, silently moving up to an hour of sessions across each edge. Same gate web
-        # analytics applies to its own reads of these tables (`NonIntegerTimezone`).
+        # `period_bucket` is an hourly UTC bucket, so a half-hour-offset team's midnight lands
+        # mid-bucket and moves up to an hour of sessions across each edge.
         return "non_integer_timezone"
 
-    # Raw modifiers, because resolution defaults `sessionsV2JoinMode` to UUID for every query and
-    # gating on the resolved value would refuse everything. The custom-rules check above needs the
-    # opposite, since team-level rules are merged in during resolution.
+    # Raw modifiers: resolution defaults `sessionsV2JoinMode` to UUID for every query, so the
+    # resolved value would refuse everything. The custom-rules check above wants the resolved one.
     query_modifiers = runner.query.modifiers
     if query_modifiers is not None and query_modifiers.sessionsV2JoinMode == SessionsV2JoinMode.UUID:
-        # Changes what counts as one session on the credit side, while the rows keep the semantics
-        # they were materialized with.
+        # Changes what one session is on the credit side; the rows keep what they were built with.
         return "sessions_v2_uuid_mode"
 
     if team_has_property_access_rules(team_id=runner.team.id):
-        # The rows are userless and shared by a user-independent cache key, so they cannot honor
-        # per-user property restrictions. The live scan runs under the requesting user and can.
+        # The rows are userless and shared, so they cannot honor per-user property restrictions.
         return "property_access_controlled"
 
     if date_range is not None and _window_days(runner, date_range) > REACH_MAX_WINDOW_DAYS:
-        # Width, not age: this bounds what one request can materialize inline, it does not promise
-        # the window is warm. The span includes the lookback, so a team on the maximum attribution
-        # window never qualifies.
+        # Width, not age: bounds what one request can materialize inline. Includes the lookback, so
+        # a team on the maximum attribution window never qualifies.
         return "window_over_max"
 
     return None
@@ -200,9 +163,8 @@ def build_reach_from_precompute(
     window_start, window_end = _reach_window(runner, date_range)
 
     try:
-        # Goes through the marketing wrapper, not web analytics' own `ensure_web_bounces_dimensional_precomputed`,
-        # so this read inherits marketing's serve-stale policy. Calling the raw ensure would block the
-        # request thread rebuilding a stale window.
+        # The marketing wrapper, not web analytics' raw ensure, so this read gets serve-stale
+        # instead of blocking the request thread on a rebuild.
         with runner.timings.measure("attribution_reach_precompute_ensure"):
             result = marketing_ensure_precomputed(
                 team=runner.team,
@@ -224,15 +186,13 @@ def build_reach_from_precompute(
         return None
 
     if result.stale:
-        # Before the guards, because a result can be stale and not ready at once. Handling it
-        # after would fall back without enqueueing the revalidation. Called here rather than
-        # flagging the runner, whose `to_query` override skips the base runner's stale handling.
+        # Before the guards: a result can be stale and not ready at once, and handling it after
+        # would fall back without enqueueing the revalidation.
         handle_stale_served(team=runner.team, query=runner.query)
 
     if not result.job_ids:
-        # `ready=True` with no jobs is reachable, and an empty `job_id IN ()` is a ClickHouse
-        # syntax error raised at execute time, outside the try above, so it would 500 the table
-        # instead of falling back.
+        # `ready=True` with no jobs is reachable, and an empty `job_id IN ()` is a syntax error
+        # raised outside the try above, so it would 500 the table instead of falling back.
         ATTRIBUTION_REACH_PRECOMPUTE_FALLBACK_COUNTER.labels(reason="no_jobs").inc()
         logger.info("attribution_reach_precompute", outcome="fallback_no_jobs", team_id=runner.team.pk)
         return None
@@ -276,9 +236,8 @@ def build_reach_from_precompute(
     return ast.SelectQuery(
         select=[
             ast.Alias(alias="breakdown_value", expr=breakdown_expr),
-            # uniqMerge, not a count: `host` and `device_type` are event-level, so one session can be
-            # split across several rows. Merging the states collapses it back to one person. This is
-            # also why nothing here may group by those two columns.
+            # uniqMerge, not a count: `host` and `device_type` are event-level, so one session can
+            # span several rows. Nothing here may group by those two columns.
             ast.Alias(
                 alias="visitors",
                 expr=ast.Call(name="uniqMerge", args=[_table_field("persons_uniq_state")]),
