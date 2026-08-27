@@ -1,13 +1,11 @@
 """Retention explorer: how well the users each channel brings in stick around.
 
 Cohorting is by acquisition, not by activity. A person is bucketed once, by the dimension of their first
-session, and then followed forward, so a row means "the users this channel brought me". A plain
-`RetentionQuery` with a session-property breakdown cannot express this, because it slices events by
-whatever channel tag each event carries and spreads one person's history across every channel that
-re-touched them.
+session, which is what a plain `RetentionQuery` with a session-property breakdown cannot express: it
+slices events by whatever tag each one carries, spreading a person across every channel that re-touched
+them.
 
-Every cell is a share of the cohort, matching `retentionReference: 'total'` in core retention and on the
-web analytics tile, so the same percentage means the same thing on every surface.
+Cells are a share of the cohort, matching `retentionReference: 'total'` in core retention.
 """
 
 from datetime import datetime, timedelta
@@ -41,13 +39,9 @@ DEFAULT_TOTAL_INTERVALS = 8
 DEFAULT_BREAKDOWN_LIMIT = 20
 DEFAULT_NEW_USER_LOOKBACK_DAYS = 90
 
-# Out-of-range options are clamped rather than rejected, because the frontend builds the query, so a bad
-# value is a bug to contain instead of a message to show a marketer.
-#
-# The three ceilings must multiply out under `MAX_SELECT_RETENTION_LIMIT`, since the outer select emits
-# one row per cell plus the folded row: (40 + 1) x 60 x 40 + 1 is under 100k. Raise one without checking
-# that product and the printer's row cap drops whole breakdown values off the end of the alphabet, which
-# is what folding exists to prevent.
+# These must multiply out under `MAX_SELECT_RETENTION_LIMIT`, since the outer select emits one row per
+# cell plus the folded row: (40 + 1) x 60 x 40 + 1 is under 100k. Raise one without checking that product
+# and the printer's row cap starts dropping whole breakdown values.
 MAX_TOTAL_INTERVALS = 40
 MAX_COHORTS = 60
 MAX_BREAKDOWN_LIMIT = 40
@@ -191,8 +185,7 @@ class MarketingAnalyticsRetentionQueryRunner(
 
     @property
     def interval_count(self) -> int:
-        """Column count, never more than the number of cohorts, because a wider matrix would be all
-        greyed-out cells the range cannot fill."""
+        """Capped at the cohort count, since a wider matrix is all cells the range cannot fill."""
         requested = self.query.totalIntervals or DEFAULT_TOTAL_INTERVALS
         clamped = max(1, min(requested, MAX_TOTAL_INTERVALS))
         return min(clamped, len(self.cohort_starts))
@@ -202,8 +195,8 @@ class MarketingAnalyticsRetentionQueryRunner(
     def _interval_index_expr(self, source: ast.Expr) -> ast.Expr:
         """How many periods `source` sits after the first cohort's start.
 
-        Both ends go through `get_start_of_interval_hogql`, the same helper core retention uses, so a team
-        whose week starts on Sunday gets the same week boundaries on both surfaces.
+        Both ends go through `get_start_of_interval_hogql`, so a team whose week starts on Sunday gets the
+        same boundaries here as in core retention.
         """
         interval = _INTERVAL_TO_TYPE[self.retention_interval].value
         return ast.Call(
@@ -294,13 +287,9 @@ class MarketingAnalyticsRetentionQueryRunner(
     def _build_first_session_select(self) -> ast.SelectQuery:
         """(B) One row per acquired person: when they first arrived, and what brought them.
 
-        `argMin` over the session start carries the first-touch semantic. Not the attribution runners'
-        person-array collection, which is scoped to converters and keeps the most recent sessions after
-        truncation.
-
         Both timestamp bounds are needed. The `events.timestamp` pair prunes parts on the table's order
-        key. The `session.$start_timestamp` pair is what defines "acquired in this window": without it a
-        person whose first session sits before the range gets pulled in by a later pageview.
+        key. The `session.$start_timestamp` pair defines "acquired in this window": without it a person
+        whose first session sits before the range gets pulled in by a later pageview.
         """
         session_start = ast.Field(chain=["events", "session", "$start_timestamp"])
 
@@ -384,12 +373,9 @@ class MarketingAnalyticsRetentionQueryRunner(
     def _build_cohort_sizes_select(self) -> ast.SelectQuery:
         """(E) How many people each channel brought in, per acquisition period.
 
-        The denominator for every cell in the row. The cells themselves all come from `matrix`, period 0
-        included.
-
-        A plain `count` rather than a distinct one, because `acquisition` groups by person, and both
-        columns grouped on here are functions of that one row, so a person reaches exactly one group
-        once. Reintroducing anything that fans `acquisition` out per person breaks that.
+        A plain `count` rather than a distinct one: `acquisition` groups by person and both columns
+        grouped on here are functions of that row, so a person reaches exactly one group once. Anything
+        that fans `acquisition` out per person breaks that.
         """
         return ast.SelectQuery(
             select=[
@@ -462,11 +448,7 @@ class MarketingAnalyticsRetentionQueryRunner(
         )
 
     def _build_top_breakdowns_select(self) -> ast.SelectQuery:
-        """(G) The breakdown values big enough to get their own rows.
-
-        Ranked by people acquired across the whole range, so a channel that acquires steadily outranks
-        one with a single large period.
-        """
+        """(G) The breakdown values big enough to get their own rows."""
         return ast.SelectQuery(
             select=[ast.Field(chain=[_BREAKDOWN_VALUE])],
             select_from=ast.JoinExpr(table=ast.Field(chain=[_COHORT_SIZES_CTE])),
@@ -482,9 +464,9 @@ class MarketingAnalyticsRetentionQueryRunner(
     def _display_value_expr(self, field: ast.Expr) -> ast.Expr:
         """The label a breakdown value renders under: itself, or 'Other'.
 
-        Folded in SQL rather than over whatever rows a row cap returned. A high-cardinality breakdown
-        such as landing page produces far more rows than any cap keeps, and truncating them by the outer
-        ORDER BY drops whole values alphabetically, so they are neither shown nor counted as folded.
+        Folded in SQL rather than over the rows a cap returned. Landing page produces far more rows than
+        any cap keeps, and truncating by the outer ORDER BY drops whole values alphabetically, so they
+        end up neither shown nor counted as folded.
         """
         return ast.Call(
             name="if",
