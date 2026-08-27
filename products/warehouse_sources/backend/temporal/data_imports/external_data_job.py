@@ -368,6 +368,13 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
     )
 
     if inputs.status == ExternalDataJob.Status.COMPLETED:
+        # TODO: this bills more than `get_teams_with_rows_synced_in_period` does, in two ways.
+        # It reports nothing while `begin` sits inside the warehouse free period, and it moves a
+        # job whose source was created within seven days of the period end onto
+        # `free_historical_rows_synced` instead. Both are period-relative, and a collector only
+        # knows the moment the job finished, so mirroring them needs a decision on what the
+        # equivalent is at write time rather than a straight port of the filter.
+        #
         # The status above is already written, so a job we cannot read back bills nothing
         # rather than failing the finalization and retrying the whole activity.
         completed_job = await database_sync_to_async_pool(
