@@ -326,6 +326,8 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
     else:
         job_id = inputs.job_id
 
+    source: ExternalDataSource | None = None
+    has_non_retryable_error = False
     if inputs.internal_error:
         logger.exception(
             f"External data job failed for external data schema {inputs.schema_id} on job {inputs.job_id} with error: {inputs.internal_error}"
@@ -333,9 +335,7 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
 
         internal_error_normalized = re.sub("[\n\r\t]", " ", inputs.internal_error)
 
-        source: ExternalDataSource = await database_sync_to_async_pool(ExternalDataSource.objects.get)(
-            pk=inputs.source_id
-        )
+        source = await database_sync_to_async_pool(ExternalDataSource.objects.get)(pk=inputs.source_id)
         source_cls = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
         non_retryable_errors = source_cls.get_non_retryable_errors()
 
@@ -355,19 +355,8 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         has_non_retryable_error = not platform_failure and error_message_matches(
             internal_error_normalized, non_retryable_errors.keys()
         )
+
         if has_non_retryable_error:
-            posthoganalytics.capture(
-                distinct_id=get_machine_id(),
-                event="schema non-retryable error",
-                properties={
-                    "schemaId": inputs.schema_id,
-                    "sourceId": inputs.source_id,
-                    "sourceType": source.source_type,
-                    "jobId": inputs.job_id,
-                    "teamId": inputs.team_id,
-                    "error": inputs.internal_error,
-                },
-            )
             friendly_errors = [
                 friendly_error
                 for error, friendly_error in non_retryable_errors.items()
@@ -396,6 +385,29 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         logger=logger,
         team_id=inputs.team_id,
     )
+
+    if inputs.internal_error and source is not None:
+        # This activity runs once the workflow has given up, so every error reaching here has
+        # already exhausted its retries — including the ones no source classified. Those used to
+        # leave a schema in error state with no event behind it, which is why whole classes of
+        # failure only ever surfaced through support tickets. Emit for both outcomes and
+        # distinguish them with a property. The capture comes after the DB writes because this
+        # activity retries without limit: emitting first would duplicate the event on every
+        # attempt a transient DB failure causes. The error text is uncurated exception output,
+        # so cap what flows into analytics.
+        posthoganalytics.capture(
+            distinct_id=get_machine_id(),
+            event="schema non-retryable error" if has_non_retryable_error else "schema unclassified error",
+            properties={
+                "schemaId": inputs.schema_id,
+                "sourceId": inputs.source_id,
+                "sourceType": source.source_type,
+                "jobId": inputs.job_id,
+                "teamId": inputs.team_id,
+                "error": inputs.internal_error[:1000],
+                "classified": has_non_retryable_error,
+            },
+        )
 
     logger.info(
         f"Updated external data job with for external data source {job_id} to status {inputs.status}",
