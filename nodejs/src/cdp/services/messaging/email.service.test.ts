@@ -791,10 +791,12 @@ describe('EmailService', () => {
             const setProviderTenantStatus = async (status: string): Promise<void> => {
                 await hub.postgres.query(
                     PostgresUse.COMMON_WRITE,
+                    // email_sending_suspension_reason is NOT NULL and its default is Django-side,
+                    // not on the column, so a raw INSERT has to supply it.
                     `INSERT INTO workflows_teamworkflowsconfig
                         (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
-                         ses_tenant_sending_status)
-                     VALUES ($1, false, 'off', $2)
+                         email_sending_suspension_reason, ses_tenant_sending_status)
+                     VALUES ($1, false, 'off', '', $2)
                      ON CONFLICT (team_id) DO UPDATE SET ses_tenant_sending_status = $2`,
                     [team.id, status],
                     'test-set-ses-tenant-sending-status'
@@ -808,6 +810,7 @@ describe('EmailService', () => {
                 ['DISABLED', 0, 'email_suspended'],
                 ['REINSTATED', 1, 'email_sent'],
             ])('provider tenant status %s: %i SES calls, records %s', async (status, sesCalls, metricName) => {
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
                 await setProviderTenantStatus(status as string)
 
                 const result = await service.executeSendEmail(invocation)
