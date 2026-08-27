@@ -29710,6 +29710,10 @@ export namespace Schemas {
     export interface EndpointMaterialization {
       /** URL-safe endpoint name. */
       name: string;
+      /** Whether materialization is enabled for this endpoint version. */
+      enabled: boolean;
+      /** Whether a successful materialization is available to serve. */
+      ready: boolean;
       /** Current materialization status (e.g. 'Completed', 'Running'). */
       status?: string;
       /** Whether this endpoint query can be materialized. */
@@ -51353,7 +51357,7 @@ export namespace Schemas {
        * * `failed` - Failed
        * * `ineligible` - Ineligible */
       readonly status: ObservationStatusEnum;
-      /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
+      /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
       readonly error_reason: string;
       /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
       readonly workflow_id: string;
@@ -56768,6 +56772,8 @@ export namespace Schemas {
       updated_at?: string | null;
       /** @nullable */
       completed_at?: string | null;
+      /** True when this run's sandbox serves a dev stack preview, so clients can offer the preview link. Open it through the run's `preview/` endpoint, which mints a fresh access token on every request. */
+      preview_available?: boolean;
     }
 
     export interface SlackThreadReferenceDTO {

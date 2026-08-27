@@ -63,6 +63,19 @@ posthog/temporal/data_modeling/run_workflow.py @PostHog/team-data-modeling
 # Dev sandbox provides important protection in local dev
 bin/dev-sandbox* @PostHog/team-security
 
+# MCP Analytics relies on a cross-repo event contract with no shared type boundary.
+# Producers can change without failing product consumers, so team review gates both ends.
+products/mcp_analytics/** @PostHog/team-mcp-analytics
+posthog/temporal/mcp_analytics/** @PostHog/team-mcp-analytics
+services/mcp/src/hono/analytics.ts @PostHog/team-mcp-analytics
+services/mcp/src/lib/posthog/analytics.ts @PostHog/team-mcp-analytics
+services/mcp/tests/hono/analytics.test.ts @PostHog/team-mcp-analytics
+services/mcp/tests/unit/posthog/analytics.test.ts @PostHog/team-mcp-analytics
+services/mcp/src/generated/mcp_analytics/** @PostHog/team-mcp-analytics
+services/mcp/src/tools/generated/mcp_analytics.ts @PostHog/team-mcp-analytics
+docs/published/docs/mcp-analytics/** @PostHog/team-mcp-analytics
+bin/inject_mcp_intents.py @PostHog/team-mcp-analytics
+
 # The MCP store catalog is a fleet-wide trust decision, not ordinary code: a merged entry
 # becomes (probe permitting) an active server template in every environment on the next
 # deploy — installable by all tenants and feeding tool results into their LLM agents. The
