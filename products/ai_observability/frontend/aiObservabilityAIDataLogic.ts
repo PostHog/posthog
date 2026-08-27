@@ -264,8 +264,8 @@ export interface aiObservabilityAIDataLogicActions {
     ensureAIDataLoaded: (lookups: AIDataLookup[]) => {
         lookups: AIDataLookup[]
     }
-    markEventIdsLoading: (eventIds: string[]) => {
-        eventIds: string[]
+    loadAIDataBatchFailure: (requestedEventIds: string[]) => {
+        requestedEventIds: string[]
     }
     loadAIDataBatchSuccess: (
         results: Record<string, AIData>,
@@ -274,8 +274,8 @@ export interface aiObservabilityAIDataLogicActions {
         requestedEventIds: string[]
         results: Record<string, AIData>
     }
-    loadAIDataBatchFailure: (requestedEventIds: string[]) => {
-        requestedEventIds: string[]
+    markEventIdsLoading: (eventIds: string[]) => {
+        eventIds: string[]
     }
 }
 
