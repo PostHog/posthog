@@ -33,12 +33,13 @@ describe("BuiltCanvas", () => {
       />,
     );
 
-    const hostDocument = screen.getByTitle("Canvas").getAttribute("srcdoc");
-    expect(hostDocument).toContain("frame-src https://usercontent.example");
-    expect(hostDocument).toContain(
-      'artifactFrame.src = "https://usercontent.example/build/index.html#theme=light"',
+    // One sandboxed frame loading the artifact directly, with no intermediate
+    // document. The theme rides the fragment so the runtime paints it before
+    // the bridge connects.
+    expect(screen.getByTitle("Canvas")).toHaveAttribute(
+      "src",
+      "https://usercontent.example/build/index.html#theme=light",
     );
-    expect(hostDocument).not.toContain("frame-src *");
     expect(screen.getByTitle("Canvas")).toHaveAttribute(
       "sandbox",
       "allow-scripts",
@@ -50,11 +51,16 @@ describe("BuiltCanvas", () => {
   });
 
   it("revokes data access when the artifact document navigates", async () => {
-    const onDataRequest = vi.fn().mockResolvedValue({ secret: true });
+    const onDataRequest = vi.fn().mockResolvedValue({ rows: [] });
     render(
       <BuiltCanvas
         artifactUrl="https://usercontent.example/build/index.html"
-        capabilities={capabilities}
+        // Inline queries allowed, so a silent response can only mean the
+        // bridge itself was cut, not the capability gate answering first.
+        capabilities={{
+          ...capabilities,
+          posthog: { ...capabilities.posthog, inlineQueries: true },
+        }}
         onDataRequest={onDataRequest}
       />,
     );
@@ -73,15 +79,9 @@ describe("BuiltCanvas", () => {
     const transferredPort = calls.at(-1)?.[2]?.[0];
     expect(transferredPort).toBeInstanceOf(MessagePort);
 
-    window.dispatchEvent(
-      new MessageEvent("message", {
-        source: iframe.contentWindow,
-        data: {
-          channel: "posthog-canvas-host",
-          type: "artifact-navigation",
-        },
-      }),
-    );
+    // A second load event is the artifact navigating its own frame: the
+    // bridge must be cut before whatever loaded can use it.
+    fireEvent.load(iframe);
     (transferredPort as MessagePort).postMessage({
       channel: "posthog-canvas",
       type: "data-request",
@@ -151,7 +151,7 @@ describe("BuiltCanvas", () => {
     );
     const iframe = screen.getByTitle("Canvas") as HTMLIFrameElement;
     if (!iframe.contentWindow) throw new Error("Canvas iframe has no window");
-    expect(iframe.getAttribute("srcdoc")).toContain("#theme=dark");
+    expect(iframe.getAttribute("src")).toContain("#theme=dark");
     expect(iframe.style.colorScheme).toBe("dark");
     const postMessage = vi
       .spyOn(iframe.contentWindow, "postMessage")

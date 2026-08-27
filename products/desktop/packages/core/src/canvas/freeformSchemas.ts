@@ -40,6 +40,11 @@ export type CanvasDataQueryInput = z.infer<typeof canvasDataQueryInput>;
 
 export const canvasDataResultSchema = z.object({
   columns: z.array(z.string()),
+  // True when the host served a cached result older than the canvas's declared
+  // refresh window and kicked off a background recompute. The bridge uses it to
+  // shorten its client-cache lifetime so the canvas's next read picks up the
+  // fresh numbers; it is stripped before the result reaches canvas code.
+  stale: z.boolean().optional(),
   // The result rows. SHAPE DEPENDS ON THE QUERY KIND (true for both `ph.query`
   // and `ph.loadInsight`):
   //   • HogQLQuery / SQL insight → an array of ROWS, each row an array of cell

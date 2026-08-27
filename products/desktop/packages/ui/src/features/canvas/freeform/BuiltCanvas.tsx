@@ -17,77 +17,23 @@ import { translateCanvasTextSelection } from "./canvasSelection";
 const log = logger.scope("built-canvas");
 const EMPTY_COMMENT_HIGHLIGHTS: CanvasCommentHighlight[] = [];
 
-function buildArtifactHostDocument(
+// The theme rides the fragment so the artifact runtime (a synchronous head
+// script) applies `.dark` before first paint; the bridge port only connects
+// at the load event, far too late to prevent a light flash. Fragments don't
+// reach the server, so signed artifact URLs stay valid. Placement config
+// rides the same fragment: the runtime freezes it as ph.config at boot.
+function themedArtifactUrl(
   artifactUrl: string,
   theme: CanvasTheme,
   config?: Record<string, unknown>,
 ): string {
-  const artifactOrigin = new URL(artifactUrl).origin;
-  // The theme rides the fragment so the artifact runtime (a synchronous head
-  // script) applies `.dark` before first paint — the bridge port only connects
-  // at the load event, far too late to prevent a light flash. Fragments don't
-  // reach the server, so signed artifact URLs stay valid. Placement config
-  // rides the same fragment: the runtime freezes it as ph.config at boot.
   const fragment = new URLSearchParams({ theme });
   if (config && Object.keys(config).length > 0) {
     fragment.set("config", JSON.stringify(config));
   }
   const themedUrl = new URL(artifactUrl);
   themedUrl.hash = fragment.toString();
-  const serializedArtifactUrl = JSON.stringify(themedUrl.href).replaceAll(
-    "<",
-    "\\u003c",
-  );
-
-  return `<!doctype html>
-<html>
-<head>
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src ${artifactOrigin}">
-<style>html,body,iframe{border:0;height:100%;margin:0;padding:0;width:100%}</style>
-</head>
-<body>
-<script>
-const artifactFrame = document.createElement("iframe");
-artifactFrame.title = "Canvas artifact";
-artifactFrame.sandbox = "allow-scripts";
-artifactFrame.referrerPolicy = "no-referrer";
-artifactFrame.src = ${serializedArtifactUrl};
-let artifactLoaded = false;
-let bridgePort;
-const connect = () => {
-  if (!artifactLoaded || !bridgePort) return;
-  artifactFrame.contentWindow.postMessage(
-    { channel: "posthog-canvas", type: "connect" },
-    "*",
-    [bridgePort],
-  );
-  bridgePort = undefined;
-};
-artifactFrame.addEventListener("load", () => {
-  if (artifactLoaded) {
-    parent.postMessage(
-      { channel: "posthog-canvas-host", type: "artifact-navigation" },
-      "*",
-    );
-    return;
-  }
-  artifactLoaded = true;
-  connect();
-});
-window.addEventListener("message", (event) => {
-  if (
-    event.source !== parent ||
-    event.data?.channel !== "posthog-canvas-host" ||
-    event.data?.type !== "connect" ||
-    !event.ports[0]
-  ) return;
-  bridgePort = event.ports[0];
-  connect();
-});
-document.body.append(artifactFrame);
-</script>
-</body>
-</html>`;
+  return themedUrl.href;
 }
 
 export interface BuiltCanvasProps {
@@ -132,14 +78,11 @@ export function BuiltCanvas({
     (s): CanvasTheme => (s.isDarkMode ? "dark" : "light"),
   );
   const artifactPortRef = useRef<MessagePort | null>(null);
-  // The srcDoc bakes in the mount-time theme only — folding the live theme in
-  // would reload the artifact on every toggle. Live changes go over the port.
+  // The URL fragment bakes in the mount-time theme only, because folding the
+  // live theme in would reload the artifact on every toggle. Live changes go
+  // over the port.
   const initialTheme = useRef(theme).current;
-  const hostDocument = buildArtifactHostDocument(
-    artifactUrl,
-    initialTheme,
-    config,
-  );
+  const frameSrc = themedArtifactUrl(artifactUrl, initialTheme, config);
   const latest = useRef({
     capabilities,
     onDataRequest,
@@ -165,7 +108,7 @@ export function BuiltCanvas({
     commentHighlights,
   };
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: a new host document needs a fresh bridge even though the effect reads it only through the iframe.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new artifact URL needs a fresh bridge even though the effect reads it only through the iframe.
   useLayoutEffect(() => {
     const iframe = iframeRef.current;
 
@@ -219,14 +162,33 @@ export function BuiltCanvas({
       if (parsed.success) void route(parsed.data);
     };
 
+    // The artifact loads directly in this (single) sandboxed frame with no
+    // intermediate document, so one document boot and one handshake. The
+    // runtime accepts `connect` from `event.source === parent`, which is the
+    // app window. A SECOND load event means the artifact navigated its own
+    // frame (sandboxed frames can self-navigate anywhere): the bridge is cut
+    // AND the frame is blanked, so a foreign document neither gets data access
+    // nor keeps rendering inside the app's chrome.
+    let connected = false;
     const onLoad = () => {
-      if (artifactPortRef.current) return;
+      if (connected) {
+        artifactPortRef.current?.close();
+        artifactPortRef.current = null;
+        if (iframe && iframe.src !== "about:blank") {
+          log.warn(
+            "Built canvas navigated its frame; bridge cut, frame blanked",
+          );
+          iframe.src = "about:blank";
+        }
+        return;
+      }
+      connected = true;
       const bridge = new MessageChannel();
       artifactPortRef.current = bridge.port1;
       artifactPortRef.current.addEventListener("message", onMessage);
       artifactPortRef.current.start();
       iframe?.contentWindow?.postMessage(
-        { channel: "posthog-canvas-host", type: "connect" },
+        { channel: "posthog-canvas", type: "connect" },
         "*",
         [bridge.port2],
       );
@@ -239,27 +201,13 @@ export function BuiltCanvas({
       });
     };
 
-    const onHostMessage = (event: MessageEvent) => {
-      if (
-        event.source !== iframe?.contentWindow ||
-        event.data?.channel !== "posthog-canvas-host" ||
-        event.data?.type !== "artifact-navigation"
-      ) {
-        return;
-      }
-      artifactPortRef.current?.close();
-      artifactPortRef.current = null;
-    };
-
     iframe?.addEventListener("load", onLoad);
-    window.addEventListener("message", onHostMessage);
     return () => {
       iframe?.removeEventListener("load", onLoad);
-      window.removeEventListener("message", onHostMessage);
       artifactPortRef.current?.close();
       artifactPortRef.current = null;
     };
-  }, [hostDocument]);
+  }, [frameSrc]);
 
   // Live theme change: re-theme the running artifact without reloading it. On
   // mount the port is still null — the initial theme goes out in onLoad above.
@@ -292,7 +240,7 @@ export function BuiltCanvas({
       ref={iframeRef}
       title="Canvas"
       sandbox="allow-scripts"
-      srcDoc={hostDocument}
+      src={frameSrc}
       referrerPolicy="no-referrer"
       // Like FreeformCanvas: without a matching color-scheme the UA paints the
       // embedded documents' base canvas opaque white, flashing over a dark app

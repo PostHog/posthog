@@ -39,6 +39,12 @@ function stableStringify(value: unknown): string {
   return `{${entries.join(",")}}`;
 }
 
+// How long a STALE host result (served cache-first while the server recomputes
+// in the background) stays in the client cache before the next canvas read
+// re-asks the host: long enough to absorb render-loop reads, short enough
+// that the recomputed numbers arrive promptly.
+const STALE_RESULT_RETRY_SECONDS = 15;
+
 // Reads go through the shared QueryClient cache: an iframe re-boot, a canvas
 // code-swap, and live edit re-renders all resolve a repeated read from cache
 // instead of re-hitting ClickHouse, and concurrent identical reads dedupe. The key
@@ -51,10 +57,18 @@ function cachedRead<T>(
   run: () => Promise<T>,
   refreshSeconds?: number,
 ) {
+  const queryKey = [CANVAS_QUERY_KEY, method, stableStringify(input)] as const;
+  // A stale entry (host said the server cache was older than the canvas's
+  // refresh window) is retried on a short leash instead of sitting for the
+  // whole window; the background recompute it triggered lands in between.
+  const cached = queryClient.getQueryData<{ stale?: boolean }>(queryKey);
+  const lifetimeSeconds = cached?.stale
+    ? STALE_RESULT_RETRY_SECONDS
+    : (refreshSeconds ?? 5 * 60);
   return queryClient.fetchQuery({
-    queryKey: [CANVAS_QUERY_KEY, method, stableStringify(input)] as const,
+    queryKey,
     queryFn: run,
-    staleTime: (refreshSeconds ?? 5 * 60) * 1_000,
+    staleTime: lifetimeSeconds * 1_000,
     // At least the refresh interval, or GC would evict an inactive entry
     // before it goes stale and force an early backend re-read.
     gcTime: Math.max(refreshSeconds ?? 5 * 60, 10 * 60) * 1_000,
@@ -104,18 +118,28 @@ export async function handleFreeformDataRequest(
           "ph.query requires a typed query node or a HogQL string",
         );
       }
+      const refresh = refreshSeconds(input.refresh);
+      // `refresh` stays out of the cache key (same data, different lifetime)
+      // but rides the host call: it is the staleness window the host serves
+      // cache-first against.
       const args = {
         query: input.query,
         hogql: input.hogql,
         params: input.params,
       };
-      return cachedRead(
+      const result = await cachedRead(
         queryClient,
         "query",
         args,
-        () => hostClient().canvasData.query.mutate(args),
-        refreshSeconds(input.refresh),
+        () => hostClient().canvasData.query.mutate({ ...args, refresh }),
+        refresh,
       );
+      // The stale marker is bridge-internal cache policy, not canvas data.
+      if (result && typeof result === "object" && "stale" in result) {
+        const { stale: _stale, ...clean } = result;
+        return clean;
+      }
+      return result;
     }
     case "loadInsight": {
       const input = payload as CanvasLoadInsightInput;

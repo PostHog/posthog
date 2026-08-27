@@ -4,7 +4,9 @@ import { isTerminalStatus } from "@posthog/shared/domain-types";
 import { PromptInput } from "@posthog/ui/features/message-editor/components/PromptInput";
 import { useSessionStore } from "@posthog/ui/features/sessions/sessionStore";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
+import { useInView } from "@posthog/ui/primitives/hooks/useInView";
 import { useQuery } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { useState } from "react";
 import { ComponentFrame } from "./ComponentFrame";
 import type { PlacementActions } from "./placementActions";
@@ -12,6 +14,26 @@ import type { PlacementActions } from "./placementActions";
 // Poll cadence for the fill task's run status while a tile is generating —
 // matches the canvas generation poll elsewhere.
 const FILL_TASK_POLL_MS = 5_000;
+// How far past the viewport a widget starts booting, so scrolling toward it
+// finds it already mounted.
+const WIDGET_MOUNT_MARGIN = "400px";
+
+/**
+ * Mounts its child once the tile nears the viewport, and keeps it mounted from
+ * then on (unmounting would tear down the widget's iframe on every scroll).
+ * Off-screen widgets on a large grid otherwise all boot, and fetch, at once.
+ */
+function MountNearViewport({ children }: { children: ReactNode }) {
+  const [setElement, inView] = useInView({
+    rootMargin: WIDGET_MOUNT_MARGIN,
+    once: true,
+  });
+  return (
+    <div ref={setElement} className="h-full w-full">
+      {inView ? children : null}
+    </div>
+  );
+}
 
 /**
  * One placement on the grid, rendered by lifecycle status: a live widget, a
@@ -32,7 +54,11 @@ export function GridPlacementTile({
   actions: PlacementActions;
 }) {
   if (placement.status === "live" && placement.component) {
-    return <ComponentFrame placement={placement} />;
+    return (
+      <MountNearViewport>
+        <ComponentFrame placement={placement} />
+      </MountNearViewport>
+    );
   }
   if (placement.status === "generating") {
     return (

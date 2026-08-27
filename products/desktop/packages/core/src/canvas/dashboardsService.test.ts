@@ -39,6 +39,7 @@ function fakeApi(
     json: vi.fn(async (path: string, _label: string, init?: RequestInit) =>
       resolve(path, init),
     ),
+    revalidatedJson: vi.fn(async (path: string) => resolve(path)),
     listPaginated: vi.fn(async (path: string) => resolve(path) as unknown[]),
     fetch: vi.fn(async (path: string, init?: RequestInit) => {
       const body = resolve(path, init);
@@ -77,7 +78,7 @@ describe("DashboardsService.list", () => {
 describe("DashboardsService.getBuilds", () => {
   it("normalizes the lifecycle payload", async () => {
     const { api } = fakeApi({
-      "canvases/c1/builds/?version_id=v1": {
+      "canvases/c1/builds/?version_id=v1&scope=slim": {
         published_build_id: "b1",
         current_version_id: "v1",
         builds: [
