@@ -10,7 +10,7 @@ import posthog.models.organization_notification_lock
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1322_organization_read_only_mcp_access"),
+        ("posthog", "1323_proxyrecord_root_redirect_url"),
     ]
 
     operations = [

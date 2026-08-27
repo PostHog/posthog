@@ -2208,7 +2208,9 @@ class _WorkflowMocks:
         return None
 
 
-async def _run_workflow(inputs: ApplyScannerInputs, mocks: _WorkflowMocks, workflow_id: str = "wf-test") -> None:
+async def _run_workflow(
+    inputs: ApplyScannerInputs, mocks: _WorkflowMocks, workflow_id: str = "wf-test", patched: bool = True
+) -> None:
     workflow_info = MagicMock()
     workflow_info.workflow_id = workflow_id
     with (
@@ -2217,6 +2219,9 @@ async def _run_workflow(inputs: ApplyScannerInputs, mocks: _WorkflowMocks, workf
         patch("temporalio.workflow.execute_child_workflow", side_effect=mocks.execute_child_workflow),
         # `wf.logger` requires a real workflow event loop, which this direct-call harness skips.
         patch("temporalio.workflow.logger"),
+        # `wf.patched` also needs that loop; True models a fresh execution, False a history that
+        # already ran past this point before the patch existed.
+        patch("temporalio.workflow.patched", return_value=patched),
     ):
         await ApplyScannerWorkflow().run(inputs)
 
@@ -2296,21 +2301,28 @@ async def test_apply_scanner_workflow_marks_failed_when_fetch_raises() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "rasterizer_type,expect_ineligible,expected_kind",
+    "rasterizer_type,patched,expect_ineligible,expected_kind",
     [
         # An unrenderable recording is a gate, so it must not land on the failed path telling the user to retry.
-        ("NO_SNAPSHOTS", True, "no_snapshots"),
-        ("CAPTURE_ABORTED", False, "rasterization_failed"),
-        (None, False, "rasterization_failed"),
+        ("NO_SNAPSHOTS", True, True, "no_snapshots"),
+        # An oversized recording is a permanent gate too, not a broken render.
+        ("RECORDING_TOO_LARGE", True, True, "too_large"),
+        # A history that reached this point before the patch keeps the old path, which is the whole
+        # point of the guard: the two marks are different activity types, so switching mid-run is
+        # non-deterministic.
+        ("RECORDING_TOO_LARGE", False, False, "rasterization_failed"),
+        ("CAPTURE_ABORTED", True, False, "rasterization_failed"),
+        (None, True, False, "rasterization_failed"),
     ],
 )
 async def test_apply_scanner_workflow_splits_rasterizer_failures_by_cause(
-    rasterizer_type: str | None, expect_ineligible: bool, expected_kind: str
+    rasterizer_type: str | None, patched: bool, expect_ineligible: bool, expected_kind: str
 ) -> None:
     new_observation_id = uuid.uuid4()
     leaf = (
-        # `non_retryable=False` is the real arrival shape: the rasterizer keeps NO_SNAPSHOTS retryable while blocks may
-        # still be landing, so it only reaches us once the attempts are spent. Classification keys off the type alone.
+        # NO_SNAPSHOTS stays retryable while blocks may still be landing, so it reaches us only once the
+        # attempts are spent; RECORDING_TOO_LARGE arrives non-retryable. Classification keys off the type
+        # alone, so one shape covers both here.
         ApplicationError("No snapshots after processing", type=rasterizer_type, non_retryable=False)
         if rasterizer_type
         else RuntimeError("browser pod vanished")
@@ -2329,7 +2341,7 @@ async def test_apply_scanner_workflow_splits_rasterizer_failures_by_cause(
     )
 
     with pytest.raises(Exception):
-        await _run_workflow(_build_inputs(session_id="sess-raster"), mocks)
+        await _run_workflow(_build_inputs(session_id="sess-raster"), mocks, patched=patched)
 
     called = {fn for fn, _ in mocks.activity_calls}
     terminal = mark_observation_ineligible_activity if expect_ineligible else mark_observation_failed_activity
