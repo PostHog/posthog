@@ -91,6 +91,15 @@ _OBJECT_KIND_ALIASES: dict[str, str] = {
 
 
 @frozen
+class _Span:
+    start: int
+    end: int
+
+    def contains(self, position: int) -> bool:
+        return self.start <= position < self.end
+
+
+@frozen
 class _Tag:
     name: str
     attrs: dict[str, str]
@@ -107,11 +116,11 @@ def _parse_attrs(raw: str) -> dict[str, str]:
     return {match.group(1): html.unescape(match.group(2)) for match in _RE_ATTR.finditer(raw)}
 
 
-def _code_spans(text: str) -> list[tuple[int, int]]:
-    return [(match.start(), match.end()) for match in _RE_CODE_SEGMENT.finditer(text)]
+def _code_spans(text: str) -> list[_Span]:
+    return [_Span(start=match.start(), end=match.end()) for match in _RE_CODE_SEGMENT.finditer(text)]
 
 
-def _scan_tags(text: str, skip_spans: list[tuple[int, int]]) -> list[_Tag]:
+def _scan_tags(text: str, skip_spans: list[_Span]) -> list[_Tag]:
     """Find complete tags in ``text`` in order, without overlaps.
 
     Openers that start inside ``skip_spans`` (code) are not tags. A tag whose closer never
@@ -127,7 +136,7 @@ def _scan_tags(text: str, skip_spans: list[tuple[int, int]]) -> list[_Tag]:
     next_allowed = 0
     for match in _RE_OPEN_TAG.finditer(text):
         start = match.start()
-        if start < next_allowed or any(span_start <= start < span_end for span_start, span_end in skip_spans):
+        if start < next_allowed or any(span.contains(start) for span in skip_spans):
             continue
         name = match.group(1)
         attrs = _parse_attrs(match.group(2))
