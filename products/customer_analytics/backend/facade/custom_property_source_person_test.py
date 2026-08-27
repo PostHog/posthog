@@ -406,8 +406,8 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         )
 
         assert view is None
-        source.refresh_from_db()
-        assert source.column_property_map == {"plan": "plan_tier"}
+        row = CustomPropertySource.objects.unscoped().get(id=source.id)
+        assert row.column_property_map == {"plan": "plan_tier"}
 
     def test_delete_person_source_requires_warehouse_source_editor(self):
         # Deleting a person source permanently stops its billable warehouse-driven updates, so it needs
