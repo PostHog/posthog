@@ -1,4 +1,7 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { router } from 'kea-router'
+
+import { initKeaTests } from '~/test/init'
 
 import { Tooltip } from './Tooltip'
 
@@ -15,7 +18,17 @@ function renderTooltip(props: { openOnClick?: boolean } = {}): void {
     )
 }
 
+async function openOnHover(): Promise<void> {
+    fireEvent.pointerEnter(screen.getByText('Outdated'), { pointerType: 'mouse' })
+    fireEvent.mouseEnter(screen.getByText('Outdated'))
+    expect(await screen.findByText(TITLE)).toBeTruthy()
+}
+
 describe('Tooltip', () => {
+    beforeEach(() => {
+        initKeaTests()
+    })
+
     afterEach(() => {
         cleanup()
     })
@@ -119,5 +132,53 @@ describe('Tooltip', () => {
         fireEvent.scroll(window)
 
         expect(screen.getByText(TITLE)).toBeTruthy()
+    })
+
+    it('dismisses on navigation', async () => {
+        renderTooltip()
+        await openOnHover()
+
+        act(() => {
+            router.actions.push('/somewhere-else')
+        })
+
+        await waitFor(() => expect(screen.queryByText(TITLE)).toBeNull())
+    })
+
+    it('does not dismiss a controlled tooltip on navigation', async () => {
+        render(
+            <Tooltip title={TITLE} visible>
+                <span>Outdated</span>
+            </Tooltip>
+        )
+        expect(await screen.findByText(TITLE)).toBeTruthy()
+
+        act(() => {
+            router.actions.push('/somewhere-else')
+        })
+
+        expect(screen.getByText(TITLE)).toBeTruthy()
+    })
+
+    it('dismisses when the trigger stops being visible', async () => {
+        let notifyObserver: (entries: Pick<IntersectionObserverEntry, 'isIntersecting'>[]) => void = () => {}
+        const originalObserver = globalThis.IntersectionObserver
+        ;(globalThis as any).IntersectionObserver = jest.fn((callback: IntersectionObserverCallback) => {
+            notifyObserver = (entries) => callback(entries as IntersectionObserverEntry[], {} as IntersectionObserver)
+            return { observe: jest.fn(), unobserve: jest.fn(), disconnect: jest.fn() }
+        })
+
+        try {
+            renderTooltip()
+            await openOnHover()
+
+            act(() => {
+                notifyObserver([{ isIntersecting: false }])
+            })
+
+            await waitFor(() => expect(screen.queryByText(TITLE)).toBeNull())
+        } finally {
+            globalThis.IntersectionObserver = originalObserver
+        }
     })
 })

@@ -2,7 +2,9 @@ import './Tooltip.scss'
 
 import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip'
 import { Placement } from '@floating-ui/react'
-import React, { useEffect, useLayoutEffect, useState } from 'react'
+import { useValues } from 'kea'
+import { router } from 'kea-router'
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 
@@ -105,6 +107,9 @@ export function Tooltip({
     const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
     const [shouldRenderPortal, setShouldRenderPortal] = useState(false)
     const floatingContainer = useFloatingContainer()
+    const { currentLocation } = useValues(router)
+    const triggerRef = useRef<HTMLElement>(null)
+    const lastPathname = useRef(currentLocation.pathname)
 
     const open = controlledOpen ?? uncontrolledOpen
 
@@ -142,6 +147,33 @@ export function Tooltip({
         return () => window.removeEventListener('scroll', handleScroll, { capture: true })
     }, [open, controlledOpen])
 
+    // Dismiss on navigation. The trigger can re-render during a navigation without a mouseleave,
+    // which leaves an uncontrolled tooltip open over the new page until a reload.
+    useEffect(() => {
+        if (lastPathname.current === currentLocation.pathname) {
+            return
+        }
+        lastPathname.current = currentLocation.pathname
+        if (controlledOpen === undefined) {
+            setUncontrolledOpen(false)
+        }
+    }, [currentLocation.pathname, controlledOpen])
+
+    // Dismiss when the trigger stops being visible, for example when its panel is hidden without a
+    // navigation. The portaled popup stays mounted, so nothing else closes it.
+    useEffect(() => {
+        if (!open || controlledOpen !== undefined || !triggerRef.current) {
+            return
+        }
+        const observer = new IntersectionObserver((entries) => {
+            if (entries.some((entry) => !entry.isIntersecting)) {
+                setUncontrolledOpen(false)
+            }
+        })
+        observer.observe(triggerRef.current)
+        return () => observer.disconnect()
+    }, [open, controlledOpen])
+
     const child = React.isValidElement(children) ? children : <span>{children}</span>
 
     if (!title && !docLink) {
@@ -173,6 +205,7 @@ export function Tooltip({
     return (
         <BaseTooltip.Root open={open} onOpenChange={handleOpenChange} disableHoverablePopup={!isInteractive}>
             <BaseTooltip.Trigger
+                ref={triggerRef}
                 delay={delayMs}
                 closeDelay={closeDelayMs}
                 closeOnClick={!openOnClick}
