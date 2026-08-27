@@ -15,7 +15,7 @@ import { ParsedLogMessage } from '../../types'
 import type { LogsOrderBy } from '../../types'
 import type { LogsViewerFilters } from './config/types'
 import { logsViewerDataLogic } from './data/logsViewerDataLogic'
-import { logsViewerFiltersLogic } from './Filters/logsViewerFiltersLogic'
+import { logsViewerFiltersLogic, unsetColumnQueryFields } from './Filters/logsViewerFiltersLogic'
 import { logsViewerLogic } from './logsViewerLogic'
 
 function triggerBlobDownload(blob: Blob, filename: string): void {
@@ -150,8 +150,7 @@ export const logsExportLogic = kea<logsExportLogicType>([
                 dateRange: values.utcDateRange,
                 searchTerm: values.filters.searchTerm,
                 filterGroup: values.filters.filterGroup as PropertyGroupFilter,
-                severityLevels: values.filters.severityLevels,
-                serviceNames: values.filters.serviceNames,
+                ...unsetColumnQueryFields(),
                 orderBy: values.orderBy,
                 personId: values.personId,
             }

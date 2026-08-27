@@ -1,0 +1,11 @@
+fun notInCohort(cohort_id, cohort_ids) {
+  if (cohort_ids == null) {
+    throw Error('notInCohort() requires cohort membership to be loaded for this evaluation')
+  }
+  for (let id in cohort_ids) {
+    if (id == cohort_id) {
+      return false
+    }
+  }
+  return true
+}

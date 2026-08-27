@@ -19,10 +19,12 @@ use crate::clickhouse::scanner::ChunkScanner;
 use crate::domain::{ClaimKind, RunId};
 use crate::kafka::pacing::TilePacer;
 use crate::kafka::producer::SeedTileProducer;
-use crate::observability::metrics::{CHUNKS_CLAIMED, CHUNKS_POISONED, CHUNKS_RECLAIMED};
+use crate::observability::metrics::{
+    CHUNKS_CLAIMED, CHUNKS_POISONED, CHUNKS_RECLAIMED, RUNS_FAILED_EXHAUSTED_CHUNKS,
+};
 use crate::store::chunks::{Claim, PgChunkStore};
-use crate::store::runs::RunKind;
-use crate::store::Claimant;
+use crate::store::runs::{fail_run, RunError, RunKind};
+use crate::store::{Claimant, MaxAttempts, RenderedError};
 
 use super::completion::CompletionDriver;
 use super::execute::{execute_chunk, record_task_result, ChunkOutcome, ChunkTaskContext};
@@ -185,6 +187,10 @@ impl SeederOrchestrator {
                         &shutdown,
                     );
                     self.reap_poisoned_chunks(&eligible_runs).await;
+                    // Immediately after reaping, which is where terminal chunk failures are minted,
+                    // and before the completion driver's tick, so a run can never be failed and
+                    // CAS'd to `reconciling` in the same pass.
+                    self.fail_exhausted_runs(&eligible_runs).await;
                     self.fill_claim_slots(&eligible_runs, &mut tasks, &mut person_tasks, &shutdown)
                         .await;
                     if let Some(driver) = &self.completion_driver {
@@ -278,6 +284,33 @@ impl SeederOrchestrator {
                 }
                 Err(error) => warn!(error = %error, "reaping poisoned chunks failed"),
             }
+        }
+    }
+
+    /// Terminalize runs holding a chunk that exhausted its retry budget, one kind at a time.
+    ///
+    /// Such a chunk is never reclaimed again, and the completion CAS demands every chunk
+    /// `confirmed`, so without this the run sits in `seeding` forever and holds its cohort's
+    /// uniqueness slot — no future run for that cohort can ever be created. Failing it frees the
+    /// slot (Django does not count `failed` as active) and puts the reason in `runs.error`.
+    ///
+    /// Nothing has to be unwound for chunks still mid-scan: their heartbeat and the claim predicate
+    /// both join `runs.status = 'seeding'`, so they lose their lease on the next beat and halt
+    /// cleanly — the same mechanism a Django-side supersede already relies on.
+    async fn fail_exhausted_runs(&self, eligible_runs: &HashMap<RunId, PreparedRun>) {
+        for kind in [RunKind::Behavioral, RunKind::PersonProperty] {
+            let run_ids = run_ids_of_kind(eligible_runs, kind);
+            if run_ids.is_empty() {
+                continue;
+            }
+            fail_exhausted_runs_of_kind(
+                &self.pool,
+                &self.store,
+                &run_ids,
+                kind,
+                self.settings.max_chunk_attempts,
+            )
+            .await;
         }
     }
 
@@ -382,6 +415,60 @@ impl SeederOrchestrator {
             }
         }
     }
+}
+
+/// Fail every run in `run_ids` that holds a chunk past the attempt cap; returns how many it failed.
+///
+/// A free function rather than a method so the Postgres suite can drive the fix itself: building a
+/// [`SeederOrchestrator`] needs a scanner, a producer, a pacer and a lifecycle handle, none of which
+/// a store test has, and the method above is only a per-kind loop over this body.
+pub async fn fail_exhausted_runs_of_kind(
+    pool: &PgPool,
+    store: &PgChunkStore,
+    run_ids: &[RunId],
+    kind: RunKind,
+    max_attempts: MaxAttempts,
+) -> u64 {
+    let exhausted = match store
+        .runs_with_exhausted_chunks(run_ids, max_attempts)
+        .await
+    {
+        Ok(exhausted) => exhausted,
+        Err(error) => {
+            warn!(error = %error, "scanning for runs with exhausted chunks failed");
+            return 0;
+        }
+    };
+    let mut failed = 0;
+    for run in exhausted {
+        let error = RenderedError::from_message(format!(
+            "{} chunk(s) exhausted the {} attempt retry budget; chunk {}: {}",
+            run.exhausted,
+            max_attempts.get(),
+            run.chunk_id,
+            run.last_error,
+        ));
+        match fail_run(pool, run.run_id, &error).await {
+            Ok(()) => {
+                counter!(RUNS_FAILED_EXHAUSTED_CHUNKS, "kind" => kind.as_str()).increment(1);
+                failed += 1;
+                warn!(
+                    run_id = ?run.run_id,
+                    exhausted = run.exhausted,
+                    chunk_id = %run.chunk_id,
+                    kind = kind.as_str(),
+                    "failing run: chunks exhausted their retry budget"
+                );
+            }
+            // Already terminal — a later pass re-reads the same exhausted chunks, so this is the
+            // steady state, not an error, and must not re-count the metric.
+            Err(RunError::NotActive(_)) => {}
+            Err(error) => {
+                warn!(run_id = ?run.run_id, error = %error, "failing exhausted run failed")
+            }
+        }
+    }
+    failed
 }
 
 fn record_claim(claim_kind: ClaimKind, run_kind: RunKind) {

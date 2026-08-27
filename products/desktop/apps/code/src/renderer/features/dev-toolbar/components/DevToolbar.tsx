@@ -105,7 +105,7 @@ export function DevToolbar() {
   return (
     // Above the Mission Control overlay (z-300), so forcing the overlay on
     // cannot hide the toggle that turns it back off.
-    <div className="relative z-[400] h-10 shrink-0 border-(--gray-6) border-t bg-(--gray-2)">
+    <div className="relative z-[400] h-10 shrink-0 border-border border-t bg-chrome">
       {openPanel && (
         <PanelChrome
           openPanel={openPanel}
@@ -159,7 +159,7 @@ export function DevToolbar() {
                 void setDevMode(false);
               }}
               aria-label="Disable dev mode"
-              className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-(--gray-11) hover:bg-(--gray-3) hover:text-(--gray-12)"
+              className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-fill-hover hover:text-foreground"
             >
               <X size={14} />
             </button>
@@ -171,7 +171,7 @@ export function DevToolbar() {
 }
 
 function Divider() {
-  return <div className="h-3 w-px bg-(--gray-6)" />;
+  return <div className="h-3 w-px bg-border" />;
 }
 
 const PANEL_HEADERS: Record<
@@ -224,19 +224,19 @@ function PanelChrome({
   return (
     <div
       style={{ height }}
-      className="absolute right-0 bottom-full left-0 z-50 flex flex-col overflow-hidden border-(--gray-6) border-t border-b bg-(--gray-2) shadow-[0_-8px_24px_-8px_rgba(0,0,0,0.3)]"
+      className="absolute right-0 bottom-full left-0 z-50 flex flex-col overflow-hidden border-border border-t border-b bg-chrome shadow-[0_-8px_24px_-8px_rgba(0,0,0,0.3)]"
     >
       <ResizeHandle height={height} onResize={onResize} />
       <Flex
         align="center"
         justify="between"
-        className="shrink-0 border-(--gray-5) border-b bg-(--gray-3) px-3 py-1.5"
+        className="shrink-0 border-border border-b bg-fill-hover px-3 py-1.5"
       >
         <Flex align="baseline" gap="2" className="min-w-0">
-          <Text size="2" weight="medium" className="text-(--gray-12)">
+          <Text size="2" weight="medium" className="text-foreground">
             {PANEL_HEADERS[openPanel].title}
           </Text>
-          <Text size="1" className="truncate text-(--gray-10)">
+          <Text size="1" className="truncate text-muted-foreground">
             {PANEL_HEADERS[openPanel].subtitle}
           </Text>
         </Flex>
@@ -245,7 +245,7 @@ function PanelChrome({
             type="button"
             onClick={onClose}
             aria-label="Close panel"
-            className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-(--gray-11) hover:bg-(--gray-3) hover:text-(--gray-12)"
+            className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-fill-hover hover:text-foreground"
           >
             <X size={14} />
           </button>
@@ -324,7 +324,7 @@ function EnvironmentBadge() {
   return (
     <Flex align="center" gap="2" className="pr-1">
       <span className={`h-2 w-2 rounded-full ${dot}`} />
-      <Text size="1" className="font-mono text-(--gray-12)">
+      <Text size="1" className="font-mono text-foreground">
         {label}
       </Text>
     </Flex>
@@ -338,7 +338,7 @@ function RegionBadge() {
   return (
     <Flex align="center" gap="1" aria-label={entry.label}>
       <span className="text-[12px] leading-none">{entry.flag}</span>
-      <Text size="1" className="font-mono text-(--gray-10)">
+      <Text size="1" className="font-mono text-muted-foreground">
         {cloudRegion.toUpperCase()}
       </Text>
     </Flex>
@@ -378,11 +378,11 @@ function UserMenu() {
         render={
           <button
             type="button"
-            className="flex h-7 cursor-pointer items-center gap-1 rounded-md px-1 font-mono text-(--gray-12) hover:bg-(--gray-3)"
+            className="flex h-7 cursor-pointer items-center gap-1 rounded-md px-1 font-mono text-foreground hover:bg-fill-hover"
             aria-label="User menu"
           >
             <span>{emailShort}</span>
-            <ChevronDown size={12} className="text-(--gray-9)" />
+            <ChevronDown size={12} className="text-muted-foreground" />
           </button>
         }
       />
@@ -407,15 +407,15 @@ function UserMenu() {
         )}
         <DropdownMenuGroup>
           <DropdownMenuItem onClick={() => openSettings("advanced")}>
-            <Bug size={12} className="mr-2 text-(--gray-9)" />
+            <Bug size={12} className="mr-2 text-muted-foreground" />
             Open advanced settings
           </DropdownMenuItem>
           <DropdownMenuItem onClick={handleResetOnboarding}>
-            <RotateCcw size={12} className="mr-2 text-(--gray-9)" />
+            <RotateCcw size={12} className="mr-2 text-muted-foreground" />
             Reset onboarding
           </DropdownMenuItem>
           <DropdownMenuItem onClick={handleResetTours}>
-            <RotateCcw size={12} className="mr-2 text-(--gray-9)" />
+            <RotateCcw size={12} className="mr-2 text-muted-foreground" />
             Reset product tours
           </DropdownMenuItem>
         </DropdownMenuGroup>
@@ -510,7 +510,7 @@ function GadgetButton({
         className={`flex h-7 w-7 cursor-pointer items-center justify-center rounded-md ${
           active
             ? "bg-(--accent-3) text-(--accent-11)"
-            : "text-(--gray-11) hover:bg-(--gray-3) hover:text-(--gray-12)"
+            : "text-muted-foreground hover:bg-fill-hover hover:text-foreground"
         }`}
       >
         {children}
@@ -532,7 +532,7 @@ function DebugLogsToggle() {
 
   return (
     <Tooltip content="Show debug-level console output in the conversation view for cloud-executed runs">
-      <Flex align="center" gap="2" className="text-(--gray-11)">
+      <Flex align="center" gap="2" className="text-muted-foreground">
         <Text size="1">Debug logs</Text>
         <Switch
           checked={debugLogsCloudRuns}
@@ -671,7 +671,7 @@ function LiveStats({
   const logsEmphasis = logWarnings > 0 ? ("amber" as const) : undefined;
 
   return (
-    <Flex align="center" gap="1" className="text-(--gray-11) text-[12px]">
+    <Flex align="center" gap="1" className="text-[12px] text-muted-foreground">
       <StatPill
         label="CPU"
         value={sample ? `${sample.totalCpuPercent.toFixed(1)}%` : "—"}
@@ -771,7 +771,7 @@ function StatPill({
       ? "text-(--red-11)"
       : emphasis === "amber"
         ? "text-(--amber-11)"
-        : "text-(--gray-12)";
+        : "text-foreground";
   const pill = (
     <button
       type="button"
@@ -779,12 +779,12 @@ function StatPill({
       className={`flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-2.5 font-mono ${
         active
           ? "bg-(--accent-3) text-(--accent-11)"
-          : "hover:bg-(--gray-3) hover:text-(--gray-12)"
+          : "hover:bg-fill-hover hover:text-foreground"
       }`}
       aria-pressed={active}
     >
-      <span className="text-(--gray-10)">{icon}</span>
-      <span className="text-(--gray-10)">{label}</span>
+      <span className="text-muted-foreground">{icon}</span>
+      <span className="text-muted-foreground">{label}</span>
       <span className={`font-medium ${valueColor}`}>{value}</span>
     </button>
   );
@@ -897,11 +897,11 @@ function QuickActionsMenu() {
         render={
           <button
             type="button"
-            className="flex h-7 cursor-pointer items-center gap-1 rounded-md px-1.5 text-(--gray-11) hover:bg-(--gray-3) hover:text-(--gray-12)"
+            className="flex h-7 cursor-pointer items-center gap-1 rounded-md px-1.5 text-muted-foreground hover:bg-fill-hover hover:text-foreground"
             aria-label="Quick actions"
           >
             <Wrench size={14} />
-            <ChevronDown size={12} className="text-(--gray-9)" />
+            <ChevronDown size={12} className="text-muted-foreground" />
           </button>
         }
       />
@@ -911,13 +911,13 @@ function QuickActionsMenu() {
           <DropdownMenuItem
             onClick={() => void trpcClient.dev.openUserDataDir.mutate()}
           >
-            <FolderOpen size={12} className="mr-2 text-(--gray-9)" />
+            <FolderOpen size={12} className="mr-2 text-muted-foreground" />
             Open user data dir
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={() => void trpcClient.dev.openLogFile.mutate()}
           >
-            <FileText size={12} className="mr-2 text-(--gray-9)" />
+            <FileText size={12} className="mr-2 text-muted-foreground" />
             Open log file
           </DropdownMenuItem>
         </DropdownMenuGroup>
@@ -927,11 +927,11 @@ function QuickActionsMenu() {
           <DropdownMenuItem
             onClick={() => void trpcClient.dev.reloadRenderer.mutate()}
           >
-            <RefreshCw size={12} className="mr-2 text-(--gray-9)" />
+            <RefreshCw size={12} className="mr-2 text-muted-foreground" />
             Reload renderer
           </DropdownMenuItem>
           <DropdownMenuItem onClick={handleRestart}>
-            <Power size={12} className="mr-2 text-(--gray-9)" />
+            <Power size={12} className="mr-2 text-muted-foreground" />
             Restart main process
           </DropdownMenuItem>
           <DropdownMenuItem variant="destructive" onClick={handleCrash}>
@@ -945,7 +945,7 @@ function QuickActionsMenu() {
           <DropdownMenuItem onClick={() => setOffline(!offline)}>
             <ZapOff
               size={12}
-              className={`mr-2 ${offline ? "text-(--amber-11)" : "text-(--gray-9)"}`}
+              className={`mr-2 ${offline ? "text-(--amber-11)" : "text-muted-foreground"}`}
             />
             {offline ? "Disable offline mode" : "Simulate offline"}
           </DropdownMenuItem>
@@ -954,7 +954,7 @@ function QuickActionsMenu() {
               <Timer
                 size={12}
                 className={`mr-2 ${
-                  ms === slowMs ? "text-(--accent-11)" : "text-(--gray-9)"
+                  ms === slowMs ? "text-(--accent-11)" : "text-muted-foreground"
                 }`}
               />
               {ms === 0 ? "Disable network delay" : `Add ${ms}ms network delay`}
@@ -970,7 +970,7 @@ function QuickActionsMenu() {
         <DropdownMenuGroup>
           <DropdownMenuLabel>Toasts</DropdownMenuLabel>
           <DropdownMenuItem onClick={triggerInfoToast}>
-            <Activity size={12} className="mr-2 text-(--gray-9)" />
+            <Activity size={12} className="mr-2 text-muted-foreground" />
             Trigger info toast
           </DropdownMenuItem>
           <DropdownMenuItem variant="destructive" onClick={triggerErrorToast}>
@@ -985,7 +985,9 @@ function QuickActionsMenu() {
             <LayoutGrid
               size={12}
               className={`mr-2 ${
-                missionControlForced ? "text-(--accent-11)" : "text-(--gray-9)"
+                missionControlForced
+                  ? "text-(--accent-11)"
+                  : "text-muted-foreground"
               }`}
             />
             {missionControlForced ? "Hide overlay" : "Force overlay on"}
@@ -996,7 +998,7 @@ function QuickActionsMenu() {
           >
             <ScrollText
               size={12}
-              className={`mr-2 ${probing ? "text-(--accent-11)" : "text-(--gray-9)"}`}
+              className={`mr-2 ${probing ? "text-(--accent-11)" : "text-muted-foreground"}`}
             />
             {probing
               ? "Recording, run the gestures now"

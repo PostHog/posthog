@@ -510,6 +510,398 @@ export interface VisionActionRunApi {
 }
 
 /**
+ * * `metric` - Metric
+ * * `match` - Match
+ */
+export type VisionAlertConfigurationKindEnumApi =
+    (typeof VisionAlertConfigurationKindEnumApi)[keyof typeof VisionAlertConfigurationKindEnumApi]
+
+export const VisionAlertConfigurationKindEnumApi = {
+    Metric: 'metric',
+    Match: 'match',
+} as const
+
+export interface VisionAlertSelectionApi {
+    /**
+     * Monitor verdicts to match, e.g. ['yes'].
+     * @maxItems 10
+     * @items.maxLength 100
+     */
+    verdict?: string[]
+    /**
+     * Classifier tags to match; an observation matches when it carries any of them.
+     * @maxItems 20
+     * @items.maxLength 200
+     */
+    tags?: string[]
+    /** Minimum scorer score (inclusive). */
+    min_score?: number
+    /** Maximum scorer score (inclusive). */
+    max_score?: number
+}
+
+/**
+ * * `count` - Count matching observations
+ * * `avg_score` - Average score
+ */
+export type VisionAlertConfigurationMetricEnumApi =
+    (typeof VisionAlertConfigurationMetricEnumApi)[keyof typeof VisionAlertConfigurationMetricEnumApi]
+
+export const VisionAlertConfigurationMetricEnumApi = {
+    Count: 'count',
+    AvgScore: 'avg_score',
+} as const
+
+/**
+ * * `not_firing` - Not firing
+ * * `firing` - Firing
+ * * `pending_resolve` - Pending resolve
+ * * `errored` - Errored
+ * * `snoozed` - Snoozed
+ * * `broken` - Broken
+ */
+export type LogsAlertConfigurationStateEnumApi =
+    (typeof LogsAlertConfigurationStateEnumApi)[keyof typeof LogsAlertConfigurationStateEnumApi]
+
+export const LogsAlertConfigurationStateEnumApi = {
+    NotFiring: 'not_firing',
+    Firing: 'firing',
+    PendingResolve: 'pending_resolve',
+    Errored: 'errored',
+    Snoozed: 'snoozed',
+    Broken: 'broken',
+} as const
+
+export interface AlertScheduleRestrictionWindowApi {
+    /** Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)). */
+    start: string
+    /** End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally. */
+    end: string
+}
+
+export interface AlertScheduleRestrictionApi {
+    /** Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours. */
+    blocked_windows: AlertScheduleRestrictionWindowApi[]
+}
+
+export interface VisionAlertConfigurationApi {
+    /** Unique identifier for this alert. */
+    readonly id: string
+    /** Scanner whose observations this alert watches. Immutable after creation. */
+    scanner_id: string
+    /**
+     * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
+     * @maxLength 255
+     */
+    name?: string
+    /** Whether the alert is active. Disabling a metric alert resets its state to not_firing. */
+    enabled?: boolean
+    /** 'metric' fires when a metric crosses a threshold over a rolling window; 'match' fires on every observation that matches the selection. Immutable after creation.
+     *
+     * * `metric` - Metric
+     * * `match` - Match */
+    kind: VisionAlertConfigurationKindEnumApi
+    /** Which observations count. Empty matches every observation of the scanner. */
+    selection?: VisionAlertSelectionApi
+    /** Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.
+     *
+     * * `count` - Count matching observations
+     * * `avg_score` - Average score */
+    metric?: VisionAlertConfigurationMetricEnumApi
+    /** Metric alerts only: whether the alert fires at or above, or at or below, the threshold.
+     *
+     * * `above` - At or above
+     * * `below` - At or below */
+    direction?: VisionAlertDirectionEnumApi
+    /**
+     * Metric alerts only: the threshold value. Required for metric alerts, must be omitted for match alerts.
+     * @nullable
+     */
+    threshold?: number | null
+    /** Metric alerts only: rolling window in days. Allowed values: [1, 3, 7, 14, 30]. */
+    window_days?: number
+    /**
+     * Metric alerts only: evaluation cadence in minutes, at least 15.
+     * @minimum 15
+     */
+    check_interval_minutes?: number
+    /** Current lifecycle state. Always not_firing for match alerts. Server-managed.
+     *
+     * * `not_firing` - Not firing
+     * * `firing` - Firing
+     * * `pending_resolve` - Pending resolve
+     * * `errored` - Errored
+     * * `snoozed` - Snoozed
+     * * `broken` - Broken */
+    readonly state: LogsAlertConfigurationStateEnumApi
+    /**
+     * Metric alerts only: total check periods in the sliding evaluation window (M in N-of-M).
+     * @minimum 1
+     * @maximum 10
+     */
+    evaluation_periods?: number
+    /**
+     * Metric alerts only: how many periods must breach to fire (N in N-of-M).
+     * @minimum 1
+     * @maximum 10
+     */
+    datapoints_to_alarm?: number
+    /**
+     * Metric alerts only: minimum minutes between repeated notifications. 0 means no cooldown.
+     * @minimum 0
+     */
+    cooldown_minutes?: number
+    /** Blocked local time windows when the alert must not notify. Times use the project timezone. Null disables quiet hours. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
+    /**
+     * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+     * @nullable
+     */
+    snooze_until?: string | null
+    /**
+     * When the next evaluation is scheduled. Server-managed.
+     * @nullable
+     */
+    readonly next_check_at: string | null
+    /**
+     * When the last notification was sent. Server-managed.
+     * @nullable
+     */
+    readonly last_notified_at: string | null
+    /**
+     * When the alert was last evaluated. Server-managed.
+     * @nullable
+     */
+    readonly last_checked_at: string | null
+    /** Consecutive evaluation failures. Resets on success. Server-managed. */
+    readonly consecutive_failures: number
+    /**
+     * When the alert was first enabled. Null means still a draft.
+     * @nullable
+     */
+    readonly first_enabled_at: string | null
+    /** When the alert was created. */
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    /**
+     * When the alert was last modified.
+     * @nullable
+     */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedVisionAlertConfigurationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: VisionAlertConfigurationApi[]
+}
+
+export interface PatchedVisionAlertConfigurationApi {
+    /** Unique identifier for this alert. */
+    readonly id?: string
+    /** Scanner whose observations this alert watches. Immutable after creation. */
+    scanner_id?: string
+    /**
+     * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
+     * @maxLength 255
+     */
+    name?: string
+    /** Whether the alert is active. Disabling a metric alert resets its state to not_firing. */
+    enabled?: boolean
+    /** 'metric' fires when a metric crosses a threshold over a rolling window; 'match' fires on every observation that matches the selection. Immutable after creation.
+     *
+     * * `metric` - Metric
+     * * `match` - Match */
+    kind?: VisionAlertConfigurationKindEnumApi
+    /** Which observations count. Empty matches every observation of the scanner. */
+    selection?: VisionAlertSelectionApi
+    /** Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.
+     *
+     * * `count` - Count matching observations
+     * * `avg_score` - Average score */
+    metric?: VisionAlertConfigurationMetricEnumApi
+    /** Metric alerts only: whether the alert fires at or above, or at or below, the threshold.
+     *
+     * * `above` - At or above
+     * * `below` - At or below */
+    direction?: VisionAlertDirectionEnumApi
+    /**
+     * Metric alerts only: the threshold value. Required for metric alerts, must be omitted for match alerts.
+     * @nullable
+     */
+    threshold?: number | null
+    /** Metric alerts only: rolling window in days. Allowed values: [1, 3, 7, 14, 30]. */
+    window_days?: number
+    /**
+     * Metric alerts only: evaluation cadence in minutes, at least 15.
+     * @minimum 15
+     */
+    check_interval_minutes?: number
+    /** Current lifecycle state. Always not_firing for match alerts. Server-managed.
+     *
+     * * `not_firing` - Not firing
+     * * `firing` - Firing
+     * * `pending_resolve` - Pending resolve
+     * * `errored` - Errored
+     * * `snoozed` - Snoozed
+     * * `broken` - Broken */
+    readonly state?: LogsAlertConfigurationStateEnumApi
+    /**
+     * Metric alerts only: total check periods in the sliding evaluation window (M in N-of-M).
+     * @minimum 1
+     * @maximum 10
+     */
+    evaluation_periods?: number
+    /**
+     * Metric alerts only: how many periods must breach to fire (N in N-of-M).
+     * @minimum 1
+     * @maximum 10
+     */
+    datapoints_to_alarm?: number
+    /**
+     * Metric alerts only: minimum minutes between repeated notifications. 0 means no cooldown.
+     * @minimum 0
+     */
+    cooldown_minutes?: number
+    /** Blocked local time windows when the alert must not notify. Times use the project timezone. Null disables quiet hours. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
+    /**
+     * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+     * @nullable
+     */
+    snooze_until?: string | null
+    /**
+     * When the next evaluation is scheduled. Server-managed.
+     * @nullable
+     */
+    readonly next_check_at?: string | null
+    /**
+     * When the last notification was sent. Server-managed.
+     * @nullable
+     */
+    readonly last_notified_at?: string | null
+    /**
+     * When the alert was last evaluated. Server-managed.
+     * @nullable
+     */
+    readonly last_checked_at?: string | null
+    /** Consecutive evaluation failures. Resets on success. Server-managed. */
+    readonly consecutive_failures?: number
+    /**
+     * When the alert was first enabled. Null means still a draft.
+     * @nullable
+     */
+    readonly first_enabled_at?: string | null
+    /** When the alert was created. */
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+    /**
+     * When the alert was last modified.
+     * @nullable
+     */
+    readonly updated_at?: string | null
+}
+
+/**
+ * * `slack` - slack
+ * * `webhook` - webhook
+ */
+export type VisionAlertCreateDestinationTypeEnumApi =
+    (typeof VisionAlertCreateDestinationTypeEnumApi)[keyof typeof VisionAlertCreateDestinationTypeEnumApi]
+
+export const VisionAlertCreateDestinationTypeEnumApi = {
+    Slack: 'slack',
+    Webhook: 'webhook',
+} as const
+
+export interface VisionAlertCreateDestinationApi {
+    /** Notification destination type.
+     *
+     * * `slack` - slack
+     * * `webhook` - webhook */
+    type: VisionAlertCreateDestinationTypeEnumApi
+    /** Integration ID for the Slack workspace. Required when type=slack. */
+    slack_workspace_id?: number
+    /** Slack channel ID. Required when type=slack. */
+    slack_channel_id?: string
+    /** Human-readable channel name for display. */
+    slack_channel_name?: string
+    /** HTTPS endpoint to post to. Required when type=webhook. */
+    webhook_url?: string
+}
+
+export interface VisionAlertDestinationResponseApi {
+    /** HogFunctions backing the created destination, one per event kind. */
+    hog_function_ids: string[]
+}
+
+export interface VisionAlertDeleteDestinationApi {
+    /**
+     * HogFunction IDs to delete as one atomic destination group.
+     * @minItems 1
+     * @maxItems 5
+     */
+    hog_function_ids: string[]
+}
+
+/**
+ * * `check` - Check
+ * * `reset` - Reset
+ * * `enable` - Enable
+ * * `disable` - Disable
+ * * `snooze` - Snooze
+ * * `unsnooze` - Unsnooze
+ * * `threshold_change` - Threshold change
+ */
+export type VisionAlertEventKindEnumApi = (typeof VisionAlertEventKindEnumApi)[keyof typeof VisionAlertEventKindEnumApi]
+
+export const VisionAlertEventKindEnumApi = {
+    Check: 'check',
+    Reset: 'reset',
+    Enable: 'enable',
+    Disable: 'disable',
+    Snooze: 'snooze',
+    Unsnooze: 'unsnooze',
+    ThresholdChange: 'threshold_change',
+} as const
+
+export interface VisionAlertEventApi {
+    readonly id: string
+    readonly created_at: string
+    readonly kind: VisionAlertEventKindEnumApi
+    readonly state_before: string
+    readonly state_after: string
+    readonly threshold_breached: boolean
+    /** @nullable */
+    readonly metric_value: number | null
+    /** @nullable */
+    readonly error_message: string | null
+}
+
+export interface PaginatedVisionAlertEventListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: VisionAlertEventApi[]
+}
+
+/**
+ * * `configured` - Configured
+ * * `inline` - Inline
+ */
+export type ScannerOriginEnumApi = (typeof ScannerOriginEnumApi)[keyof typeof ScannerOriginEnumApi]
+
+export const ScannerOriginEnumApi = {
+    Configured: 'configured',
+    Inline: 'inline',
+} as const
+
+/**
  * * `pending` - Pending
  * * `running` - Running
  * * `succeeded` - Succeeded
@@ -611,6 +1003,11 @@ export interface ReplayObservationApi {
     readonly id: string
     /** The scanner that produced this observation. */
     readonly scanner_id: string
+    /** Where the producing scanner came from. `configured` scanners are saved, named, and have a detail page; `inline` ones are throwaways minted for a one-off scan and are not addressable, so callers must not link to them.
+     *
+     * * `configured` - Configured
+     * * `inline` - Inline */
+    readonly scanner_origin: ScannerOriginEnumApi
     /** Session recording id this scanner was applied to. */
     readonly session_id: string
     /** Observation status (pending, running, succeeded, failed, ineligible).
@@ -621,7 +1018,7 @@ export interface ReplayObservationApi {
      * * `failed` - Failed
      * * `ineligible` - Ineligible */
     readonly status: ObservationStatusEnumApi
-    /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
+    /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
     readonly error_reason: string
     /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
     readonly workflow_id: string
@@ -695,6 +1092,22 @@ export interface CreateTaskFromObservationResponseApi {
 export interface RetryResponseApi {
     /** Temporal workflow id for the re-run. The retried observation row is deleted; look up its replacement via GET /vision/scanners/{id}/observations/?session_id=<session_id>. */
     workflow_id: string
+}
+
+export interface ObservationSearchResultApi {
+    /** The matching observation. */
+    observation: ReplayObservationApi
+    /** Cosine distance between the search text and the observation's closest embedding. Lower is a closer match. Only comparable to other results in the same response. */
+    distance: number
+    /** Excerpt of the observation text that best matched the search, truncated. Empty for observations analyzed before excerpts were stored. */
+    matched_content: string
+}
+
+export interface ObservationSearchResponseApi {
+    /** Matching observations, most relevant first. */
+    results: ObservationSearchResultApi[]
+    /** True when more matches may exist beyond `results`, so the response is a top slice rather than everything that matched. */
+    truncated: boolean
 }
 
 export interface VisionQuotaApi {
@@ -1951,6 +2364,12 @@ export interface DraftScannerRequestApi {
      * @maxLength 2000
      */
     goal: string
+    /**
+     * Goal-based flow only: how many replays a month the scanner may watch. The draft solves `sampling_mode` and `sampling_rate` so the projection lands on this number. Omitted on the legacy flow, and ignored while the goal-based flow's flag is off for the caller.
+     * @minimum 1
+     * @maximum 1000000
+     */
+    monthly_scan_budget?: number
 }
 
 /**
@@ -1974,6 +2393,22 @@ export interface DraftScannerResponseApi {
     rationale: string
     /** `RecordingsQuery` narrowing which sessions get scanned; null when the draft targets every session. */
     query: unknown
+    /** Goal-based flow only: the quality pre-filter the draft chose for the goal. Null on the legacy flow, and null when the costing estimate failed — the wizard keeps its defaults.
+     *
+     * * `focused` - Focused
+     * * `balanced` - Balanced
+     * * `comprehensive` - Comprehensive */
+    sampling_mode: SamplingModeEnumApi | null
+    /**
+     * Goal-based flow only: the random sampling rate solved from `monthly_scan_budget`, 0..1. 1.0 when the budget covers every matching recording. Floored at the minimum rate, so a budget below that floor keeps the minimum. Null whenever `sampling_mode` is.
+     * @nullable
+     */
+    sampling_rate: number | null
+    /**
+     * Goal-based flow only: recordings a month the drafted scanner is projected to watch under the solved dials. At or under `monthly_scan_budget`, except when the budget is below what the minimum sampling rate can reach, where this is the floor and exceeds the budget. Null whenever `sampling_mode` is.
+     * @nullable
+     */
+    estimated_monthly_observations: number | null
 }
 
 /**
@@ -2199,6 +2634,48 @@ export type VisionActionsRunsListParams = {
     offset?: number
 }
 
+export type VisionAlertsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Only return alerts on this scanner.
+     */
+    scanner_id?: string
+}
+
+export type VisionAlertsEventsListParams = {
+    /**
+     * Narrow the history to one event kind.
+     */
+    kind?: VisionAlertsEventsListKind
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type VisionAlertsEventsListKind = (typeof VisionAlertsEventsListKind)[keyof typeof VisionAlertsEventsListKind]
+
+export const VisionAlertsEventsListKind = {
+    Check: 'check',
+    Disable: 'disable',
+    Enable: 'enable',
+    Reset: 'reset',
+    Snooze: 'snooze',
+    ThresholdChange: 'threshold_change',
+    Unsnooze: 'unsnooze',
+} as const
+
 export type VisionObservationsListParams = {
     /**
      * Number of results to return per page.
@@ -2269,6 +2746,43 @@ export type VisionObservationsRetrieveParams = {
     triggered_by?: string
     /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string
+}
+
+export type VisionObservationsSearchRetrieveParams = {
+    /**
+     * Maximum number of results (default 20, at most 50).
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number
+    /**
+     * Keep only scorer observations with a score at or below this value.
+     */
+    max_score?: number
+    /**
+     * Keep only scorer observations with a score at or above this value.
+     */
+    min_score?: number
+    /**
+     * Natural-language description of what to find, e.g. 'users confused by the pricing page'.
+     * @minLength 1
+     * @maxLength 2000
+     */
+    q: string
+    /**
+     * Search a single scanner's observations. Defaults to every scanner you can read.
+     */
+    scanner_id?: string
+    /**
+     * Comma-separated classifier tags to keep. Matching is case- and format-insensitive. Unlike `verdict`, tags are not validated against a fixed list, so an unknown tag matches nothing.
+     * @minLength 1
+     */
+    tags?: string
+    /**
+     * Comma-separated monitor verdicts to keep, e.g. `yes,inconclusive`.
+     * @minLength 1
      */
     verdict?: string
 }

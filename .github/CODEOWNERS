@@ -63,6 +63,19 @@ posthog/temporal/data_modeling/run_workflow.py @PostHog/team-data-modeling
 # Dev sandbox provides important protection in local dev
 bin/dev-sandbox* @PostHog/team-security
 
+# MCP Analytics relies on a cross-repo event contract with no shared type boundary.
+# Producers can change without failing product consumers, so team review gates both ends.
+products/mcp_analytics/** @PostHog/team-mcp-analytics
+posthog/temporal/mcp_analytics/** @PostHog/team-mcp-analytics
+services/mcp/src/hono/analytics.ts @PostHog/team-mcp-analytics
+services/mcp/src/lib/posthog/analytics.ts @PostHog/team-mcp-analytics
+services/mcp/tests/hono/analytics.test.ts @PostHog/team-mcp-analytics
+services/mcp/tests/unit/posthog/analytics.test.ts @PostHog/team-mcp-analytics
+services/mcp/src/generated/mcp_analytics/** @PostHog/team-mcp-analytics
+services/mcp/src/tools/generated/mcp_analytics.ts @PostHog/team-mcp-analytics
+docs/published/docs/mcp-analytics/** @PostHog/team-mcp-analytics
+bin/inject_mcp_intents.py @PostHog/team-mcp-analytics
+
 # The MCP store catalog is a fleet-wide trust decision, not ordinary code: a merged entry
 # becomes (probe permitting) an active server template in every environment on the next
 # deploy — installable by all tenants and feeding tool results into their LLM agents. The
@@ -74,3 +87,26 @@ products/mcp_store/backend/catalog.py @PostHog/team-self-driving @cvolzer3
 # `hogli product:bootstrap` scaffolds a sealed product, so a new one should never need an
 # entry. Removals are the mechanical result of a product sealing and are a rubber stamp.
 products/isolation_baseline.txt @PostHog/team-devex
+
+# Workflows owns CDP, Workflows and Messaging, and the entries below gate the parts
+# where another team's change breaks a customer silently: the API and models decide
+# which of a tenant's rows get listed and updated, and the plugin-server worker
+# decides what gets delivered. Other teams edit these as a side effect of shipping
+# their own product, usually by carving out an exception so their own rows behave
+# differently, and nothing errors when they get it wrong: their tests still pass, and
+# existing customer configurations just stop appearing, or stop being delivered.
+# #66355 did that, and it took #83993, #86202 and #86614 to unwind. Product frontends
+# stay out, because a mistake there is visible rather than silent.
+products/cdp/backend/api/** @PostHog/team-workflows
+products/cdp/backend/models/** @PostHog/team-workflows
+products/workflows/backend/api/** @PostHog/team-workflows
+products/workflows/backend/models/** @PostHog/team-workflows
+products/messaging/backend/api/** @PostHog/team-workflows
+products/messaging/backend/models/** @PostHog/team-workflows
+nodejs/src/cdp/** @PostHog/team-workflows
+# ...except the tests beside those gates. Nothing else under the worker is exempt:
+# the template, legacy-plugin, legacy-webhook and segment directories all hold live
+# delivery code and mutable registries, so an edit there can redirect a customer's
+# events and the credentials that go with them.
+products/*/backend/api/test/**
+nodejs/src/cdp/**/*.test.ts

@@ -5,7 +5,6 @@ import {
   authStateSchema,
   loginInput,
   loginOutput,
-  redeemInviteCodeInput,
   selectProjectInput,
   switchOrgInput,
   validAccessTokenOutput,
@@ -73,11 +72,10 @@ export const authRouter = router({
       ctx.container.get<AuthService>(AUTH_SERVICE).switchOrg(input.orgId),
     ),
 
-  redeemInviteCode: publicProcedure
-    .input(redeemInviteCodeInput)
+  retryDesktopAccess: publicProcedure
     .output(authStateSchema)
-    .mutation(async ({ ctx, input }) =>
-      ctx.container.get<AuthService>(AUTH_SERVICE).redeemInviteCode(input.code),
+    .mutation(async ({ ctx }) =>
+      ctx.container.get<AuthService>(AUTH_SERVICE).retryDesktopAccess(),
     ),
 
   logout: publicProcedure.output(authStateSchema).mutation(async ({ ctx }) => {

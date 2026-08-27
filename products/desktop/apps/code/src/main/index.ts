@@ -104,6 +104,7 @@ import { isMacosPackagedUnsafeBundleLocation } from "./utils/macos-packaged-inst
 import { installMainFetchLogging } from "./utils/network-fetch-logger";
 import { installRendererNetworkLogging } from "./utils/network-webrequest-logger";
 import { createWindow, onMainWindowClosed } from "./window";
+import { installYoutubeEmbedReferrer } from "./youtube-embed-referrer";
 
 type FileWatcherEventsByKind = {
   [K in FileWatcherEvent["kind"]]: Extract<FileWatcherEvent, { kind: K }>;
@@ -170,6 +171,9 @@ const RECOVERABLE_RENDER_REASONS = new Set([
 const CRASH_LOOP_WINDOW_MS = 30_000;
 const CRASH_LOOP_THRESHOLD = 3;
 const recentCrashTimestamps: number[] = [];
+// Electron reports renderers torn down during quit as "killed", which is also
+// a recoverable reason, so recovery has to be gated on shutdown state instead.
+let shutdownStarted = false;
 
 function isCrashLoop(): boolean {
   const now = Date.now();
@@ -211,6 +215,13 @@ app.on("render-process-gone", (_event, webContents, details) => {
     },
   );
   posthogNodeAnalytics.flush().catch(() => {});
+
+  if (shutdownStarted) {
+    log.info("Skipping renderer recovery during shutdown", {
+      reason: details.reason,
+    });
+    return;
+  }
 
   if (RECOVERABLE_RENDER_REASONS.has(details.reason)) {
     if (isCrashLoop()) {
@@ -368,6 +379,7 @@ app.whenReady().then(async () => {
     session.fromPartition("persist:main").webRequest,
     container.get<DevNetworkService>(DEV_NETWORK_SERVICE),
   );
+  installYoutubeEmbedReferrer(session.fromPartition("persist:main").webRequest);
   createWindow();
   setupQuickAsk();
   // The hidden quick-ask panel must not keep the app alive after the main
@@ -466,6 +478,7 @@ const teardownContainer = async (): Promise<void> => {
 };
 
 app.on("before-quit", async (event) => {
+  shutdownStarted = true;
   try {
     container.get<WorkspaceServerService>(WORKSPACE_SERVER_SERVICE).stop();
   } catch {}
@@ -497,6 +510,7 @@ app.on("before-quit", async (event) => {
 
 const handleShutdownSignal = async (signal: string) => {
   log.info(`Received ${signal}, starting shutdown`);
+  shutdownStarted = true;
   try {
     const lifecycleService = container.get<AppLifecycleService>(
       APP_LIFECYCLE_SERVICE,

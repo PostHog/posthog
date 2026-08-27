@@ -5,7 +5,7 @@ from temporalio import activity
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.exceptions import RetryableRepositorySetupError
-from products.tasks.backend.logic.services.sandbox import Sandbox
+from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
 from products.tasks.backend.temporal.observability import log_activity_execution
 
 from .get_snapshot_context import SnapshotContext
@@ -27,7 +27,7 @@ def setup_repository(input: SetupRepositoryInput) -> str:
         sandbox_id=input.sandbox_id,
         **ctx.to_log_context(),
     ):
-        sandbox = Sandbox.get_by_id(input.sandbox_id)
+        sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
 
         try:
             result = sandbox.setup_repository(ctx.repository)

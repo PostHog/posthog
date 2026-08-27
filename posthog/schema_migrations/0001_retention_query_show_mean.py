@@ -10,7 +10,7 @@ class Migration(SchemaMigration):
         if query["kind"] != "RetentionQuery":
             return query
 
-        if query["retentionFilter"] is None:
+        if query.get("retentionFilter") is None:
             return query
 
         if "showMean" in query["retentionFilter"]:

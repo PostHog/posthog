@@ -7,7 +7,7 @@ import {
     isOperatorFlag,
     isOperatorMulti,
 } from 'lib/utils/operators'
-import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 
 import type { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModel'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
@@ -15,8 +15,11 @@ import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     AccountCustomPropertyFilter,
+    ActionType,
     AnyFilterLike,
     AnyPropertyFilter,
+    BehavioralEventType,
+    BehavioralPropertyFilter,
     BreakdownType,
     CohortPropertyFilter,
     CohortType,
@@ -48,6 +51,7 @@ import {
     RevenueAnalyticsPropertyFilter,
     SessionPropertyFilter,
     SpanPropertyFilter,
+    TimeUnitType,
     WorkflowVariablePropertyFilter,
 } from '~/types'
 
@@ -123,6 +127,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.PersonMetadata]: TaxonomicFilterGroupType.PersonMetadata,
         [PropertyFilterType.Feature]: TaxonomicFilterGroupType.EventFeatureFlags,
         [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,
+        [PropertyFilterType.Behavioral]: TaxonomicFilterGroupType.Events,
         [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
         [PropertyFilterType.Session]: TaxonomicFilterGroupType.SessionProperties,
         [PropertyFilterType.HogQL]: TaxonomicFilterGroupType.HogQLExpression,
@@ -148,7 +153,8 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
 export function formatPropertyLabel(
     item: AnyPropertyFilter,
     cohortsById: Partial<Record<CohortType['id'], CohortType>>,
-    valueFormatter: (value: PropertyFilterValue | undefined) => string | string[] | null = (s) => [String(s)]
+    valueFormatter: (value: PropertyFilterValue | undefined) => string | string[] | null = (s) => [String(s)],
+    actionsById: Partial<Record<string | number, ActionType>> = {}
 ): string {
     if (!isValidPropertyFilter(item)) {
         return ''
@@ -156,6 +162,10 @@ export function formatPropertyLabel(
 
     if (isHogQLPropertyFilter(item)) {
         return extractExpressionComment(item.key)
+    }
+
+    if (isBehavioralPropertyFilter(item)) {
+        return formatBehavioralPropertyLabel(item, actionsById)
     }
 
     const { value, key, type } = item
@@ -234,6 +244,59 @@ export function isValidPropertyFilter(
 
 export function isCohortPropertyFilter(filter?: AnyFilterLike | null): filter is CohortPropertyFilter {
     return filter?.type === PropertyFilterType.Cohort
+}
+
+export function isBehavioralPropertyFilter(filter?: AnyFilterLike | null): filter is BehavioralPropertyFilter {
+    return filter?.type === PropertyFilterType.Behavioral
+}
+
+export function newBehavioralFilter(key: string, eventType: 'events' | 'actions'): BehavioralPropertyFilter {
+    return {
+        type: PropertyFilterType.Behavioral,
+        value: BehavioralEventType.PerformEvent,
+        key,
+        event_type: eventType,
+        time_value: 30,
+        time_interval: TimeUnitType.Day,
+    }
+}
+
+export const BEHAVIORAL_COUNT_OPERATOR_LABELS: Partial<Record<PropertyOperator, string>> = {
+    [PropertyOperator.GreaterThanOrEqual]: 'at least',
+    [PropertyOperator.LessThanOrEqual]: 'at most',
+    [PropertyOperator.GreaterThan]: 'more than',
+    [PropertyOperator.LessThan]: 'fewer than',
+    [PropertyOperator.Exact]: 'exactly',
+}
+
+/** Display name for the event or action a behavioral filter targets. An unresolved action falls back
+ * to its id, which is all the filter itself stores. */
+export function behavioralEntityLabel(
+    item: BehavioralPropertyFilter,
+    actionsById: Partial<Record<string | number, ActionType>> = {}
+): string {
+    if (item.event_type === 'actions') {
+        return actionsById[item.key]?.name || `action ${item.key}`
+    }
+    return getCoreFilterDefinition(item.key, TaxonomicFilterGroupType.Events)?.label || item.key
+}
+
+function formatBehavioralPropertyLabel(
+    item: BehavioralPropertyFilter,
+    actionsById: Partial<Record<string | number, ActionType>> = {}
+): string {
+    const eventLabel = behavioralEntityLabel(item, actionsById)
+    const countClause =
+        item.value === BehavioralEventType.PerformMultipleEvents
+            ? ` ${BEHAVIORAL_COUNT_OPERATOR_LABELS[item.operator ?? PropertyOperator.Exact] || 'exactly'} ${pluralize(
+                  item.operator_value ?? 0,
+                  'time'
+              )}`
+            : ''
+    const windowClause = item.explicit_datetime
+        ? ` since ${item.explicit_datetime}`
+        : ` in the last ${pluralize(item.time_value ?? 30, item.time_interval ?? TimeUnitType.Day)}`
+    return `${item.negation ? 'Did not perform' : 'Performed'} ${eventLabel}${countClause}${windowClause}`
 }
 
 // Filter keys whose value we offer a read-only group-info card for on hover.

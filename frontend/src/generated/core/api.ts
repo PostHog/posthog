@@ -88,6 +88,7 @@ import type {
     UsersIntegrationsListParams,
     UsersListParams,
     UsersLoginSessionsListParams,
+    VerifyEmailRequestApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -2643,6 +2644,27 @@ export const usersIntegrationsGithubInstallRequestsRetrieve = async (
     })
 }
 
+export const getUsersIntegrationsGithubInstallRequestsDestroyUrl = (uuid: string, requestId: string) => {
+    return `/api/users/${uuid}/integrations/github/install_requests/${requestId}/`
+}
+
+/**
+ * Delete one of the requesting user's install-approval requests, whatever its status.
+ *
+ * User-facing bookkeeping only: a later connect attempt records a fresh row.
+ * @summary Dismiss a GitHub install-approval request
+ */
+export const usersIntegrationsGithubInstallRequestsDestroy = async (
+    uuid: string,
+    requestId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getUsersIntegrationsGithubInstallRequestsDestroyUrl(uuid, requestId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getUsersIntegrationsGithubPrepareCallbackCreateUrl = (uuid: string) => {
     return `/api/users/${uuid}/integrations/github/prepare_callback/`
 }
@@ -3082,11 +3104,14 @@ export const getUsersVerifyEmailCreateUrl = () => {
     return `/api/users/verify_email/`
 }
 
-export const usersVerifyEmailCreate = async (userApi: NonReadonly<UserApi>, options?: RequestInit): Promise<void> => {
+export const usersVerifyEmailCreate = async (
+    verifyEmailRequestApi: VerifyEmailRequestApi,
+    options?: RequestInit
+): Promise<void> => {
     return apiMutator<void>(getUsersVerifyEmailCreateUrl(), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(userApi),
+        body: JSON.stringify(verifyEmailRequestApi),
     })
 }

@@ -469,6 +469,15 @@ export interface AIReportQueryDiagnosticApi {
     human_readable_error?: string | null
 }
 
+export interface AIReportChartApi {
+    /** Id of the rendered PNG export backing this chart. */
+    export_asset_id: number
+    /** Chart caption, taken from the plan step it illustrates. */
+    title: string
+    /** Index of the plan step this chart came from. */
+    step_index: number
+}
+
 export interface SubscriptionDeliveryApi {
     /** Primary key for this delivery row. */
     readonly id: string
@@ -532,6 +541,11 @@ export interface SubscriptionDeliveryApi {
      * @nullable
      */
     readonly ai_report_diagnostics: readonly AIReportQueryDiagnosticApi[] | null
+    /**
+     * Charts rendered for this report, in the order they were delivered. Empty when the report had no charts. Null for non-AI deliveries and for deliveries recorded before charts existed.
+     * @nullable
+     */
+    readonly ai_report_charts: readonly AIReportChartApi[] | null
     /**
      * The subscription's prompt as it was when this report was generated. Null for older deliveries and non-AI deliveries.
      * @nullable

@@ -12,8 +12,8 @@ const MOUNTED = mounted({
     GOOGLE_ADS_APP_CLIENT_ID: { state: 'steady', value: 'ga-id', versionId: 'v1', fetchedAt: 'now' },
     GOOGLE_ADS_APP_CLIENT_SECRET: {
         state: 'rotating',
-        value: 'ga-new',
-        previous: 'ga-old',
+        value: 'ga-live',
+        incoming: 'ga-staged',
         versionId: 'v1',
         fetchedAt: 'now',
     },
@@ -39,10 +39,12 @@ describe('resolve', () => {
         const response = resolveKeys(identity(['GOOGLE_ADS_APP_CLIENT_ID', 'GOOGLE_ADS_APP_CLIENT_SECRET']), MOUNTED)
 
         expect(response.secrets['GOOGLE_ADS_APP_CLIENT_ID']).toMatchObject({ state: 'steady', value: 'ga-id' })
+        // `previous` is the wire name; it carries the staged (incoming) value. The mismatch is
+        // deliberate and documented on WireSecret — the boundary lags the internal rename.
         expect(response.secrets['GOOGLE_ADS_APP_CLIENT_SECRET']).toMatchObject({
             state: 'rotating',
-            value: 'ga-new',
-            previous: 'ga-old',
+            value: 'ga-live',
+            previous: 'ga-staged',
         })
     })
 
