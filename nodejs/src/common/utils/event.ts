@@ -145,8 +145,9 @@ export function sanitizeEvent<T extends PipelineEvent | PluginEvent>(event: T): 
  * $browser, $device, and the rest.
  *
  * Server events are skipped so a server's host OS does not land in the event's own $os. The person
- * side is protected separately: personInitialAndUTMProperties skips $os, $os_version and the
- * $os_name block for $is_server events.
+ * side is handled separately: personInitialAndUTMProperties skips lifting $os and $os_version and
+ * skips folding $os_name into the sticky $initial_os for $is_server events. The host OS still reaches
+ * the person under the raw $os_name and $initial_os_name keys.
  */
 export function normalizeOsAlias(properties: Properties): void {
     if (properties['$is_server'] === true) {
