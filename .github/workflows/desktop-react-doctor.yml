@@ -2,7 +2,7 @@ name: Desktop React Doctor
 
 # Advisory only: posts a sticky PR comment with findings for changed desktop
 # files and never fails the PR. The source repo's --blocking enforcement step
-# is deliberately not ported (see products/desktop/MIGRATION.md).
+# is deliberately not ported.
 
 on:
     pull_request:
@@ -29,6 +29,9 @@ jobs:
     react-doctor:
         runs-on: ubuntu-latest
         timeout-minutes: 15
+        # Skipped on trunk-merge/** heads: merge-queue PRs are ephemeral and every
+        # constituent PR already ran this in full.
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:

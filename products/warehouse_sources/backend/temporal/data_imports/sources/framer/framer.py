@@ -11,13 +11,17 @@ sent as the `sdkVersion` query parameter, exactly like the SDK release it mirror
 import re
 import json
 import time
+import socket
+import http.client
 from collections.abc import Callable, Iterator
 from typing import Any, Optional, Protocol
 from urllib.parse import unquote, urlencode, urljoin, urlsplit
 
 from structlog.types import FilteringBoundLogger
-from websockets.exceptions import ConnectionClosed, InvalidStatus
+from websockets.exceptions import ConnectionClosed, InvalidMessage, InvalidStatus
+from websockets.headers import build_authorization_basic
 from websockets.sync.client import connect as websocket_connect
+from websockets.uri import Proxy, get_proxy, parse_proxy, parse_uri
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.framer import devalue
@@ -63,6 +67,39 @@ class WebSocketLike(Protocol):
     def recv(self, timeout: Optional[float] = None) -> Any: ...
 
     def close(self) -> None: ...
+
+
+def _tunnel_through_proxy(proxy: Proxy, host: str, port: int) -> socket.socket:
+    """Open a CONNECT tunnel to ``host:port`` through an HTTP(S) proxy and return the socket.
+
+    websockets' own proxy support requires an HTTP/1.1 status line on the CONNECT
+    response (until v17), but goproxy-based egress proxies such as Smokescreen answer a
+    successful CONNECT with ``HTTP/1.0 200 OK``, which websockets rejects as
+    "did not receive a valid HTTP response from proxy". ``http.client`` accepts HTTP/1.0,
+    so we establish the tunnel ourselves and hand the socket to websockets. This helper
+    can be dropped once the pinned websockets version is >= 17.
+    """
+    connection_class = http.client.HTTPSConnection if proxy.scheme == "https" else http.client.HTTPConnection
+    connection = connection_class(proxy.host, proxy.port, timeout=CONNECT_TIMEOUT_SECONDS)
+    headers: dict[str, str] = {}
+    if proxy.username is not None:
+        headers["Proxy-Authorization"] = build_authorization_basic(proxy.username, proxy.password or "")
+    connection.set_tunnel(host, port, headers)
+    try:
+        connection.connect()
+    except OSError as e:
+        connection.close()
+        raise FramerAPIError(
+            f"Could not reach Framer through the network proxy ({e}). Try again, and contact support if it keeps failing.",
+            code="PROXY",
+            retryable=True,
+        ) from e
+    sock = connection.sock
+    # Detach before the connection object goes out of scope, so its close() can't
+    # tear down the tunnel we're handing to websockets.
+    connection.sock = None
+    assert sock is not None  # connect() either sets the socket or raises
+    return sock
 
 
 def parse_project_id(project: str) -> Optional[str]:
@@ -120,18 +157,39 @@ class FramerClient:
 
     def connect(self) -> None:
         query = urlencode({"projectId": self._project_id, "sdkVersion": self._protocol_version})
+        url = f"{self._url}?{query}"
+        connect_kwargs: dict[str, Any] = {}
+        ws_uri = parse_uri(url)
+        proxy = get_proxy(ws_uri)
+        if proxy is not None:
+            proxy_parsed = parse_proxy(proxy)
+            if proxy_parsed.scheme in ("http", "https"):
+                # Tunnel the CONNECT ourselves because websockets < 17 rejects the
+                # HTTP/1.0 success line Smokescreen sends (see _tunnel_through_proxy).
+                # Passing a socket makes websockets skip its own proxy handling while
+                # still doing TLS against the Framer host. SOCKS proxies fall through
+                # to websockets' built-in support.
+                connect_kwargs["sock"] = _tunnel_through_proxy(proxy_parsed, ws_uri.host, ws_uri.port)
         try:
             self._ws = self._connect_fn(
-                f"{self._url}?{query}",
+                url,
                 additional_headers={"Authorization": f"Token {self._api_key}"},
                 open_timeout=CONNECT_TIMEOUT_SECONDS,
                 max_size=MAX_MESSAGE_BYTES,
+                **connect_kwargs,
             )
         except InvalidStatus as e:
             status = e.response.status_code
             if status in (401, 403):
                 raise FramerAPIError("Framer rejected the API key", code="UNAUTHORIZED") from e
             raise FramerAPIError(f"Connection rejected with HTTP {status}", code="INTERNAL", retryable=True) from e
+        except InvalidMessage as e:
+            # The server accepted the TCP/TLS connection but closed it before sending a
+            # parseable HTTP response (e.g. an EOF while reading the status line) — a
+            # headless-pool hiccup on Framer's side, not a credential or config problem.
+            raise FramerAPIError(
+                f"Connection closed during handshake: {e}", code="CONNECTION_CLOSED", retryable=True
+            ) from e
 
         deadline = time.monotonic() + CONNECT_TIMEOUT_SECONDS
         while True:

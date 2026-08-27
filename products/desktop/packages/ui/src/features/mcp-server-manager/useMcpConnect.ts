@@ -51,7 +51,7 @@ export interface CustomServerInput {
 /**
  * Shared MCP connect/list primitives: the `mcp_store` install flow behind an
  * injectable host OAuth callback, plus the team's installations query. Consumed
- * by both the standalone MCP-servers scene and the agent-applications builder.
+ * by the standalone MCP-servers scene.
  */
 export function useMcpConnect() {
   const trpc = useHostTRPC();

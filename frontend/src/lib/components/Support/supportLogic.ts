@@ -1,9 +1,11 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { EMAIL_SUPPORT_BUTTON, lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { isEmail } from 'lib/utils/url'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -38,6 +40,11 @@ async function waitForConversations(timeoutMs = 5000): Promise<boolean> {
 // through posthog.conversations.sendMessage (the widget endpoint), so guard against the same cap.
 export const CONVERSATIONS_MESSAGE_MAX_LENGTH = 10000
 
+// One email rule shared by the form validator and the submit guard, so the two can't drift.
+// Trimmed because pasted addresses often carry stray whitespace; requireTLD because an address
+// without one can't be delivered to, making it no better than a blank field for replying.
+const isDeliverableEmail = (email: string): boolean => isEmail(email.trim(), { requireTLD: true })
+
 /** Where the customer was when support broke for them. */
 export type SupportFailureSurface =
     | 'support_form' // the modal / side-panel support form (every "contact support" CTA)
@@ -52,6 +59,7 @@ export type SupportSendFailureReason =
     | 'send_failed' // the request threw
     | 'message_too_long' // rejected by the client-side cap before we tried
     | 'not_entitled' // plan has no ticket channel, so the draft was dropped on the floor
+    | 'invalid_email' // logged-out submit with no usable reply address, so the ticket would be orphaned
 
 /** Why a support surface couldn't function. Nothing was submitted, so no message is at risk. */
 export type SupportLoadFailureReason =
@@ -427,7 +435,13 @@ export const supportLogic = kea<supportLogicType>([
             errors: ({ name, email, message }) => {
                 return {
                     name: !values.user && !name ? 'Please enter your name' : undefined,
-                    email: !values.user && !email ? 'Please enter your email' : undefined,
+                    email: !values.user
+                        ? !email.trim()
+                            ? 'Please enter your email'
+                            : !isDeliverableEmail(email)
+                              ? 'Please enter a valid email address'
+                              : undefined
+                        : undefined,
                     message: !message ? 'Please enter a message' : undefined,
                 }
             },
@@ -474,6 +488,10 @@ export const supportLogic = kea<supportLogicType>([
     }),
     listeners(({ actions, props, values }) => ({
         updateUrlParams: async () => {
+            if (!values.sidePanelAvailable) {
+                return
+            }
+
             // Only include non-text fields in the URL parameters
             // This prevents focus loss when typing in text fields
             const panelOptions = [values.sendSupportRequest.kind ?? '', values.isEmailFormOpen ?? 'false'].join(':')
@@ -518,7 +536,10 @@ export const supportLogic = kea<supportLogicType>([
             actions.updateUrlParams()
         },
         submitSupportTicket: async (formValues: SupportFormFields) => {
-            const { name, email, kind, message, exception_event } = formValues
+            const { name, kind, message, exception_event } = formValues
+            // Trimmed before validating and sending: restore-by-email matches the stored trait
+            // exactly, so stray whitespace would make the ticket unrecoverable
+            const email = formValues.email.trim()
             const { ai_conversation_id, ai_trace_id, ai_feedback_rating } = formValues
 
             // Attribute PostHog AI (/ticket, feedback) handovers to the conversation. The ticket id
@@ -551,6 +572,16 @@ export const supportLogic = kea<supportLogicType>([
                 lemonToast.error("Oops, the message couldn't be sent. Please try again in a moment.", {
                     button: EMAIL_SUPPORT_BUTTON,
                 })
+            }
+
+            // The form's own validator only runs on a form submit, and the PostHog AI handovers submit
+            // straight from a button — so the reply address is checked here, on the path every caller
+            // shares. Without one a logged-out ticket is unreachable: widget replies are in-app only,
+            // and restoring by email is the sole way back if that browser session is gone.
+            if (!values.user && !isDeliverableEmail(email)) {
+                captureSupportTicketBlocked({ surface: 'support_form', reason: 'invalid_email', message, kind })
+                lemonToast.error('Please enter a valid email address so our support engineers can reply.')
+                return
             }
 
             if (!(await waitForConversations())) {
@@ -620,6 +651,22 @@ export const supportLogic = kea<supportLogicType>([
         },
 
         closeSupportForm: () => {
+            if (!values.sidePanelAvailable) {
+                const hashParams = { ...router.values.hashParams }
+                let changed = false
+                if (String(hashParams['panel'] ?? '').split(':')[0] === SidePanelTab.Support) {
+                    delete hashParams['panel']
+                    changed = true
+                }
+                if ('supportModal' in hashParams) {
+                    delete hashParams['supportModal']
+                    changed = true
+                }
+                if (changed) {
+                    router.actions.replace(router.values.location.pathname, router.values.searchParams, hashParams)
+                }
+            }
+
             // Form is only reset by explicit Cancel button or successful submission
             props.onClose?.()
         },

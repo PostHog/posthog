@@ -40,6 +40,7 @@ import {
   type AgentHarness,
   HarnessSubmenu,
 } from "@posthog/ui/features/sessions/components/HarnessSubmenu";
+import { ModelCostFooter } from "@posthog/ui/features/sessions/components/ModelCostChip";
 import { ModelRadioItem } from "@posthog/ui/features/sessions/components/ModelRadioItem";
 import type { AgentAdapter } from "@posthog/ui/features/settings/settingsStore";
 import { AnimatedHeight } from "@posthog/ui/primitives/AnimatedHeight";
@@ -69,6 +70,8 @@ interface ReasoningLevelSelectorProps {
   onHarnessChange?: (harness: AgentHarness) => void;
   includePiHarness?: boolean;
   onConfigOptionChange?: (configId: string, value: string) => void;
+  menuOpen?: boolean;
+  onMenuOpenChange?: (open: boolean) => void;
   disabled?: boolean;
   isLoading?: boolean;
 }
@@ -102,11 +105,19 @@ export function ReasoningLevelSelector({
   onHarnessChange,
   includePiHarness,
   onConfigOptionChange,
+  menuOpen,
+  onMenuOpenChange,
   disabled,
   isLoading,
 }: ReasoningLevelSelectorProps) {
-  const [open, setOpen] = useState(false);
+  const [internalMenuOpen, setInternalMenuOpen] = useState(false);
+  const open = menuOpen ?? internalMenuOpen;
+  const setOpen = onMenuOpenChange ?? setInternalMenuOpen;
   const [advanced, setAdvanced] = useState(false);
+  // Frozen when the Advanced view is entered: deriving it live from the
+  // ladder makes the Back row flash in and out as model picks move on and
+  // off a notch while the menu is open.
+  const [showBack, setShowBack] = useState(false);
   const pendingChangeRef = useRef<(() => void) | null>(null);
   const displayThought = useRetainedConfigOption(thoughtOption);
   const displayModel = useRetainedConfigOption(modelOption);
@@ -125,13 +136,58 @@ export function ReasoningLevelSelector({
   const modelSelect =
     displayModel?.type === "select" ? displayModel : undefined;
 
+  const handleHarnessSelect = (harness: AgentHarness) => {
+    if (harness === adapter) {
+      return;
+    }
+
+    if (harness === "pi") {
+      onHarnessChange?.(harness);
+      return;
+    }
+
+    if (onHarnessChange) {
+      onHarnessChange(harness);
+      return;
+    }
+
+    onAdapterChange?.(harness);
+  };
+
   if (!hasEffort && !modelSelect) {
     if (isLoading) {
+      // Keep the dropdown mounted while a harness switch reloads the config:
+      // unmounting it here closes a menu the user is mid-interaction with.
       return (
-        <Button type="button" variant="default" size="sm" disabled>
-          <Spinner size={12} className="animate-spin" />
-          Loading...
-        </Button>
+        <DropdownMenu open={open} onOpenChange={setOpen}>
+          <DropdownMenuTrigger
+            render={
+              <Button type="button" variant="default" size="sm">
+                <Spinner size={12} className="animate-spin" />
+                Loading...
+              </Button>
+            }
+          />
+          <DropdownMenuContent
+            align="start"
+            side="top"
+            sideOffset={6}
+            className="min-w-[230px]"
+          >
+            {adapter && (onAdapterChange || onHarnessChange) && (
+              <HarnessSubmenu
+                value={adapter}
+                includePi={includePiHarness && !!onHarnessChange}
+                closeOnChange={false}
+                onChange={handleHarnessSelect}
+              />
+            )}
+            <DropdownMenuItem disabled>
+              <Spinner size={12} className="animate-spin" />
+              Loading models...
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       );
     }
     return null;
@@ -305,12 +361,16 @@ export function ReasoningLevelSelector({
       onOpenChange={(nextOpen) => {
         // Only on the closed-to-open transition: submenu opens re-fire this
         // with true and must not yank the view back.
-        if (nextOpen && !open) setAdvanced(!onNotch);
+        if (nextOpen && !open) {
+          setAdvanced(!onNotch);
+          setShowBack(false);
+        }
         setOpen(nextOpen);
       }}
       onOpenChangeComplete={(isOpen) => {
         if (!isOpen) {
           setAdvanced(false);
+          setShowBack(false);
           if (pendingChangeRef.current !== null) {
             pendingChangeRef.current();
             pendingChangeRef.current = null;
@@ -371,30 +431,13 @@ export function ReasoningLevelSelector({
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.12, ease: "easeOut" }}
               >
-                {onNotch && <BackRow onClick={() => setAdvanced(false)} />}
+                {showBack && <BackRow onClick={() => setAdvanced(false)} />}
                 {adapter && (onAdapterChange || onHarnessChange) && (
                   <HarnessSubmenu
                     value={adapter}
                     includePi={includePiHarness && !!onHarnessChange}
-                    onChange={(harness) => {
-                      if (harness === adapter) {
-                        return;
-                      }
-
-                      selectAndClose(() => {
-                        if (harness === "pi") {
-                          onHarnessChange?.(harness);
-                          return;
-                        }
-
-                        if (onHarnessChange) {
-                          onHarnessChange(harness);
-                          return;
-                        }
-
-                        onAdapterChange?.(harness);
-                      });
-                    }}
+                    closeOnChange={false}
+                    onChange={handleHarnessSelect}
                   />
                 )}
                 {modelSelect && (
@@ -415,7 +458,7 @@ export function ReasoningLevelSelector({
                             setOpen(false);
                             return;
                           }
-                          selectAndClose(() => changeModel(value));
+                          changeModel(value);
                         }}
                       >
                         {modelGroups.length > 0
@@ -430,6 +473,7 @@ export function ReasoningLevelSelector({
                                     <ModelRadioItem
                                       key={model.value}
                                       model={model}
+                                      closeOnClick={false}
                                     />
                                   ))}
                               </Fragment>
@@ -442,9 +486,11 @@ export function ReasoningLevelSelector({
                                 <ModelRadioItem
                                   key={model.value}
                                   model={model}
+                                  closeOnClick={false}
                                 />
                               ))}
                       </DropdownMenuRadioGroup>
+                      <ModelCostFooter />
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                 )}
@@ -459,12 +505,14 @@ export function ReasoningLevelSelector({
                     <DropdownMenuSubContent>
                       <DropdownMenuRadioGroup
                         value={currentEffort ?? ""}
-                        onValueChange={(value) =>
-                          selectAndClose(() => onChange?.(value))
-                        }
+                        onValueChange={(value) => onChange?.(value)}
                       >
                         {effortOptions.map((option) => (
-                          <LevelItem key={option.value} option={option} />
+                          <LevelItem
+                            key={option.value}
+                            option={option}
+                            closeOnClick={false}
+                          />
                         ))}
                       </DropdownMenuRadioGroup>
                     </DropdownMenuSubContent>
@@ -482,13 +530,15 @@ export function ReasoningLevelSelector({
                       <DropdownMenuRadioGroup
                         value={row.value}
                         onValueChange={(value) =>
-                          selectAndClose(() =>
-                            onConfigOptionChange?.(row.id, value),
-                          )
+                          onConfigOptionChange?.(row.id, value)
                         }
                       >
                         {row.options.map((option) => (
-                          <LevelItem key={option.value} option={option} />
+                          <LevelItem
+                            key={option.value}
+                            option={option}
+                            closeOnClick={false}
+                          />
                         ))}
                       </DropdownMenuRadioGroup>
                     </DropdownMenuSubContent>
@@ -512,7 +562,10 @@ export function ReasoningLevelSelector({
                   stops={stops}
                   currentKey={currentStopKey}
                   onSelect={handleStopSelect}
-                  onAdvanced={() => setAdvanced(true)}
+                  onAdvanced={() => {
+                    setShowBack(true);
+                    setAdvanced(true);
+                  }}
                   fastToggle={fastToggle}
                 />
               </motion.div>

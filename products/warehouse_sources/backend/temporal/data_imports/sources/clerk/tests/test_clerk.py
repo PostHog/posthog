@@ -7,7 +7,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from requests import Request, Response
-from requests.exceptions import HTTPError
+from requests.exceptions import HTTPError, RequestException
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.clerk import (
     ClerkPaginator,
@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.cler
     _strip_sensitive_fields,
     clerk_source,
     get_resources,
+    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.settings import (
     CLERK_ENDPOINTS,
@@ -517,6 +518,12 @@ class TestClerkFeatureGatedEndpoints:
             ("commerce_plans", 400, {"errors": [{"code": "billing_not_enabled"}]}),
             ("commerce_subscription_items", 400, {"errors": [{"code": "billing_not_enabled"}]}),
             ("commerce_plans", 403, {"errors": [{"code": "feature_not_enabled"}]}),
+            # Restrictions off: the allow-list endpoint answers 404 resource_not_found, not a 4xx code.
+            ("allowlist_identifiers", 404, {"errors": [{"code": "resource_not_found"}]}),
+            # OAuth applications off: the list endpoint answers the same 404 resource_not_found.
+            ("oauth_applications", 404, {"errors": [{"code": "resource_not_found"}]}),
+            # Domains feature off: the list endpoint answers the same 404 resource_not_found.
+            ("domains", 404, {"errors": [{"code": "resource_not_found"}]}),
         ],
     )
     def test_feature_not_enabled_syncs_no_rows_instead_of_failing(
@@ -533,6 +540,8 @@ class TestClerkFeatureGatedEndpoints:
         [
             # A gated endpoint failing for an unrelated reason must still fail the sync.
             ("commerce_plans", 400, {"errors": [{"code": "invalid_request"}]}),
+            # A 404 with an unrelated code is a real failure, not the feature-off signal.
+            ("allowlist_identifiers", 404, {"errors": [{"code": "invalid_request"}]}),
             # A table with no feature gate never swallows an error.
             ("users", 402, {"errors": [{"code": "payment_required"}]}),
         ],
@@ -559,3 +568,38 @@ class TestClerkRetiredEndpoints:
                 resumable_source_manager=manager,
                 logger=MagicMock(),
             )
+
+
+_VALIDATE_SESSION = "products.warehouse_sources.backend.temporal.data_imports.sources.clerk.clerk.make_tracked_session"
+
+
+class TestClerkValidateCredentials:
+    @pytest.mark.parametrize(
+        ("status_code", "expected_substring"),
+        [
+            (401, "invalid or has been revoked"),
+            (403, "does not have permission"),
+            (500, "Couldn't validate your Clerk secret key"),
+        ],
+    )
+    def test_maps_status_to_curated_message_without_leaking_raw_body(
+        self, status_code: int, expected_substring: str
+    ) -> None:
+        # A regression that forwards Clerk's response body (or errors[0].message) back to the wizard
+        # would surface this sentinel; the curated copy must not.
+        sentinel = "RAW-CLERK-BODY-SENTINEL"
+        response = _make_http_response({"errors": [{"message": sentinel}]}, status_code=status_code)
+        with patch(_VALIDATE_SESSION) as mock_session:
+            mock_session.return_value.get.return_value = response
+            is_valid, message = validate_credentials("sk_test_key")
+        assert is_valid is False
+        assert expected_substring in (message or "")
+        assert sentinel not in (message or "")
+
+    def test_network_error_returns_actionable_message_without_leaking_exception(self) -> None:
+        with patch(_VALIDATE_SESSION) as mock_session:
+            mock_session.return_value.get.side_effect = RequestException("connection reset by peer")
+            is_valid, message = validate_credentials("sk_test_key")
+        assert is_valid is False
+        assert "Couldn't reach Clerk" in (message or "")
+        assert "connection reset by peer" not in (message or "")

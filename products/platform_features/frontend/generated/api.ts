@@ -30,6 +30,7 @@ import type {
     OrganizationDataFreshnessApi,
     OrganizationMemberApi,
     OrganizationMemberGithubLoginApi,
+    OrganizationRemoveBlockedMembersResponseApi,
     PaginatedActivityLogListApi,
     PaginatedApprovalPolicyListApi,
     PaginatedChangeRequestListApi,
@@ -45,6 +46,7 @@ import type {
     PatchedOrganizationMemberApi,
     PatchedPinnedSceneTabsApi,
     PatchedRoleApi,
+    PatchedUserFacetSettingsApi,
     PersonalApiKeysListParams,
     PinnedSceneTabsApi,
     RoleApi,
@@ -52,6 +54,9 @@ import type {
     RolesListParams,
     RolesRoleMembershipsListParams,
     SendCommentToSlackApi,
+    UserFacetSettingsApi,
+    UserFacetSettingsPartialUpdateParams,
+    UserFacetSettingsRetrieveParams,
     WelcomeResponseApi,
 } from './api.schemas'
 
@@ -163,6 +168,31 @@ export const destroy = async (id: string, options?: RequestInit): Promise<void> 
         ...options,
         method: 'DELETE',
     })
+}
+
+export const getRemoveBlockedMembersAndEnforceVerifiedDomainsCreateUrl = (id: string) => {
+    return `/api/organizations/${id}/remove_blocked_members_and_enforce_verified_domains/`
+}
+
+/**
+ * Remove the members whose email domain is outside the organization's verified domains and turn
+ * `enforce_verified_domains` on, in one transaction. Owners are never removed; they keep gated
+ * access and can disable the setting themselves. Admin only.
+ *
+ * Use this only when the caller has confirmed the removals. To turn the setting on without
+ * touching memberships, PATCH `enforce_verified_domains` on the organization instead.
+ */
+export const removeBlockedMembersAndEnforceVerifiedDomainsCreate = async (
+    id: string,
+    options?: RequestInit
+): Promise<OrganizationRemoveBlockedMembersResponseApi> => {
+    return apiMutator<OrganizationRemoveBlockedMembersResponseApi>(
+        getRemoveBlockedMembersAndEnforceVerifiedDomainsCreateUrl(id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 export const getRequestAiAccessCreateUrl = (id: string) => {
@@ -1061,6 +1091,69 @@ export const commentsCountRetrieve = async (projectId: string, options?: Request
     return apiMutator<void>(getCommentsCountRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getUserFacetSettingsRetrieveUrl = (uuid: string, params: UserFacetSettingsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/user_facet_settings/${uuid}/?${stringifiedParams}`
+        : `/api/user_facet_settings/${uuid}/`
+}
+
+/**
+ * Get the authenticated user's custom facets for a product, within the current team. Pass `@me` as the UUID.
+ */
+export const userFacetSettingsRetrieve = async (
+    uuid: string,
+    params: UserFacetSettingsRetrieveParams,
+    options?: RequestInit
+): Promise<UserFacetSettingsApi> => {
+    return apiMutator<UserFacetSettingsApi>(getUserFacetSettingsRetrieveUrl(uuid, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUserFacetSettingsPartialUpdateUrl = (uuid: string, params: UserFacetSettingsPartialUpdateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/user_facet_settings/${uuid}/?${stringifiedParams}`
+        : `/api/user_facet_settings/${uuid}/`
+}
+
+/**
+ * Replace the authenticated user's custom facets for a product, within the current team. Pass `@me` as the UUID.
+ */
+export const userFacetSettingsPartialUpdate = async (
+    uuid: string,
+    params: UserFacetSettingsPartialUpdateParams,
+    patchedUserFacetSettingsApi?: PatchedUserFacetSettingsApi,
+    options?: RequestInit
+): Promise<UserFacetSettingsApi> => {
+    return apiMutator<UserFacetSettingsApi>(getUserFacetSettingsPartialUpdateUrl(uuid, params), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedUserFacetSettingsApi),
     })
 }
 

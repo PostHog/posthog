@@ -10,6 +10,7 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
+import { RealtimeCheckIndicator } from '../legacy/sdks/RealtimeCheckIndicator'
 import {
     onboardingEventUsageLogic,
     SELF_DRIVING_ONBOARDING_EVENT_PROPS,
@@ -19,6 +20,7 @@ import { resolveSetup } from '../shared/useCases'
 import type { OnboardingExtraStepId, OnboardingUseCaseKey } from '../shared/useCases'
 import { wizardSyncUiLogic } from '../shared/wizard-sync/wizardSyncUiLogic'
 import { InstallationTrackerGate } from './components/InstallationTracker'
+import { ManualSetupButton } from './components/SelfDrivingInstallOptions'
 import { onboardingLogic } from './onboardingLogic'
 import { RoughMark } from './RoughMark'
 import { AIObservabilityStep } from './steps/AIObservabilityStep'
@@ -111,7 +113,7 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
     const { isCompleting } = useValues(onboardingLogic)
     const { reportOnboardingStarted, reportOnboardingStepCompleted, reportOnboardingStepSkipped } =
         useActions(eventUsageLogic)
-    const { reportOnboardingStepViewed } = useActions(onboardingEventUsageLogic)
+    const { reportOnboardingStepViewed, reportOnboardingInstallVerified } = useActions(onboardingEventUsageLogic)
     // The step list depends on the declared use case (persisted, so a refresh keeps the
     // conditional steps in place).
     const { selectedUseCase } = useValues(useCaseSelectionLogic)
@@ -191,7 +193,9 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
             {/* Pinned header: back button + progress share one row. Equal-width side slots keep the
                 progress dots centered in the card regardless of whether the back button is shown. */}
             <div className="shrink-0 flex flex-col items-center gap-4">
-                <div className="flex items-center gap-2 w-full">
+                {/* The dots are absolutely centered so uneven side content (back button vs the
+                    verification chip or run pill) can never shift them off the card's midline. */}
+                <div className="relative flex items-center justify-between gap-2 w-full min-h-8">
                     <div className="w-8 shrink-0 flex justify-start">
                         {!isFirst && (
                             <LemonButton
@@ -204,7 +208,7 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
                         )}
                     </div>
                     <div
-                        className="flex-1 flex items-center justify-center gap-1.5"
+                        className="absolute left-1/2 -translate-x-1/2 flex items-center gap-1.5"
                         role="group"
                         aria-label={`Step ${stepIndex + 1} of ${steps.length}`}
                     >
@@ -217,9 +221,18 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
                             />
                         ))}
                     </div>
-                    <div className="min-w-8 shrink-0 flex justify-end">
-                        {/* Past the install step, the run keeps a quiet presence up here; on the
-                            install step itself the tracker lives in the content. */}
+                    <div className="min-w-0 flex justify-end">
+                        {/* On the install step, live verification: flips when the team's first event
+                            lands, whichever install path produced it. Past the install step, the run
+                            keeps a quiet presence up here; on the install step itself the tracker
+                            lives in the content. */}
+                        {step.id === 'install' && (
+                            <RealtimeCheckIndicator
+                                teamPropertyToVerify="ingested_event"
+                                minimal
+                                onComplete={reportOnboardingInstallVerified}
+                            />
+                        )}
                         {stepIndex > steps.findIndex((s) => s.id === 'install') && <InstallationTrackerGate />}
                     </div>
                 </div>
@@ -256,15 +269,18 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
                         <span />
                     )}
                     {!step.hideContinue && (
-                        <LemonButton
-                            type="primary"
-                            status="alt"
-                            sideIcon={<IconArrowRight />}
-                            onClick={completeStep}
-                            loading={isLast && isCompleting}
-                        >
-                            {isLast ? 'Finish' : isFirst ? 'Get started' : 'Continue'}
-                        </LemonButton>
+                        <div className="flex items-center gap-2">
+                            {step.id === 'install' && <ManualSetupButton />}
+                            <LemonButton
+                                type="primary"
+                                status="alt"
+                                sideIcon={<IconArrowRight />}
+                                onClick={completeStep}
+                                loading={isLast && isCompleting}
+                            >
+                                {isLast ? 'Finish' : isFirst ? 'Get started' : 'Continue'}
+                            </LemonButton>
+                        </div>
                     )}
                 </div>
             )}

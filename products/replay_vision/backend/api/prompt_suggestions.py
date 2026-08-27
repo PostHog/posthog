@@ -45,13 +45,15 @@ from products.replay_vision.backend.prompt_suggestions import (
     generate_prompt_suggestion,
     labels_fingerprint,
 )
-from products.replay_vision.backend.quota import quota_state
+from products.replay_vision.backend.quota import compute_scanner_budget, quota_state
 from products.replay_vision.backend.scanner_config import scanner_config_error
 from products.replay_vision.backend.temporal.constants import (
     EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME,
     build_evaluate_prompt_suggestion_workflow_id,
+    on_demand_priority,
 )
 from products.replay_vision.backend.temporal.evaluation_types import EvaluatePromptSuggestionInputs
+from products.replay_vision.backend.temporal.metrics import record_scanner_limit_reached
 
 logger = structlog.get_logger(__name__)
 
@@ -384,10 +386,10 @@ class ReplayScannerPromptSuggestionViewSet(
             "Results land on the suggestion's `evaluation` field. Poll `current` while status is running. "
             "`session_limit` controls how many rated sessions are re-run (thumbs-down prioritized, up to "
             "`evaluation_session_cap`). Each successful re-run charges credits like a normal observation of "
-            "the same model. The request is refused with 402 when the planned credits exceed what is left of "
-            "the monthly limit. Monitor and classifier scanners get a kept/fixed/regressed classification, "
-            "while scorer and summarizer scanners show the raw before and after output. Requires session "
-            "recording edit access."
+            "the same model. The request is refused with 402 when the planned credits exceed what is left "
+            "for the current billing period, either the org's limit or this scanner's own. Monitor and classifier scanners get a "
+            "kept/fixed/regressed classification, while scorer and summarizer scanners show the raw before "
+            "and after output. Requires session recording edit access."
         ),
     )
     @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
@@ -414,6 +416,12 @@ class ReplayScannerPromptSuggestionViewSet(
         # both see "not in flight", and the second stub save moves `started_at`, which re-keys the usage
         # receipts of the first run's still-settling sessions and charges them twice.
         with transaction.atomic():
+            # Serialize capped budget reads with the admission gate's row lock; scanner before
+            # suggestion, matching apply's lock order. `credit_limit` comes from the earlier unlocked
+            # fetch, so a limit set concurrently with this request fails open once (create_observation
+            # re-reads under the lock; the next request here sees the limit).
+            if scanner.credit_limit is not None:
+                ReplayScanner.objects.select_for_update().filter(team_id=self.team_id, pk=scanner.id).only("pk").first()
             suggestion = ReplayScannerPromptSuggestion.objects.select_for_update().get(
                 team_id=self.team_id, id=suggestion.id
             )
@@ -436,6 +444,19 @@ class ReplayScannerPromptSuggestionViewSet(
                         f"{quota.period_end.strftime('%b')} {quota.period_end.day}."
                     )
                 )
+            # A test re-runs the scanner, so it draws from the scanner's own limit too, on top of the org's.
+            if scanner.credit_limit is not None:
+                scanner_budget = compute_scanner_budget(scanner)
+                if scanner_budget.would_exceed(planned_credits):
+                    record_scanner_limit_reached("evaluation")
+                    raise QuotaLimitExceeded(
+                        detail=(
+                            f"This test would use {planned_credits:,} credits but this scanner has "
+                            f"{scanner_budget.remaining or 0:,} left of its {scanner_budget.credit_limit or 0:,} credit "
+                            f"limit for this billing period. Lower the test session count or raise the scanner's limit."
+                        ),
+                        code="scanner_credit_limit_exceeded",
+                    )
             # Stamp running first so the UI never sees a gap and the planned spend counts against quota
             # right away. The select activity replaces this stub with the real total and fingerprint.
             previous_evaluation = suggestion.evaluation
@@ -449,13 +470,17 @@ class ReplayScannerPromptSuggestionViewSet(
                 EvaluatePromptSuggestionInputs(  # type: ignore[arg-type]
                     suggestion_id=suggestion.id,
                     team_id=scanner.team_id,
-                    session_limit=session_limit,
+                    # The admitted count, not the raw request limit: sessions rated between this
+                    # admission and the select activity must not widen the run past what was budgeted.
+                    session_limit=planned,
                     config_override=edited_config,
                     started_at=started_at,
                 ),
                 id=build_evaluate_prompt_suggestion_workflow_id(suggestion.id),
                 task_queue=settings.REPLAY_VISION_TASK_QUEUE,
                 execution_timeout=EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT,
+                # A user waiting on "test this prompt" ranks with the other user-initiated starts.
+                priority=on_demand_priority(scanner.team_id),
                 search_attributes=TypedSearchAttributes(
                     search_attributes=[SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=scanner.team_id)]
                 ),

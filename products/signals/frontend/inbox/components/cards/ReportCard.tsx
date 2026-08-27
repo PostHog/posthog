@@ -1,18 +1,25 @@
 import clsx from 'clsx'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 
 import { IconArchive, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { derivePrState } from 'lib/signals/prState'
 import { ScoutLink } from 'lib/signals/ScoutLink'
 import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
 import { PrBadge } from 'lib/signals/SignalReportPrBadge'
-import { urls } from 'scenes/urls'
 
-import { InboxFlatListTabKey, SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
+import {
+    INBOX_SECTION_LEGACY_TAB,
+    InboxReportSectionKey,
+    SignalReport,
+    SignalReportStatus,
+    SignalSourceProduct,
+} from '../../types'
 import { dismissalReasonLabel, DismissalReasonValue } from '../../utils/dismissalReasons'
+import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
 import {
     deriveHeadline,
     displayConventionalCommitTitle,
@@ -23,14 +30,14 @@ import {
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
-import { SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
+import { isStatusRedundantWithActionability, SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import {
-    hasKnownSourceProduct,
     knownSourceProductEntries,
     SourceProductIconRow,
     sourceProductsTooltipTitle,
 } from '../badges/sourceProductIcons'
-import { inboxCardRowClassName, useReportArchive } from './useReportArchive'
+import { inboxCardRowClassName } from './inboxCardRowClassName'
+import { useReportArchive } from './useReportArchive'
 
 // ── Shared card sub-components ────────────────────────────────────────────────
 
@@ -90,12 +97,20 @@ export function InboxCardSourceMeta({
 /**
  * Unified inbox list card for reports and pull requests. The presence of a parseable
  * implementation PR (`hasPr`) drives the divergences: PR cards get a solid border, a
- * `#1234` state badge, the repo slug in the meta row, and no status/actionability chips;
- * plain reports get a dashed border, a summary placeholder, and the status/actionability chips.
+ * `#1234` state badge, the repo slug in the meta row, no status/actionability chips, and a
+ * "Review" action; plain reports get a dashed border, a summary placeholder, the
+ * status/actionability chips, and "View report".
+ *
+ * Under the redesign the inbox list gives a row one action, the one that moves the report forward;
+ * archiving lives in the report detail pane and the bulk selection bar, where what is being
+ * dismissed is in full view. Other surfaces that embed this card can still opt into a row-level
+ * Archive via `onArchive`. The redesign also drops the status and actionability chips: the section a
+ * row sits in (Needs a PR, Not actionable, ...) already says what they said. With the flag off every
+ * row keeps its chips, its Archive button, and the "Review" label.
  */
 export function ReportCard({
     report,
-    tabKey = 'reports',
+    sectionKey = 'needs-decision',
     attached = false,
     onArchive,
     onRestore,
@@ -103,8 +118,9 @@ export function ReportCard({
     preview = false,
 }: {
     report: SignalReport
-    tabKey?: InboxFlatListTabKey
+    sectionKey?: InboxReportSectionKey
     attached?: boolean
+    /** Archive from the row. The inbox list omits it; surfaces that embed this card can opt in. */
     onArchive?: (reason: DismissalReasonValue, note: string) => void
     onRestore?: () => void
     /** Internal path the detail view's back button should return to, for cards rendered outside the inbox. */
@@ -113,9 +129,9 @@ export function ReportCard({
      * placeholder report id can never be opened (it 404s). */
     preview?: boolean
 }): JSX.Element {
-    const isArchived = tabKey === 'archived'
+    const isArchived = sectionKey === 'resolved'
     // Resolved reports are terminal (their implementation PR merged) – shown for reference in the
-    // Archive tab. They can't be restored or re-archived; refunding their PR lives in the detail pane.
+    // Resolved section. They can't be restored or re-archived; refunding their PR lives in the detail pane.
     const isResolved = report.status === SignalReportStatus.RESOLVED
     const prUrl = safeHttpUrl(report.implementation_pr_url)
     const prUrlParts = prUrl ? parsePrUrlParts(prUrl) : null
@@ -123,14 +139,17 @@ export function ReportCard({
     const prNumber = prUrlParts?.number ?? null
     const repoSlug = prUrlParts?.repoSlug ?? null
 
-    const hasSource = hasKnownSourceProduct(report.source_products)
     const isReady = report.status === 'ready'
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const cardTitle = displayConventionalCommitTitle(report.title, hasPr ? 'Untitled pull request' : 'Untitled report')
     const headline = deriveHeadline(report.summary)
-    const detailUrl = backUrl
-        ? combineUrl(urls.inboxReport(tabKey, report.id), { back: backUrl }).url
-        : urls.inboxReport(tabKey, report.id)
+    const redesign = useFeatureFlag('INBOX_REDESIGN')
+    // The legacy layout addresses a report through the tab that listed it, so its back control returns there.
+    const detailUrl = inboxReportDetailUrl(
+        report.id,
+        backUrl,
+        redesign ? 'reports' : INBOX_SECTION_LEGACY_TAB[sectionKey]
+    )
 
     const { isArchiving, onArchiveClick } = useReportArchive({
         reportId: report.id,
@@ -142,7 +161,7 @@ export function ReportCard({
 
     const isRefunded = !!report.refund
 
-    // On the Archive tab, surface why it was dismissed (reason tag + note tooltip) when we have it.
+    // On the Resolved view, surface why it was dismissed (reason tag + note tooltip) when we have it.
     // Key off the report still being suppressed, not the tab: a report that was dismissed, restored,
     // then resolved keeps its old dismissal artefact, and showing that tag would mislabel finished work.
     // The dedicated billing badge already marks refunded reports, so skip the duplicate chip there.
@@ -150,19 +169,6 @@ export function ReportCard({
         isArchived && report.status === SignalReportStatus.SUPPRESSED && !isRefunded
             ? dismissalReasonLabel(report.dismissal_reason)
             : null
-
-    // Permanent billing marker (Refunded / Free) — shown on both PR cards and plain reports.
-    const showBillingBadge = isRefunded || !!report.billing_exempt_reason
-
-    // PR cards show repo · source; reports show source · status · actionability.
-    const showMeta = hasPr
-        ? repoSlug != null || hasSource || showBillingBadge
-        : hasSource ||
-          !isReady ||
-          report.actionability != null ||
-          report.is_suggested_reviewer === true ||
-          !!dismissalLabel ||
-          showBillingBadge
 
     const cardBodyClassName = 'flex min-w-0 flex-1 items-start gap-3 text-left text-inherit no-underline'
     const cardBody = (
@@ -174,11 +180,11 @@ export function ReportCard({
             )}
 
             <div className="flex flex-col gap-1.5 min-w-0 flex-1">
-                {/* Pad clear of the absolute PR badge on mobile, where the title spans the full card width. */}
+                {/* Keep the title clear of the PR badge, which is positioned within the content column. */}
                 <div
                     className={clsx(
                         'min-w-0 break-words font-semibold text-sm leading-snug text-balance',
-                        hasPr && 'pr-14 @lg:pr-0'
+                        hasPr && 'pr-14'
                     )}
                 >
                     {conventionalTitle && (
@@ -209,35 +215,28 @@ export function ReportCard({
                     </p>
                 ) : null}
 
-                {showMeta ? (
-                    <div className="flex items-center flex-wrap mt-1.5 min-w-0 gap-2.5 text-xs text-tertiary leading-none select-none">
-                        {hasPr && repoSlug ? <span className="truncate font-mono">{repoSlug}</span> : null}
-                        <InboxCardSourceMeta
-                            sourceProducts={report.source_products}
-                            scoutSkillName={report.scout_name}
-                        />
-                        {!hasPr && (!isReady || !report.actionability) && (
+                <div className="flex items-center flex-wrap mt-1.5 min-w-0 gap-x-2.5 gap-y-1 text-xs text-tertiary leading-none select-none">
+                    {hasPr && repoSlug ? <span className="truncate font-mono">{repoSlug}</span> : null}
+                    <InboxCardSourceMeta sourceProducts={report.source_products} scoutSkillName={report.scout_name} />
+                    {!hasPr &&
+                        !redesign &&
+                        !isStatusRedundantWithActionability(report.status, report.actionability) && (
                             <SignalReportStatusBadge status={report.status} />
                         )}
-                        {!hasPr && report.actionability && (
-                            <SignalReportActionabilityBadge actionability={report.actionability} />
-                        )}
-                        {dismissalLabel && (
-                            <Tooltip title={report.dismissal_note || undefined}>
-                                <LemonTag size="small" icon={<IconArchive />}>
-                                    {dismissalLabel}
-                                </LemonTag>
-                            </Tooltip>
-                        )}
-                        <SignalReportBillingBadge report={report} />
-                    </div>
-                ) : null}
-
-                {/* In flow on mobile (the card stacks); pinned to the card's bottom-right corner on desktop. */}
-                <div className="mt-0.5 @lg:absolute @lg:right-4 @lg:bottom-3 @lg:z-10 @lg:mt-0">
+                    {!hasPr && !redesign && report.actionability && (
+                        <SignalReportActionabilityBadge actionability={report.actionability} />
+                    )}
+                    {dismissalLabel && (
+                        <Tooltip title={report.dismissal_note || undefined}>
+                            <LemonTag size="small" icon={<IconArchive />}>
+                                {dismissalLabel}
+                            </LemonTag>
+                        </Tooltip>
+                    )}
+                    <SignalReportBillingBadge report={report} />
                     <TZLabel
                         time={report.updated_at ?? report.created_at}
-                        className="text-xs text-tertiary tabular-nums"
+                        className="ml-auto shrink-0 text-xs text-tertiary tabular-nums"
                         title="Last updated"
                     />
                 </div>
@@ -246,26 +245,28 @@ export function ReportCard({
     )
 
     return (
-        <div className={clsx('relative', inboxCardRowClassName(attached, { dashed: !hasPr }))}>
-            {hasPr && prNumber != null ? (
-                <div className="absolute right-4 top-3 z-10">
-                    <PrBadge
-                        prNumber={prNumber}
-                        // No link in preview mode: the sample PR url is fabricated, and a link would
-                        // stay keyboard-focusable inside the otherwise non-routable card.
-                        prUrl={preview ? null : prUrl}
-                        state={derivePrState(report.status, report.implementation_pr_merged === true)}
-                    />
-                </div>
-            ) : null}
+        <div className={inboxCardRowClassName(attached, { dashed: !hasPr })}>
+            <div className="relative flex min-w-0 flex-1">
+                {hasPr && prNumber != null ? (
+                    <div className="absolute right-0 top-0 z-10">
+                        <PrBadge
+                            prNumber={prNumber}
+                            // No link in preview mode: the sample PR url is fabricated, and a link would
+                            // stay keyboard-focusable inside the otherwise non-routable card.
+                            prUrl={preview ? null : prUrl}
+                            state={derivePrState(report.status, report.implementation_pr_merged === true)}
+                        />
+                    </div>
+                ) : null}
 
-            {preview ? (
-                <div className={cardBodyClassName}>{cardBody}</div>
-            ) : (
-                <Link to={detailUrl} className={cardBodyClassName}>
-                    {cardBody}
-                </Link>
-            )}
+                {preview ? (
+                    <div className={cardBodyClassName}>{cardBody}</div>
+                ) : (
+                    <Link to={detailUrl} className={cardBodyClassName}>
+                        {cardBody}
+                    </Link>
+                )}
+            </div>
 
             {/* Refund deliberately isn't offered at the card level – it lives in the report detail
                 pane, where the consequences are in view. Resolved reports are terminal and a refunded
@@ -293,18 +294,20 @@ export function ReportCard({
                         )
                     ) : (
                         <>
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconArchive />}
-                                tooltip="Archive this report"
-                                aria-label="Archive this report"
-                                loading={isArchiving}
-                                onClick={preview ? undefined : onArchiveClick}
-                                tabIndex={preview ? -1 : undefined}
-                            >
-                                Archive
-                            </LemonButton>
+                            {(onArchive || !redesign) && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconArchive />}
+                                    tooltip="Archive this report"
+                                    aria-label="Archive this report"
+                                    loading={isArchiving}
+                                    onClick={preview ? undefined : onArchiveClick}
+                                    tabIndex={preview ? -1 : undefined}
+                                >
+                                    Archive
+                                </LemonButton>
+                            )}
                             <LemonButton
                                 type="primary"
                                 size="small"
@@ -320,7 +323,7 @@ export function ReportCard({
                                 }
                                 tabIndex={preview ? -1 : undefined}
                             >
-                                Review
+                                {hasPr || !redesign ? 'Review' : 'View report'}
                             </LemonButton>
                         </>
                     )}

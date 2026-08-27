@@ -14,7 +14,6 @@ from posthog.products import load_product_modules
 from posthog.settings import EE_AVAILABLE
 
 from ee.api.quota_limits import QuotaLimitsViewSet
-from ee.api.session_summaries import SessionGroupSummaryViewSet, SingleSessionSummaryViewSet
 from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, vercel_resource
 
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
@@ -63,6 +62,7 @@ from . import (
     team,
     uploaded_media,
     user,
+    user_facet_settings,
     user_home_settings,
     web_vitals,
     webauthn,
@@ -374,6 +374,11 @@ router.register(
     user_home_settings.UserHomeSettingsViewSet,
     "user_home_settings",
 )
+router.register(
+    r"user_facet_settings",
+    user_facet_settings.UserFacetSettingsViewSet,
+    "user_facet_settings",
+)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
 router.register(r"cli-auth", cli_auth.CLIAuthViewSet, "cli_auth")
 router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")
@@ -475,20 +480,6 @@ legacy_project_session_recordings_router.register(
     sharing.SharingConfigurationViewSet,
     "project_recording_sharing",
     ["team_id", "recording_id"],
-)
-
-projects_router.register(
-    r"session_group_summaries",
-    SessionGroupSummaryViewSet,
-    "project_session_group_summaries",
-    ["project_id"],
-)
-
-projects_router.register(
-    r"single_session_summaries",
-    SingleSessionSummaryViewSet,
-    "project_single_session_summaries",
-    ["project_id"],
 )
 
 projects_router.register(

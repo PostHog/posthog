@@ -1,6 +1,10 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { SKILL_EXISTS_MARKER, stripFrontmatter } from "@posthog/shared";
+import {
+  isIgnoredSkillPath,
+  SKILL_EXISTS_MARKER,
+  stripFrontmatter,
+} from "@posthog/shared";
 import { inject, injectable } from "inversify";
 import { WATCHER_SERVICE } from "../../di/tokens";
 import type { FoldersService } from "../folders/folders";
@@ -167,6 +171,7 @@ export class SkillsService {
   ): Promise<void> {
     const skillDir = await this.resolveWritableSkillDir(skillPath);
     const target = resolveSkillFilePath(skillDir, filePath);
+    assertVisibleSkillFilePath(filePath);
     await fs.promises.mkdir(path.dirname(target), { recursive: true });
     await fs.promises.writeFile(target, content, "utf-8");
   }
@@ -179,6 +184,9 @@ export class SkillsService {
     const skillDir = await this.resolveWritableSkillDir(skillPath);
     const from = resolveSkillFilePath(skillDir, fromPath);
     const to = resolveSkillFilePath(skillDir, toPath);
+    // Only the destination is checked: renaming a file OUT of an ignored
+    // directory is the way to rescue one that is invisible in the file tree.
+    assertVisibleSkillFilePath(toPath);
     if (from === path.join(skillDir, "SKILL.md")) {
       throw new Error("SKILL.md cannot be renamed");
     }
@@ -326,7 +334,15 @@ export class SkillsService {
       );
       await Promise.all(
         input.files.map(async (file) => {
+          // Resolve first so a traversal path still fails the install loudly.
           const filePath = resolveSkillFilePath(staging, file.path);
+          // The body is the source of truth for SKILL.md; the lowercase
+          // compare stops a case-variant from clobbering it on APFS.
+          if (file.path.toLowerCase() === "skill.md") return;
+          // Skills published before ignored entries were filtered at export
+          // can still carry junk; drop it at install so the directory matches
+          // what the file tree and bundlers report.
+          if (isIgnoredSkillPath(file.path)) return;
           await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
           await fs.promises.writeFile(filePath, file.content, "utf-8");
         }),
@@ -760,9 +776,30 @@ function delay(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 function resolveSkillFilePath(skillDir: string, filePath: string): string {
+  // Skill-relative paths are always "/"-separated (see SkillFileEntry). A
+  // literal backslash on POSIX would sit inside one path.resolve segment
+  // here, but the cloud sandbox's extractor normalizes "\" to "/" on unzip,
+  // so such a file would reappear nested on extraction and could silently
+  // collide with (and overwrite) an unrelated file at that path.
+  if (filePath.includes("\\")) {
+    throw new Error("File and folder names cannot contain a backslash.");
+  }
   const resolved = path.resolve(skillDir, filePath);
   if (resolved === skillDir || !resolved.startsWith(skillDir + path.sep)) {
     throw new Error("Access denied: path outside skill directory");
   }
   return resolved;
+}
+
+/**
+ * Rejects write destinations the file tree would never show; without this a
+ * user-created file lands on disk but cannot be seen, renamed, or deleted
+ * through the UI, and is silently left out of publish and cloud bundles.
+ */
+function assertVisibleSkillFilePath(filePath: string): void {
+  if (isIgnoredSkillPath(filePath)) {
+    throw new Error(
+      'Folders starting with "." and folders like node_modules are excluded from skills. Choose a different location.',
+    );
+  }
 }

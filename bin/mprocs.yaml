@@ -113,30 +113,9 @@ procs:
             layer: Ingestion pipeline
             tech: Node
 
-    ingestion-ai:
-        sandbox: true
-        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-v2 INGESTION_PIPELINE=ai HTTP_SERVER_PORT=6746 ./bin/posthog-node'
-        capability: ai_capture
-        ready_pattern: 'All systems go'
-        groups:
-            layer: Ingestion pipeline
-            tech: Node
-        env:
-            INGESTION_CONSUMER_CONSUME_TOPIC: ai_events_ingestion
-            INGESTION_CONSUMER_GROUP_ID: ingestion-ai
-            PERSONHOG_ENABLED: 'true'
-            PERSONHOG_ADDR: '127.0.0.1:50052'
-            AI_BLOB_S3_BUCKET: ai-blobs
-            AI_BLOB_S3_PREFIX: 'aio/'
-            AI_BLOB_S3_ENDPOINT: 'http://localhost:19000'
-            AI_BLOB_S3_REGION: us-east-1
-            AI_BLOB_S3_ACCESS_KEY_ID: object_storage_root_user
-            AI_BLOB_S3_SECRET_ACCESS_KEY: object_storage_root_password
-            AI_BLOB_OFFLOAD_TEAMS: '*'
-
     ingestion:
         sandbox: true
-        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-v2-combined HTTP_SERVER_PORT=6739 ./bin/posthog-node'
+        shell: 'bin/wait-for-docker objectstorage && PLUGIN_SERVER_MODE=ingestion-v2-combined HTTP_SERVER_PORT=6739 ./bin/posthog-node'
         capability: event_ingestion
         ready_pattern: 'All systems go'
         groups:
@@ -147,6 +126,16 @@ procs:
             # event_ingestion capability pulls the personhog services in.
             PERSONHOG_ENABLED: 'true'
             PERSONHOG_ADDR: '127.0.0.1:50052'
+            # Combined mode's AI consumer owns the events_plugin_ingestion_ai lane locally;
+            # without a bucket it silently skips blob offload, so give it the same store the
+            # compose stacks use.
+            AI_BLOB_S3_BUCKET: ai-blobs
+            AI_BLOB_S3_PREFIX: 'aio/'
+            AI_BLOB_S3_ENDPOINT: 'http://localhost:19000'
+            AI_BLOB_S3_REGION: us-east-1
+            AI_BLOB_S3_ACCESS_KEY_ID: object_storage_root_user
+            AI_BLOB_S3_SECRET_ACCESS_KEY: object_storage_root_password
+            AI_BLOB_OFFLOAD_TEAMS: '*'
 
     ingestion-sessionreplay:
         sandbox: true
@@ -175,6 +164,12 @@ procs:
             layer: Application
             tech: Frontend
         # no capability: always_required via intent-map.yaml
+
+    ngrok:
+        shell: 'bin/start-local-ngrok'
+        groups:
+            layer: Application
+            tech: Network
 
     typegen:
         sandbox: true
@@ -254,22 +249,12 @@ procs:
     # tools/hogli-commands/hogli_commands/devenv/generator.py. Edit it there and run
     # `hogli dev:regenerate-mprocs`; CI pre-flight fails if the two drift apart.
     docker-compose:
-        shell: 'if [ "${POSTHOG_SANDBOX:-}" = "1" ]; then echo "Sandbox: infra managed by docker compose externally" && echo "docker-compose ready" && sleep infinity; else docker compose -p posthog -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile dev_tools --profile etcd --profile localstack --profile observability --profile replay --profile temporal up --pull always -d || { echo "docker compose up failed (see the error above). A common cause: another stack or process holding a required port (see the pre-flight output from bin/start). Inspect with: docker ps --all"; exit 1; } && echo "docker-compose ready" && docker compose -p posthog -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile dev_tools --profile etcd --profile localstack --profile observability --profile replay --profile temporal logs --tail=100 -f; fi'
+        shell: 'if [ "${POSTHOG_SANDBOX:-}" = "1" ]; then echo "Sandbox: infra managed by docker compose externally" && echo "docker-compose ready" && sleep infinity; else docker compose -p posthog -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile dev_tools --profile dynamodb --profile etcd --profile observability --profile replay --profile temporal up --pull always -d || { echo "docker compose up failed (see the error above). A common cause: another stack or process holding a required port (see the pre-flight output from bin/start). Inspect with: docker ps --all"; exit 1; } && echo "docker-compose ready" && docker compose -p posthog -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile dev_tools --profile dynamodb --profile etcd --profile observability --profile replay --profile temporal logs --tail=100 -f; fi'
         capability: core_infra
         ready_pattern: 'docker-compose ready'
         groups:
             layer: Infrastructure
             tech: Docker
-
-    cyclotron-janitor:
-        shell: |-
-            bin/wait-for-docker && \
-            bin/start-rust-service cyclotron-janitor
-        capability: cyclotron
-        ready_pattern: 'Running janitor loop'
-        groups:
-            layer: Processing
-            tech: Rust
 
     ai-gateway:
         shell: 'bin/wait-for-docker && bin/start-ai-gateway'
@@ -415,6 +400,16 @@ procs:
             bin/wait-for-docker && \
             bin/start-rust-service capture-logs
         capability: logs_ingestion
+        groups:
+            layer: Ingestion pipeline
+            tech: Rust
+
+    usage-ingestion:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service usage-ingestion
+        capability: event_ingestion
+        ready_pattern: 'Starting usage-ingestion gRPC service'
         groups:
             layer: Ingestion pipeline
             tech: Rust

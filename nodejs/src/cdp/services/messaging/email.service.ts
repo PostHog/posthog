@@ -4,10 +4,12 @@ import { SendMailOptions } from 'nodemailer'
 import { Counter } from 'prom-client'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
+import { HogFlowEmailSendingRateLimit, HogFlowEmailSendingRateLimitSchema } from '~/cdp/schema/hogflow'
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
+    HogFunctionType,
     IntegrationType,
     MessageAssetRow,
 } from '~/cdp/types'
@@ -18,6 +20,8 @@ import { logger } from '~/common/utils/logger'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
+import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
+import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailSuppressionService } from './email-suppression.service'
 import { addTrackingToEmail, resolveEmailEngagementDistinctId } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
@@ -77,6 +81,32 @@ function pickThrottleRetryDelayMs(): number {
     return 500 + Math.floor(Math.random() * 500)
 }
 
+const workflowEmailRateLimitedTotal = new Counter({
+    name: 'cdp_workflow_email_rate_limited_total',
+    help: 'Email sends delayed by a user-configured per-workflow sending rate limit.',
+})
+
+// The metadata blob is the flow action's config plus flow-level keys stamped in by
+// HogFlowFunctionsService.buildHogFunction; parse defensively since it is untyped.
+function parseWorkflowEmailRateLimit(metadata: HogFunctionType['metadata']): HogFlowEmailSendingRateLimit | null {
+    const raw = metadata?.email_sending_rate_limit
+    if (!raw) {
+        return null
+    }
+    const parsed = HogFlowEmailSendingRateLimitSchema.safeParse(raw)
+    return parsed.success ? parsed.data : null
+}
+
+function pickWorkflowRateLimitRetryDelayMs(refillPerSecond: number): number {
+    // Wake around when the next token accrues. The 1x-2x jitter spreads a queued backlog's
+    // retries so they don't all re-dequeue (and re-claim against one token) at the same instant.
+    // Clamped so second-scale limits don't churn the queue and hour-scale limits still wake
+    // often enough to drain promptly once capacity frees up.
+    const tokenIntervalMs = 1000 / refillPerSecond
+    const baseMs = Math.min(Math.max(tokenIntervalMs, 1_000), 5 * 60 * 1_000)
+    return Math.floor(baseMs * (1 + Math.random()))
+}
+
 export interface EmailServiceConfig {
     sesAccessKeyId: string
     sesSecretAccessKey: string
@@ -87,9 +117,6 @@ export interface EmailServiceConfig {
     // Configuration set without open/click tracking. Empty means not provisioned: tracking-off
     // sends fall back to the tracked set (with a warning) rather than failing.
     sesUntrackedConfigurationSet: string
-    // When true, sends carry TenantName so SES attributes reputation per team. Requires every
-    // sending identity to have a tenant resource association — see EMAIL_SES_TENANT_ATTRIBUTION_ENABLED.
-    sesTenantAttributionEnabled: boolean
 }
 
 /**
@@ -120,6 +147,17 @@ export function extractEmailsFromAddressList(value: string | undefined): string[
         .filter((addr) => addr.length > 0)
 }
 
+// Deliberately stricter than RFC 5322: exactly one @, a dotted domain, and none of the
+// characters that would let a templated value smuggle a second address or break out of the
+// RFC-822 `"Name" <email>` framing (whitespace, quotes, angle brackets, list separators).
+const FROM_OVERRIDE_EMAIL_REGEX = /^[^\s@"<>,;]+@[^\s@"<>,;]+\.[^\s@"<>,;]+$/
+
+// The display name is embedded as `"${name}" <email>`, so strip the characters that would
+// terminate the quoted phrase or start the address part, plus control characters.
+function sanitizeFromName(name: string): string {
+    return name.replace(/[\x00-\x1F\x7F"<>\\]/g, '').trim()
+}
+
 export function parseAddressList(value?: string): string[] | undefined {
     if (!value || !value.trim()) {
         return undefined
@@ -146,7 +184,8 @@ export class EmailService {
         private trackingCodeSigner: EmailTrackingCodeSigner,
         private emailSuppressionService: EmailSuppressionService,
         private recipientsManager: RecipientsManagerService,
-        private messageAssetsService?: MessageAssetsService
+        private messageAssetsService?: MessageAssetsService,
+        private workflowEmailRateLimiter: RateLimiterService | null = null
     ) {
         this.sesV2Client = this.sesConfig.sesRegion
             ? new SESv2Client({
@@ -169,7 +208,11 @@ export class EmailService {
 
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(
             invocation,
-            {},
+            // Preserve the incoming priority: createInvocationResult otherwise resets it to 0, which
+            // on a throttle reschedule (below) would rewrite the send's priority class — an entering
+            // bulk send (priority 1) would return as fast-lane (0). The queue caller sets this to the
+            // send's class before calling in, so carrying it through keeps a throttled retry in class.
+            { queuePriority: invocation.queuePriority },
             {
                 finished: true,
             }
@@ -177,7 +220,8 @@ export class EmailService {
         const addLog = createAddLogFunction(result.logs)
 
         const params = invocation.queueParameters
-        const integration = await this.integrationManager.get(params.from.integrationId)
+        const integrationId = selectEmailSenderIntegrationId(invocation.id, params.from)
+        const integration = await this.integrationManager.get(integrationId)
 
         let success: boolean = false
         let throttled: boolean = false
@@ -185,6 +229,26 @@ export class EmailService {
         let trackingEnabled = true
 
         try {
+            // Team-level kill switch: staff suspend all workflow email for a team whose sender
+            // reputation endangers shared SES deliverability. Same choke-point placement as the
+            // suppression check below so no upstream route can bypass it. Test sends are blocked
+            // too — they hit SES and count against the tenant all the same.
+            if (await this.teamWorkflowsConfigService.isEmailSendingSuspended(invocation.teamId)) {
+                addLog('warn', 'Skipping send: email sending is suspended for this project')
+                if (!isTest) {
+                    result.metrics.push({
+                        team_id: invocation.teamId,
+                        app_source_id: invocation.parentRunId ?? invocation.functionId,
+                        instance_id: invocation.state.actionId || invocation.id,
+                        metric_kind: 'email',
+                        metric_name: 'email_suspended',
+                        count: 1,
+                    })
+                }
+                result.invocation.state.vmState?.stack.push({ success: false })
+                return result
+            }
+
             // Wrong-team references deliberately read as not-found so an ID's existence on another team can't be probed
             if (!integration || integration.team_id !== invocation.teamId) {
                 throw new Error(
@@ -197,7 +261,7 @@ export class EmailService {
                 )
             }
 
-            const from = this.resolveFromSender(integration)
+            const from = this.resolveFromSender(integration, params.from, addLog)
 
             // Single choke point for the suppression check — every send path lands here regardless
             // of whether the invocation came from a workflow action or an email destination hog
@@ -224,6 +288,45 @@ export class EmailService {
             // (workflow action or email destination hog function) resolves it the same way.
             trackingEnabled = await this.resolveTrackingEnabled(result.invocation, params)
 
+            // User-configured per-workflow pacing. Claimed last, after every skip gate, so a
+            // suspended or suppressed send never spends a token. Test sends bypass it. When the
+            // limiter's Valkey is down claimUpTo returns 0, so sends wait (never drop) until it
+            // recovers — same fail-closed stance as the global SES gate.
+            const workflowRateLimit = parseWorkflowEmailRateLimit(invocation.hogFunction.metadata)
+            if (workflowRateLimit && this.workflowEmailRateLimiter && !isTest) {
+                const periodSeconds = workflowRateLimit.period === 'minute' ? 60 : 3600
+                const refillPerSecond = workflowRateLimit.count / periodSeconds
+                // Burst capacity is about one second of budget, not the full count: a bucket that
+                // could hold `count` starts full and refills within the same period, so a fresh (or
+                // idle-expired) bucket would send ~2x the configured limit in its first period.
+                // A near-empty bucket keeps every window at ~count and spreads sends evenly, which
+                // is what the pacing is for.
+                const capacity = Math.max(1, Math.ceil(refillPerSecond))
+                const granted = await this.workflowEmailRateLimiter.claimUpTo({
+                    key: `@posthog/workflow-email-rate/${invocation.teamId}/${invocation.functionId}`,
+                    requested: 1,
+                    capacity,
+                    refillPerSecond,
+                })
+                if (granted === 0) {
+                    workflowEmailRateLimitedTotal.inc()
+                    result.finished = false
+                    // Re-attach the email payload before rescheduling. createInvocationResult cleared
+                    // queueParameters, so without this the rescheduled dequeue has no 'email' params to
+                    // re-enter the send path — the retry would resume the Hog VM instead and drop the
+                    // send. Mirrors the fetch-retry (`result.invocation.queueParameters = params`) and
+                    // queue-routing paths, which re-attach the same way.
+                    result.invocation.queueParameters = params
+                    const retryDelayMs = pickWorkflowRateLimitRetryDelayMs(refillPerSecond)
+                    result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryDelayMs })
+                    addLog(
+                        'info',
+                        `Sending rate limit reached (${workflowRateLimit.count} emails per ${workflowRateLimit.period}); retrying this email in ${Math.round(retryDelayMs / 1000)}s`
+                    )
+                    return result
+                }
+            }
+
             switch (integration.config.provider ?? 'ses') {
                 case 'maildev':
                     await this.sendEmailWithMaildev(result, params, from, trackingEnabled, isTest)
@@ -244,7 +347,7 @@ export class EmailService {
                 assetRow = this.messageAssetsService.buildRowForEmail(invocation, params)
             }
             const viewEmailToken = assetRow ? ` [Email:${invocation.id}:${invocation.state.actionId ?? ''}]` : ''
-            addLog('info', `Email sent to ${params.to.email}${viewEmailToken}`)
+            addLog('info', `Email sent to ${params.to.email} from ${from.name} <${from.email}>${viewEmailToken}`)
             success = true
         } catch (error) {
             if (error instanceof SESThrottleError) {
@@ -445,7 +548,11 @@ export class EmailService {
         return this.sesConfig.sesTrackedConfigurationSet
     }
 
-    private resolveFromSender(integration: IntegrationType): { email: string; name: string } {
+    private resolveFromSender(
+        integration: IntegrationType,
+        from: CyclotronInvocationQueueParametersEmailType['from'],
+        addLog: ReturnType<typeof createAddLogFunction>
+    ): { email: string; name: string } {
         if (!integration.config.verified) {
             throw new Error('The selected email integration domain is not verified')
         }
@@ -454,7 +561,55 @@ export class EmailService {
             throw new Error('The selected email integration is not configured correctly')
         }
 
-        return { email: integration.config.email, name: integration.config.name }
+        // Overrides arrive already rendered by the templating engine, so a template that
+        // resolved to nothing means "no override" and the integration's stored sender applies.
+        const overrideName = from.name ? sanitizeFromName(from.name) : ''
+
+        return {
+            email: this.resolveFromEmailAddress(integration, from.email?.trim(), addLog),
+            name: overrideName || integration.config.name,
+        }
+    }
+
+    // An unusable override degrades to the integration's own sender rather than failing the send.
+    // Steps authored before mid-2026 carry a placeholder address written by an old sender picker,
+    // so throwing here fails sends whose author never typed an address at all.
+    private resolveFromEmailAddress(
+        integration: IntegrationType,
+        overrideEmail: string | undefined,
+        addLog: ReturnType<typeof createAddLogFunction>
+    ): string {
+        if (!overrideEmail) {
+            return integration.config.email
+        }
+
+        if (!FROM_OVERRIDE_EMAIL_REGEX.test(overrideEmail)) {
+            addLog(
+                'warn',
+                `Ignoring the custom sender address "${overrideEmail}": it is not a valid email address. Sending from ${integration.config.email} instead. Fix the From address in the workflow's email step so it resolves to a single valid address.`
+            )
+            return integration.config.email
+        }
+
+        // Verification is domain-level (the DNS records cover the whole domain), so any address
+        // on the integration's domain is exactly as verified as the integration's own address.
+        // Anything off-domain is discarded: honoring it would let a workflow send as a domain the
+        // team never proved ownership of.
+        const integrationDomain: string = (
+            integration.config.domain ??
+            integration.config.email.split('@')[1] ??
+            ''
+        ).toLowerCase()
+        const overrideDomain = overrideEmail.split('@')[1].toLowerCase()
+        if (!integrationDomain || overrideDomain !== integrationDomain) {
+            addLog(
+                'warn',
+                `Ignoring the custom sender address "${overrideEmail}": it is not on the verified domain "${integrationDomain}" of the selected sender. Sending from ${integration.config.email} instead. Use an address on that domain, or select a different sender in the workflow's email step.`
+            )
+            return integration.config.email
+        }
+
+        return overrideEmail
     }
 
     // Send email to local maildev instance for testing (DEBUG=1 only)
@@ -572,19 +727,17 @@ export class EmailService {
             FeedbackForwardingEmailAddress: from.email,
         }
 
-        if (this.sesConfig.sesTenantAttributionEnabled) {
-            // Attributes the send to the team's SES tenant so AWS tracks reputation per team and
-            // its reputation policy can pause one tenant instead of the shared account. `team-<id>`
-            // is the provisioning convention (products/workflows/backend/providers/ses.py and
-            // posthog/management/commands/migrate_ses_tenants.py). Deliberately NOT gated on
-            // isTest: test-panel sends are real over-the-wire SES sends, so leaving them
-            // unattributed would (a) push their bounces onto the shared account's reputation and
-            // (b) let a paused tenant keep sending via "Run test". The isTest skips elsewhere in
-            // this class only shield our internal metrics, a separate concern from SES-side
-            // attribution; test volume is far below the representative volume AWS needs for a
-            // reputation finding.
-            sendEmailParams.TenantName = `team-${result.invocation.teamId}`
-        }
+        // Attributes the send to the team's SES tenant so AWS tracks reputation per team and
+        // its reputation policy can pause one tenant instead of the shared account. `team-<id>`
+        // is the provisioning convention (products/workflows/backend/providers/ses.py and
+        // posthog/management/commands/migrate_ses_tenants.py). Deliberately NOT gated on
+        // isTest: test-panel sends are real over-the-wire SES sends, so leaving them
+        // unattributed would (a) push their bounces onto the shared account's reputation and
+        // (b) let a paused tenant keep sending via "Run test". The isTest skips elsewhere in
+        // this class only shield our internal metrics, a separate concern from SES-side
+        // attribution; test volume is far below the representative volume AWS needs for a
+        // reputation finding.
+        sendEmailParams.TenantName = `team-${result.invocation.teamId}`
 
         // Authoritative tracking-code carrier: a custom MIME header. Header values aren't
         // 256-char-bounded the way SES tag values are, so they safely carry the signed code

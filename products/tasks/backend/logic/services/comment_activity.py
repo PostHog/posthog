@@ -3,12 +3,17 @@ from datetime import datetime
 from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from django.db.models import Q
+
+import structlog
 
 from posthog.models import Comment
 
 from products.tasks.backend.models import Channel, Task, TaskArtifact, TaskCommentActivity, TaskRun
 from products.tasks.backend.visibility import task_visibility_q
+
+logger = structlog.get_logger(__name__)
 
 COMMENT_ACTIVITY_SCOPES = frozenset({"task", "task_artifact", "desktop_canvas"})
 
@@ -57,7 +62,7 @@ def notifications_allowed(*, team_id: int, task_id: str | UUID) -> bool:
     return _notification_tasks(team_id).filter(id=parsed_task_id).exists()
 
 
-def _task_id(comment: Comment) -> UUID | None:
+def comment_task_id(comment: Comment) -> UUID | None:
     if comment.scope not in COMMENT_ACTIVITY_SCOPES:
         return None
     raw_task_id = comment.item_id if comment.scope == "task" else (comment.item_context or {}).get("taskId")
@@ -81,7 +86,7 @@ def project_comment_activity(
     comment = Comment.objects.filter(team_id=team_id, id=comment_id).first()
     if comment is None or comment.created_by_id is None:
         return
-    task_id = _task_id(comment)
+    task_id = comment_task_id(comment)
     if task_id is None:
         return
     task = _notification_tasks(team_id).filter(id=task_id).only("created_by_id").first()
@@ -128,3 +133,29 @@ def project_comment_activity(
         root_comment_id=root_comment_id,
         recipients=recipients,
     )
+    _enqueue_slack_dms(team_id=team_id, comment_id=comment_id, task_id=task_id, recipients=recipients)
+
+
+def _enqueue_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, recipients: dict[int, str]) -> None:
+    """Hand the same recipient map to the Slack DM channel. Never fails the projection: the
+    Activity row is the notification that has to land."""
+    if not recipients:
+        return
+
+    def _enqueue() -> None:
+        try:
+            from products.tasks.backend.tasks.tasks import (  # noqa: PLC0415 — avoids the service/task circular import
+                deliver_comment_slack_dms,
+            )
+
+            deliver_comment_slack_dms.delay(
+                team_id=team_id,
+                comment_id=str(comment_id),
+                task_id=str(task_id),
+                recipients={str(user_id): kind for user_id, kind in recipients.items()},
+            )
+        except Exception:
+            logger.exception("comment_slack_dm_enqueue_failed", comment_id=str(comment_id))
+
+    # The worker re-reads the comment, so it must not start before the write is visible.
+    transaction.on_commit(_enqueue)

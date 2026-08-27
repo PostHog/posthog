@@ -1,28 +1,28 @@
 import { readFileSync } from "node:fs";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import {
+  type InlineExtension,
+  SessionManager,
+} from "@earendil-works/pi-coding-agent";
 import { createHarnessRuntime, runRpcMode } from "@posthog/harness";
-import type { McpConfig } from "@posthog/harness/extensions/mcp/config";
-import type { PosthogProviderOptions } from "@posthog/harness/extensions/posthog-provider/provider";
+import { createAutoPublishExtension } from "@posthog/harness/extensions/auto-publish";
 import { createPiRuntimeTrustResolver } from "@posthog/harness/project-trust";
 import type {
   McpToolPermissionDecision,
   McpToolPermissionRequest,
-  McpToolPolicy,
 } from "@posthog/shared";
+import { createPiContextWikiExtension } from "./context-wiki-extension";
+import { createPiEnrichmentExtension } from "./enrichment-extension";
 import {
   POSTHOG_PI_QUEUE_ENTRY_TYPE,
   readPersistedPiQueue,
 } from "./queue-persistence";
 import { createPiRepositoryToolsExtension } from "./repository-tools-extension";
+import type { PiRpcBootstrap, PiRuntimeExtension } from "./rpc-client";
 import { sanitizePiHostEnvironment } from "./rpc-environment";
-
-interface PiRpcBootstrap {
-  providerOptions?: PosthogProviderOptions;
-  runtimeMcpServers?: McpConfig["mcpServers"];
-  mcpToolPolicies?: McpToolPolicy[];
-  projectTrusted?: boolean;
-  channelMode?: boolean;
-}
+import {
+  createPiTaskSystemPromptExtension,
+  resolvePiTaskContext,
+} from "./task-system-prompt-extension";
 
 interface PiHostRequest {
   type: "posthog_pi_host_request";
@@ -35,7 +35,9 @@ function argumentValue(name: string): string | undefined {
   return index === -1 ? undefined : process.argv[index + 1];
 }
 
-const bootstrap = JSON.parse(readFileSync(3, "utf8")) as PiRpcBootstrap;
+const bootstrap = JSON.parse(
+  readFileSync(3, "utf8"),
+) as Partial<PiRpcBootstrap>;
 const providerOptions = bootstrap.providerOptions;
 if (!providerOptions?.apiKey) {
   throw new Error("Pi RPC host requires PostHog provider credentials");
@@ -72,6 +74,23 @@ function requestMcpToolPermission(
   });
 }
 
+const extensionFactories: Record<PiRuntimeExtension, InlineExtension> = {
+  "repository-tools": createPiRepositoryToolsExtension(cwd),
+  "auto-publish": {
+    name: "posthog-auto-publish",
+    factory: createAutoPublishExtension(),
+  },
+  "context-wiki": createPiContextWikiExtension(bootstrap.contextWikiPath),
+};
+const runtimeExtensions = (bootstrap.extensions ?? []).map(
+  (extension) => extensionFactories[extension],
+);
+const taskContext = resolvePiTaskContext(sessionManager, bootstrap.taskContext);
+runtimeExtensions.push(createPiTaskSystemPromptExtension(taskContext));
+if (bootstrap.enrichment) {
+  runtimeExtensions.push(createPiEnrichmentExtension(bootstrap.enrichment));
+}
+
 const runtime = await createHarnessRuntime({
   cwd,
   sessionManager,
@@ -79,13 +98,7 @@ const runtime = await createHarnessRuntime({
     cwd,
     bootstrap.projectTrusted ?? false,
   ),
-  ...(bootstrap.channelMode
-    ? {
-        resourceLoaderOptions: {
-          extensionFactories: [createPiRepositoryToolsExtension(cwd)],
-        },
-      }
-    : {}),
+  resourceLoaderOptions: { extensionFactories: runtimeExtensions },
   ...providerOptions,
   runtimeMcpServers: bootstrap.runtimeMcpServers,
   mcpToolPolicies: bootstrap.mcpToolPolicies,

@@ -24,8 +24,8 @@ from langgraph.prebuilt import InjectedState
 
 from posthog.hogql import ast
 
+from posthog.dataclasses import frozen
 from posthog.errors import CH_TRANSIENT_ERRORS
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.temporal.ai_observability.eval_reports.output_types import (
     EvaluationReportOutcomeDefinition,
     get_outcome_definition,
@@ -64,6 +64,13 @@ logger = structlog.get_logger(__name__)
 # Strict UUID match for generation IDs relayed by the LLM. Trace IDs are opaque,
 # so they use bounded validation and always flow through AST constants instead.
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+
+# Detect UUID-shaped inline-code variants broadly because only an exact cited ID
+# in one pair of backticks becomes a code-span link in every report renderer.
+_BACKTICKED_UUID_RE = re.compile(
+    r"`+\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\s*`+",
+    re.IGNORECASE,
+)
 
 _TARGET_ID_EXPRESSION = "coalesce(nullIf(properties.$ai_target_id, ''), properties.$ai_target_event_id)"
 _MAX_OPAQUE_ID_LENGTH = 255
@@ -188,8 +195,14 @@ def _outcome_for_result(output_type: str, result: object, applicable: object = N
         return None
 
 
-def _widened_ts_window(state: dict) -> tuple[datetime, datetime]:
-    """Return (ts_start, ts_end) datetimes widened for target lookups.
+@frozen
+class TimestampWindow:
+    ts_start: datetime
+    ts_end: datetime
+
+
+def _widened_ts_window(state: dict) -> TimestampWindow:
+    """Return the (ts_start, ts_end) window widened for target lookups.
 
     Target events can predate their evaluations, so widen the start by 7 days.
     End is period_end + 1 day for evaluation lag. Falls back to wide sentinel
@@ -203,7 +216,7 @@ def _widened_ts_window(state: dict) -> tuple[datetime, datetime]:
         ts_end = _ch_ts((datetime.fromisoformat(state["period_end"]) + timedelta(days=1)).isoformat())
     except (ValueError, TypeError, KeyError):
         ts_end = _ch_ts(_TARGET_LOOKUP_TS_END_SENTINEL)
-    return ts_start, ts_end
+    return TimestampWindow(ts_start=ts_start, ts_end=ts_end)
 
 
 # Query timeouts and per-query memory limits need a narrower query, so retrying
@@ -216,9 +229,7 @@ T = TypeVar("T")
 
 
 def _is_retriable_ch_error(error: Exception) -> bool:
-    return isinstance(error, RETRIABLE_CH_ERRORS) or (
-        isinstance(error, ClickHouseQueryMemoryLimitExceeded) and not error.is_per_query_limit
-    )
+    return isinstance(error, RETRIABLE_CH_ERRORS)
 
 
 def _execute_ch_query_with_retry(
@@ -681,12 +692,12 @@ def sample_generation_details(
     from posthog.models import Team
 
     team = Team.objects.get(id=state["team_id"])
-    ts_start, ts_end = _widened_ts_window(state)
+    window = _widened_ts_window(state)
     trace_id_by_uuid = resolve_trace_ids_for_generation_uuids(
         team=team,
         generation_uuids=ids_to_fetch,
-        ts_start=ts_start,
-        ts_end=ts_end,
+        ts_start=window.ts_start,
+        ts_end=window.ts_end,
         query_type="EvalReportAgentTraceIdResolve",
     )
     trace_ids = sorted({tid for tid in trace_id_by_uuid.values() if tid})
@@ -778,18 +789,18 @@ def get_generation_detail(
     from posthog.models import Team
 
     team = Team.objects.get(id=team_id)
-    ts_start, ts_end = _widened_ts_window(state)
+    window = _widened_ts_window(state)
     shared_placeholders = {
         "generation_id": ast.Constant(value=generation_id),
-        "ts_start": ast.Constant(value=ts_start),
-        "ts_end": ast.Constant(value=ts_end),
+        "ts_start": ast.Constant(value=window.ts_start),
+        "ts_end": ast.Constant(value=window.ts_end),
     }
 
     trace_id_by_uuid = resolve_trace_ids_for_generation_uuids(
         team=team,
         generation_uuids=[generation_id],
-        ts_start=ts_start,
-        ts_end=ts_end,
+        ts_start=window.ts_start,
+        ts_end=window.ts_end,
         query_type="EvalReportAgentTraceIdResolve",
     )
     trace_id = trace_id_by_uuid.get(generation_id)
@@ -940,13 +951,13 @@ def get_generation_text_repr(
         return json.dumps({"error": "Invalid generation ID format"})
 
     team = Team.objects.get(id=state["team_id"])
-    ts_start, ts_end = _widened_ts_window(state)
+    window = _widened_ts_window(state)
 
     trace_id_by_uuid = resolve_trace_ids_for_generation_uuids(
         team=team,
         generation_uuids=[generation_id],
-        ts_start=ts_start,
-        ts_end=ts_end,
+        ts_start=window.ts_start,
+        ts_end=window.ts_end,
         query_type="EvalReportAgentTraceIdResolve",
     )
     trace_id = trace_id_by_uuid.get(generation_id)
@@ -1150,8 +1161,8 @@ def _fetch_session_detail(state: dict, session_id: object, max_traces: int) -> d
             "error": "Session ID is not available for this evaluation report",
         }
 
-    widened_start, widened_end = _widened_ts_window(state)
-    ts_start = widened_start - timedelta(days=_SESSION_EXTRA_LOOKBACK_DAYS)
+    window = _widened_ts_window(state)
+    ts_start = window.ts_start - timedelta(days=_SESSION_EXTRA_LOOKBACK_DAYS)
 
     try:
         team = Team.objects.get(id=state["team_id"])
@@ -1161,7 +1172,7 @@ def _fetch_session_detail(state: dict, session_id: object, max_traces: int) -> d
             placeholders={
                 "target_session_id": ast.Constant(value=normalized_session_id),
                 "ts_start": ast.Constant(value=ts_start),
-                "ts_end": ast.Constant(value=widened_end),
+                "ts_end": ast.Constant(value=window.ts_end),
                 "limit": ast.Constant(value=max_traces + 1),
             },
         )
@@ -1459,6 +1470,19 @@ def set_title(
     return f"Title set: {clean!r}"
 
 
+def _unlinked_backticked_uuids(content: str, citations: list[Citation]) -> list[str]:
+    """Return backticked canonical UUIDs that will not be links in every report renderer."""
+    cited_ids = {citation.cited_id() for citation in citations}
+    unlinked: list[str] = []
+    for match in _BACKTICKED_UUID_RE.finditer(content):
+        uuid_value = match.group(1)
+        has_exact_citation = uuid_value in cited_ids
+        uses_linkable_wrapper = match.group(0) == f"`{uuid_value}`"
+        if not (has_exact_citation and uses_linkable_wrapper) and uuid_value not in unlinked:
+            unlinked.append(uuid_value)
+    return unlinked
+
+
 @tool
 def add_section(
     state: Annotated[dict, InjectedState],
@@ -1494,6 +1518,14 @@ def add_section(
         return (
             f"Error: maximum of {MAX_REPORT_SECTIONS} sections reached. "
             "Merge your content into existing sections rather than fragmenting further."
+        )
+    unlinked = _unlinked_backticked_uuids(clean_content, state["report"].citations)
+    if unlinked:
+        preview = ", ".join(f"`{uuid_value}`" for uuid_value in unlinked[:3])
+        return (
+            f"Error: the following backticked IDs will not render as citation links: {preview}. "
+            "Cite each generation, trace, or session with add_citation, then use one pair of backticks around the exact cited ID. "
+            "Run IDs from list_recent_report_runs cannot be cited. Name a prior run by its period and remove the backticks."
         )
     state["report"].sections.append(ReportSection(title=clean_title, content=clean_content))
     return f"Section {len(state['report'].sections)}/{MAX_REPORT_SECTIONS} added: {clean_title!r} ({len(clean_content)} chars)"
