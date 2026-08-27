@@ -260,11 +260,6 @@ class TaskRunUpdateSerializer(serializers.Serializer):
     error_message = serializers.CharField(
         required=False, allow_null=True, allow_blank=True, help_text="Error message if execution failed"
     )
-    environment = serializers.ChoiceField(
-        choices=["local"],
-        required=False,
-        help_text="Transition a cloud run to local. Use the resume_in_cloud action to move a run into cloud.",
-    )
 
 
 class TaskRunSkillBundleMetadataSerializer(serializers.Serializer):
@@ -443,6 +438,14 @@ class TaskRunDetailSerializer(DataclassSerializer):
         required=False,
         help_text="Configured reasoning effort for this run when the selected model supports it.",
     )
+    preview_available = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "True when this run's sandbox serves a dev stack preview, so clients can offer the "
+            "preview link. Open it through the run's `preview/` endpoint, which mints a fresh "
+            "access token on every request."
+        ),
+    )
 
     class Meta:
         dataclass = TaskRunDetailDTO
@@ -465,6 +468,7 @@ class TaskRunDetailSerializer(DataclassSerializer):
             "created_at",
             "updated_at",
             "completed_at",
+            "preview_available",
         ]
 
 

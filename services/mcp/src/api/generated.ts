@@ -51353,7 +51353,7 @@ export namespace Schemas {
        * * `failed` - Failed
        * * `ineligible` - Ineligible */
       readonly status: ObservationStatusEnum;
-      /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
+      /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
       readonly error_reason: string;
       /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
       readonly workflow_id: string;
@@ -56768,6 +56768,8 @@ export namespace Schemas {
       updated_at?: string | null;
       /** @nullable */
       completed_at?: string | null;
+      /** True when this run's sandbox serves a dev stack preview, so clients can offer the preview link. Open it through the run's `preview/` endpoint, which mints a fresh access token on every request. */
+      preview_available?: boolean;
     }
 
     export interface SlackThreadReferenceDTO {
@@ -64119,6 +64121,15 @@ export namespace Schemas {
       scopes?: string[];
     }
 
+    export interface PatchedProxyRecordUpdate {
+      /**
+         * HTTPS URL that requests to the proxy domain root redirect to, or null to disable the redirect. The URL must use the same registrable domain as the managed proxy.
+         * @maxLength 1024
+         * @nullable
+         */
+      root_redirect_url?: string | null;
+    }
+
     /**
      * Request body for editing a review comment's markdown body.
      */
@@ -65776,16 +65787,6 @@ export namespace Schemas {
      */
     export type PatchedTaskRunUpdateStateAppend = { [key: string]: unknown };
 
-    /**
-     * * `local` - local
-     */
-    export type TaskRunUpdateEnvironmentEnum = typeof TaskRunUpdateEnvironmentEnum[keyof typeof TaskRunUpdateEnvironmentEnum];
-
-
-    export const TaskRunUpdateEnvironmentEnum = {
-      Local: 'local',
-    } as const;
-
     export interface PatchedTaskRunUpdate {
       /** Current execution status
        *
@@ -65819,10 +65820,6 @@ export namespace Schemas {
          * @nullable
          */
       error_message?: string | null;
-      /** Transition a cloud run to local. Use the resume_in_cloud action to move a run into cloud.
-       *
-       * * `local` - local */
-      environment?: TaskRunUpdateEnvironmentEnum;
     }
 
     /**
@@ -69268,6 +69265,13 @@ export namespace Schemas {
       domain: string;
       /** The CNAME target to add as a DNS record for your domain. Point your domain's CNAME to this value. */
       readonly target_cname: string;
+      /**
+         * HTTPS URL that requests to the proxy domain root redirect to, or null when disabled.
+         * @nullable
+         */
+      readonly root_redirect_url: string | null;
+      /** Whether this managed proxy supports a redirect from its root URL. */
+      readonly root_redirect_supported: boolean;
       /** Current provisioning status. Values: waiting (DNS verification pending), issuing (SSL certificate being issued), valid (proxy is live and working), warning (proxy has issues but is operational), erroring (proxy setup failed), deleting (removal in progress), timed_out (DNS verification timed out).
        *
        * * `waiting` - Waiting
@@ -94453,6 +94457,31 @@ export namespace Schemas {
      */
     search?: string;
     };
+
+    export type LlmSkillsBundleRetrieveParams = {
+    /**
+     * What each skill directory in the zip contains. 'stub' (default) writes a SKILL.md with the name, description and instructions to fetch the skill over the PostHog MCP when it is invoked. 'full' writes the rendered SKILL.md, every bundled file and the Codex sidecar.
+     *
+     * * `stub` - stub
+     * * `full` - full
+     * @minLength 1
+     */
+    content?: LlmSkillsBundleRetrieveContent;
+    /**
+     * Maximum number of skills in the zip, newest first; default 20, at most 100. Every skill in the zip costs the agent prompt context on each turn, so pick what the harness can usefully carry. Skills past the limit are reported in X-Skills-Dropped.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    };
+
+    export type LlmSkillsBundleRetrieveContent = typeof LlmSkillsBundleRetrieveContent[keyof typeof LlmSkillsBundleRetrieveContent];
+
+
+    export const LlmSkillsBundleRetrieveContent = {
+      Stub: 'stub',
+      Full: 'full',
+    } as const;
 
     export type LlmSkillsNameRetrieveParams = {
     /**
