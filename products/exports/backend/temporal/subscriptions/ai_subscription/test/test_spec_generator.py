@@ -955,7 +955,7 @@ class TestBuildFrozenPrompt(APIBaseTest):
 
     @patch(f"{_SG}.build_context_blob", return_value="blob")
     def test_frozen_path_passes_anchor_blob_to_context(self, mock_blob: MagicMock) -> None:
-        blob = "- Anchored dashboard: Growth"
+        blob = "- Context dashboard: Growth"
         stored = {**self._stored_plan(), "anchor_hash": hashlib.sha256(blob.encode()).hexdigest()}
 
         build_frozen_prompt(
