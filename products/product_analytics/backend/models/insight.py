@@ -37,6 +37,14 @@ _ANALYTICS_INSIGHT_QUERY_KINDS = frozenset(
 )
 
 
+def _count_behavioral_filters(value: object) -> int:
+    if isinstance(value, list):
+        return sum(_count_behavioral_filters(item) for item in value)
+    if not isinstance(value, dict):
+        return 0
+    return int(value.get("type") == "behavioral") + sum(_count_behavioral_filters(item) for item in value.values())
+
+
 if TYPE_CHECKING:
     from posthog.schema import NodeKind
 
@@ -219,6 +227,7 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
                 1 for s in series if isinstance(s, dict) and s.get("kind") == "DataWarehouseNode"
             )
         metadata["has_properties"] = bool(source.get("properties"))
+        metadata["behavioral_filter_count"] = _count_behavioral_filters(source)
         if "filterTestAccounts" in source:
             metadata["filter_test_accounts"] = source.get("filterTestAccounts")
         breakdown_filter = source.get("breakdownFilter")
