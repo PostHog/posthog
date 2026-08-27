@@ -489,13 +489,17 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         scoutConfigs: [
             null as SignalScoutConfig[] | null,
             {
-                loadScoutConfigs: async () => {
+                loadScoutConfigs: async (_, breakpoint) => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return null
                     }
                     try {
                         const configs = await signalsScoutConfigList(String(teamId))
+                        // The breakpoint must run before the `values` read below. The roster mounts from
+                        // short-lived components, so the logic can unmount while this request is in
+                        // flight. The reducer branch is then gone from the store, and the read throws.
+                        breakpoint()
                         // The 60s poll refetches all configs every cycle. Reconcile against the previous
                         // list so an unchanged fleet keeps the same references — otherwise the whole
                         // roster re-renders on every poll even when nothing changed.
@@ -556,7 +560,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         scoutRuns: [
             [] as SignalScoutRunSummary[],
             {
-                loadScoutRuns: async () => {
+                loadScoutRuns: async (_, breakpoint) => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return values.scoutRuns
@@ -564,6 +568,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     const runs = await signalsScoutRunsRecentPerScout(String(teamId), {
                         per_scout_limit: SCOUT_RUNS_PER_SCOUT,
                     })
+                    breakpoint()
                     // Reuse prior references for unchanged runs so the 60s poll doesn't churn every
                     // run's identity and needlessly re-render the memoized run/emission rows. Live
                     // (running/queued) runs are never reused: their rows show a wall-clock duration
@@ -578,7 +583,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 complete: boolean
             },
             {
-                loadRunsWindow: async () => {
+                loadRunsWindow: async (_, breakpoint) => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return values.runsWindow
@@ -597,6 +602,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                             date_from: windowStart,
                             date_to: cursor,
                         })
+                        breakpoint()
                         for (const run of pageRuns) {
                             // `date_to` is exclusive, so a boundary row can reappear on the next
                             // page — dedupe by run_id to be safe.
