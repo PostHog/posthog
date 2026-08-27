@@ -793,6 +793,11 @@ export interface MeetingApi {
     readonly id: string
     /** Meeting title; may be empty. */
     readonly title: string
+    /**
+     * Gong call URL matched through the calendar event id; null when no Gong call is available.
+     * @nullable
+     */
+    readonly gong_url: string | null
     /** When the meeting starts. */
     readonly start_time: string
     /**
@@ -1178,11 +1183,73 @@ export interface CustomPropertyOptionApi {
 }
 
 /**
- * One person- or group-property sync or backfill run. Read-only: runs are created by the
- * sync/backfill pipeline, never through the API.
+ * * `tracked` - tracked
+ * * `ignored` - ignored
+ */
+export type AccountSegmentEnumApi = (typeof AccountSegmentEnumApi)[keyof typeof AccountSegmentEnumApi]
+
+export const AccountSegmentEnumApi = {
+    Tracked: 'tracked',
+    Ignored: 'ignored',
+} as const
+
+/**
+ * * `staging` - staging
+ * * `dispatching` - dispatching
+ * * `syncing` - syncing
+ * * `completed` - completed
+ */
+export type SyncPhaseEnumApi = (typeof SyncPhaseEnumApi)[keyof typeof SyncPhaseEnumApi]
+
+export const SyncPhaseEnumApi = {
+    Staging: 'staging',
+    Dispatching: 'dispatching',
+    Syncing: 'syncing',
+    Completed: 'completed',
+} as const
+
+/**
+ * One warehouse-backed custom property sync run.
  */
 export interface CustomPropertySyncRunApi {
     readonly id: string
+    /**
+     * Warehouse import or materialization job associated with the run, if any.
+     * @nullable
+     */
+    readonly job_id: string | null
+    /** Account segment processed by this run. Person and group property runs return null.
+     *
+     * * `tracked` - tracked
+     * * `ignored` - ignored */
+    readonly account_segment: AccountSegmentEnumApi | null
+    /** Current account sync phase. Person and group property runs return null.
+     *
+     * * `staging` - staging
+     * * `dispatching` - dispatching
+     * * `syncing` - syncing
+     * * `completed` - completed */
+    readonly sync_phase: SyncPhaseEnumApi | null
+    /**
+     * Latest Temporal activity attempt for the current account sync phase.
+     * @nullable
+     */
+    readonly attempt: number | null
+    /**
+     * Temporal workflow identifier associated with the current account sync phase.
+     * @nullable
+     */
+    readonly workflow_id: string | null
+    /**
+     * Temporal run identifier associated with the current account sync phase.
+     * @nullable
+     */
+    readonly workflow_run_id: string | null
+    /**
+     * Staff-only link to this run in Temporal. Null for non-staff users and runs without a Temporal ID.
+     * @nullable
+     */
+    readonly temporal_url: string | null
     /** What started the run: 'scheduled' (rode a warehouse sync), 'sync' (a warehouse sync started from the UI), 'manual' (a backfill started from the UI), or 'backfill' (the automatic backfill run when a mapping is created or re-enabled). */
     readonly trigger: string
     /** Run status: 'running', 'completed', or 'failed'. */
@@ -1201,11 +1268,11 @@ export interface CustomPropertySyncRunApi {
     readonly rows_read: number
     /** Rows whose mapped values changed since the last run. */
     readonly changed: number
-    /** Person or group profiles updated (changed rows that matched an existing person/group). */
+    /** Changed rows that matched an existing account, person, or group. */
     readonly existing: number
-    /** Property-update intents produced to the ingestion pipeline. */
+    /** Property updates written or produced to the ingestion pipeline. */
     readonly produced: number
-    /** Changed rows dropped because no existing person/group matched the key column value. */
+    /** Changed rows skipped because no existing account, person, or group matched the key column value. */
     readonly skipped_missing_person: number
     /**
      * Error summary if the run failed, else null.
@@ -2685,6 +2752,10 @@ export type CustomPropertySourcesRunsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Match run IDs, workflow IDs, job IDs, statuses, segments, triggers, or errors.
+     */
+    search?: string
 }
 
 export type CustomerJourneysListParams = {

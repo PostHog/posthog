@@ -62,6 +62,7 @@ from . import (
     team,
     uploaded_media,
     user,
+    user_facet_settings,
     user_home_settings,
     web_vitals,
     webauthn,
@@ -372,6 +373,11 @@ router.register(
     r"user_home_settings",
     user_home_settings.UserHomeSettingsViewSet,
     "user_home_settings",
+)
+router.register(
+    r"user_facet_settings",
+    user_facet_settings.UserFacetSettingsViewSet,
+    "user_facet_settings",
 )
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
 router.register(r"cli-auth", cli_auth.CLIAuthViewSet, "cli_auth")

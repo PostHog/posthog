@@ -6009,6 +6009,7 @@ dependencies = [
  "envconfig",
  "flate2",
  "futures",
+ "ingestion-worker-proto",
  "k8s-awareness",
  "kube",
  "lifecycle",
@@ -6022,7 +6023,9 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-stream",
  "tokio-util",
+ "tonic 0.12.3",
  "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
@@ -8979,7 +8982,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-replay-anonymizer"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
@@ -9003,9 +9006,9 @@ dependencies = [
 
 [[package]]
 name = "posthog-rs"
-version = "0.25.2"
+version = "0.25.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fed13284500e908ba34e4f678f754f154f70e453891a8d39eeca6ff11d740374"
+checksum = "6dee0240ce9b45d3811701cb5a9f45c6c9b73b4165aadfcbae5954fbcc46234f"
 dependencies = [
  "backtrace",
  "brotli",

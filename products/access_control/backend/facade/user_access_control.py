@@ -119,6 +119,8 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     # scanner's "and then…" automations) — configured via the same single
     # replay_scanner rule rather than a separate resource.
     "vision_action": "replay_scanner",
+    # Vision alerts follow the same rule: configured via the scanner's access level.
+    "vision_alert": "replay_scanner",
 }
 
 # Unlike RESOURCE_INHERITANCE_MAP above, where the child has no access of its own and just uses the
@@ -331,6 +333,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "replay_scanner"
     if name in ("visionaction", "visionactionrun"):
         return "vision_action"
+    if name in ("visionalertconfiguration", "visionalertevent"):
+        return "vision_alert"
 
     if name not in API_SCOPE_OBJECTS or name in INTERNAL_API_SCOPE_OBJECTS:
         return None
@@ -1124,9 +1128,10 @@ class UserAccessControl:
         decision = self._blocked_and_allowed_object_ids(access_controls)
 
         # Apply filtering logic based on resource-level access
-        if not self.has_resource_access(resource) and decision.allowed_ids:
-            # User has "none" resource access but specific object access
-            # Only show objects they have explicit access to (plus created objects)
+        if not self.has_resource_access(resource):
+            # Resource-level "none": show only granted objects and the user's own objects, also
+            # when there are no grants at all. Logic-layer and background callers reach this
+            # filter with no permission layer above it, so it must fail closed on its own.
             if model_has_creator:
                 queryset = queryset.filter(Q(id__in=decision.allowed_ids) | Q(created_by=self._user))
             else:
