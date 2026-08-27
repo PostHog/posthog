@@ -479,6 +479,9 @@ const TRIPWIRE_RULES = [
     ['webpack.config.js', JAVASCRIPT],
     ['.oxlintrc.json', JAVASCRIPT],
     ['.oxfmtrc*', JAVASCRIPT],
+    // Prettier still formats the nodejs tree (ci-nodejs runs its check), so
+    // its ignore file is a JS toolchain setting like the two above.
+    ['.prettierignore', JAVASCRIPT],
     ['.nvmrc', JAVASCRIPT],
     ['postcss.config.js', JAVASCRIPT],
     ['.stylelintrc.js', JAVASCRIPT],
@@ -579,6 +582,22 @@ const TRIPWIRE_RULES = [
     // Generates the frontend API types from the backend serializers, so a
     // change lands on both sides of the fe/py split at once.
     ['tools/openapi-codegen/**', PRODUCT_SURFACE],
+    // The per-suite test-selection scripts at the root of tools/, ahead of the
+    // catch-all that widens anything else there. Each decides which of one
+    // suite's tests run on a PR, so an under-selection can only mask conflicts
+    // that suite's lanes already serialize: the snob shadow, its verdict, and
+    // the testmon fanout list select Django tests, the dagster selector its
+    // own suite, and the playwright pair the E2E specs.
+    ['tools/snob_backend_test_selection_shadow.py', PYTHON],
+    ['tools/test_snob_backend_test_selection_shadow.py', PYTHON],
+    ['tools/test_selection_verdict.py', PYTHON],
+    ['tools/test_test_selection_verdict.py', PYTHON],
+    ['tools/dagster_test_selection.py', PYTHON],
+    ['tools/test_dagster_test_selection.py', PYTHON],
+    ['tools/testmon_high_fanout_files.txt', PYTHON],
+    ['tools/playwright_spec_selection.py', FULLSTACK],
+    ['tools/test_playwright_spec_selection.py', FULLSTACK],
+    ['tools/playwright_area_map.json', FULLSTACK],
     // Ownership data read by the backend, frontend, and script suites alike.
     // The root owners.yaml is the fallback every path resolves through when no
     // nearer file claims it, so it has the same readers as the tooling. A
@@ -798,6 +817,10 @@ const REPO_CONFIG_DIRS = [
     '.interface-design',
     '.posthog-code',
     '.run',
+    // Configures the local Trunk CLI only (merge / status / cancel); linting
+    // is deliberately disabled there. The queue's own behavior lives
+    // server-side and in the lane rules, which stay universal.
+    '.trunk',
     '.vscode',
     '.zed',
 ]

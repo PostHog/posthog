@@ -866,6 +866,10 @@ test('every target the rules can emit appears in the enumerated universe', () =>
         'bin/build-schema-python.sh',
         'bin/update-bots-list',
         '.depot/workflows/ci-backend.yml',
+        'tools/snob_backend_test_selection_shadow.py',
+        'tools/playwright_area_map.json',
+        '.prettierignore',
+        '.trunk/trunk.yaml',
     ]
     for (const file of everyRule) {
         const targets = computeTargets([file], CONTEXT)
@@ -951,6 +955,8 @@ test('editor and agent configuration shares one lane', () => {
         '.husky/pre-commit',
         '.claude/settings.json',
         '.greptile/config.json',
+        '.trunk/trunk.yaml',
+        '.trunk/.gitignore',
         // The same class of file, one per root path rather than one per tree.
         '.cursorignore',
         '.editorconfig',
@@ -1760,10 +1766,24 @@ test('backend-coupled and unrecognized tools stay in the backend lanes', () => {
     }
 })
 
-// These steer what every suite runs, so they cannot sit in one domain's lane.
-test('CI-steering scripts directly under tools/ widen', () => {
-    assert.deepEqual(computeTargets(['tools/playwright_spec_selection.py'], CONTEXT), EVERYTHING)
-    assert.deepEqual(computeTargets(['tools/snob_backend_test_selection_shadow.py'], CONTEXT), EVERYTHING)
+// Each selection script decides which of one suite's tests run on a PR, so an
+// under-selection can only mask conflicts that suite's lanes already
+// serialize. A root-level tools/ file nobody has classified still widens.
+test('test-selection scripts claim the lanes of the suite they select for', () => {
+    for (const file of [
+        'tools/snob_backend_test_selection_shadow.py',
+        'tools/test_selection_verdict.py',
+        'tools/dagster_test_selection.py',
+        'tools/testmon_high_fanout_files.txt',
+    ]) {
+        assert.deepEqual(computeTargets([file], CONTEXT), computeTargets(['mypy.ini'], CONTEXT), file)
+    }
+    const playwright = computeTargets(['tools/playwright_spec_selection.py'], CONTEXT)
+    assert.deepEqual(playwright, computeTargets(['tools/playwright_area_map.json'], CONTEXT))
+    assert.equal(playwright.includes('fe:core'), true)
+    assert.equal(playwright.includes('py:core'), true)
+    assert.notDeepEqual(playwright, EVERYTHING)
+    assert.deepEqual(computeTargets(['tools/some_new_steering_script.py'], CONTEXT), EVERYTHING)
 })
 
 // Both are tripwires rather than falling through to the tools/ rule, which
