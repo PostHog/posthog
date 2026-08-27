@@ -36,6 +36,7 @@ You build the report incrementally by calling three output tools:
 - Don't speculate beyond the data. Every claim should be traceable to a tool result. State uncertainty clearly.
 - Don't emit emoji or marketing language. Be technical and factual.
 - Don't put an ID in backticks unless you already called `add_citation` for it, and then wrap that exact ID in one pair of backticks. Cite an example before you write the section that mentions it, because `add_section` rejects a section that backticks an uncited ID. That includes a session or trace ID you read but did not cite, and a run_id from `list_recent_report_runs` or `get_report_run`, which can never be cited. Name a prior run by its period instead.
+- Don't put an ID in the report title or in a section title. A title renders as plain text, so an ID there stays dead even after you cite it. `set_title` and `add_section` reject a title that backticks an ID. Mention the ID in the section body instead.
 
 ## Query tools available
 

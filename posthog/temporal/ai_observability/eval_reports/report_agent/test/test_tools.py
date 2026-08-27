@@ -1,6 +1,7 @@
 """Tests for the v2 eval report agent output tools (set_title, add_section, add_citation)."""
 
 import json
+import time
 import datetime as dt
 from typing import NotRequired, TypedDict
 
@@ -571,6 +572,21 @@ class TestSetTitle(SimpleTestCase):
         self.assertLessEqual(len(state["report"].title), 200)
         self.assertTrue(state["report"].title.endswith("..."))
 
+    # The title is an email subject, a Slack header, and a heading — never markdown — so
+    # citing the ID does not save it. Rejecting in the loop lets the agent retitle; the
+    # final validation can only discard the whole report.
+    @parameterized.expand([("uncited", False), ("cited", True)])
+    def test_rejects_backticked_id_in_title(self, _name: str, cite: bool) -> None:
+        state = _state_with_empty_report()
+        if cite:
+            state["report"].citations.append(Citation(generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID))
+
+        result = _set_title_fn(state=state, title=f"Regression in `{_VALID_GEN_ID}`")
+
+        self.assertIn("Error", result)
+        self.assertIn(_VALID_GEN_ID, result)
+        self.assertEqual(state["report"].title, "")
+
 
 class TestAddSection(SimpleTestCase):
     def test_appends_section(self):
@@ -658,6 +674,17 @@ class TestAddSection(SimpleTestCase):
         self.assertNotIn("Error", result)
         self.assertEqual(len(state["report"].sections), 1)
 
+    def test_rejects_cited_backticked_id_in_a_section_title(self):
+        # Section titles reach the reader as a heading, so citation linking never runs over them.
+        state = _state_with_empty_report()
+        state["report"].citations.append(Citation(generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID))
+
+        result = _add_section_fn(state=state, title=f"Regression in `{_VALID_GEN_ID}`", content="A finding.")
+
+        self.assertIn("Error", result)
+        self.assertIn(_VALID_GEN_ID, result)
+        self.assertEqual(state["report"].sections, [])
+
 
 class TestDeadBacktickedIds(SimpleTestCase):
     _OPAQUE_SESSION_ID = "chat_thread_9f2b1a"
@@ -710,6 +737,17 @@ class TestDeadBacktickedIds(SimpleTestCase):
         self, _name: str, text: str, citations: list[Citation], handled_ids: set[str], expected: list[str]
     ) -> None:
         self.assertEqual(_dead_backticked_ids(text, citations, handled_ids), expected)
+
+    def test_scan_stays_linear_on_a_whitespace_run(self):
+        # A model that degenerates into whitespace after a stray backtick writes exactly the
+        # input that makes an ambiguous backtick pattern backtrack. The check runs inside the
+        # report activity, so a slow scan hangs the activity instead of returning an error.
+        # Two thousand characters took about seven seconds before the pattern was tightened.
+        text = "The pass rate held. `" + " " * 2000
+
+        started = time.monotonic()
+        self.assertEqual(_dead_backticked_ids(text, [], set()), [])
+        self.assertLess(time.monotonic() - started, 1.0)
 
 
 class TestAddCitation(SimpleTestCase):

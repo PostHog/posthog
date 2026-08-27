@@ -22,7 +22,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
 from posthog.temporal.ai_observability.eval_reports.report_agent.state import EvalReportAgentState
 from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
     _ch_ts,
-    _dead_backticked_ids_across,
+    _dead_backticked_ids_in_report,
     _fetch_period_summary,
     _handled_ids,
     _is_retriable_ch_error,
@@ -192,13 +192,12 @@ def _validate_agent_output(content: EvalReportContent, handled_ids: set[str] | N
       - title must be non-empty
       - section count must be within [MIN_REPORT_SECTIONS, MAX_REPORT_SECTIONS]
       - every section must have a non-empty title and content
-      - no backticked ID may ship dead: the renderer links only an exactly-cited ID
-        in one pair of backticks, so every other backticked ID is a dead identifier
+      - no backticked ID may ship dead: a section body links only an exactly-cited ID
+        in one pair of backticks, and a title links nothing at all, so every other
+        backticked ID is a dead identifier
 
-    add_section runs the same dead-ID check in the loop, so the agent can correct a
-    dead ID on its next call. This is the backstop for what reaches the end, and it
-    also covers the report title and the section titles, which no renderer runs
-    citation linking over.
+    set_title and add_section run the same dead-ID check in the loop, so the agent can
+    correct a dead ID on its next call. This is the backstop for what reaches the end.
     """
     if not content.title.strip():
         return "agent did not call set_title"
@@ -212,8 +211,9 @@ def _validate_agent_output(content: EvalReportContent, handled_ids: set[str] | N
         if not section.content.strip():
             return f"section {idx + 1} ({section.title!r}) has empty content"
 
-    section_texts = [text for section in content.sections for text in (section.title, section.content)]
-    dead = _dead_backticked_ids_across([content.title, *section_texts], content.citations, handled_ids or set())
+    titles = [content.title, *(section.title for section in content.sections)]
+    bodies = [section.content for section in content.sections]
+    dead = _dead_backticked_ids_in_report(titles, bodies, content.citations, handled_ids or set())
     if dead:
         return f"backticked IDs will not render as citation links: {', '.join(dead[:3])}"
     return None

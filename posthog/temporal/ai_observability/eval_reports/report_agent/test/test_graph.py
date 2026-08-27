@@ -331,6 +331,22 @@ class TestValidateAgentOutput(SimpleTestCase):
         content.citations = [Citation(session_id=session_id, reason="regression")]
         self.assertIsNone(_validate_agent_output(content, {session_id}))
 
+    @parameterized.expand([("report title", True), ("section title", False)])
+    def test_cited_backticked_id_in_a_title_fails(self, _name, in_report_title):
+        # No renderer runs citation linking over a title, so citing the ID does not revive it.
+        session_id = "chat_thread_9f2b1a"
+        content = self._valid_content()
+        if in_report_title:
+            content.title = f"Regression in `{session_id}`"
+        else:
+            content.sections = [ReportSection(title=f"Regression in `{session_id}`", content="A finding.")]
+        content.citations = [Citation(session_id=session_id, reason="regression")]
+
+        reason = _validate_agent_output(content, {session_id})
+
+        self.assertIsNotNone(reason)
+        self.assertIn(session_id, reason or "")
+
 
 class TestAppendReferencesSection(SimpleTestCase):
     def test_no_citations_leaves_sections_untouched(self):

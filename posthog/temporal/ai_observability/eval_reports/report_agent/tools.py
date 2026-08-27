@@ -66,8 +66,11 @@ logger = structlog.get_logger(__name__)
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 # Capture the token inside any inline-code span, so the guard can tell an ID
-# apart from prose regardless of how many backticks or spaces wrap it.
-_BACKTICKED_TOKEN_RE = re.compile(r"`+\s*([^`\n]+?)\s*`+")
+# apart from prose regardless of how many backticks or spaces wrap it. The class
+# excludes only the backtick, so the run to the next one is unambiguous and the
+# scan stays linear. A class that also matched the surrounding whitespace makes
+# every split of a whitespace run a candidate, and the agent writes the input.
+_BACKTICKED_TOKEN_RE = re.compile(r"`+([^`]*)`+")
 
 # Match a canonical UUID anywhere it is used as a whole token. Opaque IDs are not
 # UUID-shaped, so the guard also checks the session's handled-ID allowlists.
@@ -1481,6 +1484,9 @@ def set_title(
     clean = (title or "").strip()
     if not clean:
         return "Error: title cannot be empty"
+    dead = _dead_backticked_ids(clean, [], _handled_ids(state))
+    if dead:
+        return _plain_text_id_error("report title", dead)
     # Clip to a sensible max so it doesn't blow up email subject lines.
     if len(clean) > 200:
         clean = clean[:197] + "..."
@@ -1498,7 +1504,7 @@ def _dead_backticked_ids(text: str, citations: list[Citation], handled_ids: set[
     cited_ids = {citation.cited_id() for citation in citations}
     dead: list[str] = []
     for match in _BACKTICKED_TOKEN_RE.finditer(text):
-        token = match.group(1)
+        token = match.group(1).strip()
         if token not in handled_ids and _UUID_SHAPE_RE.fullmatch(token) is None:
             continue
         links = token in cited_ids and match.group(0) == f"`{token}`"
@@ -1507,14 +1513,35 @@ def _dead_backticked_ids(text: str, citations: list[Citation], handled_ids: set[
     return dead
 
 
-def _dead_backticked_ids_across(texts: Iterable[str], citations: list[Citation], handled_ids: set[str]) -> list[str]:
-    """Return the dead backticked IDs found in any of `texts`, in first-seen order."""
+def _dead_backticked_ids_in_report(
+    titles: Iterable[str], bodies: Iterable[str], citations: list[Citation], handled_ids: set[str]
+) -> list[str]:
+    """Return the dead backticked IDs across a report's titles and bodies, in first-seen order.
+
+    Only a section body is run through citation linking. Every title reaches the reader
+    as plain text — an email subject, a Slack header, a heading — so a backticked ID in a
+    title is dead even when that ID is cited.
+    """
+    no_citations: list[Citation] = []
+    checks: list[tuple[str, list[Citation]]] = [
+        *((title, no_citations) for title in titles),
+        *((body, citations) for body in bodies),
+    ]
     dead: list[str] = []
-    for text in texts:
-        for token in _dead_backticked_ids(text, citations, handled_ids):
+    for text, text_citations in checks:
+        for token in _dead_backticked_ids(text, text_citations, handled_ids):
             if token not in dead:
                 dead.append(token)
     return dead
+
+
+def _plain_text_id_error(surface: str, dead: list[str]) -> str:
+    """Explain to the agent that an ID in a plain-text surface can never become a link."""
+    preview = ", ".join(f"`{token}`" for token in dead[:3])
+    return (
+        f"Error: the {surface} renders as plain text, so these backticked IDs stay dead: {preview}. "
+        f"Take the backticks off the {surface} and discuss the ID in a section body instead."
+    )
 
 
 @tool
@@ -1553,7 +1580,11 @@ def add_section(
             f"Error: maximum of {MAX_REPORT_SECTIONS} sections reached. "
             "Merge your content into existing sections rather than fragmenting further."
         )
-    dead = _dead_backticked_ids_across((clean_title, clean_content), state["report"].citations, _handled_ids(state))
+    handled_ids = _handled_ids(state)
+    dead_in_title = _dead_backticked_ids(clean_title, [], handled_ids)
+    if dead_in_title:
+        return _plain_text_id_error("section title", dead_in_title)
+    dead = _dead_backticked_ids(clean_content, state["report"].citations, handled_ids)
     if dead:
         preview = ", ".join(f"`{token}`" for token in dead[:3])
         return (
