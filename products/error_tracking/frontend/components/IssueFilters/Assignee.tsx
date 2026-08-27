@@ -1,0 +1,24 @@
+import { useActions, useValues } from 'kea'
+
+import { Button, SelectTriggerIcon } from 'lib/ui/quill'
+
+import { AssigneeIconDisplay, AssigneeLabelDisplay } from '../Assignee/AssigneeDisplay'
+import { QuillAssigneeSelect } from '../Assignee/QuillAssigneeSelect'
+import { issueQueryOptionsLogic } from '../IssueQueryOptions/issueQueryOptionsLogic'
+
+export function AssigneeFilter(): JSX.Element {
+    const { assignee } = useValues(issueQueryOptionsLogic)
+    const { setAssignee } = useActions(issueQueryOptionsLogic)
+
+    return (
+        <QuillAssigneeSelect assignee={assignee ?? null} onChange={setAssignee}>
+            {(displayAssignee) => (
+                <Button variant="outline" size="default">
+                    <AssigneeIconDisplay assignee={displayAssignee} size="small" />
+                    <AssigneeLabelDisplay assignee={displayAssignee} size="small" placeholder="Any assignee" />
+                    <SelectTriggerIcon />
+                </Button>
+            )}
+        </QuillAssigneeSelect>
+    )
+}
