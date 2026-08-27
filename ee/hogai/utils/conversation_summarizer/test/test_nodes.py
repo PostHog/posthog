@@ -195,6 +195,7 @@ class TestAnthropicConversationSummarizer(BaseTest):
         cached_message, cached_block = cached[0]
         self.assertIs(cached_message, messages[0])
         self.assertIn(SUMMARIZATION_INSTRUCTION_PROMPT, cached_block["text"])
+        self.assertEqual(cached_block["cache_control"], {"type": "ephemeral", "ttl": "1h"})
 
     @parameterized.expand(
         [
