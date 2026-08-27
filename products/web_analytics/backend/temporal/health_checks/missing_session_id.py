@@ -63,8 +63,9 @@ class MissingSessionIdCheck(HealthCheck):
             events are produced outside posthog-js — server-side SDK calls or a third-party pipeline — and set
             a UUIDv7 `$session_id` on each event. A plain UUIDv4 (what `crypto.randomUUID()` and `uuid.uuid4()`
             produce) is not enough: web analytics builds sessions only from UUIDv7 ids, so it clears the warning
-            without restoring the counts. Use `docs-search` for the custom session id docs. Once the events carry
-            a UUIDv7 session id, the issue resolves on the next check run.
+            without restoring the counts. Use `docs-search` for the custom session id docs. The check reads a
+            rolling 30-day window, so once new events carry a UUIDv7 session id the warning clears only after the
+            old malformed events age out of that window, up to 30 days after the fix rather than on the next run.
         """,
     )
 
