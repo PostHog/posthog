@@ -159,27 +159,18 @@ class Subscription(ModelActivityMixin, models.Model):
         blank=True,
         related_name="subscriptions_dashboard_export",
     )
-    # AI-prompt subs only: the dashboard or insight the sub was created from, injected into the
-    # planner as grounding. It is not the exported resource, so resource_type stays derived from
-    # the relations above. SET_NULL because deleting the anchor should only degrade the report
-    # to project-wide, not delete the subscription.
-    # db_index=False so the ADD COLUMN takes no non-concurrent CREATE INDEX; the indexes are
-    # added concurrently in Meta.indexes (SET_NULL cascade and the list filters need them).
-    anchor_dashboard = models.ForeignKey(
+    # AI-prompt subs only: dashboards and insights injected into the planner as grounding.
+    # They are not exported resources, so resource_type stays derived from the relations above.
+    # Removing a resource deletes only the through-table row and degrades the report gracefully.
+    context_dashboards = models.ManyToManyField(
         "dashboards.Dashboard",
-        on_delete=models.SET_NULL,
-        null=True,
         blank=True,
-        db_index=False,
-        related_name="anchored_ai_subscriptions",
+        related_name="contextual_ai_subscriptions",
     )
-    anchor_insight = models.ForeignKey(
+    context_insights = models.ManyToManyField(
         "product_analytics.Insight",
-        on_delete=models.SET_NULL,
-        null=True,
         blank=True,
-        db_index=False,
-        related_name="anchored_ai_subscriptions",
+        related_name="contextual_ai_subscriptions",
     )
     integration = models.ForeignKey(
         "posthog.Integration",
@@ -236,8 +227,6 @@ class Subscription(ModelActivityMixin, models.Model):
     class Meta:
         indexes = [
             models.Index(fields=["integration"], name="posthog_sub_integration_idx"),
-            models.Index(fields=["anchor_dashboard"], name="posthog_sub_anchor_dash_idx"),
-            models.Index(fields=["anchor_insight"], name="posthog_sub_anchor_ins_idx"),
         ]
         db_table = "posthog_subscription"
 
@@ -455,22 +444,6 @@ class Subscription(ModelActivityMixin, models.Model):
             case self.ResourceType.AI_PROMPT:
                 ai_name = self.title or (self.prompt or "").strip()[:AI_PROMPT_DISPLAY_MAX_LEN] or "AI report"
                 return SubscriptionResource("AI", ai_name, self.url or "")
-        return None
-
-    @property
-    def anchor_info(self) -> Optional[SubscriptionResource]:
-        """The resource grounding an AI report, for display. Distinct from `resource_info`, which
-        describes what the subscription delivers; the anchor is what it reads for context."""
-        if self.anchor_dashboard_id and self.anchor_dashboard and not self.anchor_dashboard.deleted:
-            return SubscriptionResource(
-                "Dashboard", self.anchor_dashboard.name or "Dashboard", self.anchor_dashboard.url
-            )
-        if self.anchor_insight_id and self.anchor_insight and not self.anchor_insight.deleted:
-            return SubscriptionResource(
-                "Insight",
-                self.anchor_insight.name or self.anchor_insight.derived_name or "Insight",
-                self.anchor_insight.url,
-            )
         return None
 
     @property

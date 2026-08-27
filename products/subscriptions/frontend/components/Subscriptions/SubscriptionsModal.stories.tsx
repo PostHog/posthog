@@ -164,6 +164,22 @@ const AI_PROMPT_SUBSCRIPTIONS = [
     }),
 ]
 
+const AI_REPORT_WITH_CONTEXTS = createMockSubscription({
+    id: 31,
+    resource_type: 'ai_prompt',
+    title: 'Weekly product health report',
+    prompt: 'Summarize activation, retention, and revenue changes from the last week.',
+    context_dashboards: [1],
+    context_insights: [12],
+    contexts: [
+        { kind: 'dashboard', id: 1, name: 'Weekly metrics', url: '/dashboard/1' },
+        { kind: 'insight', id: 12, name: 'Activation rate', url: '/insights/ins12' },
+    ],
+    target_type: 'email',
+    target_value: 'product@example.com',
+    created_by: mockBasicUser,
+})
+
 const AI_PROMPT_PARAMETERS = {
     featureFlags: {
         [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true,
@@ -222,7 +238,10 @@ const meta: Meta<StoryArgs> = {
 
                     return { count: results.length, results }
                 },
-                '/api/environments/:id/subscriptions/:subId': createMockSubscription(),
+                '/api/environments/:id/subscriptions/:subId':
+                    props.subscriptionId === AI_REPORT_WITH_CONTEXTS.id
+                        ? AI_REPORT_WITH_CONTEXTS
+                        : createMockSubscription(),
                 ...(freeTierSubscriptionCount !== undefined
                     ? { '/api/projects/:id/subscriptions/': { count: freeTierSubscriptionCount, results: [] } }
                     : {}),
@@ -303,4 +322,9 @@ export const DashboardWithSubscriptions: Story = {
 export const InsightWithSubscriptions: Story = {
     parameters: AI_PROMPT_PARAMETERS,
     args: { subscriptionId: null, insightShortId: 'ins11' as InsightShortId },
+}
+
+export const AIReportWithContexts: Story = {
+    parameters: AI_PROMPT_PARAMETERS,
+    args: { subscriptionId: AI_REPORT_WITH_CONTEXTS.id },
 }

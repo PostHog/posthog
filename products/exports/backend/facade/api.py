@@ -117,10 +117,10 @@ def insight_ids_with_subscriptions(insight_ids: Collection[int]) -> set[int]:
         "insight_id", flat=True
     )
     # nosemgrep: idor-lookup-without-team
-    anchored = Subscription.objects.filter(anchor_insight_id__in=insight_ids, deleted=False).values_list(
-        "anchor_insight_id", flat=True
+    contextual = Subscription.objects.filter(context_insights__id__in=insight_ids, deleted=False).values_list(
+        "context_insights__id", flat=True
     )
-    return set(exported) | set(anchored)
+    return set(exported) | set(contextual)
 
 
 def dashboard_ids_with_subscriptions(dashboard_ids: Collection[int]) -> set[int]:
@@ -137,10 +137,10 @@ def dashboard_ids_with_subscriptions(dashboard_ids: Collection[int]) -> set[int]
         "dashboard_id", flat=True
     )
     # nosemgrep: idor-lookup-without-team
-    anchored = Subscription.objects.filter(anchor_dashboard_id__in=dashboard_ids, deleted=False).values_list(
-        "anchor_dashboard_id", flat=True
+    contextual = Subscription.objects.filter(context_dashboards__id__in=dashboard_ids, deleted=False).values_list(
+        "context_dashboards__id", flat=True
     )
-    return set(exported) | set(anchored)
+    return set(exported) | set(contextual)
 
 
 # The limit contexts an export writer can pin, keyed by the string it stores in export_context.

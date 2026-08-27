@@ -6,17 +6,21 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 
 import { SubscriptionAIPromptMaxLength } from '~/queries/schema/schema-general'
 
-import type { AIWindowConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import type { AIWindowConfigApi, SubscriptionContextApi } from 'products/subscriptions/frontend/generated/api.schemas'
+
+import { SubscriptionContextPicker } from './SubscriptionContextPicker'
 
 export function AiPromptSubscriptionIntroduction(): JSX.Element {
     return (
         <LemonBanner type="info" className="text-sm">
-            Tell us what you want to know. We'll surface the relevant information from your project data in each report.
+            The AI analyzes your project's recent events and writes a markdown report. Selected dashboards and insights
+            provide context, and the report can also draw on the rest of your project.
         </LemonBanner>
     )
 }
@@ -81,9 +85,12 @@ const AI_WINDOW_MODE_OPTIONS = [
 
 interface AiPromptFieldsProps {
     compactAnalysisWindow?: boolean
+    contexts: SubscriptionContextApi[]
     prompt?: string | null
     windowMode?: AIWindowConfigApi['mode']
     consentBanner?: ReactNode
+    onAddContext: (context: SubscriptionContextApi) => void
+    onRemoveContext: (context: SubscriptionContextApi) => void
     onSelectAnalysisWindow: (mode: AIWindowConfigApi['mode']) => void
     onSelectExample: (prompt: string, label: string) => void
 }
@@ -94,9 +101,12 @@ function shouldShowAiPromptExamples(prompt?: string | null): boolean {
 
 export function AiPromptFields({
     compactAnalysisWindow = false,
+    contexts,
     prompt,
     windowMode,
     consentBanner,
+    onAddContext,
+    onRemoveContext,
     onSelectAnalysisWindow,
     onSelectExample,
 }: AiPromptFieldsProps): JSX.Element {
@@ -110,6 +120,12 @@ export function AiPromptFields({
                     {consentBanner}
                 </LemonBanner>
             ) : null}
+            <div className="flex flex-col gap-1">
+                <LemonLabel info="The report uses selected dashboards and insights as context. With no context, it reports on the whole project.">
+                    Context
+                </LemonLabel>
+                <SubscriptionContextPicker contexts={contexts} onAdd={onAddContext} onRemove={onRemoveContext} />
+            </div>
             <LemonField
                 name="prompt"
                 label="What do you want to know?"

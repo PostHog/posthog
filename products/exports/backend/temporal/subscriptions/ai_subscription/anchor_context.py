@@ -14,8 +14,8 @@ from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
 
-# Bounds the planner context: a dashboard beyond this many tiles is summarized with a "not shown"
-# note instead of growing the prompt without limit.
+# Bounds the combined planner context: dashboard tiles beyond this limit are summarized with a
+# "not shown" note instead of growing the Temporal payload and LLM prompt without limit.
 ANCHOR_TILES_LIMIT = 25
 # A query definition larger than this is truncated; the planner needs the shape, not every filter.
 ANCHOR_QUERY_JSON_MAX_CHARS = 2000
@@ -115,13 +115,15 @@ def build_anchor_context(subscription: Subscription) -> AnchorContext | None:
 
 def _build_anchor_context(subscription: Subscription) -> AnchorContext | None:
     events: list[str] = []
-    lines: list[str]
+    lines: list[str] = []
+    remaining_tiles = ANCHOR_TILES_LIMIT
 
-    dashboard = subscription.anchor_dashboard
-    insight = subscription.anchor_insight
-    if dashboard is not None and not dashboard.deleted:
+    dashboards = subscription.context_dashboards.filter(deleted=False).order_by("id")
+    insights = subscription.context_insights.filter(deleted=False).order_by("id")
+
+    for dashboard in dashboards:
         name = sanitize_user_text(dashboard.name or "", ANCHOR_NAME_MAX_LENGTH) or "(unnamed)"
-        lines = [f"- Anchored dashboard (the user created this subscription from it): {name}"]
+        lines.append(f"- Context dashboard: {name}")
         description = sanitize_user_text(dashboard.description or "", ANCHOR_DESCRIPTION_MAX_LENGTH)
         if description:
             lines.append(f"  Description: {description}")
@@ -135,7 +137,7 @@ def _build_anchor_context(subscription: Subscription) -> AnchorContext | None:
             .order_by("id")
             .only("id", "layouts", "insight_id")
         )
-        capped_tiles = tiles[:ANCHOR_TILES_LIMIT]
+        capped_tiles = tiles[:remaining_tiles]
         insights_by_id = {
             insight_row.id: insight_row
             for insight_row in Insight.objects.filter(id__in=[tile.insight_id for tile in capped_tiles]).only(
@@ -153,12 +155,15 @@ def _build_anchor_context(subscription: Subscription) -> AnchorContext | None:
             tile_insight = insights_by_id.get(tile.insight_id)
             if tile_insight is not None:
                 lines.extend(_insight_lines(tile_insight, events))
-        if len(tiles) > ANCHOR_TILES_LIMIT:
-            lines.append(f"  ({len(tiles) - ANCHOR_TILES_LIMIT} more tiles not shown)")
-    elif insight is not None and not insight.deleted:
-        lines = ["- Anchored insight (the user created this subscription from it):"]
+        remaining_tiles -= len(capped_tiles)
+        if len(tiles) > len(capped_tiles):
+            lines.append(f"  ({len(tiles) - len(capped_tiles)} more tiles not shown)")
+
+    for insight in insights:
+        lines.append("- Context insight:")
         lines.extend(_insight_lines(insight, events))
-    else:
+
+    if not lines:
         return None
 
     blob = "\n".join(lines)

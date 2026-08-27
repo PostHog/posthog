@@ -574,8 +574,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # exclude their FK relations) — without this, editing a subscription's integration 500s the save.
         "integration",
         # Same FK-diff hazard as integration: setting or clearing an anchor 500s the save otherwise.
-        "anchor_dashboard",
-        "anchor_insight",
     ],
     "Cohort": [
         "version",

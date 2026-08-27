@@ -59,6 +59,7 @@ import { SubscriptionCreationGate, SubscriptionFormSkeleton } from './views/Edit
 
 interface SubscriptionWizardProps {
     insightShortId?: InsightShortId
+    insightId?: number
     insightName?: string
     dashboard?: DashboardType<any> | null
     onCancel: () => void
@@ -93,6 +94,7 @@ function wizardStepDescription(step: SubscriptionWizardStep): string {
 
 export function SubscriptionWizard({
     insightShortId,
+    insightId,
     insightName,
     dashboard,
     onCancel,
@@ -100,6 +102,7 @@ export function SubscriptionWizard({
     const logicProps = {
         id: 'new' as const,
         insightShortId,
+        insightId,
         dashboardId: dashboard?.id,
         dashboardName: dashboard?.name,
         insightName,
@@ -443,9 +446,8 @@ function SubscriptionContentStep({
     subscription: SubscriptionType
     aiSubscriptionBlocked: boolean
 }): JSX.Element {
-    const { applyDefaultSelectedInsights, selectAiAnalysisWindow, selectAiExamplePrompt } = useActions(
-        subscriptionLogic(logicProps)
-    )
+    const { addContext, applyDefaultSelectedInsights, removeContext, selectAiAnalysisWindow, selectAiExamplePrompt } =
+        useActions(subscriptionLogic(logicProps))
     const isAiPrompt = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
 
     return (
@@ -471,8 +473,11 @@ function SubscriptionContentStep({
             {isAiPrompt ? (
                 <AiPromptFields
                     compactAnalysisWindow
+                    contexts={subscription.contexts ?? []}
                     prompt={subscription.prompt}
                     windowMode={subscription.ai_prompt_config?.window?.mode}
+                    onAddContext={addContext}
+                    onRemoveContext={removeContext}
                     onSelectAnalysisWindow={selectAiAnalysisWindow}
                     onSelectExample={selectAiExamplePrompt}
                 />

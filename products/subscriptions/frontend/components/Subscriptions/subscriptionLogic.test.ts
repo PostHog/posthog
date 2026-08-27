@@ -745,9 +745,7 @@ describe('subscriptionLogic', () => {
         expect(capturedBody?.insight).toBeUndefined()
     })
 
-    it('anchors a new AI subscription to the dashboard it is created from', async () => {
-        // The dashboard FK is dropped for AI subs (it would flip resource_type), so the page
-        // context must arrive via anchor_dashboard instead, or the report loses its grounding.
+    it('adds the originating page and user selections as AI report context', async () => {
         let capturedBody: Partial<SubscriptionType> | undefined
         useMocks({
             post: {
@@ -757,10 +755,16 @@ describe('subscriptionLogic', () => {
                 },
             },
         })
-        const dashboardAiLogic = subscriptionLogic({ dashboardId: 9, id: 'new' })
+        const dashboardAiLogic = subscriptionLogic({ dashboardId: 9, dashboardName: 'Growth', id: 'new' })
         dashboardAiLogic.mount()
         router.actions.push('/subscriptions/new')
         await expectLogic(dashboardAiLogic).toFinishListeners()
+        dashboardAiLogic.actions.addContext({
+            kind: 'insight',
+            id: 12,
+            name: 'Signups',
+            url: '/insights/signups',
+        })
         dashboardAiLogic.actions.setSubscriptionValues({
             resource_type: 'ai_prompt',
             prompt: 'Show me the biggest event gains last week',
@@ -770,21 +774,25 @@ describe('subscriptionLogic', () => {
         })
         dashboardAiLogic.actions.submitSubscription()
         await expectLogic(dashboardAiLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
-        expect(capturedBody?.anchor_dashboard).toEqual(9)
-        expect(capturedBody?.anchor_insight).toBeUndefined()
+        expect(capturedBody?.context_dashboards).toEqual([9])
+        expect(capturedBody?.context_insights).toEqual([12])
+        expect(capturedBody?.contexts).toBeUndefined()
         expect(capturedBody?.dashboard).toBeUndefined()
+        dashboardAiLogic.unmount()
     })
 
-    it('does not resend anchors when editing an AI subscription', async () => {
-        // Anchors are create-only in the payload. An edit that resent them (or sent undefined
-        // serialized keys) could clear or re-point an anchor from a page without that context.
+    it('removes one context while preserving the others on edit', async () => {
         let capturedBody: Record<string, unknown> | undefined
+        const dashboardContext = { kind: 'dashboard' as const, id: 9, name: 'Growth', url: '/dashboard/9' }
+        const insightContext = { kind: 'insight' as const, id: 12, name: 'Signups', url: '/insights/signups' }
         useMocks({
             get: {
                 '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
                     resource_type: 'ai_prompt',
                     prompt: 'Weekly gains',
-                    anchor_dashboard: 9,
+                    context_dashboards: [9],
+                    context_insights: [12],
+                    contexts: [dashboardContext, insightContext],
                 }),
             },
             patch: {
@@ -798,42 +806,12 @@ describe('subscriptionLogic', () => {
         editLogic.mount()
         router.actions.push('/dashboard/9/subscriptions/1')
         await expectLogic(editLogic).toFinishListeners().toDispatchActions(['loadSubscriptionSuccess'])
-        editLogic.actions.setSubscriptionValues({ title: 'Renamed' })
+        editLogic.actions.removeContext(dashboardContext)
         editLogic.actions.submitSubscription()
         await expectLogic(editLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
-        expect(capturedBody).not.toBeUndefined()
-        expect(capturedBody && 'anchor_dashboard' in capturedBody).toBe(false)
-        expect(capturedBody && 'anchor_insight' in capturedBody).toBe(false)
-    })
-
-    it('sends null anchors when the user clears the anchor', async () => {
-        // Edits otherwise omit anchors entirely, so clearing needs to send an explicit null or
-        // the stored anchor survives and the report keeps using it.
-        let capturedBody: Record<string, unknown> | undefined
-        useMocks({
-            get: {
-                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
-                    resource_type: 'ai_prompt',
-                    prompt: 'Weekly gains',
-                    anchor_dashboard: 9,
-                }),
-            },
-            patch: {
-                '/api/environments/:team/subscriptions/1': async ({ request }) => {
-                    capturedBody = (await request.json()) as Record<string, unknown>
-                    return [200, { id: 1, ...capturedBody } as SubscriptionType]
-                },
-            },
-        })
-        const editLogic = subscriptionLogic({ dashboardId: 9, id: 1 })
-        editLogic.mount()
-        router.actions.push('/dashboard/9/subscriptions/1')
-        await expectLogic(editLogic).toFinishListeners().toDispatchActions(['loadSubscriptionSuccess'])
-        editLogic.actions.clearAnchor()
-        editLogic.actions.submitSubscription()
-        await expectLogic(editLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
-        expect(capturedBody?.anchor_dashboard).toBeNull()
-        expect(capturedBody?.anchor_insight).toBeNull()
+        expect(capturedBody?.context_dashboards).toEqual([])
+        expect(capturedBody?.context_insights).toEqual([12])
+        editLogic.unmount()
     })
 
     it('drops a stale prompt when saving a non-AI subscription', async () => {

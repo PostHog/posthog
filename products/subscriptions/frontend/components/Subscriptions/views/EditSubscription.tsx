@@ -113,6 +113,8 @@ function LastDeliveryStatus({
 interface EditSubscriptionProps {
     id: number | 'new'
     insightShortId?: InsightShortId
+    insightId?: number
+    insightName?: string
     dashboard?: DashboardType<any> | null
     onCancel: () => void
     onDelete: () => void
@@ -241,6 +243,8 @@ function DashboardInsightsField({
 function EditSubscriptionForm({
     id,
     insightShortId,
+    insightId,
+    insightName,
     dashboard,
     onCancel,
     onDelete,
@@ -249,6 +253,8 @@ function EditSubscriptionForm({
     const logicProps = {
         id,
         insightShortId,
+        insightId,
+        insightName,
         dashboardId,
         dashboardName: dashboard?.name,
     }
@@ -271,7 +277,8 @@ function EditSubscriptionForm({
         testDeliveryLoading,
     } = useValues(logic)
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
-    const { applyDefaultSelectedInsights, generatePreview, sendTestDelivery } = useActions(logic)
+    const { addContext, applyDefaultSelectedInsights, generatePreview, removeContext, sendTestDelivery } =
+        useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
@@ -448,11 +455,14 @@ function EditSubscriptionForm({
                             <>
                                 <AiPromptSubscriptionIntroduction />
                                 <AiPromptFields
+                                    contexts={subscription.contexts ?? []}
                                     prompt={subscription.prompt}
                                     windowMode={subscription.ai_prompt_config?.window?.mode}
                                     consentBanner={
                                         aiGate.showAiFormConsentBanner ? <AiConsentGateMessage /> : undefined
                                     }
+                                    onAddContext={addContext}
+                                    onRemoveContext={removeContext}
                                     onSelectAnalysisWindow={logic.actions.selectAiAnalysisWindow}
                                     onSelectExample={logic.actions.selectAiExamplePrompt}
                                 />

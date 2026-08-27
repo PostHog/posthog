@@ -89,7 +89,7 @@ import type { ExperimentFeatureFlagInputApi } from 'products/experiments/fronten
 import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
 import type { CommentSlackThreadRefApi } from 'products/platform_features/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
-import type { AIPromptConfigApi, AnchorInfoApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import type { AIPromptConfigApi, SubscriptionContextApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import type { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
@@ -5500,12 +5500,12 @@ export interface SubscriptionType {
     integration_id?: number | null
     prompt?: string | null
     ai_prompt_config?: AIPromptConfigApi | null
-    /** AI report subscriptions only: dashboard whose insights ground the generated report. */
-    anchor_dashboard?: number | null
-    /** AI report subscriptions only: insight that grounds the generated report. */
-    anchor_insight?: number | null
-    /** Read-only: the anchored resource's kind, name, and url, for display. */
-    anchor_info?: AnchorInfoApi | null
+    /** AI report subscriptions only: dashboards whose insights ground the generated report. */
+    context_dashboards?: number[]
+    /** AI report subscriptions only: insights that ground the generated report. */
+    context_insights?: number[]
+    /** Read-only context resources with display metadata. */
+    contexts?: SubscriptionContextApi[]
     target_type: string
     target_value: string
     frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'

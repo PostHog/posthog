@@ -88,17 +88,17 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .describe(
                 "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
             ),
-        anchor_dashboard: zod
-            .number()
-            .nullish()
+        context_dashboards: zod
+            .array(zod.number())
+            .optional()
             .describe(
-                'AI report subscriptions only: dashboard whose insights ground the generated report (usually the dashboard the subscription was created from). The report may still draw on the whole project. Mutually exclusive with anchor_insight.'
+                'AI report subscriptions only: dashboard IDs whose insights ground the generated report. Combined with context_insights, at most 25 context items are allowed.'
             ),
-        anchor_insight: zod
-            .number()
-            .nullish()
+        context_insights: zod
+            .array(zod.number())
+            .optional()
             .describe(
-                'AI report subscriptions only: insight that grounds the generated report. The report may still draw on the whole project. Mutually exclusive with anchor_dashboard.'
+                'AI report subscriptions only: insight IDs that ground the generated report. Combined with context_dashboards, at most 25 context items are allowed.'
             ),
         target_type: zod
             .enum(['email', 'slack'])
@@ -270,17 +270,17 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
             ),
-        anchor_dashboard: zod
-            .number()
-            .nullish()
+        context_dashboards: zod
+            .array(zod.number())
+            .optional()
             .describe(
-                'AI report subscriptions only: dashboard whose insights ground the generated report (usually the dashboard the subscription was created from). The report may still draw on the whole project. Mutually exclusive with anchor_insight.'
+                'AI report subscriptions only: dashboard IDs whose insights ground the generated report. Combined with context_insights, at most 25 context items are allowed.'
             ),
-        anchor_insight: zod
-            .number()
-            .nullish()
+        context_insights: zod
+            .array(zod.number())
+            .optional()
             .describe(
-                'AI report subscriptions only: insight that grounds the generated report. The report may still draw on the whole project. Mutually exclusive with anchor_dashboard.'
+                'AI report subscriptions only: insight IDs that ground the generated report. Combined with context_dashboards, at most 25 context items are allowed.'
             ),
         target_type: zod
             .enum(['email', 'slack'])
@@ -452,17 +452,17 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
             ),
-        anchor_dashboard: zod
-            .number()
-            .nullish()
+        context_dashboards: zod
+            .array(zod.number())
+            .optional()
             .describe(
-                'AI report subscriptions only: dashboard whose insights ground the generated report (usually the dashboard the subscription was created from). The report may still draw on the whole project. Mutually exclusive with anchor_insight.'
+                'AI report subscriptions only: dashboard IDs whose insights ground the generated report. Combined with context_insights, at most 25 context items are allowed.'
             ),
-        anchor_insight: zod
-            .number()
-            .nullish()
+        context_insights: zod
+            .array(zod.number())
+            .optional()
             .describe(
-                'AI report subscriptions only: insight that grounds the generated report. The report may still draw on the whole project. Mutually exclusive with anchor_dashboard.'
+                'AI report subscriptions only: insight IDs that ground the generated report. Combined with context_dashboards, at most 25 context items are allowed.'
             ),
         target_type: zod
             .enum(['email', 'slack'])

@@ -126,6 +126,9 @@ class TestSubscriptionTemporal(APILicensedTest):
             "dashboard_export_insights": [],
             "prompt": None,
             "ai_prompt_config": {},
+            "context_dashboards": [],
+            "context_insights": [],
+            "contexts": [],
             "target_type": "email",
             "target_value": "test@posthog.com",
             "frequency": "weekly",
@@ -2603,128 +2606,114 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert created.status_code == status.HTTP_201_CREATED, created.json()
         return created.json()["id"]
 
-    def test_anchored_ai_subscription_persists_and_lists_under_its_dashboard(self, *mocks: MagicMock):
+    def test_ai_subscription_accepts_multiple_contexts_and_lists_under_each_resource(self, *mocks: MagicMock):
         self._mock_temporal(mocks[-1])
         self._enable_ai()
-        dashboard = Dashboard.objects.create(team=self.team, name="Growth", created_by=self.user)
+        growth = Dashboard.objects.create(team=self.team, name="Growth", created_by=self.user)
+        product = Dashboard.objects.create(team=self.team, name="Product", created_by=self.user)
+        insight = Insight.objects.create(team=self.team, name="Signups", created_by=self.user)
 
         created = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
-            self._make_ai_payload(anchor_dashboard=dashboard.id),
+            self._make_ai_payload(
+                context_dashboards=[growth.id, product.id],
+                context_insights=[insight.id],
+            ),
         )
 
         assert created.status_code == status.HTTP_201_CREATED, created.json()
-        assert created.json()["anchor_dashboard"] == dashboard.id
-        # The anchored sub shows up on the dashboard's subscriptions list, like a snapshot sub would.
-        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions?dashboard={dashboard.id}")
-        assert [sub["id"] for sub in listed.json()["results"]] == [created.json()["id"]]
+        assert set(created.json()["context_dashboards"]) == {growth.id, product.id}
+        assert created.json()["context_insights"] == [insight.id]
+        assert {context["name"] for context in created.json()["contexts"]} == {"Growth", "Product", "Signups"}
+        for query in (f"dashboard={growth.id}", f"dashboard={product.id}", f"insight={insight.id}"):
+            listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions?{query}")
+            assert [sub["id"] for sub in listed.json()["results"]] == [created.json()["id"]]
 
     @parameterized.expand(
         [
-            ("insight_sub_cannot_anchor", "insight", "anchor_dashboard", status.HTTP_400_BAD_REQUEST),
-            ("ai_sub_can_anchor_insight", "ai_prompt", "anchor_insight", status.HTTP_201_CREATED),
+            ("insight_sub_cannot_use_context", "insight", "context_dashboards", status.HTTP_400_BAD_REQUEST),
+            ("ai_sub_can_use_insight_context", "ai_prompt", "context_insights", status.HTTP_201_CREATED),
         ]
     )
-    def test_anchor_only_applies_to_ai_subscriptions(
+    def test_context_only_applies_to_ai_subscriptions(
         self,
         _mock_is_cloud: MagicMock,
         _mock_flag: MagicMock,
         mock_sync: MagicMock,
         _name: str,
         resource_kind: str,
-        anchor_field: str,
+        context_field: str,
         expected_status: int,
     ):
         self._mock_temporal(mock_sync)
         self._enable_ai()
-        anchor_insight = Insight.objects.create(team=self.team, created_by=self.user)
+        context_insight = Insight.objects.create(team=self.team, created_by=self.user)
         dashboard = Dashboard.objects.create(team=self.team, name="Growth", created_by=self.user)
         payload = self._make_ai_payload() if resource_kind == "ai_prompt" else self._insight_payload()
-        payload[anchor_field] = dashboard.id if anchor_field == "anchor_dashboard" else anchor_insight.id
+        payload[context_field] = [dashboard.id] if context_field == "context_dashboards" else [context_insight.id]
 
         response = self.client.post(f"/api/projects/{self.team.id}/subscriptions", payload)
 
         assert response.status_code == expected_status, response.json()
 
-    def test_cannot_anchor_to_both_a_dashboard_and_an_insight(self, *mocks: MagicMock):
-        self._enable_ai()
-        dashboard = Dashboard.objects.create(team=self.team, name="Growth", created_by=self.user)
-        insight = Insight.objects.create(team=self.team, created_by=self.user)
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/subscriptions",
-            self._make_ai_payload(anchor_dashboard=dashboard.id, anchor_insight=insight.id),
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "not both" in response.json()["detail"]
-
-    def test_patch_null_clears_the_anchor(self, *mocks: MagicMock):
-        # A null anchor is a clear, and must not require viewer access to the old anchor: after an
-        # access revoke, un-anchoring is the escape hatch and must never be blocked by the anchor.
+    def test_patch_empty_list_clears_context(self, *mocks: MagicMock):
         self._mock_temporal(mocks[-1])
         self._enable_ai()
         dashboard = Dashboard.objects.create(team=self.team, name="Growth", created_by=self.user)
         created = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
-            self._make_ai_payload(anchor_dashboard=dashboard.id),
+            self._make_ai_payload(context_dashboards=[dashboard.id]),
         )
         assert created.status_code == status.HTTP_201_CREATED, created.json()
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}",
-            {"anchor_dashboard": None},
+            {"context_dashboards": []},
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json()["anchor_dashboard"] is None
+        assert response.json()["context_dashboards"] == []
+        assert response.json()["contexts"] == []
 
-    def test_anchor_info_carries_the_name_for_display(self, *mocks: MagicMock):
-        # The form pins the anchor by name; without this field it only has the id and cannot
-        # render anything the user recognises.
+    def test_contexts_carry_names_for_display_and_omit_deleted_resources(self, *mocks: MagicMock):
         self._mock_temporal(mocks[-1])
         self._enable_ai()
         dashboard = Dashboard.objects.create(team=self.team, name="Growth", created_by=self.user)
 
         created = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
-            self._make_ai_payload(anchor_dashboard=dashboard.id),
+            self._make_ai_payload(context_dashboards=[dashboard.id]),
         )
 
         assert created.status_code == status.HTTP_201_CREATED, created.json()
-        assert created.json()["anchor_info"] == {
-            "kind": "Dashboard",
-            "name": "Growth",
-            "url": dashboard.url,
-        }
+        assert created.json()["contexts"] == [
+            {"kind": "dashboard", "id": dashboard.id, "name": "Growth", "url": dashboard.url}
+        ]
 
-        # A deleted anchor grounds nothing, so it must not be pinned either.
         dashboard.deleted = True
         dashboard.save(update_fields=["deleted"])
         retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}")
-        assert retrieved.json()["anchor_info"] is None
+        assert retrieved.json()["contexts"] == []
 
-    def test_cannot_anchor_to_a_deleted_dashboard(self, *mocks: MagicMock):
-        # A deleted anchor resolves to no grounding at delivery, so accepting it would leave the
-        # user believing the report is anchored when it silently is not.
+    def test_cannot_add_a_deleted_dashboard_as_context(self, *mocks: MagicMock):
         self._enable_ai()
         deleted_dashboard = Dashboard.objects.create(team=self.team, name="Gone", created_by=self.user, deleted=True)
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
-            self._make_ai_payload(anchor_dashboard=deleted_dashboard.id),
+            self._make_ai_payload(context_dashboards=[deleted_dashboard.id]),
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_cannot_anchor_to_another_teams_dashboard(self, *mocks: MagicMock):
+    def test_cannot_add_another_teams_dashboard_as_context(self, *mocks: MagicMock):
         self._enable_ai()
         other_team = Team.objects.create(organization=self.organization, name="other")
         other_dashboard = Dashboard.objects.create(team=other_team, name="Other", created_by=self.user)
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
-            self._make_ai_payload(anchor_dashboard=other_dashboard.id),
+            self._make_ai_payload(context_dashboards=[other_dashboard.id]),
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -3279,7 +3268,12 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         return payload
 
     def _subscription_for(self, **kwargs) -> Subscription:
-        return create_subscription(team=self.team, created_by=self.user, **kwargs)
+        context_dashboards = kwargs.pop("context_dashboards", [])
+        context_insights = kwargs.pop("context_insights", [])
+        subscription = create_subscription(team=self.team, created_by=self.user, **kwargs)
+        subscription.context_dashboards.set(context_dashboards)
+        subscription.context_insights.set(context_insights)
+        return subscription
 
     def _delivery_for(self, subscription: Subscription, **overrides) -> SubscriptionDelivery:
         return SubscriptionDelivery.objects.create(
@@ -3421,12 +3415,9 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
 
         self._assert_visibility(subscription, sees_subscription=sees_subscription, sees_deliveries=sees_deliveries)
 
-    def test_anchor_access_loss_hides_from_lists_but_keeps_the_owner_in_control(self):
-        # The list filter hides a sub anchored to a resource the caller can no longer view, but the
-        # single-object path must not: otherwise the owner cannot open, un-anchor, disable, or delete
-        # their own subscription, and it keeps delivering reports grounded in the blocked dashboard.
+    def test_context_access_loss_hides_from_lists_but_keeps_the_owner_in_control(self):
         subscription = self._subscription_for(
-            prompt="How did signups do last week?", anchor_dashboard=self.restricted_dashboard
+            prompt="How did signups do last week?", context_dashboards=[self.restricted_dashboard]
         )
 
         listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
@@ -3436,15 +3427,15 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert retrieved.status_code == status.HTTP_200_OK, retrieved.json()
 
         cleared = self.client.patch(
-            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", {"anchor_dashboard": None}
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", {"context_dashboards": []}
         )
         assert cleared.status_code == status.HTTP_200_OK, cleared.json()
-        assert cleared.json()["anchor_dashboard"] is None
+        assert cleared.json()["context_dashboards"] == []
 
-    def test_cannot_anchor_to_a_dashboard_the_caller_cannot_view(self):
+    def test_cannot_add_a_dashboard_the_caller_cannot_view_as_context(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
-            self._payload(prompt="How did signups do?", anchor_dashboard=self.restricted_dashboard.id),
+            self._payload(prompt="How did signups do?", context_dashboards=[self.restricted_dashboard.id]),
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()

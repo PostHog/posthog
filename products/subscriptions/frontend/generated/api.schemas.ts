@@ -65,15 +65,28 @@ export interface AIPromptConfigApi {
 }
 
 /**
- * Shape of `anchor_info`. Declared for the schema only; the value is built in
- * `Subscription.anchor_info` and serialized by the method field.
+ * * `dashboard` - dashboard
+ * * `insight` - insight
  */
-export interface AnchorInfoApi {
-    /** Either 'Dashboard' or 'Insight'. */
-    kind: string
-    /** The anchor's display name. */
+export type SubscriptionContextKindEnumApi =
+    (typeof SubscriptionContextKindEnumApi)[keyof typeof SubscriptionContextKindEnumApi]
+
+export const SubscriptionContextKindEnumApi = {
+    Dashboard: 'dashboard',
+    Insight: 'insight',
+} as const
+
+export interface SubscriptionContextApi {
+    /** The context resource type.
+     *
+     * * `dashboard` - dashboard
+     * * `insight` - insight */
+    kind: SubscriptionContextKindEnumApi
+    /** The context resource ID. */
+    id: number
+    /** The context resource's display name. */
     name: string
-    /** Link to the anchored resource. */
+    /** Link to the context resource. */
     url: string
 }
 
@@ -216,18 +229,12 @@ export interface SubscriptionApi {
     prompt?: string | null
     /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
     ai_prompt_config?: AIPromptConfigApi
-    /**
-     * AI report subscriptions only: dashboard whose insights ground the generated report (usually the dashboard the subscription was created from). The report may still draw on the whole project. Mutually exclusive with anchor_insight.
-     * @nullable
-     */
-    anchor_dashboard?: number | null
-    /**
-     * AI report subscriptions only: insight that grounds the generated report. The report may still draw on the whole project. Mutually exclusive with anchor_dashboard.
-     * @nullable
-     */
-    anchor_insight?: number | null
-    /** The dashboard or insight grounding an AI report, for display: kind, name, and url. Null when the subscription has no anchor or the anchor was deleted. */
-    readonly anchor_info: AnchorInfoApi | null
+    /** AI report subscriptions only: dashboard IDs whose insights ground the generated report. Combined with context_insights, at most 25 context items are allowed. */
+    context_dashboards?: number[]
+    /** AI report subscriptions only: insight IDs that ground the generated report. Combined with context_dashboards, at most 25 context items are allowed. */
+    context_insights?: number[]
+    /** The dashboards and insights grounding an AI report, for display. Deleted context is omitted. */
+    readonly contexts: readonly SubscriptionContextApi[]
     /** Delivery channel: email or slack.
      *
      * * `email` - Email
@@ -376,18 +383,12 @@ export interface PatchedSubscriptionApi {
     prompt?: string | null
     /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
     ai_prompt_config?: AIPromptConfigApi
-    /**
-     * AI report subscriptions only: dashboard whose insights ground the generated report (usually the dashboard the subscription was created from). The report may still draw on the whole project. Mutually exclusive with anchor_insight.
-     * @nullable
-     */
-    anchor_dashboard?: number | null
-    /**
-     * AI report subscriptions only: insight that grounds the generated report. The report may still draw on the whole project. Mutually exclusive with anchor_dashboard.
-     * @nullable
-     */
-    anchor_insight?: number | null
-    /** The dashboard or insight grounding an AI report, for display: kind, name, and url. Null when the subscription has no anchor or the anchor was deleted. */
-    readonly anchor_info?: AnchorInfoApi | null
+    /** AI report subscriptions only: dashboard IDs whose insights ground the generated report. Combined with context_insights, at most 25 context items are allowed. */
+    context_dashboards?: number[]
+    /** AI report subscriptions only: insight IDs that ground the generated report. Combined with context_dashboards, at most 25 context items are allowed. */
+    context_insights?: number[]
+    /** The dashboards and insights grounding an AI report, for display. Deleted context is omitted. */
+    readonly contexts?: readonly SubscriptionContextApi[]
     /** Delivery channel: email or slack.
      *
      * * `email` - Email
@@ -604,19 +605,19 @@ export type SubscriptionsListParams = {
      */
     created_by?: string
     /**
-     * Filter by dashboard ID. Includes AI report subscriptions anchored to the dashboard.
+     * Filter by dashboard ID. Includes AI reports using the dashboard as context.
      */
     dashboard?: number
     /**
-     * Filter to subscriptions on insights that are tiles of the given dashboard ID. Includes AI report subscriptions anchored to one of those insights.
+     * Filter to subscriptions on insights that are tiles of the given dashboard ID. Includes AI report subscriptions using one of those insights as context.
      */
     dashboard_tiles?: number
     /**
-     * Filter by insight ID. Includes AI report subscriptions anchored to the insight.
+     * Filter by insight ID. Includes AI report subscriptions using the insight as context.
      */
     insight?: number
     /**
-     * Filter by a comma-separated list of insight IDs. Includes AI report subscriptions anchored to one of them.
+     * Filter by a comma-separated list of insight IDs. Includes AI reports using one as context.
      */
     insights?: string
     /**

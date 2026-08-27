@@ -41,11 +41,11 @@ const subscriptionsCreate = (): ToolBase<typeof SubscriptionsCreateSchema, Schem
         if (params.ai_prompt_config !== undefined) {
             body['ai_prompt_config'] = params.ai_prompt_config
         }
-        if (params.anchor_dashboard !== undefined) {
-            body['anchor_dashboard'] = params.anchor_dashboard
+        if (params.context_dashboards !== undefined) {
+            body['context_dashboards'] = params.context_dashboards
         }
-        if (params.anchor_insight !== undefined) {
-            body['anchor_insight'] = params.anchor_insight
+        if (params.context_insights !== undefined) {
+            body['context_insights'] = params.context_insights
         }
         if (params.target_type !== undefined) {
             body['target_type'] = params.target_type
@@ -250,11 +250,11 @@ const subscriptionsPartialUpdate = (): ToolBase<typeof SubscriptionsPartialUpdat
         if (params.ai_prompt_config !== undefined) {
             body['ai_prompt_config'] = params.ai_prompt_config
         }
-        if (params.anchor_dashboard !== undefined) {
-            body['anchor_dashboard'] = params.anchor_dashboard
+        if (params.context_dashboards !== undefined) {
+            body['context_dashboards'] = params.context_dashboards
         }
-        if (params.anchor_insight !== undefined) {
-            body['anchor_insight'] = params.anchor_insight
+        if (params.context_insights !== undefined) {
+            body['context_insights'] = params.context_insights
         }
         if (params.target_type !== undefined) {
             body['target_type'] = params.target_type

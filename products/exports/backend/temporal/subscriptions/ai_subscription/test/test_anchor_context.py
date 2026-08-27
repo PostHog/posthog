@@ -25,7 +25,9 @@ _TRENDS_QUERY = {
 
 class TestBuildAnchorContext(APIBaseTest):
     def _subscription(self, **kwargs) -> Subscription:
-        return Subscription.objects.create(
+        context_dashboards = kwargs.pop("context_dashboards", [])
+        context_insights = kwargs.pop("context_insights", [])
+        subscription = Subscription.objects.create(
             team=self.team,
             prompt="how are exports doing?",
             target_type="email",
@@ -35,6 +37,9 @@ class TestBuildAnchorContext(APIBaseTest):
             start_date=datetime(2026, 1, 1, tzinfo=UTC),
             **kwargs,
         )
+        subscription.context_dashboards.set(context_dashboards)
+        subscription.context_insights.set(context_insights)
+        return subscription
 
     def test_no_anchor_returns_none(self) -> None:
         assert build_anchor_context(self._subscription()) is None
@@ -43,14 +48,18 @@ class TestBuildAnchorContext(APIBaseTest):
         dashboard = Dashboard.objects.create(team=self.team, name="Growth", description="North star")
         bottom = Insight.objects.create(team=self.team, name="Signups", query=_TRENDS_QUERY)
         top = Insight.objects.create(team=self.team, name="Pageviews")
+        standalone = Insight.objects.create(team=self.team, name="Retention")
         DashboardTile.objects.create(dashboard=dashboard, insight=bottom, layouts={"sm": {"x": 0, "y": 5}})
         DashboardTile.objects.create(dashboard=dashboard, insight=top, layouts={"sm": {"x": 0, "y": 0}})
 
-        context = build_anchor_context(self._subscription(anchor_dashboard=dashboard))
+        context = build_anchor_context(
+            self._subscription(context_dashboards=[dashboard], context_insights=[standalone])
+        )
 
         assert context is not None
-        assert "Anchored dashboard" in context.blob
+        assert "Context dashboard" in context.blob
         assert "Growth" in context.blob and "North star" in context.blob
+        assert "Context insight" in context.blob and "Retention" in context.blob
         # Layout order, not creation order.
         assert context.blob.index("Pageviews") < context.blob.index("Signups")
         assert "export created" in context.blob
@@ -64,7 +73,7 @@ class TestBuildAnchorContext(APIBaseTest):
         deleted = Insight.objects.create(team=self.team, name="ghost", deleted=True)
         DashboardTile.objects.create(dashboard=dashboard, insight=deleted, layouts={"sm": {"x": 0, "y": 99}})
 
-        context = build_anchor_context(self._subscription(anchor_dashboard=dashboard))
+        context = build_anchor_context(self._subscription(context_dashboards=[dashboard]))
 
         assert context is not None
         assert "ghost" not in context.blob
@@ -72,11 +81,11 @@ class TestBuildAnchorContext(APIBaseTest):
 
     def test_insight_anchor_and_hash_tracks_content(self) -> None:
         insight = Insight.objects.create(team=self.team, name="Signups", query=_TRENDS_QUERY)
-        subscription = self._subscription(anchor_insight=insight)
+        subscription = self._subscription(context_insights=[insight])
 
         context = build_anchor_context(subscription)
         assert context is not None
-        assert "Anchored insight" in context.blob
+        assert "Context insight" in context.blob
         assert "Signups" in context.blob
 
         # Content change means a different hash, which is what invalidates a frozen plan.
@@ -94,7 +103,7 @@ class TestBuildAnchorContext(APIBaseTest):
             team=self.team, name="Legacy", filters={"insight": "TRENDS", "events": [{"id": "$pageview"}]}
         )
 
-        context = build_anchor_context(self._subscription(anchor_insight=insight))
+        context = build_anchor_context(self._subscription(context_insights=[insight]))
 
         assert context is not None
         assert "Query definition (JSON)" in context.blob
@@ -110,7 +119,7 @@ class TestBuildAnchorContext(APIBaseTest):
             # `aaa_filler` sorts first under sort_keys, pushing the event past the truncation cut.
             query = {"aaa_filler": filler, "source": {"series": [{"event": event}]}}
             insight = Insight.objects.create(team=self.team, name="Big", query=query)
-            return build_anchor_context(self._subscription(anchor_insight=insight))
+            return build_anchor_context(self._subscription(context_insights=[insight]))
 
         a = _anchor("event_a")
         b = _anchor("event_b")
@@ -124,14 +133,14 @@ class TestBuildAnchorContext(APIBaseTest):
 
     def test_soft_deleted_anchor_degrades_to_none(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Gone", deleted=True)
-        assert build_anchor_context(self._subscription(anchor_dashboard=dashboard)) is None
+        assert build_anchor_context(self._subscription(context_dashboards=[dashboard])) is None
 
     def test_build_failure_raises_unavailable_not_none(self) -> None:
         # None means "no anchor configured" and would invalidate a frozen plan through the hash
         # mismatch; a resolution failure must stay distinguishable. A build failure is a defect, so
         # it must also reach error tracking — the delivery keeps succeeding ungrounded otherwise.
         dashboard = Dashboard.objects.create(team=self.team, name="Growth")
-        subscription = self._subscription(anchor_dashboard=dashboard)
+        subscription = self._subscription(context_dashboards=[dashboard])
         error = RuntimeError("db blip")
         with patch(f"{_AC}._build_anchor_context", side_effect=error):
             with patch(f"{_AC}.capture_exception") as mock_capture:
@@ -152,7 +161,7 @@ class TestBuildAnchorContext(APIBaseTest):
         }
         insight = Insight.objects.create(team=self.team, name="Signups", query=query)
 
-        context = build_anchor_context(self._subscription(anchor_insight=insight))
+        context = build_anchor_context(self._subscription(context_insights=[insight]))
 
         assert context is not None
         assert "</project_context>" not in context.blob
@@ -168,7 +177,7 @@ class TestBuildAnchorContext(APIBaseTest):
         DashboardTile.objects.create(dashboard=dashboard, insight=second, layouts={})
         DashboardTile.objects.create(dashboard=dashboard, insight=first, layouts={})
 
-        subscription = self._subscription(anchor_dashboard=dashboard)
+        subscription = self._subscription(context_dashboards=[dashboard])
         context = build_anchor_context(subscription)
 
         assert context is not None

@@ -76,6 +76,7 @@ from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
 
 SUMMARY_QUOTA_CACHE_TTL_SECONDS = 60
 SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS = 600
+MAX_AI_REPORT_CONTEXTS = 25
 
 
 def _summary_quota_cache_key(organization_id) -> str:
@@ -105,8 +106,8 @@ def _invalidate_summary_quota_cache(organization_id) -> None:
 class _TargetLookups:
     insight: str
     dashboard: str
-    anchor_insight: str
-    anchor_dashboard: str
+    context_insights: str
+    context_dashboards: str
     exported_insights: str
     no_selection: str
     insights: Manager
@@ -117,8 +118,8 @@ class _TargetLookups:
 _SUBSCRIPTION_TARGETS = _TargetLookups(
     insight="insight_id__in",
     dashboard="dashboard_id__in",
-    anchor_insight="anchor_insight_id__in",
-    anchor_dashboard="anchor_dashboard_id__in",
+    context_insights="context_insights__id__in",
+    context_dashboards="context_dashboards__id__in",
     exported_insights="dashboard_export_insights__id__in",
     no_selection="dashboard_export_insights__isnull",
     insights=Insight.objects,
@@ -130,8 +131,8 @@ _SUBSCRIPTION_TARGETS = _TargetLookups(
 _DELIVERY_TARGETS = _TargetLookups(
     insight="subscription__insight_id__in",
     dashboard="subscription__dashboard_id__in",
-    anchor_insight="subscription__anchor_insight_id__in",
-    anchor_dashboard="subscription__anchor_dashboard_id__in",
+    context_insights="subscription__context_insights__id__in",
+    context_dashboards="subscription__context_dashboards__id__in",
     exported_insights="subscription__dashboard_export_insights__id__in",
     no_selection="subscription__dashboard_export_insights__isnull",
     insights=Insight.objects_including_soft_deleted,
@@ -142,8 +143,7 @@ _DELIVERY_TARGETS = _TargetLookups(
 
 def _require_viewer_access(user_access_control: UserAccessControl, obj: Insight | Dashboard, field: str) -> None:
     if not user_access_control.check_access_level_for_object(obj, "viewer"):
-        # The error keys on the API field, but the message names the resource (anchor_dashboard -> dashboard).
-        label = field.removeprefix("anchor_")
+        label = field.removeprefix("context_").removesuffix("s")
         raise ValidationError(
             {field: [f"Viewer access to this {label} is required. Ask an admin to grant you access."]}
         )
@@ -262,13 +262,11 @@ class AIPromptConfigSerializer(serializers.Serializer):
     )
 
 
-class AnchorInfoSerializer(serializers.Serializer):
-    """Shape of `anchor_info`. Declared for the schema only; the value is built in
-    `Subscription.anchor_info` and serialized by the method field."""
-
-    kind = serializers.CharField(help_text="Either 'Dashboard' or 'Insight'.")
-    name = serializers.CharField(help_text="The anchor's display name.")
-    url = serializers.CharField(help_text="Link to the anchored resource.")
+class SubscriptionContextSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(choices=["dashboard", "insight"], help_text="The context resource type.")
+    id = serializers.IntegerField(help_text="The context resource ID.")
+    name = serializers.CharField(help_text="The context resource's display name.")
+    url = serializers.CharField(help_text="Link to the context resource.")
 
 
 class SubscriptionSerializer(serializers.ModelSerializer):
@@ -319,10 +317,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     )
     insight_short_id = serializers.SerializerMethodField()
     resource_name = serializers.SerializerMethodField()
-    anchor_info = serializers.SerializerMethodField(
+    contexts = serializers.SerializerMethodField(
         help_text=(
-            "The dashboard or insight grounding an AI report, for display: kind, name, and url. "
-            "Null when the subscription has no anchor or the anchor was deleted."
+            "The dashboards and insights grounding an AI report, for display. Deleted context is omitted."
         )
     )
     resource_type = serializers.ChoiceField(
@@ -348,9 +345,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "dashboard_export_insights",
             "prompt",
             "ai_prompt_config",
-            "anchor_dashboard",
-            "anchor_insight",
-            "anchor_info",
+            "context_dashboards",
+            "context_insights",
+            "contexts",
             "target_type",
             "target_value",
             "frequency",
@@ -381,7 +378,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "summary",
             "insight_short_id",
             "resource_name",
-            "anchor_info",
+            "contexts",
         ]
         extra_kwargs = {
             "prompt": {
@@ -391,17 +388,16 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 ),
             },
             "dashboard": {"help_text": "Dashboard ID to subscribe to (mutually exclusive with insight on create)."},
-            "anchor_dashboard": {
+            "context_dashboards": {
                 "help_text": (
-                    "AI report subscriptions only: dashboard whose insights ground the generated report "
-                    "(usually the dashboard the subscription was created from). The report may still draw "
-                    "on the whole project. Mutually exclusive with anchor_insight."
+                    f"AI report subscriptions only: dashboard IDs whose insights ground the generated report. "
+                    f"Combined with context_insights, at most {MAX_AI_REPORT_CONTEXTS} context items are allowed."
                 ),
             },
-            "anchor_insight": {
+            "context_insights": {
                 "help_text": (
-                    "AI report subscriptions only: insight that grounds the generated report. The report "
-                    "may still draw on the whole project. Mutually exclusive with anchor_dashboard."
+                    f"AI report subscriptions only: insight IDs that ground the generated report. "
+                    f"Combined with context_dashboards, at most {MAX_AI_REPORT_CONTEXTS} context items are allowed."
                 ),
             },
             "insight": {"help_text": "Insight ID to subscribe to (mutually exclusive with dashboard on create)."},
@@ -454,10 +450,29 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             return obj.insight.short_id
         return None
 
-    @extend_schema_field(AnchorInfoSerializer(allow_null=True))
-    def get_anchor_info(self, obj: Subscription) -> Optional[dict]:
-        info = obj.anchor_info
-        return {"kind": info.kind, "name": info.name, "url": info.url} if info else None
+    @extend_schema_field(SubscriptionContextSerializer(many=True))
+    def get_contexts(self, obj: Subscription) -> list[dict[str, str | int]]:
+        dashboards = [
+            {
+                "kind": "dashboard",
+                "id": dashboard.id,
+                "name": dashboard.name or "Dashboard",
+                "url": dashboard.url,
+            }
+            for dashboard in obj.context_dashboards.all()
+            if not dashboard.deleted
+        ]
+        insights = [
+            {
+                "kind": "insight",
+                "id": insight.id,
+                "name": insight.name or insight.derived_name or "Insight",
+                "url": insight.url,
+            }
+            for insight in obj.context_insights.all()
+            if not insight.deleted
+        ]
+        return dashboards + insights
 
     def get_resource_name(self, obj: Subscription) -> Optional[str]:
         info = obj.resource_info
@@ -478,19 +493,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     def _validate_ai_content(self, attrs: dict, existing: Optional[Subscription]) -> None:
         if attrs.get("insight") or attrs.get("dashboard"):
             raise ValidationError({"prompt": ["AI subscriptions cannot also set insight or dashboard."]})
-        # Explicit-key checks so a PATCH can clear one anchor while setting the other.
-        anchor_dashboard = (
-            attrs["anchor_dashboard"]
-            if "anchor_dashboard" in attrs
-            else (existing.anchor_dashboard_id if existing else None)
-        )
-        anchor_insight = (
-            attrs["anchor_insight"] if "anchor_insight" in attrs else (existing.anchor_insight_id if existing else None)
-        )
-        if anchor_dashboard and anchor_insight:
-            raise ValidationError(
-                {"anchor_dashboard": ["A subscription can be anchored to a dashboard or an insight, not both."]}
-            )
         # Explicit-key check so a PATCH sending prompt="" doesn't fall through to the stale value.
         prompt = (attrs["prompt"] if "prompt" in attrs else (existing.prompt if existing else None)) or ""
         prompt = prompt.strip()
@@ -533,31 +535,36 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
-        if attrs.get("anchor_dashboard") and attrs["anchor_dashboard"].team.id != self.context["team_id"]:
-            raise ValidationError({"anchor_dashboard": ["This dashboard does not belong to your team."]})
-
-        if attrs.get("anchor_insight") and attrs["anchor_insight"].team.id != self.context["team_id"]:
-            raise ValidationError({"anchor_insight": ["This insight does not belong to your team."]})
-
         user_access_control = self.context["view"].user_access_control
         turning_off = attrs.get("deleted") is True or attrs.get("enabled") is False
         for field in ("dashboard", "insight"):
             target = attrs.get(field) or getattr(existing, field, None)
             if target is not None and not (target.deleted and turning_off):
                 _require_viewer_access(user_access_control, target, field)
-        # Anchors need viewer access only when the write sets them: setting one injects the
-        # resource's insight definitions into the report. Existing anchors are not re-checked on
-        # unrelated edits, clearing (null), or disabling, so losing access to the anchor never
-        # locks a user out of their own subscription.
-        for field in ("anchor_dashboard", "anchor_insight"):
-            target = attrs.get(field)
-            if target is None:
-                continue
-            _require_viewer_access(user_access_control, target, field)
-            if target.deleted:
-                # A deleted anchor resolves to no grounding at delivery time, so accepting it
-                # would silently do nothing.
-                raise ValidationError({field: [f"This {field.removeprefix('anchor_')} has been deleted."]})
+        context_fields = (("context_dashboards", "dashboard"), ("context_insights", "insight"))
+        if any(field in attrs for field, _ in context_fields):
+            context_count = 0
+            for field, label in context_fields:
+                targets = attrs.get(field)
+                if targets is None:
+                    context_count += getattr(existing, field).count() if existing else 0
+                    continue
+
+                context_count += len(targets)
+                existing_ids = set(getattr(existing, field).values_list("id", flat=True)) if existing else set()
+                for target in targets:
+                    if target.team_id != self.context["team_id"]:
+                        raise ValidationError({field: [f"This {label} does not belong to your team."]})
+                    if target.id in existing_ids:
+                        continue
+                    _require_viewer_access(user_access_control, target, field)
+                    if target.deleted:
+                        raise ValidationError({field: [f"This {label} has been deleted."]})
+
+            if context_count > MAX_AI_REPORT_CONTEXTS:
+                raise ValidationError(
+                    {"contexts": [f"Select no more than {MAX_AI_REPORT_CONTEXTS} dashboards and insights."]}
+                )
 
         if existing is None:
             # Create: a subscription must export an insight, a dashboard, or an AI prompt.
@@ -590,9 +597,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             raise ValidationError({"ai_prompt_config": ["AI report settings only apply to AI subscriptions."]})
         if resource_type != Subscription.ResourceType.AI_PROMPT:
             # Keyed on the field the request actually sent, so the error lands on the right input.
-            for anchor_field in ("anchor_dashboard", "anchor_insight"):
-                if attrs.get(anchor_field):
-                    raise ValidationError({anchor_field: ["Anchors only apply to AI subscriptions."]})
+            for context_field in ("context_dashboards", "context_insights"):
+                if attrs.get(context_field):
+                    raise ValidationError({context_field: ["Context only applies to AI subscriptions."]})
         validate_for_resource_type(attrs, existing)
 
         self._validate_dashboard_export_subscription(attrs)
@@ -974,6 +981,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # too, so `bool(ids)` would miss it. Pop loses presence, so capture it first.
         export_insights_in_payload = "dashboard_export_insights" in validated_data
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
+        context_fields = ("context_dashboards", "context_insights")
+        new_context_ids = {
+            field: {target.id for target in validated_data[field]} for field in context_fields if field in validated_data
+        }
         analytics_props = get_request_analytics_properties(request)
 
         # Snapshot delivery-relevant values before the write so the inferred path can tell,
@@ -984,6 +995,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         old_export_insight_ids = (
             set(instance.dashboard_export_insights.values_list("id", flat=True)) if export_insights_in_payload else None
         )
+        old_context_ids = {
+            field: set(getattr(instance, field).values_list("id", flat=True)) for field in new_context_ids
+        }
 
         if is_delete:
             with slo_operation(
@@ -1027,6 +1041,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         delivery_content_changed = any(
             getattr(instance, field) != old_value for field, old_value in old_delivery_values.items()
         ) or (old_export_insight_ids is not None and set(dashboard_export_insight_ids) != old_export_insight_ids)
+        delivery_content_changed = delivery_content_changed or any(
+            new_context_ids[field] != old_ids for field, old_ids in old_context_ids.items()
+        )
 
         # Explicit send_test_now wins. When omitted, infer: send when the edit changed what
         # gets delivered, or on re-enable — a schedule/meta-only edit must not push a fresh
@@ -1144,15 +1161,12 @@ def _target_filter(
         targets_a_blocked_insight | targets_a_blocked_dashboard | exports_a_blocked_insight | renders_a_blocked_tile
     )
     if include_anchors:
-        # An AI report anchored to a blocked resource carries that resource's insight definitions,
-        # so anchored subs drop out of listings under the same rules as exported ones. Callers fetching
-        # one subscription pass include_anchors=False: the owner must stay able to open, un-anchor,
-        # disable, or delete their own subscription after losing access to its anchor, and the detail
-        # response carries the anchor's id, never the blocked resource's contents.
+        # Contextual AI reports drop out of listings when any selected resource is blocked. Detail
+        # callers skip this check so the owner can remove context, disable, or delete the subscription.
         hidden = (
             hidden
-            | Q(**{targets.anchor_insight: blocked_insights})
-            | Q(**{targets.anchor_dashboard: blocked_dashboards})
+            | Q(**{targets.context_insights: blocked_insights})
+            | Q(**{targets.context_dashboards: blocked_dashboards})
         )
 
     return ~hidden
@@ -1220,21 +1234,21 @@ def _subscription_is_ai_prompt(subscription_id: str | int, team_id: int) -> bool
                 type=int,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Filter by insight ID. Includes AI report subscriptions anchored to the insight.",
+                description="Filter by insight ID. Includes AI report subscriptions using the insight as context.",
             ),
             OpenApiParameter(
                 name="insights",
                 type=str,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Filter by a comma-separated list of insight IDs. Includes AI report subscriptions anchored to one of them.",
+                description="Filter by a comma-separated list of insight IDs. Includes AI reports using one as context.",
             ),
             OpenApiParameter(
                 name="dashboard",
                 type=int,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Filter by dashboard ID. Includes AI report subscriptions anchored to the dashboard.",
+                description="Filter by dashboard ID. Includes AI reports using the dashboard as context.",
             ),
             OpenApiParameter(
                 name="dashboard_tiles",
@@ -1243,7 +1257,7 @@ def _subscription_is_ai_prompt(subscription_id: str | int, team_id: int) -> bool
                 required=False,
                 description=(
                     "Filter to subscriptions on insights that are tiles of the given dashboard ID. "
-                    "Includes AI report subscriptions anchored to one of those insights."
+                    "Includes AI report subscriptions using one of those insights as context."
                 ),
             ),
         ],
@@ -1322,8 +1336,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
     def safely_get_queryset(self, queryset) -> QuerySet:
         request_params = self.request.GET.dict()
 
-        # Prefetch dashboard_export_insights to avoid N+1 queries in list/detail views
-        queryset = queryset.prefetch_related("dashboard_export_insights")
+        queryset = queryset.prefetch_related("dashboard_export_insights", "context_dashboards", "context_insights")
 
         if self.action == "list":
             queryset = queryset.select_related("insight", "dashboard", "created_by")
@@ -1363,9 +1376,9 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
             if key in ("insight", "insights"):
                 # `insight` (single ID) and `insights` (comma-separated IDs) share one filter:
                 # both are parsed as an ID list so behavior and validation stay identical.
-                # Anchored AI subs belong to their insight's page too, so the filter spans both FKs.
+                # Contextual AI subs belong to every selected insight's page too.
                 insight_ids = _parse_int_list_param(request_params[key], key)
-                queryset = queryset.filter(Q(insight_id__in=insight_ids) | Q(anchor_insight_id__in=insight_ids))
+                queryset = queryset.filter(Q(insight_id__in=insight_ids) | Q(context_insights__id__in=insight_ids))
             elif key == "dashboard_tiles":
                 # Subscriptions on insights that are live tiles of the given dashboard, resolved server-side
                 # so the overview's "Insights" tab never depends on which tiles the client happens to have
@@ -1385,20 +1398,20 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                     insight_id__isnull=False,
                     insight__deleted=False,
                 ).values_list("insight_id", flat=True)
-                # AI subs anchored to a tile insight consume its definition, so they belong on
+                # AI subs using a tile insight as context consume its definition, so they belong on
                 # this surface the same way subs that export it do.
                 queryset = queryset.filter(
-                    Q(insight_id__in=tile_insight_ids) | Q(anchor_insight_id__in=tile_insight_ids)
+                    Q(insight_id__in=tile_insight_ids) | Q(context_insights__id__in=tile_insight_ids)
                 )
             elif key == "dashboard":
-                # Anchored AI subs belong to their dashboard's page too, so the filter spans both FKs.
+                # Contextual AI subs belong to every selected dashboard's page too.
                 dashboard_id = _parse_int_param(request_params["dashboard"], "dashboard")
-                queryset = queryset.filter(Q(dashboard_id=dashboard_id) | Q(anchor_dashboard_id=dashboard_id))
+                queryset = queryset.filter(Q(dashboard_id=dashboard_id) | Q(context_dashboards__id=dashboard_id))
             elif key == "deleted":
                 queryset = queryset.filter(deleted=str_to_bool(request_params["deleted"]))
 
         if self.action == "list":
-            return queryset.filter(_viewable_subscription_filter(self.user_access_control, self.team_id))
+            return queryset.filter(_viewable_subscription_filter(self.user_access_control, self.team_id)).distinct()
         return queryset
 
     def safely_get_object(self, queryset: QuerySet) -> Subscription:
@@ -1775,7 +1788,7 @@ class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModel
                         {"status": [f"Must be one of: {', '.join(sorted(valid))}."]},
                     )
                 queryset = queryset.filter(status=status_param)
-        return queryset.filter(_viewable_delivery_filter(self.user_access_control, self.team_id))
+        return queryset.filter(_viewable_delivery_filter(self.user_access_control, self.team_id)).distinct()
 
 
 def unsubscribe(request: HttpRequest):
