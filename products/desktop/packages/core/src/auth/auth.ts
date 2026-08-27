@@ -1,3 +1,4 @@
+import { isAuthFailureResponse } from "@posthog/api-client/fetcher";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
 import {
   type IPowerManager,
@@ -251,7 +252,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       return response;
     }
 
-    if (response.status === 401 || response.status === 403) {
+    if (await isAuthFailureResponse(response)) {
       const refreshedAuth = await this.refreshAccessToken();
       response = await this.executeAuthenticatedFetch(
         fetchImpl,
@@ -1127,6 +1128,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       return false;
     }
     this.persistProjectPreference(session);
+    const desktopAccess = this.carryDesktopAccessInto(session);
     this.session = session;
     this.scheduleImpersonationExpiry(session);
     this.updateState({
@@ -1136,11 +1138,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       orgProjectsMap: session.orgProjectsMap,
       currentOrgId: session.currentOrgId,
       currentProjectId: session.currentProjectId,
-      desktopAccess: {
-        projectId: session.currentProjectId,
-        status: "checking",
-        reason: null,
-      },
+      desktopAccess,
       needsScopeReauth: false,
       sessionType: session.sessionType,
       sessionExpiresAt: session.accessTokenExpiresAt,
@@ -1306,6 +1304,27 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       sessionEndReason: partial.sessionEndReason ?? null,
     });
   }
+
+  // Resetting to "checking" on every refresh would unmount the whole app.
+  private carryDesktopAccessInto(session: InMemorySession): DesktopAccess {
+    const previous = this.state.desktopAccess;
+    const sameIdentity =
+      session.accountKey !== null &&
+      this.session?.accountKey === session.accountKey &&
+      previous.projectId === session.currentProjectId;
+    if (
+      sameIdentity &&
+      (previous.status === "allowed" || previous.status === "blocked")
+    ) {
+      return previous;
+    }
+    return {
+      projectId: session.currentProjectId,
+      status: "checking",
+      reason: null,
+    };
+  }
+
   private async updateDesktopAccessFromSession(
     session: InMemorySession,
   ): Promise<void> {
