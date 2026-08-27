@@ -57,7 +57,6 @@ describe("feedback commands", () => {
     repoPath: null,
     session: {
       taskRunId: "run-1",
-      logUrl: "https://example.com/log",
       events: [{}, {}],
     },
     taskRun: null,
@@ -86,7 +85,6 @@ describe("feedback commands", () => {
       expect.objectContaining({
         ...expectedContext,
         $ai_feedback_text: "wrong file",
-        log_url: "https://example.com/log",
         event_count: 2,
       }),
     );

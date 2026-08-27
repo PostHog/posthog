@@ -7,6 +7,9 @@ import type {
   FeedbackType,
 } from "@posthog/shared/analytics-events";
 
+/** Caps pasted feedback so one giant comment cannot push the event over capture's payload limit. */
+export const AI_FEEDBACK_TEXT_MAX_LENGTH = 4000;
+
 export interface AiFeedbackRunRef {
   taskId: string | null;
   taskRunId?: string;
@@ -48,7 +51,6 @@ export interface SlashFeedbackInput {
   run: AiFeedbackRunRef;
   feedbackType: FeedbackType;
   comment?: string;
-  logUrl?: string;
   eventCount: number;
 }
 
@@ -62,10 +64,9 @@ export function buildSlashFeedbackEvents(
 ): SlashFeedbackEvents {
   const context = buildContext(input.run, {
     feedback_type: input.feedbackType,
-    log_url: input.logUrl,
     event_count: input.eventCount,
   });
-  const comment = input.comment?.trim();
+  const comment = input.comment?.trim().slice(0, AI_FEEDBACK_TEXT_MAX_LENGTH);
   const metric: AiMetricProperties | null =
     input.feedbackType === "general"
       ? null

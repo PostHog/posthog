@@ -164,20 +164,21 @@ The OAuth application in your local PostHog must have the client ID `DC5uRLVbGI0
 
 ### "OAuth error: invalid_scope" or "Couldn't check Desktop access"
 
-PostHog Desktop requests the wildcard scope `*` (see `OAUTH_SCOPES` in
-`packages/shared/src/oauth.ts`). PostHog's OAuth server narrows `*` to the
-application's scope ceiling (`OAuthApplication.scopes`). Two ceilings break
-sign-in:
+PostHog Desktop requests an explicit scope list (`OAUTH_SCOPES` in `packages/shared/src/oauth.ts`),
+which includes the privileged scope `llm_gateway:read`.
+`/authorize` never rejects a request over scopes: it clamps the request to the application's
+scope ceiling (`OAuthApplication.scopes`) and grants whatever falls inside
+(`validate_scopes` in `posthog/api/oauth/views.py`).
+An empty ceiling falls back to the default unprivileged scopes, which exclude `llm_gateway:read`.
+So an app created manually (option B above) or by an older demo data generator signs in fine
+but issues a token without that scope.
+`GET /api/projects/:id/desktop/access/` requires it (`required_scopes` on the desktop access endpoint),
+so the request returns 403 and the app shows "Couldn't check Desktop access".
+On older PostHog checkouts the same misconfiguration failed sign-in with `invalid_scope` instead.
+(A current `generate_demo_data` seeds a ceiling that already covers the scope.)
 
-- An explicit list that does not cover what the app needs rejects the request
-  with `invalid_scope`. The demo data generator creates the app this way.
-- An empty ceiling narrows `*` to the default, unprivileged scopes. Sign-in
-  succeeds, but the token lacks `llm_gateway:read`, which
-  `GET /api/projects/:id/desktop/access/` requires. The app then shows
-  "Couldn't check Desktop access" and the backend logs a 403 for that URL.
-
-Fix: seed the ceiling with the defaults plus that one privileged scope, which is
-how the production Desktop app is configured. In your PostHog repo:
+Fix: seed the ceiling with the defaults plus that one privileged scope,
+which matches how the production Desktop app is configured. In your PostHog repo:
 
 ```bash
 python manage.py seed_oauth_app_scopes \

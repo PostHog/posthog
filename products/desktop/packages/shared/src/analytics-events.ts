@@ -495,7 +495,6 @@ export interface AiFeedbackContextProperties {
   task_run_id?: string;
   turn_id?: string;
   feedback_type?: FeedbackType;
-  log_url?: string;
   event_count?: number;
 }
 

@@ -22,10 +22,9 @@ interface CommandContext {
   repoPath: string | null | undefined;
   session: {
     taskRunId?: string;
-    logUrl?: string;
     events: unknown[];
   } | null;
-  taskRun: { id?: string; log_url?: string } | null;
+  taskRun: { id?: string } | null;
   /** Fires a "/btw" side question. Absent when the session doesn't support them. */
   /** Returns false when a side question is already pending for this run. */
   askSideQuestion?: (question: string) => boolean;
@@ -76,7 +75,6 @@ function makeFeedbackCommand(
           taskId: ctx.taskId,
           taskRunId: ctx.session?.taskRunId ?? ctx.taskRun?.id,
         },
-        logUrl: ctx.session?.logUrl ?? ctx.taskRun?.log_url,
         eventCount: ctx.session?.events.length ?? 0,
         feedbackType,
         comment: args,

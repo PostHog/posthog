@@ -79,14 +79,12 @@ describe("aiFeedback", () => {
   ])("%s", (_label, input, expected) => {
     const { metric, feedback } = buildSlashFeedbackEvents({
       run,
-      logUrl: "https://example.com/log",
       eventCount: 12,
       ...input,
     });
     const slashContext = {
       ...context,
       feedback_type: input.feedbackType,
-      log_url: "https://example.com/log",
       event_count: 12,
     };
     expect(metric).toEqual(
