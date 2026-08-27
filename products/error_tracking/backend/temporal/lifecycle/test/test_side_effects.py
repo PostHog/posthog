@@ -273,6 +273,7 @@ async def test_signal_carries_dev_host_origin_in_description_and_extra() -> None
             preamble="Previously resolved issue reappeared",
         )
 
+    assert emit_signal.await_args is not None
     call = emit_signal.await_args.kwargs
     assert "Origin: host localhost:3000 (local development host), lib posthog-js\n" in call["description"]
     assert call["extra"] == {"fingerprint": inputs.fingerprint, "host": "localhost:3000", "is_dev_host": True}
