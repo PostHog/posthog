@@ -469,7 +469,7 @@ _DISMISSAL_REASON_HELP_TEXT = (
     "When the work this report asked for is done, the honest transition is state='resolved' (the "
     "reason/note records why). Reserve 'already_fixed' with state='potential' (snooze/restore) for "
     '"fixed by something else / might recur" cases, so the report reappears if the issue comes '
-    "back. Use 'wrong_repo' when the report (or its PR) targets the wrong repository, ideally with "
+    "back. Use 'wrong_repo' when the agent picked the wrong repository for this report, ideally with "
     "corrected_repository naming the right one. Use 'other' together with a dismissal_note for "
     "anything that doesn't fit a code."
 )
