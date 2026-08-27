@@ -6,18 +6,20 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.test import override_settings
 
 from temporalio import activity, workflow
 from temporalio.client import Client, WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError, CancelledError
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import ExecuteActivityInput, UnsandboxedWorkflowRunner, Worker
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.exceptions_capture import bind_exception_context
 from posthog.temporal.common.errors import NonReportableError
-from posthog.temporal.common.posthog_client import PostHogClientInterceptor
+from posthog.temporal.common.posthog_client import PostHogClientInterceptor, _PostHogClientActivityInboundInterceptor
 from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
 
@@ -464,6 +466,34 @@ async def test_expected_control_flow_application_error_is_not_captured(temporal_
                 )
 
         mock_ph_capture.assert_not_called()
+
+
+@pytest.mark.parametrize("cloud_deployment,expect_captured", [(None, False), ("US", True)])
+@pytest.mark.asyncio
+async def test_ai_features_cloud_only_is_captured_on_cloud(cloud_deployment: str | None, expect_captured: bool):
+    # The AI observability cloud guard cannot fire on a cloud deployment, so an AIFeaturesCloudOnly
+    # error there means CLOUD_DEPLOYMENT is wrong on the worker. That also stops the AI
+    # observability schedules from registering, so error tracking is the only signal left.
+    next_interceptor = AsyncMock()
+    next_interceptor.execute_activity.side_effect = ApplicationError(
+        "AI features are only available in PostHog Cloud", type="AIFeaturesCloudOnly", non_retryable=True
+    )
+    interceptor = _PostHogClientActivityInboundInterceptor(next_interceptor)
+
+    mock_input = MagicMock(spec=ExecuteActivityInput)
+    mock_input.args = []
+    mock_input.fn = failing_activity
+
+    with (
+        override_settings(DEBUG=False, CLOUD_DEPLOYMENT=cloud_deployment),
+        patch("posthog.temporal.common.posthog_client.api_key", "phc_test"),
+        patch("posthog.temporal.common.posthog_client.activity.info", return_value=MagicMock()),
+        patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture,
+    ):
+        with pytest.raises(ApplicationError):
+            await interceptor.execute_activity(mock_input)
+
+    assert mock_ph_capture.called is expect_captured
 
 
 @pytest.mark.asyncio

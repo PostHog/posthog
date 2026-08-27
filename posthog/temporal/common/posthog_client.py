@@ -1,6 +1,8 @@
 from dataclasses import is_dataclass
 from typing import Any, Optional
 
+from django.conf import settings
+
 import temporalio.exceptions
 from opentelemetry import trace
 from posthoganalytics import api_key, capture_exception
@@ -14,6 +16,7 @@ from temporalio.worker import (
     WorkflowInterceptorClassInput,
 )
 
+from posthog.cloud_utils import is_cloud
 from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.exceptions_capture import ambient_exception_properties
 from posthog.temporal.common.db_errors import is_transient_db_error
@@ -31,11 +34,22 @@ logger = get_write_only_logger()
 # constant EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE — this shared Temporal module must not
 # depend on a product. The error-tracking issue-created workflow fails open on it, so it is
 # expected control flow, not a defect.
-# "AIFeaturesCloudOnly" is raised by the AI observability guard on non-cloud deployments (see
-# posthog/temporal/ai_observability/llm_endpoint.py). It reflects the deployment, not a defect.
 EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset(
-    {"trace_not_settled", "TransientRepartitionError", "EmbeddingServiceUnavailable", "AIFeaturesCloudOnly"}
+    {"trace_not_settled", "TransientRepartitionError", "EmbeddingServiceUnavailable"}
 )
+
+# "AIFeaturesCloudOnly" is raised by the AI observability guard (see
+# posthog/temporal/ai_observability/llm_endpoint.py) on the deployments where the AI observability
+# schedules also do not register, so it is expected control flow there. On a cloud deployment the
+# guard is unreachable, so the same error means CLOUD_DEPLOYMENT is wrong on this worker and
+# summarization and clustering stopped with no other signal. Keep it reportable there.
+NON_CLOUD_EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset({"AIFeaturesCloudOnly"})
+
+
+def is_expected_control_flow_error_type(error_type: str | None) -> bool:
+    if error_type in EXPECTED_CONTROL_FLOW_ERROR_TYPES:
+        return True
+    return error_type in NON_CLOUD_EXPECTED_CONTROL_FLOW_ERROR_TYPES and not (settings.DEBUG or is_cloud())
 
 
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
@@ -96,7 +110,7 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
                 or isinstance(e, EgressBudgetExhausted | WorkerShuttingDownError | NonReportableError)
                 or (
                     isinstance(e, temporalio.exceptions.ApplicationError)
-                    and e.type in EXPECTED_CONTROL_FLOW_ERROR_TYPES
+                    and is_expected_control_flow_error_type(e.type)
                 )
             ):
                 raise
