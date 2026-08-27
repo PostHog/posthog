@@ -39,6 +39,17 @@ read `diagnosing-ci-and-merge-bottlenecks`. Both are product skills under
 `products/engineering_analytics/skills/`, not invocable here: read the
 `SKILL.md` at that path.
 
+## Rule out a platform outage first
+
+GitHub Actions goes down often enough that it belongs before any log reading, and
+a platform incident makes every other signal a symptom. It costs two page loads:
+<https://www.githubstatus.com/> for GitHub, <https://status.depot.dev/> for the
+runners. Check them whenever failures are broad — several workflows at once, a
+burst of runs failing together, jobs dying before `Checkout`, or anything red
+across unrelated PRs.
+
+Report an outage as an outage, name the component, and stop recommending reruns.
+
 ## Safety rules
 
 Do not do any of these without explicit approval in the current conversation:
@@ -274,8 +285,13 @@ Do NOT run `hogli test` with no arguments. Do NOT run `hogli nuke` or
 
 - Most PostHog jobs run on `depot-ubuntu-latest` or `depot-ubuntu-latest-16`.
   Depot runs surface logs through the GitHub Actions UI / `gh run view` just
-  like standard GitHub-hosted runners. There is no separate Depot console
-  that agents can query in this environment.
+  like standard GitHub-hosted runners, so read them there first.
+- When a Depot runner dies mid-job, GitHub keeps no log to read: the job shows
+  no steps and its log blob 404s. Depot's own dashboard keeps that job's page,
+  with the verdict GitHub lost (an OOM kill, a lost runner). Open it in a
+  browser through the chrome-devtools MCP. `status.depot.dev` covers the case
+  where Depot itself is the outage, and the `depot-github-runners` skill owns
+  runner troubleshooting beyond triage.
 - If a job fails before `Checkout` completes (no app code ran), classify as
   `infra / runner`. Do not propose code fixes.
 - PostHog CI frequently parallelizes the same test class across N shards
