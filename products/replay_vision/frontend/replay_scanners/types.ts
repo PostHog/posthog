@@ -55,6 +55,7 @@ export type IneligibleKind =
     | 'too_short'
     | 'too_inactive'
     | 'too_long'
+    | 'too_large'
     | 'no_events'
     | 'no_ai_consent'
 
@@ -79,6 +80,10 @@ const INELIGIBLE_KINDS: Record<IneligibleKind, IneligibleKindInfo> = {
     too_short: { label: 'Too short', description: 'The session was too short to analyze.' },
     too_inactive: { label: 'Too inactive', description: 'The session had too little active interaction to analyze.' },
     too_long: { label: 'Too long', description: 'The session was too long to analyze.' },
+    too_large: {
+        label: 'Too large',
+        description: 'This recording is too large to render as a video, so there was nothing for the AI to watch.',
+    },
     no_events: { label: 'No events', description: 'The session had no events to analyze.' },
     no_ai_consent: {
         label: 'AI analysis not allowed',
