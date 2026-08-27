@@ -1033,6 +1033,15 @@ class ValidatePipelineResponseSerializer(serializers.Serializer):
     )
 
 
+class StartTrainingRequestSerializer(serializers.Serializer):
+    iteration_budget = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=500,
+        help_text="Override the pipeline iteration budget for this training run.",
+    )
+
+
 # ── Agent-recorded training serializers ────────────────────────────────────
 
 

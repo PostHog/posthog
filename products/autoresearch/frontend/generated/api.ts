@@ -44,6 +44,7 @@ import type {
     ResolveTemplateRequestApi,
     ResolvedTemplateApi,
     RespondToSuggestionApi,
+    StartTrainingRequestApi,
     StoredArtifactApi,
     TrainingRunHistoryApi,
     ValidatePipelineRequestApi,
@@ -729,6 +730,123 @@ export const autoresearchDestroy = async (projectId: string, id: string, options
     return apiMutator<void>(getAutoresearchDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getAutoresearchArchiveCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${id}/archive/`
+}
+
+/**
+ * Soft-delete a pipeline. Stops daily scoring and training. Predictions and metrics are preserved.
+ * @summary Archive a pipeline
+ */
+export const autoresearchArchiveCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AutoresearchPipelineApi> => {
+    return apiMutator<AutoresearchPipelineApi>(getAutoresearchArchiveCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getAutoresearchPauseCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${id}/pause/`
+}
+
+/**
+ * Pause daily scoring and training. The pipeline can be resumed later.
+ * @summary Pause a pipeline
+ */
+export const autoresearchPauseCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AutoresearchPipelineApi> => {
+    return apiMutator<AutoresearchPipelineApi>(getAutoresearchPauseCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getAutoresearchResumeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${id}/resume/`
+}
+
+/**
+ * Resume a paused pipeline. Daily scoring and training will restart on the next cadence tick.
+ * @summary Resume a pipeline
+ */
+export const autoresearchResumeCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AutoresearchPipelineApi> => {
+    return apiMutator<AutoresearchPipelineApi>(getAutoresearchResumeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getAutoresearchScoreCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${id}/score/`
+}
+
+/**
+ * Score the inference population using the champion model and emit autoresearch_prediction events for each scored user. Updates the predicted_p_<target> person property. In production this is triggered by the daily Temporal inference workflow.
+ * @summary Run inference (score users)
+ */
+export const autoresearchScoreCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AutoresearchRunApi> => {
+    return apiMutator<AutoresearchRunApi>(getAutoresearchScoreCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getAutoresearchTrainCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${id}/train/`
+}
+
+/**
+ * Start an asynchronous training run for this pipeline. Creates a Task/TaskRun sandbox where the autoresearch agent iterates on features and models, and returns the run immediately with status 'running'. Poll the training run until it reaches a terminal status (completed or failed); no champion model exists until the run completes and server-side promotion runs.
+ * @summary Start a training run
+ */
+export const autoresearchTrainCreate = async (
+    projectId: string,
+    id: string,
+    startTrainingRequestApi?: StartTrainingRequestApi,
+    options?: RequestInit
+): Promise<AutoresearchTrainingRunApi> => {
+    return apiMutator<AutoresearchTrainingRunApi>(getAutoresearchTrainCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(startTrainingRequestApi),
+    })
+}
+
+export const getAutoresearchValidateOnlineCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${id}/validate-online/`
+}
+
+/**
+ * Validate predictions against realized outcomes for all matured prediction dates. A prediction date is matured when today >= prediction_date + horizon_days. Computes realized AUC, Brier score, calibration error (ECE), and lift@10/20 per model. Updates the model's realized_score, calibration_error, and clears the is_preliminary flag. Already-validated dates are skipped. In production this is triggered by the daily Temporal validation workflow after inference runs.
+ * @summary Run online validation
+ */
+export const autoresearchValidateOnlineCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AutoresearchRunApi[]> => {
+    return apiMutator<AutoresearchRunApi[]>(getAutoresearchValidateOnlineCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
