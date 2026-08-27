@@ -560,7 +560,6 @@ test('a single-language workflow claims that language rather than everything', (
         '.github/workflows/ci-backend.yml',
         '.github/workflows/ci-python.yml',
         '.github/workflows/ci-clickhouse-multinode-migrations.yml',
-        '.github/workflows/ci-migrations-service-separation-check.yml',
         // The backend test-timing pair and the IDOR coverage check run only in
         // ci-backend and its timing workflow.
         '.github/scripts/optimize_test_durations.py',
@@ -718,6 +717,13 @@ test('a multi-domain rule claims the union of its domains', () => {
         true
     )
     assert.equal(deltalite.includes('fe:core'), false)
+    // The separation gate path-filters Django, sqlx, and nodejs migrations, so
+    // it spans all three families and matches what the same change spelled as
+    // files would claim.
+    assert.deepEqual(
+        computeTargets(['.github/workflows/ci-migrations-service-separation-check.yml'], CONTEXT),
+        computeTargets(['mypy.ini', 'rust/Cargo.toml', 'nodejs/src/index.ts'], CONTEXT)
+    )
 })
 
 // The schema codegen pipeline turns schema.json into the generated artifacts
@@ -792,12 +798,16 @@ test('the mcp ui-apps workflow claims the product-surface readers', () => {
     )
 })
 
-test('the agent-skills workflow claims the python lanes plus the agents lane', () => {
+// The skills build renders templates that import product Python, and the
+// embedded-payload job regenerates products/*/frontend/generated/, so the
+// workflow spans both language families. Its paths filter never matches
+// .agents/, so that lane stays out.
+test('the agent-skills workflow claims both language families', () => {
     const targets = computeTargets(['.github/workflows/ci-agent-skills.yml'], CONTEXT)
-    assert.equal(targets.includes('agents'), true)
+    assert.equal(targets.includes('agents'), false)
     assert.equal(targets.includes('py:core'), true)
-    assert.equal(targets.includes('fe:core'), false)
-    assert.notDeepEqual(targets, EVERYTHING)
+    assert.equal(targets.includes('fe:core'), true)
+    assert.deepEqual(targets, computeTargets(['mypy.ini', '.oxlintrc.json'], CONTEXT))
 })
 
 test('the ml-mirror sidecar image and its workflow stay on the node lane', () => {
@@ -1892,8 +1902,9 @@ test('markdown alongside code contributes no lane of its own', () => {
     assert.deepEqual(computeTargets(['rust/unrelated/src/main.rs', 'README.md'], CONTEXT), ['rust:crate:unrelated'])
 })
 
-// hogli build:skills zips products/*/skills/*, and ci-agent-skills.yml gates on
-// those paths and on .agents/, so this markdown is a build input, not prose.
+// hogli build:skills zips products/*/skills/* (which ci-agent-skills.yml
+// gates) and syncs .agents/skills/, so this markdown is a build input, not
+// prose.
 // Skill markdown is a build input for the Python skill build (and sometimes the product backend).
 // No frontend suite reads these files, so they should claim the backend lane but not the frontend lane.
 test('skill markdown keeps the lane of the tree that builds it', () => {

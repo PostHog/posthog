@@ -243,11 +243,6 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
     label: "Discord",
     keywords: ["presence", "integration"],
   },
-  {
-    category: "sidebar",
-    label: "Sidebar",
-    keywords: ["nav", "customize", "reorder"],
-  },
 
   {
     category: "advanced",

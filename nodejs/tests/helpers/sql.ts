@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import { randomInt } from 'node:crypto'
 
 import { defaultConfig } from '~/common/config/config'
 import { PERSON_COLUMNS } from '~/common/persons/repositories/postgres-person-repository'
@@ -7,6 +8,11 @@ import { UUIDT } from '~/common/utils/utils'
 
 import { CookielessServerHashMode, InternalPerson, ProjectId, RawOrganization, RawPerson, Team } from '../../src/types'
 import { assertRouterTargetsTestDatabase } from './database-guard'
+
+// Rows outlive their test file, so draw from the whole int4 range. Narrower schemes
+// (per-millisecond, per-file band) collide far more often. Not Math.random: tests mock
+// that to pin their own randomness, which would pin every id to one value too.
+export const uniqueTestId = (): number => randomInt(2_100_000_000)
 
 export const commonUserId = 1001
 export const commonOrganizationMembershipId = '0177364a-fc7b-0000-511c-137090b9e4e1'
@@ -152,7 +158,14 @@ function getPostgresUseForTable(table: string): PostgresUse {
     return PostgresUse.COMMON_WRITE
 }
 
-export async function insertRow(postgres: PostgresRouter, table: string, objectProvided: Record<string, any>) {
+export async function insertRow(
+    postgres: PostgresRouter,
+    table: string,
+    objectProvided: Record<string, any>,
+    // Raw ON CONFLICT clause, for rows that are global rather than team-scoped and so
+    // can already exist when a suite no longer wipes the database.
+    onConflict = ''
+) {
     // Handling of related fields
     const { source__plugin_json, source__index_ts, source__frontend_tsx, source__site_ts, ...object } = objectProvided
 
@@ -178,6 +191,7 @@ export async function insertRow(postgres: PostgresRouter, table: string, objectP
             postgresUse,
             `INSERT INTO ${table} (${keys})
              VALUES (${params})
+             ${onConflict}
              RETURNING *`,
             values,
             `insertRow-${table}`
@@ -290,12 +304,12 @@ export async function createUserTeamAndOrganization(
     await insertRow(db, 'posthog_team', teamData)
 }
 
-export async function getTeams(postgres: PostgresRouter): Promise<Team[]> {
+async function queryTeams(postgres: PostgresRouter, where: string, params?: any[], limit = ''): Promise<Team[]> {
     const selectResult = await postgres.query<Team>(
         PostgresUse.COMMON_READ,
-        'SELECT * FROM posthog_team ORDER BY id',
-        undefined,
-        'fetchAllTeams'
+        `SELECT * FROM posthog_team ${where} ORDER BY id ${limit}`,
+        params,
+        'fetchTeams'
     )
     for (const row of selectResult.rows) {
         row.project_id = parseInt(row.project_id as unknown as string) as ProjectId
@@ -303,13 +317,16 @@ export async function getTeams(postgres: PostgresRouter): Promise<Team[]> {
     return selectResult.rows
 }
 
+export async function getTeams(postgres: PostgresRouter): Promise<Team[]> {
+    return await queryTeams(postgres, '')
+}
+
 export async function getTeam(postgres: PostgresRouter, teamId: Team['id']): Promise<Team | null> {
-    const teams = await getTeams(postgres)
-    return teams.find((team) => team.id === teamId) ?? null
+    return (await queryTeams(postgres, 'WHERE id = $1', [teamId]))[0] ?? null
 }
 
 export async function getFirstTeam(postgres: PostgresRouter): Promise<Team> {
-    return (await getTeams(postgres))[0]
+    return (await queryTeams(postgres, '', undefined, 'LIMIT 1'))[0]
 }
 
 export const createOrganization = async (pg: PostgresRouter) => {
@@ -354,8 +371,7 @@ export const createTeam = async (
     token?: string,
     teamSettings?: Record<string, any>
 ): Promise<number> => {
-    // KLUDGE: auto increment IDs can be racy in tests so we ensure IDs don't clash
-    const id = Math.round(Math.random() * 1000000000)
+    const id = uniqueTestId()
     let organizationId: string
     let projectId: ProjectId
     if (typeof projectOrOrganizationId === 'number') {
@@ -453,8 +469,7 @@ export const createAction = async (
     bytecode: any[] | null = null,
     actionSettings?: Record<string, any>
 ): Promise<number> => {
-    // KLUDGE: auto increment IDs can be racy in tests so we ensure IDs don't clash
-    const id = Math.round(Math.random() * 1000000000)
+    const id = uniqueTestId()
     await insertRow(pg, 'posthog_action', {
         id,
         name,
@@ -480,7 +495,7 @@ export const createUser = async (pg: PostgresRouter, distinctId: string) => {
     const user = await insertRow(pg, 'posthog_user', {
         // Tests also insert fixed user IDs, which do not advance Postgres's sequence.
         // Use a collision-resistant test ID rather than the stale sequence value.
-        id: Math.round(Math.random() * 1000000000),
+        id: uniqueTestId(),
         uuid: uuid,
         password: 'gibberish',
         first_name: 'PluginTest',
@@ -550,8 +565,7 @@ export const createCohort = async (
     filters: string | null = null,
     cohortSettings?: Record<string, any>
 ): Promise<number> => {
-    // KLUDGE: auto increment IDs can be racy in tests so we ensure IDs don't clash
-    const id = Math.round(Math.random() * 1000000000)
+    const id = uniqueTestId()
     await insertRow(pg, 'posthog_cohort', {
         id,
         name,

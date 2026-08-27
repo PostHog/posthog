@@ -365,9 +365,7 @@ const meta: Meta = {
 export default meta
 
 type Story = StoryObj<{}>
-export const ListPage: Story = {
-    parameters: { featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_SEVERITY_RULES] },
-}
+export const ListPage: Story = {}
 
 // An unresolved source maps recommendation renders the wizard banner above the
 // issue list without the sticky filters bar overlapping its bottom edge
@@ -483,18 +481,12 @@ export const ListPageWithIngestionWarning: Story = {
 }
 export const GroupPage: Story = {
     name: 'Issue scene',
-    parameters: {
-        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
-        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_SEVERITY_RULES],
-    },
+    parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
 }
 
 export const GroupPageManyAssignees: Story = {
     name: 'Issue scene with many assignees',
-    parameters: {
-        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
-        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_SEVERITY_RULES],
-    },
+    parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
     decorators: [
         mswDecorator({
             get: {

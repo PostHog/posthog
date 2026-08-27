@@ -168,9 +168,6 @@ const CLI_ARTIFACTS = 'cli-artifacts'
 // The hogbox preview-environment workflows, which read the hogbox tooling.
 const HOGBOX_PREVIEW = 'hogbox-preview'
 
-// The skills build plus the .agents tree, both gated by ci-agent-skills.yml.
-const AGENT_SKILLS = 'agent-skills'
-
 // Bot, report, sync, and canary workflows plus the scripts they run. None of
 // them is a required check, so a break costs a bot action rather than a merge
 // gate, and one shared lane keeps a script and the workflow that runs it
@@ -247,12 +244,14 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/ci-dagster.yml', PYTHON],
     ['.github/workflows/ci-rust.yml', RUST],
     ['.github/workflows/ci-rust-flags-integration.yml', RUST],
-    // These three gate suites that run only Python: the tools and
-    // approval-agent pytest suites, the ClickHouse multinode migration smoke,
-    // and the Django migration separation check.
+    // These two gate suites that run only Python: the tools and
+    // approval-agent pytest suites, and the ClickHouse multinode migration
+    // smoke.
     ['.github/workflows/ci-python.yml', PYTHON],
     ['.github/workflows/ci-clickhouse-multinode-migrations.yml', PYTHON],
-    ['.github/workflows/ci-migrations-service-separation-check.yml', PYTHON],
+    // Blocks Django or sqlx migrations landing beside nodejs/ or other rust/
+    // changes, so all three families interact with an edit to the gate.
+    ['.github/workflows/ci-migrations-service-separation-check.yml', [PYTHON, NODE, RUST]],
     // Suites that run the backend and the frontend together, and the builds of
     // the images those suites run inside. cd-sandbox-base-image is here rather
     // than on the deploy lane because it builds on pull requests from product
@@ -266,9 +265,10 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/ci-recording-rasterizer-container.yml', FULLSTACK],
     // The ml-mirror-image-scrub sidecar is built from nodejs/ sources only.
     ['.github/workflows/ci-ml-mirror-image-scrub-container.yml', NODE],
-    // The skills build runs through hogli (Python), and the same workflow
-    // gates .agents/, which holds its own lane.
-    ['.github/workflows/ci-agent-skills.yml', AGENT_SKILLS],
+    // The skills build renders templates that import product Python, and the
+    // embedded-payload job runs the services/mcp generator that writes into
+    // products/*/frontend/generated/. It does not gate .agents/.
+    ['.github/workflows/ci-agent-skills.yml', [PYTHON, JAVASCRIPT]],
     // buf lint and the stub drift checks span every proto tree, which is the
     // radius proto/buf.yaml gets.
     ['.github/workflows/ci-proto.yml', PROTO],
@@ -1808,11 +1808,6 @@ function addCliArtifactLanes(targets) {
     return true
 }
 
-function addAgentSkillsLanes(targets, context) {
-    targets.add('agents')
-    return addPythonLanes(targets, context)
-}
-
 // The desktop-* workflows build and test only products/desktop, so their
 // radius is that product's two lanes. The guard widens when the product is
 // gone, because the lanes would then name targets no other PR can claim.
@@ -1936,7 +1931,6 @@ const DOMAIN_LANES = new Map([
     [HOBBY, addHobbyLane],
     [HOGBOX_PREVIEW, addHogboxPreviewLane],
     [CLI_ARTIFACTS, addCliArtifactLanes],
-    [AGENT_SKILLS, addAgentSkillsLanes],
     [DESKTOP, addDesktopLanes],
     [REPO_AUTOMATION, laneOf('repo-automation')],
     [DEV_ENV, laneOf('dev-env')],
@@ -2052,9 +2046,10 @@ function computeTargets(changedFiles, context) {
         // a README under posthog/ into the backend lane.
         //
         // The exception is markdown that is a build input: `hogli build:skills`
-        // zips products/*/skills/*, ci-agent-skills.yml gates on those paths and
-        // on .agents/, and ci-python.yml runs the pr-approval-agent suite over
-        // .stamphog/. All of them fall through to their directory rules below.
+        // zips products/*/skills/* (which ci-agent-skills.yml gates), the
+        // skills build syncs .agents/skills/, and ci-python.yml runs the
+        // pr-approval-agent suite over .stamphog/. All of them fall through to
+        // their directory rules below.
         const isBuildInput =
             top === '.agents' || top === '.stamphog' || (top === 'products' && segments[2] === 'skills')
 
@@ -2450,7 +2445,6 @@ module.exports = {
     tripwireDomain,
     parseCargoLockCrates,
     ALL,
-    AGENT_SKILLS,
     CARGO_LOCK,
     CLI_ARTIFACTS,
     DEPLOY,

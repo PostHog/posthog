@@ -18,7 +18,7 @@ import {
 } from '../inboxAnalytics'
 import { signalSourcesLogic } from '../signalSourcesLogic'
 import { INBOX_CONFIG_TAB_KEY, type SignalSourceConfig } from '../types'
-import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from './reportListLogic'
+import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from './reportListLogic'
 import { scoutFleetLogic } from './scoutFleetLogic'
 
 // Spread for the mount-time wizard check. Short enough that a user arriving from onboarding gets
@@ -306,7 +306,7 @@ export interface inboxOnboardingLogicValues {
 export interface inboxOnboardingLogicActions {
     loadPullsCount: () => any // reportListLogic
     loadReportsCount: () => any // reportListLogic
-    loadScoutConfigs: () => any // scoutFleetLogic
+    loadScoutConfigs: (_?: void | undefined) => void // scoutFleetLogic
     loadSourceConfigs: () => any // signalSourcesLogic
     checkWizardSession: () => {
         value: true
@@ -423,12 +423,15 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
             ['sourceConfigs', 'sourceConfigsLoading', 'enabledSourcesCount', 'hasEmittingScanner'],
             scoutFleetLogic,
             ['scoutConfigs', 'scoutConfigsLoading', 'enabledCount as enabledScoutsCount'],
-            // Mount the pulls + reports count loaders directly (cheap limit=1 each) so we know
-            // whether there's existing work even during a takeover, when the tab bar that usually
-            // mounts these isn't rendered. Same keyed instances the tab bar uses – no double-fetch.
-            reportListLogic({ tabKey: 'pulls', listParams: INBOX_FLAT_TAB_LIST_PARAMS.pulls }),
+            // Mount the monitoring + needs-decision count loaders directly (cheap limit=1 each) so we
+            // know whether there's existing work even during a takeover, when the view switcher that
+            // usually mounts these isn't rendered. Same keyed instances it uses – no double-fetch.
+            reportListLogic({ sectionKey: 'monitoring', listParams: INBOX_REPORT_SECTION_LIST_PARAMS.monitoring }),
             ['count as pullsCount', 'countLoading as pullsCountLoading'],
-            reportListLogic({ tabKey: 'reports', listParams: INBOX_FLAT_TAB_LIST_PARAMS.reports }),
+            reportListLogic({
+                sectionKey: 'needs-decision',
+                listParams: INBOX_REPORT_SECTION_LIST_PARAMS['needs-decision'],
+            }),
             ['count as reportsCount', 'countLoading as reportsCountLoading'],
             // Already mounted app-wide by the sync widget; connecting here just reads its verdict.
             wizardActiveSessionDetectorLogic,
@@ -445,9 +448,12 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
             ['loadSourceConfigs'],
             scoutFleetLogic,
             ['loadScoutConfigs'],
-            reportListLogic({ tabKey: 'pulls', listParams: INBOX_FLAT_TAB_LIST_PARAMS.pulls }),
+            reportListLogic({ sectionKey: 'monitoring', listParams: INBOX_REPORT_SECTION_LIST_PARAMS.monitoring }),
             ['loadCount as loadPullsCount'],
-            reportListLogic({ tabKey: 'reports', listParams: INBOX_FLAT_TAB_LIST_PARAMS.reports }),
+            reportListLogic({
+                sectionKey: 'needs-decision',
+                listParams: INBOX_REPORT_SECTION_LIST_PARAMS['needs-decision'],
+            }),
             ['loadCount as loadReportsCount'],
         ],
     })),

@@ -504,6 +504,30 @@ def test_lint_all_catches_bad_jinja2_in_subdirectory(tmp_path: Path) -> None:
     assert builder.lint_all() is False
 
 
+@pytest.mark.parametrize(
+    "link_target,expected",
+    [
+        ("references/payload.md.j2", False),
+        ("references/payload.md", True),
+        ("references/missing.md", False),
+    ],
+)
+def test_lint_all_checks_reference_links_against_the_bundle(tmp_path: Path, link_target: str, expected: bool) -> None:
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "linker"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(f"---\nname: linker\ndescription: D\n---\nSee [payload]({link_target}).\n")
+    refs = skill_dir / "references"
+    refs.mkdir()
+    (refs / "payload.md.j2").write_text("# {{ 'rendered' }}\n")
+
+    builder = SkillBuilder(
+        repo_root=tmp_path,
+        products_dir=tmp_path / "products",
+        output_dir=tmp_path / "output",
+    )
+    assert builder.lint_all() is expected
+
+
 def test_lint_all_catches_duplicate_skill_names(tmp_path: Path) -> None:
     for product in ("alpha", "beta"):
         skill_dir = tmp_path / "products" / product / "skills" / "same-name"
