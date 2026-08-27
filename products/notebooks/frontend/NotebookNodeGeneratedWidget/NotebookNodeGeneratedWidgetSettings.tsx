@@ -35,6 +35,7 @@ export function NotebookNodeGeneratedWidgetSettings({
     })
     const {
         cancellationInFlight,
+        dataRunInFlight,
         elapsedSeconds,
         generationDraftLoading,
         generationDraftModel,
@@ -43,6 +44,8 @@ export function NotebookNodeGeneratedWidgetSettings({
         generationModalOperation,
         generationRequestLoading,
         isWorking,
+        isCellChainRunning,
+        isNotebookBusy,
         restoreInFlight,
         selectedVersion,
         selectedVersionId,
@@ -67,7 +70,7 @@ export function NotebookNodeGeneratedWidgetSettings({
         loadMoreVersions,
         openGenerationModal,
         openSourceEditor,
-        refreshData,
+        runWidget,
         restoreSelectedVersion,
         saveSource,
         selectVersion,
@@ -233,8 +236,19 @@ export function NotebookNodeGeneratedWidgetSettings({
                         <LemonButton onClick={openSourceEditor}>
                             {sourceIsEditable ? 'View or edit source' : 'View source'}
                         </LemonButton>
-                        <LemonButton onClick={refreshData} data-attr="widget-reload-data">
-                            Reload data
+                        <LemonButton
+                            onClick={runWidget}
+                            loading={dataRunInFlight}
+                            disabledReason={
+                                isCellChainRunning
+                                    ? 'Wait for the running cells to finish'
+                                    : isNotebookBusy
+                                      ? 'Wait for the current notebook operation to finish'
+                                      : undefined
+                            }
+                            data-attr="widget-reload-data"
+                        >
+                            Run
                         </LemonButton>
                     </>
                 ) : (

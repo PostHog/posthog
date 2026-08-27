@@ -1262,7 +1262,8 @@ def read_widget_frame(
     page_limit = min(max(limit, 1), MAX_FRAME_PAGE_ROWS)
     first_page = envelope.get("first_page")
     candidates: object
-    if isinstance(first_page, list) and offset + page_limit <= len(first_page):
+    requested_end = min(offset + page_limit, total_row_count)
+    if isinstance(first_page, list) and requested_end <= len(first_page):
         candidates = first_page[offset : offset + page_limit]
     else:
         try:

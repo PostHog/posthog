@@ -51,6 +51,7 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeGeneratedWidget
     })
     const {
         artifactUnavailable,
+        activeFrameNames,
         cancellationInFlight,
         currentTeamId,
         elapsedSeconds,
@@ -106,10 +107,6 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeGeneratedWidget
     const selectedArtifactUrl =
         selectedVersion?.artifact_url ??
         (selectedVersionId === status?.current_version_id ? status?.artifact_url : null)
-    const allowedFrames =
-        selectedVersion?.frame_names ??
-        (selectedVersionId === status?.current_version_id ? (status?.frame_names ?? []) : [])
-
     if (artifactUnavailable && selectedArtifactUrl) {
         return (
             <EmptyState>
@@ -160,7 +157,7 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeGeneratedWidget
                     <WidgetArtifactFrame
                         key={`${selectedArtifactUrl}-${frameRevision}`}
                         artifactUrl={selectedArtifactUrl}
-                        allowedFrames={allowedFrames}
+                        allowedFrames={activeFrameNames}
                         onReadFrame={(name, offset, limit) =>
                             loadWidgetFrame(
                                 String(currentTeamId),

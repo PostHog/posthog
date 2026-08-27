@@ -76,6 +76,7 @@ import { uuid } from 'lib/utils/dom'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import 'products/notebooks/frontend/NotebookNodeGeneratedWidget/NotebookNodeGeneratedWidget'
+import { NotebookGeneratedWidgetRunButton } from 'products/notebooks/frontend/NotebookNodeGeneratedWidget/NotebookGeneratedWidgetRunButton'
 
 import { NODE_ICONS } from '../nodeIcons'
 import { NotebookCodeCellRunButton } from '../Nodes/components/NotebookCodeCellRunButton'
@@ -300,6 +301,7 @@ export const MARKDOWN_NODE_DEFINITIONS: {
         tagName: 'GeneratedWidget',
         category: 'Code',
         label: 'Generated widget',
+        ToolbarComponent: NotebookGeneratedWidgetRunButton,
         insertCommand: {
             aliases: ['genui', 'visualization', 'widget', '3d'],
             defaultProps: () => ({
@@ -309,7 +311,12 @@ export const MARKDOWN_NODE_DEFINITIONS: {
             }),
         },
     },
-    { tagName: 'GenUI', category: 'Code', label: 'Generated widget' },
+    {
+        tagName: 'GenUI',
+        category: 'Code',
+        label: 'Generated widget',
+        ToolbarComponent: NotebookGeneratedWidgetRunButton,
+    },
     { tagName: 'RecordingPlaylist', category: 'Data', label: 'Session recordings' },
     { tagName: 'Experiment', category: 'Experiment' },
     { tagName: 'Image', category: 'Media', EditComponent: ImageEdit },

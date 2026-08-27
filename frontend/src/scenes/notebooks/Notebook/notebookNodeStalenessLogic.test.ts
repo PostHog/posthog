@@ -139,6 +139,18 @@ describe('notebookNodeStalenessLogic', () => {
         expect(stalenessLogic.values.chainQueue).toEqual([])
     })
 
+    it('runs an explicit cell chain in order even when the cells are not session-stale', async () => {
+        mountNode('a')
+        mountNode('b')
+
+        stalenessLogic.actions.runCellChain(['a', 'b'], 'widget-run')
+        await expectLogic(stalenessLogic).toFinishAllListeners()
+
+        expect(runSpy.mock.calls.map((call) => call[1].node_id)).toEqual(['a', 'b'])
+        expect(stalenessLogic.values.chainQueue).toEqual([])
+        expect(stalenessLogic.values.chainRequestId).toBeNull()
+    })
+
     it('skips a stale cell with no mounted logic instead of wedging the chain', async () => {
         // A dispatch to an unmounted cell is picked up by nobody: without the mounted-cell
         // filter the queue would sit at ['c'] forever, blocking any further stale-cell run.

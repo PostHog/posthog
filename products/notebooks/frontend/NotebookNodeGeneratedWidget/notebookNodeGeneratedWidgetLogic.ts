@@ -16,6 +16,8 @@ import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
 import { ApiError } from 'lib/api'
+import { notebookNodeStalenessLogic } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
+import { notebookOperationsLogic } from 'scenes/notebooks/Notebook/notebookOperationsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -27,8 +29,10 @@ import {
     notebooksWidgetSource,
     notebooksWidgetStatus,
     notebooksWidgetVersions,
+    notebooksSqlV2StateRetrieve,
 } from 'products/notebooks/frontend/generated/api'
 import type {
+    NotebookCellStateApi,
     WidgetFrameApi,
     WidgetSourceResponseApi,
     WidgetStatusApi,
@@ -39,6 +43,7 @@ import { DEFAULT_WIDGET_MODEL, WIDGET_MODEL_INFO, isWidgetModel, type WidgetMode
 
 const STATUS_POLL_INTERVAL_MS = 2_000
 const VERSION_PAGE_SIZE = 25
+const DATAFRAME_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 export type WidgetGenerationOperation = 'initial' | 'regenerate' | 'improve'
 export type WidgetGenerationModalOperation = Exclude<WidgetGenerationOperation, 'initial'> | null
@@ -59,13 +64,89 @@ export type NotebookNodeGeneratedWidgetLogicProps = {
     persistNotebook: () => Promise<void>
 }
 
+type WidgetDataRunPlan = {
+    missingFrameName: string | null
+    nodeIds: string[]
+}
+
+function buildWidgetDataRunPlan(cells: NotebookCellStateApi[], frameNames: string[]): WidgetDataRunPlan {
+    const ownerByFrame = new Map<string, string>()
+    for (const cellType of ['sql', 'python']) {
+        for (const cell of cells) {
+            if (
+                cell.cell_type === cellType &&
+                DATAFRAME_NAME.test(cell.dataframe_name) &&
+                !ownerByFrame.has(cell.dataframe_name)
+            ) {
+                ownerByFrame.set(cell.dataframe_name, cell.node_id)
+            }
+        }
+    }
+
+    const sourceNodeIds = new Set<string>()
+    for (const frameName of frameNames) {
+        const ownerNodeId = ownerByFrame.get(frameName)
+        if (!ownerNodeId) {
+            return { missingFrameName: frameName, nodeIds: [] }
+        }
+        sourceNodeIds.add(ownerNodeId)
+    }
+
+    const cellsByNodeId = new Map(cells.map((cell) => [cell.node_id, cell]))
+    const requiredNodeIds = new Set<string>()
+    const addUpstreamNodes = (nodeId: string): void => {
+        if (requiredNodeIds.has(nodeId)) {
+            return
+        }
+        requiredNodeIds.add(nodeId)
+        cellsByNodeId.get(nodeId)?.depends_on.forEach(addUpstreamNodes)
+    }
+    sourceNodeIds.forEach(addUpstreamNodes)
+
+    const nodeIdsToRun = new Set(sourceNodeIds)
+    for (const cell of cells) {
+        if (requiredNodeIds.has(cell.node_id) && cell.status !== 'done') {
+            nodeIdsToRun.add(cell.node_id)
+        }
+    }
+    let addedDependent = true
+    while (addedDependent) {
+        addedDependent = false
+        for (const cell of cells) {
+            if (
+                requiredNodeIds.has(cell.node_id) &&
+                !nodeIdsToRun.has(cell.node_id) &&
+                cell.depends_on.some((nodeId) => nodeIdsToRun.has(nodeId))
+            ) {
+                nodeIdsToRun.add(cell.node_id)
+                addedDependent = true
+            }
+        }
+    }
+
+    return {
+        missingFrameName: null,
+        nodeIds: cells
+            .filter(
+                (cell) =>
+                    nodeIdsToRun.has(cell.node_id) &&
+                    (cell.cell_type === 'sql' || cell.cell_type === 'python') &&
+                    requiredNodeIds.has(cell.node_id)
+            )
+            .map((cell) => cell.node_id),
+    }
+}
+
 export interface notebookNodeGeneratedWidgetLogicValues {
+    activeDataRunRequestId: string | null
     activeGenerationModel: WidgetModel
+    activeFrameNames: string[]
     artifactUnavailable: boolean
     cancellationInFlight: boolean
     currentTeamId: number | null
     elapsedSeconds: number
     frameRevision: number
+    dataRunInFlight: boolean
     generationDraftLoading: boolean
     generationDraftModel: WidgetModel
     generationDraftPrompt: string
@@ -73,6 +154,8 @@ export interface notebookNodeGeneratedWidgetLogicValues {
     generationModalOperation: WidgetGenerationModalOperation
     generationRequestLoading: boolean
     isWorking: boolean
+    isCellChainRunning: boolean
+    isNotebookBusy: boolean
     restoreInFlight: boolean
     runtimeError: string | null
     selectedVersion: WidgetVersionApi | null
@@ -99,6 +182,13 @@ export interface notebookNodeGeneratedWidgetLogicActions {
     cancelGeneration: () => { value: true }
     cancellationFailed: (error: string) => { error: string }
     cancellationStarted: () => { value: true }
+    cellChainFinished: (
+        requestId: string,
+        success: boolean
+    ) => {
+        requestId: string
+        success: boolean
+    }
     closeGenerationModal: () => { value: true }
     closeSourceEditor: () => { value: true }
     generateWidget: (
@@ -110,6 +200,8 @@ export interface notebookNodeGeneratedWidgetLogicActions {
     generationFailed: (error: string) => { error: string }
     generationRequestFinished: () => { value: true }
     generationRequestStarted: () => { value: true }
+    dataRunFinished: (success: boolean, error: string | null) => { success: boolean; error: string | null }
+    dataRunStarted: (requestId: string) => { requestId: string }
     loadMoreVersions: () => { value: true }
     loadStatus: () => { value: true }
     loadVersions: (reset: boolean) => { reset: boolean }
@@ -118,6 +210,8 @@ export interface notebookNodeGeneratedWidgetLogicActions {
     }
     openSourceEditor: () => { value: true }
     refreshData: () => { value: true }
+    runCellChain: (nodeIds: string[], requestId: string) => { nodeIds: string[]; requestId: string }
+    runWidget: () => { value: true }
     restoreFailed: (error: string) => { error: string }
     restoreSelectedVersion: () => { value: true }
     restoreStarted: () => { value: true }
@@ -252,13 +346,28 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
         props({} as NotebookNodeGeneratedWidgetLogicProps),
         key((props) => `${props.notebookShortId}-${props.nodeId}`),
         path((key) => ['products', 'notebooks', 'notebookNodeGeneratedWidgetLogic', key]),
-        connect({ values: [teamLogic, ['currentTeamId']] }),
+        connect((props: NotebookNodeGeneratedWidgetLogicProps) => ({
+            values: [
+                teamLogic,
+                ['currentTeamId'],
+                notebookNodeStalenessLogic({ shortId: props.notebookShortId }),
+                ['isChainRunning as isCellChainRunning'],
+                notebookOperationsLogic({ shortId: props.notebookShortId }),
+                ['isBusy as isNotebookBusy'],
+            ],
+            actions: [
+                notebookNodeStalenessLogic({ shortId: props.notebookShortId }),
+                ['cellChainFinished', 'runCellChain'],
+            ],
+        })),
         actions({
             artifactAvailable: true,
             artifactUnavailable: true,
             cancelGeneration: true,
             cancellationFailed: (error: string) => ({ error }),
             cancellationStarted: true,
+            dataRunFinished: (success: boolean, error: string | null) => ({ success, error }),
+            dataRunStarted: (requestId: string) => ({ requestId }),
             closeGenerationModal: true,
             closeSourceEditor: true,
             generateWidget: (prompt: string, model: WidgetModel, operation: WidgetGenerationOperation) => ({
@@ -276,6 +385,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
             openGenerationModal: (operation: Exclude<WidgetGenerationOperation, 'initial'>) => ({ operation }),
             openSourceEditor: true,
             refreshData: true,
+            runWidget: true,
             restoreFailed: (error: string) => ({ error }),
             restoreSelectedVersion: true,
             restoreStarted: true,
@@ -304,6 +414,13 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
             ) => ({ versions, count, nextOffset, reset }),
         }),
         reducers(({ props }) => ({
+            activeDataRunRequestId: [
+                null as string | null,
+                {
+                    dataRunStarted: (_, { requestId }) => requestId,
+                    dataRunFinished: () => null,
+                },
+            ],
             activeGenerationModel: [
                 props.model,
                 {
@@ -331,6 +448,13 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                 },
             ],
             elapsedSeconds: [0, { tickElapsed: (_, { elapsedSeconds }) => elapsedSeconds }],
+            dataRunInFlight: [
+                false,
+                {
+                    dataRunStarted: () => true,
+                    dataRunFinished: () => false,
+                },
+            ],
             frameRevision: [
                 0,
                 {
@@ -380,6 +504,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                 null as string | null,
                 {
                     setRuntimeError: (_, { error }) => error,
+                    dataRunStarted: () => null,
                     refreshData: () => null,
                     selectVersion: () => null,
                 },
@@ -462,6 +587,12 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
             versionsNextOffset: [null as number | null, { versionsReceived: (_, { nextOffset }) => nextOffset }],
         })),
         selectors({
+            activeFrameNames: [
+                (selectors) => [selectors.selectedVersion, selectors.selectedVersionId, selectors.status],
+                (selectedVersion, selectedVersionId, status): string[] =>
+                    selectedVersion?.frame_names ??
+                    (selectedVersionId === status?.current_version_id ? (status?.frame_names ?? []) : []),
+            ],
             selectedVersion: [
                 (selectors) => [selectors.versions, selectors.selectedVersionId],
                 (versions: WidgetVersionApi[], selectedVersionId: string | null): WidgetVersionApi | null =>
@@ -511,6 +642,17 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
             }
 
             return {
+                cellChainFinished: ({ requestId, success }) => {
+                    if (requestId !== values.activeDataRunRequestId) {
+                        return
+                    }
+                    actions.dataRunFinished(
+                        success,
+                        success
+                            ? null
+                            : 'Widget data could not be refreshed because a cell did not finish successfully.'
+                    )
+                },
                 cancelGeneration: async () => {
                     const generationId = values.status?.active_job?.id
                     if (!generationId || !values.currentTeamId || values.cancellationInFlight) {
@@ -665,6 +807,52 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         )
                     } catch (error) {
                         actions.sourceFailed(errorMessage(error))
+                    }
+                },
+                dataRunFinished: ({ success, error }) => {
+                    if (success) {
+                        actions.refreshData()
+                    } else if (error) {
+                        actions.setRuntimeError(error)
+                    }
+                },
+                runWidget: async () => {
+                    if (
+                        !props.isEditable ||
+                        values.dataRunInFlight ||
+                        values.isCellChainRunning ||
+                        values.isNotebookBusy
+                    ) {
+                        return
+                    }
+                    if (!values.activeFrameNames.length) {
+                        actions.refreshData()
+                        return
+                    }
+                    if (!values.currentTeamId) {
+                        actions.setRuntimeError('The current project is unavailable. Refresh and try again.')
+                        return
+                    }
+
+                    const requestId = uuidv4()
+                    actions.dataRunStarted(requestId)
+                    try {
+                        await props.persistNotebook()
+                        const state = await notebooksSqlV2StateRetrieve(
+                            String(values.currentTeamId),
+                            props.notebookShortId
+                        )
+                        const plan = buildWidgetDataRunPlan(state.cells, values.activeFrameNames)
+                        if (plan.missingFrameName) {
+                            actions.dataRunFinished(
+                                false,
+                                `Dataframe "${plan.missingFrameName}" is no longer in this notebook.`
+                            )
+                            return
+                        }
+                        actions.runCellChain(plan.nodeIds, requestId)
+                    } catch (error) {
+                        actions.dataRunFinished(false, errorMessage(error))
                     }
                 },
                 restoreSelectedVersion: async () => {

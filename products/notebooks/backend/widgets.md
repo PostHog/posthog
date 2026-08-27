@@ -37,6 +37,8 @@ Each successful widget version stores logical frame slots, source run provenance
 
 Generated source reads data with `await ph.readFrame("frame_name", { offset, limit })`.
 
+The widget's **Run** action saves the current notebook, reads its durable cell state, and runs the required cells in dependency order. Stale or incomplete prerequisites run first. Direct frame producers always run so Python-backed pagination remains available after a kernel restart. The preview reloads only after the chain succeeds.
+
 ## Versioning
 
 Initial generation and regeneration record complete instructions. Improve and manual source editing append prompt deltas. Effective instructions are materialized from bounded ancestry only when needed.

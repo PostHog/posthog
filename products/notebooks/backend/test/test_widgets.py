@@ -483,6 +483,29 @@ class TestWidgetData(APIBaseTest):
         assert isinstance(first_row, list)
         assert first_row[0] == str(unsafe_integer)
 
+    def test_frame_uses_complete_stored_preview_smaller_than_requested_page(self) -> None:
+        run = self._run()
+        run.envelope = {
+            "types": [["lat", "float64"], ["label", "string"]],
+            "first_page": [[index, "point"] for index in range(42)],
+            "row_count": 42,
+        }
+        run.save(update_fields=["envelope"])
+        self._mapping()
+
+        with patch("products.notebooks.backend.widgets.fetch_sql_v2_page") as fetch_page:
+            result = read_widget_frame(
+                notebook=self.notebook,
+                node_id=self.NODE_ID,
+                frame_name=self.INPUT_NAME,
+                authorize_run=lambda _run: None,
+                user=self.user,
+            )
+
+        fetch_page.assert_not_called()
+        assert result.frame["includedRowCount"] == 42
+        assert result.frame["truncated"] is False
+
     def test_frame_rejects_schema_drift(self) -> None:
         self._run()
         instance = self._mapping()
