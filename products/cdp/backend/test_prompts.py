@@ -32,15 +32,23 @@ class TestTaxonomyPrompts:
 
     def test_render_person_properties_covers_every_visible_non_virtual_entry(self):
         # Virtual properties are excluded because a filter on one never matches at CDP runtime.
-        assert _texts(render_person_property_taxonomy(), "name") == {
+        assert _texts(render_person_property_taxonomy("destination"), "name") == {
             name for name, definition in visible_definitions("person_properties") if not definition.get("virtual")
         }
+
+    @parameterized.expand(["transformation", "transformation_log"])
+    def test_render_person_properties_empty_for_types_without_a_person(self, function_type):
+        # These types run before person resolution, so a person filter evaluates against a null
+        # person and never matches. The renderer offers no person properties for them; a
+        # destination, whose runtime populates person, still gets the full set.
+        assert "<property>" not in render_person_property_taxonomy(function_type)
+        assert "email" in _texts(render_person_property_taxonomy("destination"), "name")
 
     @parameterized.expand(
         [
             ("events", render_event_taxonomy, "$autocapture"),
             ("event_properties", render_event_property_taxonomy, "$exception_steps"),
-            ("person_properties", render_person_property_taxonomy, "$initial_person_info"),
+            ("person_properties", lambda: render_person_property_taxonomy("destination"), "$initial_person_info"),
         ]
     )
     def test_render_omits_hidden_taxonomy_entries(self, group, render, hidden_name):
@@ -67,7 +75,8 @@ class TestTaxonomyPrompts:
         # the model can read its meaning. `$browser` is a copy, and the usage note sends the model
         # next door for it.
         properties = {
-            prop.findtext("name"): prop for prop in ET.fromstring(render_person_property_taxonomy()).iter("property")
+            prop.findtext("name"): prop
+            for prop in ET.fromstring(render_person_property_taxonomy("destination")).iter("property")
         }
 
         assert properties["email"].findtext("description")

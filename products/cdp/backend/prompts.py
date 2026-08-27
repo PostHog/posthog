@@ -5,7 +5,7 @@ from posthog.schema import PropertyOperator
 
 from posthog.taxonomy.taxonomy import visible_definitions
 
-from products.cdp.backend.models.hog_functions.hog_function import TYPES_WITH_TRANSPILED_FILTERS
+from products.cdp.backend.models.hog_functions.hog_function import TYPES_WITH_TRANSPILED_FILTERS, HogFunctionType
 
 from ee.hogai.summarizers.property_filters import PROPERTY_FILTER_VERBOSE_NAME
 
@@ -33,6 +33,14 @@ TRANSPILED_UNSUPPORTED_FILTER_OPERATORS = frozenset(
         PropertyOperator.SEMVER_CARET,
         PropertyOperator.SEMVER_WILDCARD,
     }
+)
+
+# Transformations run before person resolution, so their filter globals carry no person (see
+# `TRANSFORMATION_AVAILABLE_GLOBALS` in posthog/cdp/validation.py). A person-property filter on one
+# compiles and then evaluates against a null person, silently never matching. The filter UI hides
+# person properties from these types for the same reason.
+FUNCTION_TYPES_WITHOUT_PERSON_PROPERTIES = frozenset(
+    {HogFunctionType.TRANSFORMATION, HogFunctionType.TRANSFORMATION_LOG}
 )
 
 HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT = """
@@ -913,7 +921,10 @@ def render_event_property_taxonomy() -> str:
     return _render_taxonomy_group("event_properties", "event_property_taxonomy", "property")
 
 
-def render_person_property_taxonomy() -> str:
+def render_person_property_taxonomy(function_type: str) -> str:
+    # A function type whose runtime has no person cannot filter on a person property, so offer none.
+    if function_type in FUNCTION_TYPES_WITHOUT_PERSON_PROPERTIES:
+        return ""
     # The taxonomy copies almost every event property onto the person, so a description here would
     # repeat <event_property_taxonomy> and nearly double the prompt. Describe only the names that
     # section does not carry, because the model has nowhere else to read their meaning.
