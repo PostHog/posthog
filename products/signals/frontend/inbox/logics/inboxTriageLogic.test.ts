@@ -16,7 +16,7 @@ const REPORTS_URL = '/api/projects/:team_id/signals/reports/'
 // Matches the list logic's server page size, so a spot past it needs a second page.
 const PAGE_SIZE = 50
 
-function makeReport(id: string): SignalReport {
+function makeReport(id: string, extra: Partial<SignalReport> = {}): SignalReport {
     return {
         id,
         title: `Report ${id}`,
@@ -31,8 +31,13 @@ function makeReport(id: string): SignalReport {
         source_products: ['error_tracking'],
         created_at: '2026-06-11T10:00:00Z',
         updated_at: '2026-06-11T10:00:00Z',
+        ...extra,
     } satisfies SignalReport
 }
+
+const REVIEW_REPORTS = Array.from({ length: 2 }, (_, i) =>
+    makeReport(`pr-${i}`, { implementation_pr_url: `https://github.com/example/app/pull/${i + 1}` })
+)
 
 const FIRST_PAGE = Array.from({ length: PAGE_SIZE }, (_, i) => makeReport(`r-${i}`))
 const SECOND_PAGE = Array.from({ length: 10 }, (_, i) => makeReport(`r-${PAGE_SIZE + i}`))
@@ -48,6 +53,11 @@ describe('inboxTriageLogic', () => {
                 '/api/projects/:team_id/signals/reports/available_reviewers': {},
                 [REPORTS_URL]: ({ request }) => {
                     const { searchParams } = new URL(request.url)
+                    // The Review-and-merge list stays empty unless a test overrides it, so the
+                    // Needs-a-PR queue keeps its indexes.
+                    if (searchParams.get('has_implementation_pr') === 'true') {
+                        return [200, { count: 0, next: null, previous: null, results: [] }]
+                    }
                     const offset = searchParams.get('offset')
                     if (searchParams.get('limit') !== '1') {
                         requestedOffsets.push(offset)
@@ -125,6 +135,9 @@ describe('inboxTriageLogic', () => {
                 '/api/projects/:team_id/signals/reports/available_reviewers': {},
                 [REPORTS_URL]: ({ request }) => {
                     const { searchParams } = new URL(request.url)
+                    if (searchParams.get('has_implementation_pr') === 'true') {
+                        return [200, { count: 0, next: null, previous: null, results: [] }]
+                    }
                     if (searchParams.get('limit') === '1') {
                         return [
                             200,
@@ -170,6 +183,68 @@ describe('inboxTriageLogic', () => {
 
         expect(logic.values.isLoaded).toBe(false)
         expect(logic.values.reportsLoadFailed).toBe(true)
+    })
+
+    describe('with pull requests to review', () => {
+        let stateCalls: { reportId: string; state: string }[]
+
+        beforeEach(() => {
+            stateCalls = []
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                    [REPORTS_URL]: ({ request }) => {
+                        const { searchParams } = new URL(request.url)
+                        const forReview = searchParams.get('has_implementation_pr') === 'true'
+                        const results = forReview
+                            ? REVIEW_REPORTS
+                            : FIRST_PAGE.slice(0, 3).map((report) => ({
+                                  ...report,
+                                  actionability: 'immediately_actionable' as const,
+                              }))
+                        return [200, { count: results.length, next: null, previous: null, results }]
+                    },
+                },
+                post: {
+                    '/api/projects/:team_id/signals/reports/:reportId/state': async ({ request, params }) => {
+                        const body = (await request.json()) as { state: string }
+                        stateCalls.push({ reportId: String(params.reportId), state: body.state })
+                        return [200, {}]
+                    },
+                },
+            })
+        })
+
+        it('walks the pull requests to review before the reports that need one', async () => {
+            await mountAt({})
+
+            expect(logic.values.reports.map((report) => report.id)).toEqual(['pr-0', 'pr-1', 'r-0', 'r-1', 'r-2'])
+            expect(logic.values.currentSectionKey).toBe('monitoring')
+            expect(logic.values.currentPrUrl).toBe('https://github.com/example/app/pull/1/files')
+            expect(logic.values.canCreatePr).toBe(false)
+
+            logic.actions.navigate(2)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.currentReport?.id).toBe('r-0')
+            expect(logic.values.currentSectionKey).toBe('needs-decision')
+            expect(logic.values.currentPrUrl).toBeNull()
+            expect(logic.values.canCreatePr).toBe(true)
+        })
+
+        // Archiving must hit the list that owns the row, or the row lingers in the queue and the
+        // spot never moves on.
+        it('archives a pull request through its own list and moves to the next spot', async () => {
+            await mountAt({})
+
+            logic.actions.reviewArchiveReport('pr-0', 'already_fixed', '')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.reports.map((report) => report.id)).toEqual(['pr-1', 'r-0', 'r-1', 'r-2'])
+            expect(logic.values.currentReport?.id).toBe('pr-1')
+            expect(router.values.searchParams).toEqual({ report: 'pr-1', at: 0 })
+            expect(stateCalls).toEqual([{ reportId: 'pr-0', state: 'suppressed' }])
+        })
     })
 
     it('keeps the URL on the current spot and hands it to the report page as the way back', async () => {

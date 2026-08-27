@@ -119,3 +119,8 @@ export function parsePrUrlParts(prUrl: string): ParsedPrUrlParts | null {
 export function parsePrRepoSlug(prUrl: string): string | null {
     return parsePrUrlParts(prUrl)?.repoSlug ?? null
 }
+
+/** Point a PR URL at its diff/files tab, without double-appending if it's already there. */
+export function prFilesUrl(prUrl: string): string {
+    return prUrl.replace(/\/+$/, '').replace(/(\/files)?$/, '/files')
+}

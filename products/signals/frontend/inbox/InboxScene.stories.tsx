@@ -40,10 +40,16 @@ function routeTo(pathname: string, searchParams: Record<string, string> = {}): D
 
 const sceneMocks = mswDecorator({
     get: {
-        '/api/projects/:id/signals/reports': () => [
-            200,
-            { results: allReports, count: allReports.length, next: null, previous: null },
-        ],
+        // Split by the pull request filter so triage mode (which loads both lists) doesn't see every
+        // report twice; the list sections read the same split.
+        '/api/projects/:id/signals/reports': ({ request }) => {
+            const hasPr = new URL(request.url).searchParams.get('has_implementation_pr')
+            const results =
+                hasPr === null
+                    ? allReports
+                    : allReports.filter((report) => !!report.implementation_pr_url === (hasPr === 'true'))
+            return [200, { results, count: results.length, next: null, previous: null }]
+        },
         '/api/projects/:id/signals/reports/available_reviewers': () => [200, mockReviewers],
         '/api/projects/:id/signals/reports/:reportId': (req) => {
             const report = allReports.find((candidate) => candidate.id === req.params.reportId)
@@ -91,7 +97,7 @@ type Story = StoryObj
 
 export const Inbox: Story = {}
 
-// Triage mode over the Needs-a-decision queue: one report at a time, keyboard-driven.
+// Triage mode: Review and merge first, then Needs a PR, one report at a time, keyboard-driven.
 export const Triage: Story = {
     decorators: [routeTo(urls.inboxTriage())],
 }

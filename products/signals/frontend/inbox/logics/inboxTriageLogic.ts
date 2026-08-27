@@ -9,14 +9,21 @@ import { captureInboxReportAction } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
 import { INBOX_PRIMARY_REPORT_SECTION_KEY, InboxReportSectionKey, SignalReport } from '../types'
-import { displayConventionalCommitTitle } from '../utils/reportPresentation'
+import { displayConventionalCommitTitle, prFilesUrl, safeHttpUrl } from '../utils/reportPresentation'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from './reportListLogic'
 
 /**
- * Triage mode triages the Needs-a-PR queue, sharing that section's loaded pages, filters, and
- * scope. It walks every loaded report, not just the rows the section has expanded to show.
+ * Triage mode walks two queues back to back, sharing each section's loaded pages, filters, and
+ * scope: first Review and merge (reports with a pull request open), then Needs a PR. It walks every
+ * loaded report, not just the rows the sections have expanded to show.
  */
+export const TRIAGE_REVIEW_SECTION_KEY: InboxReportSectionKey = 'monitoring'
 export const TRIAGE_SECTION_KEY: InboxReportSectionKey = INBOX_PRIMARY_REPORT_SECTION_KEY
+
+const REVIEW_LIST_PROPS = {
+    sectionKey: TRIAGE_REVIEW_SECTION_KEY,
+    listParams: INBOX_REPORT_SECTION_LIST_PARAMS[TRIAGE_REVIEW_SECTION_KEY],
+}
 
 const TRIAGE_LIST_PROPS = {
     sectionKey: TRIAGE_SECTION_KEY,
@@ -35,20 +42,32 @@ function clampIndex(index: number, length: number): number {
 export interface inboxTriageLogicValues {
     aiConsentDisabledReason: string | null // inboxTaskKickoffLogic
     isCreatingPr: boolean // inboxTaskKickoffLogic
-    hasMore: boolean // reportListLogic
-    isLoaded: boolean // reportListLogic
-    reports: SignalReport[] // reportListLogic
-    reportsLoadFailed: boolean // reportListLogic
-    reportsResponseLoading: boolean // reportListLogic
+    reviewHasMore: boolean // reportListLogic
+    reviewIsLoaded: boolean // reportListLogic
+    reviewReports: SignalReport[] // reportListLogic
+    reviewReportsLoadFailed: boolean // reportListLogic
+    reviewReportsResponseLoading: boolean // reportListLogic
+    prHasMore: boolean // reportListLogic
+    prIsLoaded: boolean // reportListLogic
+    prReports: SignalReport[] // reportListLogic
+    prReportsLoadFailed: boolean // reportListLogic
+    prReportsResponseLoading: boolean // reportListLogic
     canCreatePr: boolean
     counter: string
     currentIndex: number
+    currentPrUrl: string | null
     currentReport: SignalReport | null
     currentReportUrl: string | null
+    currentSectionKey: InboxReportSectionKey | null
     expanded: boolean
+    hasMore: boolean
+    isLoaded: boolean
     isRestoringPosition: boolean
     nextReport: SignalReport | null
     previousReport: SignalReport | null
+    reports: SignalReport[]
+    reportsLoadFailed: boolean
+    reportsResponseLoading: boolean
     requestedIndex: number
     requestedReportId: string | null
     requestedReportIndex: number
@@ -68,7 +87,7 @@ export interface inboxTriageLogicActions {
     createPrFromReport: (report: SignalReport) => {
         report: SignalReport
     } // inboxTaskKickoffLogic
-    archiveReport: (
+    reviewArchiveReport: (
         reportId: string,
         reason:
             | 'already_fixed'
@@ -89,40 +108,94 @@ export interface inboxTriageLogicActions {
             | 'wontfix_irrelevant'
         reportId: string
     } // reportListLogic
-    ensureLoaded: () => {
+    reviewEnsureLoaded: () => {
         value: true
     } // reportListLogic
-    loadMore: () => {
+    reviewLoadMore: () => {
         value: true
     } // reportListLogic
-    loadMoreReportsFailure: (
+    reviewLoadMoreReportsFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     } // reportListLogic
-    loadMoreReportsSuccess: (
+    reviewLoadMoreReportsSuccess: (
         reportsResponse: import('./reportListLogic').ReportListResponse,
         payload?: any
     ) => {
         payload?: any
         reportsResponse: import('./reportListLogic').ReportListResponse
     } // reportListLogic
-    loadReportsSuccess: (
+    reviewLoadReportsSuccess: (
         reportsResponse: import('./reportListLogic').ReportListResponse,
         payload?: any
     ) => {
         payload?: any
         reportsResponse: import('./reportListLogic').ReportListResponse
     } // reportListLogic
-    removeReport: (reportId: string) => {
+    reviewRemoveReport: (reportId: string) => {
+        reportId: string
+    } // reportListLogic
+    prArchiveReport: (
+        reportId: string,
+        reason:
+            | 'already_fixed'
+            | 'analysis_wrong'
+            | 'other'
+            | 'report_unclear'
+            | 'wontfix_intentional'
+            | 'wontfix_irrelevant',
+        note: string
+    ) => {
+        note: string
+        reason:
+            | 'already_fixed'
+            | 'analysis_wrong'
+            | 'other'
+            | 'report_unclear'
+            | 'wontfix_intentional'
+            | 'wontfix_irrelevant'
+        reportId: string
+    } // reportListLogic
+    prEnsureLoaded: () => {
+        value: true
+    } // reportListLogic
+    prLoadMore: () => {
+        value: true
+    } // reportListLogic
+    prLoadMoreReportsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    } // reportListLogic
+    prLoadMoreReportsSuccess: (
+        reportsResponse: import('./reportListLogic').ReportListResponse,
+        payload?: any
+    ) => {
+        payload?: any
+        reportsResponse: import('./reportListLogic').ReportListResponse
+    } // reportListLogic
+    prLoadReportsSuccess: (
+        reportsResponse: import('./reportListLogic').ReportListResponse,
+        payload?: any
+    ) => {
+        payload?: any
+        reportsResponse: import('./reportListLogic').ReportListResponse
+    } // reportListLogic
+    prRemoveReport: (reportId: string) => {
         reportId: string
     } // reportListLogic
     archiveCurrent: () => {
         value: true
     }
     createPrForCurrent: () => {
+        value: true
+    }
+    ensureLoaded: () => {
         value: true
     }
     focusReport: (
@@ -132,10 +205,16 @@ export interface inboxTriageLogicActions {
         index: number
         reportId: string | null
     }
+    loadMore: () => {
+        value: true
+    }
     navigate: (delta: number) => {
         delta: number
     }
     openCurrent: () => {
+        value: true
+    }
+    openPrForCurrent: () => {
         value: true
     }
     setExpanded: (expanded: boolean) => {
@@ -152,6 +231,11 @@ export interface inboxTriageLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface inboxTriageLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
+        reports: (reviewReports: SignalReport[], prReports: SignalReport[]) => SignalReport[]
+        hasMore: (reviewHasMore: boolean, prHasMore: boolean) => boolean
+        isLoaded: (reviewIsLoaded: boolean, prIsLoaded: boolean) => boolean
+        reportsLoadFailed: (reviewReportsLoadFailed: boolean, prReportsLoadFailed: boolean) => boolean
+        reportsResponseLoading: (reviewReportsResponseLoading: boolean, prReportsResponseLoading: boolean) => boolean
         requestedReportIndex: (requestedReportId: string | null, reports: SignalReport[]) => number
         currentIndex: (requestedReportIndex: number, requestedIndex: number, reports: SignalReport[]) => number
         isRestoringPosition: (
@@ -162,10 +246,16 @@ export interface inboxTriageLogicMeta {
             restoreFailed: boolean
         ) => boolean
         currentReport: (reports: SignalReport[], currentIndex: number) => SignalReport | null
+        currentSectionKey: (
+            currentReport: SignalReport | null,
+            currentIndex: number,
+            reviewReports: SignalReport[]
+        ) => InboxReportSectionKey | null
         previousReport: (reports: SignalReport[], currentIndex: number) => SignalReport | null
         nextReport: (reports: SignalReport[], currentIndex: number) => SignalReport | null
         counter: (reports: SignalReport[], currentIndex: number, hasMore: boolean) => string
         canCreatePr: (currentReport: SignalReport | null) => boolean
+        currentPrUrl: (currentReport: SignalReport | null) => string | null
         returnUrl: (currentReport: SignalReport | null, currentIndex: number) => string
         currentReportUrl: (currentReport: SignalReport | null, returnUrl: string) => string | null
     }
@@ -179,30 +269,55 @@ export type inboxTriageLogicType = MakeLogicType<
 >
 
 /**
- * Triage mode: one report at a time from the Needs-a-decision queue, driven from the keyboard. The
- * queue is the landing view's own `reportListLogic` (same pages, filters, and reviewer scope), so
- * archiving here drops the row from the list too and the next report slides into place.
+ * Triage mode: one report at a time, driven from the keyboard. The queue is Review and merge
+ * followed by Needs a PR, each backed by the landing view's own `reportListLogic` (same pages,
+ * filters, and reviewer scope), so archiving here drops the row from that list too and the next
+ * report slides into place. Paging drains the review list before the first Needs-a-PR page loads.
  */
 export const inboxTriageLogic = kea<inboxTriageLogicType>([
     path(['scenes', 'inbox', 'logics', 'inboxTriageLogic']),
 
     connect(() => ({
         values: [
+            reportListLogic(REVIEW_LIST_PROPS),
+            [
+                'reports as reviewReports',
+                'hasMore as reviewHasMore',
+                'isLoaded as reviewIsLoaded',
+                'reportsResponseLoading as reviewReportsResponseLoading',
+                'reportsLoadFailed as reviewReportsLoadFailed',
+            ],
             reportListLogic(TRIAGE_LIST_PROPS),
-            ['reports', 'hasMore', 'isLoaded', 'reportsResponseLoading', 'reportsLoadFailed'],
+            [
+                'reports as prReports',
+                'hasMore as prHasMore',
+                'isLoaded as prIsLoaded',
+                'reportsResponseLoading as prReportsResponseLoading',
+                'reportsLoadFailed as prReportsLoadFailed',
+            ],
             inboxTaskKickoffLogic,
             ['isCreatingPr', 'aiConsentDisabledReason'],
         ],
         actions: [
+            reportListLogic(REVIEW_LIST_PROPS),
+            [
+                'ensureLoaded as reviewEnsureLoaded',
+                'loadMore as reviewLoadMore',
+                'archiveReport as reviewArchiveReport',
+                'removeReport as reviewRemoveReport',
+                'loadReportsSuccess as reviewLoadReportsSuccess',
+                'loadMoreReportsSuccess as reviewLoadMoreReportsSuccess',
+                'loadMoreReportsFailure as reviewLoadMoreReportsFailure',
+            ],
             reportListLogic(TRIAGE_LIST_PROPS),
             [
-                'ensureLoaded',
-                'loadMore',
-                'archiveReport',
-                'removeReport',
-                'loadReportsSuccess',
-                'loadMoreReportsSuccess',
-                'loadMoreReportsFailure',
+                'ensureLoaded as prEnsureLoaded',
+                'loadMore as prLoadMore',
+                'archiveReport as prArchiveReport',
+                'removeReport as prRemoveReport',
+                'loadReportsSuccess as prLoadReportsSuccess',
+                'loadMoreReportsSuccess as prLoadMoreReportsSuccess',
+                'loadMoreReportsFailure as prLoadMoreReportsFailure',
             ],
             inboxTaskKickoffLogic,
             ['createPrFromReport'],
@@ -212,6 +327,8 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
     })),
 
     actions({
+        ensureLoaded: true,
+        loadMore: true,
         navigate: (delta: number) => ({ delta }),
         setIndex: (index: number) => ({ index }),
         // Restore a spot carried in the triage URL: the report the user was on, and where it sat.
@@ -220,6 +337,7 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
         setExpanded: (expanded: boolean) => ({ expanded }),
         archiveCurrent: true,
         createPrForCurrent: true,
+        openPrForCurrent: true,
         openCurrent: true,
     }),
 
@@ -257,14 +375,43 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
             false,
             {
                 focusReport: () => false,
-                loadReportsSuccess: () => false,
-                loadMoreReportsSuccess: () => false,
-                loadMoreReportsFailure: () => true,
+                reviewLoadReportsSuccess: () => false,
+                reviewLoadMoreReportsSuccess: () => false,
+                reviewLoadMoreReportsFailure: () => true,
+                prLoadReportsSuccess: () => false,
+                prLoadMoreReportsSuccess: () => false,
+                prLoadMoreReportsFailure: () => true,
             },
         ],
     }),
 
     selectors({
+        // The review queue comes first; Needs-a-PR rows start where it ends.
+        reports: [
+            (s) => [s.reviewReports, s.prReports],
+            (reviewReports: SignalReport[], prReports: SignalReport[]): SignalReport[] => [
+                ...reviewReports,
+                ...prReports,
+            ],
+        ],
+        hasMore: [
+            (s) => [s.reviewHasMore, s.prHasMore],
+            (reviewHasMore: boolean, prHasMore: boolean): boolean => reviewHasMore || prHasMore,
+        ],
+        isLoaded: [
+            (s) => [s.reviewIsLoaded, s.prIsLoaded],
+            (reviewIsLoaded: boolean, prIsLoaded: boolean): boolean => reviewIsLoaded && prIsLoaded,
+        ],
+        reportsLoadFailed: [
+            (s) => [s.reviewReportsLoadFailed, s.prReportsLoadFailed],
+            (reviewReportsLoadFailed: boolean, prReportsLoadFailed: boolean): boolean =>
+                reviewReportsLoadFailed || prReportsLoadFailed,
+        ],
+        reportsResponseLoading: [
+            (s) => [s.reviewReportsResponseLoading, s.prReportsResponseLoading],
+            (reviewReportsResponseLoading: boolean, prReportsResponseLoading: boolean): boolean =>
+                reviewReportsResponseLoading || prReportsResponseLoading,
+        ],
         requestedReportIndex: [
             (s) => [s.requestedReportId, s.reports],
             (requestedReportId: string | null, reports: SignalReport[]): number =>
@@ -291,6 +438,21 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
             (s) => [s.reports, s.currentIndex],
             (reports: SignalReport[], currentIndex: number): SignalReport | null => reports[currentIndex] ?? null,
         ],
+        // Which list owns the current report, so archiving hits the right list and the card shows
+        // that list's actions.
+        currentSectionKey: [
+            (s) => [s.currentReport, s.currentIndex, s.reviewReports],
+            (
+                currentReport: SignalReport | null,
+                currentIndex: number,
+                reviewReports: SignalReport[]
+            ): InboxReportSectionKey | null =>
+                currentReport === null
+                    ? null
+                    : currentIndex < reviewReports.length
+                      ? TRIAGE_REVIEW_SECTION_KEY
+                      : TRIAGE_SECTION_KEY,
+        ],
         previousReport: [
             (s) => [s.reports, s.currentIndex],
             (reports: SignalReport[], currentIndex: number): SignalReport | null =>
@@ -310,6 +472,14 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
             (s) => [s.currentReport],
             (currentReport: SignalReport | null): boolean =>
                 currentReport !== null && canCreateImplementationPr(currentReport),
+        ],
+        // The current report's pull request, pointed at its files tab, so review starts on the diff.
+        currentPrUrl: [
+            (s) => [s.currentReport],
+            (currentReport: SignalReport | null): string | null => {
+                const prUrl = safeHttpUrl(currentReport?.implementation_pr_url)
+                return prUrl ? prFilesUrl(prUrl) : null
+            },
         ],
         // The triage URL for the current spot; what a report opened from here returns to.
         returnUrl: [
@@ -336,8 +506,22 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
             }
         }
         return {
-            loadReportsSuccess: loadTowardRequestedSpot,
-            loadMoreReportsSuccess: loadTowardRequestedSpot,
+            ensureLoaded: () => {
+                actions.reviewEnsureLoaded()
+                actions.prEnsureLoaded()
+            },
+            // Drain the review list first so its rows never land in the middle of the Needs-a-PR run.
+            loadMore: () => {
+                if (values.reviewHasMore) {
+                    actions.reviewLoadMore()
+                } else if (values.prHasMore) {
+                    actions.prLoadMore()
+                }
+            },
+            reviewLoadReportsSuccess: loadTowardRequestedSpot,
+            reviewLoadMoreReportsSuccess: loadTowardRequestedSpot,
+            prLoadReportsSuccess: loadTowardRequestedSpot,
+            prLoadMoreReportsSuccess: loadTowardRequestedSpot,
             navigate: ({ delta }) => {
                 actions.setIndex(clampIndex(values.currentIndex + delta, values.reports.length))
                 if (
@@ -350,7 +534,8 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
             },
             archiveCurrent: () => {
                 const report = values.currentReport
-                if (!report) {
+                const sectionKey = values.currentSectionKey
+                if (!report || !sectionKey) {
                     return
                 }
                 openDismissReportDialog({
@@ -364,8 +549,12 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                             surface: 'triage_mode',
                             extra: { dismissal_reason: reason, ...(note ? { dismissal_note: note } : {}) },
                         })
-                        // The list logic drops the row optimistically, so the next report takes this index.
-                        actions.archiveReport(report.id, reason, note)
+                        // The owning list drops the row optimistically, so the next report takes this index.
+                        if (sectionKey === TRIAGE_REVIEW_SECTION_KEY) {
+                            actions.reviewArchiveReport(report.id, reason, note)
+                        } else {
+                            actions.prArchiveReport(report.id, reason, note)
+                        }
                     },
                 })
             },
@@ -377,6 +566,15 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                 captureInboxReportAction({ report, actionType: 'create_pr', surface: 'triage_mode' })
                 actions.createPrFromReport(report)
             },
+            openPrForCurrent: () => {
+                const report = values.currentReport
+                const prUrl = values.currentPrUrl
+                if (!report || !prUrl) {
+                    return
+                }
+                captureInboxReportAction({ report, actionType: 'open_pr', surface: 'triage_mode' })
+                window.open(prUrl, '_blank', 'noopener')
+            },
             openCurrent: () => {
                 const report = values.currentReport
                 if (report) {
@@ -387,7 +585,7 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
     }),
 
     // The URL follows the current spot (replaced, not pushed, so the browser's back button leaves
-    // triage in one step). Archiving moves the spot too, once the row is gone from the list.
+    // triage in one step). Archiving moves the spot too, once the row is gone from its list.
     actionToUrl(({ values }) => {
         const positionUrl = (): [string, Record<string, unknown>, Record<string, unknown>, { replace: boolean }] => {
             // Other params (the list scope, for one) stay; only the spot is rewritten.
@@ -401,7 +599,8 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
         }
         return {
             setIndex: positionUrl,
-            removeReport: positionUrl,
+            reviewRemoveReport: positionUrl,
+            prRemoveReport: positionUrl,
         }
     }),
 

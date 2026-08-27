@@ -27,6 +27,7 @@ import {
     displayConventionalCommitTitle,
     parseConventionalCommitTitle,
     parsePrUrlParts,
+    prFilesUrl,
     safeHttpUrl,
 } from '../../utils/reportPresentation'
 import { parseReportSummary } from '../../utils/reportSummary'
@@ -537,11 +538,6 @@ export function InboxDetailFrame({
             {overviewBody}
         </div>
     )
-}
-
-/** Point a PR URL at its diff/files tab, without double-appending if it's already there. */
-function prFilesUrl(prUrl: string): string {
-    return prUrl.replace(/\/+$/, '').replace(/(\/files)?$/, '/files')
 }
 
 /** The "Open in GitHub" button, shared by the page header and the summary's pull request note. */

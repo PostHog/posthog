@@ -216,7 +216,7 @@ export function ReportsTab(): JSX.Element {
                         size="small"
                         to={urls.inboxTriage()}
                         sideIcon={<KeyboardShortcut t />}
-                        tooltip="Go through the reports that need a pull request one at a time"
+                        tooltip="Go through pull requests to review, then reports that need one, one at a time"
                         data-attr="inbox-triage-mode"
                     >
                         Triage mode

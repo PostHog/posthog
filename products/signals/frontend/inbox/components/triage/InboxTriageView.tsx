@@ -12,9 +12,9 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
-import { captureInboxPanelViewed } from '../../inboxAnalytics'
+import { captureInboxPanelViewed, captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxTriageLogic } from '../../logics/inboxTriageLogic'
-import { SignalReport } from '../../types'
+import { INBOX_REPORT_SECTION_LABEL, SignalReport } from '../../types'
 import {
     deriveHeadline,
     displayConventionalCommitTitle,
@@ -95,7 +95,8 @@ function HintBarItem({ shortcut, label }: { shortcut: JSX.Element; label: string
 }
 
 function TriageCard({ report, expanded }: { report: SignalReport; expanded: boolean }): JSX.Element {
-    const { canCreatePr, isCreatingPr, aiConsentDisabledReason, currentReportUrl } = useValues(inboxTriageLogic)
+    const { canCreatePr, isCreatingPr, aiConsentDisabledReason, currentReportUrl, currentPrUrl } =
+        useValues(inboxTriageLogic)
     const { archiveCurrent, createPrForCurrent, openCurrent, toggleExpanded } = useActions(inboxTriageLogic)
 
     const conventionalTitle = parseConventionalCommitTitle(report.title)
@@ -197,7 +198,24 @@ function TriageCard({ report, expanded }: { report: SignalReport; expanded: bool
                 >
                     Archive
                 </LemonButton>
-                {canCreatePr && (
+                {currentPrUrl ? (
+                    // Merging happens on GitHub, so for a report with a pull request open the primary
+                    // action hands the reader to the PR's diff.
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        icon={<IconPullRequest />}
+                        sideIcon={<KeyboardShortcut g />}
+                        to={currentPrUrl}
+                        targetBlank
+                        onClick={() =>
+                            captureInboxReportAction({ report, actionType: 'open_pr', surface: 'triage_mode' })
+                        }
+                        data-attr="inbox-triage-open-pr"
+                    >
+                        Open in GitHub
+                    </LemonButton>
+                ) : canCreatePr ? (
                     <LemonButton
                         type="primary"
                         size="small"
@@ -210,7 +228,7 @@ function TriageCard({ report, expanded }: { report: SignalReport; expanded: bool
                     >
                         Create PR
                     </LemonButton>
-                )}
+                ) : null}
                 <div className="flex-1" />
                 <LemonButton
                     type="tertiary"
@@ -251,9 +269,18 @@ export function InboxTriageView(): JSX.Element {
         nextReport,
         expanded,
         counter,
+        currentSectionKey,
     } = useValues(inboxTriageLogic)
-    const { navigate, toggleExpanded, setExpanded, archiveCurrent, createPrForCurrent, openCurrent, ensureLoaded } =
-        useActions(inboxTriageLogic)
+    const {
+        navigate,
+        toggleExpanded,
+        setExpanded,
+        archiveCurrent,
+        createPrForCurrent,
+        openPrForCurrent,
+        openCurrent,
+        ensureLoaded,
+    } = useActions(inboxTriageLogic)
 
     useKeyboardHotkeys(
         {
@@ -280,6 +307,7 @@ export function InboxTriageView(): JSX.Element {
             o: { action: outsideDialogs(() => openCurrent()) },
             a: { action: outsideDialogs(() => archiveCurrent()) },
             c: { action: outsideDialogs(() => createPrForCurrent()) },
+            g: { action: outsideDialogs(() => openPrForCurrent()) },
             escape: {
                 // Escape peels back one layer: the expanded summary, then triage mode itself.
                 action: outsideDialogs(() => {
@@ -291,7 +319,16 @@ export function InboxTriageView(): JSX.Element {
                 }),
             },
         },
-        [expanded, navigate, toggleExpanded, setExpanded, archiveCurrent, createPrForCurrent, openCurrent]
+        [
+            expanded,
+            navigate,
+            toggleExpanded,
+            setExpanded,
+            archiveCurrent,
+            createPrForCurrent,
+            openPrForCurrent,
+            openCurrent,
+        ]
     )
 
     // Once per open, when the queue has settled, so the panel shows up next to the other
@@ -320,8 +357,11 @@ export function InboxTriageView(): JSX.Element {
                 >
                     Reports
                 </LemonButton>
-                <Tooltip title="Your place in the reports that need a pull request">
-                    <span className="text-xs text-tertiary tabular-nums">{counter}</span>
+                <Tooltip title="Your place in the queue: pull requests to review first, then reports that need one">
+                    <span className="flex items-center gap-2 text-xs text-tertiary">
+                        {currentSectionKey && <span>{INBOX_REPORT_SECTION_LABEL[currentSectionKey]}</span>}
+                        <span className="tabular-nums">{counter}</span>
+                    </span>
                 </Tooltip>
             </div>
 
@@ -383,6 +423,7 @@ export function InboxTriageView(): JSX.Element {
                 <HintBarItem shortcut={<KeyboardShortcut arrowdown />} label="next" />
                 <HintBarItem shortcut={<KeyboardShortcut arrowup />} label="previous" />
                 <HintBarItem shortcut={<KeyboardShortcut command enter />} label="open report" />
+                <HintBarItem shortcut={<KeyboardShortcut g />} label="open in GitHub" />
                 <HintBarItem shortcut={<KeyboardShortcut escape />} label="back" />
             </footer>
         </div>
