@@ -12,7 +12,7 @@ from parameterized import parameterized
 from posthog.models.organization import Organization
 
 from products.growth.backend.models import ProductPushCampaign
-from products.growth.dags.custom_campaigns import custom_campaigns_job
+from products.growth.dags.custom_product_push_campaigns import custom_product_push_campaigns_job
 from products.growth.dags.product_push_campaigns import product_push_campaigns_job
 
 
@@ -25,12 +25,12 @@ def _mock_capture():
         yield capture_fn
 
 
-class TestCustomCampaignsJob(BaseTest):
+class TestCustomProductPushCampaignsJob(BaseTest):
     def _run_job(self, raise_on_error: bool = True, **config: Any) -> Any:
         today = timezone.now().date()
         run_config = {
             "ops": {
-                "get_custom_campaign_batches_op": {
+                "get_custom_product_push_batches_op": {
                     "config": {
                         "organization_ids": [str(self.organization.id)],
                         "product_key": "session_replay",
@@ -43,7 +43,9 @@ class TestCustomCampaignsJob(BaseTest):
             }
         }
         with _mock_capture():
-            return custom_campaigns_job.execute_in_process(run_config=run_config, raise_on_error=raise_on_error)
+            return custom_product_push_campaigns_job.execute_in_process(
+                run_config=run_config, raise_on_error=raise_on_error
+            )
 
     def _start_active_campaign(self, organization: Organization, product_key: str) -> ProductPushCampaign:
         return ProductPushCampaign.objects.create(
@@ -85,17 +87,23 @@ class TestCustomCampaignsJob(BaseTest):
 
     @parameterized.expand(
         [
-            ("skip", ProductPushCampaign.Status.ACTIVE, False),
-            ("queue", ProductPushCampaign.Status.ACTIVE, True),
-            ("override", ProductPushCampaign.Status.CANCELLED, True),
+            ("skip", 20, ProductPushCampaign.Status.ACTIVE, False),
+            ("queue", 20, ProductPushCampaign.Status.ACTIVE, True),
+            ("override", 20, ProductPushCampaign.Status.CANCELLED, True),
+            # The running campaign outlasts this window, so a queued push would
+            # expire before getting to run — nothing is written for the org.
+            ("queue", 5, ProductPushCampaign.Status.ACTIVE, False),
         ]
     )
     def test_policy_decides_what_happens_to_a_running_campaign(
-        self, policy: str, running_status: str, creates_campaign: bool
+        self, policy: str, window_days: int, running_status: str, creates_campaign: bool
     ) -> None:
         running = self._start_active_campaign(self.organization, "product_analytics")
 
-        assert self._run_job(on_active_campaign=policy).success
+        assert self._run_job(
+            on_active_campaign=policy,
+            ends_on=(timezone.now().date() + timedelta(days=window_days)).isoformat(),
+        ).success
 
         running.refresh_from_db()
         assert running.status == running_status

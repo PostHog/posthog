@@ -3,14 +3,16 @@
 Growth names the organizations, the product, and the window the push should run
 for. The job creates one SCHEDULED, TAM-sourced `ProductPushCampaign` per
 organization, and the daily `product_push_campaigns_job` starts it on or after
-`starts_on` and closes it at `ends_on` — so a custom campaign joins the normal
-campaign lifecycle instead of bypassing it.
+`starts_on` and closes it at `ends_on` — so a custom push joins the normal campaign
+lifecycle instead of bypassing it.
 
 Two things the operator has to decide per run, because no default is safe:
 
 - `on_active_campaign` — an organization can already be running a campaign, and
   only one runs at a time. `skip` writes nothing for it, `queue` starts the custom
-  campaign once the running one closes, `override` cancels the running one.
+  push once the running one closes, `override` cancels the running one. A queued
+  push is refused when the running campaign is planned to outlast the window,
+  since it would expire before getting to run.
 - `starts_on` / `ends_on` — the campaign window. Dating the campaign also overrides
   the signup grace period and the between-campaigns cooldown.
 
@@ -41,11 +43,11 @@ from products.growth.backend.product_push.selection import (
 )
 from products.growth.backend.product_push.service import (
     ON_ACTIVE_POLICIES,
-    CustomCampaignBatchResult,
-    create_custom_campaigns_for_org_batch,
+    CustomProductPushBatchResult,
+    create_custom_product_push_campaigns_for_org_batch,
 )
 
-CUSTOM_CAMPAIGN_BATCH_SIZE = 500
+CUSTOM_PUSH_BATCH_SIZE = 500
 
 _BATCH_OP_RETRY_POLICY = dagster.RetryPolicy(
     max_retries=3,
@@ -56,7 +58,7 @@ _BATCH_OP_RETRY_POLICY = dagster.RetryPolicy(
 
 
 @dataclass(kw_only=True)
-class CustomCampaignBatchSpec:
+class CustomProductPushBatchSpec:
     organization_ids: list[str]
     product_key: str
     starts_on: date
@@ -67,7 +69,7 @@ class CustomCampaignBatchSpec:
     dry_run: bool
 
 
-class CustomCampaignConfig(dagster.Config):
+class CustomProductPushCampaignConfig(dagster.Config):
     """Config for the custom product push campaign job."""
 
     organization_ids: list[str] = pydantic.Field(
@@ -99,7 +101,7 @@ class CustomCampaignConfig(dagster.Config):
         description="Skip organizations that were pushed this same product in the last 90 days. "
         "Turn off only when the repeat push is deliberate.",
     )
-    batch_size: int = pydantic.Field(default=CUSTOM_CAMPAIGN_BATCH_SIZE, gt=0)
+    batch_size: int = pydantic.Field(default=CUSTOM_PUSH_BATCH_SIZE, gt=0)
     max_campaigns: int | None = pydantic.Field(
         default=None,
         description="Cap on how many campaigns this run may create (herd control for large lists).",
@@ -111,7 +113,7 @@ class CustomCampaignConfig(dagster.Config):
     )
 
 
-def _parse_window(config: CustomCampaignConfig) -> tuple[date, datetime]:
+def _parse_window(config: CustomProductPushCampaignConfig) -> tuple[date, datetime]:
     try:
         starts_on = date.fromisoformat(config.starts_on)
         ends_on = date.fromisoformat(config.ends_on)
@@ -125,8 +127,8 @@ def _parse_window(config: CustomCampaignConfig) -> tuple[date, datetime]:
     return starts_on, datetime.combine(ends_on, time.max, tzinfo=UTC)
 
 
-@dagster.op(out=dagster.DynamicOut(CustomCampaignBatchSpec))
-def get_custom_campaign_batches_op(context: dagster.OpExecutionContext, config: CustomCampaignConfig):
+@dagster.op(out=dagster.DynamicOut(CustomProductPushBatchSpec))
+def get_custom_product_push_batches_op(context: dagster.OpExecutionContext, config: CustomProductPushCampaignConfig):
     """Validate the config and fan out the organization list as batches."""
     try:
         product_key = ProductKey(config.product_key)
@@ -172,8 +174,8 @@ def get_custom_campaign_batches_op(context: dagster.OpExecutionContext, config: 
         f"{starts_on} to {config.ends_on} (on_active_campaign={config.on_active_campaign}, dry_run={config.dry_run})"
     )
 
-    def spec(ids: list[str]) -> CustomCampaignBatchSpec:
-        return CustomCampaignBatchSpec(
+    def spec(ids: list[str]) -> CustomProductPushBatchSpec:
+        return CustomProductPushBatchSpec(
             organization_ids=ids,
             product_key=product_key.value,
             starts_on=starts_on,
@@ -196,15 +198,15 @@ def get_custom_campaign_batches_op(context: dagster.OpExecutionContext, config: 
 
 
 @dagster.op(retry_policy=_BATCH_OP_RETRY_POLICY)
-def create_custom_campaign_batch_op(
-    context: dagster.OpExecutionContext, spec: CustomCampaignBatchSpec
-) -> CustomCampaignBatchResult:
+def create_custom_product_push_batch_op(
+    context: dagster.OpExecutionContext, spec: CustomProductPushBatchSpec
+) -> CustomProductPushBatchResult:
     """Create campaigns for the organizations in this batch. Retry-safe: an org that
     already holds a pending campaign for the product is skipped, and the partial
     unique constraint turns a concurrent double-write into a counted conflict."""
     get_query_tags().with_dagster(dagster_tags(context))
     try:
-        result = create_custom_campaigns_for_org_batch(
+        result = create_custom_product_push_campaigns_for_org_batch(
             spec.organization_ids,
             spec.product_key,
             now=datetime.now(tz=UTC),
@@ -219,7 +221,8 @@ def create_custom_campaign_batch_op(
             f"Batch of {result.orgs_processed} orgs: {result.created} created "
             f"({result.queued_behind_active} queued behind a running campaign, "
             f"{result.overrode_active} overrode one), {result.would_create} would create, "
-            f"{result.blocked_by_active} blocked by a running campaign, {result.already_pending} already pending, "
+            f"{result.blocked_by_active} blocked by a running campaign, "
+            f"{result.window_unreachable} without room in the window, {result.already_pending} already pending, "
             f"{result.already_adopted} already adopted, {result.in_retry_cooldown} pushed this product recently, "
             f"{result.conflicts} conflicts"
         )
@@ -234,8 +237,8 @@ def create_custom_campaign_batch_op(
 
 
 @dagster.op
-def summarize_custom_campaign_run_op(
-    context: dagster.OpExecutionContext, results: list[CustomCampaignBatchResult]
+def summarize_custom_product_push_run_op(
+    context: dagster.OpExecutionContext, results: list[CustomProductPushBatchResult]
 ) -> None:
     """Roll up per-batch counts into a single run-level summary."""
     created = sum(r.created for r in results)
@@ -250,6 +253,7 @@ def summarize_custom_campaign_run_op(
             "queued_behind_active": dagster.MetadataValue.int(sum(r.queued_behind_active for r in results)),
             "overrode_active": dagster.MetadataValue.int(sum(r.overrode_active for r in results)),
             "skipped_blocked_by_active": dagster.MetadataValue.int(sum(r.blocked_by_active for r in results)),
+            "skipped_window_unreachable": dagster.MetadataValue.int(sum(r.window_unreachable for r in results)),
             "skipped_already_pending": dagster.MetadataValue.int(sum(r.already_pending for r in results)),
             "skipped_already_adopted": dagster.MetadataValue.int(sum(r.already_adopted for r in results)),
             "skipped_pushed_recently": dagster.MetadataValue.int(sum(r.in_retry_cooldown for r in results)),
@@ -266,6 +270,6 @@ def summarize_custom_campaign_run_op(
     executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 5}),
     tags={"owner": JobOwners.TEAM_GROWTH.value},
 )
-def custom_campaigns_job():
-    results = get_custom_campaign_batches_op().map(create_custom_campaign_batch_op).collect()
-    summarize_custom_campaign_run_op(results)
+def custom_product_push_campaigns_job():
+    results = get_custom_product_push_batches_op().map(create_custom_product_push_batch_op).collect()
+    summarize_custom_product_push_run_op(results)
