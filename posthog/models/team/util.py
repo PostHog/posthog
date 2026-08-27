@@ -12,6 +12,7 @@ from posthog.models.async_migration import is_async_migration_complete
 from posthog.temporal.common.client import sync_connect
 
 from products.batch_exports.backend.service import BatchExportServiceScheduleNotFound, batch_export_delete_schedule
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 logger = structlog.get_logger(__name__)
 
@@ -84,7 +85,6 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     """
     from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 
-    from products.dashboards.backend.models.dashboard_tile import DashboardTile
     from products.data_modeling.backend.facade.models import Edge, Node
     from products.early_access_features.backend.models import EarlyAccessFeature
 
