@@ -1,6 +1,5 @@
 import json
 import uuid
-import secrets
 from datetime import UTC, datetime
 from typing import ClassVar
 
@@ -8,7 +7,6 @@ from unittest.mock import AsyncMock, patch
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError
 from django.test import TestCase
 from django.utils import timezone as django_timezone
 
@@ -24,7 +22,6 @@ from posthog.storage import object_storage
 
 from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
-    CodeInvite,
     SandboxEnvironment,
     SandboxSnapshot,
     Task,
@@ -878,7 +875,7 @@ class TestTaskRun(TestCase):
         self.assertEqual(state["pending_user_message_id"] == existing_id, keeps_id)
 
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
-    def test_prepare_for_cloud_handoff_clears_stale_sandbox_routing(self, _publish):
+    def test_prepare_for_cloud_resume_clears_stale_sandbox_routing(self, _publish):
         run = TaskRun.objects.create(
             task=self.task,
             team=self.team,
@@ -895,19 +892,19 @@ class TestTaskRun(TestCase):
             },
         )
 
-        run.prepare_for_cloud_handoff()
+        run.prepare_for_cloud_resume()
 
         self.assertNotIn("sandbox_id", run.state)
         self.assertNotIn("sandbox_url", run.state)
         self.assertNotIn("sandbox_jwt_kid", run.state)
         self.assertNotIn("sandbox_connect_token", run.state)
-        # The provider stamp must not survive; a stale `hogland` would otherwise outrank
-        # the EU guard and Modal-only fallbacks when the handed-off run re-resolves.
+        # The provider stamp must not survive because a stale `hogland` would outrank
+        # the EU guard and Modal-only fallbacks when the resumed run re-resolves.
         self.assertNotIn("sandbox_backend", run.state)
         self.assertNotIn("pending_user_message", run.state)
         self.assertNotIn("pending_user_artifact_ids", run.state)
         self.assertEqual(run.state["snapshot_external_id"], "snapshot-1")
-        self.assertTrue(run.state["handoff_resumed"])
+        self.assertTrue(run.state["same_run_resume"])
 
     def test_s3_prefixes_keep_existing_logs_and_artifact_paths(self):
         run = TaskRun.objects.create(
@@ -1966,42 +1963,3 @@ class TestTaskRunGetSandboxEnvironment(TestCase):
     def test_returns_none_for_malformed_environment_id(self):
         run = self._create_run("not-a-uuid")
         self.assertIsNone(run.get_sandbox_environment())
-
-
-class TestCodeInvite(TestCase):
-    def test_auto_generates_code_on_save(self):
-        invite = CodeInvite.objects.create()
-        self.assertEqual(len(invite.code), 8)
-        self.assertTrue(all(c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" for c in invite.code))
-
-    def test_preserves_explicit_code(self):
-        invite = CodeInvite.objects.create(code="MYCODE42")
-        self.assertEqual(invite.code, "MYCODE42")
-
-    def test_retries_on_code_collision(self):
-        existing = CodeInvite.objects.create(code="AAAAAAAA")
-        self.assertEqual(existing.code, "AAAAAAAA")
-
-        call_count = 0
-        original_choice = secrets.choice
-
-        def mock_choice(alphabet):
-            nonlocal call_count
-            call_count += 1
-            # First 8 calls (first attempt) return "A" to collide, rest are random
-            if call_count <= 8:
-                return "A"
-            return original_choice(alphabet)
-
-        with patch("products.tasks.backend.models.secrets.choice", side_effect=mock_choice):
-            invite = CodeInvite.objects.create()
-
-        self.assertNotEqual(invite.code, "AAAAAAAA")
-        self.assertEqual(len(invite.code), 8)
-
-    def test_raises_after_max_retries(self):
-        CodeInvite.objects.create(code="BBBBBBBB")
-
-        with patch("products.tasks.backend.models.secrets.choice", return_value="B"):
-            with self.assertRaises(IntegrityError):
-                CodeInvite.objects.create()

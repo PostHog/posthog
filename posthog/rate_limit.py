@@ -1,6 +1,7 @@
 import re
 import json
 import time
+import uuid
 import hashlib
 from contextlib import suppress
 from datetime import timedelta
@@ -1054,6 +1055,38 @@ class UserEmailVerificationThrottle(UserOrEmailRateThrottle):
     rate = "6/day"
 
 
+class VerifyEmailIPThrottle(IPThrottle):
+    """Aggregate cap per source, so rotating target uuids cannot multiply the per-account budget."""
+
+    scope = "verify_email_ip"
+    rate = "30/hour"
+
+
+class UserVerifyEmailThrottle(UserOrEmailRateThrottle):
+    scope = "user_verify_email"
+    rate = "6/20minutes"
+
+    def get_cache_key(self, request, view):
+        # Key on the target user's uuid from the request body. The endpoint is unauthenticated,
+        # so the base class would key on IP and let a distributed guesser spread attempts across
+        # addresses. Per-target keying caps the guess budget for one account. The Redis attempt
+        # counter is the hard limit underneath.
+        target_uuid = request.data.get("uuid") if isinstance(request.data, dict) else None
+        if target_uuid:
+            try:
+                # Canonicalize first: uuid.UUID accepts case-insensitive, hyphen-free, brace, and
+                # urn:uuid forms of one value, so hashing the raw text would mint a fresh bucket per
+                # spelling and let a caller sidestep the per-target limit. Fall back to the raw text
+                # (never raise from a cache key) when it isn't a parseable UUID.
+                key_source = str(uuid.UUID(str(target_uuid)))
+            except (ValueError, AttributeError, TypeError):
+                key_source = str(target_uuid)
+            ident = hashlib.sha256(key_source.encode()).hexdigest()
+            return self.cache_format % {"scope": self.scope, "ident": ident}
+
+        return super().get_cache_key(request, view)
+
+
 class OnboardingDelegationThrottle(UserRateThrottle):
     # Delegation sends PostHog-branded emails to caller-supplied recipients, so we cap it tightly
     # to prevent a compromised admin session (or a misbehaving integration) from using the endpoint
@@ -1345,11 +1378,6 @@ class SharePasswordThrottle(_SharedLinkAtomicThrottle):
 
     scope = "share_password"
     rate = "10/minute"
-
-
-class CodeInviteThrottle(UserRateThrottle):
-    scope = "code_invite"
-    rate = "20000/hour"
 
 
 class RunSavedQueryRateThrottle(PersonalApiKeyRateThrottle):
