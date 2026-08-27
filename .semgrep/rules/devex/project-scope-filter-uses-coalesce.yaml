@@ -13,24 +13,41 @@ rules:
               )
 
           Why: the two forms select the same rows, but only one can use the composite index.
-          `posthog_eventdefinition` and `posthog_propertydefinition` lead their scope index
-          with `COALESCE(project_id, team_id)` and carry `name` next — `event_definition_proj_uniq`
-          and `posthog_propdef_proj_uniq` — so one index satisfies both predicates. Postgres
-          cannot serve an OR from a single index, so it bitmap-ORs two narrower scans instead.
-          Neither branch applies both predicates, so each reads more than it needs and the
-          recheck discards the surplus, which grows with the tenant rather than with the
-          request. The COALESCE form seeks the composite index and uses `name` as a second
-          scan key.
+          Each model this rule covers leads its scope index with `COALESCE(project_id, team_id)`
+          and carries the row's identifying column next — `event_definition_proj_uniq`,
+          `posthog_propdef_proj_uniq` and friends — so one index satisfies both predicates.
+          Postgres cannot serve an OR from a single index, so it bitmap-ORs two narrower scans
+          instead. Neither branch applies both predicates, so each reads more than it needs and
+          the recheck discards the surplus, which grows with the tenant rather than with the
+          request. The COALESCE form seeks the composite index and uses the second column as a
+          second scan key.
+
+          This rule only fires on the models that carry such an index, and only when both
+          branches scope to the same value. A model without a `COALESCE(project_id, team_id)`
+          index gets no benefit from the rewrite, and two different scope values do not mean the
+          same thing as one COALESCE.
 
           Suppress a legitimate exception with
           `# nosemgrep: project-scope-filter-uses-coalesce -- <reason>`.
       languages: [python]
       severity: ERROR
-      pattern-either:
-          - pattern: Q(project_id=$P) | Q(project_id__isnull=True, team_id=$T)
-          - pattern: Q(project_id__isnull=True, team_id=$T) | Q(project_id=$P)
-          - pattern: models.Q(project_id=$P) | models.Q(project_id__isnull=True, team_id=$T)
-          - pattern: models.Q(project_id__isnull=True, team_id=$T) | models.Q(project_id=$P)
+      patterns:
+          # Both branches must scope to the same value: `$P` is bound twice on purpose. With two
+          # different values the OR is not equivalent to a COALESCE and the rewrite would change
+          # which rows come back.
+          - pattern-either:
+                - pattern: Q(project_id=$P) | Q(project_id__isnull=True, team_id=$P)
+                - pattern: Q(project_id__isnull=True, team_id=$P) | Q(project_id=$P)
+                - pattern: models.Q(project_id=$P) | models.Q(project_id__isnull=True, team_id=$P)
+                - pattern: models.Q(project_id__isnull=True, team_id=$P) | models.Q(project_id=$P)
+          # Only the models whose table actually carries the coalesce index. Other models have
+          # the same two columns without the index, where the rewrite buys nothing.
+          - pattern-either:
+                - pattern-inside: $MODEL.objects.$METHOD(...)
+                - pattern-inside: $MODEL.objects.$CHAIN(...).$METHOD(...)
+          - metavariable-regex:
+                metavariable: $MODEL
+                regex: ^(Enterprise)?(EventDefinition|PropertyDefinition|EventProperty|HostDefinition)$
       paths:
           include:
               - common/**/*.py

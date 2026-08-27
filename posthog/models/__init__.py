@@ -25,7 +25,6 @@ from .event_buffer import EventBuffer
 from .event_filter_config import EventFilterConfig  # noqa: F401
 from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models import EventProperty
-from products.event_definitions.backend.models import effective_project_id_expr
 from .file_system.file_system import FileSystem
 from .file_system.file_system_view_log import FileSystemViewLog
 from .file_system.persisted_folder import PersistedFolder
@@ -107,7 +106,6 @@ __all__ = [
     "EventBuffer",
     "EventDefinition",
     "EventProperty",
-    "effective_project_id_expr",
     "FileSystem",
     "FileSystemViewLog",
     "PersistedFolder",
