@@ -16,6 +16,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.query_runner import get_query_runner
@@ -637,15 +638,27 @@ class DownstreamCTEShape(Enum):
     UNION_ALL = "union_all"
 
 
-@dataclass
+@frozen
+class PropagatingSource:
+    """A propagating CTE read by a downstream CTE, under the name it is read as.
+
+    Both fields are names of the same shape, so they are keyword-only to stop a
+    read alias and a CTE name swapping places at a call site.
+    """
+
+    alias: str
+    cte_name: str
+
+
+@frozen
 class DownstreamCTEPlan:
     """How the transformer should propagate a variable through a downstream CTE."""
 
     cte_name: str
     shape: DownstreamCTEShape
-    # (alias_or_cte_name, cte_name) pairs for every propagating CTE read in this CTE.
+    # Every propagating CTE read in this CTE.
     # For UNION_ALL, this is left empty; each leg carries its own nested plan.
-    propagating_sources: list[tuple[str, str]] = field(default_factory=list)
+    propagating_sources: list[PropagatingSource] = field(default_factory=list)
     leg_plans: list["DownstreamCTEPlan"] = field(default_factory=list)
     reject_reason: Optional[str] = None
 
@@ -754,13 +767,13 @@ def _select_column_name(expr: ast.Expr) -> Optional[str]:
 def _collect_propagating_sources_top_level(
     select_from: Optional[ast.JoinExpr],
     propagating: set[str],
-) -> tuple[list[tuple[str, str]], Optional[str]]:
+) -> tuple[list[PropagatingSource], Optional[str]]:
     """Walk the top-level ``select_from`` chain, collecting propagating CTE refs.
 
     Returns ``(sources, reject_reason)``. ``reject_reason`` is non-None if any
     JoinExpr in the chain references a propagating CTE via an unsupported join type.
     """
-    sources: list[tuple[str, str]] = []
+    sources: list[PropagatingSource] = []
     cur = select_from
     while cur is not None:
         is_prop = False
@@ -778,8 +791,7 @@ def _collect_propagating_sources_top_level(
                     f"CTE variable propagation requires CROSS/INNER joins between propagating CTEs; "
                     f"{cur.join_type} not supported",
                 )
-            alias = cur.alias or cte_name
-            sources.append((alias, cte_name))
+            sources.append(PropagatingSource(alias=cur.alias or cte_name, cte_name=cte_name))
         cur = cur.next_join
     return sources, None
 
@@ -996,7 +1008,7 @@ def _propagating_sources_or_rejection(
     cte_expr: ast.SelectQuery,
     propagating: set[str],
     code_names: list[str],
-) -> tuple[list[tuple[str, str]], Optional[str]]:
+) -> tuple[list[PropagatingSource], Optional[str]]:
     """The propagating CTEs this SELECT reads, or the first reason it can't carry the column."""
     if cte_expr.window_exprs:
         return [], "Window functions in downstream CTEs of a variable CTE are not yet supported for materialization"
@@ -1027,7 +1039,7 @@ def _propagating_sources_or_rejection(
     return sources, None
 
 
-def _downstream_shape(cte_expr: ast.SelectQuery, sources: list[tuple[str, str]]) -> DownstreamCTEShape:
+def _downstream_shape(cte_expr: ast.SelectQuery, sources: list[PropagatingSource]) -> DownstreamCTEShape:
     """Pick the rewrite shape from the CTE's own structure."""
     if len(sources) >= 2:
         return DownstreamCTEShape.MULTI_JOIN
@@ -1493,7 +1505,7 @@ class MaterializationTransformer(CloningVisitor):
         sources = plan.propagating_sources
         if not sources:
             return cte_expr
-        first_alias = sources[0][0]
+        first_alias = sources[0].alias
 
         # Add `first_alias.code_name AS code_name` to SELECT.
         select_addition = ast.Alias(
@@ -1510,11 +1522,11 @@ class MaterializationTransformer(CloningVisitor):
                 cte_expr.group_by = [group_by_field]
 
         if plan.shape == DownstreamCTEShape.MULTI_JOIN and len(sources) > 1:
-            for alias, _ in sources[1:]:
+            for source in sources[1:]:
                 predicate = ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
                     left=ast.Field(chain=[first_alias, var.code_name]),
-                    right=ast.Field(chain=[alias, var.code_name]),
+                    right=ast.Field(chain=[source.alias, var.code_name]),
                 )
                 cte_expr.where = self._append_and(cte_expr.where, predicate)
 
