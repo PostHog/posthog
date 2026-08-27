@@ -163,7 +163,7 @@ from products.business_knowledge.backend.temporal import (
     ACTIVITIES as BUSINESS_KNOWLEDGE_ACTIVITIES,
     WORKFLOWS as BUSINESS_KNOWLEDGE_WORKFLOWS,
 )
-from products.canvas.backend.facade.temporal import (
+from products.canvas.backend.temporal.registry import (
     ACTIVITIES as CANVAS_BUILD_ACTIVITIES,
     WORKFLOWS as CANVAS_BUILD_WORKFLOWS,
 )
