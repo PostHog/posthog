@@ -323,6 +323,18 @@ def _resolve_global_max_runs_per_tick(payload: dict | None, default: int) -> int
     return default
 
 
+DISPATCH_SMEAR_SECONDS_KEY = "dispatch_smear_seconds"
+
+
+def _resolve_dispatch_smear_seconds(payload: dict | None, default: int) -> int:
+    if payload is None:
+        return default
+    override = payload.get(DISPATCH_SMEAR_SECONDS_KEY)
+    if isinstance(override, int) and not isinstance(override, bool) and override >= 0:
+        return override
+    return default
+
+
 # Flag payload key toggling slot-aligned dispatch anchors (the coordinator's `_slot_anchor`). On,
 # a dispatched scout's `last_run_at` is stamped at its own stable slot on the tick grid, so tick
 # latency stops pushing whole cohorts onto later ticks and merging them into ever larger waves.

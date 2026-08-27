@@ -1,0 +1,5 @@
+# Read by oxfmt as a default ignore file. Entries here stay unformatted even when a tool
+# passes the path explicitly (hogli format:js via lint-staged does), unlike .oxfmtrc.json's
+# ignorePatterns, which explicit arguments bypass.
+# CI regenerates this file and requires it byte-identical to the compiler's output (ci-hog.yml).
+common/hogvm/typescript/src/stl/bytecode.ts

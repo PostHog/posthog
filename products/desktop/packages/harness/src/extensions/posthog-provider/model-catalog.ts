@@ -21,6 +21,8 @@ const PI_MODEL_LABELS: Record<string, string> = {
   "gpt-5.6-terra": "GPT-5.6 Terra",
   "gpt-5.6-luna": "GPT-5.6 Luna",
   "@cf/zai-org/glm-5.2": "GLM-5.2",
+  "zai-org/glm-5.3": "GLM-5.3",
+  "zai-org/glm-5.3-flash": "GLM-5.3 Flash",
   "moonshotai/kimi-k3": "Kimi K3",
 };
 

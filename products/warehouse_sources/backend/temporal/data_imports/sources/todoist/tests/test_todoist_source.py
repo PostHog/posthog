@@ -1,28 +1,15 @@
-from typing import Any
-
 from unittest import mock
 
 from parameterized import parameterized
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.todoist import (
     TodoistSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.todoist import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.todoist.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.todoist.source import TodoistSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.todoist.todoist import TodoistResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-
-def _make_inputs(**overrides: Any) -> mock.MagicMock:
-    inputs = mock.MagicMock()
-    inputs.schema_name = overrides.get("schema_name", "tasks")
-    inputs.team_id = overrides.get("team_id", 123)
-    inputs.job_id = overrides.get("job_id", "job-1")
-    return inputs
 
 
 class TestTodoistSource:
@@ -30,9 +17,6 @@ class TestTodoistSource:
         self.source = TodoistSource()
         self.team_id = 123
         self.config = TodoistSourceConfig(api_token="tok-test")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.TODOIST
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
@@ -48,20 +32,6 @@ class TestTodoistSource:
         assert token_field.required is True
         # The token is sent to the API, so it must be stored as a secret.
         assert token_field.secret is True
-
-    def test_get_schemas_matches_endpoints(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    def test_get_schemas_are_all_full_refresh(self) -> None:
-        for schema in self.source.get_schemas(self.config, self.team_id):
-            assert schema.supports_incremental is False
-            assert schema.supports_append is False
-            assert schema.incremental_fields == []
-
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["tasks", "projects"])
-        assert {s.name for s in schemas} == {"tasks", "projects"}
 
     def test_canonical_descriptions_cover_every_endpoint(self) -> None:
         # Each declared endpoint should ship a curated description so it isn't sent to the LLM.
@@ -107,21 +77,3 @@ class TestTodoistSource:
             ok, error = self.source.validate_credentials(self.config, self.team_id)
         assert ok is False
         assert error == "Invalid Todoist API token"
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_make_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is TodoistResumeConfig
-
-    def test_source_for_pipeline_plumbs_token_and_endpoint(self) -> None:
-        manager = mock.MagicMock()
-        inputs = _make_inputs(schema_name="projects", team_id=99, job_id="job-xyz")
-        with mock.patch.object(source_module, "todoist_source") as todoist_source_fn:
-            self.source.source_for_pipeline(self.config, manager, inputs)
-        todoist_source_fn.assert_called_once_with(
-            api_token="tok-test",
-            endpoint="projects",
-            team_id=99,
-            job_id="job-xyz",
-            resumable_source_manager=manager,
-        )

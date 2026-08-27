@@ -26,6 +26,12 @@ export const LlmSkillsListQueryParams = /* @__PURE__ */ zod.object({
     created_by_id: zod.number().optional().describe('Filter skills by the ID of the user who created them.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    owner_id: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter skills by the ID of a user who owns them. Ownership is keyed on the logical skill, so this is stable across versions — unlike created_by_id, which tracks whoever published the latest version.'
+        ),
     search: zod.string().optional().describe('Optional substring filter applied to skill names and descriptions.'),
 })
 

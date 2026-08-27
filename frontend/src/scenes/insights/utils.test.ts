@@ -44,6 +44,10 @@ describe('getDisplayNameFromEntityFilter()', () => {
             expect(getDisplayNameFromEntityFilter(filter, isCustom)).toEqual(expected)
         })
     })
+
+    it('returns null when a result has no action', () => {
+        expect(getDisplayNameFromEntityFilter(undefined)).toBeNull()
+    })
 })
 
 const createEventsNode = (id?: Entity['id'], name?: string, custom_name?: string): EventsNode => {

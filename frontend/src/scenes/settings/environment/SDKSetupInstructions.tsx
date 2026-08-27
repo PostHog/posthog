@@ -16,6 +16,7 @@ import {
     GoInstallation,
     GoogleTagManagerInstallation,
     IOSInstallation,
+    KMPInstallation,
     LaravelInstallation,
     NextJSInstallation,
     NodeEventCapture,
@@ -219,6 +220,13 @@ export const SDK_CONFIGS: { [key in SDKKey]?: SDKConfig } = {
         Installation: IOSInstallation,
         name: 'iOS',
         docsLink: 'https://posthog.com/docs/libraries/ios',
+        category: 'mobile',
+    },
+    [SDKKey.KMP]: {
+        Installation: KMPInstallation,
+        wizardIntegrationName: 'Kotlin Multiplatform',
+        name: 'Kotlin Multiplatform',
+        docsLink: 'https://posthog.com/docs/libraries/kmp',
         category: 'mobile',
     },
 

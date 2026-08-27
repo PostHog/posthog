@@ -44,7 +44,7 @@ from posthog.schema import (
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action, validate_authorized_url_wildcards
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import SessionAuthentication
 from posthog.constants import LOGS_RETENTION_FEATURES_BY_DAYS, AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
@@ -61,7 +61,11 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.data_color_theme import DataColorTheme
-from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
+from posthog.models.event_ingestion_restriction_config import (
+    EventIngestionRestrictionConfig,
+    IngestionPipeline,
+    RestrictionType,
+)
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import cached_group_types_for_team
 from posthog.models.organization import Organization, OrganizationMembership
@@ -86,9 +90,9 @@ from posthog.permissions import (
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
     UserCanCreateProjectPermission,
+    get_authenticator_scoped_organization_ids,
+    get_authenticator_scoped_team_ids,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlSettingsViewSetMixin, AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.session_recordings.data_retention import (
     VALID_RETENTION_PERIODS,
@@ -107,6 +111,11 @@ from posthog.utils import (
     safe_cache_set,
 )
 
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
+from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
 from products.logs.backend.models import TeamLogsConfig
@@ -147,10 +156,11 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
         max_length=10,
         help_text=(
             "Ordered list of log attribute keys whose values hold the PostHog session ID. "
-            "Detection checks keys in order; the first key with a value wins. Defaults to "
-            "['posthogSessionId'] — the key the posthog-js / posthog-react-native SDKs "
-            "auto-attach. Add keys only if your pipeline emits the session ID under "
-            "different attributes."
+            "Detection checks keys in order, then falls back to common session ID attribute "
+            "conventions; the first key with a value wins. Defaults to ['sessionId'] — the "
+            "convention documented at https://posthog.com/docs/logs/link-session-replay and "
+            "the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only "
+            "if your pipeline emits the session ID under different attributes."
         ),
     )
 
@@ -205,6 +215,13 @@ def handle_experiments_config(request: request.Request, team: Team) -> response.
                 "default_sequential_tuning_parameter",
                 "flag_cleanup_repository",
             ]
+
+        def update(self, instance: "TeamExperimentsConfig", validated_data: dict[str, Any]) -> "TeamExperimentsConfig":
+            # A human toggling precomputation must stick: the auto-enrollment job only
+            # writes when precomputation_enabled_set_by is null or "auto".
+            if "experiment_precomputation_enabled" in validated_data:
+                instance.precomputation_enabled_set_by = TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL
+            return super().update(instance, validated_data)
 
         def validate_flag_cleanup_repository(self, value: str | None) -> str | None:
             # Keeps the sandbox/LLM runtime the repo-selection module pulls in off the
@@ -2117,6 +2134,49 @@ class EvaluationContextSuggestionResponseSerializer(serializers.Serializer):
     )
 
 
+class EventIngestionRestrictionSerializer(serializers.Serializer):
+    restriction_type = serializers.ChoiceField(
+        choices=RestrictionType.choices,
+        help_text="What happens to matching events: dropped, sent to the overflow lane, or ingested without person processing.",
+    )
+    distinct_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Distinct IDs the restriction applies to. Empty means it is not filtered by distinct ID.",
+    )
+    session_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Session IDs the restriction applies to. Empty means it is not filtered by session ID.",
+    )
+    event_names = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Event names the restriction applies to. Empty means it is not filtered by event name.",
+    )
+    event_uuids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Event UUIDs the restriction applies to. Empty means it is not filtered by event UUID.",
+    )
+    pipelines = serializers.ListField(
+        child=serializers.ChoiceField(choices=IngestionPipeline.choices),
+        help_text="Ingestion pipelines the restriction applies to. Filters combine with AND; values within a filter combine with OR.",
+    )
+
+
+def team_event_ingestion_restrictions_view(team: Team, request: request.Request) -> response.Response:
+    restrictions = EventIngestionRestrictionConfig.objects.filter(token=team.api_token)
+    data = [
+        {
+            "restriction_type": restriction.restriction_type,
+            "distinct_ids": restriction.distinct_ids or [],
+            "session_ids": restriction.session_ids or [],
+            "event_names": restriction.event_names or [],
+            "event_uuids": restriction.event_uuids or [],
+            "pipelines": restriction.pipelines or [],
+        }
+        for restriction in restrictions
+    ]
+    return response.Response(EventIngestionRestrictionSerializer(data, many=True).data)
+
+
 class TeamViewSet(
     TeamAndOrgViewSetMixin, AccessControlSettingsViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet
 ):
@@ -2138,16 +2198,11 @@ class TeamViewSet(
         # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission
         visible_teams_ids = UserPermissions(user).team_ids_visible_for_user
         queryset = queryset.filter(id__in=visible_teams_ids)
-        if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication):
-            if scoped_organizations := self.request.successful_authenticator.personal_api_key.scoped_organizations:
-                queryset = queryset.filter(project__organization_id__in=scoped_organizations)
-            if scoped_teams := self.request.successful_authenticator.personal_api_key.scoped_teams:
-                queryset = queryset.filter(id__in=scoped_teams)
-        if isinstance(self.request.successful_authenticator, OAuthAccessTokenAuthentication):
-            if scoped_organizations := self.request.successful_authenticator.access_token.scoped_organizations:
-                queryset = queryset.filter(project__organization_id__in=scoped_organizations)
-            if scoped_teams := self.request.successful_authenticator.access_token.scoped_teams:
-                queryset = queryset.filter(id__in=scoped_teams)
+        authenticator = self.request.successful_authenticator
+        if scoped_organizations := get_authenticator_scoped_organization_ids(authenticator):
+            queryset = queryset.filter(project__organization_id__in=scoped_organizations)
+        if scoped_teams := get_authenticator_scoped_team_ids(authenticator):
+            queryset = queryset.filter(id__in=scoped_teams)
         return queryset
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
@@ -2223,6 +2278,12 @@ class TeamViewSet(
         if lookup_value == "@current":
             team = getattr(self.request.user, "team", None)
             if team is None:
+                raise exceptions.NotFound()
+            # This branch answers from the user's own state instead of the scoped queryset. A project
+            # that moved between organizations leaves that state naming an environment the token's
+            # organizations no longer cover, so apply the same restriction the queryset would have.
+            scoped_organizations = get_authenticator_scoped_organization_ids(self.request.successful_authenticator)
+            if scoped_organizations and str(team.organization_id) not in scoped_organizations:
                 raise exceptions.NotFound()
             return team
 
@@ -2555,18 +2616,16 @@ class TeamViewSet(
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
-    @action(methods=["GET"], detail=True, required_scopes=["project:read"], url_path="event_ingestion_restrictions")
+    @extend_schema(responses=EventIngestionRestrictionSerializer(many=True))
+    @action(
+        methods=["GET"],
+        detail=True,
+        required_scopes=["project:read"],
+        url_path="event_ingestion_restrictions",
+        pagination_class=None,
+    )
     def event_ingestion_restrictions(self, request, **kwargs):
-        team = self.get_object()
-        restrictions = EventIngestionRestrictionConfig.objects.filter(token=team.api_token)
-        data = [
-            {
-                "restriction_type": restriction.restriction_type,
-                "distinct_ids": restriction.distinct_ids,
-            }
-            for restriction in restrictions
-        ]
-        return response.Response(data)
+        return team_event_ingestion_restrictions_view(self.get_object(), request)
 
     @cached_property
     def user_permissions(self):

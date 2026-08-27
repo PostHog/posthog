@@ -66,6 +66,7 @@ from ..models import (
 )
 from ..oauth import (
     DcrClientRegistration,
+    DCRRegistrationRejectedError,
     OAuthAuthorizeURLError,
     OAuthTokenExchangeError,
     discover_oauth_metadata,
@@ -107,7 +108,20 @@ class DCRNotSupportedError(Exception):
 
 
 class DCRRegistrationFailedError(Exception):
-    """Raised when Dynamic Client Registration fails."""
+    """Raised when Dynamic Client Registration fails.
+
+    `detail` holds a short, user-safe message from the provider when one exists.
+    """
+
+    def __init__(self, detail: str | None = None) -> None:
+        super().__init__(detail or "")
+        self.detail = detail
+
+
+def _dcr_failed_detail(error: "DCRRegistrationFailedError") -> str:
+    if error.detail:
+        return f"OAuth registration failed. {error.detail}"
+    return "OAuth registration failed."
 
 
 def _hash_oauth_state_token(token: str) -> str:
@@ -836,6 +850,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             "mcp_store install blocked",
             properties={"server_url": url, "reason": reason},
             team=self.team,
+            request=self.request,
         )
         raise PermissionDenied("This server is disabled for your team.")
 
@@ -952,6 +967,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 "auth_type": installation.auth_type,
             },
             team=self.team,
+            request=request,
         )
         installation.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -973,6 +989,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             log_context["error"] = str(e)
             logger.warning("DCR not supported", **log_context)
             raise DCRNotSupportedError from e
+        except DCRRegistrationRejectedError as e:
+            log_context["error"] = str(e)
+            logger.warning("DCR registration rejected by provider", **log_context)
+            raise DCRRegistrationFailedError(e.provider_message) from e
         except Exception as e:
             log_context["error"] = str(e)
             logger.exception("DCR registration failed", **log_context)
@@ -1027,6 +1047,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     "is_enabled": data["is_enabled"],
                 },
                 team=self.team,
+                request=request,
             )
 
         for field, value in data.items():
@@ -1084,6 +1105,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 "auth_type": installation.auth_type,
             },
             team=self.team,
+            request=request,
         )
         return Response(self.get_serializer(installation).data)
 
@@ -1132,6 +1154,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 "auth_type": installation.auth_type,
             },
             team=self.team,
+            request=request,
         )
         return Response(self.get_serializer(installation).data)
 
@@ -1381,6 +1404,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     "source": "template",
                 },
                 team=self.team,
+                request=request,
             )
             result = MCPServerInstallationSerializer(installation, context=self.get_serializer_context())
             return Response(result.data, status=status.HTTP_201_CREATED)
@@ -1420,10 +1444,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     {"detail": "This MCP server does not support Dynamic Client Registration (DCR)."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            except DCRRegistrationFailedError:
+            except DCRRegistrationFailedError as e:
                 if created:
                     installation.delete()
-                return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"detail": _dcr_failed_detail(e)}, status=status.HTTP_400_BAD_REQUEST)
             client_id = registration.client_id
 
             # Cache the discovered metadata and minted per-user client on the
@@ -1501,6 +1525,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 "install_source": install_source,
             },
             team=self.team,
+            request=request,
         )
         return Response({"redirect_url": authorize_url}, status=status.HTTP_200_OK)
 
@@ -1593,6 +1618,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     "source": "custom",
                 },
                 team=self.team,
+                request=request,
             )
 
             result_serializer = MCPServerInstallationSerializer(installation, context=self.get_serializer_context())
@@ -1687,10 +1713,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     {"detail": "This MCP server does not support Dynamic Client Registration (DCR)."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            except DCRRegistrationFailedError:
+            except DCRRegistrationFailedError as e:
                 if created:
                     installation.delete()
-                return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"detail": _dcr_failed_detail(e)}, status=status.HTTP_400_BAD_REQUEST)
             client_id = registration.client_id
             dcr_client_secret = registration.client_secret
             token_endpoint_auth_method = registration.token_endpoint_auth_method
@@ -1911,6 +1937,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 "install_source": install_source,
             },
             team=self.team,
+            request=request,
         )
 
         return _oauth_authorize_response(authorize_url, install_source)
@@ -2128,6 +2155,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     "approval_state": new_state,
                 },
                 team=self.team,
+                request=request,
             )
 
         return Response(
@@ -2241,6 +2269,7 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
                     "install_source": install_source,
                 },
                 team=installation.team,
+                request=request,
             )
             return self._build_oauth_redirect(
                 install_source,
@@ -2284,6 +2313,7 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
                     "install_source": install_source,
                 },
                 team=installation.team,
+                request=request,
             )
             return self._build_oauth_redirect(
                 install_source,
@@ -2316,6 +2346,7 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
                 "source": "template" if template else "custom",
             },
             team=installation.team,
+            request=request,
         )
 
         return self._build_oauth_redirect(

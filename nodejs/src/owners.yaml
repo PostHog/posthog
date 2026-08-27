@@ -9,5 +9,9 @@ rules:
       owners: team-ingestion
     - match: '/ingestion/pipelines/sessionreplay/'
       owners: [team-replay, team-ingestion]
+    - match:
+          - '/ingestion/pipelines/sessionreplay/ml-mirror/'
+          - '/ingestion/pipelines/sessionreplay/ml-mirror-*/'
+      owners: ai-research
     - match: '/session-replay/recording-rasterizer/'
       owners: team-replay

@@ -170,6 +170,7 @@ jobs:
                       products/desktop/apps/code/out/*-mac.zip
                       products/desktop/apps/code/out/*.blockmap
                       products/desktop/apps/code/out/latest-mac.yml
+                  compression-level: 0
                   retention-days: 7
 
     build-windows:
@@ -249,6 +250,7 @@ jobs:
                       products/desktop/apps/code/out/latest.yml
                       products/desktop/apps/code/out/*.blockmap
                       products/desktop/apps/code/out/squirrel-windows/**
+                  compression-level: 0
                   retention-days: 7
                   if-no-files-found: ignore
 
@@ -331,4 +333,5 @@ jobs:
                       products/desktop/apps/code/out/*.AppImage
                       products/desktop/apps/code/out/*.deb
                       products/desktop/apps/code/out/*.rpm
+                  compression-level: 0
                   retention-days: 7

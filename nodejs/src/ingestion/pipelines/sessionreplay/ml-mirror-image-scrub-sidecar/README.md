@@ -53,7 +53,9 @@ A batch cannot finish while one of its images is in flight, and a pod cannot pol
 Requiring more than that makes the gate unreachable for an image late in a batch: the batch never returns, and the pod stops consuming entirely while still reporting Ready.
 `ImageBatcher` refuses to start if the relationship is broken, so a future concurrency change fails at boot rather than in traffic.
 
-When no peer is available to vouch at all, a long enough run of considered rejections opens the gate on its own.
+When no peer is available to vouch at all, the time spent on considered rejections and their backoffs opens the gate on its own.
+Request time counts because a wedged worker consumes most of the Kafka lease before each backoff starts.
+Busy, timeout, and transport intervals do not consume this budget because they do not identify a bad image.
 That threshold has to fire comfortably inside `max.poll.interval.ms` (300s), which is the binding constraint rather than a preference: a batch cannot return while one of its images is in flight, so anything above the lease can never be reached — the group fences the pod first, the partition moves, and its new owner repeats the same work and is fenced in turn, circling the fleet forever.
 
 It is published through this lane's own producer slot on the replay cluster, which is where the source topic lives and which carries a `message.max.bytes` sized for these payloads; the generic slot points elsewhere with librdkafka's 1 MB default, where parking a normal image would fail on every attempt.
@@ -86,14 +88,15 @@ That matters because the consumer's per-request timeout is an inactivity timeout
 
 Given an image, `advancedScrub` (`src/scrub.ts`):
 
-1. **Plan the sizes**: `planScales` (`src/scale-plan.ts`) decides every resize from the source dimensions alone, before a pixel is read — the decoded frame, what each detector sees, and what gets stored.
+1. **Apply the image policy**: reject an image when its XMP `plus:DataMining` value prohibits AI training.
+2. **Plan the sizes**: `planScales` (`src/scale-plan.ts`) decides every resize from the source dimensions alone, before a pixel is read — the decoded frame, what each detector sees, and what gets stored.
    An area budget rather than a long-side cap, so tall pages keep legible native resolution instead of being squashed.
    Faces are detected on a letterboxed (never squashed) 640×640 input; frames beyond 3:1 aspect are tiled along their long axis (overlapping windows) so a face on a tall page stays above the detector's minimum size instead of shrinking past it.
-2. **NSFW/gore gate**: if the image is explicit or gory (NSFL + NSFW probability over `NSFW_THRESHOLD`), it collapses to a 1x1 blank.
-3. **Face redaction**: every detected face (YuNet) is filled with its **mean colour**.
-4. **Text redaction**: every detected text region (DBNet) gets the same fill, with a margin scaled to the box height (= font size).
+3. **NSFW/gore gate**: if the image is explicit or gory (NSFL + NSFW probability over `NSFW_THRESHOLD`), it collapses to a 1x1 blank.
+4. **Face redaction**: every detected face (YuNet) is filled with its **mean colour**.
+5. **Text redaction**: every detected text region (DBNet) gets the same fill, with a margin scaled to the box height (= font size).
    We detect _where_ text is and never read it.
-5. **Code redaction**: every decodable QR/barcode (zxing) gets the same fill — a TOTP provisioning QR or ticket barcode is machine-readable PII that the face/text detectors can't see.
+6. **Code redaction**: every decodable QR/barcode (zxing) gets the same fill — a TOTP provisioning QR or ticket barcode is machine-readable PII that the face/text detectors can't see.
 
 The goal is to protect data labellers and reduce PII exposure.
 It does not need to be perfect; the self-verifying test (below) keeps it honest.
@@ -146,6 +149,8 @@ src/  (production — ships)
   smoke.ts        image-build-time smoke test: models load + one scrub, with networking disabled
   env.ts          validated numeric env knobs — invalid values refuse to start (never fail open)
   metrics.ts      Prometheus registry: HTTP outcomes + scrub outcome signals
+  image-input.ts  accepted image decoders, pixel limits, and embedded metadata policy
+  xmp.ts          PLUS Data Mining metadata parser
 
 dev/  (non-production)
   scrub-eval.ts   OCR + face-redaction eval over downloaded images (npm run eval)

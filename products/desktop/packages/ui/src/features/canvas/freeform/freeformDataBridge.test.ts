@@ -23,6 +23,7 @@ const capabilities: CanvasCapabilities = {
   posthog: {
     insights: ["allowed-insight"],
     inlineQueries: false,
+    agentRequests: false,
     captureEvents: ["allowed-event"],
     state: ["user"],
     actions: ["tasks.create"],
@@ -37,6 +38,7 @@ describe("assertCanvasCapability", () => {
     ["capture", { event: "other-event" }],
     ["stateSet", { scope: "shared", key: "k", value: 1 }],
     ["actionInvoke", { verb: "annotations.create", payload: {} }],
+    ["agentRequest", { prompt: "Change it" }],
   ])("rejects undeclared %s access", (method, payload) => {
     expect(() => assertCanvasCapability(capabilities, method, payload)).toThrow(
       "not allowed",
@@ -51,6 +53,19 @@ describe("assertCanvasCapability", () => {
   ])("allows declared %s access", (method, payload) => {
     expect(() =>
       assertCanvasCapability(capabilities, method, payload),
+    ).not.toThrow();
+  });
+
+  it("allows agent requests only when the manifest declares them", () => {
+    expect(() =>
+      assertCanvasCapability(
+        {
+          ...capabilities,
+          posthog: { ...capabilities.posthog, agentRequests: true },
+        },
+        "agentRequest",
+        { prompt: "Change it" },
+      ),
     ).not.toThrow();
   });
 
@@ -128,5 +143,37 @@ describe("handleFreeformDataRequest", () => {
     // Same variables again still resolves from cache rather than re-querying.
     expect(await read("surveys")).toEqual({ columns: ["mrr"], results: [[1]] });
     expect(loadInsight).toHaveBeenCalledTimes(2);
+  });
+
+  it("refreshes a cached read after its declared interval", async () => {
+    vi.useFakeTimers();
+    const queryClient = new QueryClient();
+    loadInsight.mockReset();
+    loadInsight
+      .mockResolvedValueOnce({ columns: ["value"], results: [[1]] })
+      .mockResolvedValueOnce({ columns: ["value"], results: [[2]] });
+
+    const read = () =>
+      handleFreeformDataRequest(
+        "loadInsight",
+        { shortId: "abc123", refresh: 30 },
+        queryClient,
+      );
+
+    expect(await read()).toEqual({ columns: ["value"], results: [[1]] });
+    await vi.advanceTimersByTimeAsync(30_001);
+    expect(await read()).toEqual({ columns: ["value"], results: [[2]] });
+    expect(loadInsight).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
+  it("rejects refresh intervals below the platform floor", async () => {
+    await expect(
+      handleFreeformDataRequest(
+        "loadInsight",
+        { shortId: "abc123", refresh: 29 },
+        new QueryClient(),
+      ),
+    ).rejects.toThrow("between 30 and 86400 seconds");
   });
 });

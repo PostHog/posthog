@@ -48,7 +48,7 @@ const useDebounceLoading = (loading: boolean, delay = 200): boolean => {
     return debouncedLoading
 }
 
-export function ViewportChooser(): JSX.Element {
+export function ViewportChooser({ lockedWidth }: { lockedWidth?: number }): JSX.Element {
     const { widthOverride } = useValues(heatmapDataLogic({ context: 'in-app' }))
     const { setWindowWidthOverride } = useActions(heatmapDataLogic({ context: 'in-app' }))
 
@@ -83,9 +83,8 @@ export function ViewportChooser(): JSX.Element {
         },
     ]
 
-    // Let's add current width as an option if it's not in the list
-    const allOptions = [...options]
-    if (widthOverride && !options.some((option) => option.value === widthOverride)) {
+    const allOptions = lockedWidth ? [{ value: lockedWidth, icon: <IconLaptop /> }] : [...options]
+    if (!lockedWidth && widthOverride && !options.some((option) => option.value === widthOverride)) {
         allOptions.push({
             value: widthOverride,
             icon: <IconLaptop />,
@@ -98,7 +97,8 @@ export function ViewportChooser(): JSX.Element {
             <LemonSelect
                 size="small"
                 onChange={setWindowWidthOverride}
-                value={widthOverride}
+                value={lockedWidth ?? widthOverride}
+                disabledReason={lockedWidth ? 'Toolbar captures are saved at a single width' : undefined}
                 data-attr="viewport-chooser"
                 options={allOptions.map(({ value, icon }) => ({
                     value,
@@ -122,10 +122,12 @@ export function FilterPanel({
     captureMethod,
     onCaptureMethodChange,
     clickmapSettings,
+    lockedWidth,
 }: {
     captureMethod?: HeatmapType
     onCaptureMethodChange?: (type: HeatmapType) => void
     clickmapSettings?: JSX.Element
+    lockedWidth?: number
 }): JSX.Element {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false)
     const {
@@ -255,7 +257,7 @@ export function FilterPanel({
                         />
                     </div>
                 </div>
-                <ViewportChooser />
+                <ViewportChooser lockedWidth={lockedWidth} />
             </div>
             {heatmapEmpty ? (
                 <LemonBanner type="info" className="mb-2">

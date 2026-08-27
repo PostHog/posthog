@@ -5,8 +5,9 @@ import contextvars
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.db import InterfaceError, OperationalError
+from django.db import InterfaceError, InternalError, OperationalError
 
+import psycopg.errors
 from parameterized import parameterized
 
 from posthog.exceptions_capture import ambient_exception_properties
@@ -16,6 +17,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
     RepartitionBudgetExceededError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
+    MAX_REPARTITION_ATTEMPTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (
     RepartitionActivityInputs,
@@ -42,6 +46,14 @@ PENDING_TARGET = {
 }
 
 
+def _read_only_transaction_error() -> InternalError:
+    # Mirrors how Django's DatabaseErrorWrapper re-raises a psycopg error: the driver exception
+    # (carrying SQLSTATE 25006) becomes __cause__.
+    error = InternalError("cannot execute UPDATE in a read-only transaction")
+    error.__cause__ = psycopg.errors.ReadOnlySqlTransaction("cannot execute UPDATE in a read-only transaction")
+    return error
+
+
 def _schema(
     *,
     name: str,
@@ -63,6 +75,9 @@ def _schema(
     # The failure bookkeeping re-reads the claim to check it still owns the schema, so the mock has
     # to actually remember the token the activity just staked.
     schema.set_repartition_claim.side_effect = lambda claim: setattr(schema, "repartition_claim", claim)
+    # Same for the pending marker: the attempt is charged before the rewrite and refunded after, and
+    # the refund only fires when it reads back the count it wrote.
+    schema.set_repartition_pending.side_effect = lambda p: setattr(schema, "repartition_pending", p)
     return schema
 
 
@@ -186,11 +201,23 @@ class TestRewriteDeadline:
             else MagicMock(return_value=info)
         )
 
+        with patch(f"{MODULE}.activity.info", info_fn):
+            assert _rewrite_deadline(1000.0) == expected
+
+    def test_deadline_is_anchored_to_the_activity_start_not_now(self) -> None:
+        # The deadline must be measured from when the activity began, because Temporal counts the
+        # start_to_close_timeout from the same point. Time already spent before the rewrite starts
+        # (log measurement on a fragmented table can run into minutes) has to shrink the rewrite's
+        # window, not be handed to it on top of the full budget — otherwise the rewrite outlives the
+        # timeout and Temporal kills it before it records an outcome.
+        info = MagicMock()
+        info.start_to_close_timeout = dt.timedelta(hours=6)
         with (
-            patch(f"{MODULE}.activity.info", info_fn),
-            patch(f"{MODULE}.time", MagicMock(monotonic=MagicMock(return_value=1000.0))),
+            patch(f"{MODULE}.activity.info", MagicMock(return_value=info)),
+            # A later wall reading must not move the deadline: it depends only on the passed anchor.
+            patch(f"{MODULE}.time", MagicMock(monotonic=MagicMock(return_value=9_999_999.0))),
         ):
-            assert _rewrite_deadline() == expected
+            assert _rewrite_deadline(1000.0) == 22300.0
 
 
 class TestBudgetExhaustion:
@@ -236,12 +263,13 @@ class TestBudgetExhaustion:
         if expect_give_up:
             schema.clear_repartition_pending.assert_called_once()
             schema.stamp_last_repartition_at.assert_called_once()
-            schema.set_repartition_pending.assert_not_called()
+            # Charged once, then the marker is cleared rather than re-armed at a higher count.
+            assert schema.set_repartition_pending.call_count == 1
             # The rewrite checkpoint must be dropped too, or the next flag cycle would resume the same
             # doomed temp and the give-up would never take effect.
             schema.clear_repartition_rewrite.assert_called_once()
         else:
-            assert schema.set_repartition_pending.call_args.args[0]["attempts"] == prior_attempts + 1
+            assert schema.repartition_pending["attempts"] == prior_attempts + 1
             schema.clear_repartition_pending.assert_not_called()
             schema.stamp_last_repartition_at.assert_not_called()
             schema.clear_repartition_rewrite.assert_not_called()
@@ -268,12 +296,11 @@ class TestBudgetExhaustion:
         mock_capture_event: MagicMock,
         _mock_capture_exception: MagicMock,
     ) -> None:
-        # This attempt appended new rows, so a table too large for one budget is converging across runs.
-        # It must never give up — even at the last attempt before the cap — and must reset the failure
-        # counter. The checkpoint's cumulative temp size (`repartition_rewrite.rows_written`) sits far
-        # below a longer earlier attempt's high-water mark here: the case a fresh rebuild hits after its
-        # checkpoint is discarded. Judging progress by that cumulative size mislabeled it a stall and
-        # emitted a spurious `warehouse_repartition_failed`; the rows written this run are the signal.
+        # This attempt inherited a checkpoint and appended to it, so a table too large for one budget is
+        # converging across runs. It must never give up — even at the last attempt before the cap — and
+        # must reset the failure counter. The checkpoint's cumulative temp size sits far below an
+        # earlier, longer attempt's high-water mark here, so judging progress by that cumulative size
+        # would mislabel a converging rewrite as a stall.
         schema = _schema(
             name="public.usages",
             s3_folder_name="usages",
@@ -281,7 +308,9 @@ class TestBudgetExhaustion:
             rewrite={"rows_written": 230_000},
         )
         mock_schema_model.objects.select_related.return_value.get.return_value = schema
-        mock_repartition.side_effect = RepartitionBudgetExceededError("out of budget", rows_written=230_000)
+        mock_repartition.side_effect = RepartitionBudgetExceededError(
+            "out of budget", rows_written=180_000, resumed_from=50_000
+        )
 
         _maybe_repartition_table(
             RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
@@ -296,6 +325,276 @@ class TestBudgetExhaustion:
         emitted = [c.args[0] for c in mock_capture_event.call_args_list]
         assert "warehouse_repartition_failed" not in emitted
         assert "warehouse_repartition_skipped" in emitted
+
+    @patch(f"{MODULE}.capture_exception")
+    @patch(f"{MODULE}.capture_repartition_event")
+    @patch(f"{MODULE}.HeartbeaterSync")
+    @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
+    @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_first_over_budget_attempt_that_checkpoints_is_progress_not_a_failure(
+        self,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        _mock_enabled: MagicMock,
+        _mock_helper_cls: MagicMock,
+        mock_repartition: AsyncMock,
+        _mock_heartbeater: MagicMock,
+        mock_capture_event: MagicMock,
+        mock_capture_exception: MagicMock,
+    ) -> None:
+        # The first over-budget attempt on a large table inherits no checkpoint, so resumed_from is 0,
+        # but it persisted a fresh checkpoint the next run resumes from. That is forward progress, not
+        # the treadmill the cap exists to stop: it must not emit a failure event, report to error
+        # tracking, or burn an attempt (had_prior_checkpoint distinguishes it from a discarding restart).
+        schema = _schema(name="public.usages", s3_folder_name="usages", pending={**PENDING_TARGET, "attempts": 0})
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+        mock_repartition.side_effect = RepartitionBudgetExceededError(
+            "out of budget", rows_written=162_000_000, resumed_from=0, had_prior_checkpoint=False, checkpoint_saved=True
+        )
+
+        _maybe_repartition_table(
+            RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+            MagicMock(),
+        )
+
+        emitted = [c.args[0] for c in mock_capture_event.call_args_list]
+        assert "warehouse_repartition_failed" not in emitted
+        mock_capture_exception.assert_not_called()
+        schema.clear_repartition_pending.assert_not_called()
+        schema.stamp_last_repartition_at.assert_not_called()
+        assert schema.set_repartition_pending.call_args.args[0]["attempts"] == 0
+
+    @parameterized.expand([("below_max", 0, False), ("reaching_max", 2, True)])
+    @patch(f"{MODULE}.capture_exception")
+    @patch(f"{MODULE}.capture_repartition_event")
+    @patch(f"{MODULE}.HeartbeaterSync")
+    @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
+    @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_restarted_rewrite_burns_an_attempt_however_many_rows_it_wrote(
+        self,
+        _name: str,
+        prior_attempts: int,
+        expect_give_up: bool,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        _mock_enabled: MagicMock,
+        _mock_helper_cls: MagicMock,
+        mock_repartition: AsyncMock,
+        _mock_heartbeater: MagicMock,
+        _mock_capture_event: MagicMock,
+        _mock_capture_exception: MagicMock,
+    ) -> None:
+        # This attempt inherited nothing because the resume path discarded a checkpoint that existed at
+        # its start, so it re-streamed from row 0 and covered ground the last attempt already covered. It
+        # writes 230M rows doing it, which clears any "did this attempt write anything" test and resets
+        # the failure counter. Three schemas looped that way for six weeks, each burning a full budget
+        # per run and converging on nothing, because the cap could never count to three.
+        schema = _schema(
+            name="public.usages",
+            s3_folder_name="usages",
+            pending={**PENDING_TARGET, "attempts": prior_attempts},
+            rewrite={"rows_written": 230_000_000},
+        )
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+        mock_repartition.side_effect = RepartitionBudgetExceededError(
+            "out of budget", rows_written=230_000_000, resumed_from=0, had_prior_checkpoint=True, checkpoint_saved=True
+        )
+
+        _maybe_repartition_table(
+            RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+            MagicMock(),
+        )
+
+        if expect_give_up:
+            schema.clear_repartition_pending.assert_called_once()
+            schema.clear_repartition_rewrite.assert_called_once()
+        else:
+            assert schema.set_repartition_pending.call_args.args[0]["attempts"] == prior_attempts + 1
+
+    @patch(f"{MODULE}.capture_exception")
+    @patch(f"{MODULE}.capture_repartition_event")
+    @patch(f"{MODULE}.HeartbeaterSync")
+    @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
+    @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_a_staged_swap_is_resumed_even_after_attempts_are_spent(
+        self,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        _mock_enabled: MagicMock,
+        _mock_helper_cls: MagicMock,
+        mock_repartition: AsyncMock,
+        _mock_heartbeater: MagicMock,
+        mock_capture_event: MagicMock,
+        _mock_capture_exception: MagicMock,
+    ) -> None:
+        # A worker can die inside the swap after recording the ready marker, leaving temp the source of
+        # truth and live possibly already deleted, with the pending marker still carrying the spent
+        # count. The attempt cap must not abandon that swap: giving up clears the marker and disarms the
+        # missing-live recovery, so the swap is driven to completion (resumed) instead. The rewrite
+        # already ran, so this recovery must also not be charged against the cap.
+        schema = _schema(
+            name="public.usages",
+            s3_folder_name="usages",
+            pending={**PENDING_TARGET, "attempts": MAX_REPARTITION_ATTEMPTS},
+            swap={"state": "ready"},
+        )
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+        mock_repartition.return_value = {"outcome": "completed"}
+
+        _maybe_repartition_table(
+            RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+            MagicMock(),
+        )
+
+        assert mock_repartition.await_count == 1
+        schema.clear_repartition_swap.assert_not_called()
+        schema.set_repartition_pending.assert_not_called()
+        emitted = [c.args[0] for c in mock_capture_event.call_args_list]
+        assert "warehouse_repartition_failed" not in emitted
+
+    @parameterized.expand([("live_unreadable",), ("no_delta_table",)])
+    @patch(f"{MODULE}.capture_exception")
+    @patch(f"{MODULE}.capture_repartition_event")
+    @patch(f"{MODULE}.HeartbeaterSync")
+    @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
+    @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_a_skipped_rewrite_does_not_consume_an_attempt(
+        self,
+        reason: str,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        _mock_enabled: MagicMock,
+        _mock_helper_cls: MagicMock,
+        mock_repartition: AsyncMock,
+        _mock_heartbeater: MagicMock,
+        _mock_capture_event: MagicMock,
+        _mock_capture_exception: MagicMock,
+    ) -> None:
+        # A rewrite queued on a table whose delta log is unreadable (an OOM-crashed merge) returns a
+        # skip every run until the import activity's revive heals it, and the skip leaves the pending
+        # marker set for a later run. The attempt is charged up front, so a skip must refund it: three
+        # banked skips would otherwise spend the whole cap without a rewrite ever running, and the next
+        # run would give up and discard the queued rewrite.
+        schema = _schema(
+            name="public.usages",
+            s3_folder_name="usages",
+            pending={**PENDING_TARGET, "attempts": 0},
+        )
+        # Let charge/refund round-trip through the marker so the net attempt count is observable.
+        schema.set_repartition_pending.side_effect = lambda p: setattr(schema, "repartition_pending", p)
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+        mock_repartition.return_value = {"outcome": "skipped", "reason": reason}
+
+        _maybe_repartition_table(
+            RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+            MagicMock(),
+        )
+
+        assert schema.repartition_pending["attempts"] == 0
+        schema.clear_repartition_pending.assert_not_called()
+
+
+class TestTransientObjectStoreFailure:
+    @patch(f"{MODULE}.capture_exception")
+    @patch(f"{MODULE}.capture_repartition_event")
+    @patch(f"{MODULE}.HeartbeaterSync")
+    @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
+    @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_bare_nosuchkey_stands_down_without_burning_an_attempt(
+        self,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        _mock_enabled: MagicMock,
+        _mock_helper_cls: MagicMock,
+        mock_repartition: AsyncMock,
+        _mock_heartbeater: MagicMock,
+        mock_capture_event: MagicMock,
+        _mock_capture_exception: MagicMock,
+    ) -> None:
+        # A pathless S3 NoSuchKey from an s3fs purge/swap op that raced a concurrent delete is a
+        # transient object-store blip, not a repartition bug: it must not emit a failure event or
+        # consume one of the table's finite attempts, so the next sync simply retries.
+        schema = _schema(name="public.usages", s3_folder_name="usages", pending={**PENDING_TARGET, "attempts": 0})
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+        mock_repartition.side_effect = FileNotFoundError("The specified key does not exist.")
+
+        _maybe_repartition_table(
+            RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+            MagicMock(),
+        )
+
+        emitted = [c.args[0] for c in mock_capture_event.call_args_list]
+        assert "warehouse_repartition_failed" not in emitted
+        # Charged before the rewrite and refunded here, so the net cost is zero.
+        assert schema.repartition_pending["attempts"] == 0
+        schema.clear_repartition_pending.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "pgbouncer_login_retry",
+                OperationalError(
+                    "server login has been failing, cached error: server conn crashed? (server_login_retry)"
+                ),
+            ),
+            ("interface_error", InterfaceError("connection already closed")),
+            # A primary-DB failover routes a rewrite write onto a read-only standby mid-run: psycopg
+            # raises ReadOnlySqlTransaction (25006), wrapped by Django as InternalError. It clears on
+            # the next sync, so it must stand down like the other infra blips, not burn an attempt.
+            ("read_only_transaction_failover", _read_only_transaction_error()),
+        ]
+    )
+    @patch(f"{MODULE}.capture_exception")
+    @patch(f"{MODULE}.capture_repartition_event")
+    @patch(f"{MODULE}.HeartbeaterSync")
+    @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
+    @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_db_connection_drop_stands_down_without_reporting_to_error_tracking(
+        self,
+        _name: str,
+        error: Exception,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        _mock_enabled: MagicMock,
+        _mock_helper_cls: MagicMock,
+        mock_repartition: AsyncMock,
+        _mock_heartbeater: MagicMock,
+        mock_capture_event: MagicMock,
+        mock_capture_exception: MagicMock,
+    ) -> None:
+        # A pgbouncer login-retry cooldown or a dropped pooled connection mid-rewrite is infra noise
+        # nobody can act on, not a repartition bug — it must not trip a fresh error-tracking issue.
+        # The transient metric and the skipped event's reason already carry the visibility.
+        schema = _schema(name="public.usages", s3_folder_name="usages", pending={**PENDING_TARGET, "attempts": 0})
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+        mock_repartition.side_effect = error
+
+        _maybe_repartition_table(
+            RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+            MagicMock(),
+        )
+
+        mock_capture_exception.assert_not_called()
+        skip_calls = [c for c in mock_capture_event.call_args_list if c.args[0] == "warehouse_repartition_skipped"]
+        assert any(c.args[1].get("reason") == "transient_infra_error" for c in skip_calls)
 
 
 class TestFeatureFlagGate:

@@ -86,6 +86,22 @@ export interface CheckSchemaNameResponseApi {
     available: boolean
 }
 
+/**
+ * The team-level materialization gate. Checks always run and warn; this only toggles blocking.
+ */
+export interface DataQualityGateConfigApi {
+    /** When true, a materialization whose error-severity checks fail is not published; the previous version keeps serving and downstream models are skipped. */
+    gate_materialization_on_checks: boolean
+}
+
+/**
+ * The team-level materialization gate. Checks always run and warn; this only toggles blocking.
+ */
+export interface PatchedDataQualityGateConfigApi {
+    /** When true, a materialization whose error-severity checks fail is not published; the previous version keeps serving and downstream models are skipped. */
+    gate_materialization_on_checks?: boolean
+}
+
 export interface DeleteWarehouseOrgResponseApi {
     /** Deletion lifecycle message from the provisioner */
     status?: string
@@ -235,6 +251,222 @@ export interface ManagedWarehouseDataStatusResponseApi {
     sources: ManagedWarehouseSourcesStatusApi
     /** When this status snapshot was generated. */
     generated_at: string
+}
+
+export interface ManagedWarehouseMonitoringWarehouseApi {
+    /** Current managed warehouse lifecycle state, such as ready, provisioning, or resharding. */
+    state: string
+}
+
+export interface ManagedWarehouseMonitoringLimitsApi {
+    /**
+     * Maximum concurrent workers for the organization. Zero means no organization-specific limit.
+     * @minimum 0
+     */
+    max_workers: number
+    /**
+     * Maximum active session vCPUs admitted for the organization. Zero means no organization-specific limit.
+     * @minimum 0
+     */
+    max_vcpus: number
+    /** Default worker CPU as a Kubernetes resource quantity, such as 2 or 500m. */
+    default_worker_cpu: string
+    /** Default worker memory as a Kubernetes resource quantity, such as 8Gi. */
+    default_worker_memory: string
+    /**
+     * Default number of seconds an idle worker remains available for reuse.
+     * @minimum 0
+     */
+    default_worker_ttl_seconds: number
+    /**
+     * Minimum number of idle workers the organization keeps warm.
+     * @minimum 0
+     */
+    default_worker_min_hot_idle: number
+}
+
+export interface ManagedWarehouseMonitoringTotalsApi {
+    /**
+     * Number of current non-terminal workers.
+     * @minimum 0
+     */
+    workers: number
+    /**
+     * Total CPU cores allocated to current workers.
+     * @minimum 0
+     */
+    allocated_cpu_cores: number
+    /**
+     * Total memory bytes allocated to current workers.
+     * @minimum 0
+     */
+    allocated_memory_bytes: number
+    /**
+     * Number of active database sessions across the organization's control planes.
+     * @minimum 0
+     */
+    active_sessions: number
+    /**
+     * Number of sessions currently executing a query.
+     * @minimum 0
+     */
+    running_queries: number
+    /**
+     * Number of connections waiting for worker capacity.
+     * @minimum 0
+     */
+    queued_connections: number
+}
+
+export interface ManagedWarehouseMonitoringWorkerSessionApi {
+    /** Connection protocol, such as pg or flight. */
+    protocol: string
+    /** Current database session state. */
+    state: string
+    /**
+     * Milliseconds elapsed for the current query, or zero when the session is idle.
+     * @minimum 0
+     */
+    elapsed_ms: number
+    /**
+     * Best-effort query progress percentage, or null when DuckDB cannot estimate progress.
+     * @minimum 0
+     * @nullable
+     */
+    percentage: number | null
+    /**
+     * Rows processed by the current query.
+     * @minimum 0
+     */
+    rows: number
+    /**
+     * Estimated total rows for the current query when available.
+     * @minimum 0
+     */
+    total_rows: number
+    /** Whether the current query appears stalled. */
+    stalled: boolean
+}
+
+export interface ManagedWarehouseMonitoringWorkerApi {
+    /** Opaque identifier for the worker. */
+    id: string
+    /** Current worker lifecycle state. */
+    state: string
+    /** Worker CPU as a Kubernetes resource quantity, such as 2 or 500m. Blank when unavailable. */
+    cpu: string
+    /** Worker memory as a Kubernetes resource quantity, such as 8Gi. Blank when unavailable. */
+    memory: string
+    /**
+     * Number of seconds the worker remains available while idle.
+     * @minimum 0
+     */
+    ttl_seconds: number
+    /** UTC timestamp when the worker was created. */
+    created_at: string
+    /** UTC timestamp of the worker's latest heartbeat. */
+    last_heartbeat_at: string
+    /** Sanitized live session assigned to the worker, when one exists. */
+    session?: ManagedWarehouseMonitoringWorkerSessionApi | null
+}
+
+export interface ManagedWarehouseMonitoringCoverageApi {
+    /**
+     * Number of control planes that contributed live data.
+     * @minimum 0
+     */
+    cp_responders: number
+    /**
+     * Number of control planes queried for live data.
+     * @minimum 0
+     */
+    cp_total: number
+    /** Whether one or more control planes failed to contribute live data. */
+    partial: boolean
+}
+
+export interface ManagedWarehouseMonitoringSnapshotResponseApi {
+    /**
+     * Version of the managed warehouse monitoring response schema.
+     * @minimum 1
+     * @maximum 1
+     */
+    schema_version: number
+    /** Organization whose managed warehouse is represented. */
+    org_id: string
+    /** UTC timestamp when this snapshot was assembled. */
+    as_of: string
+    /** Managed warehouse lifecycle details. */
+    warehouse: ManagedWarehouseMonitoringWarehouseApi
+    /** Organization-level worker limits and defaults. */
+    limits: ManagedWarehouseMonitoringLimitsApi
+    /** Current organization-level activity totals. */
+    totals: ManagedWarehouseMonitoringTotalsApi
+    /** Current non-terminal workers with tenant-safe runtime details. */
+    workers: ManagedWarehouseMonitoringWorkerApi[]
+    /** Completeness of the cross-control-plane live data. */
+    coverage: ManagedWarehouseMonitoringCoverageApi
+}
+
+export interface ManagedWarehouseMonitoringErrorResponseApi {
+    /** Human-readable managed warehouse monitoring error. */
+    error?: string
+    /** Machine-readable validation error type. */
+    type?: string
+    /** Machine-readable validation error code. */
+    code?: string
+    /** Human-readable validation error detail. */
+    detail?: string
+    /**
+     * Query parameter associated with an error.
+     * @nullable
+     */
+    attr?: string | null
+}
+
+export interface ManagedWarehouseMonitoringPointApi {
+    /** UTC timestamp of the sample. */
+    timestamp: string
+    /** Metric value at the sample timestamp. */
+    value: number
+}
+
+/**
+ * Allow-listed labels distinguishing this series, such as query outcome or acquisition source.
+ */
+export type ManagedWarehouseMonitoringSeriesApiLabels = { [key: string]: string }
+
+export interface ManagedWarehouseMonitoringSeriesApi {
+    /** Allow-listed labels distinguishing this series, such as query outcome or acquisition source. */
+    labels: ManagedWarehouseMonitoringSeriesApiLabels
+    /** Chronologically ordered metric samples. */
+    points: ManagedWarehouseMonitoringPointApi[]
+}
+
+export interface ManagedWarehouseMonitoringSeriesResponseApi {
+    /**
+     * Version of the managed warehouse monitoring response schema.
+     * @minimum 1
+     * @maximum 1
+     */
+    schema_version: number
+    /** Organization whose managed warehouse is represented. */
+    org_id: string
+    /** Allow-listed metric returned by this response. */
+    metric: string
+    /** Unit for every value in the response. */
+    unit: string
+    /** Inclusive UTC start of the returned time window. */
+    start: string
+    /** Inclusive UTC end of the returned time window. */
+    end: string
+    /**
+     * Number of seconds between requested samples.
+     * @minimum 1
+     */
+    step_seconds: number
+    /** Metric series grouped by their allow-listed labels. */
+    series: ManagedWarehouseMonitoringSeriesApi[]
 }
 
 /**
@@ -743,46 +975,6 @@ export interface PatchedWarehouseColumnAnnotationApi {
     readonly updated_at?: string | null
 }
 
-export interface WarehouseColumnStatisticsApi {
-    readonly id: string
-    /** ID of the data warehouse table this column belongs to. */
-    readonly table: string
-    /** Name of the column these statistics describe. */
-    readonly column_name: string
-    /** ClickHouse type the statistics were computed against (e.g. Int64, DateTime64). */
-    readonly column_type: string
-    /** Total number of rows in the table when these statistics were computed. */
-    readonly row_count: number
-    /** Number of NULL values in this column, or null if the Delta log carried no count. */
-    readonly null_count: number
-    /** Fraction of values that are NULL (null_count / row_count), between 0 and 1. */
-    readonly null_fraction: number
-    /** Minimum value in the column, as a string. Null when unavailable. For string columns this may be truncated by the underlying Delta statistics, so treat string bounds as approximate. */
-    readonly min_value: string
-    /** Maximum value in the column, as a string. Null when unavailable (see min_value). */
-    readonly max_value: string
-    /** Whether the Delta log carried min/max statistics for this column (false for some nested/binary types). */
-    readonly has_min_max: boolean
-    /** When these statistics were last computed. */
-    readonly computed_at: string
-    /** Delta table version the statistics were computed against. */
-    readonly computed_for_delta_version: number
-    /** How the statistics were produced. Currently always 'delta_log'. */
-    readonly stats_basis: string
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-}
-
-export interface PaginatedWarehouseColumnStatisticsListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: WarehouseColumnStatisticsApi[]
-}
-
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -1005,6 +1197,8 @@ export interface DataWarehouseSavedQueryMinimalApi {
     readonly latest_error: string | null
     /** @nullable */
     readonly is_materialized: boolean | null
+    /** Whether this view is set up to update incrementally. A run can still rebuild the whole table, for example on the first run or after the query changes. */
+    readonly is_incremental: boolean
     /** Where this SavedQuery is created.
      *
      * * `data_warehouse` - Data Warehouse
@@ -1686,13 +1880,42 @@ export const TableFormatEnumApi = {
     DeltaS3Wrapper: 'DeltaS3Wrapper',
 } as const
 
+/**
+ * * `web` - web
+ * * `api` - api
+ * * `mcp` - mcp
+ * * `wizard` - wizard
+ * * `self_driving` - self_driving
+ * * `source` - source
+ * * `materialized_view` - materialized_view
+ * * `demo` - demo
+ */
+export type TableCreatedViaEnumApi = (typeof TableCreatedViaEnumApi)[keyof typeof TableCreatedViaEnumApi]
+
+export const TableCreatedViaEnumApi = {
+    Web: 'web',
+    Api: 'api',
+    Mcp: 'mcp',
+    Wizard: 'wizard',
+    SelfDriving: 'self_driving',
+    Source: 'source',
+    MaterializedView: 'materialized_view',
+    Demo: 'demo',
+} as const
+
 export interface CredentialApi {
     readonly id: string
     readonly created_by: UserBasicApi
     readonly created_at: string
-    /** @maxLength 500 */
+    /**
+     * Access key ID for the bucket the files live in (an AWS access key ID, a Google Cloud HMAC key, or the equivalent for another S3-compatible store).
+     * @maxLength 500
+     */
     access_key: string
-    /** @maxLength 500 */
+    /**
+     * Secret for the access key. Stored encrypted and never returned by the API.
+     * @maxLength 500
+     */
     access_secret: string
 }
 
@@ -1872,6 +2095,7 @@ export interface CredentialApi {
  * * `Ebay` - Ebay
  * * `Commercetools` - Commercetools
  * * `LightspeedRetail` - LightspeedRetail
+ * * `Shipmail` - Shipmail
  * * `ShipStation` - ShipStation
  * * `ConstantContact` - ConstantContact
  * * `Mailgun` - Mailgun
@@ -2952,6 +3176,7 @@ export interface CredentialApi {
  * * `SideShift` - SideShift
  * * `DuckLake` - DuckLake
  * * `Starburst` - Starburst
+ * * `Trino` - Trino
  * * `Easybill` - Easybill
  * * `Bexio` - Bexio
  * * `Umami` - Umami
@@ -2994,6 +3219,27 @@ export interface CredentialApi {
  * * `Dokploy` - Dokploy
  * * `Hootsuite` - Hootsuite
  * * `WisprFlow` - WisprFlow
+ * * `SamCart` - SamCart
+ * * `IronSourceAds` - IronSourceAds
+ * * `MicrosoftExcel` - MicrosoftExcel
+ * * `Profound` - Profound
+ * * `Airwallex` - Airwallex
+ * * `Polymarket` - Polymarket
+ * * `Kalshi` - Kalshi
+ * * `Capterra` - Capterra
+ * * `GooglePostmasterTools` - GooglePostmasterTools
+ * * `Growi` - Growi
+ * * `Clarify` - Clarify
+ * * `DatoCMS` - DatoCMS
+ * * `WPSOffice` - WPSOffice
+ * * `TeraBox` - TeraBox
+ * * `SimonData` - SimonData
+ * * `CommissionJunction` - CommissionJunction
+ * * `Liveblocks` - Liveblocks
+ * * `NationBuilder` - NationBuilder
+ * * `Tana` - Tana
+ * * `Zenchef` - Zenchef
+ * * `Lovable` - Lovable
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3174,6 +3420,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Ebay: 'Ebay',
     Commercetools: 'Commercetools',
     LightspeedRetail: 'LightspeedRetail',
+    Shipmail: 'Shipmail',
     ShipStation: 'ShipStation',
     ConstantContact: 'ConstantContact',
     Mailgun: 'Mailgun',
@@ -4254,6 +4501,7 @@ export const ExternalDataSourceTypeEnumApi = {
     SideShift: 'SideShift',
     DuckLake: 'DuckLake',
     Starburst: 'Starburst',
+    Trino: 'Trino',
     Easybill: 'Easybill',
     Bexio: 'Bexio',
     Umami: 'Umami',
@@ -4296,6 +4544,27 @@ export const ExternalDataSourceTypeEnumApi = {
     Dokploy: 'Dokploy',
     Hootsuite: 'Hootsuite',
     WisprFlow: 'WisprFlow',
+    SamCart: 'SamCart',
+    IronSourceAds: 'IronSourceAds',
+    MicrosoftExcel: 'MicrosoftExcel',
+    Profound: 'Profound',
+    Airwallex: 'Airwallex',
+    Polymarket: 'Polymarket',
+    Kalshi: 'Kalshi',
+    Capterra: 'Capterra',
+    GooglePostmasterTools: 'GooglePostmasterTools',
+    Growi: 'Growi',
+    Clarify: 'Clarify',
+    DatoCMS: 'DatoCMS',
+    WPSOffice: 'WPSOffice',
+    TeraBox: 'TeraBox',
+    SimonData: 'SimonData',
+    CommissionJunction: 'CommissionJunction',
+    Liveblocks: 'Liveblocks',
+    NationBuilder: 'NationBuilder',
+    Tana: 'Tana',
+    Zenchef: 'Zenchef',
+    Lovable: 'Lovable',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -4314,6 +4583,9 @@ export type TableApiColumnsItem = { [key: string]: unknown }
  */
 export type TableApiExternalSchema = { [key: string]: unknown } | null
 
+/**
+ * Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes.
+ */
 export type TableApiOptions = { [key: string]: unknown }
 
 /**
@@ -4321,22 +4593,51 @@ export type TableApiOptions = { [key: string]: unknown }
  */
 export interface TableApi {
     readonly id: string
-    /** @nullable */
+    /**
+     * Whether the table is soft-deleted and hidden from queries.
+     * @nullable
+     */
     deleted?: boolean | null
-    /** @maxLength 128 */
+    /**
+     * Name the table is queried by in HogQL. Must be unique within the project, and must start with a letter or underscore and contain only letters, numbers, and underscores.
+     * @maxLength 128
+     */
     name: string
     /** Dotted name the table is queried by in HogQL (e.g. `googleanalytics.devices` or `postgres.<prefix>.<table>`), as opposed to `name`, which is the underlying storage identifier. */
     readonly hogql_name: string
+    /** File format of the objects the pattern matches. Every matched file must share this format.
+     *
+     * * `CSV` - CSV
+     * * `CSVWithNames` - CSVWithNames
+     * * `Parquet` - Parquet
+     * * `JSONEachRow` - JSON
+     * * `Delta` - Delta
+     * * `DeltaS3Wrapper` - DeltaS3Wrapper */
     format: TableFormatEnumApi
     readonly created_by: UserBasicApi
     readonly created_at: string
-    /** @maxLength 500 */
+    /** Where the table came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup agent, `self_driving` for a self-driving run, `source` for a table a data source syncs, `materialized_view` for the table behind a materialized view, and `demo` for a demo project's sample table. Set server-side from the request, never from the request body. Null on tables created before this was recorded.
+     *
+     * * `web` - web
+     * * `api` - api
+     * * `mcp` - mcp
+     * * `wizard` - wizard
+     * * `self_driving` - self_driving
+     * * `source` - source
+     * * `materialized_view` - materialized_view
+     * * `demo` - demo */
+    readonly created_via: TableCreatedViaEnumApi | null
+    /**
+     * HTTPS URL of the files to read, with `*` matching any part of a path segment (e.g. `https://your-bucket.s3.amazonaws.com/orders/*.parquet`). All matched files are read as one table. Must point at a bucket you control, not at PostHog's own storage.
+     * @maxLength 500
+     */
     url_pattern: string
     credential: CredentialApi
     readonly columns: readonly TableApiColumnsItem[]
     readonly external_data_source: SimpleExternalDataSourceSerializersApi
     /** @nullable */
     readonly external_schema: TableApiExternalSchema
+    /** Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes. */
     options?: TableApiOptions
     /**
      * The effective access level the user has for this object
@@ -4361,6 +4662,9 @@ export type PatchedTableApiColumnsItem = { [key: string]: unknown }
  */
 export type PatchedTableApiExternalSchema = { [key: string]: unknown } | null
 
+/**
+ * Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes.
+ */
 export type PatchedTableApiOptions = { [key: string]: unknown }
 
 /**
@@ -4368,22 +4672,51 @@ export type PatchedTableApiOptions = { [key: string]: unknown }
  */
 export interface PatchedTableApi {
     readonly id?: string
-    /** @nullable */
+    /**
+     * Whether the table is soft-deleted and hidden from queries.
+     * @nullable
+     */
     deleted?: boolean | null
-    /** @maxLength 128 */
+    /**
+     * Name the table is queried by in HogQL. Must be unique within the project, and must start with a letter or underscore and contain only letters, numbers, and underscores.
+     * @maxLength 128
+     */
     name?: string
     /** Dotted name the table is queried by in HogQL (e.g. `googleanalytics.devices` or `postgres.<prefix>.<table>`), as opposed to `name`, which is the underlying storage identifier. */
     readonly hogql_name?: string
+    /** File format of the objects the pattern matches. Every matched file must share this format.
+     *
+     * * `CSV` - CSV
+     * * `CSVWithNames` - CSVWithNames
+     * * `Parquet` - Parquet
+     * * `JSONEachRow` - JSON
+     * * `Delta` - Delta
+     * * `DeltaS3Wrapper` - DeltaS3Wrapper */
     format?: TableFormatEnumApi
     readonly created_by?: UserBasicApi
     readonly created_at?: string
-    /** @maxLength 500 */
+    /** Where the table came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup agent, `self_driving` for a self-driving run, `source` for a table a data source syncs, `materialized_view` for the table behind a materialized view, and `demo` for a demo project's sample table. Set server-side from the request, never from the request body. Null on tables created before this was recorded.
+     *
+     * * `web` - web
+     * * `api` - api
+     * * `mcp` - mcp
+     * * `wizard` - wizard
+     * * `self_driving` - self_driving
+     * * `source` - source
+     * * `materialized_view` - materialized_view
+     * * `demo` - demo */
+    readonly created_via?: TableCreatedViaEnumApi | null
+    /**
+     * HTTPS URL of the files to read, with `*` matching any part of a path segment (e.g. `https://your-bucket.s3.amazonaws.com/orders/*.parquet`). All matched files are read as one table. Must point at a bucket you control, not at PostHog's own storage.
+     * @maxLength 500
+     */
     url_pattern?: string
     credential?: CredentialApi
     readonly columns?: readonly PatchedTableApiColumnsItem[]
     readonly external_data_source?: SimpleExternalDataSourceSerializersApi
     /** @nullable */
     readonly external_schema?: PatchedTableApiExternalSchema
+    /** Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes. */
     options?: PatchedTableApiOptions
     /**
      * The effective access level the user has for this object
@@ -4621,6 +4954,61 @@ export type DataWarehouseCheckSchemaNameRetrieveParams = {
     name: string
 }
 
+export type DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveParams = {
+    /**
+     * Allow-listed managed warehouse metric to retrieve.
+     *
+     * * `query_rate` - query_rate
+     * * `error_ratio` - error_ratio
+     * * `duration_p50` - duration_p50
+     * * `duration_p95` - duration_p95
+     * * `sessions_active` - sessions_active
+     * * `acquire_p95` - acquire_p95
+     * * `acquire_by_source` - acquire_by_source
+     * * `storage_bytes` - storage_bytes
+     * * `worker_crash_rate` - worker_crash_rate
+     * @minLength 1
+     */
+    metric: DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveMetric
+    /**
+     * Trailing time window to retrieve. Defaults to 24h.
+     *
+     * * `1h` - 1h
+     * * `6h` - 6h
+     * * `24h` - 24h
+     * * `7d` - 7d
+     * * `30d` - 30d
+     * @minLength 1
+     */
+    window?: DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveWindow
+}
+
+export type DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveMetric =
+    (typeof DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveMetric)[keyof typeof DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveMetric]
+
+export const DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveMetric = {
+    QueryRate: 'query_rate',
+    ErrorRatio: 'error_ratio',
+    DurationP50: 'duration_p50',
+    DurationP95: 'duration_p95',
+    SessionsActive: 'sessions_active',
+    AcquireP95: 'acquire_p95',
+    AcquireBySource: 'acquire_by_source',
+    StorageBytes: 'storage_bytes',
+    WorkerCrashRate: 'worker_crash_rate',
+} as const
+
+export type DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveWindow =
+    (typeof DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveWindow)[keyof typeof DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveWindow]
+
+export const DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveWindow = {
+    '1h': '1h',
+    '6h': '6h',
+    '24h': '24h',
+    '7d': '7d',
+    '30d': '30d',
+} as const
+
 export type DataWarehouseManagedWarehouseSourceSchemasRetrieveParams = {
     /**
      * Imported source connection to fetch per-schema detail for.
@@ -4683,21 +5071,6 @@ export type WarehouseColumnAnnotationsListParams = {
     offset?: number
     /**
      * Only return annotations for this data warehouse table.
-     */
-    table_id?: string
-}
-
-export type WarehouseColumnStatisticsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * Only return statistics for this data warehouse table.
      */
     table_id?: string
 }
