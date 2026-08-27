@@ -42,7 +42,7 @@ repos outside this monorepo, resolve a local checkout via
 | --------------------------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Product / dashboard**           | `PostHog/posthog` (this repo) | `products/mcp_analytics/` — Django/DRF + HogQL query runners + Temporal, Kea frontend, the `query-mcp-*` tool registry, and the analysis skills                                                                                                                                               |
 | **Self-instrumented server**      | `PostHog/posthog` (this repo) | `services/mcp/` — PostHog's own MCP server (Hono); the dogfood event producer. Also hosts the _generated_ `query-mcp-*` handlers                                                                                                                                                              |
-| **Shared query reference**        | `PostHog/posthog` (this repo) | `products/posthog_ai/skills/querying-posthog-data/references/models-mcp.md`                                                                                                                                                                                                                   |
+| **Shared query reference**        | `PostHog/posthog` (this repo) | [`models-mcp.md`](../../../posthog_ai/skills/querying-posthog-data/references/models-mcp.md) — `products/posthog_ai/skills/querying-posthog-data/references/`                                                                                                                                 |
 | **TypeScript SDK** `@posthog/mcp` | `PostHog/posthog-js`          | `packages/mcp/` — the library customers install. Vocabulary source of truth: `src/extensions/constants.ts`. `docs/ARCHITECTURE.md` now covers conversation anchoring (ADR-0004) but trails the newest era handling — where it and `CHANGELOG.md` disagree, trust the changelog and the source |
 | **Python SDK** `posthog.mcp`      | `PostHog/posthog-python`      | `posthog/mcp/` — mirrors `posthog.ai`. Ships inside `posthog` (`pip install posthog`); `mcp`/`fastmcp` are lazily-imported peer deps, **no `[mcp]` extra**. At TS parity since 7.40.0-7.42.1 — MCP Python SDK v2, conversation anchoring, typed errors, client UA/vendor                      |
 | **Docs**                          | `PostHog/posthog.com`         | `contents/docs/mcp-analytics/` (incl. `surfaces/`), plus `src/hooks/productData/mcp_analytics.tsx` and the `mcp_analytics` entry in `src/data/tools.ts`                                                                                                                                       |
@@ -91,7 +91,7 @@ These are the failure modes that produce a plausible-looking answer rather than 
 4. **`harness` is derived, and its logic exists in three places that must move in lockstep:**
    `products/mcp_analytics/backend/mcp_harness.py` (source of truth — see its module
    docstring), `products/mcp_analytics/frontend/dashboard/harnessRegistry.ts`, and
-   `products/posthog_ai/skills/querying-posthog-data/references/models-mcp.md`.
+   [`models-mcp.md`](../../../posthog_ai/skills/querying-posthog-data/references/models-mcp.md).
 5. **Check which SDK version the dogfood server is on before trusting dogfood data.**
    `services/mcp` consumes the SDK through an alias in its `package.json` and has historically
    lagged the published version, so version-dependent properties (typed error types, `$lib`
@@ -180,8 +180,8 @@ is absent from the tool calls that follow, so on its own it leaves most traffic
 unattributed; `mcp_session_client_name` is the session-pinned fallback the token chain
 reaches for next.
 
-For hand-written SQL, `models-mcp.md` (linked in the Repos table) carries the property
-reference and worked query examples.
+For hand-written SQL, [`models-mcp.md`](../../../posthog_ai/skills/querying-posthog-data/references/models-mcp.md)
+carries the property reference and worked query examples.
 
 ## The pipeline, and where each stage breaks
 
