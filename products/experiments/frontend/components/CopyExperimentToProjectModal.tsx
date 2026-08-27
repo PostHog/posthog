@@ -73,6 +73,7 @@ export function CopyExperimentToProjectModal({
                 offset: filters.page ? (filters.page - 1) * FLAGS_PER_PAGE : 0,
                 eligible_for_experiment: true,
             }
+            // nosemgrep: prefer-codegen-api
             const data = await api.get(`api/projects/${projectId}/feature_flags/?${toParams(params)}`)
             setTargetFeatureFlags(data)
         } finally {
