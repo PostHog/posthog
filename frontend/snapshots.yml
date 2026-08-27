@@ -6544,6 +6544,14 @@ snapshots:
         hash: v1.k794b7964.b21df130430a104352e31173ae34feb16146f03d0688631d35f78052114fd3e7.GA0QgvUydkp96bBYC1RIiHsKN8O6Z_3nX1PXnfaBgeA
     scenes-app-feature-flags-new-feature-flag-menu--default--light:
         hash: v1.k794b7964.c58d12ddf9499563916bb71f41ff70dce9db471379ef2215c8b57a0ac88aa76c.jl03AgPo8iB46wC9k3xNkQwobb5SLJcSwYnOphJUt8Y
+    scenes-app-feature-flags-schedule-timeline--rollout-ramp--dark:
+        hash: v1.k794b7964.2953688108a239d2ec1fed7e9536ba4fe608d7894111f5eeaf6f8a47339d8aff.sgkcFh_IvnLvMdJI7mdrIZEMQFbXUeRMTQxiWJUpalU
+    scenes-app-feature-flags-schedule-timeline--rollout-ramp--light:
+        hash: v1.k794b7964.0785f69304e857d326d3f0b6fd1d080b98693832830dc27efee8962998071f21.1PukOHY28udTttP75f7GWVgGOqw5NVX8UynvDughGJo
+    scenes-app-feature-flags-schedule-timeline--single-occurrence--dark:
+        hash: v1.k794b7964.5f56b26c9731f7507c03e0ca3830b20dc9c54e0af644d969931a942054969403.gZwCiTKCj8cQ8GfXJIV5uUG058HQ5g5M4Z2qMVNYaHs
+    scenes-app-feature-flags-schedule-timeline--single-occurrence--light:
+        hash: v1.k794b7964.b67b362406d51b0c3e8481fef9b7c0c79ce79ba6a46112f2d451c6e297ef64e8.LTGULnRrrYhMIv2FNWKFM3G32QTZ0XRPNLskis8YX0Q
     scenes-app-features--features-list--dark:
         hash: v1.k794b7964.0c79c9bfef37ec5ccee5d871ad0849770f5b1c1b5c6ea92b8eddca703d035c31.g_X-ujymWdXk9iFUWXQgNNFUJmo3xzl_EZymFteHpBE
     scenes-app-features--features-list--light:
