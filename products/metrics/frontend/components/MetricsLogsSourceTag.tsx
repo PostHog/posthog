@@ -3,8 +3,9 @@ import { useValues } from 'kea'
 import { IconLive } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
+
+import { useLogsMetricRulesEnabled } from 'products/logs/frontend/components/LogsMetricRules/logsMetricRulesGate'
 
 import { logsUrlForMetricRule, metricsLogsSourceLogic } from './metricsLogsSourceLogic'
 
@@ -17,11 +18,11 @@ export interface MetricsLogsSourceTagProps {
  * the logs the rule matches, and the rule itself in settings.
  */
 export function MetricsLogsSourceTag({ metricName }: MetricsLogsSourceTagProps): JSX.Element | null {
-    const metricRulesEnabled = useFeatureFlag('LOGS_METRIC_RULES')
+    const metricRulesEnabled = useLogsMetricRulesEnabled()
     if (!metricRulesEnabled || !metricName.trim()) {
         return null
     }
-    // Split so the rules fetch only happens (via the logic's mount) when the flag is on.
+    // Split so the rules fetch only happens (via the logic's mount) when the gate passes.
     return <MetricsLogsSourceTagContent metricName={metricName.trim()} />
 }
 

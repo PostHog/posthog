@@ -61,6 +61,7 @@ import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/fr
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
+import { LOGS_METRIC_RULES_FLAGS } from 'products/logs/frontend/components/LogsMetricRules/logsMetricRulesGate'
 import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMetricRules/LogsMetricRulesSection'
 import { LogsRetentionSection } from 'products/logs/frontend/components/LogsRetention/LogsRetentionSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
@@ -896,7 +897,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Generate metrics from your logs at ingestion time. Metrics are computed before drop rules, so you can drop noisy logs and keep the trend.',
                 component: <LogsMetricRulesSection />,
-                flag: LogsFeatureFlagKeys.metricRules,
+                flag: LOGS_METRIC_RULES_FLAGS,
                 keywords: ['metric', 'metrics', 'log-based', 'generate', 'count', 'aggregate', 'logs to metrics'],
             },
             {

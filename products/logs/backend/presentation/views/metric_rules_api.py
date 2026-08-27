@@ -21,7 +21,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.event_usage import report_user_action
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
-from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.permissions import get_organization_from_view, posthog_feature_flag_enabled
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.logs.backend.models import (
@@ -50,6 +50,37 @@ ATTRIBUTE_KEY_PREFIXES = ("attributes.", "resource_attributes.")
 # Advisory-lock namespace for `pg_advisory_xact_lock(ns, canonical_team_id)` — serializes
 # metric-rule writes per team so the enabled-rule cap can't be raced past.
 _METRIC_RULE_LOCK_NAMESPACE = 0x106_2E7A  # "LOG-RULE"-ish; just needs to be unique enough.
+
+
+# A rule turns log attributes into metrics, and Metrics is the only place to read them. Someone
+# outside the Metrics alpha would author a metric with no viewer, so both flags gate the API.
+METRIC_RULE_REQUIRED_FEATURE_FLAGS = ("logs-metric-rules", "metrics")
+
+
+class MetricRuleFeatureFlagPermission(BasePermission):
+    """Require every flag in METRIC_RULE_REQUIRED_FEATURE_FLAGS.
+
+    PostHogFeatureFlagPermission returns as soon as one flag matches the action, so it cannot
+    express an AND across flags.
+    """
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        user = cast(User, request.user)
+        organization = get_organization_from_view(view)
+        try:
+            team = view.team  # type: ignore[attr-defined]
+        except (ValueError, KeyError, AttributeError):
+            team = None
+        for flag in METRIC_RULE_REQUIRED_FEATURE_FLAGS:
+            if not posthog_feature_flag_enabled(
+                flag,
+                str(user.distinct_id),
+                organization_id=organization.id,
+                team_id=team.id if team is not None else None,
+            ):
+                self.message = f"This action requires feature flag {flag!r} to be enabled for your organization."
+                return False
+        return True
 
 
 class MetricRuleCanonicalTeamPermission(BasePermission):
@@ -230,8 +261,7 @@ class LogsMetricRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = LogsMetricRule.objects.unscoped().order_by("created_at")
     serializer_class = LogsMetricRuleSerializer
     lookup_field = "id"
-    posthog_feature_flag = "logs-metric-rules"
-    permission_classes = [PostHogFeatureFlagPermission, MetricRuleCanonicalTeamPermission]
+    permission_classes = [MetricRuleFeatureFlagPermission, MetricRuleCanonicalTeamPermission]
 
     @cached_property
     def canonical_team_id(self) -> int:

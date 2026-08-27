@@ -13,7 +13,6 @@ import {
 import { LemonButton } from '@posthog/lemon-ui'
 
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
@@ -21,6 +20,7 @@ import { cn } from 'lib/utils/css-classes'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { logsMetricRuleQuickCreateLogic } from 'products/logs/frontend/components/LogsMetricRules/logsMetricRuleQuickCreateLogic'
+import { useLogsMetricRulesEnabled } from 'products/logs/frontend/components/LogsMetricRules/logsMetricRulesGate'
 import { buildMetricRuleSeedFromLog } from 'products/logs/frontend/components/LogsMetricRules/metricRuleSeed'
 import { CopyLogButton } from 'products/logs/frontend/components/LogsViewer/CopyLogButton'
 import { LogContextSelector } from 'products/logs/frontend/components/LogsViewer/LogContextSelector/LogContextSelector'
@@ -28,7 +28,6 @@ import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsView
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 import { useCellScrollControls } from 'products/logs/frontend/components/VirtualizedLogsList/useCellScroll'
 import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
-import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 import { getSessionIdFromLogAttributes } from 'products/logs/frontend/utils'
 import { traceUrl } from 'products/tracing/frontend/traceLinks'
@@ -59,7 +58,7 @@ export function LogRowFAB({
     const { openWithSeed } = useActions(logsMetricRuleQuickCreateLogic)
     const { startScrolling, stopScrolling } = useCellScrollControls({ id, cellKey: 'message' })
     const sessionId = getSessionIdFromLogAttributes(log.attributes, log.resource_attributes, configuredSessionIdKeys)
-    const metricRulesEnabled = useFeatureFlag(LogsFeatureFlagKeys.metricRules)
+    const metricRulesEnabled = useLogsMetricRulesEnabled()
     const metricsEditorDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Metrics,
         AccessControlLevel.Editor
