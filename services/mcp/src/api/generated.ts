@@ -13549,7 +13549,16 @@ export namespace Schemas {
       explicit_datetime_to?: string | null;
     }
 
+    export type MultiVariantBiasKind = typeof MultiVariantBiasKind[keyof typeof MultiVariantBiasKind];
+
+
+    export const MultiVariantBiasKind = {
+      AsymmetricExclusion: 'asymmetric_exclusion',
+      IdentityChurn: 'identity_churn',
+    } as const;
+
     export interface BiasRisk {
+      kind: MultiVariantBiasKind;
       /** Observed share of users assigned to `$multiple`, as a percentage (0-100). */
       multiple_variant_percentage: number;
     }
