@@ -219,8 +219,11 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
             # Summing raw samples would give 66 (every sample counted), and
             # scrape count is not constant across buckets, so the error moves.
             ("sum", 33.0),
-            # Sample-weighted would be 11.0.
-            ("avg", 16.5),
+            # Each series' in-bucket readings are real observations, so avg is
+            # the mean of the per-series means: (2 + 20) / 2. Collapsing each
+            # series to its last reading first (the old argMax) gave 16.5 and
+            # measured a different statistic than the fundamentals reference.
+            ("avg", 11.0),
             # Counting raw samples would give 6.
             ("count", 2.0),
         ]
@@ -330,6 +333,31 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual([row["value"] for row in runner.run()], [3.0])
+
+    def test_non_finite_readings_are_dropped_not_plotted(self):
+        # Ingest can land a NaN/Inf value. That is not a number, and `argMax`
+        # would happily select the newest one, turning a real reading into a
+        # chart gap while the Python reference returned the NaN — a spurious
+        # fundamentals disagreement. Both paths now drop non-finite rows.
+        anchor = timezone.now().replace(second=0, microsecond=0)
+        bucket = anchor - dt.timedelta(minutes=5)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m_nan",
+            points=[(bucket, 300.0), (bucket + dt.timedelta(seconds=10), float("nan"))],
+            labels={"pod": "a"},
+        )
+
+        runner = MetricQueryRunner(
+            team=self.team,
+            metric_name="m_nan",
+            aggregation="sum",
+            date_from=anchor - dt.timedelta(hours=1),
+            date_to=anchor,
+        )
+
+        # The NaN must not win argMax over the real 300; the only value is 300.
+        self.assertEqual([row["value"] for row in runner.run()], [300.0])
 
     def test_respects_team_isolation(self):
         anchor = timezone.now().replace(microsecond=0)
