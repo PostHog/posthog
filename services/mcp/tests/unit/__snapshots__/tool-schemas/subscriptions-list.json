@@ -10,7 +10,7 @@
             "type": "number"
         },
         "dashboard_tiles": {
-            "description": "Filter to subscriptions on insights that are tiles of the given dashboard ID.",
+            "description": "Filter to subscriptions on insights that are tiles of the given dashboard ID. Includes AI report subscriptions anchored to one of those insights.",
             "type": "number"
         },
         "insight": {
