@@ -110,6 +110,7 @@ export {
   isCloudflareModel,
   isCloudflareModelId,
   isDeepseekModelId,
+  isGlm53FlashModelId,
   isGlm53ModelId,
   isGlmModelId,
   isModalModel,
@@ -188,16 +189,8 @@ export {
 } from "./execution-modes";
 export * from "./flags";
 export * from "./git-domain";
-export type { GitHandoffCheckpoint, HandoffLocalGitState } from "./git-handoff";
 export * from "./git-naming";
 export type { GitFileStatus } from "./git-types";
-export type {
-  HandoffApiContext,
-  HandoffChangedFile,
-  HandoffHost,
-  HandoffReconnectParams,
-  HandoffResumeStateResult,
-} from "./handoff-host";
 export {
   ALLOWED_IMAGE_MIME_TYPES,
   buildImageDataUrl,
