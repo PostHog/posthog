@@ -154,7 +154,7 @@ Below the consumer loop the tree has exactly two sides — the **domain side** (
 - **Partition manager** — the domain side's root. Owns the partition drivers and their lifecycle: partition assigned ⇒ create a driver; revoked ⇒ begin the **drain** (§4.5) — the driver stays to absorb the completions still in flight, and is torn down only when the batcher's `Drained` marker arrives, after a final commit. Owns nothing transport-shaped, no per-key state, and no clock of its own — the loop's housekeeping tick drives its stall checks. Distributes work: demuxes each poll to its partition drivers (which push the demuxed groups straight into the lent accumulator), routes each completion's groups back to the ledger that owns them, and discards completions whose assignment epoch is dead. Everything it passes down is a value.
 - **Partition driver** — splits its messages by routing key into groups, stamps them (affinity = partition, epoch), and pushes them into the lent accumulator — no gating, no per-key state; owns the **offset ledger**: the set of pending offsets and the highest contiguous completed offset (the **frontier**), which is what gets committed, on a cadence. Contiguity becomes *constructive* — the ledger computes exactly the committable frontier — instead of a property to verify after the fact.
 - **Accumulator factory** — the loop's supply of per-poll buffers, and the holder of the batcher's send side. `obtain()` hands the loop a buffer at the start of a poll tick; `release(acc)` sends a non-empty one to the batcher whole, by value — the hand-off's only coordination — and recycles an empty one; `revoked(p)` sends the in-band revoke marker down the same channel, behind every batch that preceded it (§4.5). The domain never sees the factory: it is lent the buffer, never the machinery.
-- **Worker batcher** — the transport side, whole, as one background task, and the home of all send ordering. Its **key table** holds one entry per active routing key — a FIFO queue (the key's send order — §2.5's cascade rule, as a structure), an `outstanding` bit (**exactly one request may carry a key's work at a time** — asserted when the request settles, never assumed), and the sticky pin (pure locality, learned from ACKs, gone with the entry) — behind one method per scenario (admit, pop-ready, send, park, settled, begin-drain); nothing outside the table touches a key or its scheduling. Each received accumulator is *admitted* — every group joins its key's queue; keys with nothing outstanding become ready — and *dispatch* then runs the batcher's own algorithm (§4.3): place each ready key (router + pin), pack bins up to target (a key contributes a contiguous, in-order run of its queue — a hot key may fill a whole request from its backlog), and fire every **armed** stream — a non-empty bin arms its worker until it drains, so a fire refused by depth or permits is retried at every wake, never lost. Each runner resolution *settles*: every carried key is asserted outstanding, then ACK ⇒ pin the key, forward the groups up the completion stream, re-ready its remaining queue; failure ⇒ groups back to their queue heads, unpin, re-dispatch — the domain never hears of it. A ready key the pool cannot take stays **parked** in its own queue, re-tried on every wake (§4.5) — nothing is ever handed back. Null-key work rides each shard's **keyless lane** (§1): order-free filler, no pin and no one-outstanding, split at will to top bins toward target. A **dispatch governor** meters how many requests ride at once — the surviving piece of the elastic-dispatch controller (§4.3): grow while healthy and permit-starved, shed while the request-RTT EWMA sits over its budget, so exposure walks down in a wedge instead of sitting at `B`. On a revoke marker it begins the partition's drain: queued work drops at once, in-flight keys count down at settlement (their failures drop too), and `Drained` goes up the completion stream behind the partition's final completion (§4.5) — the drain lives entirely in that partition's shard of the key table, so a `Drained` marker cannot exist without a `begin_drain`. The packer and the §2.10 size defense sit below it, as do the stream runners: one task per worker — connect, greet with the assignment epoch, transmit, await ACKs, depth-bounded (default 1) — and the transport classifier, §2.9 unchanged (backpressure vs fault vs non-retriable, backpressure excluded from passive health).
+- **Worker batcher** — the transport side, whole, as one background task, and the home of all send ordering. Its **key table** holds one entry per active routing key — a FIFO queue (the key's send order — §2.5's cascade rule, as a structure) and an `outstanding` bit (**exactly one request may carry a key's work at a time** — asserted when the request settles, never assumed) — behind one method per scenario (admit, pop-ready, take, park, settle, begin-drain); nothing outside the table touches a key or its scheduling. There are no sticky pins in this design (§4.3): placement is memoryless. Each received accumulator is *admitted* — every group joins its key's queue; keys with nothing outstanding become ready — and *dispatch* then runs the batcher's own algorithm (§4.3): place each ready item, pack bins up to target (a key contributes a contiguous, in-order run of its queue — a hot key may fill a whole request from its backlog), and fire every **armed** stream — a non-empty bin arms its worker until it drains, so a fire refused by depth or permits is retried at every wake, never lost. Each runner resolution *settles*: every carried key is asserted outstanding, then ACK ⇒ forward the groups up the completion stream and re-ready its remaining queue; failure ⇒ groups back to their queue heads, re-dispatch — the domain never hears of it. A ready key the pool cannot take stays **parked** in its own queue, re-tried on every wake (§4.5) — nothing is ever handed back. Null-key work rides each shard's **keyless lane** (§1): order-free filler, no one-outstanding, split at will to top bins toward target. A **dispatch governor** meters how many requests ride at once — the surviving piece of the elastic-dispatch controller (§4.3): grow while healthy and permit-starved, shed while the request-RTT EWMA sits over its budget, so exposure walks down in a wedge instead of sitting at `B`. On a revoke marker it begins the partition's drain: queued work drops at once, in-flight keys count down at settlement (their failures drop too), and `Drained` goes up the completion stream behind the partition's final completion (§4.5) — the drain lives entirely in that partition's shard of the key table, so a `Drained` marker cannot exist without a `begin_drain`. The packer and the §2.10 size defense sit below it, as do the stream runners: one task per worker — connect, greet with the assignment epoch, transmit, await ACKs, depth-bounded (default 1) — and the transport classifier, §2.9 unchanged (backpressure vs fault vs non-retriable, backpressure excluded from passive health).
 - **Completion stream** — the transport's outlet, and nothing more than a channel: the ACKed groups of each resolved request, forwarded the moment the ACK arrives — offsets for the ledgers. Failures never cross it: they are the batcher's to retry. Its only other traffic is the in-band `Drained` marker that ends a partition's drain (§4.5).
 - **Commit manager** — the whole commit policy behind four calls: `progress` (every frontier advance, straight from each completion), `tick` (its clock, from the loop's housekeeping tick), and `begin_revoke` / `finish_revoke` for a drain — the final offset issues immediately, since the rebalance is waiting. When and how to issue — delay, batching, thresholds — is this component's algorithm and appears nowhere else; budget refunds return from whichever call issues, keeping B = polled minus committed exact. The §2.3 verification rides inside unchanged: the commit sentinel as a cheap assert, the commit monitor because librdkafka still drops async commit results.
 - **Budget** — the `B` accounting (charged at poll, refunded at commit and at revoke teardown). The design has exactly two clocks: the loop's single housekeeping tick — the commit manager's clock and the stall checks, the two jobs that must run even when no events arrive — and the batcher's park-retry, armed only while an unroutable pool leaves ready keys parked (§4.5). Key states own no deadlines at all: retry pacing is transport-level, so unbounded key cardinality meets no per-key timer anywhere.
@@ -170,7 +170,7 @@ State transitions split across two single-threaded tasks — the domain's on the
 And the batcher's:
 
 1. **Accumulator received** — admit every group to its key state (queue behind outstanding work, or become ready), then dispatch: place ready keys, pack bins, fire every armed stream. A revoke marker on the same channel begins a partition's drain instead (§4.5).
-2. **Resolution received** — settle every key the request carried (asserted outstanding; ACK ⇒ pin, forward the completion, re-ready the rest of the queue; failure ⇒ re-queue at head, unpin), then dispatch — the freed stream refills at once, up to a full request from one key's backlog.
+2. **Resolution received** — settle every key the request carried (asserted outstanding; ACK ⇒ forward the completion and re-ready the rest of the queue; failure ⇒ re-queue at head), then dispatch — the freed stream refills at once, up to a full request from one key's backlog.
 3. **Park-retry due** — dispatch again for the ready keys the pool could not take; armed only while any exist (§4.5).
 
 The loop's `biased` select is ordered as its own starvation proof: an arm can only starve the arms below it, so the tick (ready at most once per interval) and the rare rebalance events sit on top where nothing can starve them — the stall watchdog has no other trigger — while completions sit above the poll deliberately: drain before taking new work, and self-limiting, since depth-bounded streams cap completions at a stream's depth per worker in flight. The spawned tasks are the batcher and, below it, one worker stream runner per worker — encode, transmit, await the ACK, post the resolution back. Because every structure is owned by exactly one task and each task finishes a cascade before its next event, **ordering is a property of the structure**: a key's entire order lives in one queue in one task, and at most one request carries a key's work at any moment — *asserted* at settlement, not assumed — so nothing can slip a newer group past a failure being processed, exactly the race the worker-stream fences exist to close today. Send origination has one call site instead of four. And the two sides overlap in time: while the batcher dispatches one poll's groups, the loop is already demuxing the next.
@@ -185,9 +185,9 @@ The loop's `biased` select is ordered as its own starvation proof: an arm can on
 
 A linger timer is unnecessary, and the wait bound needs no clock at all. Every held piece of work has a guaranteed future event: a ready key dispatches this wake, a parked key has the park-retry deadline, and a non-empty bin implies something is in flight somewhere — had nothing been, neither the depth bound nor the permit count could have refused the fire, and the bin would have emptied — so a settlement arrives within one ACK timeout and re-runs dispatch over every armed stream. Undersized bins fire on arrival with zero added latency; everything else waits at most one request round trip, bounded by the ACK timeout.
 
-**Placement** (which worker a key's work uses): the sticky pin lives on the key state — learned from each ACK, cleared on failure, evicted with the entry — and it is pure *locality*: with at most one outstanding request per key and ordered streams, order never depends on it, so dropping one is always safe. The pin is learned at settlement, not at placement, deliberately: a key cannot be re-placed while its request is outstanding, so nothing could read a placement-time pin before the settlement has either confirmed the worker (Ack ⇒ pin) or condemned it (Failure ⇒ unpin) — dispatch stays write-free toward the table, and a pin only ever names a worker that demonstrably served the key. A pin is honored unless the pinned worker is draining, dead, or drastically overloaded (`slack(T)` — pin abandonment); re-picking cannot reorder, since a key is placed only while nothing of its own is outstanding. The pinned work still counts toward that bin's fill. Fresh keys fill open, in-slice, below-target bins first (load-checked), then rotating P2C opens further slice workers. A ready key *no* worker can take — pool-wide unroutability only — stays parked in its own queue and is re-tried at the next wake (§4.5); nothing is ever handed back. Fan-out is **emergent**: demand ÷ target, clamped below by the aperture coverage floor, with slice coverage achieved over seconds by rotation rather than within every batch. The elastic-dispatch fan-out formula stops being a formula.
+**Placement** (which worker an item's work goes to): there are **no sticky pins in this design**. Both of the pin's historical jobs (§2.4) dissolved — order is structural (at most one outstanding request per key, on ordered streams; the pin existed to keep a key's *concurrent* batches together, and per-key concurrency no longer exists), and steady-state consolidation belongs to the packer, which fills bins toward target regardless of which keys arrive. Placement is therefore **memoryless**: work fills open, in-slice, below-target bins first (load-checked), then rotating P2C opens further slice workers. Re-placement can never reorder: new groups for an outstanding key never reach the router at all — they queue behind, and `pop_ready` yields only keys with nothing outstanding — so between a request's send and its settlement, no routing decision for that key exists. What is given up is an unmeasured conjecture: worker-side per-key cache locality; §7 keeps it as the open question, reintroducible entirely inside the router if it ever proves real. A ready key *no* worker can take — pool-wide unroutability only — stays parked in its own queue and is re-tried at the next wake (§4.5); nothing is ever handed back. Fan-out is **emergent**: demand ÷ target, clamped below by the aperture coverage floor, with slice coverage achieved over seconds by rotation rather than within every batch. The elastic-dispatch fan-out formula stops being a formula.
 
-**Composition** (which groups ride together): each group carries an opaque **affinity** hint — stamped by the partition driver with the partition id, but the batcher knows only the preference rule: *minimize distinct affinities per request, choosing affinities oldest-head-first*. A key's work rides a request as one contiguous, in-order run from its queue (up to the target — hot-key coalescing), and cross-key order is unconstrained, so composition is free to pack. Affinity-pure requests mean a failed request wounds one partition's frontier, not eight (blast radius), and a slow request delays few frontiers (frontier coupling). Oldest-first keeps the packing strictly latency-safe. The affinity hint also acts as a placement *tie-break* among otherwise-equivalent bins — never overriding load or fill, so a hot partition cannot become a hot worker. Keyless groups (§1) are the packer's free filler: no pin, no queue-behind, no one-outstanding — they top any open bin toward target, and split however the packer likes.
+**Composition** (which groups ride together): each group carries an opaque **affinity** hint — stamped by the partition driver with the partition id, but the batcher knows only the preference rule: *minimize distinct affinities per request, choosing affinities oldest-head-first*. A key's work rides a request as one contiguous, in-order run from its queue (up to the target — hot-key coalescing), and cross-key order is unconstrained, so composition is free to pack. Affinity-pure requests mean a failed request wounds one partition's frontier, not eight (blast radius), and a slow request delays few frontiers (frontier coupling). Oldest-first keeps the packing strictly latency-safe. The affinity hint also acts as a placement *tie-break* among otherwise-equivalent bins — never overriding load or fill, so a hot partition cannot become a hot worker. Keyless groups (§1) are the packer's free filler: no queue-behind, no one-outstanding — they top any open bin toward target, and split however the packer likes.
 
 **Concurrency — the dispatch governor.** How many requests ride at once is the batcher's last decision, and the one place the elastic-dispatch controller survives, shrunk to a valve. The structure already produces the plan's headline behaviors: demand is not an estimated fill ratio but the bins themselves — work is waiting or it isn't — the total exposure is capped by `B`, and a backlog puts up to a full pool of target-sized requests in flight with no controller in the loop. What the structure alone cannot do is *retreat*: nothing would otherwise shrink the work in flight below `B` when the pool sickens — and crash exposure matters most exactly then, since wedges are when OOMs, restarts, and deploys-during-incident happen. So the governor holds a **permit count** — requests allowed in flight — and runs the plan's ±1 law on it, re-evaluated at every settlement (whose spacing the ACK timeout bounds, so it needs no clock): grow `+1` toward demand while dispatch is permit-starved and the request-RTT EWMA (time-aware α, τ ≈ 10 s) sits under `REQUEST_LATENCY_BUDGET`; shed `−1` while it sits over; floor `GOVERNOR_MIN`, cap `GOVERNOR_MAX`. The plan's no-congestion-input reasoning carries over whole: the budget sits ≳3× healthy request RTT, so shedding refuses only the pathological region — where timeouts already gut the worker HPA's occupancy signal — the floor keeps probing, and 503s never reach the governor at all (transport backoff, §2.9).
 
@@ -205,8 +205,8 @@ Concurrency then self-clocks. Fast workers: ACKs return quickly, frontiers advan
 ### 4.5 Failure handling in the new shape
 
 - **503 / stream busy**: unchanged — the transport's jittered backoff absorbs deliberate backpressure below the model, excluded from passive health.
-- **Send failure (fault)**: settled entirely inside the batcher — each carried key is asserted outstanding, its groups go back to its queue head, the pin clears, and dispatch re-places it immediately against current health. The domain never hears of it: its offsets simply stay pending. No backoff above the transport: transient faults were already retried with backoff below the model (§2.9), and passive health has already marked the failing worker, so waiting again would be double pacing. This replaces `defer_failed` + re-stash + both flush paths' retry pacing with one local rule. The order argument is trivial: the key's queue *is* the order, and nothing of that key was in flight behind the failure (one outstanding request per key — a stream's in-flight requests are key-disjoint).
-- **Draining/dead worker**: the registry is unchanged; the *consequence* becomes local. A key whose sticky worker is draining simply gets re-placed at its next dispatch — nothing of the key's is in flight at that moment, so re-routing cannot reorder. The cascade rule is the queue: newer groups are behind older ones by construction. No stash, no batch-sequence bookkeeping, no outstanding-count subtlety.
+- **Send failure (fault)**: settled entirely inside the batcher — each carried key is asserted outstanding, its groups go back to its queue head, and dispatch re-places it immediately against current health (§4.3). The domain never hears of it: its offsets simply stay pending. No backoff above the transport: transient faults were already retried with backoff below the model (§2.9), and passive health has already marked the failing worker, so waiting again would be double pacing. This replaces `defer_failed` + re-stash + both flush paths' retry pacing with one local rule. The order argument is trivial: the key's queue *is* the order, and nothing of that key was in flight behind the failure (one outstanding request per key — a stream's in-flight requests are key-disjoint).
+- **Draining/dead worker**: the registry is unchanged; the *consequence* becomes local. Memoryless placement (§4.3) simply never picks a draining or dead worker again — and since nothing of a key is in flight when it is placed, avoiding a worker cannot reorder. The cascade rule is the queue: newer groups are behind older ones by construction. No stash, no batch-sequence bookkeeping, no outstanding-count subtlety.
 - **Unroutable pool**: placement finds no healthy worker — the ready key stays **parked** in its own queue, and dispatch re-tries it on every wake: each arriving accumulator, each settlement, and a park-retry deadline armed only while parked keys exist (the backstop when both go quiet). Waiting for a routable pool is transport state, so both the waiting and its pacing live in the transport — the domain never arms a timer for it, and nothing is handed back. There is no separate buffer of groups: an unplaceable key's work stays in its own queue — only its id waits on the key table's parked list. The partition frontiers stall; the watchdog below bounds it.
 - **Stall watchdog**: per-partition — a frontier stuck for the timeout while work is pending fails the process, replaying that exposure (≤ B). Today's `deferred_flush_timeout` semantics, at the granularity where a wedge actually lives; the check runs on the loop's housekeeping tick — a watchdog cannot be event-driven, since what it detects is the absence of events. A wedged key stalls *its partition's* frontier while healthy partitions keep committing — today it stalls every partition on the pod.
 - **Rebalance**: revocation is a **bounded drain**, not a synchronous teardown. On revoke the loop keeps the partition driver — its ledger must still absorb the completions in flight — tells the commit manager (`begin_revoke`), and sends the batcher an in-band **revoke marker** down the accumulator channel, ordered behind every batch that preceded it. The batcher drops the partition's *queued* key states at once (never sent, so the next owner simply re-reads them), stops re-queueing its failures, and counts its outstanding keys down as their requests settle; when the last one lands it emits **`Drained`** up the completion stream — in-band again, behind the partition's final completion. Only then does the loop hand the final harvest to the commit manager (`finish_revoke` — issued immediately, refunding every charge the partition still held), drop the driver, and hand the partition back to rdkafka (`incremental_unassign`). The drain needs no clock of its own: depth-bounded streams plus the runner's ACK timeout bound every outstanding request's settlement, so `Drained` arrives within one request timeout — configure the rebalance timeout above it, and a completion that straggles past teardown still dies by epoch. The assignment-epoch stamp (from #85238) keeps worker-side sentinels re-baselined.
@@ -592,7 +592,7 @@ task worker_batcher {
             (w, outcome, groups, rtt) = resolutions.recv() => {
                 in_flight[w] -= 1;           // a depth slot frees; the governor observes
                 governor.observe(rtt);       //   the RTT and runs its law (§4.3)
-                settle(w, outcome, groups);
+                settle(outcome, groups);
                 dispatch()                   // the freed capacity refills at once
             }
 
@@ -603,8 +603,8 @@ task worker_batcher {
     }
 }
 
-fn settle(w, outcome, groups) {              // every transition — per key and per drain —
-    let drained = keys.settle(w, outcome, &groups);      //   is the table's; the batcher
+fn settle(outcome, groups) {                 // every transition — per key and per drain —
+    let drained = keys.settle(outcome, &groups);         //   is the table's; the batcher
     if outcome == Ack {                      //   only orders the sends: the ledgers' feed
         completions.send(Completed(groups))  //   first (failures stay here) —
     }
@@ -615,11 +615,11 @@ fn settle(w, outcome, groups) {              // every transition — per key and
 
 fn dispatch() {                              // the batcher's own algorithm (§4.3): one
     keys.retry_parked();                     //   pass. Parked items rejoin ready first —
-    while let Some((item, pin)) = keys.pop_ready() {     //   the pool may have healed
-        match router.place(pin, &packer) {               //   since the last wake. The
-            Placed(w) => {                               //   table yields uniform items;
-                packer.bin(w, keys.take(item, up_to: T)) //   the router places, the
-            }                                            //   packer composes
+    while let Some(item) = keys.pop_ready() {        //   the pool may have healed since
+        match router.place(&packer) {                //   the last wake. The table yields
+            Placed(w) => {                           //   uniform items; the router
+                packer.bin(w, keys.take(item, up_to: T)) //   places, the packer composes
+            }
             Unroutable => {                  // pool-wide, no healthy worker (§4.5): the
                 keys.park(item)              //   item parks, leaving the pass — so the
             }                                //   pass always ends
@@ -656,7 +656,7 @@ fn try_fire(w) -> bool {                     // the single send-origination site
 }
 ```
 
-**Key table — per-key send state, partition-sharded, one method per scenario.** A key lives in exactly one partition, so its state nests in that partition's **shard** — the transport-side mirror of the domain's partition driver, which also carries the shard's **keyless lane** (§1: null-key work owes no order — no state, no pin, just a queue of free filler, counted only for the drain). The shards, the lists, and every drain live behind the table; nothing outside touches any of them, the one-outstanding-per-key invariant is asserted in here, and a `Drained` can only be produced by a draining shard's final settlement — no `begin_drain`, no marker, by construction.
+**Key table — per-key send state, partition-sharded, one method per scenario.** A key lives in exactly one partition, so its state nests in that partition's **shard** — the transport-side mirror of the domain's partition driver, which also carries the shard's **keyless lane** (§1: null-key work owes no order — no state, just a queue of free filler, counted only for the drain). The shards, the lists, and every drain live behind the table; nothing outside touches any of them, the one-outstanding-per-key invariant is asserted in here, and a `Drained` can only be produced by a draining shard's final settlement — no `begin_drain`, no marker, by construction.
 
 ```rust
 // Owned by the batcher. The two lists index across the shards — dispatch is
@@ -677,7 +677,7 @@ enum Item {                                  // the table's one scheduling unit 
 struct PartitionKeys {                       // one partition's shard — created at first
     keys: Map<RoutingKey, KeyState>,         //   group, removed when its drain completes
     keyless: FifoQueue<Group>,               // null-key groups (§1): no order owed, no
-    keyless_out: usize,                      //   state, no pin — free filler, counted
+    keyless_out: usize,                      //   state — free filler, counted
     keyless_listed: bool,                    //   only for the drain; the listed bit works
     draining: Option<usize>,                 //   like `queued`. draining = Some(n) =
 }                                            //   revoked, n keys + keyless runs still
@@ -687,7 +687,6 @@ struct KeyState {
     queue: FifoQueue<Group>,                 // the key's send order — §2.5's cascade rule
     outstanding: bool,                       // exactly one request may carry a key's work
     queued: bool,                            // on ready or parked
-    pin: Option<WorkerId>,                   // sticky locality, learned from ACKs
 }
 
 fn admit(group) {                            // scenario: a demuxed group arrived
@@ -710,20 +709,20 @@ fn retry_parked() {                          // scenario: a new wake — every p
                                              //   observable at placement, and the pool
                                              //   may have healed since the item parked
 
-fn pop_ready() -> Option<(Item, Option<WorkerId>)> {     // scenario: dispatch wants the
-    loop {                                   //   next runnable item, with its placement
-        let item = ready.pop_front()?;       //   preference; a drained shard's stale
-        match item {                         //   entries drop here
+fn pop_ready() -> Option<Item> {             // scenario: dispatch wants the next runnable
+    loop {                                   //   item; a drained shard's stale entries
+        let item = ready.pop_front()?;       //   drop here
+        match item {
             Keyed(key) => {
                 if let Some(k) = lookup(key) {
                     k.queued = false;
-                    return Some((item, k.pin))
+                    return Some(item)
                 }
             }
             Keyless(p) => {
                 if let Some(shard) = partitions.get(p) {
                     shard.keyless_listed = false;
-                    return Some((item, None))        // free work never has a pin (§1)
+                    return Some(item)
                 }
             }
         }
@@ -764,7 +763,7 @@ fn any_parked() -> bool {
     !parked.is_empty()
 }
 
-fn settle(w, outcome, groups) -> Vec<Partition> {    // scenario: a request resolved —
+fn settle(outcome, groups) -> Vec<Partition> {       // scenario: a request resolved —
     let mut drained = vec![];                //   every per-key transition and every
     for (key, run) in groups.by_key() {      //   drain step happen in here
         let shard = shard(key.partition);
@@ -776,14 +775,8 @@ fn settle(w, outcome, groups) -> Vec<Partition> {    // scenario: a request reso
             drain_step(key.partition, &mut drained);     //   next owner re-reads them
             continue
         }
-        match outcome {
-            Ack => {
-                k.pin = Some(w)              // locality for the next placement
-            }
-            Failure => {
-                k.queue.push_front(run);     // order intact
-                k.pin = None
-            }
+        if outcome == Failure {
+            k.queue.push_front(run)          // order intact — back to the head
         }
         if k.queue.is_empty() {
             shard.keys.evict(key)
@@ -792,7 +785,7 @@ fn settle(w, outcome, groups) -> Vec<Partition> {    // scenario: a request reso
         }
     }
     for (p, run) in groups.keyless_runs() {  // keyless settles by count alone (§1): no
-        let shard = shard(p);                //   assert, no pin, no order
+        let shard = shard(p);                //   assert, no order
         shard.keyless_out -= 1;
         if shard.is_draining() {             // a draining shard's keyless failures drop
             drain_step(p, &mut drained)      //   too, like everything else of its
@@ -913,7 +906,7 @@ fn observe(rtt_sample) {                     // at every settlement — the law:
 }
 ```
 
-**Router placement** (§4.3) — inside the batcher; `sticky` is the batcher's pin for the key — a preference, not a constraint:
+**Router placement** (§4.3) — memoryless: no pins, no state beyond the aperture; the verdicts are named:
 
 ```rust
 enum Placement {                             // the router's verdict, named:
@@ -921,15 +914,9 @@ enum Placement {                             // the router's verdict, named:
     Unroutable,                              //   pool-wide — no healthy worker (§4.5)
 }
 
-fn place(sticky, packer) -> Placement {      // reads the packer's bins for fill and load
-    let health = registry.snapshot();        // published by the probe task; the model's
-                                             //   only cross-task shared read — no lock
-    if let Some(w) = sticky {
-        if healthy(w) && !overloaded_beyond_slack(w, T) {
-            return Placed(w)
-        }
-    }                                        // else fall through: pin abandonment — safe,
-                                             //   nothing of that key is in flight (§4.3)
+fn place(packer) -> Placement {              // reads the packer's bins for fill and load;
+    let health = registry.snapshot();        //   health is the probe task's snapshot, the
+                                             //   model's only cross-task shared read
     let slice = aperture.slice(health);      // in-slice candidates
     let open = slice.healthy, below-target bins, load-checked;
     if open is non-empty {
@@ -989,7 +976,7 @@ What is *not* here is the point: no stash, no batch-sequence bookkeeping, no fen
 | Oldest-first completion (2.2) | Retired; per-partition offset ledger commits the contiguous frontier |
 | Commit sentinel (2.3) | Kept as a cheap assert; contiguity is now constructed, not emergent |
 | Commit monitor (2.3) | Kept as-is (librdkafka async-commit blindness is unchanged) |
-| Sticky pins (2.4) | The key state's pin field in the batcher, learned from ACKs, evicted with the key; pure locality — order is pin-free |
+| Sticky pins (2.4) | Retired: both jobs dissolved — order is structural (one outstanding request per key + ordered streams), consolidation is the packer's (target packing). Router affinity can return if measured (§7) |
 | Stash + cascade rule (2.5) | The batcher's per-key queue; the cascade is the queue |
 | Completion-time flush (2.6) | Retired; commit gate → ledger, retry pacing → transport backoff + parked releases, watchdog → per-partition stall deadline |
 | Eager flush + its accounting (2.7) | Becomes the *only* drain mechanism — settle + dispatch, refilling up to a full request from one key's backlog; `eager_pending`/`eager_accepted`/`take_eager_accepted` deleted |
@@ -997,7 +984,7 @@ What is *not* here is the point: no stash, no batch-sequence bookkeeping, no fen
 | 503/backoff/backpressure classification (2.9) | Unchanged |
 | Body split + 413 (2.10) | Kept as defense; `T` makes routine splitting stop happening |
 | Worker registry (2.11) | Unchanged; drain consequences become key-driver-local |
-| Aperture + P2C (2.12) | Kept for placement; fan-out formula retired (emergent from demand ÷ `T`); `STICKY_PIN_LOAD_SLACK` re-derived against `T` |
+| Aperture + P2C (2.12) | Kept for placement, now memoryless; fan-out formula retired (emergent from demand ÷ `T`); `STICKY_PIN_LOAD_SLACK` retires with the pins |
 | Key-order sentinel (2.13) | Kept as a cheap assert; order is now structural (one origination site, one outstanding request per key — asserted at settle — key-disjoint ordered streams) |
 | Debug recorder | Kept; event points move to the drivers (arguably richer: per-key and per-partition state is now first-class) |
 
@@ -1007,7 +994,7 @@ The through-line: the mechanisms that survive are the ones facing the outside wo
 
 The elastic-dispatch plan's three changes map onto the model as follows:
 
-1. **Target-sized worker batches** — the batcher's `T` and packing rules (§4.3) *are* stage 1 of the plan, with the fan-out clamp formula replaced by emergence and the pins-as-preferences packing expressed structurally.
+1. **Target-sized worker batches** — the batcher's `T` and packing rules (§4.3) *are* stage 1 of the plan, with the fan-out clamp formula replaced by emergence; the plan's pins-as-preferences packing dissolves with the pins themselves (§5, row 2.4).
 2. **Demand-proportional concurrency** — the plan's fill-EWMA → slots law is subsumed by `B` + self-clocking (§4.4): MIN when drained, MAX under backlog, held pressure during worker saturation, bounded replay window — the structure permits nothing else, with no fill estimator and no tick. The one behavior that is *not* structural — walking exposure down during a wedge — survives as the batcher's dispatch governor (§4.3): the plan's ±1 law and latency budget, applied to requests in flight, evaluated at settlement instead of on a clock.
 3. **One-signal worker HPA** (the elastic plan's "processor HPA") — unchanged from the plan (`ingestion_api_event_seconds_in_flight_total`, time-weighted in-flight events per pod), and *strengthened*: every request is target-normalized, so in-flight work per worker is an honest, comparable unit.
 
@@ -1023,6 +1010,7 @@ The two scaling regimes the plan demands fall out of the poll gate:
 3. **Partition fairness at the poll gate** — one global `B` lets a deep partition monopolize the budget. Levers, in escalation order: none (watch it), rdkafka per-partition pause/resume, isolating hot partitions on dedicated pods at the assignment level. Don't build until observed.
 4. **Shard count** — single-shard until loop occupancy says otherwise (§4.6).
 5. **`B` and `T` defaults** — `T` from the per-request-cost knee (the elastic plan's stage 1 calibration, unchanged); `B` from the acceptable replay window and the memory contract, with the plan's ~"MAX × batch" residual exposure as the anchor.
+6. **Worker cache affinity** — sticky pins are deleted (§4.3): order and consolidation no longer need them, leaving only an unmeasured conjecture about worker-side per-key cache locality. If memoryless placement measurably hurts worker cache hit rates, reintroduce a key → worker preference entirely inside the router (a bounded LRU, recorded at the placement decision, abandoned by the health and load checks) — zero protocol impact. Measure first.
 
 ## 8. Nomenclature
 
@@ -1062,7 +1050,7 @@ The consumer's vocabulary has to survive three audiences at once: this crate, th
 | `keyless` | null-key work — no order owed (§1); a shard's free-filler lane | — |
 | `item` | the table's one scheduling unit: a ready key, or a shard's keyless lane | — |
 | `packer` | the batcher's composition component: the bins + the armed set | — |
-| `key state` | one key's entry in its shard: queue · outstanding · queued · pin | key *driver* — retired with the domain-side version |
+| `key state` | one key's entry in its shard: queue · outstanding · queued | key *driver* — retired with the domain-side version |
 | `outstanding` | a key has exactly one request's worth of work out (§2.5's sense) | in-flight, for this |
 | `admit` / `dispatch` / `settle` | the batcher's three phases: queue in, place + fire, resolve | — |
 | `completion` | one ACKed request's groups, forwarded to the loop for the ledgers | request result — failures never cross the seam |
