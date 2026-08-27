@@ -21,6 +21,25 @@ export const DEFAULT_CANVAS_LIST_SETTINGS: CanvasListSettings = {
   grouping: DEFAULT_CANVAS_LIST_GROUPING,
 };
 
+export function constrainCanvasSettingsToPersonalSpace(
+  settings: CanvasListSettings,
+  personalSpaceId: string | undefined,
+  currentUserUuid: string | undefined,
+): CanvasListSettings {
+  if (!personalSpaceId || !settings.spaceIds.includes(personalSpaceId)) {
+    return settings;
+  }
+
+  const creatorUuids = currentUserUuid ? [currentUserUuid] : [];
+  if (
+    settings.creatorUuids.length === creatorUuids.length &&
+    settings.creatorUuids.every((uuid, index) => uuid === creatorUuids[index])
+  ) {
+    return settings;
+  }
+  return { ...settings, creatorUuids };
+}
+
 export function hasCustomizedCanvasList(settings: CanvasListSettings): boolean {
   return (
     settings.spaceIds.length > 0 ||

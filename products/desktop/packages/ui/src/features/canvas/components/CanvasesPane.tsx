@@ -20,6 +20,7 @@ import { CanvasFilterMenu } from "@posthog/ui/features/canvas/components/CanvasF
 import { buildCanvasCreatorOptions } from "@posthog/ui/features/canvas/components/canvasCreatorOptions";
 import {
   type CanvasListSettings,
+  constrainCanvasSettingsToPersonalSpace,
   DEFAULT_CANVAS_LIST_SETTINGS,
   DEFAULT_CANVAS_LIST_SORT,
   filterCanvasList,
@@ -95,6 +96,22 @@ export function CanvasesPane({
     () => buildCanvasSpaceOptions(channels),
     [channels],
   );
+  const personalSpaceId = useMemo(
+    () => channels.find((channel) => channel.channelType === "personal")?.id,
+    [channels],
+  );
+  const personalSpaceSelected = personalSpaceId
+    ? settings.spaceIds.includes(personalSpaceId)
+    : false;
+  const effectiveSettings = useMemo(
+    () =>
+      constrainCanvasSettingsToPersonalSpace(
+        settings,
+        personalSpaceId,
+        currentUser?.uuid,
+      ),
+    [currentUser?.uuid, personalSpaceId, settings],
+  );
   const creatorOptions = useMemo(
     () =>
       buildCanvasCreatorOptions(
@@ -102,46 +119,56 @@ export function CanvasesPane({
         currentUser
           ? { uuid: currentUser.uuid, name: userDisplayName(currentUser) }
           : undefined,
-        settings.spaceIds,
+        effectiveSettings.spaceIds,
       ),
-    [currentUser, dashboards, settings.spaceIds],
+    [currentUser, dashboards, effectiveSettings.spaceIds],
   );
   const shown = useMemo(
     () =>
       sortCanvasList(
         filterCanvasList(dashboards, {
-          spaceIds: settings.spaceIds,
-          creatorUuids: settings.creatorUuids,
+          spaceIds: effectiveSettings.spaceIds,
+          creatorUuids: effectiveSettings.creatorUuids,
           query,
         }),
-        settings.sort,
+        effectiveSettings.sort,
         recentlyViewedSortSnapshot,
       ),
-    [dashboards, query, recentlyViewedSortSnapshot, settings],
+    [dashboards, effectiveSettings, query, recentlyViewedSortSnapshot],
   );
   const sections = useMemo(
-    () => groupCanvasList(shown, settings.grouping, channelNames),
-    [channelNames, settings.grouping, shown],
+    () => groupCanvasList(shown, effectiveSettings.grouping, channelNames),
+    [channelNames, effectiveSettings.grouping, shown],
   );
   const optionValues = shown.map((canvas) => canvas.id);
   const changeSettings = (nextSettings: CanvasListSettings): void => {
+    const constrainedSettings = constrainCanvasSettingsToPersonalSpace(
+      nextSettings,
+      personalSpaceId,
+      currentUser?.uuid,
+    );
+    const nextPersonalSpaceSelected = personalSpaceId
+      ? constrainedSettings.spaceIds.includes(personalSpaceId)
+      : false;
     const availableCreatorUuids = new Set(
       buildCanvasCreatorOptions(
         dashboards,
         currentUser
           ? { uuid: currentUser.uuid, name: userDisplayName(currentUser) }
           : undefined,
-        nextSettings.spaceIds,
+        constrainedSettings.spaceIds,
       ).flatMap((option) => (option.value !== null ? [option.value] : [])),
     );
-    const normalizedSettings = {
-      ...nextSettings,
-      creatorUuids: nextSettings.creatorUuids.filter((uuid) =>
-        availableCreatorUuids.has(uuid),
-      ),
-    };
+    const normalizedSettings = nextPersonalSpaceSelected
+      ? constrainedSettings
+      : {
+          ...constrainedSettings,
+          creatorUuids: constrainedSettings.creatorUuids.filter((uuid) =>
+            availableCreatorUuids.has(uuid),
+          ),
+        };
     if (
-      settings.sort !== DEFAULT_CANVAS_LIST_SORT &&
+      effectiveSettings.sort !== DEFAULT_CANVAS_LIST_SORT &&
       normalizedSettings.sort === DEFAULT_CANVAS_LIST_SORT
     ) {
       setRecentlyViewedSortSnapshot({
@@ -187,7 +214,8 @@ export function CanvasesPane({
             <CanvasFilterMenu
               spaceOptions={spaceOptions}
               creatorOptions={creatorOptions}
-              settings={settings}
+              createdByDisabled={personalSpaceSelected}
+              settings={effectiveSettings}
               onChange={changeSettings}
             />
           }

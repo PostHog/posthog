@@ -94,11 +94,13 @@ function RadioSubmenu<Value extends string>({
 export function CanvasFilterMenu({
   spaceOptions,
   creatorOptions,
+  createdByDisabled,
   settings,
   onChange,
 }: {
   spaceOptions: readonly CanvasMultiSelectOption[];
   creatorOptions: readonly CanvasMultiSelectOption[];
+  createdByDisabled: boolean;
   settings: CanvasListSettings;
   onChange: (settings: CanvasListSettings) => void;
 }): ReactElement {
@@ -162,10 +164,11 @@ export function CanvasFilterMenu({
         />
         <CanvasFilterMultiSelectSubmenu
           label="Created by"
-          summary={summarizeCreatorSelection(
-            creatorOptions,
-            settings.creatorUuids,
-          )}
+          summary={
+            createdByDisabled
+              ? "Me"
+              : summarizeCreatorSelection(creatorOptions, settings.creatorUuids)
+          }
           options={creatorOptions}
           values={settings.creatorUuids}
           onChange={(creatorUuids) =>
@@ -173,6 +176,7 @@ export function CanvasFilterMenu({
           }
           searchPlaceholder="Search users…"
           emptyLabel="No users found."
+          disabled={createdByDisabled}
         />
         {active && (
           <>

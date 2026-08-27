@@ -1,6 +1,7 @@
 import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 import { describe, expect, it } from "vitest";
 import {
+  constrainCanvasSettingsToPersonalSpace,
   filterCanvasList,
   groupCanvasList,
   sortCanvasList,
@@ -29,6 +30,42 @@ function canvas(
 }
 
 describe("canvasList", () => {
+  it.each([
+    {
+      spaceIds: ["personal"],
+      currentUserUuid: "me",
+      expected: ["me"],
+    },
+    {
+      spaceIds: ["personal"],
+      currentUserUuid: undefined,
+      expected: [],
+    },
+    {
+      spaceIds: ["space-a"],
+      currentUserUuid: "me",
+      expected: ["ada"],
+    },
+  ])(
+    "constrains creators to $expected for spaces $spaceIds",
+    ({ spaceIds, currentUserUuid, expected }) => {
+      const settings = {
+        spaceIds,
+        creatorUuids: ["ada"],
+        sort: "recently_viewed" as const,
+        grouping: "date" as const,
+      };
+
+      expect(
+        constrainCanvasSettingsToPersonalSpace(
+          settings,
+          "personal",
+          currentUserUuid,
+        ).creatorUuids,
+      ).toEqual(expected);
+    },
+  );
+
   it("matches any selected space and creator", () => {
     const canvases = [
       canvas("first", { channelId: "space-a", createdByUuid: "ada" }),

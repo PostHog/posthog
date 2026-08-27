@@ -26,6 +26,7 @@ export function CanvasFilterMultiSelectSubmenu({
   onChange,
   searchPlaceholder,
   emptyLabel,
+  disabled = false,
 }: {
   label: string;
   summary: string;
@@ -34,6 +35,7 @@ export function CanvasFilterMultiSelectSubmenu({
   onChange: (values: string[]) => void;
   searchPlaceholder: string;
   emptyLabel: string;
+  disabled?: boolean;
 }): ReactElement {
   const selectedValues = new Set(values);
   const selectedOptions = options.filter(
@@ -59,7 +61,7 @@ export function CanvasFilterMultiSelectSubmenu({
 
   return (
     <DropdownMenuSub>
-      <DropdownMenuSubTrigger className="pr-1">
+      <DropdownMenuSubTrigger className="pr-1" disabled={disabled}>
         <span>{label}</span>
         <span
           title={summary}

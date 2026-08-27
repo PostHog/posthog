@@ -44,11 +44,13 @@ function Harness({
   initialCreatorUuids,
   initialSort,
   initialGrouping,
+  createdByDisabled,
 }: {
   initialSpaceIds: string[];
   initialCreatorUuids: string[];
   initialSort: CanvasListSort;
   initialGrouping: CanvasListGrouping;
+  createdByDisabled: boolean;
 }): ReactElement {
   const [settings, setSettings] = useState<CanvasListSettings>({
     spaceIds: initialSpaceIds,
@@ -62,6 +64,7 @@ function Harness({
       <CanvasFilterMenu
         spaceOptions={SPACE_OPTIONS}
         creatorOptions={CREATOR_OPTIONS}
+        createdByDisabled={createdByDisabled}
         settings={settings}
         onChange={setSettings}
       />
@@ -77,6 +80,7 @@ const meta: Meta<typeof Harness> = {
     initialCreatorUuids: [],
     initialSort: "recently_viewed",
     initialGrouping: "date",
+    createdByDisabled: false,
   },
   decorators: [
     (Story): ReactElement => (
@@ -116,5 +120,16 @@ export const FilteredAndGrouped: Story = {
     initialCreatorUuids: ["me", "ada", "grace"],
     initialSort: "created_by",
     initialGrouping: "space",
+  },
+};
+
+export const PersonalSpace: Story = {
+  args: {
+    initialSpaceIds: ["personal"],
+    initialCreatorUuids: ["me"],
+    createdByDisabled: true,
+  },
+  play: async ({ canvas, userEvent }): Promise<void> => {
+    await userEvent.click(canvas.getByLabelText("Filter canvases"));
   },
 };
