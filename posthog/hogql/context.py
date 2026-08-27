@@ -3,6 +3,7 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.clickhouse.workload import Workload
@@ -31,7 +32,7 @@ def _default_modifiers() -> "HogQLQueryModifiers":
     return HogQLQueryModifiers()
 
 
-@dataclass
+@dataclass(frozen=False)
 class HogQLFieldAccess:
     input: list[str]
     type: Optional[Literal["event", "event.properties", "person", "person.properties"]]
@@ -39,7 +40,7 @@ class HogQLFieldAccess:
     sql: str
 
 
-@dataclass
+@dataclass(frozen=False)
 class HogQLContext:
     """Context given to a HogQL expression printer"""
 
@@ -131,10 +132,10 @@ class HogQLContext:
     # filter and holding lazy introspection objects, so tables resolving to the same bound walk the
     # database only once while surface-specific catalog metadata is fetched only when requested.
     information_schema_introspection: Optional[Any] = field(default=None, compare=False, repr=False)
-    # Property-level access control: set of (property_name, PropertyDefinition.Type) tuples
+    # Property-level access control: (property_name, PropertyDefinition.Type, group_type_index) tuples
     # that the current user is denied access to. Populated before type resolution so that
     # FieldType.get_child() can raise QueryError for restricted properties.
-    restricted_properties: Optional[set[tuple[str, int]]] = None
+    restricted_properties: Optional[set[RestrictedProperty]] = None
 
     # Per-query cache of CTE synthetic tables, keyed by id() of the CTE's SelectQueryType. Value pins a
     # strong ref to the keyed type so its id can't be reused while cached; lookups verify identity.

@@ -435,6 +435,7 @@ the row lists both.
 | logz_io                          | HTTP                        | requests                                                        | ✅                          |
 | loop_returns                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | loops                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| lovable                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | luma                             | HTTP                        | requests                                                        | ✅                          |
 | mailchimp                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | marketo                          | HTTP                        | requests                                                        | ✅                          |
@@ -455,6 +456,7 @@ the row lists both.
 | metaplane                        | HTTP                        | requests                                                        | ✅                          |
 | meteostat                        | HTTP                        | requests                                                        | ✅                          |
 | metorial                         | HTTP                        | requests                                                        | ✅                          |
+| metronome                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | microsoft_clarity                | HTTP                        | requests                                                        | ✅                          |
 | mighty_networks                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mistral_ai                       | HTTP                        | requests                                                        | ✅                          |
@@ -705,6 +707,7 @@ the row lists both.
 | tremendous                       | HTTP                        | requests                                                        | ✅                          |
 | trigger_dev                      | HTTP                        | requests                                                        | ✅                          |
 | trunk_io                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| trino                            | HTTP (vendor SDK)           | trino                                                           | ✅                          |
 | tvmaze                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | twelve_data                      | HTTP                        | requests                                                        | ✅                          |
 | twelve_labs                      | HTTP                        | requests                                                        | ✅                          |
@@ -1171,7 +1174,6 @@ doesn't conflict with concurrent PRs.
 - merge
 - metricool
 - metriport
-- metronome
 - mews
 - mezmo
 - microsoft_365_usage_reports
@@ -1472,6 +1474,7 @@ doesn't conflict with concurrent PRs.
 - zalando_zdirect
 - zapsign
 - zellify
+- zenchef
 - zenefits
 - zenloop
 - zitadel

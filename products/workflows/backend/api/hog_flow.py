@@ -190,10 +190,6 @@ DRAFT_CONTENT_FIELDS = (
     "variables",
 )
 
-# Server-side rollout gate for email sending rate limits. Key shared with FEATURE_FLAGS in
-# frontend/src/lib/constants.tsx, where the same flag hides the editor control.
-EMAIL_SENDING_RATE_LIMIT_FLAG = "workflows-email-rate-limit"
-
 
 # Compiled from the author's filters rather than written by them, and only present once a condition has
 # been through validation. Comparing them would make an unchanged condition look edited.
@@ -2441,29 +2437,6 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     def validate(self, data):
         instance = cast(Optional[HogFlow], self.instance)
         is_draft = self.context.get("is_draft")
-
-        # New adoption of the email sending rate limit is flag-gated server-side: the UI hides the
-        # control behind the same flag, but API and MCP callers write workflows directly. Only new
-        # adoption is policed — resubmitting the stored or draft-staged value and clearing to null
-        # always pass, so a flag dial-down can't brick saves or publishes of workflows that already
-        # carry a limit. Uses the same fail-closed flag evaluation as gated templates.
-        if "email_sending_rate_limit" in data:
-            # Nested use (the `configuration` override on test invocations) never binds
-            # self.instance — the flow arrives via context, same as in to_internal_value — so
-            # resolve it here too or a test run echoing a stored limit would fail the gate.
-            gate_instance = instance or cast(Optional[HogFlow], self.context.get("instance"))
-            new_value = data["email_sending_rate_limit"]
-            existing_values = [gate_instance.email_sending_rate_limit if gate_instance else None]
-            if gate_instance is not None and isinstance(gate_instance.draft, dict):
-                existing_values.append(gate_instance.draft.get("email_sending_rate_limit"))
-            if new_value is not None and new_value not in existing_values:
-                # Outside a request (internal re-saves, direct construction) there is no team
-                # to evaluate the flag against.
-                get_team = self.context.get("get_team")
-                if get_team is not None and not gated_template_enabled(EMAIL_SENDING_RATE_LIMIT_FLAG, get_team()):
-                    raise serializers.ValidationError(
-                        {"email_sending_rate_limit": "Email sending rate limits are not enabled for this project."}
-                    )
 
         # Reject duplicate action ids on any client-submitted actions array (create/update/graph), on
         # every path - not just the surgical /graph endpoint where validate_graph enforces it. Secret
