@@ -412,6 +412,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         subtitle={timezone}
                         subtitleTooltip="Metrics are shown in your local timezone"
                         isLoading={isLoading}
+                        contentClassName="h-64 md:h-80"
                     >
                         <UsersPerMinuteChart data={chartData} timezone={timezone} />
                     </LiveChartCard>
