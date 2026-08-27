@@ -22,7 +22,13 @@ function asSentence(reason: string): string {
 // flag, because one 100% condition plus one 100% variant satisfies the full-rollout check while a
 // separate targeted condition above it serves a different variant. Reading full rollout first would
 // claim one result for every user while targeted users get another.
-function rolloutSentence(rollout: FeatureFlagRolloutSummaryApi | undefined, hasUsageData: boolean): string | null {
+// `targets` is the flag's aggregation unit (people, or a group noun like "organizations"), so a
+// flag evaluated on groups does not report its rollout as a share of users.
+function rolloutSentence(
+    rollout: FeatureFlagRolloutSummaryApi | undefined,
+    hasUsageData: boolean,
+    targets: string
+): string | null {
     if (!rollout || rollout.max_rollout_percentage === null) {
         // A flag with no release conditions. `effectively_full_rollout` is true for this shape, so
         // naming a condition that rolls out to everyone would describe something that is not there.
@@ -31,30 +37,33 @@ function rolloutSentence(rollout: FeatureFlagRolloutSummaryApi | undefined, hasU
     const percentage = rollout.max_rollout_percentage
 
     if (rollout.has_targeting_conditions) {
-        return `Its highest rollout is ${percentage}% inside a targeted release condition. That is not ${percentage}% of all users.`
+        return `Its highest rollout is ${percentage}% inside a targeted release condition. That is not ${percentage}% of all ${targets}.`
     }
     if (rollout.effectively_full_rollout) {
         // Without usage data the backend reaches its stale verdict from the rollout itself, so
         // `reason` already says the flag always resolves one way. Saying it again adds nothing.
-        return hasUsageData ? 'One release condition rolls out to everyone, so every user gets the same result.' : null
+        return hasUsageData
+            ? `One release condition rolls out to all ${targets}, so they all get the same result.`
+            : null
     }
     if (percentage < 100) {
-        return `Its rollout is ${percentage}% of all users.`
+        return `Its rollout is ${percentage}% of all ${targets}.`
     }
     // A rollout that covers everyone without meeting the full-rollout check, which happens when a
     // multivariate flag splits a 100% condition across variants.
-    return rollout.is_multivariate ? 'It rolls out to all users, split across its variants.' : null
+    return rollout.is_multivariate ? `It rolls out to all ${targets}, split across its variants.` : null
 }
 
 export function FeatureFlagStaleBanner(): JSX.Element | null {
-    const { showStaleFlagBanner, flagStatus, featureFlag, hasExperiment, dependentFlags } = useValues(featureFlagLogic)
+    const { showStaleFlagBanner, flagStatus, featureFlag, hasExperiment, dependentFlags, aggregationTargetName } =
+        useValues(featureFlagLogic)
     const { setSelectedTab } = useActions(featureFlagLogic)
 
     if (!showStaleFlagBanner || !flagStatus) {
         return null
     }
 
-    const rollout = rolloutSentence(flagStatus.rollout, Boolean(featureFlag.last_called_at))
+    const rollout = rolloutSentence(flagStatus.rollout, Boolean(featureFlag.last_called_at), aggregationTargetName)
 
     return (
         <LemonBanner

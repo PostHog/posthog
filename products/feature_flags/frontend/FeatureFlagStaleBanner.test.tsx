@@ -12,6 +12,7 @@ import { FeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
 
 import { useMocks } from '~/mocks/jest'
 import type { Mocks } from '~/mocks/utils'
+import { groupsModel } from '~/models/groupsModel'
 import { initKeaTests } from '~/test/init'
 import { FeatureFlagType } from '~/types'
 
@@ -119,7 +120,7 @@ describe('FeatureFlagStaleBanner', () => {
             name: 'a flag that covers everyone',
             flag: buildFlag({ last_called_at: CALLED_AT }),
             rollout: { ...NO_ROLLOUT, effectively_full_rollout: true },
-            says: /One release condition rolls out to everyone, so every user gets the same result\./,
+            says: /One release condition rolls out to all users, so they all get the same result\./,
         },
         {
             // One 100% condition plus one 100% variant satisfies the full-rollout check while a
@@ -171,6 +172,32 @@ describe('FeatureFlagStaleBanner', () => {
         // The reason and the rollout share one paragraph, so an exact match on the reason alone
         // proves that no rollout sentence was added to it.
         expect(screen.getByText(says ?? `${STALE_REASON}.`)).toBeInTheDocument()
+    })
+
+    it('names the aggregation unit for a group-based flag', async () => {
+        // A flag evaluated on organizations serves a share of organizations, not users, and the rest
+        // of the flag page already says so. Seed the group type so the label resolves to a real noun.
+        groupsModel.mount()
+        groupsModel.actions.loadAllGroupTypesSuccess([
+            {
+                group_type: 'organization',
+                group_type_index: 0,
+                name_singular: 'organization',
+                name_plural: 'organizations',
+            },
+        ] as any)
+
+        const flag = buildFlag({
+            last_called_at: CALLED_AT,
+            filters: { ...NEW_FLAG.filters, aggregation_group_type_index: 0 },
+        })
+        useMocks(
+            endpointMocks({ flag, status: { ...STALE_STATUS, rollout: { ...NO_ROLLOUT, max_rollout_percentage: 40 } } })
+        )
+        const logic = mountAndRender()
+        await settle(logic)
+
+        expect(screen.getByText(/Its rollout is 40% of all organizations\./)).toBeInTheDocument()
     })
 
     it.each([
