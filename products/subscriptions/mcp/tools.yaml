@@ -216,14 +216,13 @@ tools:
         title: Send test delivery
         description: >
             Trigger an immediate test delivery of a subscription to its configured target(s) (email, Slack, or Microsoft
-            Teams). Runs the
-            same pipeline as a scheduled delivery but with trigger_type=manual, producing a real delivery record you can
-            inspect via subscriptions-deliveries-list / subscriptions-deliveries-retrieve. Returns 202 Accepted once the
-            delivery workflow is queued; poll subscriptions-deliveries-list (newest first) or
-            subscriptions-deliveries-retrieve for the outcome. Returns 409 if a test delivery for the same subscription
-            is already in flight, or if the subscription is disabled (re-enable it first); 404 if it has been deleted.
-            Test-delivering a prompt subscription additionally requires the `query:read` scope (it runs the AI HogQL
-            pipeline).
+            Teams). Runs the same pipeline as a scheduled delivery but with trigger_type=manual, producing a real
+            delivery record you can inspect via subscriptions-deliveries-list / subscriptions-deliveries-retrieve.
+            Returns 202 Accepted once the delivery workflow is queued; poll subscriptions-deliveries-list (newest first)
+            or subscriptions-deliveries-retrieve for the outcome. Returns 409 if a test delivery for the same
+            subscription is already in flight, or if the subscription is disabled (re-enable it first); 404 if it has
+            been deleted. Test-delivering a prompt subscription additionally requires the `query:read` scope (it runs
+            the AI HogQL pipeline).
     subscriptions-update:
         operation: subscriptions_update
         enabled: false
