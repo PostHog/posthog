@@ -445,10 +445,9 @@ def query_dora_overview(
     if date_to is not None:
         placeholders["date_to"] = ast.Constant(value=date_to)
 
-    deployments_source, statuses_source = deploy_sources
     environments = _query_environments(
         curated,
-        deployments_source,
+        deploy_sources.deployments,
         placeholders=placeholders,
         date_to_filter=_date_to_clause(date_to, "d.created_at"),
     )
@@ -459,8 +458,8 @@ def query_dora_overview(
     scan = _DoraScan(
         curated=curated,
         deploys_cte=(
-            _DEPLOYS_CTE.replace("__DEPLOYMENTS_SOURCE__", deployments_source)
-            .replace("__STATUSES_SOURCE__", statuses_source)
+            _DEPLOYS_CTE.replace("__DEPLOYMENTS_SOURCE__", deploy_sources.deployments)
+            .replace("__STATUSES_SOURCE__", deploy_sources.statuses)
             .replace("__ENV_PREDICATE__", env_scope.predicate)
         ),
         placeholders=placeholders,
