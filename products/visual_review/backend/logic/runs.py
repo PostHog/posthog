@@ -352,7 +352,19 @@ def finish_processing(run_id: UUID, error_message: str = "") -> Run:
     # then reclassifies every snapshot whose diff came in under the threshold. A reader
     # that sees COMPLETED before the recount therefore gets counts that still report drift
     # the run no longer has, and the CLI fails CI on them.
-    snapshots = gating._recount(run)
+    try:
+        snapshots = gating._recount(run)
+    except Exception as exc:
+        # Terminalize before the exception leaves. `complete_run` runs its no-change path
+        # synchronously with no exception handler behind it, and it returns early on a run
+        # that is already PROCESSING, so every later retry would be a no-op. Report the
+        # failure rather than publish counts the recount did not settle.
+        logger.exception("visual_review.recount_failed", run_id=str(run_id))
+        run.status = RunStatus.FAILED
+        run.error_message = f"Recount failed: {exc}"
+        run.completed_at = timezone.now()
+        run.save(update_fields=["status", "error_message", "completed_at"])
+        raise
 
     run.status = RunStatus.COMPLETED
     run.error_message = ""
