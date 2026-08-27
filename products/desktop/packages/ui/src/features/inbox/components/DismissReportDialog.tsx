@@ -121,10 +121,10 @@ function DismissReportDialogBody({
   // Populates the integration store in case no other surface loaded it yet; react-query dedupes.
   useIntegrations();
   const { hasGithubIntegration } = useIntegrationSelectors();
-  const repoPage = useGithubRepositories(
-    repoSearch,
-    isWrongRepo && isRepoPickerOpen,
-  );
+  // Enabled on the reason alone, not on isRepoPickerOpen: when the list is empty the picker
+  // renders a disabled "No GitHub repos" trigger that cannot be opened, so gating the fetch on
+  // the open state would deadlock on a cold cache (never open -> never fetch -> never open).
+  const repoPage = useGithubRepositories(repoSearch, isWrongRepo);
 
   const handleConfirm = () => {
     if (!reason) return;
