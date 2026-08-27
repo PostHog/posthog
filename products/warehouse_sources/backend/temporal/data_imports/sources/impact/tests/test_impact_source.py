@@ -116,13 +116,17 @@ class TestImpactSourceClass:
     @parameterized.expand(
         [
             (
+                "exhausted_429",
+                "429 Client Error: Too Many Requests for url: https://api.impact.com/Advertisers/s/Actions",
+            ),
+            (
                 "exhausted_500",
                 "500 Server Error: Internal Server Error for url: https://api.impact.com/Mediapartners/s/Campaigns",
             ),
             ("exhausted_502", "502 Server Error: Bad Gateway for url: https://api.impact.com/Advertisers/s/Invoices"),
         ]
     )
-    def test_exhausted_upstream_5xx_is_retryable(self, _name: str, error: str) -> None:
+    def test_exhausted_transient_responses_are_retryable(self, _name: str, error: str) -> None:
         assert error_message_matches(error, ImpactSource().get_retryable_errors())
 
     @parameterized.expand(
