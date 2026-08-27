@@ -96,6 +96,7 @@ describe('NotebookNodeGeneratedWidget', () => {
             </BindLogic>
         )
 
+        expect(screen.getByText('Widget')).toBeTruthy()
         await waitFor(() => expect(screen.getAllByText('Regenerating widget…')).toHaveLength(1))
     })
 })

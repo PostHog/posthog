@@ -86,9 +86,9 @@ describe('markdownNotebookRegistry', () => {
         })
 
         it('offers generated widgets in the insert menu', () => {
-            expect(
-                getInsertCommandsByLabel({ [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true }, 'Generated widget')
-            ).toEqual([{ key: 'component-GeneratedWidget', category: 'Code' }])
+            expect(getInsertCommandsByLabel({ [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true }, 'Widget')).toEqual([
+                { key: 'component-GeneratedWidget', category: 'Common' },
+            ])
             expect(NOTEBOOK_MARKDOWN_REGISTRY.components.GeneratedWidget.fullscreenable).toBe(true)
             expect(NOTEBOOK_MARKDOWN_REGISTRY.components.GenUI.fullscreenable).toBe(true)
             expect(NOTEBOOK_MARKDOWN_REGISTRY.components.GenUI.insertCommand).toBeUndefined()
@@ -99,7 +99,7 @@ describe('markdownNotebookRegistry', () => {
         it.each([
             ['SQL', 'component-SQLV2'],
             ['Python', 'component-PythonV2'],
-            ['Generated widget', 'component-GeneratedWidget'],
+            ['Widget', 'component-GeneratedWidget'],
         ])('inserts a %s block with its input panel open', (_label, commandKey) => {
             const insertedNodes: NotebookComponentBlockNode[] = []
             const noop = (): void => {}

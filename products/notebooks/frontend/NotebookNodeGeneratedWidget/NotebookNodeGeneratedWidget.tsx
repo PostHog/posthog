@@ -310,7 +310,7 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeGeneratedWidget
 
 export const NotebookNodeGeneratedWidget = createPostHogWidgetNode<NotebookNodeGeneratedWidgetAttributes>({
     nodeType: NotebookNodeType.GeneratedWidget,
-    titlePlaceholder: 'Generated widget',
+    titlePlaceholder: 'Widget',
     Component,
     Settings: NotebookNodeGeneratedWidgetSettings,
     serializedText: (attributes) => getWidgetName(attributes.prompt ?? ''),

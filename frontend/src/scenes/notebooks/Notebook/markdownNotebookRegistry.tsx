@@ -300,9 +300,10 @@ export const MARKDOWN_NODE_DEFINITIONS: {
     {
         tagName: 'GeneratedWidget',
         category: 'Code',
-        label: 'Generated widget',
+        label: 'Widget',
         ToolbarComponent: NotebookGeneratedWidgetRunButton,
         insertCommand: {
+            category: COMMON_INSERT_COMMAND_CATEGORY,
             aliases: ['genui', 'visualization', 'widget', '3d'],
             defaultProps: () => ({
                 ...getDefaultPropsForNodeType(NotebookNodeType.GeneratedWidget),
@@ -314,7 +315,7 @@ export const MARKDOWN_NODE_DEFINITIONS: {
     {
         tagName: 'GenUI',
         category: 'Code',
-        label: 'Generated widget',
+        label: 'Widget',
         ToolbarComponent: NotebookGeneratedWidgetRunButton,
     },
     { tagName: 'RecordingPlaylist', category: 'Data', label: 'Session recordings' },

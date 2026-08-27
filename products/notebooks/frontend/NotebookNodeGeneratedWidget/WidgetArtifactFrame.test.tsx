@@ -53,7 +53,7 @@ describe('WidgetArtifactFrame', () => {
                 onReadFrame={jest.fn()}
             />
         )
-        const iframe = screen.getByTitle('Generated widget') as HTMLIFrameElement
+        const iframe = screen.getByTitle('Widget') as HTMLIFrameElement
         expect(iframe).toHaveAttribute('src', 'https://example.com/globe.html#theme=light')
         expect(iframe).not.toHaveAttribute('srcdoc')
         sendNotebookPort(iframe, port)
@@ -75,7 +75,7 @@ describe('WidgetArtifactFrame', () => {
                 onArtifactUnavailable={onArtifactUnavailable}
             />
         )
-        const iframe = screen.getByTitle('Generated widget') as HTMLIFrameElement
+        const iframe = screen.getByTitle('Widget') as HTMLIFrameElement
         sendNotebookPort(iframe, initialPort)
         fireEvent.load(iframe)
         fireEvent.load(iframe)
@@ -102,7 +102,7 @@ describe('WidgetArtifactFrame', () => {
             />
         )
 
-        fireEvent.load(screen.getByTitle('Generated widget'))
+        fireEvent.load(screen.getByTitle('Widget'))
 
         expect(messageChannel).not.toHaveBeenCalled()
         expect(postMessage).not.toHaveBeenCalled()
@@ -119,7 +119,7 @@ describe('WidgetArtifactFrame', () => {
                 onArtifactUnavailable={onArtifactUnavailable}
             />
         )
-        const iframe = screen.getByTitle('Generated widget') as HTMLIFrameElement
+        const iframe = screen.getByTitle('Widget') as HTMLIFrameElement
         sendNotebookPort(iframe, port)
 
         act(() => jest.advanceTimersByTime(20_000))

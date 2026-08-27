@@ -113,7 +113,7 @@ export function WidgetArtifactFrame({
     return (
         <iframe
             ref={iframeRef}
-            title="Generated widget"
+            title="Widget"
             sandbox="allow-scripts"
             referrerPolicy="no-referrer"
             className={`w-full h-full border-0 bg-primary ${
