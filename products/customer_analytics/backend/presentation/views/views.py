@@ -79,6 +79,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     CustomPropertyDefinitionSerializer,
     CustomPropertySourceSerializer,
     CustomPropertySourceUpdateSerializer,
+    CustomPropertySyncRunListQuerySerializer,
     CustomPropertySyncRunSerializer,
     CustomPropertySyncTriggerResponseSerializer,
     CustomPropertyValueSerializer,
@@ -606,7 +607,7 @@ class FeatureRequestViewSet(
         return self.update(request, *args, **kwargs)
 
     @extend_schema(request=FeatureRequestAddAccountSerializer, responses={200: FeatureRequestSerializer})
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
     def add_account(self, request: Request, *args, **kwargs) -> Response:
         serializer = FeatureRequestAddAccountSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -633,7 +634,7 @@ class FeatureRequestViewSet(
         return Response(FeatureRequestSerializer(instance=feature_request).data)
 
     @extend_schema(request=FeatureRequestEvidenceCreateSerializer, responses={200: FeatureRequestSerializer})
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
     def add_evidence(self, request: Request, *args, **kwargs) -> Response:
         serializer = FeatureRequestEvidenceCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -664,7 +665,7 @@ class FeatureRequestViewSet(
         return Response(FeatureRequestSerializer(instance=feature_request).data)
 
     @extend_schema(request=FeatureRequestEvidenceUpdateSerializer, responses={200: FeatureRequestSerializer})
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
     def update_evidence(self, request: Request, *args, **kwargs) -> Response:
         serializer = FeatureRequestEvidenceUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -695,7 +696,7 @@ class FeatureRequestViewSet(
         return Response(FeatureRequestSerializer(instance=feature_request).data)
 
     @extend_schema(request=FeatureRequestEvidenceDeleteSerializer, responses={200: FeatureRequestSerializer})
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
     def remove_evidence(self, request: Request, *args, **kwargs) -> Response:
         serializer = FeatureRequestEvidenceDeleteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -738,17 +739,17 @@ class FeatureRequestViewSet(
         return Response(FeatureRequestSerializer(instance=feature_request).data)
 
     @extend_schema(request=FeatureRequestVersionSerializer, responses={200: FeatureRequestSerializer})
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
     def archive(self, request: Request, *args, **kwargs) -> Response:
         return self._set_archived(request, archived=True)
 
     @extend_schema(request=FeatureRequestVersionSerializer, responses={200: FeatureRequestSerializer})
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
     def restore(self, request: Request, *args, **kwargs) -> Response:
         return self._set_archived(request, archived=False)
 
     @extend_schema(responses={200: FeatureRequestHistorySerializer(many=True)})
-    @action(methods=["GET"], detail=True, pagination_class=None)
+    @action(methods=["GET"], detail=True, pagination_class=None, required_scopes=["customer_analytics:read"])
     def history(self, request: Request, *args, **kwargs) -> Response:
         history = api.list_feature_request_history(
             team_id=self.team_id,
@@ -760,7 +761,7 @@ class FeatureRequestViewSet(
         return Response(FeatureRequestHistorySerializer(instance=history, many=True).data)
 
     @extend_schema(responses={200: FeatureRequestStatusHistorySerializer(many=True)})
-    @action(methods=["GET"], detail=True, pagination_class=None)
+    @action(methods=["GET"], detail=True, pagination_class=None, required_scopes=["customer_analytics:read"])
     def status_history(self, request: Request, *args, **kwargs) -> Response:
         history = api.list_feature_request_status_history(
             team_id=self.team_id,
@@ -1335,13 +1336,13 @@ class CustomPropertySourceViewSet(
 
     @extend_schema(
         operation_id="custom_property_sources_runs_list",
+        parameters=[CustomPropertySyncRunListQuerySerializer],
         responses={200: CustomPropertySyncRunSerializer(many=True)},
     )
     @action(methods=["GET"], detail=True)
     def runs(self, request: Request, *args, **kwargs) -> Response:
-        """Person and group sources only: the source's sync/backfill run history, newest first. Gated
-        on the caller's warehouse-source viewer access, since the runs expose its row counts and sync
-        errors."""
+        """The source's sync history, newest first. Person and group runs require viewer access to
+        their warehouse source because the response includes row counts and sync errors."""
         # Hide the run history of a group-target source from callers without group read authorization.
         source = api.get_custom_property_source(self.team_id, self.kwargs["pk"])
         if (
@@ -1350,6 +1351,11 @@ class CustomPropertySourceViewSet(
             and not _has_group_scope(request, write=False)
         ):
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        if source is not None and self._definition_target_type(source.definition) == "account":
+            self._report_usage(request, "account property sync history viewed")
+        query = CustomPropertySyncRunListQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        search = query.validated_data.get("search", "").strip() or None
         try:
             return self._paginate_via_facade(
                 request,
@@ -1359,6 +1365,8 @@ class CustomPropertySourceViewSet(
                     offset=offset,
                     limit=limit,
                     user_access_control=_warehouse_scoped_uac(self),
+                    include_temporal_urls=bool(request.user.is_staff or is_impersonated(request)),
+                    search=search,
                 ),
                 CustomPropertySyncRunSerializer,
             )

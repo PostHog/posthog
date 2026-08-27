@@ -235,14 +235,23 @@ def complete_run(run_id: UUID) -> Run:
 
     repo = run.repo
 
+    # What this run rendered. Read before the baseline so healing can be limited
+    # to it — an entry missing from both the branch baseline and the build is a
+    # deliberate deletion, and healing it back only manufactures a REMOVED.
+    run_identifiers = set(run.snapshots.using(WRITER_DB).values_list("identifier", flat=True))
+
     # Fetch baseline merged with merge-base to heal rebase-induced drift.
     # Branch baseline tracks approvals; merge-base fills entries lost when
     # git rebase replays a full-file bot commit destructively.
-    # Pass commit_sha so default-branch runs fetch the baseline at the
-    # exact commit being tested, avoiding races with concurrent pushes.
+    # Pass commit_sha so the baseline is read at the exact commit being tested,
+    # not at a branch tip that may have moved or been deleted.
     try:
         baseline, healed_count = baselines._resolve_baselines_with_merge_base(
-            repo, run.run_type, run.branch, commit_sha=run.commit_sha
+            repo,
+            run.run_type,
+            run.branch,
+            rendered_identifiers=run_identifiers,
+            commit_sha=run.commit_sha,
         )
     except GitHubRateLimitError:
         # Roll back to PENDING so the caller can retry after the limit resets
@@ -253,7 +262,6 @@ def complete_run(run_id: UUID) -> Run:
         run.save(using=WRITER_DB, update_fields=["metadata"])
 
     # Pre-load tolerated hashes scoped to this run's identifiers and baseline hashes
-    run_identifiers = set(run.snapshots.using(WRITER_DB).values_list("identifier", flat=True))
     baseline_hashes_in_use = set(baseline.values())
     tolerated_lookup: dict[tuple[str, str, str], ToleratedHash] = {}
     if run_identifiers and baseline_hashes_in_use:

@@ -1,4 +1,5 @@
 import {
+  INBOX_REPORT_DETAIL_STALE_TIME_MS,
   inboxReportKeys,
   resolveInboxReportDetailCache,
 } from "@posthog/core/inbox/inboxQuery";
@@ -202,7 +203,7 @@ export function useInboxReportById(
       placeholderData: (previous) => previous,
       refetchInterval: options?.refetchInterval,
       refetchIntervalInBackground: options?.refetchIntervalInBackground,
-      staleTime: options?.staleTime,
+      staleTime: options?.staleTime ?? INBOX_REPORT_DETAIL_STALE_TIME_MS,
     },
   );
 }

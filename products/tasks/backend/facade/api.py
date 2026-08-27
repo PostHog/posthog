@@ -74,6 +74,7 @@ from products.tasks.backend.constants import (
     MAX_CUSTOM_IMAGES_PER_TEAM,
     MAX_CUSTOM_IMAGES_PER_USER,
     PI_CLOUD_RUNTIME_FEATURE_FLAG,
+    PR_LOOP_ENABLED_STATE_KEY,
     PR_STATES as PR_STATES,  # re-exported for presentation
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
     TASK_ANALYSIS_FEATURE_FLAG,
@@ -639,6 +640,10 @@ def _task_detail_to_dto(
 
 
 def _sandbox_env_to_dto(env: SandboxEnvironment) -> contracts.SandboxEnvironmentDTO:
+    # The names are reported back so a caller can tell which variables are set; the values
+    # stay server-side. A value that failed to decrypt comes back as its ciphertext string
+    # rather than a dict, and that is not a variable set, so it reports as none.
+    env_vars = env.environment_variables if isinstance(env.environment_variables, dict) else {}
     return contracts.SandboxEnvironmentDTO(
         id=env.id,
         team_id=env.team_id,
@@ -650,7 +655,8 @@ def _sandbox_env_to_dto(env: SandboxEnvironment) -> contracts.SandboxEnvironment
         allowed_domains=list(env.allowed_domains or []),
         repositories=list(env.repositories or []),
         effective_domains=env.get_effective_domains(),
-        has_environment_variables=bool(env.environment_variables),
+        has_environment_variables=bool(env_vars),
+        environment_variable_keys=sorted(env_vars),
         created_by=_user_basic_info(env.created_by if env.created_by_id else None),
         created_at=env.created_at,
         updated_at=env.updated_at,
@@ -2138,6 +2144,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # the run-log mirror with the rollout off).
         AGENT_OTEL_TELEMETRY_STATE_KEY,
         "sandbox_event_ingest_enabled",
+        PR_LOOP_ENABLED_STATE_KEY,
         "snapshot_external_id",
         "snapshot_kind",
         "snapshot_mount_path",
@@ -2742,13 +2749,16 @@ def update_task_run(
         post_pr_created_thread_update(run, new_pr_url)
         # Surface the PR in the run's progress timeline the moment the agent reports it, so the install
         # UI advances past "Started agent" instead of waiting on the 15-min CI follow-up loop to emit
-        # these. Steps coalesce by id with the workflow's own pr/ci emissions (frontend mergeProgressStep),
-        # so the double-emit is harmless. Tolerant: a logging/stream hiccup must not fail the PATCH.
+        # these. Tolerant: a logging/stream hiccup must not fail the PATCH.
         try:
             run.emit_progress_event("pr", "completed", "Opened pull request", "setup", detail=new_pr_url)
-            run.emit_progress_event("ci", "in_progress", "Keeping CI green", "setup")
+            if (run.state or {}).get(PR_LOOP_ENABLED_STATE_KEY):
+                run.emit_progress_event("ci", "in_progress", "Keeping CI green", "setup")
         except Exception:
             logger.warning("task_run.pr_progress_emit_failed", extra={"run_id": str(run.id)}, exc_info=True)
+
+    if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
+        run.close_ci_progress_step()
 
     new_commit_head = _commit_push_head_sha(run.output)
     if caller_is_agent and isinstance(run.output, dict) and new_commit_head and new_commit_head != old_commit_head:
