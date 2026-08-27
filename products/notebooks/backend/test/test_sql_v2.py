@@ -441,6 +441,51 @@ class TestSQLV2Run(APIBaseTest):
         mock_start.assert_not_called()
         self.assertFalse(KernelRuntime.objects.filter(team=self.team).exists())
 
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_one_run_at_a_time_per_notebook(self, _mock_enabled, _mock_enqueue, _mock_start):
+        # The editor has always shown one run at a time per notebook, but that rule was kea
+        # state in one browser tab. An API caller — which is what the MCP cell tools are — could
+        # dispatch as many as it liked, and each SQL run is a real ClickHouse query.
+        from products.notebooks.backend.sql_v2_runs import finish_node_run
+
+        first = self.client.post(self.run_url, data={"node_id": "n1", "code": "select 1"}, format="json")
+        self.assertEqual(first.status_code, 200)
+
+        second = self.client.post(self.run_url, data={"node_id": "n2", "code": "select 2"}, format="json")
+        self.assertEqual(second.status_code, 429, second.content)
+        self.assertIn("already has a cell running", second.json()["detail"])
+        # A refused dispatch must write nothing: an agent retrying into a full ceiling would
+        # otherwise leave a row per attempt on the table that grows fastest.
+        self.assertEqual(NotebookNodeRun.objects.for_team(self.team.id).filter(node_id="n2").count(), 0)
+
+        # Finishing the first run hands the slot back. Without this the notebook would stay
+        # blocked until the slot's TTL, which is far worse than the problem being fixed.
+        run = NotebookNodeRun.objects.for_team(self.team.id).get(id=first.json()["run_id"])
+        finish_node_run(run, NotebookNodeRun.Status.DONE, error=None)
+
+        third = self.client.post(self.run_url, data={"node_id": "n2", "code": "select 2"}, format="json")
+        self.assertEqual(third.status_code, 200, third.content)
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_a_busy_notebook_does_not_block_another_notebook(self, _mock_enabled, _mock_enqueue, _mock_start):
+        # The ceiling is keyed per notebook, so one busy notebook must not stop the rest. If the
+        # per-notebook limiter used the team key by mistake, the team ceiling would effectively
+        # be 1 and this would fail.
+        self.assertEqual(
+            self.client.post(self.run_url, data={"node_id": "n1", "code": "select 1"}, format="json").status_code, 200
+        )
+        other = Notebook.objects.create(team=self.team, short_id="nbrun02")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{other.short_id}/sql_v2/run/",
+            data={"node_id": "n1", "code": "select 1"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+
     @patch("products.notebooks.backend.sql_v2_direct.enqueue_process_query_task")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_direct_enqueue_threads_user_and_private_query_id(self, _mock_enabled, mock_enqueue):

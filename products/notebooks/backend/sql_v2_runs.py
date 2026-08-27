@@ -16,6 +16,7 @@ from django.utils import timezone
 import structlog
 
 from products.notebooks.backend.models import NotebookNodeRun
+from products.notebooks.backend.sql_v2_concurrency import release_run_slots
 from products.notebooks.backend.sql_v2_metrics import OUTCOME_TIMED_OUT, outcome_for_status, record_node_run_terminal
 
 logger = structlog.get_logger(__name__)
@@ -63,6 +64,10 @@ def finish_node_run(
     # select_related: the recorder reads run.user and run.notebook; a plain refresh wipes
     # the FK caches and forces a lazy query per relation.
     run.refresh_from_db(from_queryset=NotebookNodeRun.objects.for_team(run.team_id).select_related("user", "notebook"))
+    # Released whether or not this call won: the run is terminal either way, and giving a slot
+    # back twice removes an absent set member, which does nothing. Holding it on the losing
+    # path would keep a notebook blocked until the slot's TTL.
+    release_run_slots(run.team_id, run.notebook.short_id, str(run.id))
     if updated:
         record_node_run_terminal(run, outcome or outcome_for_status(status))
     return bool(updated)

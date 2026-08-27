@@ -17,6 +17,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
+    OpenApiResponse,
     extend_schema,
     extend_schema_field,
     extend_schema_view,
@@ -44,7 +45,7 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, changes_between, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.utils import UUIDT
+from posthog.models.utils import UUIDT, uuid7
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.utils import relative_date_parse
@@ -75,6 +76,7 @@ from products.notebooks.backend.sql_v2 import (
     is_sql_v2_enabled,
     sql_v2_page_lock_key,
 )
+from products.notebooks.backend.sql_v2_concurrency import NotebookRunBusy, acquire_run_slots
 from products.notebooks.backend.sql_v2_direct import cancel_direct_run, enqueue_direct_run, sync_direct_run
 from products.notebooks.backend.sql_v2_references import (
     SQLV2Ref,
@@ -1142,10 +1144,19 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
     @extend_schema(
         request=NotebookSQLV2RunRequestSerializer,
-        responses={200: NotebookSQLV2RunResponseSerializer},
+        responses={
+            200: NotebookSQLV2RunResponseSerializer,
+            429: OpenApiResponse(
+                description=(
+                    "A concurrency ceiling is full: the notebook already has a cell running, or the project "
+                    "has as many notebook cells in flight as it may. Retry once one finishes."
+                )
+            ),
+        },
         description=(
             "Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; "
-            "poll the run result endpoint until the status is terminal. Flag-gated (revamped-py-notebooks)."
+            "poll the run result endpoint until the status is terminal. One run at a time per notebook. "
+            "Flag-gated (revamped-py-notebooks)."
         ),
     )
     @action(methods=["POST"], url_path="sql_v2/run", detail=True, required_scopes=["notebook:write", "query:read"])
@@ -1255,7 +1266,17 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         except (SQLV2ReferenceError, ExposedHogQLError) as e:
             return Response({"detail": str(e)}, status=400)
 
+        # Taken before the row exists, so a refused dispatch writes nothing: an agent retrying
+        # into a full ceiling must not leave a trail of rows behind it. The id is minted here
+        # because the slot is keyed on it and has to be released by the run that took it.
+        run_id = uuid7()
+        try:
+            acquire_run_slots(self.team_id, notebook.short_id, str(run_id))
+        except NotebookRunBusy as e:
+            return Response({"detail": str(e)}, status=429)
+
         run = NotebookNodeRun.objects.create(
+            id=run_id,
             team_id=self.team_id,
             notebook=notebook,
             # The same user the run's kernel is resolved for, so the callback can scope the
