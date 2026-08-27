@@ -1,6 +1,6 @@
 import dataclasses
 from dataclasses import field
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
 from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings
 from posthog.hogql.errors import ExposedHogQLError
@@ -13,8 +13,14 @@ if TYPE_CHECKING:
 
 from posthog.dataclasses import frozen
 
+_ConfigT_co = TypeVar("_ConfigT_co", covariant=True)
 
-def parse_direct_source_config(source_impl: Any, source: "ExternalDataSource") -> Any:
+
+class _ParseableSource(Protocol[_ConfigT_co]):
+    def parse_config(self, job_inputs: dict) -> _ConfigT_co: ...
+
+
+def parse_direct_source_config(source_impl: _ParseableSource[_ConfigT_co], source: "ExternalDataSource") -> _ConfigT_co:
     """Build a source's connection config from its stored ``job_inputs``.
 
     A direct-capable source can reach a live query with empty or incomplete ``job_inputs``
