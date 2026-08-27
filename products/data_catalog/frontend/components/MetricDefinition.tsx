@@ -28,6 +28,7 @@ export function MetricDefinition({
     draftMarkdown,
     saving,
     runResult,
+    runError,
     runResultLoading,
     onDraftMarkdown,
     onEdit,
@@ -42,6 +43,7 @@ export function MetricDefinition({
     draftMarkdown: string
     saving: boolean
     runResult: DataCatalogMetricRunResult | null
+    runError: string | null
     runResultLoading: boolean
     onDraftMarkdown: (value: string) => void
     onEdit: (editing: boolean) => void
@@ -66,7 +68,11 @@ export function MetricDefinition({
             Run metric
         </LemonButton>
     )
-    const results = runResult ? <RunResult runResult={runResult} /> : null
+    const results = runError ? (
+        <LemonBanner type="error">{runError}</LemonBanner>
+    ) : runResult ? (
+        <RunResult runResult={runResult} />
+    ) : null
 
     const sourceInsightButton = metric.source_insight_short_id ? (
         <LemonButton

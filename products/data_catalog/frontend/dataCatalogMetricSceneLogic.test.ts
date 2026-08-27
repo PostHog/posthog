@@ -111,6 +111,22 @@ describe('dataCatalogMetricSceneLogic', () => {
         expect(logic.values.runResult?.compiled_query).toEqual('SELECT count()')
     })
 
+    it('keeps a failed run detail inline and clears it on the next run', async () => {
+        ;(dataCatalogMetricsRunCreate as jest.Mock).mockRejectedValue(
+            new ApiError('bad', 400, undefined, { detail: 'This metric could not run: Illegal type Int8' })
+        )
+
+        logic.actions.loadRunResult()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.runError).toEqual('This metric could not run: Illegal type Int8')
+        expect(logic.values.runResult).toBeNull()
+        ;(dataCatalogMetricsRunCreate as jest.Mock).mockResolvedValue({ results: [], compiled_query: 'SELECT 1' })
+
+        logic.actions.loadRunResult()
+        await expectLogic(logic).toMatchValues({ runError: null })
+    })
+
     it('discards the edited draft when the definition editor closes without saving', async () => {
         jest.clearAllMocks()
         ;(dataCatalogMetricsRetrieve as jest.Mock).mockResolvedValue(
