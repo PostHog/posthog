@@ -25,6 +25,7 @@ const ACTION_SELECTOR = '[data-attr="feature-flag-stale-banner-view-usage"]'
 const HEADING = 'This flag may no longer be needed'
 const GUIDANCE = 'Review usage and code references before disabling or archiving this flag.'
 const STALE_REASON = 'This boolean flag will always evaluate to "true"'
+const CALLED_AT = '2026-01-01T00:00:00Z'
 
 const NO_ROLLOUT = {
     effectively_full_rollout: false,
@@ -111,25 +112,65 @@ describe('FeatureFlagStaleBanner', () => {
         expect(document.querySelectorAll(ACTION_SELECTOR).length).toBeGreaterThan(0)
     })
 
-    // Reading `stale` as "proven safe to delete" is the failure this banner exists to prevent,
-    // so a partial rollout must never be reported as a share of every user.
+    // Reading `stale` as "proven safe to delete" is the failure this banner exists to prevent, so a
+    // rollout must never read as a larger or smaller share of users than it is.
     it.each([
         {
-            name: 'a flag that resolves the same way for everyone',
+            name: 'a flag that covers everyone',
+            flag: buildFlag({ last_called_at: CALLED_AT }),
             rollout: { ...NO_ROLLOUT, effectively_full_rollout: true },
-            expected: /resolves to one result for all users/,
+            says: /One release condition rolls out to everyone, so every user gets the same result\./,
         },
         {
-            name: 'a flag whose biggest rollout sits inside a targeted condition',
-            rollout: { ...NO_ROLLOUT, has_targeting_conditions: true, max_rollout_percentage: 40 },
-            expected: /highest rollout is 40% within a targeted condition, not 40% of all users/,
+            // One 100% condition plus one 100% variant satisfies the full-rollout check while a
+            // targeted condition above it serves a different variant, so both flags come back true
+            // and the full-rollout sentence would be false.
+            name: 'a multivariate flag that targets a subset and also covers everyone',
+            flag: buildFlag({ last_called_at: CALLED_AT }),
+            rollout: {
+                effectively_full_rollout: true,
+                has_targeting_conditions: true,
+                max_rollout_percentage: 40,
+                is_multivariate: true,
+            },
+            says: /Its highest rollout is 40% inside a targeted release condition\. That is not 40% of all users\./,
         },
-    ])('describes the rollout of $name', async ({ rollout, expected }) => {
-        useMocks(endpointMocks({ status: { ...STALE_STATUS, rollout } }))
+        {
+            name: 'a flag that still serves part of the user base',
+            flag: buildFlag({ last_called_at: CALLED_AT }),
+            rollout: { ...NO_ROLLOUT, max_rollout_percentage: 40 },
+            says: /Its rollout is 40% of all users\./,
+        },
+        {
+            name: 'a multivariate flag that splits everyone across its variants',
+            flag: buildFlag({ last_called_at: CALLED_AT }),
+            rollout: { ...NO_ROLLOUT, is_multivariate: true },
+            says: /It rolls out to all users, split across its variants\./,
+        },
+        {
+            // `effectively_full_rollout` is true for a flag with no release conditions, so a
+            // sentence about a condition would describe something that is not there.
+            name: 'a flag with no release conditions',
+            flag: buildFlag({ last_called_at: CALLED_AT }),
+            rollout: { ...NO_ROLLOUT, effectively_full_rollout: true, max_rollout_percentage: null },
+            says: null,
+        },
+        {
+            // With no usage data the backend reads the rollout to reach its verdict, so the reason
+            // already carries the fact and the banner must not repeat it.
+            name: 'a flag the backend calls stale from its rollout alone',
+            flag: buildFlag(),
+            rollout: { ...NO_ROLLOUT, effectively_full_rollout: true },
+            says: null,
+        },
+    ])('describes the rollout of $name', async ({ flag, rollout, says }) => {
+        useMocks(endpointMocks({ flag, status: { ...STALE_STATUS, rollout } }))
         const logic = mountAndRender()
         await settle(logic)
 
-        expect(screen.getByText(expected)).toBeInTheDocument()
+        // The reason and the rollout share one paragraph, so an exact match on the reason alone
+        // proves that no rollout sentence was added to it.
+        expect(screen.getByText(says ?? `${STALE_REASON}.`)).toBeInTheDocument()
     })
 
     it.each([

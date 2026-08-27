@@ -36,21 +36,34 @@ const meta: Meta = {
                         detail: 'Not found.',
                     },
                 ],
-                '/api/projects/:team_id/feature_flags/:flagId/': ({ params }) => [
-                    200,
-                    featureFlags.results.find((r) => r.id === Number(params['flagId'])),
-                ],
+                '/api/projects/:team_id/feature_flags/:flagId/': ({ params }) => {
+                    const flag = featureFlags.results.find((r) => r.id === Number(params['flagId']))
+                    if (flag?.id !== STALE_FLAG_ID) {
+                        return [200, flag]
+                    }
+                    // A flag that stopped being called but still gates 40% of users. That is the
+                    // case the stale banner exists for, because "stale" reads most easily as "safe
+                    // to delete" when the flag is still live for real users.
+                    return [
+                        200,
+                        {
+                            ...flag,
+                            last_called_at: '2022-12-14T00:00:00Z',
+                            filters: { ...flag.filters, groups: [{ properties: [], rollout_percentage: 40 }] },
+                        },
+                    ]
+                },
                 '/api/projects/:team_id/feature_flags/:flagId/status': ({ params }) =>
                     Number(params['flagId']) === STALE_FLAG_ID
                         ? [
                               200,
                               {
                                   status: 'stale',
-                                  reason: 'This boolean flag will always evaluate to "true"',
+                                  reason: 'Flag has not been called in 45 days',
                                   rollout: {
-                                      effectively_full_rollout: true,
+                                      effectively_full_rollout: false,
                                       has_targeting_conditions: false,
-                                      max_rollout_percentage: 100,
+                                      max_rollout_percentage: 40,
                                       is_multivariate: false,
                                   },
                               },
