@@ -280,25 +280,26 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(earliest, anchor)
 
     def test_first_bucket_is_whole_on_a_project_away_from_utc(self):
-        # A project at +05:30 has its daily buckets at 18:30 UTC, so a date_from
-        # floored in UTC starts the scan 5.5 hours after the bucket ClickHouse
-        # labels the rows with, and the first point loses that slice again.
+        # A project at +05:30 has its hourly buckets at :30 past each UTC hour,
+        # so a date_from floored in UTC can start the scan after the bucket
+        # ClickHouse labels the rows with. The 07:45 sample belongs to the
+        # 07:30 bucket, and a UTC floor to 08:00 would drop it.
         self.team.timezone = "Asia/Kolkata"
         self.team.save()
-        bucket_start = dt.datetime(2026, 3, 16, 18, 30, tzinfo=dt.UTC)
+        bucket_start = dt.datetime(2026, 3, 17, 7, 30, tzinfo=dt.UTC)
         seed_metric(
             team_id=self.team.id,
             metric_name="m1",
-            points=[(bucket_start + dt.timedelta(hours=1), 3.0)],
+            points=[(bucket_start + dt.timedelta(minutes=15), 3.0)],
         )
 
         rows = MetricQueryRunner(
             team=self.team,
             metric_name="m1",
             aggregation="sum",
-            date_from=bucket_start + dt.timedelta(hours=14),
-            date_to=bucket_start + dt.timedelta(days=1),
-            interval="day",
+            date_from=bucket_start + dt.timedelta(minutes=45),
+            date_to=bucket_start + dt.timedelta(hours=1),
+            interval="hour",
         ).run()
 
         self.assertEqual(len(rows), 1)
