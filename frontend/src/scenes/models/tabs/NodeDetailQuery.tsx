@@ -19,8 +19,14 @@ function QueryAction({
     savedQuery: DataWarehouseSavedQuery
 }): JSX.Element {
     if (node.type === 'endpoint') {
+        // An endpoint node carries the versioned view name (`my_endpoint_v3`), but the endpoint
+        // route resolves the plain name and takes the version as a search param.
+        const versionMatch = node.name.match(/^(.+)_v(\d+)$/)
+        const to = versionMatch
+            ? urls.endpoint(versionMatch[1], parseInt(versionMatch[2], 10))
+            : urls.endpoint(node.name)
         return (
-            <LemonButton type="secondary" size="small" to={urls.endpoint(node.name)}>
+            <LemonButton type="secondary" size="small" to={to}>
                 Open endpoint
             </LemonButton>
         )
