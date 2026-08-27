@@ -111,26 +111,27 @@ def _get_earliest_timestamp_cache_key(
     :param node: The series node (optional). If None, returns team-level global cache key.
     :return: A string representing the cache key.
     """
-    if node is None:
-        # Global team-level earliest timestamp (for "all time" date filter)
-        # Use the same cache key as EventsNode(event=None) since they return the same result
-        return f"earliest_timestamp_event_{team.pk}"
-    elif isinstance(node, DataWarehouseNode):
-        return f"earliest_timestamp_data_warehouse_{team.pk}_{node.table_name}_{node.timestamp_field}"
-    elif isinstance(node, FunnelsDataWarehouseNode):
-        return f"earliest_timestamp_funnels_data_warehouse_{team.pk}_{node.table_name}_{node.timestamp_field}"
-    elif isinstance(node, LifecycleDataWarehouseNode):
-        return f"earliest_timestamp_lifecycle_data_warehouse_{team.pk}_{node.table_name}_{node.timestamp_field}"
-    elif isinstance(node, ActionsNode):
-        return f"earliest_timestamp_action_{team.pk}_{node.id}"
-    elif isinstance(node, EventsNode):
-        # node.event can be None, meaning "any event" (no event filter in WHERE clause)
-        # This is the same as the global team earliest
-        if node.event is not None:
-            return f"earliest_timestamp_event_{team.pk}_{node.event}"
-        return f"earliest_timestamp_event_{team.pk}"
-    else:
-        raise ValueError(f"Unsupported node type: {type(node)}")
+    match node:
+        case None:
+            # Global team-level earliest timestamp (for "all time" date filter)
+            # Use the same cache key as EventsNode(event=None) since they return the same result
+            return f"earliest_timestamp_event_{team.pk}"
+        case DataWarehouseNode(table_name=table_name, timestamp_field=timestamp_field):
+            return f"earliest_timestamp_data_warehouse_{team.pk}_{table_name}_{timestamp_field}"
+        case FunnelsDataWarehouseNode(table_name=table_name, timestamp_field=timestamp_field):
+            return f"earliest_timestamp_funnels_data_warehouse_{team.pk}_{table_name}_{timestamp_field}"
+        case LifecycleDataWarehouseNode(table_name=table_name, timestamp_field=timestamp_field):
+            return f"earliest_timestamp_lifecycle_data_warehouse_{team.pk}_{table_name}_{timestamp_field}"
+        case ActionsNode(id=action_id):
+            return f"earliest_timestamp_action_{team.pk}_{action_id}"
+        case EventsNode(event=None):
+            # node.event can be None, meaning "any event" (no event filter in WHERE clause)
+            # This is the same as the global team earliest
+            return f"earliest_timestamp_event_{team.pk}"
+        case EventsNode(event=event):
+            return f"earliest_timestamp_event_{team.pk}_{event}"
+        case _:
+            raise ValueError(f"Unsupported node type: {type(node)}")
 
 
 def _coerce_to_datetime(value: Any, tz: tzinfo) -> datetime:
