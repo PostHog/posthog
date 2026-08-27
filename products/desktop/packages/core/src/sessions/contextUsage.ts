@@ -1,5 +1,5 @@
 import type { AcpMessage } from "@posthog/shared";
-import { POSTHOG_NOTIFICATIONS, isNotification } from "./acpNotifications";
+import { isNotification, POSTHOG_NOTIFICATIONS } from "./acpNotifications";
 import { createAppendOnlyTracker } from "./appendOnlyTracker";
 
 export interface ContextBreakdown {
