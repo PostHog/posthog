@@ -302,18 +302,22 @@ export const WARNING_TYPE_RENDERER = {
             distinctId?: string
             distinctIdCount?: number
         }
+        // details rides on a publicly ingestible event, so treat it as untrusted: only render a
+        // distinct_id that is actually a string and a count that is actually a number. An object
+        // in either field would otherwise become a React child and crash the page.
+        const distinctId = typeof details.distinctId === 'string' ? details.distinctId : null
+        const distinctIdCount = typeof details.distinctIdCount === 'number' ? details.distinctIdCount : null
         return (
             <>
                 Rate limit reached, so these events were ingested with person profile processing turned off. No events
                 were dropped.
-                {details.distinctId ? (
+                {distinctId ? (
                     <>
                         {' '}
-                        Offending distinct_id:{' '}
-                        <Link to={urls.personByDistinctId(details.distinctId)}>{details.distinctId}</Link>.
+                        Offending distinct_id: <Link to={urls.personByDistinctId(distinctId)}>{distinctId}</Link>.
                     </>
-                ) : details.distinctIdCount ? (
-                    <> Affected {details.distinctIdCount} distinct IDs in this batch.</>
+                ) : distinctIdCount ? (
+                    <> Affected {distinctIdCount} distinct IDs in this batch.</>
                 ) : null}
             </>
         )
