@@ -56,6 +56,13 @@ from .sandbox import AgentServerResult, ExecutionResult, ExecutionStream, Sandbo
 
 logger = logging.getLogger(__name__)
 
+# Server-side and transport faults that delete() surfaces during teardown. destroy() is
+# best-effort — every caller swallows it because the box's idle TTL reaps it anyway — so a
+# hogland-side blip must not mint a fresh error-tracking issue. APIError covers a server-side
+# response (including NotFoundError, which means the box is already gone); TransportError covers
+# a network drop.
+TRANSIENT_TERMINATE_ERRORS: tuple[type[BaseException], ...] = (APIError, httpx.TransportError)
+
 # "agent" is a registered hogland kind (1h idle-TTL default) for API-driven
 # LLM sandbox runs — exactly this workload. Using it rather than an unregistered
 # kind means a call site that ever omits ttl_seconds inherits a safe default
@@ -473,6 +480,13 @@ class HoglandSandbox(AgentServerLaunchMixin):
         try:
             self._box.delete()
             logger.info(f"Destroyed hogland sandbox {self.id}")
+        except TRANSIENT_TERMINATE_ERRORS as e:
+            # Transient hogland-side fault during best-effort teardown. Log at warning and skip
+            # error-tracking capture so a server-side blip does not open a fresh issue for every caller.
+            logger.warning(f"Transient error destroying hogland sandbox {self.id}: {e}")
+            raise SandboxCleanupError(
+                f"Failed to destroy sandbox: {e}", {"sandbox_id": self.id, "error": str(e)}, cause=e, capture=False
+            )
         except Exception as e:
             logger.exception(f"Failed to destroy sandbox: {e}")
             raise SandboxCleanupError(

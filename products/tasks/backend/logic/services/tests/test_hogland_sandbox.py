@@ -3,10 +3,11 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
-from hogland import ExecEvent, ExecResult, NotFoundError
+from hogland import APIError, ExecEvent, ExecResult, NotFoundError
 from parameterized import parameterized
 
 from products.tasks.backend.exceptions import (
+    SandboxCleanupError,
     SandboxExecutionError,
     SandboxNotFoundError,
     SandboxProvisionError,
@@ -218,6 +219,25 @@ class TestHoglandSandboxLifecycle:
             sandbox.create_snapshot()
         with pytest.raises(SnapshotCreationError):
             sandbox.create_directory_snapshot("/tmp/workspace")
+
+    @parameterized.expand(
+        [
+            ("transient_api_error", APIError(status_code=500, body=None, request_id=None, message="boom"), False),
+            ("unexpected_error", RuntimeError("boom"), True),
+        ]
+    )
+    def test_destroy_skips_capture_for_transient_faults(
+        self, _name: str, delete_error: Exception, expect_capture: bool
+    ):
+        box = _mock_box()
+        box.delete.side_effect = delete_error
+        sandbox = _running_sandbox(box)
+
+        with patch("products.tasks.backend.exceptions.capture_exception") as capture_exception:
+            with pytest.raises(SandboxCleanupError):
+                sandbox.destroy()
+
+        assert capture_exception.called == expect_capture
 
 
 class TestSandboxIdPrefixDispatch:
