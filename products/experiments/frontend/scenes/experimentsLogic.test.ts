@@ -355,7 +355,8 @@ describe('experimentsLogic', () => {
 
             expect(api.create).toHaveBeenCalledWith(
                 expect.stringContaining(`/experiments/${mockExperiment.id}/archive`),
-                { disable_feature_flag: false }
+                { disable_feature_flag: false },
+                expect.anything()
             )
         })
 
@@ -392,7 +393,8 @@ describe('experimentsLogic', () => {
 
             expect(api.create).toHaveBeenCalledWith(
                 expect.stringContaining(`/experiments/${mockExperiment.id}/copy_to_project`),
-                { target_team_id: 456, feature_flag_key: 'new-flag' }
+                expect.objectContaining({ target_team_id: 456, feature_flag_key: 'new-flag' }),
+                expect.anything()
             )
         })
 

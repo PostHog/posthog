@@ -29,7 +29,12 @@ import type { TeamPublicType, TeamType } from '~/types'
 
 export const EXPERIMENTS_PER_PAGE = 100
 
-import { experimentsList } from 'products/experiments/frontend/generated/api'
+import {
+    experimentsArchiveCreate,
+    experimentsCopyToProjectCreate,
+    experimentsList,
+    experimentsUnarchiveCreate,
+} from 'products/experiments/frontend/generated/api'
 import type {
     ExperimentBasicApi,
     ExperimentsListParams,
@@ -679,8 +684,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     }
                 },
                 archiveExperiment: async ({ id, disableFeatureFlag }: { id: number; disableFeatureFlag: boolean }) => {
-                    // nosemgrep: prefer-codegen-api
-                    await api.create(`api/projects/${values.currentProjectId}/experiments/${id}/archive`, {
+                    await experimentsArchiveCreate(String(values.currentProjectId), id, {
                         disable_feature_flag: disableFeatureFlag,
                     })
                     lemonToast.info('Experiment archived')
@@ -691,8 +695,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     }
                 },
                 unarchiveExperiment: async (id: number) => {
-                    // nosemgrep: prefer-codegen-api
-                    await api.create(`api/projects/${values.currentProjectId}/experiments/${id}/unarchive`)
+                    await experimentsUnarchiveCreate(String(values.currentProjectId), id)
                     lemonToast.info('Experiment unarchived')
                     return {
                         ...values.experiments,
@@ -731,17 +734,14 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     name?: string
                     onSuccess?: () => void
                 }) => {
-                    const data: Record<string, any> = { target_team_id: payload.targetTeamId }
-                    if (payload.featureFlagKey) {
-                        data.feature_flag_key = payload.featureFlagKey
-                    }
-                    if (payload.name) {
-                        data.name = payload.name
-                    }
-                    // nosemgrep: prefer-codegen-api
-                    const newExperiment = await api.create(
-                        `api/projects/${values.currentProjectId}/experiments/${payload.id}/copy_to_project`,
-                        data
+                    const newExperiment = await experimentsCopyToProjectCreate(
+                        String(values.currentProjectId),
+                        payload.id,
+                        {
+                            target_team_id: payload.targetTeamId,
+                            feature_flag_key: payload.featureFlagKey,
+                            name: payload.name,
+                        }
                     )
                     lemonToast.success('Experiment copied to project', {
                         button: {
