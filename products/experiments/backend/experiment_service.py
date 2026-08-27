@@ -56,6 +56,7 @@ from posthog.utils import str_to_bool
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models import EventDefinition, effective_project_id_expr
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY, get_baseline_variant_key
 from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
@@ -1199,8 +1200,6 @@ class ExperimentService:
         event_names = all_event_names - known_event_names if known_event_names else all_event_names
         if not event_names:
             return
-
-        from products.event_definitions.backend.models import EventDefinition, effective_project_id_expr
 
         project_id = self.team.project_id
         # `COALESCE(project_id, team_id)` falls back to `team_id` (not self.team.id)
