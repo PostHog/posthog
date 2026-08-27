@@ -1812,10 +1812,9 @@ export interface AssistantDataVisualizationAxisDisplaySettings {
     /** Which Y axis this numeric series should use. Use `right` for a secondary Y axis. */
     yAxisPosition?: 'left' | 'right'
     /**
-     * Override how this series renders, independent of the chart-level `display` type.
-     * Prefer the `auto` default: omit this unless one series is on a different scale or unit AND sits on the
-     * secondary axis (`yAxisPosition: "right"`) — e.g. counts as `bar` left, a rate as `line` right.
-     * Otherwise use one type, or separate insights. A bar/line mix on one shared axis is unreadable.
+     * Override how this series renders, independent of the chart-level `display` type. `auto` (the default)
+     * suits most charts. Mix types for a line that annotates bars (rolling average, target), or for a series
+     * in another unit on the secondary axis (`yAxisPosition: "right"`).
      */
     displayType?: 'auto' | 'line' | 'bar' | 'area'
     /** Draw a linear trend line for this series. Only meaningful for line, bar, and area charts. */
