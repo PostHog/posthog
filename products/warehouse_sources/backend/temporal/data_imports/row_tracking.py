@@ -227,6 +227,8 @@ def _rows_synced_in_billing_period(
             logger.warning("BillingLimits: could not cache the row count", error=str(e))
 
     return rows_synced_in_billing_period
+
+
 async def will_hit_billing_limit(team_id: int, source: "ExternalDataSource", logger: FilteringBoundLogger) -> bool:
     if not EE_AVAILABLE:
         return False
