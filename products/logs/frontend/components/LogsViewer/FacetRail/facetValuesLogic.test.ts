@@ -6,7 +6,7 @@ import { logsAttributesRetrieve, logsFacetValuesCreate } from 'products/logs/fro
 
 import { logsViewerFiltersLogic } from '../Filters/logsViewerFiltersLogic'
 import { facetRailLogic } from './facetRailLogic'
-import { FACETS, FacetConfig } from './facets'
+import { FACETS, FacetConfig, buildCustomFacet } from './facets'
 import { facetValuesLogic } from './facetValuesLogic'
 
 jest.mock('products/logs/frontend/generated/api', () => ({
@@ -86,6 +86,26 @@ describe('facetValuesLogic', () => {
             expect.objectContaining({
                 query: expect.objectContaining({ facetField: 'service_name', facetSearch: 'kaf' }),
             })
+        )
+    })
+
+    // Each source type must route to its own facet* body field — a binary-to-ternary slip (e.g. a
+    // plain attribute silently querying as a resource attribute) would misreport values with no
+    // type error, since _LogsFacetValuesBodyApi accepts any of the three.
+    it.each<[string, FacetConfig, Record<string, string>]>([
+        ['a column facet', SERVICE, { facetField: 'service_name' }],
+        ['a resource-attribute facet', facetConfig('namespace'), { facetResourceAttribute: 'k8s.namespace.name' }],
+        [
+            'a custom plain-attribute facet',
+            buildCustomFacet('log.iostream', 'attribute'),
+            { facetAttribute: 'log.iostream' },
+        ],
+    ])('%s requests the matching facet* body field', async (_, facet, expectedFields) => {
+        const logic = mountFacet(facet)
+        await expectLogic(logic).toDispatchActions(['loadFacetValuesSuccess'])
+        expect(mockFacetValues).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({ query: expect.objectContaining(expectedFields) })
         )
     })
 

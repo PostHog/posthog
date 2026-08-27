@@ -74,6 +74,7 @@ from products.tasks.backend.constants import (
     MAX_CUSTOM_IMAGES_PER_TEAM,
     MAX_CUSTOM_IMAGES_PER_USER,
     PI_CLOUD_RUNTIME_FEATURE_FLAG,
+    PR_LOOP_ENABLED_STATE_KEY,
     PR_STATES as PR_STATES,  # re-exported for presentation
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
     TASK_ANALYSIS_FEATURE_FLAG,
@@ -108,6 +109,7 @@ from products.tasks.backend.models import (
     CodeInvite,
     CodeInviteRedemption,
     DesktopBetaTermsAcceptance,
+    InvalidTaskOriginError,
     MCPBuiltInAgentKey,
     SandboxCustomImage,
     SandboxEnvironment,
@@ -2137,6 +2139,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # the run-log mirror with the rollout off).
         AGENT_OTEL_TELEMETRY_STATE_KEY,
         "sandbox_event_ingest_enabled",
+        PR_LOOP_ENABLED_STATE_KEY,
         "snapshot_external_id",
         "snapshot_kind",
         "snapshot_mount_path",
@@ -2741,13 +2744,16 @@ def update_task_run(
         post_pr_created_thread_update(run, new_pr_url)
         # Surface the PR in the run's progress timeline the moment the agent reports it, so the install
         # UI advances past "Started agent" instead of waiting on the 15-min CI follow-up loop to emit
-        # these. Steps coalesce by id with the workflow's own pr/ci emissions (frontend mergeProgressStep),
-        # so the double-emit is harmless. Tolerant: a logging/stream hiccup must not fail the PATCH.
+        # these. Tolerant: a logging/stream hiccup must not fail the PATCH.
         try:
             run.emit_progress_event("pr", "completed", "Opened pull request", "setup", detail=new_pr_url)
-            run.emit_progress_event("ci", "in_progress", "Keeping CI green", "setup")
+            if (run.state or {}).get(PR_LOOP_ENABLED_STATE_KEY):
+                run.emit_progress_event("ci", "in_progress", "Keeping CI green", "setup")
         except Exception:
             logger.warning("task_run.pr_progress_emit_failed", extra={"run_id": str(run.id)}, exc_info=True)
+
+    if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
+        run.close_ci_progress_step()
 
     new_commit_head = _commit_push_head_sha(run.output)
     if caller_is_agent and isinstance(run.output, dict) and new_commit_head and new_commit_head != old_commit_head:
@@ -4555,6 +4561,12 @@ def bootstrap_task_run(
     )
     try:
         run = task.create_run(environment=environment, mode=mode, branch=branch, extra_state=extra_state)
+    except InvalidTaskOriginError as error:
+        return contracts.TaskRunCreateResult(
+            error=contracts.TaskRunValidationError(
+                kind="validation_error", code="invalid_input", detail=str(error), attr="origin_product"
+            )
+        )
     except TaskOwnershipChangedError:
         return None
 
@@ -4721,7 +4733,7 @@ def resume_task_run_in_cloud(
     """Resume a run in a cloud sandbox, terminating any prior workflow.
 
     Returns ``(outcome, run_dto, debug_use_modal)``. ``outcome`` is one of: ``"not_found"``,
-    ``"already_active"`` (400), ``"ownership_changed"`` (400), ``"auth_error:<detail>"``
+    ``"already_active"`` (400), ``"ownership_changed"`` (400), ``"invalid_origin"`` (400), ``"auth_error:<detail>"``
     (400, GitHub auth), ``"workflow_failed"`` (502), or ``"resumed"`` (run_dto set).
     Mirrors ``TaskRunViewSet.resume_in_cloud``.
     """
@@ -4774,6 +4786,9 @@ def resume_task_run_in_cloud(
         )
         if not run.matches_task_ownership(task):
             return "ownership_changed", None, None
+
+        if task.origin_product not in Task.OriginProduct.values:
+            return "invalid_origin", None, None
 
         is_cloud_active = run.environment == TaskRun.Environment.CLOUD and run.status in (
             TaskRun.Status.QUEUED,
@@ -6958,6 +6973,12 @@ def run_task(
                 enforce_report_implementation_rerun_cap(
                     team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)
                 )
+    except InvalidTaskOriginError as error:
+        return contracts.TaskRunResult(
+            error=contracts.TaskValidationError(
+                kind="validation_error", code="invalid_input", detail=str(error), attr="origin_product"
+            )
+        )
     except TaskOwnershipChangedError:
         return None
     if is_pi_task and resume_from_run_id:

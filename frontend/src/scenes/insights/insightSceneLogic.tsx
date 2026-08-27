@@ -77,18 +77,11 @@ import { getInsightIconTypeFromQuery, parseDraftQueryFromURL } from './utils'
 
 const NEW_INSIGHT = 'new' as const
 export type InsightId = InsightShortId | typeof NEW_INSIGHT | null
-
-function normalizeItemId(itemId: string | undefined): string | number | null {
-    if (itemId === undefined) {
+function normalizeItemId(itemId: string | undefined): number | null {
+    if (!itemId) {
         return null
     }
-    if (itemId === 'new' || itemId.startsWith('new-')) {
-        return 'new'
-    }
-    if (Number.isInteger(+itemId)) {
-        return parseInt(itemId, 10)
-    }
-    return itemId
+    return Number(itemId) || null
 }
 
 // Tag a new insight's query with the product_analytics productKey (on the executed source query) so
@@ -155,7 +148,8 @@ export interface insightSceneLogicValues {
               props?: InsightLogicProps<QuerySchema> | undefined
           ) => Partial<QueryBasedInsightModel<Node<Record<string, any>>>>)
         | undefined
-    itemId: number | string | null
+    isNewSubscription: boolean
+    itemId: number | null
     maxContext: MaxContextInput[]
     projectTreeRef: ProjectTreeRef
     sceneSource: InsightSceneSource | null
@@ -382,9 +376,16 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             },
         ],
         itemId: [
-            null as null | string | number,
+            null as number | null,
             {
                 setSceneState: (_, { itemId }) => normalizeItemId(itemId),
+            },
+        ],
+        isNewSubscription: [
+            false,
+            {
+                setSceneState: (_, { insightMode, itemId }) =>
+                    insightMode === ItemMode.Subscriptions && itemId === 'new',
             },
         ],
         alertId: [
@@ -835,7 +836,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 method === 'PUSH' ||
                 insightId !== values.insightId ||
                 insightMode !== values.insightMode ||
-                (itemId ?? null) !== values.itemId ||
+                normalizeItemId(itemId) !== values.itemId ||
                 (sceneSource ?? null) !== values.sceneSource ||
                 alertChanged ||
                 !objectsEqual(variablesOverride ?? null, values.variablesOverride) ||

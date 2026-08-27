@@ -29,7 +29,7 @@ from .compiler import compile_check, related_subject_ref
 from .contracts import CompiledCheck, Evaluation
 from .notifications import notify_check_started_failing
 from .staged_audit import StagedSubjectOverride, build_staged_database
-from .subject_access import check_type_reads_beyond_subject
+from .subject_access import check_type_reads_beyond_subject, pin_referenced_subjects
 from .subjects import resolve_subject
 
 QUERY_TYPE = "data_quality_check"
@@ -330,6 +330,7 @@ def _record_run(
         column_name=check.column_name,
         check_config=check.config,
         check_severity=check.severity,
+        referenced_subjects=pin_referenced_subjects(check.team_id, check.check_type, check.config),
         status=outcome.status,
         failed_row_count=outcome.failed_row_count,
         observed_value=outcome.observed_value,
