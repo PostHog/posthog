@@ -47,6 +47,11 @@ def allowed_import_specifiers() -> frozenset[str]:
     return frozenset(platform_contract()["allowedImportSpecifiers"])
 
 
+def image_asset_content_types() -> frozenset[str]:
+    """Asset content types the builder emits as artifact files instead of inlining."""
+    return frozenset(platform_contract()["imageAssetContentTypes"])
+
+
 def _is_public_network_host(hostname: str) -> bool:
     """Reject hosts that point at the viewer's machine or private network.
 

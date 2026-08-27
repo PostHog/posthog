@@ -15,6 +15,9 @@ import type {
     CanvasAgentRequestApi,
     CanvasAgentRequestResultApi,
     CanvasApi,
+    CanvasAssetApi,
+    CanvasAssetAttachApi,
+    CanvasAssetUploadApi,
     CanvasBuildActionApi,
     CanvasBuildApi,
     CanvasBuildsResponseApi,
@@ -184,6 +187,83 @@ export const canvasesActionsInvoke = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(canvasActionInvokeApi),
+    })
+}
+
+export const getCanvasesAssetsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/assets/`
+}
+
+/**
+ * Upload one image into the canvas's asset store.
+ *
+ * The response's sha256 identifies the stored bytes. Reference it from a
+ * source project as an objectRef `assets` entry (or an edit operation's
+ * `asset`), and the published canvas serves it at that path — a plain
+ * `<img src="./assets/x.png">` works. Content-addressed and idempotent:
+ * re-uploading the same bytes returns the same sha256.
+ */
+export const canvasesAssetsCreate = async (
+    projectId: string,
+    id: string,
+    canvasAssetUploadApi: CanvasAssetUploadApi,
+    options?: RequestInit
+): Promise<CanvasAssetApi> => {
+    const formData = new FormData()
+    formData.append(`file`, canvasAssetUploadApi.file)
+
+    return apiMutator<CanvasAssetApi>(getCanvasesAssetsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        body: formData,
+    })
+}
+
+export const getCanvasesAssetRetrieveUrl = (projectId: string, id: string, sha256: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/assets/${sha256}/`
+}
+
+/**
+ * Read a stored asset's bytes (for editor previews).
+ *
+ * Served as an opaque attachment: the real content type is in the
+ * X-Canvas-Asset-Content-Type header, so user-supplied SVG can never
+ * execute on the application origin.
+ */
+export const canvasesAssetRetrieve = async (
+    projectId: string,
+    id: string,
+    sha256: string,
+    options?: RequestInit
+): Promise<Blob> => {
+    return apiMutator<Blob>(getCanvasesAssetRetrieveUrl(projectId, id, sha256), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCanvasesAssetsAttachCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/assets/attach/`
+}
+
+/**
+ * Copy an image attached to a task conversation into the canvas's asset store.
+ *
+ * Use this for images a user uploaded into the conversation, instead of
+ * re-encoding them as base64: pass the task and the attachment's
+ * storage_path, and reference the returned sha256 from the source project.
+ */
+export const canvasesAssetsAttachCreate = async (
+    projectId: string,
+    id: string,
+    canvasAssetAttachApi: CanvasAssetAttachApi,
+    options?: RequestInit
+): Promise<CanvasAssetApi> => {
+    return apiMutator<CanvasAssetApi>(getCanvasesAssetsAttachCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasAssetAttachApi),
     })
 }
 

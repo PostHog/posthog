@@ -253,6 +253,7 @@ __all__ = [
     "prepare_task_staged_artifacts",
     "presign_task_run_artifact",
     "presign_task_run_artifact_download",
+    "read_task_attachment",
     "read_task_run_artifact",
     "read_task_run_logs",
     "record_comment_activity",
@@ -3630,6 +3631,35 @@ def read_task_run_artifact(
     if content is None:
         return None, artifact, "content_missing"
     return content, artifact, None
+
+
+def read_task_attachment(
+    task_id: str | UUID, team_id: int, user_id: int | None, *, storage_path: str
+) -> tuple[bytes, str] | None:
+    """Read one of a task's attachments (staged conversation uploads or run outputs) by storage path.
+
+    Returns ``(content, content_type)``, or ``None`` when the task is not visible, the path is
+    outside the task's artifact prefix, or the object is missing. The prefix check is the
+    authorization boundary: every task artifact key embeds its team and task ids.
+    """
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    task = _visible_task_qs(team_id, user_id).filter(id=task_id).first()
+    if task is None:
+        return None
+    prefix = f"{settings.OBJECT_STORAGE_TASKS_FOLDER}/artifacts/team_{task.team_id}/task_{task.id}/"
+    if not storage_path.startswith(prefix):
+        return None
+    try:
+        content = object_storage.read_bytes(storage_path, missing_ok=True)
+    except Exception:
+        logger.exception("task.attachment_read_failed", extra={"task_id": str(task.id), "storage_path": storage_path})
+        return None
+    if content is None:
+        return None
+    head = object_storage.head_object(storage_path)
+    content_type = (head or {}).get("ContentType") or "application/octet-stream"
+    return content, content_type
 
 
 def analyze_task_run(run_id: str | UUID, task_id: str | UUID, team_id: int, *, user_id: int) -> tuple[str, bool] | None:

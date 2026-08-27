@@ -158,12 +158,85 @@ class TestCanvasSourceAdapter(SimpleTestCase):
                 ),
                 "too_many_files",
             ),
+            (
+                "object_ref_non_image",
+                project(
+                    assets={
+                        "assets/blob.wasm": {
+                            "encoding": "objectRef",
+                            "contentType": "application/wasm",
+                            "sha256": "ab" * 32,
+                            "sizeBytes": 8,
+                        }
+                    }
+                ),
+                "asset_encoding_unsupported",
+            ),
+            (
+                "object_ref_malformed_hash",
+                project(
+                    assets={
+                        "assets/a.png": {
+                            "encoding": "objectRef",
+                            "contentType": "image/png",
+                            "sha256": "nope",
+                            "sizeBytes": 8,
+                        }
+                    }
+                ),
+                "invalid_asset",
+            ),
+            (
+                "object_ref_over_per_asset_cap",
+                project(
+                    assets={
+                        "assets/a.png": {
+                            "encoding": "objectRef",
+                            "contentType": "image/png",
+                            "sha256": "ab" * 32,
+                            "sizeBytes": 4 * 1024 * 1024 + 1,
+                        }
+                    }
+                ),
+                "file_too_large",
+            ),
+            (
+                "object_refs_over_total_budget",
+                project(
+                    assets={
+                        f"assets/{i}.png": {
+                            "encoding": "objectRef",
+                            "contentType": "image/png",
+                            "sha256": "ab" * 32,
+                            "sizeBytes": 3 * 1024 * 1024,
+                        }
+                        for i in range(3)
+                    }
+                ),
+                "assets_too_large",
+            ),
         ]
     )
     def test_invalid_projects_produce_error_diagnostics(self, _name, candidate, expected_code):
         diagnostics = validate_source_project(candidate)
         self.assertTrue(has_errors(diagnostics), diagnostics)
         self.assertIn(expected_code, [d["code"] for d in diagnostics])
+
+    def test_object_ref_assets_do_not_count_against_the_source_cap(self):
+        # 2.5 MB per reference is over the whole-project source cap but inside
+        # the separate asset budget — the bytes live in the asset store.
+        candidate = project(
+            assets={
+                f"assets/{i}.png": {
+                    "encoding": "objectRef",
+                    "contentType": "image/png",
+                    "sha256": "ab" * 32,
+                    "sizeBytes": int(2.5 * 1024 * 1024),
+                }
+                for i in range(3)
+            }
+        )
+        self.assertEqual(validate_source_project(candidate), [])
 
     @parameterized.expand(
         [

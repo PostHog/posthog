@@ -19,6 +19,7 @@ exists elsewhere).
 
 import gzip
 import json
+import base64
 import shutil
 import hashlib
 import subprocess
@@ -35,6 +36,7 @@ from django.utils import timezone
 import structlog
 from prometheus_client import Counter, Gauge, Histogram
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.scoping import team_scope
@@ -43,8 +45,9 @@ from posthog.ph_client import ph_background_capture
 from posthog.storage import object_storage
 
 from products.canvas.backend import error_reports
+from products.canvas.backend.asset_store import canvas_asset_object_key
 from products.canvas.backend.capabilities import CapabilityWidening, capability_widening
-from products.canvas.backend.contract import CANVAS_BUILDER_DIR, contract_limits
+from products.canvas.backend.contract import CANVAS_BUILDER_DIR, contract_limits, image_asset_content_types
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import (
     SYNTHETIC_INDEX_HTML,
@@ -193,18 +196,74 @@ def _valid_artifact_path(value: str) -> bool:
     return validate_relative_path(value, restrict_charset=False) is None
 
 
+@frozen
+class BuildAssetSource:
+    """Where an image asset's bytes come from when they are side-loaded into
+    the artifact after the build: memory for inline base64 assets, the canvas
+    asset store (keyed by sha256) for objectRef assets."""
+
+    content_type: str
+    size_bytes: int
+    sha256: str
+    inline_bytes: bytes | None
+
+
+def _prepare_project_assets(project: dict[str, Any]) -> tuple[dict[str, Any], dict[str, BuildAssetSource]]:
+    """Strip image bytes out of the project before it enters the build sandbox.
+
+    The builder emits image assets as artifact files and only needs their
+    metadata, so inline base64 images are replaced with a meta entry (and
+    objectRef entries already are metadata). The returned sources drive the
+    post-build side-load; the bytes never cross into the sandbox.
+    """
+    image_types = image_asset_content_types()
+    sources: dict[str, BuildAssetSource] = {}
+    transformed: dict[str, Any] = {}
+    for path, asset in (project.get("assets") or {}).items():
+        content_type = asset.get("contentType")
+        if content_type not in image_types:
+            transformed[path] = asset
+            continue
+        if asset.get("encoding") == "objectRef":
+            source = BuildAssetSource(
+                content_type=content_type, size_bytes=asset["sizeBytes"], sha256=asset["sha256"], inline_bytes=None
+            )
+        else:
+            data = base64.b64decode(asset.get("content", ""))
+            source = BuildAssetSource(
+                content_type=content_type,
+                size_bytes=len(data),
+                sha256=hashlib.sha256(data).hexdigest(),
+                inline_bytes=data,
+            )
+        sources[path] = source
+        transformed[path] = {
+            "encoding": "meta",
+            "contentType": content_type,
+            "sizeBytes": source.size_bytes,
+            "sha256": source.sha256,
+        }
+    if not sources:
+        return project, {}
+    return {**project, "assets": transformed}, sources
+
+
 def validate_builder_output(
     result: dict[str, Any],
-) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
+    asset_sources: dict[str, BuildAssetSource] | None = None,
+) -> tuple[list[dict[str, Any]], list[str], dict[str, Any], list[dict[str, Any]]]:
     limits = contract_limits()
     if result.get("contractVersion") != 1 or result.get("status") != "ready":
         raise ValueError("canvas builder did not return a ready contract")
     files = result.get("files")
     manifest = result.get("manifest")
     diagnostics = result.get("diagnostics")
+    asset_refs = result.get("assetRefs") or []
     if not isinstance(files, list) or not isinstance(manifest, dict) or not isinstance(diagnostics, list):
         raise ValueError("canvas builder omitted artifacts, manifest, or diagnostics")
-    if len(files) > limits["maxArtifactFiles"]:
+    if not isinstance(asset_refs, list):
+        raise ValueError("canvas builder emitted invalid asset references")
+    if len(files) + len(asset_refs) > limits["maxArtifactFiles"]:
         raise ValueError("canvas artifact manifest has too many files")
     seen: set[str] = set()
     emitted_metadata: dict[str, tuple[str, int]] = {}
@@ -235,10 +294,49 @@ def validate_builder_output(
         seen.add(path)
         emitted_metadata[path] = (digest, size)
         total += size
+    assets = manifest.get("assets")
+    if not isinstance(assets, list):
+        raise ValueError("canvas artifact manifest does not match emitted files")
+    manifest_types = {
+        asset.get("path"): asset.get("contentType")
+        for asset in assets
+        if isinstance(asset, dict) and isinstance(asset.get("path"), str)
+    }
+    asset_paths: list[str] = []
+    for ref in asset_refs:
+        if not isinstance(ref, dict):
+            raise ValueError("canvas builder emitted invalid asset references")
+        path = ref.get("path")
+        if not isinstance(path, str) or not _valid_artifact_path(path) or path in seen:
+            raise ValueError("canvas builder emitted invalid asset references")
+        # The builder's claimed metadata is checked against server truth (the
+        # declared source assets), never trusted: the manifest hash is the
+        # serving credential on the unauthenticated artifact origin.
+        if asset_sources is not None:
+            source = asset_sources.get(path)
+            if source is None:
+                raise ValueError("canvas builder emitted an asset the project does not declare")
+            expected: tuple[str, int] = (source.sha256, source.size_bytes)
+            if manifest_types.get(path) != source.content_type:
+                raise ValueError("canvas artifact manifest metadata does not match emitted files")
+        else:
+            manifest_entry = next(
+                (asset for asset in assets if isinstance(asset, dict) and asset.get("path") == path), None
+            )
+            digest = manifest_entry.get("contentHash") if manifest_entry else None
+            size = manifest_entry.get("sizeBytes") if manifest_entry else None
+            if not isinstance(digest, str) or len(digest) != 64 or not isinstance(size, int) or isinstance(size, bool):
+                raise ValueError("canvas artifact manifest metadata is invalid")
+            expected = (digest, size)
+        if expected[1] > limits["maxArtifactFileBytes"]:
+            raise ValueError("canvas artifact exceeds the per-file size limit")
+        seen.add(path)
+        emitted_metadata[path] = expected
+        total += expected[1]
+        asset_paths.append(path)
     if total > limits["maxArtifactTotalBytes"]:
         raise ValueError("canvas build exceeds the total artifact size limit")
-    assets = manifest.get("assets")
-    if not isinstance(assets, list) or {asset.get("path") for asset in assets if isinstance(asset, dict)} != seen:
+    if {asset.get("path") for asset in assets if isinstance(asset, dict)} != seen:
         raise ValueError("canvas artifact manifest does not match emitted files")
     for asset in assets:
         if not isinstance(asset, dict):
@@ -252,7 +350,7 @@ def validate_builder_output(
     entry = manifest.get("entryHtml")
     if not isinstance(entry, str) or entry not in seen:
         raise ValueError("canvas build does not contain its entry HTML")
-    return files, manifest, diagnostics[:500]
+    return files, asset_paths, manifest, diagnostics[:500]
 
 
 # Retention policy: every referenced source version is kept for the canvas's
@@ -894,13 +992,14 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
     project_files = dict(project["files"])
     project_files.setdefault(project.get("entryHtml", "index.html"), SYNTHETIC_INDEX_HTML)
     project = {**project, "files": project_files}
+    build_project, asset_sources = _prepare_project_assets(project)
     try:
-        result = run_cloud_builder(project)
+        result = run_cloud_builder(build_project)
         if result.get("status") != "ready":
             builder_diagnostics = result.get("diagnostics")
             _finish_failed(build, builder_diagnostics[:500] if isinstance(builder_diagnostics, list) else [])
             return
-        files, manifest, diagnostics = validate_builder_output(result)
+        files, asset_paths, manifest, diagnostics = validate_builder_output(result, asset_sources)
     except (
         subprocess.TimeoutExpired,
         OSError,
@@ -939,14 +1038,19 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
     # per file, keyed off wall-clock so writes stay cheap on small builds.
     lease_renew_after = BUILD_LEASE_DURATION / 2
     last_lease_touch = timezone.now()
+
+    def renew_lease() -> None:
+        nonlocal last_lease_touch
+        now = timezone.now()
+        if now - last_lease_touch >= lease_renew_after:
+            CanvasBuild.objects.for_team(build.team_id).filter(id=build.id).update(
+                lease_expires_at=now + BUILD_LEASE_DURATION
+            )
+            last_lease_touch = now
+
     try:
         for artifact in files:
-            now = timezone.now()
-            if now - last_lease_touch >= lease_renew_after:
-                CanvasBuild.objects.for_team(build.team_id).filter(id=build.id).update(
-                    lease_expires_at=now + BUILD_LEASE_DURATION
-                )
-                last_lease_touch = now
+            renew_lease()
             content_type = _artifact_content_type(artifact["path"])
             key = f"{prefix}/{artifact['path']}"
             object_storage.write(
@@ -956,6 +1060,42 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
             )
             uploaded_keys.append(key)
             manifest_assets[artifact["path"]]["contentType"] = content_type
+        # Image assets are side-loaded from outside the builder: the bytes are
+        # re-verified against the manifest hash here because that hash is the
+        # serving credential on the unauthenticated artifact origin.
+        for asset_path in asset_paths:
+            renew_lease()
+            source = asset_sources[asset_path]
+            if source.inline_bytes is not None:
+                data: bytes | None = source.inline_bytes
+            else:
+                data = object_storage.read_bytes(
+                    canvas_asset_object_key(build.team_id, build.canvas_id, source.sha256), missing_ok=True
+                )
+            if data is None or len(data) != source.size_bytes or hashlib.sha256(data).hexdigest() != source.sha256:
+                if uploaded_keys:
+                    try:
+                        object_storage.delete_objects(uploaded_keys)
+                    except object_storage.ObjectStorageError:
+                        logger.warning("canvas_artifact_cleanup_failed", build_id=str(build.id))
+                _finish_failed(
+                    build,
+                    [
+                        diagnostic(
+                            "error",
+                            "asset_missing",
+                            f'asset "{asset_path}" could not be read back from the canvas asset store — upload it and publish again',
+                            path=asset_path,
+                        )
+                    ],
+                )
+                return
+            object_storage.write(
+                f"{prefix}/{asset_path}",
+                data,
+                extras={"ContentType": source.content_type, "CacheControl": "private, max-age=31536000, immutable"},
+            )
+            uploaded_keys.append(f"{prefix}/{asset_path}")
     except object_storage.ObjectStorageError:
         if uploaded_keys:
             try:

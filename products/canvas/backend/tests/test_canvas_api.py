@@ -1,3 +1,5 @@
+import base64
+import hashlib
 from datetime import timedelta
 from typing import Any, cast
 from uuid import UUID, uuid4
@@ -5,6 +7,7 @@ from uuid import UUID, uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -34,9 +37,11 @@ class InMemoryStorage:
 
     def __init__(self):
         self.objects: dict[str, bytes] = {}
+        self.extras: dict[str, dict] = {}
 
     def write(self, key, content, extras=None):
         self.objects[key] = content
+        self.extras[key] = extras or {}
 
     def read_bytes(self, key, missing_ok=False):
         return self.objects.get(key)
@@ -45,12 +50,20 @@ class InMemoryStorage:
         for key in keys:
             self.objects.pop(key, None)
 
+    def head_object(self, key, bucket=None):
+        if key not in self.objects:
+            return None
+        return {"ContentLength": len(self.objects[key]), "ContentType": self.extras.get(key, {}).get("ContentType")}
+
+    def tag(self, key, tags):
+        pass
+
 
 class CanvasAPIBaseTest(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.storage = InMemoryStorage()
-        for attribute in ("write", "read_bytes", "delete_objects"):
+        for attribute in ("write", "read_bytes", "delete_objects", "head_object", "tag"):
             patcher = patch.object(build_service.object_storage, attribute, getattr(self.storage, attribute))
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -1240,6 +1253,169 @@ class TestCanvasDraftBuilds(CanvasAPIBaseTest):
 
         builds = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/builds/").json()
         assert builds["current_version_id"] == head_id
+
+
+PIXEL_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
+
+
+class TestCanvasAssets(CanvasAPIBaseTest):
+    def _upload(self, canvas_id: str, data: bytes, name: str = "pixel.png"):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/assets/",
+            {"file": SimpleUploadedFile(name, data)},
+            format="multipart",
+        )
+
+    def _object_ref_project(self, sha256: str, size_bytes: int) -> dict[str, Any]:
+        project = self._project()
+        project["files"]["index.html"] = synthetic_source_project(None)["files"]["index.html"].replace(
+            "<body>", '<body><img src="./assets/pixel.png" />'
+        )
+        project["assets"] = {
+            "assets/pixel.png": {
+                "encoding": "objectRef",
+                "contentType": "image/png",
+                "sha256": sha256,
+                "sizeBytes": size_bytes,
+            }
+        }
+        return project
+
+    def test_uploaded_asset_can_be_referenced_and_read_back(self):
+        canvas_id = self._create_canvas()
+        response = self._upload(canvas_id, PIXEL_PNG)
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        body = response.json()
+        assert body["sha256"] == hashlib.sha256(PIXEL_PNG).hexdigest()
+        assert body["content_type"] == "image/png"
+        assert body["size_bytes"] == len(PIXEL_PNG)
+
+        # Idempotent: the same bytes land on the same content-addressed key.
+        assert self._upload(canvas_id, PIXEL_PNG).json()["sha256"] == body["sha256"]
+
+        publish = self._publish(canvas_id, project=self._object_ref_project(body["sha256"], body["size_bytes"]))
+        assert publish.status_code == status.HTTP_200_OK, publish.json()
+
+        read = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/assets/{body['sha256']}")
+        assert read.status_code == status.HTTP_200_OK
+        assert read.content == PIXEL_PNG
+        assert read["Content-Type"] == "application/octet-stream"
+        assert read["X-Content-Type-Options"] == "nosniff"
+        assert read["Content-Disposition"] == "attachment"
+        assert read["X-Canvas-Asset-Content-Type"] == "image/png"
+
+    @parameterized.expand(
+        [
+            ("not_an_image", b"just some text"),
+            ("html_masquerading", b"<html><body>hello</body></html>"),
+            ("truncated_png", b"\x89PNG\r\n\x1a\n0000"),
+            ("empty", b""),
+        ]
+    )
+    def test_upload_rejects_invalid_content(self, _name: str, data: bytes):
+        canvas_id = self._create_canvas()
+        response = self._upload(canvas_id, data)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_publish_with_unknown_object_ref_is_rejected(self):
+        canvas_id = self._create_canvas()
+        response = self._publish(canvas_id, project=self._object_ref_project("ab" * 32, 12))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["diagnostics"][0]["code"] == "asset_missing"
+
+    def test_asset_read_missing_returns_404(self):
+        canvas_id = self._create_canvas()
+        response = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/assets/{'ab' * 32}")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_attach_copies_a_task_attachment_into_the_store(self):
+        canvas_id = self._create_canvas()
+        with team_scope(self.team.id):
+            task = Task.objects.create(
+                team=self.team,
+                channel=self.channel,
+                created_by=self.user,
+                title="Chat",
+                description="d",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+        storage_path = f"tasks/artifacts/team_{self.team.id}/task_{task.id}/staged/abc123/pixel.png"
+        self.storage.write(storage_path, PIXEL_PNG, extras={"ContentType": "image/png"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/assets/attach/",
+            {"task_id": str(task.id), "storage_path": storage_path},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["sha256"] == hashlib.sha256(PIXEL_PNG).hexdigest()
+
+    def test_attach_rejects_paths_outside_the_tasks_prefix(self):
+        canvas_id = self._create_canvas()
+        with team_scope(self.team.id):
+            task = Task.objects.create(
+                team=self.team,
+                channel=self.channel,
+                created_by=self.user,
+                title="Chat",
+                description="d",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+        secret_path = f"canvas_source/team_{self.team.id + 1}/other/secret.json.gz"
+        self.storage.write(secret_path, b"secret")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/assets/attach/",
+            {"task_id": str(task.id), "storage_path": secret_path},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_edit_operation_can_set_and_delete_an_asset_reference(self):
+        canvas_id = self._create_canvas()
+        publish = self._publish(canvas_id)
+        assert publish.status_code == status.HTTP_200_OK, publish.json()
+        version_id = publish.json()["current_version_id"]
+        uploaded = self._upload(canvas_id, PIXEL_PNG).json()
+
+        edit = self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/edit/",
+            {
+                "operations": [
+                    {
+                        "path": "assets/pixel.png",
+                        "asset": {
+                            "sha256": uploaded["sha256"],
+                            "contentType": uploaded["content_type"],
+                            "sizeBytes": uploaded["size_bytes"],
+                        },
+                    }
+                ],
+                "expected_current_version_id": version_id,
+            },
+            format="json",
+        )
+        assert edit.status_code == status.HTTP_200_OK, edit.json()
+
+        source = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/source/").json()
+        assert source["project"]["assets"]["assets/pixel.png"]["encoding"] == "objectRef"
+        assert source["project"]["assets"]["assets/pixel.png"]["sha256"] == uploaded["sha256"]
+
+        delete = self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/edit/",
+            {
+                "operations": [{"path": "assets/pixel.png"}],
+                "expected_current_version_id": edit.json()["current_version_id"],
+            },
+            format="json",
+        )
+        assert delete.status_code == status.HTTP_200_OK, delete.json()
+        source = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/source/").json()
+        assert source["project"]["assets"] == {}
 
 
 class TestCanvasState(CanvasAPIBaseTest):

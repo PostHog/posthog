@@ -126,6 +126,8 @@ export const canvasesDraftCreateBodyProjectOneAssetsContentMax = 2796204
 export const canvasesDraftCreateBodyProjectOneAssetsContentRegExp = new RegExp(
     '^(?:[A-Za-z0-9+\/]{4})\*(?:[A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=)?$'
 )
+export const canvasesDraftCreateBodyProjectOneAssetsSha256RegExp = new RegExp('^[0-9a-f]{64}$')
+
 export const canvasesDraftCreateBodyProjectOneComponentOneSizeOneDefaultWMax = 12
 
 export const canvasesDraftCreateBodyProjectOneComponentOneSizeOneDefaultHMax = 40
@@ -168,28 +170,57 @@ export const CanvasesDraftCreateBody = /* @__PURE__ */ zod
                 assets: zod
                     .record(
                         zod.string(),
-                        zod.object({
-                            encoding: zod.enum(['base64']).describe('\* `base64` - base64'),
-                            contentType: zod
-                                .enum([
-                                    'image/png',
-                                    'image/jpeg',
-                                    'image/gif',
-                                    'image/webp',
-                                    'image/svg+xml',
-                                    'font/woff',
-                                    'font/woff2',
-                                    'application/wasm',
-                                    'application/octet-stream',
-                                ])
-                                .describe(
-                                    '\* `image\/png` - image\/png\n\* `image\/jpeg` - image\/jpeg\n\* `image\/gif` - image\/gif\n\* `image\/webp` - image\/webp\n\* `image\/svg+xml` - image\/svg+xml\n\* `font\/woff` - font\/woff\n\* `font\/woff2` - font\/woff2\n\* `application\/wasm` - application\/wasm\n\* `application\/octet-stream` - application\/octet-stream'
-                                ),
-                            content: zod
-                                .string()
-                                .max(canvasesDraftCreateBodyProjectOneAssetsContentMax)
-                                .regex(canvasesDraftCreateBodyProjectOneAssetsContentRegExp),
-                        })
+                        zod
+                            .object({
+                                encoding: zod
+                                    .enum(['base64', 'objectRef'])
+                                    .describe('\* `base64` - base64\n\* `objectRef` - objectRef')
+                                    .describe(
+                                        'How the bytes are carried: \"base64\" inline in `content`, or \"objectRef\" naming an asset already uploaded to this canvas\'s asset store by its sha256 (images only).\n\n\* `base64` - base64\n\* `objectRef` - objectRef'
+                                    ),
+                                contentType: zod
+                                    .enum([
+                                        'image/png',
+                                        'image/jpeg',
+                                        'image/gif',
+                                        'image/webp',
+                                        'image/avif',
+                                        'image/svg+xml',
+                                        'font/woff',
+                                        'font/woff2',
+                                        'application/wasm',
+                                        'application/octet-stream',
+                                    ])
+                                    .describe(
+                                        '\* `image\/png` - image\/png\n\* `image\/jpeg` - image\/jpeg\n\* `image\/gif` - image\/gif\n\* `image\/webp` - image\/webp\n\* `image\/avif` - image\/avif\n\* `image\/svg+xml` - image\/svg+xml\n\* `font\/woff` - font\/woff\n\* `font\/woff2` - font\/woff2\n\* `application\/wasm` - application\/wasm\n\* `application\/octet-stream` - application\/octet-stream'
+                                    )
+                                    .describe(
+                                        'MIME type of the asset bytes. Image types are emitted as artifact files a plain <img> tag can reference.\n\n\* `image\/png` - image\/png\n\* `image\/jpeg` - image\/jpeg\n\* `image\/gif` - image\/gif\n\* `image\/webp` - image\/webp\n\* `image\/avif` - image\/avif\n\* `image\/svg+xml` - image\/svg+xml\n\* `font\/woff` - font\/woff\n\* `font\/woff2` - font\/woff2\n\* `application\/wasm` - application\/wasm\n\* `application\/octet-stream` - application\/octet-stream'
+                                    ),
+                                content: zod
+                                    .string()
+                                    .max(canvasesDraftCreateBodyProjectOneAssetsContentMax)
+                                    .regex(canvasesDraftCreateBodyProjectOneAssetsContentRegExp)
+                                    .optional()
+                                    .describe('Base64-encoded bytes. Required for base64 encoding.'),
+                                sha256: zod
+                                    .string()
+                                    .regex(canvasesDraftCreateBodyProjectOneAssetsSha256RegExp)
+                                    .optional()
+                                    .describe(
+                                        'Hex sha256 identifying the uploaded asset, as returned by the asset upload endpoint. Required for objectRef encoding.'
+                                    ),
+                                sizeBytes: zod
+                                    .number()
+                                    .min(1)
+                                    .optional()
+                                    .describe(
+                                        'Byte size of the uploaded asset, as returned by the asset upload endpoint. Required for objectRef encoding.'
+                                    ),
+                            })
+                            .describe(
+                                'One binary asset: inline base64 bytes, or a reference to an uploaded canvas asset.'
+                            )
                     )
                     .optional()
                     .describe('Optional base64-encoded binary assets keyed by safe project-relative paths.'),
@@ -357,6 +388,8 @@ export const CanvasesEditCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const canvasesEditCreateBodyOperationsItemAssetOneSha256RegExp = new RegExp('^[0-9a-f]{64}$')
+
 export const canvasesEditCreateBodyNameMax = 400
 
 export const CanvasesEditCreateBody = /* @__PURE__ */ zod
@@ -368,14 +401,51 @@ export const CanvasesEditCreateBody = /* @__PURE__ */ zod
                         path: zod
                             .string()
                             .describe(
-                                'Project-relative path of the file to write or delete (e.g. \"src\/canvas.tsx\").'
+                                'Project-relative path of the file or asset to write or delete (e.g. \"src\/canvas.tsx\").'
                             ),
                         content: zod
                             .string()
                             .nullish()
-                            .describe("The file's complete new content. Null (or omitted) deletes the file."),
+                            .describe(
+                                "The file's complete new content. With no content and no asset, the path is deleted."
+                            ),
+                        asset: zod
+                            .object({
+                                sha256: zod
+                                    .string()
+                                    .regex(canvasesEditCreateBodyOperationsItemAssetOneSha256RegExp)
+                                    .describe(
+                                        'Hex sha256 identifying the uploaded asset, from the upload or attach response.'
+                                    ),
+                                contentType: zod
+                                    .enum([
+                                        'image/png',
+                                        'image/jpeg',
+                                        'image/gif',
+                                        'image/webp',
+                                        'image/avif',
+                                        'image/svg+xml',
+                                    ])
+                                    .describe(
+                                        '\* `image\/png` - image\/png\n\* `image\/jpeg` - image\/jpeg\n\* `image\/gif` - image\/gif\n\* `image\/webp` - image\/webp\n\* `image\/avif` - image\/avif\n\* `image\/svg+xml` - image\/svg+xml'
+                                    )
+                                    .describe(
+                                        'MIME type of the uploaded asset, from the upload or attach response.\n\n\* `image\/png` - image\/png\n\* `image\/jpeg` - image\/jpeg\n\* `image\/gif` - image\/gif\n\* `image\/webp` - image\/webp\n\* `image\/avif` - image\/avif\n\* `image\/svg+xml` - image\/svg+xml'
+                                    ),
+                                sizeBytes: zod
+                                    .number()
+                                    .min(1)
+                                    .describe('Byte size of the uploaded asset, from the upload or attach response.'),
+                            })
+                            .describe(
+                                'A stored-asset reference, exactly as returned by the canvas asset upload endpoints.'
+                            )
+                            .optional()
+                            .describe(
+                                "Set this path to an image asset uploaded to the canvas's asset store, so <img> tags and imports can reference it. Mutually exclusive with content."
+                            ),
                     })
-                    .describe("One per-file edit: set a file's content, or delete it.")
+                    .describe("One per-path edit: set a file's content, set a stored-asset reference, or delete.")
             )
             .describe("Edits applied in order to the canvas's current source project."),
         prompt: zod
@@ -832,6 +902,8 @@ export const canvasesPublishCreateBodyProjectOneAssetsContentMax = 2796204
 export const canvasesPublishCreateBodyProjectOneAssetsContentRegExp = new RegExp(
     '^(?:[A-Za-z0-9+\/]{4})\*(?:[A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=)?$'
 )
+export const canvasesPublishCreateBodyProjectOneAssetsSha256RegExp = new RegExp('^[0-9a-f]{64}$')
+
 export const canvasesPublishCreateBodyProjectOneComponentOneSizeOneDefaultWMax = 12
 
 export const canvasesPublishCreateBodyProjectOneComponentOneSizeOneDefaultHMax = 40
@@ -876,28 +948,57 @@ export const CanvasesPublishCreateBody = /* @__PURE__ */ zod
                 assets: zod
                     .record(
                         zod.string(),
-                        zod.object({
-                            encoding: zod.enum(['base64']).describe('\* `base64` - base64'),
-                            contentType: zod
-                                .enum([
-                                    'image/png',
-                                    'image/jpeg',
-                                    'image/gif',
-                                    'image/webp',
-                                    'image/svg+xml',
-                                    'font/woff',
-                                    'font/woff2',
-                                    'application/wasm',
-                                    'application/octet-stream',
-                                ])
-                                .describe(
-                                    '\* `image\/png` - image\/png\n\* `image\/jpeg` - image\/jpeg\n\* `image\/gif` - image\/gif\n\* `image\/webp` - image\/webp\n\* `image\/svg+xml` - image\/svg+xml\n\* `font\/woff` - font\/woff\n\* `font\/woff2` - font\/woff2\n\* `application\/wasm` - application\/wasm\n\* `application\/octet-stream` - application\/octet-stream'
-                                ),
-                            content: zod
-                                .string()
-                                .max(canvasesPublishCreateBodyProjectOneAssetsContentMax)
-                                .regex(canvasesPublishCreateBodyProjectOneAssetsContentRegExp),
-                        })
+                        zod
+                            .object({
+                                encoding: zod
+                                    .enum(['base64', 'objectRef'])
+                                    .describe('\* `base64` - base64\n\* `objectRef` - objectRef')
+                                    .describe(
+                                        'How the bytes are carried: \"base64\" inline in `content`, or \"objectRef\" naming an asset already uploaded to this canvas\'s asset store by its sha256 (images only).\n\n\* `base64` - base64\n\* `objectRef` - objectRef'
+                                    ),
+                                contentType: zod
+                                    .enum([
+                                        'image/png',
+                                        'image/jpeg',
+                                        'image/gif',
+                                        'image/webp',
+                                        'image/avif',
+                                        'image/svg+xml',
+                                        'font/woff',
+                                        'font/woff2',
+                                        'application/wasm',
+                                        'application/octet-stream',
+                                    ])
+                                    .describe(
+                                        '\* `image\/png` - image\/png\n\* `image\/jpeg` - image\/jpeg\n\* `image\/gif` - image\/gif\n\* `image\/webp` - image\/webp\n\* `image\/avif` - image\/avif\n\* `image\/svg+xml` - image\/svg+xml\n\* `font\/woff` - font\/woff\n\* `font\/woff2` - font\/woff2\n\* `application\/wasm` - application\/wasm\n\* `application\/octet-stream` - application\/octet-stream'
+                                    )
+                                    .describe(
+                                        'MIME type of the asset bytes. Image types are emitted as artifact files a plain <img> tag can reference.\n\n\* `image\/png` - image\/png\n\* `image\/jpeg` - image\/jpeg\n\* `image\/gif` - image\/gif\n\* `image\/webp` - image\/webp\n\* `image\/avif` - image\/avif\n\* `image\/svg+xml` - image\/svg+xml\n\* `font\/woff` - font\/woff\n\* `font\/woff2` - font\/woff2\n\* `application\/wasm` - application\/wasm\n\* `application\/octet-stream` - application\/octet-stream'
+                                    ),
+                                content: zod
+                                    .string()
+                                    .max(canvasesPublishCreateBodyProjectOneAssetsContentMax)
+                                    .regex(canvasesPublishCreateBodyProjectOneAssetsContentRegExp)
+                                    .optional()
+                                    .describe('Base64-encoded bytes. Required for base64 encoding.'),
+                                sha256: zod
+                                    .string()
+                                    .regex(canvasesPublishCreateBodyProjectOneAssetsSha256RegExp)
+                                    .optional()
+                                    .describe(
+                                        'Hex sha256 identifying the uploaded asset, as returned by the asset upload endpoint. Required for objectRef encoding.'
+                                    ),
+                                sizeBytes: zod
+                                    .number()
+                                    .min(1)
+                                    .optional()
+                                    .describe(
+                                        'Byte size of the uploaded asset, as returned by the asset upload endpoint. Required for objectRef encoding.'
+                                    ),
+                            })
+                            .describe(
+                                'One binary asset: inline base64 bytes, or a reference to an uploaded canvas asset.'
+                            )
                     )
                     .optional()
                     .describe('Optional base64-encoded binary assets keyed by safe project-relative paths.'),
@@ -1145,6 +1246,8 @@ export const canvasesValidateCreateBodyProjectOneAssetsContentMax = 2796204
 export const canvasesValidateCreateBodyProjectOneAssetsContentRegExp = new RegExp(
     '^(?:[A-Za-z0-9+\/]{4})\*(?:[A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=)?$'
 )
+export const canvasesValidateCreateBodyProjectOneAssetsSha256RegExp = new RegExp('^[0-9a-f]{64}$')
+
 export const canvasesValidateCreateBodyProjectOneComponentOneSizeOneDefaultWMax = 12
 
 export const canvasesValidateCreateBodyProjectOneComponentOneSizeOneDefaultHMax = 40
@@ -1187,28 +1290,57 @@ export const CanvasesValidateCreateBody = /* @__PURE__ */ zod
                 assets: zod
                     .record(
                         zod.string(),
-                        zod.object({
-                            encoding: zod.enum(['base64']).describe('\* `base64` - base64'),
-                            contentType: zod
-                                .enum([
-                                    'image/png',
-                                    'image/jpeg',
-                                    'image/gif',
-                                    'image/webp',
-                                    'image/svg+xml',
-                                    'font/woff',
-                                    'font/woff2',
-                                    'application/wasm',
-                                    'application/octet-stream',
-                                ])
-                                .describe(
-                                    '\* `image\/png` - image\/png\n\* `image\/jpeg` - image\/jpeg\n\* `image\/gif` - image\/gif\n\* `image\/webp` - image\/webp\n\* `image\/svg+xml` - image\/svg+xml\n\* `font\/woff` - font\/woff\n\* `font\/woff2` - font\/woff2\n\* `application\/wasm` - application\/wasm\n\* `application\/octet-stream` - application\/octet-stream'
-                                ),
-                            content: zod
-                                .string()
-                                .max(canvasesValidateCreateBodyProjectOneAssetsContentMax)
-                                .regex(canvasesValidateCreateBodyProjectOneAssetsContentRegExp),
-                        })
+                        zod
+                            .object({
+                                encoding: zod
+                                    .enum(['base64', 'objectRef'])
+                                    .describe('\* `base64` - base64\n\* `objectRef` - objectRef')
+                                    .describe(
+                                        'How the bytes are carried: \"base64\" inline in `content`, or \"objectRef\" naming an asset already uploaded to this canvas\'s asset store by its sha256 (images only).\n\n\* `base64` - base64\n\* `objectRef` - objectRef'
+                                    ),
+                                contentType: zod
+                                    .enum([
+                                        'image/png',
+                                        'image/jpeg',
+                                        'image/gif',
+                                        'image/webp',
+                                        'image/avif',
+                                        'image/svg+xml',
+                                        'font/woff',
+                                        'font/woff2',
+                                        'application/wasm',
+                                        'application/octet-stream',
+                                    ])
+                                    .describe(
+                                        '\* `image\/png` - image\/png\n\* `image\/jpeg` - image\/jpeg\n\* `image\/gif` - image\/gif\n\* `image\/webp` - image\/webp\n\* `image\/avif` - image\/avif\n\* `image\/svg+xml` - image\/svg+xml\n\* `font\/woff` - font\/woff\n\* `font\/woff2` - font\/woff2\n\* `application\/wasm` - application\/wasm\n\* `application\/octet-stream` - application\/octet-stream'
+                                    )
+                                    .describe(
+                                        'MIME type of the asset bytes. Image types are emitted as artifact files a plain <img> tag can reference.\n\n\* `image\/png` - image\/png\n\* `image\/jpeg` - image\/jpeg\n\* `image\/gif` - image\/gif\n\* `image\/webp` - image\/webp\n\* `image\/avif` - image\/avif\n\* `image\/svg+xml` - image\/svg+xml\n\* `font\/woff` - font\/woff\n\* `font\/woff2` - font\/woff2\n\* `application\/wasm` - application\/wasm\n\* `application\/octet-stream` - application\/octet-stream'
+                                    ),
+                                content: zod
+                                    .string()
+                                    .max(canvasesValidateCreateBodyProjectOneAssetsContentMax)
+                                    .regex(canvasesValidateCreateBodyProjectOneAssetsContentRegExp)
+                                    .optional()
+                                    .describe('Base64-encoded bytes. Required for base64 encoding.'),
+                                sha256: zod
+                                    .string()
+                                    .regex(canvasesValidateCreateBodyProjectOneAssetsSha256RegExp)
+                                    .optional()
+                                    .describe(
+                                        'Hex sha256 identifying the uploaded asset, as returned by the asset upload endpoint. Required for objectRef encoding.'
+                                    ),
+                                sizeBytes: zod
+                                    .number()
+                                    .min(1)
+                                    .optional()
+                                    .describe(
+                                        'Byte size of the uploaded asset, as returned by the asset upload endpoint. Required for objectRef encoding.'
+                                    ),
+                            })
+                            .describe(
+                                'One binary asset: inline base64 bytes, or a reference to an uploaded canvas asset.'
+                            )
                     )
                     .optional()
                     .describe('Optional base64-encoded binary assets keyed by safe project-relative paths.'),

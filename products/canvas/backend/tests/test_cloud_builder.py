@@ -1,4 +1,5 @@
 import os
+import base64
 import hashlib
 import tempfile
 import subprocess
@@ -84,7 +85,7 @@ class TestCanvasCloudBuilder(SimpleTestCase):
     def test_builds_vanilla_typescript_with_the_shared_contract(self) -> None:
         result = run_cloud_builder(self._project('document.querySelector("#root")!.textContent = "Hello"'))
 
-        files, manifest, diagnostics = validate_builder_output(result)
+        files, _asset_paths, manifest, diagnostics = validate_builder_output(result)
         self.assertEqual(diagnostics, [])
         self.assertEqual(manifest["entryHtml"], "index.html")
         self.assertFalse(manifest["capabilities"]["posthog"]["inlineQueries"])
@@ -435,7 +436,7 @@ bridge.port1.close();
             "network": {"origins": ["https://api.example.com"]},
         }
 
-        files, manifest, _ = validate_builder_output(run_cloud_builder(project))
+        files, _asset_paths, manifest, _ = validate_builder_output(run_cloud_builder(project))
 
         self.assertEqual(manifest["capabilities"], project["capabilities"])
         html = next(file["content"] for file in files if file["path"] == "index.html")
@@ -490,7 +491,62 @@ bridge.port1.close();
         self.assertEqual(result["status"], "ready", result["diagnostics"])
         javascript = next(file["content"] for file in result["files"] if file["path"].endswith(".js"))
         self.assertIn("new Blob", javascript)
-        self.assertIn("data:image/png;base64", javascript)
+        # Image imports resolve to the emitted artifact file, not an inline data URL.
+        self.assertIn("./assets/pixel.png", javascript)
+        self.assertNotIn("data:image/png", javascript)
+        self.assertEqual(result["assetRefs"], [{"path": "assets/pixel.png"}])
+        pixel_bytes = base64.b64decode("iVBORw0KGgo=")
+        manifest_entry = next(asset for asset in result["manifest"]["assets"] if asset["path"] == "assets/pixel.png")
+        self.assertEqual(manifest_entry["contentHash"], hashlib.sha256(pixel_bytes).hexdigest())
+        self.assertEqual(manifest_entry["sizeBytes"], len(pixel_bytes))
+        self.assertEqual(manifest_entry["contentType"], "image/png")
+        validate_builder_output(result)
+
+    def test_emits_metadata_only_image_assets_for_plain_img_tags(self) -> None:
+        payload = self._project("")
+        payload["files"]["index.html"] = (
+            '<img src="./assets/logo.png" /><script type="module" src="/src/main.ts"></script>'
+        )
+        payload["assets"] = {
+            "assets/logo.png": {"encoding": "meta", "contentType": "image/png", "sizeBytes": 8, "sha256": "ab" * 32}
+        }
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        self.assertEqual(result["diagnostics"], [])
+        self.assertEqual(result["assetRefs"], [{"path": "assets/logo.png"}])
+        manifest_entry = next(asset for asset in result["manifest"]["assets"] if asset["path"] == "assets/logo.png")
+        self.assertEqual(manifest_entry["contentHash"], "ab" * 32)
+        self.assertEqual(manifest_entry["sizeBytes"], 8)
+
+    def test_warns_on_img_src_with_no_declared_asset(self) -> None:
+        payload = self._project("")
+        payload["files"]["index.html"] = (
+            '<img src="./assets/missing.png" /><script type="module" src="/src/main.ts"></script>'
+        )
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        warning = next(item for item in result["diagnostics"] if item["code"] == "asset_not_declared")
+        self.assertEqual(warning["severity"], "warning")
+
+    def test_fails_on_asset_path_colliding_with_build_output(self) -> None:
+        payload = self._project("")
+        payload["assets"] = {
+            "assets/canvas-runtime.js": {
+                "encoding": "meta",
+                "contentType": "image/png",
+                "sizeBytes": 8,
+                "sha256": "ab" * 32,
+            }
+        }
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["diagnostics"][0]["code"], "asset_path_conflict")
 
     def test_bundles_worker_imports_into_the_blob(self) -> None:
         payload = self._project('import workerUrl from "./worker.ts?worker"; new Worker(workerUrl, { type: "module" })')
@@ -517,20 +573,36 @@ bridge.port1.close();
         self.assertNotIn('from"dayjs"', javascript)
 
     def test_source_contract_rejects_active_or_malformed_assets(self) -> None:
-        for content, content_type in (("%%%", "image/png"), ("PGgxLz4=", "text/html")):
+        for asset in (
+            {"encoding": "base64", "contentType": "image/png", "content": "%%%"},
+            {"encoding": "base64", "contentType": "text/html", "content": "PGgxLz4="},
+            {"encoding": "base64", "contentType": "image/png"},
+            {"encoding": "objectRef", "contentType": "image/png"},
+            {"encoding": "objectRef", "contentType": "image/png", "sha256": "not-a-hash", "sizeBytes": 5},
+            {"encoding": "objectRef", "contentType": "image/png", "sha256": "ab" * 32},
+        ):
             payload = self._project("")
-            payload["assets"] = {
-                "assets/file.bin": {
-                    "encoding": "base64",
-                    "contentType": content_type,
-                    "content": content,
-                }
-            }
+            payload["assets"] = {"assets/file.bin": asset}
 
             serializer = CanvasSourceProjectSerializer(data=payload)
 
-            self.assertFalse(serializer.is_valid())
+            self.assertFalse(serializer.is_valid(), asset)
             self.assertIn("assets", serializer.errors)
+
+    def test_source_contract_accepts_object_ref_assets(self) -> None:
+        payload = self._project("")
+        payload["assets"] = {
+            "assets/logo.png": {
+                "encoding": "objectRef",
+                "contentType": "image/png",
+                "sha256": "ab" * 32,
+                "sizeBytes": 128,
+            }
+        }
+
+        serializer = CanvasSourceProjectSerializer(data=payload)
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
 
     def test_rejects_artifact_content_that_does_not_match_manifest(self) -> None:
         result = {
