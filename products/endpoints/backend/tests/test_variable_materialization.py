@@ -1785,6 +1785,7 @@ class TestTransformQuerySnapshots(APIBaseTest):
         assert select_alias_expr is not group_by_expr, "SELECT alias expr and GROUP BY expr are the same Python object"
 
 
+@pytest.mark.usefixtures("unittest_snapshot")
 class TestCTETransformSnapshots(APIBaseTest):
     """Snapshot tests for CTE variable materialization query transforms.
 
