@@ -562,6 +562,32 @@ class TestErrorTracking(APIBaseTest):
         issue.refresh_from_db()
         assert issue.status == ErrorTrackingIssue.Status.RESOLVED
 
+    def test_issue_status_update_starts_alert_delivery_with_the_event_uuid(self):
+        issue = self.create_issue()
+
+        with (
+            patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
+            patch(
+                "products.error_tracking.backend.logic.lifecycle_events.start_alert_delivery_workflow"
+            ) as mock_dispatch,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}",
+                data={"status": "resolved"},
+            )
+
+        assert response.status_code == 200, response.json()
+        mock_dispatch.assert_called_once()
+        kwargs = mock_dispatch.call_args.kwargs
+        assert kwargs["team_id"] == self.team.id
+        assert kwargs["event"] == "$error_tracking_issue_resolved"
+        assert kwargs["issue_id"] == str(issue.id)
+        assert kwargs["status"] == "Resolved"
+        assert kwargs["actor_email"] == self.user.email
+        # The delivery workflow and the internal event share the notification id.
+        assert kwargs["notification_id"] == mock_produce.call_args.kwargs["event"].uuid
+
     def test_issue_update_without_status_transition_produces_no_lifecycle_event(self):
         issue = self.create_issue()
 
