@@ -4027,6 +4027,11 @@ export interface OrganizationApi {
     /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
     members_can_see_org_members?: boolean
     allow_publicly_shared_resources?: boolean
+    /**
+     * When True, requests through the PostHog MCP server can read but not change this organization's data.
+     * @nullable
+     */
+    read_only_mcp_access?: boolean | null
     readonly member_count: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
@@ -4745,6 +4750,18 @@ export interface UserPushTokenUnregisterRequestApi {
      * @maxLength 512
      */
     token: string
+}
+
+/**
+ * Request body for POST /api/users/verify_email/. Exactly one of token or code is required.
+ */
+export interface VerifyEmailRequestApi {
+    /** UUID of the user whose email is being verified. */
+    uuid: string
+    /** Verification token from the emailed link. Required unless a code is provided. */
+    token?: string
+    /** The 6-digit verification code emailed at signup. Whitespace, invisible characters, and grouping hyphens are removed and compatibility digits are folded to ASCII before checking. */
+    code?: string
 }
 
 export type CimdVerificationTokensListParams = {

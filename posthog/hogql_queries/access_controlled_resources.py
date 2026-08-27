@@ -44,6 +44,8 @@ _DATA_QUALITY_INFORMATION_SCHEMA_TABLES = frozenset(
     }
 )
 
+_ACCOUNT_COMMUNICATION_LAZY_FIELDS = frozenset({"email_threads", "support_tickets"})
+
 
 def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str]]:
     """The set of access-control scope names a query reads, e.g. "notebook", "warehouse_table".
@@ -59,13 +61,34 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
     from posthog.hogql.database.schema.system import access_controlled_system_tables  # noqa: PLC0415
     from posthog.hogql.errors import BaseHogQLError  # noqa: PLC0415
     from posthog.hogql.metadata import get_table_names  # noqa: PLC0415
-    from posthog.hogql.parser import parse_select  # noqa: PLC0415
+    from posthog.hogql.parser import parse_expr, parse_select  # noqa: PLC0415
+    from posthog.hogql.visitor import GetFieldsTraverser  # noqa: PLC0415
 
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.warehouse_sources.backend.facade.models import DataWarehouseTable  # noqa: PLC0415
 
     if getattr(query, "kind", None) == "AccountsTableQuery":
         return _with_fallback_parents({"account"})
+
+    if getattr(query, "kind", None) == "AccountsQuery":
+        expressions = [
+            *(getattr(query, "select", None) or []),
+            *(getattr(query, "metrics", None) or []),
+            *(getattr(query, "orderBy", None) or []),
+        ]
+        filter_expression = getattr(query, "filterExpression", None)
+        if filter_expression:
+            expressions.append(filter_expression)
+        try:
+            fields = [
+                field for expression in expressions for field in GetFieldsTraverser(parse_expr(expression)).fields
+            ]
+        except BaseHogQLError:
+            return None
+        account_scopes = {"account"}
+        if any(any(str(segment) in _ACCOUNT_COMMUNICATION_LAZY_FIELDS for segment in field.chain) for field in fields):
+            account_scopes.add("ticket")
+        return _with_fallback_parents(account_scopes)
 
     # Raw HogQL is the only query that references system.* and warehouse tables by name
     if getattr(query, "kind", None) == "HogQLQuery":
@@ -80,6 +103,13 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
         table_names = set(get_table_names(select))
         system_scopes = {f"system.{name}": scope for name, scope in access_controlled_system_tables().items()}
         scopes: set[str] = {system_scopes[name] for name in table_names if name in system_scopes}
+
+        # Cache partitioning runs before lazy joins resolve, so their resource scopes do not appear as table names yet.
+        if "system.accounts" in table_names and any(
+            any(str(segment) in _ACCOUNT_COMMUNICATION_LAZY_FIELDS for segment in field.chain)
+            for field in GetFieldsTraverser(select).fields
+        ):
+            scopes.add("ticket")
 
         # The catalog-enriched information_schema tables aren't PostgresTables, so they're absent from
         # `access_controlled_system_tables()`; gate them explicitly on `data_catalog` read access.

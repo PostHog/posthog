@@ -9,7 +9,7 @@ import {
     KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M,
     KAFKA_SESSION_REPLAY_IMAGE_SCRUB,
 } from '~/common/config/kafka-topics'
-import { KafkaConsumerV2, KafkaConsumerV2Config } from '~/common/kafka/consumer/consumer-v2'
+import { KafkaConsumerV2, KafkaConsumerV2Config, RdKafkaConsumerOverrides } from '~/common/kafka/consumer/consumer-v2'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { logger } from '~/common/utils/logger'
@@ -23,6 +23,10 @@ import { FetchRunner } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image
 import { KafkaFrontierDeadLetterSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/frontier-dead-letter-sink'
 import { FrontierPublisher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/frontier-publisher'
 import { HostBudget } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/host-budget'
+import {
+    ImageFetchBatchJoiner,
+    assertImageFetchBatchTarget,
+} from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetch-batch-joiner'
 import { HttpImageFetcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetcher'
 import { OriginRequestScheduler } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/origin-request-scheduler'
 import { assertUrlPolicyLoaded } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/politeness-key'
@@ -30,6 +34,7 @@ import { UrlFetchConsumer } from '~/ingestion/pipelines/sessionreplay/ml-mirror-
 import { createWebBotAuthRequestSigner } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/web-bot-auth'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
 import { INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
+import { HealthCheckResultOk } from '~/types'
 
 import { CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 import {
@@ -45,6 +50,7 @@ import {
  * mid-batch to a pod that will be just as slow, so the lane sheds the rest of the batch instead.
  */
 const STORE_BATCH_BUDGET_MS = 50_000
+const IMAGE_FETCH_KAFKA_QUEUE_BUDGET_KBYTES = 102_400
 
 /** Matches MAX_URL_LEN in the crate, which is what the collector applied to the first candidate. */
 const MAX_REDIRECT_URL_LENGTH = 2048
@@ -141,15 +147,30 @@ export function buildFetchRunner(
     )
 }
 
-export function buildImageFetchConsumerConfig(
+export function buildImageFetchConsumerConfigs(
     config: IngestionSessionReplayMlMirrorServerConfig
-): KafkaConsumerV2Config {
-    return {
+): KafkaConsumerV2Config[] {
+    const targetBatchCount = config.SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH
+    assertImageFetchBatchTarget(targetBatchCount)
+    return Array.from({ length: targetBatchCount }, () => ({
         topic: KAFKA_SESSION_REPLAY_IMAGE_FETCH,
         groupId: config.SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID,
         autoCommit: true,
         autoOffsetStore: true,
         fetchBatchSize: config.SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE,
+    }))
+}
+
+export function buildImageFetchConsumerOverrides(
+    config: IngestionSessionReplayMlMirrorServerConfig,
+    consumerCount: number
+): RdKafkaConsumerOverrides {
+    assertImageFetchBatchTarget(consumerCount)
+    const maximumRecordBytes = config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES + 64 * 1024
+    return {
+        'fetch.message.max.bytes': maximumRecordBytes,
+        'max.partition.fetch.bytes': maximumRecordBytes,
+        'queued.max.messages.kbytes': Math.floor(IMAGE_FETCH_KAFKA_QUEUE_BUDGET_KBYTES / consumerCount),
     }
 }
 
@@ -239,18 +260,33 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
         )
         logger.info('🌐', 'ml_image_fetch_started', { dryRun })
 
-        const maximumRecordBytes = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES + 64 * 1024
-        const consumer = new KafkaConsumerV2(buildImageFetchConsumerConfig(this.config), {
-            'fetch.message.max.bytes': maximumRecordBytes,
-            'max.partition.fetch.bytes': maximumRecordBytes,
-        })
-        await consumer.connect((messages) => fetchConsumer.handleBatch(messages, Date.now()))
+        const consumerConfigs = buildImageFetchConsumerConfigs(this.config)
+        const batchJoiner = new ImageFetchBatchJoiner(consumerConfigs.length, (messages) =>
+            fetchConsumer.handleBatch(messages, Date.now())
+        )
+        const consumerOverrides = buildImageFetchConsumerOverrides(this.config, consumerConfigs.length)
+        const consumers = consumerConfigs.map(
+            (consumerConfig) => new KafkaConsumerV2(consumerConfig, consumerOverrides)
+        )
 
         this.lifecycle.services.push({
             id: 'session-replay-ml-image-fetch',
-            onShutdown: () => consumer.disconnect(),
-            healthcheck: () => consumer.isHealthy(),
+            onShutdown: async () => {
+                await Promise.all(consumers.map((consumer) => consumer.disconnect()))
+            },
+            healthcheck: () => {
+                for (const consumer of consumers) {
+                    const health = consumer.isHealthy()
+                    if (health.isError()) {
+                        return health
+                    }
+                }
+                return new HealthCheckResultOk()
+            },
         })
+        await Promise.all(
+            consumers.map((consumer) => consumer.connect((messages) => batchJoiner.handleBatch(messages)))
+        )
     }
 
     private getCleanupResources(): CleanupResources {

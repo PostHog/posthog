@@ -256,15 +256,11 @@ def extract_tool_calls_from_content(content: Any) -> list[ToolCall]:
 
     tool_calls: list[ToolCall] = []
     for block in content:
-        if isinstance(block, dict):
+        match block:
             # Handle tool-call format: { type: "tool-call", function: {...} }
-            if block.get("type") == "tool-call" and "function" in block:
-                if isinstance(block["function"], dict):
-                    tool_calls.append({"function": block["function"]})
-            # Handle Anthropic function format: { type: "function", function: {...} }
-            elif block.get("type") == "function" and "function" in block:
-                if isinstance(block["function"], dict):
-                    tool_calls.append({"function": block["function"]})
+            # and Anthropic function format: { type: "function", function: {...} }
+            case {"type": "tool-call" | "function", "function": dict() as function}:
+                tool_calls.append({"function": function})
 
     return tool_calls
 

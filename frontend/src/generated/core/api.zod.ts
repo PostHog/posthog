@@ -2007,90 +2007,18 @@ export const UsersRequestEmailVerificationCreateBody = /* @__PURE__ */ zod.objec
         ),
 })
 
-export const usersVerifyEmailCreateBodyFirstNameMax = 150
-
-export const usersVerifyEmailCreateBodyLastNameMax = 150
-
-export const usersVerifyEmailCreateBodyEmailMax = 254
-
-export const usersVerifyEmailCreateBodyPasswordMax = 128
-
-export const UsersVerifyEmailCreateBody = /* @__PURE__ */ zod.object({
-    first_name: zod.string().max(usersVerifyEmailCreateBodyFirstNameMax).optional(),
-    last_name: zod.string().max(usersVerifyEmailCreateBodyLastNameMax).optional(),
-    email: zod.email().max(usersVerifyEmailCreateBodyEmailMax),
-    notification_settings: zod
-        .record(zod.string(), zod.unknown())
-        .optional()
-        .describe(
-            'Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project\/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is.'
-        ),
-    anonymize_data: zod
-        .boolean()
-        .nullish()
-        .describe('Whether PostHog should anonymize events captured for this user when identified.'),
-    allow_impersonation: zod.boolean().nullish(),
-    toolbar_mode: zod
-        .union([
-            zod.enum(['disabled', 'toolbar']).describe('\* `disabled` - disabled\n\* `toolbar` - toolbar'),
-            zod.enum(['']),
-            zod.null(),
-        ])
-        .optional(),
-    is_staff: zod.boolean().optional().describe('Designates whether the user can log into this admin site.'),
-    set_current_organization: zod.string().optional(),
-    set_current_team: zod.string().optional(),
-    password: zod.string().max(usersVerifyEmailCreateBodyPasswordMax),
-    current_password: zod
-        .string()
-        .optional()
-        .describe(
-            "The user's current password. Required when changing `password` if the user already has a usable password set."
-        ),
-    events_column_config: zod.unknown().optional(),
-    has_seen_product_intro_for: zod.unknown().optional(),
-    theme_mode: zod
-        .union([
-            zod
-                .enum(['light', 'dark', 'system'])
-                .describe('\* `light` - Light\n\* `dark` - Dark\n\* `system` - System'),
-            zod.enum(['']),
-            zod.null(),
-        ])
-        .optional(),
-    hedgehog_config: zod.unknown().optional(),
-    allow_sidebar_suggestions: zod.boolean().nullish(),
-    shortcut_position: zod
-        .union([
-            zod
-                .enum(['above', 'below', 'hidden'])
-                .describe('\* `above` - Above\n\* `below` - Below\n\* `hidden` - Hidden'),
-            zod.enum(['']),
-            zod.null(),
-        ])
-        .optional(),
-    role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
-        .optional()
-        .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
-        ),
-    passkeys_enabled_for_2fa: zod
-        .boolean()
-        .nullish()
-        .describe(
-            'Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.'
-        ),
-    hide_mcp_hints: zod
-        .boolean()
-        .optional()
-        .describe(
-            'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
-        ),
-    ui_configuration: zod
-        .unknown()
-        .optional()
-        .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
-        ),
-})
+export const UsersVerifyEmailCreateBody = /* @__PURE__ */ zod
+    .object({
+        uuid: zod.string().describe('UUID of the user whose email is being verified.'),
+        token: zod
+            .string()
+            .optional()
+            .describe('Verification token from the emailed link. Required unless a code is provided.'),
+        code: zod
+            .string()
+            .optional()
+            .describe(
+                'The 6-digit verification code emailed at signup. Whitespace, invisible characters, and grouping hyphens are removed and compatibility digits are folded to ASCII before checking.'
+            ),
+    })
+    .describe('Request body for POST \/api\/users\/verify_email\/. Exactly one of token or code is required.')
