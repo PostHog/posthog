@@ -246,6 +246,14 @@ case "$RS_SVC" in
     export DEBUG=1
     ;;
 
+  usage-ingestion)
+    export RUST_LOG=debug,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export USAGE_INGESTION_DATABASE_URL="${USAGE_INGESTION_DATABASE_URL:-$DEFAULT_PG}"
+    export KAFKA_HOSTS="$DEFAULT_KAFKA"
+    export DEBUG=1
+    ;;
+
   batch-import-worker)
     SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
     export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn

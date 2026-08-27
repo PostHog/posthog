@@ -28,12 +28,14 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     apply_enabled_columns_projection,
     conditional_lru_cache_async,
     evolve_pyarrow_schema,
+    hex_encode_id_binary_columns,
     is_safe_numeric_widening,
     merge_observed_columns_into_schema_metadata,
     normalize_table_column_names,
     observe_and_project_table,
     observed_schema_metadata_columns,
     raise_on_nullability_drift,
+    relax_batch_nullability,
     restrict_schema_to_columns,
     source_uses_delta_write_column_selection,
     table_from_py_list,
@@ -376,6 +378,48 @@ def test_table_from_py_list_keeps_binary_id_column_with_schema():
     assert table.column("id").to_pylist() == ["01ff", None]
     assert table.schema.field("id").type == pa.string()
     assert table.column("column").to_pylist() == ["hello", "world"]
+
+
+@pytest.mark.parametrize(
+    "column_name,column_type,primary_keys,expected_values,expected_type",
+    [
+        ("id", pa.binary(), None, ["bdd640", None], pa.string()),
+        ("order_id", pa.binary(), None, ["bdd640", None], pa.string()),
+        ("sk_load", pa.binary(), ["sk_load"], ["bdd640", None], pa.string()),
+        ("sk_load", pa.large_binary(), ["sk_load"], ["bdd640", None], pa.large_string()),
+        ("sk_load", pa.binary(), None, [b"\xbd\xd6\x40", None], pa.binary()),
+        ("payload", pa.binary(), None, [b"\xbd\xd6\x40", None], pa.binary()),
+    ],
+)
+def test_hex_encode_id_binary_columns(
+    column_name: str,
+    column_type: pa.DataType,
+    primary_keys: list[str] | None,
+    expected_values: list[Any],
+    expected_type: pa.DataType,
+):
+    table = pa.table({column_name: pa.array([b"\xbd\xd6\x40", None], type=column_type), "other": [1.0, 2.0]})
+
+    converted = hex_encode_id_binary_columns(table, primary_keys)
+
+    assert converted.column(column_name).to_pylist() == expected_values
+    assert converted.column("other").to_pylist() == [1.0, 2.0]
+    assert converted.schema.field(column_name).type == expected_type
+
+
+def test_hex_encode_id_binary_columns_keeps_chunk_order_and_nulls():
+    chunked = pa.chunked_array(
+        [
+            pa.array([b"\xbd\xd6\x40", None], type=pa.binary()),
+            pa.array([None, b"\x01\xff"], type=pa.binary()),
+        ]
+    )
+    table = pa.table({"id": chunked})
+
+    converted = hex_encode_id_binary_columns(table)
+
+    assert converted.column("id").to_pylist() == ["bdd640", None, None, "01ff"]
+    assert converted.schema.field("id").type == pa.string()
 
 
 def test_binary_column_reporter_logs_each_column_once_across_batches():
@@ -930,6 +974,34 @@ def test_evolve_pyarrow_schema_whole_valued_floats_cast_into_stored_integer_colu
 
 
 @pytest.mark.parametrize(
+    "merge_key_columns,raises",
+    [
+        (["val"], True),
+        (None, False),
+    ],
+)
+def test_evolve_pyarrow_schema_guards_only_merge_keys_against_hex_text(
+    merge_key_columns: list[str] | None, raises: bool
+):
+    arrow_table = pa.table(
+        {
+            "id": pa.array([1, 2], type=pa.int64()),
+            "val": pa.array(["01ff", "02ff"], type=pa.string()),
+        }
+    )
+    delta_schema = deltalake.Schema.from_arrow(
+        pa.schema(cast(Any, [pa.field("id", pa.int64(), nullable=False), pa.field("val", pa.binary(), nullable=True)]))
+    )
+
+    if raises:
+        with pytest.raises(SchemaColumnTypeChangedException, match="merge key"):
+            evolve_pyarrow_schema(arrow_table, delta_schema, merge_key_columns=merge_key_columns)
+    else:
+        evolved = evolve_pyarrow_schema(arrow_table, delta_schema, merge_key_columns=merge_key_columns)
+        assert evolved.column("val").to_pylist() == [b"01ff", b"02ff"]
+
+
+@pytest.mark.parametrize(
     "delta_type, incoming_column",
     [
         # Non-numeric text arriving for a column stored as int (Failed to parse string).
@@ -1056,6 +1128,66 @@ def test_raise_on_nullability_drift_permits_valid_batches(
     delta_schema = deltalake.Schema.from_arrow(pa.schema(delta_fields))
 
     raise_on_nullability_drift(pa_table, delta_schema)
+
+
+@pytest.mark.parametrize(
+    "fields, columns, expected_nullable",
+    [
+        # The source declared the column NOT NULL but sent a null in it, so the claim is corrected.
+        (
+            [pa.field("id", pa.int64(), nullable=False), pa.field("v", pa.int64(), nullable=False)],
+            {"id": [1, 2], "v": [None, 5]},
+            {"id": False, "v": True},
+        ),
+        # No nulls arrived, so the source's NOT NULL claim is true and stands.
+        (
+            [pa.field("id", pa.int64(), nullable=False), pa.field("v", pa.int64(), nullable=False)],
+            {"id": [1, 2], "v": [4, 5]},
+            {"id": False, "v": False},
+        ),
+        # The column is already nullable, so there is nothing to correct.
+        (
+            [pa.field("id", pa.int64(), nullable=False), pa.field("v", pa.int64(), nullable=True)],
+            {"id": [1, 2], "v": [None, 5]},
+            {"id": False, "v": True},
+        ),
+        # Only the column that holds nulls is relaxed; its neighbours keep their declared nullability.
+        (
+            [
+                pa.field("id", pa.int64(), nullable=False),
+                pa.field("v", pa.int64(), nullable=False),
+                pa.field("name", pa.string(), nullable=False),
+            ],
+            {"id": [1, 2], "v": [None, 5], "name": ["a", "b"]},
+            {"id": False, "v": True, "name": False},
+        ),
+    ],
+)
+def test_relax_batch_nullability_corrects_only_columns_that_hold_nulls(
+    fields: list[pa.Field], columns: dict[str, list], expected_nullable: dict[str, bool]
+):
+    pa_table = pa.table(columns, schema=pa.schema(fields))
+
+    relaxed = relax_batch_nullability(pa_table)
+
+    assert {field.name: field.nullable for field in relaxed.schema} == expected_nullable
+    assert relaxed.to_pydict() == pa_table.to_pydict()
+    assert relaxed.schema.types == pa_table.schema.types
+
+
+def test_relax_batch_nullability_keeps_schema_metadata():
+    # The observed-column metadata rides on the schema, so rebuilding the schema must carry it over
+    # or the batch loses the column observations the sync persists.
+    metadata: dict[bytes | str, bytes | str] = {b"ph_observed_columns": b"[]"}
+    pa_table = pa.table(
+        {"v": [None, 5]},
+        schema=pa.schema([pa.field("v", pa.int64(), nullable=False)], metadata=metadata),
+    )
+
+    relaxed = relax_batch_nullability(pa_table)
+
+    assert relaxed.schema.field("v").nullable is True
+    assert relaxed.schema.metadata == metadata
 
 
 def test_evolve_pyarrow_schema_with_struct_containing_datetime_and_decimal():

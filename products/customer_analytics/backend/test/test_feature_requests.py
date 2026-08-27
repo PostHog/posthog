@@ -7,10 +7,12 @@ from unittest.mock import patch
 
 from rest_framework import status
 
-from posthog.models import OrganizationMembership, Team, UploadedMedia, User
+from posthog.models import OrganizationMembership, PersonalAPIKey, Team, UploadedMedia, User
 from posthog.models.organization import AvailableFeature
 from posthog.models.scoping import team_scope
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.models import (
     FeatureRequest,
     FeatureRequestAccountLink,
@@ -19,8 +21,6 @@ from products.customer_analytics.backend.models import (
     FeatureRequestProductArea,
 )
 from products.customer_analytics.backend.test.factories import create_account
-
-from ee.models.rbac.access_control import AccessControl
 
 
 class _EvidenceResponse(TypedDict):
@@ -894,6 +894,38 @@ class TestFeatureRequestsAPI(APIBaseTest):
         self.assertEqual(restored.json()["account_links"], created["account_links"])
         self.assertEqual(restored.json()["product_areas"], created["product_areas"])
         self.assertEqual(len(history.json()), 2)
+
+    def test_scoped_personal_api_key_can_use_custom_actions(self) -> None:
+        created = self.client.post(self.requests_url, self._payload(), format="json").json()
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="feature requests",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["customer_analytics:write"],
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key_value}")
+
+        added = self.client.post(
+            f"{self.requests_url}{created['id']}/add_evidence/",
+            {
+                "expected_version": created["version"],
+                "account_link_id": created["account_links"][0]["id"],
+                "summary": "Requested during onboarding",
+                "customer_quote": "",
+                "evidence_source": "conversation",
+                "source_url": "",
+                "requested_on": None,
+                "image_ids": [],
+            },
+            format="json",
+        )
+        history = self.client.get(f"{self.requests_url}{created['id']}/history/")
+
+        self.assertEqual(added.status_code, status.HTTP_200_OK)
+        self.assertEqual(added.json()["account_links"][0]["evidence_count"], 1)
+        self.assertEqual(history.status_code, status.HTTP_200_OK)
 
     def test_feature_flag_blocks_the_api_without_deleting_data(self) -> None:
         created = self.client.post(self.requests_url, self._payload(), format="json")

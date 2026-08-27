@@ -80,6 +80,7 @@ from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides im
     ErrorTrackingIssueFingerprintOverridesTable,
     RawErrorTrackingIssueFingerprintOverridesTable,
 )
+from posthog.hogql.database.schema.error_tracking_recent_issue_state import ErrorTrackingRecentIssueStateTable
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
 from posthog.hogql.database.schema.experiment_exposures_preaggregated import ExperimentExposuresPreaggregatedTable
@@ -92,7 +93,6 @@ from posthog.hogql.database.schema.heatmaps import HeatmapsTable
 from posthog.hogql.database.schema.hog_invocation_results import HogInvocationResultsTable
 from posthog.hogql.database.schema.information_schema import (
     direct_connection_information_schema_node,
-    disable_data_catalog,
     disable_data_quality,
 )
 from posthog.hogql.database.schema.log_entries import (
@@ -162,6 +162,8 @@ from posthog.scopes import APIScopeObject
 from posthog.synthetic_user import SyntheticUser
 from posthog.week_start_day import WeekStartDay
 
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceAccessMethod
+
 # The Django ORM / products models below are imported lazily inside the functions that build a
 # Database (Database._fetch_sources / _build_from_sources / serialize and their helpers) so this
 # module — and the HogQL resolver/printer that import it — load without django.setup(). The
@@ -183,9 +185,9 @@ if TYPE_CHECKING:
 
     from posthog.models import User
     from posthog.models.team.team import Team
-    from posthog.rbac.user_access_control import UserAccessControl
     from posthog.shared_link_user import SharedLinkUser
 
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.data_tools.backend.models.expression import DataWarehouseExpression
     from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -224,7 +226,6 @@ class HogQLDatabaseSources:
     modifiers: HogQLQueryModifiers
     is_managed_viewset_enabled: bool
     is_hogql_warehouse_access_control_enabled: bool
-    is_data_catalog_enabled: bool
     is_data_quality_enabled: bool
     # Userless internal contexts that must resolve every warehouse table/view; skips access control
     bypass_warehouse_access_control: bool
@@ -430,6 +431,11 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                         name="error_tracking_fingerprint_issue_state",
                         table=ErrorTrackingFingerprintIssueStateTable(),
                     ),
+                    "error_tracking_recent_issue_state": TableNode(
+                        name="error_tracking_recent_issue_state",
+                        table=ErrorTrackingRecentIssueStateTable(),
+                        hidden=True,
+                    ),
                     "web_overview_preaggregated": TableNode(
                         name="web_overview_preaggregated", table=WebOverviewPreaggregatedTable()
                     ),
@@ -541,8 +547,12 @@ def _compute_system_table_access_decision(
     Pass user_access_control when it's already preloaded to reuse the instance and avoid an extra query."""
     # Lazy imports keep the Django ORM off this module's import path.
     from posthog.models.organization import OrganizationMembership  # noqa: PLC0415
-    from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl  # noqa: PLC0415
     from posthog.shared_link_user import SharedLinkUser  # noqa: PLC0415
+
+    from products.access_control.backend.facade.user_access_control import (  # noqa: PLC0415
+        NO_ACCESS_LEVEL,
+        UserAccessControl,
+    )
 
     scoped_tables = _scoped_system_tables()
     # Applies to every principal below, admins included - an entitlement the organization does not
@@ -605,7 +615,13 @@ class Database(BaseModel):
     # warehouse table is accessed (see get_table / _ensure_foreign_keys_built).
     _deferred_foreign_key_tables: list[Any] = []
     _foreign_keys_built: bool = True
-    _foreign_keys_building: bool = False
+    # Thread ident of the thread currently running the build pass, for recursion detection. A
+    # database can be shared by several query threads (e.g. trends series), so the guard must
+    # distinguish same-thread re-entry from a concurrent thread that has to wait.
+    _foreign_keys_building_thread: Optional[int] = None
+    # Per-instance so unrelated databases built concurrently in one process never contend; nothing
+    # copies or pickles a Database, so the lock is safe to hold as instance state.
+    _foreign_keys_build_lock: Any = None
     # Lowercased, because Snowflake nodes resolve case-insensitively and a query may name a table with
     # casing that differs from the canonical catalog name.
     _foreign_key_trigger_names: Optional[set[str]] = None
@@ -640,7 +656,8 @@ class Database(BaseModel):
         self._data_warehouse_sync_warnings = {}
         self._deferred_foreign_key_tables = []
         self._foreign_keys_built = True
-        self._foreign_keys_building = False
+        self._foreign_keys_building_thread = None
+        self._foreign_keys_build_lock = threading.Lock()
         self._foreign_key_trigger_names = None
         self._deferred_overridable_expression_field_ids = set()
         self._serialization_errors: dict[str, str] = {}  # table_key -> error_message
@@ -711,31 +728,38 @@ class Database(BaseModel):
 
         The full graph is built in a single pass (not just the accessed table) so reverse joins and
         field precedence match the eager path exactly. Resolving a foreign-key target re-enters
-        get_table, so `_foreign_keys_building` guards that recursion rather than the built flag — the
-        work stays pending until the pass finishes, so a mid-pass failure doesn't leave a half-wired
-        graph behind. Callers that swallow resolution errors retry on their next access instead.
+        get_table, so `_foreign_keys_building_thread` guards that recursion rather than the built
+        flag — the work stays pending until the pass finishes, so a mid-pass failure doesn't leave a
+        half-wired graph behind. Callers that swallow resolution errors retry on their next access
+        instead. A database can be shared by concurrent query threads, so a thread that isn't the
+        builder blocks on the lock and observes the finished graph rather than a half-wired one.
         Saved expressions were applied at build time (before this runs), so foreign keys are allowed
         to replace a colliding saved-expression field — preserving the eager "saved expressions never
         shadow a join field" invariant. Only fields saved expressions created are overridable; the
         id/timestamp mappings event modifiers write stay put, as they did in the eager order.
         """
-        if self._foreign_keys_built or self._foreign_keys_building:
+        if self._foreign_keys_built or self._foreign_keys_building_thread == threading.get_ident():
             return
-        self._foreign_keys_building = True
-        try:
-            with tracer.start_as_current_span("warehouse_foreign_keys"):
-                for hogql_table, warehouse_table_model in self._deferred_foreign_key_tables:
-                    add_postgres_foreign_key_lazy_joins(
-                        hogql_table=hogql_table,
-                        warehouse_table=warehouse_table_model,
-                        database=self,
-                        schemas=_get_active_external_data_schemas(warehouse_table_model),
-                        overridable_expression_field_ids=self._deferred_overridable_expression_field_ids,
-                    )
-        finally:
-            self._foreign_keys_building = False
-        self._foreign_keys_built = True
-        self._deferred_foreign_key_tables = []
+        with self._foreign_keys_build_lock:
+            # Re-check under the lock: another thread may have finished the build while this one
+            # waited. mypy's flow analysis cannot see cross-thread mutation.
+            if self._foreign_keys_built:
+                return  # type: ignore[unreachable]
+            self._foreign_keys_building_thread = threading.get_ident()
+            try:
+                with tracer.start_as_current_span("warehouse_foreign_keys"):
+                    for hogql_table, warehouse_table_model in self._deferred_foreign_key_tables:
+                        add_postgres_foreign_key_lazy_joins(
+                            hogql_table=hogql_table,
+                            warehouse_table=warehouse_table_model,
+                            database=self,
+                            schemas=_get_active_external_data_schemas(warehouse_table_model),
+                            overridable_expression_field_ids=self._deferred_overridable_expression_field_ids,
+                        )
+            finally:
+                self._foreign_keys_building_thread = None
+            self._foreign_keys_built = True
+            self._deferred_foreign_key_tables = []
 
     def _suggest_table_names(self, name: str, *, limit: int = 3) -> list[str]:
         """Return up to `limit` close matches for a mistyped table name.
@@ -1215,7 +1239,7 @@ class Database(BaseModel):
             )
             if (
                 dual_source is not None
-                and dual_source.access_method != ExternalDataSource.AccessMethod.DIRECT
+                and dual_source.access_method != ExternalDataSourceAccessMethod.DIRECT
                 and is_direct_capable(dual_source)
             ):
                 latest_completed_job = (
@@ -1438,10 +1462,8 @@ class Database(BaseModel):
             )
 
             # Function-local + facade-only: keeps the products off the django.setup() path.
-            from products.data_catalog.backend.facade.flags import is_data_catalog_enabled  # noqa: PLC0415
             from products.data_quality.backend.facade.flags import is_data_quality_checks_enabled  # noqa: PLC0415
 
-            data_catalog_enabled = is_data_catalog_enabled(team)
             data_quality_enabled = is_data_quality_checks_enabled(team)
 
         with timings.measure("database", emit_span=True):
@@ -1465,7 +1487,7 @@ class Database(BaseModel):
                     .first()
                 )
                 if direct_source is not None and (
-                    direct_source.access_method == ExternalDataSource.AccessMethod.DIRECT
+                    direct_source.access_method == ExternalDataSourceAccessMethod.DIRECT
                     or is_direct_capable(direct_source)
                 ):
                     if direct_source.has_managed_warehouse_prefix:
@@ -1477,7 +1499,7 @@ class Database(BaseModel):
                         is_managed_warehouse_connection = managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN
                     direct_connection_metadata = direct_source.connection_metadata
                     # A capable non-DIRECT (synced) source drives the dual-mode virtual-table path.
-                    if direct_source.access_method != ExternalDataSource.AccessMethod.DIRECT:
+                    if direct_source.access_method != ExternalDataSourceAccessMethod.DIRECT:
                         virtual_source = direct_source
                         # Dual-mode live queries run under warehouse table-level access control. The
                         # introspected `available_functions` (scalar passthrough, e.g. query_to_xml) and
@@ -1617,7 +1639,7 @@ class Database(BaseModel):
                         tables_query = tables_query.filter(external_data_source_id=connection_id)
                     else:
                         tables_query = tables_query.exclude(
-                            external_data_source__access_method=ExternalDataSource.AccessMethod.DIRECT
+                            external_data_source__access_method=ExternalDataSourceAccessMethod.DIRECT
                         )
 
                     warehouse_tables = list(tables_query)
@@ -1690,7 +1712,6 @@ class Database(BaseModel):
             modifiers=modifiers,
             is_managed_viewset_enabled=is_managed_viewset_enabled,
             is_hogql_warehouse_access_control_enabled=is_hogql_warehouse_access_control_enabled,
-            is_data_catalog_enabled=data_catalog_enabled,
             is_data_quality_enabled=data_quality_enabled,
             # Managed warehouse is a built-in project datastore and has no warehouse-object ACL surface.
             # Principals that skip warehouse access control by design:
@@ -1731,10 +1752,7 @@ class Database(BaseModel):
         # Lazy imports keep the Django ORM / products models off this module's import path.
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
         from products.data_warehouse.backend.facade.hogql import get_warehouse_sync_warnings  # noqa: PLC0415
-        from products.warehouse_sources.backend.facade.models import (  # noqa: PLC0415
-            DataWarehouseTable,
-            ExternalDataSource,
-        )
+        from products.warehouse_sources.backend.facade.models import DataWarehouseTable  # noqa: PLC0415
         from products.warehouse_sources.backend.facade.types import ExternalDataSourceType  # noqa: PLC0415
 
         team = sources.team
@@ -1754,7 +1772,7 @@ class Database(BaseModel):
 
         with timings.measure("filter_system_tables_for_user", emit_span=True):
             database._apply_system_table_access(sources.user_access_control, sources.denied_system_table_names)
-            if not sources.is_data_catalog_enabled or not sources.is_data_quality_enabled:
+            if not sources.is_data_quality_enabled:
                 system_node = database.tables.children.get("system")
                 info_schema = (
                     system_node.children.get("information_schema")
@@ -1762,10 +1780,7 @@ class Database(BaseModel):
                     else None
                 )
                 if info_schema is not None and hasattr(info_schema, "children"):
-                    if not sources.is_data_catalog_enabled:
-                        disable_data_catalog(info_schema)
-                    if not sources.is_data_quality_enabled:
-                        disable_data_quality(info_schema)
+                    disable_data_quality(info_schema)
 
         with timings.measure("modifiers", emit_span=True):
             if not database._is_direct_query():
@@ -1950,7 +1965,7 @@ class Database(BaseModel):
                     if (
                         not database._is_direct_query()
                         and table.external_data_source
-                        and table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT
+                        and table.external_data_source.access_method == ExternalDataSourceAccessMethod.DIRECT
                     ):
                         continue
 
@@ -1992,7 +2007,7 @@ class Database(BaseModel):
                                     if database._is_direct_query()
                                     and table.external_data_source
                                     and table.external_data_source.access_method
-                                    == ExternalDataSource.AccessMethod.DIRECT
+                                    == ExternalDataSourceAccessMethod.DIRECT
                                     else "ignore"
                                 )
 
@@ -2014,7 +2029,7 @@ class Database(BaseModel):
                                 joined_table_chain = ".".join(table_chain)
                                 table_for_key.name = joined_table_chain
                                 warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
-                                if table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT:
+                                if table.external_data_source.access_method == ExternalDataSourceAccessMethod.DIRECT:
                                     database._direct_access_warehouse_table_names.add(joined_table_chain)
                                 if index == 0:
                                     primary_table = table_for_key
@@ -2383,12 +2398,11 @@ class Database(BaseModel):
 
 
 def get_data_warehouse_table_name(source: ExternalDataSource | None, table_name: str):
-    from products.warehouse_sources.backend.facade.models import ExternalDataSource  # noqa: PLC0415
 
     if source is None:
         return table_name
 
-    if source.access_method == ExternalDataSource.AccessMethod.DIRECT:
+    if source.access_method == ExternalDataSourceAccessMethod.DIRECT:
         return table_name
 
     source_type = source.source_type.lower()
@@ -2749,10 +2763,9 @@ def _strip_external_source_prefix(source: ExternalDataSource, table_name: str) -
 
 
 def _get_warehouse_table_keys(warehouse_table: DataWarehouseTable, *, direct_query: bool) -> list[str]:
-    from products.warehouse_sources.backend.facade.models import ExternalDataSource  # noqa: PLC0415
 
     source = warehouse_table.external_data_source
-    if source is not None and source.access_method == ExternalDataSource.AccessMethod.DIRECT and direct_query:
+    if source is not None and source.access_method == ExternalDataSourceAccessMethod.DIRECT and direct_query:
         return [warehouse_table.name]
 
     return [get_data_warehouse_table_name(source, warehouse_table.name)]
@@ -2763,10 +2776,9 @@ def _should_include_connection_table(
     *,
     connection_id: str,
 ) -> bool:
-    from products.warehouse_sources.backend.facade.models import ExternalDataSource  # noqa: PLC0415
 
     source = warehouse_table.external_data_source
-    if source is None or source.access_method != ExternalDataSource.AccessMethod.DIRECT:
+    if source is None or source.access_method != ExternalDataSourceAccessMethod.DIRECT:
         return False
 
     if str(warehouse_table.external_data_source_id) != connection_id:
@@ -2801,10 +2813,10 @@ def _settled_catalog_certifications(
     """Settled (certified/deprecated) catalog marks for the team as `(by_table_id, by_saved_query_id)`.
 
     One bulk query keyed by target id — `(team, name)` is not unique on `DataWarehouseTable`, so a
-    name-keyed lookup could let one table's mark clobber another's. Gated on the product flag and on
-    data_catalog read access like `information_schema`, and fail-soft: certification must never break
-    schema serialization. Contexts without a `team` object (e.g. the AI schema path) skip the flag
-    evaluation and get no marks rather than paying a Team fetch.
+    name-keyed lookup could let one table's mark clobber another's. Gated on data_catalog read access
+    like `information_schema`, and fail-soft: certification must never break schema serialization.
+    Contexts without a `team` object (e.g. the AI schema path) get no marks rather than paying a
+    Team fetch.
     """
     from posthog.schema import DatabaseSchemaTableCertification  # noqa: PLC0415
 
@@ -2815,10 +2827,9 @@ def _settled_catalog_certifications(
 
     try:
         from products.data_catalog.backend.facade.enums import CertificationStatus  # noqa: PLC0415
-        from products.data_catalog.backend.facade.flags import is_data_catalog_enabled  # noqa: PLC0415
         from products.data_catalog.backend.facade.models import TableCertification  # noqa: PLC0415
 
-        if team is None or team_id is None or not is_data_catalog_enabled(team) or not _can_read_catalog(context):
+        if team is None or team_id is None or not _can_read_catalog(context):
             return {}, {}
 
         record_catalog_read("schema_serialization")
