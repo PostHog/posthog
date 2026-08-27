@@ -74,7 +74,7 @@ export function EnvironmentEditForm({
         </Text>
       </div>
 
-      <div className="flex flex-col gap-5 rounded-(--radius-4) border border-(--gray-5) bg-(--color-panel-solid) px-5 py-4">
+      <div className="flex flex-col gap-5 rounded-(--radius-4) border border-border bg-card px-5 py-4">
         <Section>
           <EnvironmentStep
             editing
