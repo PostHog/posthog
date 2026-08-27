@@ -32,6 +32,22 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `sessions` - sessions
+     * * `tool_calls` - tool_calls
+     * * `user_identity` - user_identity
+     * * `trace_structure` - trace_structure
+     */
+    export type AIObservabilityInstrumentationCheckEnum = typeof AIObservabilityInstrumentationCheckEnum[keyof typeof AIObservabilityInstrumentationCheckEnum];
+
+
+    export const AIObservabilityInstrumentationCheckEnum = {
+      Sessions: 'sessions',
+      ToolCalls: 'tool_calls',
+      UserIdentity: 'user_identity',
+      TraceStructure: 'trace_structure',
+    } as const;
+
+    /**
      * * `since_last_sent` - Since last report
      * * `last_n_days` - Last N days
      * * `days_ago_range` - Between X and Y days ago
@@ -5352,6 +5368,48 @@ export namespace Schemas {
       start?: number | null;
     }
 
+    export type PredicateScope = typeof PredicateScope[keyof typeof PredicateScope];
+
+
+    export const PredicateScope = {
+      Event: 'event',
+      Person: 'person',
+      Group: 'group',
+      Unknown: 'unknown',
+    } as const;
+
+    export type PredicateIndexVerdict = typeof PredicateIndexVerdict[keyof typeof PredicateIndexVerdict];
+
+
+    export const PredicateIndexVerdict = {
+      Indexed: 'indexed',
+      Blocked: 'blocked',
+      UnindexedColumn: 'unindexed_column',
+      UnindexedJson: 'unindexed_json',
+      OperatorNotIndexable: 'operator_not_indexable',
+    } as const;
+
+    export interface PredicateIndexUsage {
+      column_name?: string | null;
+      end?: number | null;
+      fix?: string | null;
+      message: string;
+      /** HogQL comparison operator, e.g. `==`, `in`, `ilike`. */
+      operator: string;
+      /** Type the value is physically stored as. */
+      physical_type: string;
+      property_name: string;
+      scope: PredicateScope;
+      /** Type the property definition declares. */
+      semantic_type: string;
+      /** Where the value is physically read from, e.g. `materialized column` or `JSON blob`. */
+      source_label: string;
+      start?: number | null;
+      /** Skip indexes this predicate can actually use. */
+      usable_indexes: string[];
+      verdict: PredicateIndexVerdict;
+    }
+
     export type QueryIndexUsage = typeof QueryIndexUsage[keyof typeof QueryIndexUsage];
 
 
@@ -5365,6 +5423,8 @@ export namespace Schemas {
     export interface HogQLMetadataResponse {
       ch_table_names?: string[] | null;
       errors: HogQLNotice[];
+      /** One entry per property filter, in query order. */
+      index_usage?: PredicateIndexUsage[] | null;
       isUsingIndices?: QueryIndexUsage | null;
       isValid?: boolean | null;
       notices: HogQLNotice[];
@@ -8452,6 +8512,18 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface BoxPlotSettings {
+      excludeOutliers?: boolean | null;
+      maxColumn?: string | null;
+      meanColumn?: string | null;
+      medianColumn?: string | null;
+      minColumn?: string | null;
+      p25Column?: string | null;
+      p75Column?: string | null;
+      seriesColumn?: string | null;
+      xAxisColumn?: string | null;
+    }
+
     export interface HeatmapGradientStop {
       color: string;
       value: number;
@@ -8607,6 +8679,7 @@ export namespace Schemas {
     export type ChartSettingsResultCustomizations = {[key: string]: ResultCustomizationByValue} | null;
 
     export interface ChartSettings {
+      boxPlot?: BoxPlotSettings | null;
       /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
       chartStyle?: ChartStyle | null;
       goalLines?: GoalLine[] | null;
@@ -17608,11 +17681,6 @@ export namespace Schemas {
       LimitReached: 'limit_reached',
       StaleVersion: 'stale_version',
     } as const;
-
-    export interface CodeInviteRedeemRequest {
-      /** @maxLength 50 */
-      code: string;
-    }
 
     /**
      * * `codex` - codex
@@ -44418,6 +44486,8 @@ export namespace Schemas {
       filters?: HogQLFilters | null;
       /** Extra globals for the query */
       globals?: HogQLMetadataGlobals;
+      /** Analyze how each property filter reads its data. Costs a second type-resolution pass, so only editors that render the result should ask for it. */
+      indexUsage?: boolean | null;
       kind?: 'HogQLMetadata';
       /** Language to validate */
       language: HogLanguage;
@@ -45132,6 +45202,69 @@ export namespace Schemas {
       agent_ids?: string[];
       /** In-app path to land back on after the OAuth round-trip. Must be a same-app relative path. */
       return_path?: string;
+    }
+
+    /**
+     * Counts this check was graded from, over the same window. Which counts appear depends on the check.
+     */
+    export type InstrumentationCheckStats = {[key: string]: number};
+
+    /**
+     * * `ok` - ok
+     * * `warning` - warning
+     * * `pending` - pending
+     * * `dismissed` - dismissed
+     */
+    export type InstrumentationCheckStatusEnum = typeof InstrumentationCheckStatusEnum[keyof typeof InstrumentationCheckStatusEnum];
+
+
+    export const InstrumentationCheckStatusEnum = {
+      Ok: 'ok',
+      Warning: 'warning',
+      Pending: 'pending',
+      Dismissed: 'dismissed',
+    } as const;
+
+    export interface InstrumentationCheck {
+      /** Identifier of the check. Stable across statuses, so a surface can key its own copy off it.
+       *
+       * * `sessions` - sessions
+       * * `tool_calls` - tool_calls
+       * * `user_identity` - user_identity
+       * * `trace_structure` - trace_structure */
+      key: AIObservabilityInstrumentationCheckEnum;
+      /** How the check graded: 'ok' when the instrumentation is present, 'warning' when it is absent, 'pending' when the project has too little traffic to judge, and 'dismissed' when someone on the team marked the check as not applicable.
+       *
+       * * `ok` - ok
+       * * `warning` - warning
+       * * `pending` - pending
+       * * `dismissed` - dismissed */
+      status: InstrumentationCheckStatusEnum;
+      /** Short label for the check, the same for every status. */
+      title: string;
+      /** Sentence explaining what the counts mean and, for a warning, what to send. A dismissed check keeps the sentence its counts earned. */
+      detail: string;
+      /** Documentation page covering how to send the missing instrumentation. */
+      docs_url: string;
+      /** Counts this check was graded from, over the same window. Which counts appear depends on the check. */
+      stats: InstrumentationCheckStats;
+    }
+
+    export interface InstrumentationCheckAction {
+      /** Key of the check to dismiss or restore.
+       *
+       * * `sessions` - sessions
+       * * `tool_calls` - tool_calls
+       * * `user_identity` - user_identity
+       * * `trace_structure` - trace_structure */
+      check: AIObservabilityInstrumentationCheckEnum;
+    }
+
+    export interface InstrumentationChecklist {
+      /** Length in days of the event window the checks were graded over. */
+      window_days: number;
+      /** Every check, graded. Checks are always all returned, including the ones that pass. */
+      checks: InstrumentationCheck[];
     }
 
     /**
@@ -46441,7 +46574,7 @@ export namespace Schemas {
     }
 
     export interface LegacyDesktopAccessResponse {
-      /** Whether the user has legacy PostHog Desktop access. */
+      /** Whether the current project can use PostHog Desktop. */
       has_access: boolean;
       /** Whether the independent Loops feature is enabled. */
       has_loops_access: boolean;
@@ -51105,6 +51238,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `configured` - Configured
+     * * `inline` - Inline
+     */
+    export type ScannerOriginEnum = typeof ScannerOriginEnum[keyof typeof ScannerOriginEnum];
+
+
+    export const ScannerOriginEnum = {
+      Configured: 'configured',
+      Inline: 'inline',
+    } as const;
+
+    /**
      * * `pending` - Pending
      * * `running` - Running
      * * `succeeded` - Succeeded
@@ -51193,6 +51338,11 @@ export namespace Schemas {
       readonly id: string;
       /** The scanner that produced this observation. */
       readonly scanner_id: string;
+      /** Where the producing scanner came from. `configured` scanners are saved, named, and have a detail page; `inline` ones are throwaways minted for a one-off scan and are not addressable, so callers must not link to them.
+       *
+       * * `configured` - Configured
+       * * `inline` - Inline */
+      readonly scanner_origin: ScannerOriginEnum;
       /** Session recording id this scanner was applied to. */
       readonly session_id: string;
       /** Observation status (pending, running, succeeded, failed, ineligible).
@@ -51203,7 +51353,7 @@ export namespace Schemas {
        * * `failed` - Failed
        * * `ineligible` - Ineligible */
       readonly status: ObservationStatusEnum;
-      /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
+      /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
       readonly error_reason: string;
       /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
       readonly workflow_id: string;
@@ -51639,6 +51789,11 @@ export namespace Schemas {
       /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
       members_can_see_org_members?: boolean;
       allow_publicly_shared_resources?: boolean;
+      /**
+         * When True, requests through the PostHog MCP server can read but not change this organization's data.
+         * @nullable
+         */
+      read_only_mcp_access?: boolean | null;
       readonly member_count: number;
       /** @nullable */
       is_ai_data_processing_approved?: boolean | null;
@@ -56613,6 +56768,8 @@ export namespace Schemas {
       updated_at?: string | null;
       /** @nullable */
       completed_at?: string | null;
+      /** True when this run's sandbox serves a dev stack preview, so clients can offer the preview link. Open it through the run's `preview/` endpoint, which mints a fresh access token on every request. */
+      preview_available?: boolean;
     }
 
     export interface SlackThreadReferenceDTO {
@@ -62730,6 +62887,11 @@ export namespace Schemas {
       /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
       members_can_see_org_members?: boolean;
       allow_publicly_shared_resources?: boolean;
+      /**
+         * When True, requests through the PostHog MCP server can read but not change this organization's data.
+         * @nullable
+         */
+      read_only_mcp_access?: boolean | null;
       readonly member_count?: number;
       /** @nullable */
       is_ai_data_processing_approved?: boolean | null;
@@ -63957,6 +64119,15 @@ export namespace Schemas {
       readonly last_rolled_at?: string | null;
       /** Project-wide API scopes granted to this key. Project secret API keys do not honor object-level access controls, so a scope can access resources of that type even when per-resource RBAC would hide them from an individual user. */
       scopes?: string[];
+    }
+
+    export interface PatchedProxyRecordUpdate {
+      /**
+         * HTTPS URL that requests to the proxy domain root redirect to, or null to disable the redirect. The URL must use the same registrable domain as the managed proxy.
+         * @maxLength 1024
+         * @nullable
+         */
+      root_redirect_url?: string | null;
     }
 
     /**
@@ -65616,16 +65787,6 @@ export namespace Schemas {
      */
     export type PatchedTaskRunUpdateStateAppend = { [key: string]: unknown };
 
-    /**
-     * * `local` - local
-     */
-    export type TaskRunUpdateEnvironmentEnum = typeof TaskRunUpdateEnvironmentEnum[keyof typeof TaskRunUpdateEnvironmentEnum];
-
-
-    export const TaskRunUpdateEnvironmentEnum = {
-      Local: 'local',
-    } as const;
-
     export interface PatchedTaskRunUpdate {
       /** Current execution status
        *
@@ -65659,10 +65820,6 @@ export namespace Schemas {
          * @nullable
          */
       error_message?: string | null;
-      /** Transition a cloud run to local. Use the resume_in_cloud action to move a run into cloud.
-       *
-       * * `local` - local */
-      environment?: TaskRunUpdateEnvironmentEnum;
     }
 
     /**
@@ -66025,100 +66182,6 @@ export namespace Schemas {
     }
 
     /**
-     * Mixin for serializers to add user access control fields
-     */
-    export interface PatchedTicket {
-      readonly id?: string;
-      readonly ticket_number?: number;
-      readonly channel_source?: ChannelSourceEnum;
-      readonly channel_detail?: ChannelDetailEnum | null;
-      readonly distinct_id?: string;
-      /** Ticket status: new, open, pending, on_hold, or resolved
-       *
-       * * `new` - New
-       * * `open` - Open
-       * * `pending` - Pending
-       * * `on_hold` - On hold
-       * * `resolved` - Resolved */
-      status?: TicketStatusEnum;
-      /** Ticket priority: low, medium, high, or critical. Null if unset.
-       *
-       * * `low` - Low
-       * * `medium` - Medium
-       * * `high` - High
-       * * `critical` - Critical */
-      priority?: TicketPriorityEnum | BlankEnum | null;
-      readonly assignee?: TicketAssignment;
-      /** Customer-provided traits such as name and email */
-      anonymous_traits?: unknown;
-      /**
-         * Trust signal indicating whether the ticket's claimed identity was attested by the server (widget HMAC, SPF-authenticated email, or a signature-validated platform webhook). True when verified, false when assessed but not attested, null when unknown (e.g. created before this signal existed).
-         * @nullable
-         */
-      readonly identity_verified?: boolean | null;
-      ai_resolved?: boolean;
-      /** @nullable */
-      escalation_reason?: string | null;
-      /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.). */
-      readonly ai_triage?: unknown;
-      readonly created_at?: string;
-      readonly updated_at?: string;
-      readonly message_count?: number;
-      /** @nullable */
-      readonly last_message_at?: string | null;
-      /** @nullable */
-      readonly last_message_text?: string | null;
-      readonly unread_team_count?: number;
-      readonly unread_customer_count?: number;
-      /** @nullable */
-      readonly session_id?: string | null;
-      readonly session_context?: unknown;
-      /**
-         * SLA deadline set via workflows. Null means no SLA.
-         * @nullable
-         */
-      sla_due_at?: string | null;
-      /** @nullable */
-      snoozed_until?: string | null;
-      /** @nullable */
-      readonly slack_channel_id?: string | null;
-      /** @nullable */
-      readonly slack_thread_ts?: string | null;
-      /** @nullable */
-      readonly slack_team_id?: string | null;
-      /** @nullable */
-      readonly email_subject?: string | null;
-      /** @nullable */
-      readonly email_from?: string | null;
-      /** @nullable */
-      readonly email_to?: string | null;
-      readonly cc_participants?: unknown;
-      /** @nullable */
-      readonly github_repo?: string | null;
-      /** @nullable */
-      readonly github_issue_number?: number | null;
-      /** @nullable */
-      readonly zendesk_ticket_id?: number | null;
-      /**
-         * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
-         * @nullable
-         */
-      readonly organization_id?: string | null;
-      /**
-         * How organization_id was resolved: 'person' (from the requester's identity) or 'slack_channel_account' (inferred from the customer analytics account linked to the ticket's Slack channel). Null when organization_id is unset.
-         * @nullable
-         */
-      readonly organization_id_source?: string | null;
-      readonly person?: TicketPerson | null;
-      tags?: unknown[];
-      /**
-         * The effective access level the user has for this object
-         * @nullable
-         */
-      readonly user_access_level?: string | null;
-    }
-
-    /**
      * Payload for updating a private note on a ticket.
      */
     export interface PatchedTicketNoteUpdateRequest {
@@ -66129,6 +66192,86 @@ export namespace Schemas {
       message?: string;
       /** Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message. */
       rich_content?: unknown;
+    }
+
+    /**
+     * Assign the ticket to a user.
+     */
+    export type UserTicketAssigneeRequestType = typeof UserTicketAssigneeRequestType[keyof typeof UserTicketAssigneeRequestType];
+
+
+    export const UserTicketAssigneeRequestType = {
+      User: 'user',
+    } as const;
+
+    export interface UserTicketAssigneeRequest {
+      /** Assign the ticket to a user. */
+      type: UserTicketAssigneeRequestType;
+      /** User ID. */
+      id: number;
+    }
+
+    /**
+     * Assign the ticket to a role.
+     */
+    export type RoleTicketAssigneeRequestType = typeof RoleTicketAssigneeRequestType[keyof typeof RoleTicketAssigneeRequestType];
+
+
+    export const RoleTicketAssigneeRequestType = {
+      Role: 'role',
+    } as const;
+
+    export interface RoleTicketAssigneeRequest {
+      /** Assign the ticket to a role. */
+      type: RoleTicketAssigneeRequestType;
+      /** Role ID. */
+      id: string;
+    }
+
+    export type TicketAssigneeRequest = UserTicketAssigneeRequest | RoleTicketAssigneeRequest;
+
+    /**
+     * Fields accepted when updating a ticket.
+     */
+    export interface PatchedTicketUpdateRequest {
+      /** Ticket status: new, open, pending, on_hold, or resolved.
+       *
+       * * `new` - New
+       * * `open` - Open
+       * * `pending` - Pending
+       * * `on_hold` - On hold
+       * * `resolved` - Resolved */
+      status?: TicketStatusEnum;
+      /** Ticket priority: low, medium, high, or critical. Pass null to clear it.
+       *
+       * * `low` - Low
+       * * `medium` - Medium
+       * * `high` - High
+       * * `critical` - Critical */
+      priority?: TicketPriorityEnum | BlankEnum | null;
+      /** User or role to assign. Pass null to remove the current assignee. */
+      assignee?: TicketAssigneeRequest | null;
+      /** Customer details such as name and email. */
+      anonymous_traits?: unknown;
+      /** Whether AI resolved the ticket. */
+      ai_resolved?: boolean;
+      /**
+         * Reason the ticket was escalated. Pass null to clear it.
+         * @nullable
+         */
+      escalation_reason?: string | null;
+      /**
+         * SLA deadline. Pass null to clear it.
+         * @nullable
+         */
+      sla_due_at?: string | null;
+      /**
+         * Time to reopen the ticket. Pass null to reopen it now.
+         * @nullable
+         */
+      snoozed_until?: string | null;
+      /** Tag names to set on the ticket. */
+      tags?: string[];
     }
 
     export interface PatchedTicketView {
@@ -69122,6 +69265,13 @@ export namespace Schemas {
       domain: string;
       /** The CNAME target to add as a DNS record for your domain. Point your domain's CNAME to this value. */
       readonly target_cname: string;
+      /**
+         * HTTPS URL that requests to the proxy domain root redirect to, or null when disabled.
+         * @nullable
+         */
+      readonly root_redirect_url: string | null;
+      /** Whether this managed proxy supports a redirect from its root URL. */
+      readonly root_redirect_supported: boolean;
       /** Current provisioning status. Values: waiting (DNS verification pending), issuing (SSL certificate being issued), valid (proxy is live and working), warning (proxy has issues but is operational), erroring (proxy setup failed), deleting (removal in progress), timed_out (DNS verification timed out).
        *
        * * `waiting` - Waiting
@@ -69995,6 +70145,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative9 {
       ch_table_names?: string[] | null;
       errors: HogQLNotice[];
+      /** One entry per property filter, in query order. */
+      index_usage?: PredicateIndexUsage[] | null;
       isUsingIndices?: QueryIndexUsage | null;
       isValid?: boolean | null;
       notices: HogQLNotice[];
@@ -84110,6 +84262,50 @@ export namespace Schemas {
       rich_content?: unknown;
     }
 
+    /**
+     * Fields accepted when updating a ticket.
+     */
+    export interface TicketUpdateRequest {
+      /** Ticket status: new, open, pending, on_hold, or resolved.
+       *
+       * * `new` - New
+       * * `open` - Open
+       * * `pending` - Pending
+       * * `on_hold` - On hold
+       * * `resolved` - Resolved */
+      status?: TicketStatusEnum;
+      /** Ticket priority: low, medium, high, or critical. Pass null to clear it.
+       *
+       * * `low` - Low
+       * * `medium` - Medium
+       * * `high` - High
+       * * `critical` - Critical */
+      priority?: TicketPriorityEnum | BlankEnum | null;
+      /** User or role to assign. Pass null to remove the current assignee. */
+      assignee?: TicketAssigneeRequest | null;
+      /** Customer details such as name and email. */
+      anonymous_traits?: unknown;
+      /** Whether AI resolved the ticket. */
+      ai_resolved?: boolean;
+      /**
+         * Reason the ticket was escalated. Pass null to clear it.
+         * @nullable
+         */
+      escalation_reason?: string | null;
+      /**
+         * SLA deadline. Pass null to clear it.
+         * @nullable
+         */
+      sla_due_at?: string | null;
+      /**
+         * Time to reopen the ticket. Pass null to reopen it now.
+         * @nullable
+         */
+      snoozed_until?: string | null;
+      /** Tag names to set on the ticket. */
+      tags?: string[];
+    }
+
     export interface TopPage {
       /** Host for the page, if recorded. */
       host: string;
@@ -84568,6 +84764,18 @@ export namespace Schemas {
       lookback_days_used: number;
       /** Caveats and guidance about the suggestions */
       notes: string[];
+    }
+
+    /**
+     * Request body for POST /api/users/verify_email/. Exactly one of token or code is required.
+     */
+    export interface VerifyEmailRequest {
+      /** UUID of the user whose email is being verified. */
+      uuid: string;
+      /** Verification token from the emailed link. Required unless a code is provided. */
+      token?: string;
+      /** The 6-digit verification code emailed at signup. Whitespace, invisible characters, and grouping hyphens are removed and compatibility digits are folded to ASCII before checking. */
+      code?: string;
     }
 
     export interface ViewLinkValidation {
@@ -94249,6 +94457,31 @@ export namespace Schemas {
      */
     search?: string;
     };
+
+    export type LlmSkillsBundleRetrieveParams = {
+    /**
+     * What each skill directory in the zip contains. 'stub' (default) writes a SKILL.md with the name, description and instructions to fetch the skill over the PostHog MCP when it is invoked. 'full' writes the rendered SKILL.md, every bundled file and the Codex sidecar.
+     *
+     * * `stub` - stub
+     * * `full` - full
+     * @minLength 1
+     */
+    content?: LlmSkillsBundleRetrieveContent;
+    /**
+     * Maximum number of skills in the zip, newest first; default 20, at most 100. Every skill in the zip costs the agent prompt context on each turn, so pick what the harness can usefully carry. Skills past the limit are reported in X-Skills-Dropped.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    };
+
+    export type LlmSkillsBundleRetrieveContent = typeof LlmSkillsBundleRetrieveContent[keyof typeof LlmSkillsBundleRetrieveContent];
+
+
+    export const LlmSkillsBundleRetrieveContent = {
+      Stub: 'stub',
+      Full: 'full',
+    } as const;
 
     export type LlmSkillsNameRetrieveParams = {
     /**

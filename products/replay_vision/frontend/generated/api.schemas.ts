@@ -891,6 +891,17 @@ export interface PaginatedVisionAlertEventListApi {
 }
 
 /**
+ * * `configured` - Configured
+ * * `inline` - Inline
+ */
+export type ScannerOriginEnumApi = (typeof ScannerOriginEnumApi)[keyof typeof ScannerOriginEnumApi]
+
+export const ScannerOriginEnumApi = {
+    Configured: 'configured',
+    Inline: 'inline',
+} as const
+
+/**
  * * `pending` - Pending
  * * `running` - Running
  * * `succeeded` - Succeeded
@@ -992,6 +1003,11 @@ export interface ReplayObservationApi {
     readonly id: string
     /** The scanner that produced this observation. */
     readonly scanner_id: string
+    /** Where the producing scanner came from. `configured` scanners are saved, named, and have a detail page; `inline` ones are throwaways minted for a one-off scan and are not addressable, so callers must not link to them.
+     *
+     * * `configured` - Configured
+     * * `inline` - Inline */
+    readonly scanner_origin: ScannerOriginEnumApi
     /** Session recording id this scanner was applied to. */
     readonly session_id: string
     /** Observation status (pending, running, succeeded, failed, ineligible).
@@ -1002,7 +1018,7 @@ export interface ReplayObservationApi {
      * * `failed` - Failed
      * * `ineligible` - Ineligible */
     readonly status: ObservationStatusEnumApi
-    /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
+    /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
     readonly error_reason: string
     /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
     readonly workflow_id: string

@@ -23,6 +23,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.schedule import trigger_schedule_buffer_one
+from posthog.temporal.common.utils import APP_DB_ERROR_PREFIX, READ_ONLY_TRANSACTION_PHRASE
 from posthog.temporal.utils import CDPProducerWorkflowInputs, ExternalDataWorkflowInputs
 from posthog.utils import get_machine_id
 
@@ -93,6 +94,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     EnrichTableSemanticsWorkflow,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
+    POSTHOG_DATABASE_UNAVAILABLE_MESSAGE,
     ImportDataActivityInputs,
     import_data_activity_sync,
 )
@@ -205,6 +207,24 @@ def _customer_facing_error(cause: BaseException | None) -> str:
     return message or str(cause)
 
 
+def _is_app_db_failure(internal_error: str) -> bool:
+    """Whether a run failed against PostHog's own app DB rather than the customer's source.
+
+    Temporal renders a wrapped activity failure as ``<ExceptionClass>: <message>`` (see
+    ``ApplicationError.__str__``), so the class the activity failed with survives into
+    ``internal_error``. ``django.db.InternalError`` is our own ORM: a source reaches a customer
+    database over a raw driver connection, whose read-only error is psycopg's
+    ``ReadOnlySqlTransaction`` and renders under that name instead. The two carry the same message,
+    which is why the class name has to do the telling.
+
+    The phrase narrows the class, mirroring ``is_stale_connection_read_only_error``: Django reports
+    corrupted data and failed-transaction states under the same class, and those are defects rather
+    than an outage that clears on its own.
+    """
+    normalized = internal_error.lower()
+    return normalized.startswith(APP_DB_ERROR_PREFIX) and READ_ONLY_TRANSACTION_PHRASE in normalized
+
+
 def _fail_stale_running_schema(
     schema_id: str, team_id: int, latest_error: str | None, logger: FilteringBoundLogger
 ) -> None:
@@ -222,7 +242,9 @@ def _fail_stale_running_schema(
     logger.info("Reset stale Running schema status to Failed", schema_id=schema_id)
 
 
-@dataclasses.dataclass
+# The workflow fills this in as a run unwinds — status, then the error fields on the failure
+# paths — so it is mutated after construction by design.
+@dataclasses.dataclass(frozen=False)
 class UpdateExternalDataJobStatusInputs:
     team_id: int
     job_id: str | None
@@ -322,7 +344,17 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         else:
             non_retryable_errors = {**Any_Source_Errors, **non_retryable_errors}
 
-        has_non_retryable_error = error_message_matches(internal_error_normalized, non_retryable_errors.keys())
+        # A failure against our own app DB carries the same text as several source-side conditions
+        # (SQLSTATE 25006 after a failover, our pooler's "server login has been failing"), so
+        # matching it here would disable a sync whose source never failed, and hand the customer a
+        # message telling them to go fix a database that is working.
+        platform_failure = _is_app_db_failure(internal_error_normalized)
+        if platform_failure:
+            inputs.latest_error = POSTHOG_DATABASE_UNAVAILABLE_MESSAGE
+
+        has_non_retryable_error = not platform_failure and error_message_matches(
+            internal_error_normalized, non_retryable_errors.keys()
+        )
         if has_non_retryable_error:
             posthoganalytics.capture(
                 distinct_id=get_machine_id(),
