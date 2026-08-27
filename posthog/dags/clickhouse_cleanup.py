@@ -1406,8 +1406,9 @@ SCHEDULED_RUN_CONFIG = {
     run_status=dagster.DagsterRunStatus.SUCCESS,
     monitored_jobs=[deletes_job],
     request_job=clickhouse_deletion_sweep_job,
-    # Enabled on registration. A sensor that never fires raises no alert, so shipping it stopped
-    # would end weekly hard-deletion silently.
+    # Enabled on registration. The Celery schedules that used to do this work are gone, and a
+    # sensor that never fires raises no alert, so shipping it stopped would end weekly
+    # hard-deletion silently.
     default_status=dagster.DefaultSensorStatus.RUNNING,
     minimum_interval_seconds=60,
 )

@@ -37,9 +37,7 @@ from posthog.tasks.tasks import (
     capture_task_run_state_metrics,
     check_async_migration_health,
     clean_stale_partials,
-    clear_clickhouse_deleted_person,
     clear_expired_sessions,
-    clickhouse_clear_removed_data,
     clickhouse_errors_count,
     clickhouse_materialize_columns,
     clickhouse_mutation_count,
@@ -784,20 +782,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         mark_stale_pulse_briefs_failed.s(),
         name="mark stale pulse briefs failed",
     )
-
-    if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
-        sender.add_periodic_task(
-            clear_clickhouse_crontab,
-            clickhouse_clear_removed_data.s(),
-            name="clickhouse clear removed data",
-        )
-
-    if clear_clickhouse_deleted_person_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_DELETED_PERSON_SCHEDULE_CRON):
-        sender.add_periodic_task(
-            clear_clickhouse_deleted_person_crontab,
-            clear_clickhouse_deleted_person.s(),
-            name="clickhouse clear deleted person data",
-        )
 
     sender.add_periodic_task(
         crontab(hour="*", minute="0"),
