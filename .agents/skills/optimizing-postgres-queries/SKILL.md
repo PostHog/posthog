@@ -37,14 +37,21 @@ When the SQL has no distinctive predicate, print candidate querysets and compare
 
 Do not reason about the plan from the SQL. Get `EXPLAIN` output from a real Postgres with the real indexes, because expression-index matching turns on details that are not visible in the query text.
 
+**Seed a scratch database, never the dev one.** Measuring needs bulk inserts, and it is easier to skip foreign keys than to satisfy them, so the work has to land somewhere disposable. `posthog` is your working dev database and [`/querying-local-postgres`](../querying-local-postgres/SKILL.md) forbids writing to it. Copy the schema into a scratch database instead, and drop it when you are done.
+
 ```sh
 docker compose -f docker-compose.dev.yml up -d db
-docker exec posthog-db-1 psql -U posthog -d posthog -c '\d posthog_eventdefinition'
+docker exec posthog-db-1 psql -U posthog -d postgres -c 'CREATE DATABASE plan_scratch TEMPLATE posthog'
+docker exec posthog-db-1 psql -U posthog -d plan_scratch -c '\d posthog_eventdefinition'
+# ... seed, ANALYZE, EXPLAIN ...
+docker exec posthog-db-1 psql -U posthog -d postgres -c 'DROP DATABASE plan_scratch'
 ```
 
-An empty table always sequential-scans, so seed enough rows for the planner to have a choice, then `ANALYZE`. Seed the shape that matters, not just the volume: if the anti-pattern depends on a large `project_id IS NULL` population, or on one project holding far more rows than the median, reproduce that skew. Disable triggers to skip foreign keys on a throwaway local database.
+`TEMPLATE posthog` needs no other session connected to `posthog`, so stop the dev stack's app processes first. Inside the scratch database you can disable triggers to skip foreign keys, which is exactly why it must not be the database you keep.
 
-Then run **both** forms — the current one and the proposed one — under `EXPLAIN (ANALYZE, BUFFERS, COSTS OFF, TIMING OFF)`, and compare `Buffers: shared` and `Rows Removed by Filter`. Buffers are the honest number; wall time on a warm local cache understates a cold production one. See [`/querying-local-postgres`](../querying-local-postgres/SKILL.md) for the read-only rules.
+An empty table always sequential-scans, so seed enough rows for the planner to have a choice, then `ANALYZE`. Seed the shape that matters, not just the volume: if the anti-pattern depends on a large `project_id IS NULL` population, or on one project holding far more rows than the median, reproduce that skew.
+
+Then run **both** forms — the current one and the proposed one — under `EXPLAIN (ANALYZE, BUFFERS, COSTS OFF, TIMING OFF)`, and compare `Buffers: shared` and `Rows Removed by Filter`. Buffers are the honest number; wall time on a warm local cache understates a cold production one.
 
 Read the plan for these, in order:
 
@@ -54,15 +61,16 @@ Read the plan for these, in order:
 | `BitmapOr`                               | An `OR` no single index can serve; each branch scanned |
 | `Rows Removed by Filter` ≫ rows returned | The index found the rows but could not exclude them    |
 | `Index Cond` missing your second column  | The index is being used, but only its leading column   |
-| `loops=N` with a large N                 | A per-row query — batch it, do not tune it             |
 | `Hash Full Join` / `Merge Full Join`     | A full join Postgres could not demote; see below       |
+
+`loops=N` on an inner node means that node ran N times inside this one statement, which is how a nested loop works and is not by itself a problem. It is not evidence of an application N+1, and an application N+1 does not show up here at all: it is many separate statements, so you find it in a request trace or in the call count for one fingerprint, not in one plan.
 
 ## Step 3: pick the fix
 
 Try these in order. The earlier ones are cheaper to ship and cheaper to keep correct.
 
 1. **Rewrite the predicate to match an index that already exists.** Free at runtime, no migration, no new write cost. Almost always the answer when the table is already indexed for this access path. The next section is the house case.
-2. **Add an index.** A real cost: it slows every write to the table and takes disk. Justify it with the plan, and add it non-blocking — see [`/django-migrations`](../django-migrations/SKILL.md) for `AddIndexConcurrently` and the safety rules.
+2. **Add an index.** A real cost: it slows every write to the table and takes disk. Justify it with the plan, and add it with `SafeAddIndexConcurrently` from `posthog.migration_helpers` — CI blocks Django's `AddIndexConcurrently`. See [`/django-migrations`](../django-migrations/SKILL.md) for the helper set and the safety rules.
 3. **Stop making the call.** A per-team lookup inside a per-item loop should be hoisted or cached. This beats any index, because the fastest query is the one that does not run.
 4. **Move the read to the reader instance.** Helps cluster-wide load, but it is not a fix for a bad plan — the reader executes the same plan. Do it for genuinely read-only, replication-lag-tolerant work, and do it in addition to the rewrite, never instead of it.
 
@@ -89,9 +97,13 @@ Model.objects.alias(effective_project_id=effective_project_id_expr()).filter(
 )
 ```
 
-Every taxonomy table leads its scope index with that expression: `event_definition_proj_uniq` on `posthog_eventdefinition`, `posthog_propdef_proj_uniq` and `index_property_def_query_proj` on `posthog_propertydefinition`. Postgres cannot serve an `OR` from one index, so it bitmap-ORs the branches instead, and the `project_id IS NULL` branch reads every legacy row in the table on every call. That cost scales with how much legacy data the whole instance holds, so it grows as other customers' rows accumulate, not as this caller does — which is why the query looks fine in review and only shows up in pganalyze.
+Every taxonomy table leads its scope index with that expression: `event_definition_proj_uniq` on `posthog_eventdefinition`, `posthog_propdef_proj_uniq` and `index_property_def_query_proj` on `posthog_propertydefinition`. Each of those is composite, so it can satisfy the scope and the `name` together.
 
-The `COALESCE` form seeks the index and uses `name` as a second scan key, so a 300-name lookup becomes 300 index descents instead of a scan.
+Postgres cannot serve an `OR` from one index, so the `COALESCE` index is off the table and it bitmap-ORs two narrower scans instead. Neither branch applies both predicates the way the composite index would, so each reads more than it needs and the recheck discards the surplus. In one measured plan the `project_id = X` branch matched on the project alone, returned all 20,000 of that project's definitions, and the filter then dropped 19,850 of them.
+
+Which branch wastes the work depends on what other indexes exist and on the data, so read the plan rather than assuming. What is constant is the composite index going unused, and the surplus growing with the tenant rather than with the request.
+
+The `COALESCE` form seeks that index and uses `name` as a second scan key, so a 300-name lookup becomes 300 index descents instead of a scan and a discard.
 
 Two details worth knowing:
 
@@ -110,16 +122,18 @@ So a `FULL OUTER JOIN` that Postgres used to demote stays a full join once the s
 
 That failure is intermittent and parameter-dependent, which is what makes it hard to recognize. The same query is fine whenever the request happens to add another strict qual on the same table — a `name NOT LIKE`, a search term — because that restores the demotion.
 
-Check for an outer join whenever you rewrite a scope filter into `COALESCE` form. Where the join is over a multi-table-inheritance child, `FULL OUTER JOIN` is almost always wrong anyway: the child's pointer column is its primary key and a NOT NULL foreign key, so a full join adds no rows and only removes plans. Use `LEFT JOIN`.
+Check for an outer join whenever you rewrite a scope filter into `COALESCE` form. Where the join is over a multi-table-inheritance child, `FULL OUTER JOIN` is almost always wrong anyway: the child's pointer column is its primary key and a NOT NULL foreign key, so a full join adds no rows and only removes plans.
+
+**Swapping `FULL OUTER` for `LEFT` is only safe with the parent table on the left.** Check which side the query names first, because these are hand-written SQL strings and some put the child first. `posthog/taxonomy/property_definition_api.py` builds its `table` as `ee_enterprisepropertydefinition FULL OUTER JOIN posthog_propertydefinition`. Changing only the join word there drops every property definition that has no enterprise row, which is most of them. Reorder to `parent LEFT JOIN child` and prove it with a test that asserts a definition with no child row still comes back.
 
 ## Other house anti-patterns
 
 - **Unbounded `IN` lists.** Cap the list at the call site. Even an index-backed lookup does one descent per element, and an uncapped list from customer data has no ceiling.
-- **A query inside a loop.** `loops=N` in the plan, or a queryset built per item. Batch it into one `__in` query, or hoist it out and cache per team.
+- **A query inside a loop.** A queryset built per item, or one fingerprint with a call count that tracks rows rather than requests. Batch it into one `__in` query, or hoist it out and cache per team.
 - **`.count()` on an unfiltered queryset.** Postgres counts by walking rows. Use an estimate, or filter first.
 - **A missing `select_related` / `prefetch_related`** turns one query into one-per-row when the template or serializer touches a relation.
 - **Writing a row that is already correct.** An `UPDATE` that sets a column to the value it already holds still takes a lock and leaves a dead tuple. Guard it in the `WHERE`.
-- **A raw-SQL statement built from an unordered collection.** Iterating a Python `set` to render a column list gives a different order per process, because the hash seed is per process. Query statistics then key on the text and split one query across hundreds of fingerprints, so nothing in pganalyze or Performance Insights looks expensive while the query burns the cluster. Sort anything you interpolate into SQL.
+- **A raw-SQL statement built from an unordered collection.** Iterating a Python `set` to render a column list gives a different order per process, because the hash seed is per process. Surfaces that group by the statement text then split one query across hundreds of entries, and none of them looks expensive while the query burns the cluster. RDS Performance Insights groups this way. Sort anything you interpolate into SQL. Grouping is not the same on every surface, so when a query is heavy but nothing in one tool shows it, check another before concluding the query is fine.
 
 ## Before you call it done
 
