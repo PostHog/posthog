@@ -45,7 +45,7 @@ const {
     RUST,
     UNIVERSAL,
 } = require('./trunk-impacted-targets')
-const { parseTachModules, tachDependents } = require('./turbo-discover')
+const { tachDependents } = require('./turbo-discover')
 
 const CONTEXT = {
     products: ['alpha', 'beta', 'gamma'],
@@ -78,28 +78,18 @@ const CONTEXT = {
 // What a widening decision now uploads in place of the "ALL" sentinel.
 const EVERYTHING = allKnownTargets(CONTEXT)
 
-// A graph that declares all three products, so their importer sets are bounded.
-// The base CONTEXT deliberately declares none, which covers the case where a
-// product sits outside `tach check` and has to keep widening.
+// A graph the tach map walked all three products into, so their importer sets
+// are known. The base CONTEXT deliberately holds none, which covers the case
+// where a product sits outside the map and has to keep widening. Keys and
+// values are product directory names, the shape productGraphFromTachMap emits.
 const TACH_DECLARED_CONTEXT = {
     ...CONTEXT,
     tachGraph: {
-        graph: parseTachModules(`
-[[modules]]
-path = "products.alpha"
-depends_on = []
-layer = "modules"
-
-[[modules]]
-path = "products.beta"
-depends_on = ["products.gamma"]
-layer = "modules"
-
-[[modules]]
-path = "products.gamma"
-depends_on = []
-layer = "modules"
-`),
+        graph: new Map([
+            ['alpha', []],
+            ['beta', ['gamma']],
+            ['gamma', []],
+        ]),
         tachDependents,
     },
 }
@@ -1196,18 +1186,11 @@ test('a contract with no product-relative inputs yields no matcher', () => {
 // targets, and in the real graph a 31-product cycle makes the transitive
 // closure the whole backend.
 test('the cascade names direct importers and stops before the next hop', () => {
-    const toml = `
-[[modules]]
-path = "products.beta"
-depends_on = ["products.alpha"]
-layer = "modules"
-
-[[modules]]
-path = "products.gamma"
-depends_on = ["products.beta"]
-layer = "modules"
-`
-    const context = { ...CONTEXT, tachGraph: { graph: parseTachModules(toml), tachDependents } }
+    const graph = new Map([
+        ['beta', ['alpha']],
+        ['gamma', ['beta']],
+    ])
+    const context = { ...CONTEXT, tachGraph: { graph, tachDependents } }
     assert.deepEqual(computeTargets(['products/alpha/backend/api.py'], context), [
         'py:product:alpha',
         'py:product:beta',
@@ -1226,7 +1209,7 @@ test('a product absent from the tach graph widens to every backend target', () =
 })
 
 // The lane only has to answer whether another PR can reference the symbols this
-// one changed, and tach.toml answers exactly that. Isolation is the stronger,
+// one changed, and the tach map answers exactly that. Isolation is the stronger,
 // separate claim that the product's own suite is sufficient, which lets CI
 // skip the full Django suite, and which products/architecture.md says tach
 // cannot prove. A product can be too unsealed for that and still be bounded
@@ -1419,7 +1402,7 @@ test('the vendored workspace files claim only the product lane', () => {
 })
 
 // delta stands in for products/desktop: an app imported from another
-// repository that pytest.ini ignores and tach.toml never declares. Its
+// repository that pytest.ini ignores and the tach map never walks. Its
 // vendored .py files read as backend to the layout rules, so without the
 // detachment check they claim every backend lane for suites that never run on
 // them.
