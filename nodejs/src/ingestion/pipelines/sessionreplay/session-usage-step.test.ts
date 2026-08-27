@@ -74,17 +74,15 @@ describe('createRecordSessionUsageStep', () => {
 
     it.each([
         ['web', 'posthog-js', ['session_replay_recordings']],
-        [null, null, ['session_replay_recordings']],
         ['mobile', 'posthog-ios', ['mobile_replay_recordings']],
         ['mobile', 'posthog-flutter', ['mobile_replay_recordings']],
-        // A session that sends a source is billed on it, whatever library it names.
+        // The report bills mobile replay only from four named libraries. The meter reads the
+        // source instead, so a mobile recording bills whatever library it names.
         ['mobile', 'posthog-python', ['mobile_replay_recordings']],
         ['mobile', null, ['mobile_replay_recordings']],
         // Nothing validates the source, so anything but 'mobile' bills as web rather than for free.
         ['desktop', 'posthog-js', ['session_replay_recordings']],
-        // An older mobile SDK sends no source, so the library is what makes the recording mobile.
-        [null, 'posthog-android', ['mobile_replay_recordings']],
-        [null, 'posthog-python', ['session_replay_recordings']],
+        [null, null, ['session_replay_recordings']],
     ])('bills a %s session from %s under %j', async (source, library, expectedUsageKeys) => {
         expect(await record(source, library)).toEqual(expectedUsageKeys)
     })
