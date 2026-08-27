@@ -76,6 +76,8 @@ export const AGENT_USE_CASE_SCOPES = [
     'integration:write',
     'llm_analytics:read',
     'llm_analytics:write',
+    'ai_observability_clusters:read',
+    'ai_observability_clusters:write',
     'llm_prompt:read',
     'llm_prompt:write',
     'llm_provider_key:read',

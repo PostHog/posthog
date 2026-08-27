@@ -57,6 +57,23 @@ export function useDashboards(
   return { dashboards: data ?? [], isLoading };
 }
 
+/** Every canvas across every visible space. */
+export function useAllCanvases(): {
+  dashboards: DashboardRecord[];
+  isLoading: boolean;
+} {
+  const trpc = useHostTRPC();
+  const { data, isLoading } = useQuery(
+    trpc.dashboards.listAll.queryOptions(undefined, {
+      gcTime: SPACE_QUERY_GC_TIME_MS,
+      meta: AUTH_SCOPED_QUERY_META,
+      refetchInterval: SPACE_QUERY_REFETCH_INTERVAL_MS,
+      staleTime: SPACE_QUERY_STALE_TIME_MS,
+    }),
+  );
+  return { dashboards: data ?? [], isLoading };
+}
+
 /**
  * Warm the dashboards-list cache for a channel ahead of opening it (e.g. on
  * hover), so expanding the channel shows its canvases without a cold fetch.
