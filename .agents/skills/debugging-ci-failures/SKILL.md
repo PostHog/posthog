@@ -15,6 +15,8 @@ description: >
 
 # Debugging PostHog CI failures
 
+Before you propose a change to CI, check [things already tried](../../../docs/internal/ci-things-already-tried.md) for the idea. It records what was measured, and why some good-sounding changes were reverted or rejected.
+
 Find the first meaningful failure, classify it, reproduce the smallest useful
 case locally when appropriate, and report the result. Avoid public-visible or
 irreversible actions unless the user explicitly asks.
