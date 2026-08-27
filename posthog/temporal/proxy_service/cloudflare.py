@@ -263,8 +263,9 @@ def create_custom_hostname(domain: str, root_redirect_url: str | None = None) ->
                 "min_tls_version": CLOUDFLARE_MIN_TLS_VERSION,
             },
         },
-        "custom_metadata": {"root_redirect_url": root_redirect_url or ""},
     }
+    if root_redirect_url:
+        payload["custom_metadata"] = {"root_redirect_url": root_redirect_url}
 
     response = requests.post(url, headers=_get_headers(), json=payload, timeout=CLOUDFLARE_API_TIMEOUT_S)
     data = _handle_response(response)
