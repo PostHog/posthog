@@ -210,7 +210,11 @@ function PromptInputHarness({
       }
       submitAdornment={
         channelContext ? (
-          <ChannelContextChip channelName="engineering" onRemove={() => {}} />
+          <ChannelContextChip
+            source="legacy"
+            channelName="engineering"
+            onRemove={() => {}}
+          />
         ) : undefined
       }
       {...props}
