@@ -52,9 +52,10 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
 # much later is dropped rather than scanning the whole snapshot.
 _MERGE_SCAN_LOOKBACK = timedelta(days=30)
 
-# Deployments are created minutes before their statuses settle, so a one-day slack below the scan
-# window keeps every deployment whose outcome could land in it.
-_DEPLOY_SCAN_SLACK = timedelta(days=1)
+# Slack below the scan window so a deployment created before the window still counts when its
+# outcome lands inside it. A week covers even a badly stalled rollout; the deploy tables are
+# per-repo and small enough that the wider floor costs nothing measurable.
+_DEPLOY_SCAN_SLACK = timedelta(days=7)
 
 _ENVIRONMENTS_LIMIT = 100
 _TEAMS_LIMIT = 500
