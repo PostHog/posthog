@@ -35,13 +35,12 @@
 //! keys: the typed model omits `None` fields on serialize, so a built-side
 //! `None` against a cached value would otherwise be invisible.
 
-use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
-use std::hash::{Hash, Hasher};
 use std::time::{Duration, Instant};
 
 use common_types::TeamId;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 
 use crate::cohorts::cohort_models::Cohort;
 use crate::flags::cache_builder::is_evaluable;
@@ -117,18 +116,43 @@ pub struct ShadowDiff {
     fingerprint: u64,
 }
 
+/// Truncated SHA-256 rather than `DefaultHasher`, because the value is written
+/// to Redis and compared by a later process, which can be a different build of
+/// this binary. The standard library does not promise `DefaultHasher` gives the
+/// same output across Rust versions, so a toolchain bump would change every
+/// fingerprint and demote each team's pending mismatch to a first sighting for
+/// one build after the deploy. SHA-256 of the same input is the same value in
+/// every build, which is what a persisted comparison needs.
+///
+/// 64 bits of the digest is enough, because a collision would have to be two
+/// different disagreements for the same team inside the TTL.
 fn fingerprint(
     issue_type: ShadowIssueType,
     subject: Option<&str>,
     built: Option<&serde_json::Value>,
     cached: Option<&serde_json::Value>,
 ) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    issue_type.as_label().hash(&mut hasher);
-    subject.hash(&mut hasher);
-    built.map(|v| v.to_string()).hash(&mut hasher);
-    cached.map(|v| v.to_string()).hash(&mut hasher);
-    hasher.finish()
+    let mut hasher = Sha256::new();
+    hasher.update(issue_type.as_label().as_bytes());
+    for part in [
+        subject.map(|s| s.to_string()),
+        built.map(|v| v.to_string()),
+        cached.map(|v| v.to_string()),
+    ] {
+        // The marker byte separates the parts and also tells an absent part from
+        // an empty one. Neither marker can occur inside a part, because JSON
+        // escapes control characters, so two different inputs cannot hash the
+        // same byte sequence.
+        match part {
+            Some(part) => {
+                hasher.update([0x01]);
+                hasher.update(part.as_bytes());
+            }
+            None => hasher.update([0x00]),
+        }
+    }
+    let digest = hasher.finalize();
+    u64::from_be_bytes(digest[..8].try_into().expect("SHA-256 digest is 32 bytes"))
 }
 
 fn diff(
