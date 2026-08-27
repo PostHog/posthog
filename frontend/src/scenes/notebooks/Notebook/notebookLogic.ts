@@ -1206,6 +1206,14 @@ export const notebookLogic = kea<notebookLogicType>([
         notebook: {
             loadNotebookSuccess: (state, { notebook }) => keepNewestNotebookResponse(state, notebook),
             saveNotebookSuccess: (state, { notebook }) => keepNewestNotebookResponse(state, notebook),
+            // The variables bar PATCHes the notebook on its own path and echoes the saved copy
+            // back through this action. Fold it in so dropping the local edit falls back to the
+            // freshly saved variables, not the stale loaded ones. Only apply it to this notebook:
+            // the action is shared across every mounted notebook through notebooksModel.
+            receiveNotebookUpdate: (state, { notebook }) =>
+                state && notebook.short_id === state.short_id
+                    ? keepNewestNotebookResponse(state, notebook as NotebookType)
+                    : state,
             applyRemoteNotebookContent: (state, { content, version }) =>
                 state && version > state.version ? { ...state, content, version } : state,
         },
