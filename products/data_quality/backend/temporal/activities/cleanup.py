@@ -37,11 +37,14 @@ def _cleanup() -> CleanupOutcome:
     )
 
     has_newer_run = runs.filter(quality_check_id=OuterRef("quality_check_id"), created_at__gt=OuterRef("created_at"))
-    runs_deleted, _ = (
+    # .delete() returns the total across every cascaded model. Count only the runs -- the subject
+    # index rows that cascade with each run would otherwise inflate the reported figure.
+    _, deleted_by_model = (
         runs.filter(created_at__lt=now - timedelta(days=CHECK_RUN_RETENTION_DAYS))
         .filter(Q(quality_check_id__isnull=True) | Exists(has_newer_run))
         .delete()
     )
+    runs_deleted = deleted_by_model.get(DataQualityCheckRun._meta.label, 0)
 
     backs_a_run = DataQualityCheckRun.objects.unscoped().filter(suite_run_id=OuterRef("id"))
     suites_deleted, _ = (
