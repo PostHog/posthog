@@ -198,6 +198,66 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ DECIDED 2026-08-21 — label trigger moves onto the GitHub App webhook (additive handler, no second inlet)
+
+- **What.** The `reviewhog` label add reaches ReviewHog as a `pull_request` handler registered in core's
+  unified GitHub App fan-out (`posthog/urls.py:GITHUB_WEBHOOK_HANDLERS`), alongside the tasks backstop
+  and Loops. The handler reuses the trigger endpoint's gates (allowlist → team → run user → busy-guard)
+  through a shared plain function, plus two webhook-only gates: the payload's `installation.id` must map
+  to the configured team's GitHub integration, and the sender must be a human or the Stamphog App bot (the
+  Action's allowed-labeler policy; other bots are ignored and logged, the Action's comment-and-strip is
+  not ported). Same `start_review_pr_workflow(trigger_source="label")`.
+- **Why now.** Stage 5 rejected "Path B" (webhook) because it diverged from Stamphog's CI model; Stamphog
+  is hosted and webhook-driven since #70407, so that reason is gone. The Action costs a CI run per
+  label, carries a secret in Actions, and only works in repos that ship the workflow file. ReviewHog
+  already publishes through the PostHog GitHub App installation token, so that App's inlet is the
+  right one — **not** a standalone endpoint like Stamphog's (a different App, hence a different secret).
+- **Constraints.** Core's dispatcher owns verification, parsing, and per-handler delivery dedup — the
+  handler does none of that. It has no retry either, and GitHub does not redeliver on its own, so the
+  handler hands off to a retried Celery task that starts the workflow (Stamphog's shape) rather than
+  starting it in-request; until that hand-off is in, the Action's curl retries are the only durability.
+  `USE_EXISTING` on the deterministic workflow id makes Action + webhook firing together harmless, so
+  the Action stays during rollout and is removed in a follow-up.
+- **Scope fence.** `synchronize` / comment signals, when they come, **extend this handler module**:
+  `synchronize` in the same `pull_request` bucket, comments registered under their own event types
+  (`issue_comment`, `pull_request_review_comment` — the dispatcher routes strictly by `X-GitHub-Event`),
+  all sharing the gates. They do not open a second inlet, and `signal-with-start` / per-PR Schedules
+  wait for the loop workflow itself (nest-then-promote, see "Triggers — GitHub events → turns").
+
+### ✅ BUILT 2026-08-19 — "Use an existing skill": adopt a team skill as a review skill by copy (grilled 2026-08-19; ADR `adr/0002`)
+
+Users with an existing team skill had no path into ReviewHog short of running the "Create your own" authoring
+agent — the ask was a picker beside those buttons that reuses what the team already has. Design settled by a
+grilled Q&A (copy-vs-reference was the root call, recorded with its consequences in
+[ADR 0002](./adr/0002-adopt-existing-skills-by-copy.md)): **adopt = duplicate the source under the kind's
+prefix + activate, verbatim** (no agent adaptation; the picker's body preview does the judgment work, and the
+fixed output schema means a foreign body can never break the pipeline format). Mechanics, all existing
+endpoints — the skills product's `duplicate` (strips `seeded_by`, adopter becomes author, so author-only
+visibility and the sync's seeded-rows-only reconcile hold untouched) then the kind's config PATCH
+(perspectives `enabled`, single-active kinds `active`, swapping the current selection; the confirm step names
+the swap). Two client calls over a new atomic endpoint on purpose: the one partial-failure mode (copied but
+not switched on) is harmless — the card exists, a toast says to flip it.
+
+- **Picker scope:** one searchable list, two groups — teammates' same-kind `review-hog-*` customs first
+  (adoptable precisely because the config surface hides them: the fork makes them yours), then every other
+  team skill (cross-kind review skills included — a validation bar adopted as resolution criteria is
+  legitimate). Community store deliberately out of scope (phase 2, own trust surface).
+- **Naming:** confirm step with the prefix fixed and an editable slug, prefilled from the source name (any
+  review-hog kind prefix stripped so cross-kind adoption doesn't double-prefix), client-side mirror of the
+  name rules for inline errors; the server stays authoritative on conflicts.
+- **Component layering:** the generic piece (`SkillPicker` — controlled groups, client-side search, lazy body
+  preview) lives in `frontend/src/lib/components/SkillPicker/` per the no-cross-product-component-imports
+  rule (the grill's products/skills pick adjusted to the sanctioned shared layer); ReviewHog's
+  `AdoptSkillModal` owns the groups, the confirm step, and the adopt orchestration in
+  `reviewHogSettingsLogic`.
+- **Skills-product fix along the way:** `duplicate_skill` now derives `category` from the new name exactly
+  like the create paths (was deliberately empty), so adopted skills group under the Skills page's Code review
+  tab like agent-authored ones — also fixes the manual duplicate-into-prefix path.
+- Tests: jest — adopt orchestration per kind (duplicate name + activation body), copy-failure keeps the modal
+  open with no activation fired, activation-failure still reloads the kind's cards, picker grouping, slug
+  prefill/validation (pure); BE — duplicate category derivation parameterized (new-name prefix wins, source
+  category never copied).
+
 ### ✅ BUILT 2026-08-12 — review body cut to a severity tally (the chunk summary is gone)
 
 The published body opened with a walk of the chunk tree: a `## <chunk type>` heading per chunk, an `Issues: N`
@@ -2059,6 +2119,8 @@ is unrouted — `webhooks.py:78-143`): **label add → start the loop**; **`sync
 `start_workflow`; in A each is a `signal-with-start`. Two non-negotiables from the existing handler: **dedupe on
 `X-GitHub-Delivery`** + **hand off fast (200/202) to Temporal**, and the **fork guard** (`head.repo == base repo`,
 `webhooks.py:127-133`) before reviewing — and certainly before _implementing_ — on an attacker-influenced head ref.
+_(2026-08-21: the label-add signal lands as a handler in the unified dispatcher; the other two signals extend that
+handler when the loop exists, per the scope fence in the "✅ DECIDED 2026-08-21" entry.)_
 Publish/fetch move off the static `GITHUB_TOKEN` onto the team's installation token (`first_for_team_repository` +
 `get_access_token`, `posthog/models/integration.py:2504-2519`, `github_integration_base.py:1433`) — or the
 maintainer's service-user + project key — when multi-tenant identity is needed; a PR-_review_ POST helper
@@ -2285,7 +2347,8 @@ Modal sandbox + Postgres + DB-synced LLMA skills) — it **cannot** run on a Git
 does. So the label trigger is a **thin GitHub Action** that calls a **PostHog endpoint**, which starts the Temporal
 workflow; the workflow fetches + publishes **server-side** via the GitHub App installation token. Rejected:
 **Path B** (label → the existing `webhooks/github/pr` dispatcher → Temporal, no CI — diverges from the team's
-Stamphog model) and **Path C** (re-platform ReviewHog as a standalone CI script — discards the whole Temporal
+Stamphog model; _superseded 2026-08-21, Stamphog is hosted now — see "✅ DECIDED 2026-08-21 — label trigger moves
+onto the GitHub App webhook"_) and **Path C** (re-platform ReviewHog as a standalone CI script — discards the whole Temporal
 pipeline just built + hardened).
 
 ```text
@@ -3100,9 +3163,13 @@ RATE_LIMITED` (GraphQL's primary signal, invisible to the REST-shaped helper) no
    ReviewHog sandbox session (perspectives, validation, resolution) ran with the context default of **full**
    PostHog MCP access — execute-sql and every write tool — while reading untrusted PR-comment text; no prompt
    ever uses more than `skill-get`/`skill-file-get`. The executor now pins `posthog_mcp_scopes` to
-   `REVIEW_MCP_SCOPES = ["llm_skill:read"]` at both context constructions (internal sandbox-plumbing scopes
-   are re-added by the resolver). A future skill that legitimately needs product data adds its specific read
-   scope with that feature.
+   `REVIEW_MCP_SCOPES = ["llm_skill:read", "user:read"]` at both context constructions (internal sandbox-plumbing
+   scopes are re-added by the resolver). `user:read` is the MCP handshake, not a data grant: the MCP server
+   resolves the calling user (`/api/users/@me/`) when a session opens and refuses the connection without it.
+   The pin shipped on 2026-08-13 with only `llm_skill:read`, so until 2026-08-25 every ReviewHog session
+   (perspectives, blind-spot, validation, resolution) had its MCP connection refused and reviewed without its
+   skill — the agents carry on without MCP instead of failing, so nothing flagged it. A future skill that
+   legitimately needs product data adds its specific read scope with that feature.
    _Same date (fix-commit provenance gate, maintainer decision):_ `commit_on_branch`'s "reachable from the
    branch tip" necessarily accepts every ancestor (later turns and the author push on top mid-run), so a
    steered turn could echo someone's old clean commit and have every check inspect the wrong one. The
@@ -3791,3 +3858,68 @@ the model/effort is brand-new, add it to the registry in **both** repos (`utils.
 gateway model list in `@posthog/agent`) or startup validation rejects it on one side.
 
 ---
+
+## Resolution-stage visibility & cycle guard (grilled 2026-08-13)
+
+Motivated by the first prod day: a resolution on a user's PR (#80527) showed no progress anywhere, and #78061's
+resolution died silently at sandbox checkout. Decisions, in one PR:
+
+- **Busy-guard, both directions.** Starting a review (UI, label, trigger API) is refused while the PR's
+  `resolve-pr` workflow runs ("Still resolving comments from the last review"); starting a standalone resolution
+  is refused while `review-pr` runs. Chained hand-off exempt (fires post-publish by construction). Explicit check
+  on the two deterministic workflow ids — Temporal same-id joining can't see across workflows (ADR 0001; blocked,
+  not queued — queueing machinery isn't worth it yet).
+- **Resolving progress derives from the artefact stream, not new columns.** At prepare, the run appends a
+  work-list artefact (total, skipped); the reviews API counts the run's thread-verdict artefacts against it.
+  Row shows "Resolving comments · 6/10 · 5 fixed, 1 needs you"; crashed runs go quiet and age out via the
+  existing staleness window, mirroring review progress. Rejected: mutable stats block on the report (second
+  writer, stale stats on crash).
+- **Settled means delivered** (PR-review follow-up, 2026-08-18). The counters originally bumped at judge time,
+  so a thread whose GitHub reply/resolve failed still read as done/fixed until the next run redelivered. Both
+  surfaces now count only delivered threads — the activity renders from `delivered_outcomes` (bumped after
+  `_deliver_side_effects` succeeds) and the UI derivation counts only `reply_posted` verdict rows — with
+  undelivered threads folded into the closing tally's "couldn't handle" count. `triaged`/`outcomes` keep their
+  judge-time meaning for the run note. Rejected: leaving it (the tally claimed replies that weren't on the PR)
+  and a separate "pending redelivery" bucket (a third state to explain for a transient window).
+- **Same GitHub status comment, extended.** Chained runs edit the review's existing status comment with a
+  resolving section + final tally; standalone runs create the comment on demand via the same machinery
+  (edits don't notify — one ReviewHog voice per PR).
+- **Failure is visible.** UI: work-list artefact present + activity stale + no closing run-note ⇒ "Resolution
+  didn't finish · stopped at N/M". GitHub: partial failures flow into the final tally ("couldn't handle 2");
+  hard crashes get a best-effort failure edit (reusing the review's `fail_status_comment` pattern). Closes the
+  silent-death mode observed on #78061.
+- **Workflow-level failure cleanup** (PR-review follow-up, 2026-08-18). The activity's final-attempt failure
+  edit misses three death modes: `_prepare_run` failures (before its `try` opens), timeout/cancellation
+  (`CancelledError` is a `BaseException`), and worker death (no handler runs) — all of which left the GitHub
+  comment saying "Resolving comments" forever (the UI half self-heals via staleness). `ResolvePRWorkflow` now
+  wraps the resolution activity and fires a best-effort `fail_resolution_activity` before re-raising, gated
+  behind `workflow.patched("fail-resolution-cleanup-2026-08")` for in-flight runs. The cleanup locates the
+  report by `(team, repo, pr_number)` (the workflow never learns the report id on failure), idles it, and
+  derives stopped-at counts via `resolution_states` — the exact numbers the UI row shows; no live run anchor
+  means no comment edit, so a pre-queue crash can't spawn a spurious "stopped at 0/0" comment. The
+  activity-level edit stays as the fast path. Mirrors the review workflow's `fail_status_comment_activity`.
+- **👀 reaction marks queued threads.** Added right after work-list classification, triage-queued threads only
+  (so 👀 = "in this run's queue"), best-effort, and left in place afterwards (removal doubles API calls for no
+  real gain). Reactions send no notifications. Rejected: placeholder "working on it" comments — double
+  notifications, and a crashed run leaves broken promises.
+- **Not doing:** re-review-after-fixes dispatch (the loop's job, separately costed); prohibiting re-review after
+  a _finished_ cycle (already safe: same-id review starts join the running workflow).
+
+Vocabulary added to CONTEXT.md: **Review cycle**, **Busy-guard**. ADR: `adr/0001-resolution-is-a-separate-workflow.md`
+(kept resolution a separate workflow after challenging it — standalone mode, failure isolation, independent
+versioning outweigh the manual seam).
+
+## Sandbox checkout ref: head branch by name (2026-08-25, maintainer decision)
+
+Review sandboxes check out the PR's **head branch by name** again. The 2026-07-15 switch to `pull/N/head` (meant to
+survive a mid-review merge, which deletes the head branch) never worked: the Tasks checkout resolves only
+`refs/heads/<name>`, so the pull ref fell through to a fresh local branch on the base tip and every review
+sandbox investigated the base branch instead of the PR. Invisible while base ≈ PR; loud once the base carried
+later fixes — validators dismissed real findings as "already fixed" because the tree they examined was master.
+The reviewer's findings still came from the diff pasted into its prompt, so review volume never dropped.
+Residual gap (not a loud failure): if a mid-review merge deletes the head branch, the Tasks checkout does not
+raise — `git ls-remote --exit-code --heads origin refs/heads/<name>` returns exit 2 and `checkout_branch_in_sandbox`
+falls back to a fresh branch on the base tip. A later checkout can then still land on the base tree, but only for
+checkouts after the branch is gone, not the whole review as the 2026-07-15 regression did. Closing that window —
+a strict checkout that fails on a missing head branch, or a proper `refs/pull/N/head` fetch — belongs in the Tasks
+checkout, out of scope here.

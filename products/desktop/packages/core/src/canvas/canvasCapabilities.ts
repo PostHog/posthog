@@ -58,6 +58,11 @@ export function assertCanvasCapability(
       }
       return;
     }
+    case "agentRequest":
+      if (!capabilities.posthog.agentRequests) {
+        throw new Error("Agent requests are not allowed by this canvas");
+      }
+      return;
     default:
       throw new Error(`Method "${method}" is not allowed by this canvas`);
   }

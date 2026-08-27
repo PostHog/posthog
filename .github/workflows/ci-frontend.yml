@@ -65,6 +65,12 @@ jobs:
             # For pull requests it's not necessary to check out the code, but we
             # also want this to run on master, so we need to check out
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github/actions/paths-filter
+                      bin/frontend-exclude-filter
+                      pnpm-workspace.yaml
+                  sparse-checkout-cone-mode: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
@@ -136,6 +142,9 @@ jobs:
                         # desktop-* CI and must not drag this suite onto its PRs
                         - '!products/desktop/**'
                         - 'playwright/**'
+                        # The onboarding step components compile into the app and sit in the
+                        # frontend tsconfig program, so they are code, not docs.
+                        - 'docs/**/*.tsx'
                         - .github/workflows/ci-frontend.yml
                         - .oxlintrc.json
                         - .oxfmtrc*
@@ -309,13 +318,14 @@ jobs:
                       exit 0
                   fi
 
-                  # Selective mode: single EE-tree job, no chunk sharding. The FOSS
+                  # Selective mode uses two EE-tree shards because a widely imported
+                  # source file can make --findRelatedTests approach a full suite. The FOSS
                   # structural check (ee/ removed) only matters when ee imports are
                   # touched; defer that to the ready-for-review full run. --findRelatedTests
                   # walks jest's import graph from these files and runs the matching
                   # *.test.* files.
                   echo "mode=selective" >> "$GITHUB_OUTPUT"
-                  echo 'matrix={"include":[{"segment":"EE","chunk":1}]}' >> "$GITHUB_OUTPUT"
+                  echo 'matrix={"include":[{"segment":"EE","chunk":1,"shard_count":2},{"segment":"EE","chunk":2,"shard_count":2}]}' >> "$GITHUB_OUTPUT"
                   echo "should_run=true" >> "$GITHUB_OUTPUT"
                   echo "changed_files=$CHANGED_FILES" >> "$GITHUB_OUTPUT"
                   echo "Selective mode: $(echo "$CHANGED_FILES" | wc -w) frontend source files"
@@ -353,6 +363,12 @@ jobs:
 
             - name: Lint with Stylelint
               run: pnpm run lint:css
+
+            # Product colour tokens are named as plain strings from TypeScript manifests and
+            # empty-state configs, so nothing type-checks them. A reference to a token that no
+            # longer exists renders a whole surface colourless without failing anything else.
+            - name: Check product colour tokens all resolve
+              run: pnpm --filter=@posthog/frontend check-color-tokens
 
             - name: Lint with Oxlint
               run: pnpm exec oxlint --quiet
@@ -618,18 +634,19 @@ jobs:
         name: Frontend typechecking
         needs: [changes]
         if: needs.changes.outputs.frontend_code == 'true'
-        # tsgo peaks ~12 GB type-checking the whole frontend, which OOM-kills it on ~6% of runs
-        # on any 16 GB runner (ubuntu-latest and depot-ubuntu-24.04-4 alike). Peak tracks the
-        # type graph, not parallelism or lib checking: skipLibCheck is already on, GOMAXPROCS
-        # and declaration:false change nothing, and dropping all of products/ from include
-        # removes only 891 of 13703 files because imports pull them back in. 32 GB is the next
-        # rung on Depot's ladder. Talk to #team-devex before changing.
+        # tsgo peaks ~12 GB type-checking the whole frontend, which OOM-kills it on a 16 GB
+        # runner (ubuntu-latest and depot-ubuntu-24.04-4 alike). Peak tracks the type graph,
+        # not parallelism or lib checking: skipLibCheck is already on, GOMAXPROCS and
+        # declaration:false change nothing, and dropping all of products/ from include removes
+        # only 891 of 13703 files because imports pull them back in. Both runners below give
+        # the job 32 GB. Talk to #team-devex before changing.
         #
-        # Forks stay on GitHub-hosted: this job runs `pnpm install`, so a fork PR controls
-        # lifecycle scripts, and Depot runners inject shared cache credentials ambiently
-        # (see _rust-build-images.yml, which skips sccache creds for the same reason).
-        # Fork PRs keep the pre-existing OOM flake; internal PRs and master get the fix.
-        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-8' || 'ubuntu-latest' }}
+        # Forks get a GitHub-hosted larger runner instead of Depot: this job runs
+        # `pnpm install`, so a fork PR controls lifecycle scripts, and Depot runners inject
+        # shared cache credentials ambiently (see _rust-build-images.yml, which skips sccache
+        # creds for the same reason). GitHub warns against exposing a larger runner with a
+        # static IP range to fork pull requests, so keep this runner's group off static IPs.
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-8' || 'ubuntu-24.04-8core' }}
         # Kea typegen invalidates on changes to any logic plus everything that depends on it.
         # For changes to shared core (TaxonomicFilter, Insight, etc.) the dependent set is
         # large, so the budget must fit a cache miss on top of the baseline build.
@@ -694,15 +711,20 @@ jobs:
                     env:
                         NODE_OPTIONS: --max-old-space-size=8192
 
+                  # The manifest is generated from `urls` (scenes/urls.ts + every product
+                  # manifest) and is what the MCP's generate-app-url tool resolves entity
+                  # links from. Nothing else reads it, so drift is invisible until an agent
+                  # hands a user a 404 — this check is the only thing tying it to its source.
+                  - name: Check if app-url-manifest.json is up to date
+                    run: pnpm --filter=@posthog/frontend build:app-urls:check
+
                   - name: Validate SetupTaskId completions
                     run: node bin/validate-setup-tasks.mjs
 
     jest:
         runs-on: ubuntu-latest
-        # Draft PRs run the selective mode as a single unsharded job over every
-        # test reachable from the changed files. A PR touching a scene component
-        # can pull in much of the suite, so the budget must fit a near-full
-        # unsharded run; the ready-for-review fanout shards well below it.
+        # Draft PRs run two selective shards over tests reachable from changed files.
+        # The ready-for-review fanout uses four shards over the full suite.
         timeout-minutes: 20
         needs: [changes, select-jest-tests]
         # A status function is required because select-jest-tests is skipped on ready
@@ -715,7 +737,7 @@ jobs:
         strategy:
             # If one test fails, still run the others
             fail-fast: false
-            # On draft PRs, select-jest-tests may narrow this to a single EE job
+            # On draft PRs, select-jest-tests may narrow this to two EE jobs
             # running only the tests reachable from changed frontend source files,
             # or skip jest entirely (should_run=false) when selection can't be
             # trusted. On ready PRs and master pushes it's skipped, so
@@ -754,9 +776,7 @@ jobs:
               env:
                   NODE_OPTIONS: --max-old-space-size=16384
                   SHARD_INDEX: ${{ matrix.chunk }}
-                  # Keep shard runtime well under timeout-minutes: at 2 shards the EE
-                  # suite regularly hit the job timeout and failed the whole run.
-                  SHARD_COUNT: 4
+                  SHARD_COUNT: ${{ matrix.shard_count || 4 }}
                   MODE: ${{ needs.select-jest-tests.outputs.mode }}
                   CHANGED_FILES: ${{ needs.select-jest-tests.outputs.changed_files }}
                   JEST_JUNIT_OUTPUT_DIR: ${{ github.workspace }}/junit-results
@@ -768,8 +788,8 @@ jobs:
               run: |
                   if [ "$MODE" = "selective" ]; then
                       # --findRelatedTests walks jest's import graph from the changed
-                      # source files and runs the matching tests. No --shard: single
-                      # job runs the entire selected set.
+                      # source files and runs the matching tests. Sharding keeps broad
+                      # import graphs within the job timeout.
                       #
                       # No --testPathPattern: it is mutually exclusive with
                       # --findRelatedTests (jest folds both into one path regex and
@@ -782,6 +802,7 @@ jobs:
                       pnpm --filter=@posthog/frontend exec jest \
                           --forceExit \
                           --passWithNoTests \
+                          --shard=$SHARD_INDEX/$SHARD_COUNT \
                           --findRelatedTests $CHANGED_FILES
                   else
                       # 100% = one worker per available core. Public-repo ubuntu-latest
@@ -804,8 +825,7 @@ jobs:
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on jest failure" step below is
             # the verdict, so a Trunk outage can't red a passing shard. FOSS and EE share test files,
-            # so each segment uploads under its own variant. Internal PRs only (needs the secret);
-            # cli-version pinned, not 'latest' (skips the release redirect).
+            # so each segment uploads under its own variant. Internal PRs only (needs the secret).
             # TRUNK_UPLOAD_ENABLED is the master kill-switch: when it is not 'true' this gate
             # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
             # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
@@ -814,13 +834,10 @@ jobs:
               id: quarantine_gate
               continue-on-error: true
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
-              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: junit-results/junit-${{ matrix.segment }}-${{ matrix.chunk }}.xml
-                  org-slug: posthog-inc
                   variant: ${{ matrix.segment }}
-                  cli-version: '0.13.7'
-                  quarantine: true
                   previous-step-outcome: ${{ steps.run-jest.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
             # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
@@ -879,7 +896,7 @@ jobs:
                   retention-days: 1
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on jest failure" step below is
-            # the verdict. See the jest job for the full rationale. cli-version pinned, not 'latest'.
+            # the verdict. See the jest job for the full rationale.
             # TRUNK_UPLOAD_ENABLED is the master kill-switch: when it is not 'true' this gate
             # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
             # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
@@ -888,13 +905,10 @@ jobs:
               id: quarantine_gate
               continue-on-error: true
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
-              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: junit-results/junit-replay-shared.xml
-                  org-slug: posthog-inc
                   variant: replay-shared
-                  cli-version: '0.13.7'
-                  quarantine: true
                   previous-step-outcome: ${{ steps.run-jest.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
             - name: Fail on jest failure

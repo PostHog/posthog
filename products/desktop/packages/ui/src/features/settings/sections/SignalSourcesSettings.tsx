@@ -117,7 +117,8 @@ export function SignalSourcesSettings({
               Slack notifications
             </Text>
             <Text className="text-(--gray-11) text-[13px]">
-              Choose where ready inbox reports are posted and who gets pinged.
+              Choose where ready Self-driving reports are posted and who gets
+              pinged.
             </Text>
           </Flex>
           <button

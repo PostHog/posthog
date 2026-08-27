@@ -200,6 +200,27 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "end_date": "The holiday's end date.",
         },
     },
+    "rate_cards": {
+        "description": "A rate card defining bill rates by role, applied to projects to turn scheduled hours into billable value.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "rate_card_id": "Unique identifier for the rate card.",
+            "name": "The rate card's name.",
+            "currency_code": "ISO 4217 currency the card's rates are expressed in; defaults to the company currency.",
+            "roles": "The per-role bill rates, each pairing a role_id with its bill_rate.",
+            "client_ids": "The ids of the clients this rate card applies to.",
+        },
+    },
+    "currencies": {
+        "description": "A currency the workspace bills in, with its exchange rate against the company's base currency.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "currency_id": "Unique identifier for the currency entry.",
+            "source_currency": "The company's base currency (ISO 4217); set automatically.",
+            "target_currency": "The billing currency (ISO 4217, e.g. CAD); fixed after creation.",
+            "fx_rate": "The exchange rate from the source currency to the target currency.",
+        },
+    },
     "deleted_tasks": {
         "description": "Tombstone log of deleted allocations (tasks), for reconciling deletions since a cursor.",
         "docs_url": _DOCS_URL,

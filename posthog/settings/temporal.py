@@ -48,6 +48,14 @@ SANDBOX_PROVIDER: str | None = get_from_env(
     "SANDBOX_PROVIDER", None, optional=True
 )  # When not set: defaults to "docker" in DEBUG mode, "modal" in production
 SANDBOX_API_URL: str | None = get_from_env("SANDBOX_API_URL", None, optional=True)
+# Hogland (Firecracker microVM sandbox service) control plane. Deliberately not
+# SANDBOX_*-prefixed: agentsh folds SANDBOX_* URL settings into the in-box egress
+# allowlist, and the box never needs to reach the hogland control plane.
+HOGLAND_API_URL: str | None = get_from_env("HOGLAND_API_URL", None, optional=True)
+HOGLAND_API_TOKEN: str | None = get_from_env("HOGLAND_API_TOKEN", None, optional=True)
+# Projected ServiceAccount token file (rotating JWT). When set and readable it wins
+# over the static HOGLAND_API_TOKEN, which stays as a local-dev/bake-only fallback.
+HOGLAND_API_TOKEN_FILE: str | None = get_from_env("HOGLAND_API_TOKEN_FILE", None, optional=True)
 SANDBOX_LLM_GATEWAY_URL: str | None = get_from_env("SANDBOX_LLM_GATEWAY_URL", None, optional=True)
 # The Go ai-gateway runs on its own host (ai-gateway.*, vs the Python gateway.*), so the
 # base URL is what selects it: no product slug on the path, attribution as one
@@ -56,6 +64,20 @@ SANDBOX_LLM_GATEWAY_URL: str | None = get_from_env("SANDBOX_LLM_GATEWAY_URL", No
 # Both must be set; clearing either rolls back to the Python gateway.
 SANDBOX_AI_GATEWAY_URL: str | None = get_from_env("SANDBOX_AI_GATEWAY_URL", None, optional=True)
 SANDBOX_AI_GATEWAY_PRODUCTS: str | None = get_from_env("SANDBOX_AI_GATEWAY_PRODUCTS", None, optional=True)
+# Gateway credential (phs_) the worker uses to mint per-run phe_ scoped tokens for
+# gateway-routed sandbox runs. Unset: runs get no token and the agent server keeps them
+# on the Python gateway, so the routing allowlist above is inert without it.
+SANDBOX_AI_GATEWAY_MINT_KEY: str | None = get_from_env("SANDBOX_AI_GATEWAY_MINT_KEY", None, optional=True)
+# Per-run spend cap and token lifetime for minted scoped tokens. The cap bounds one
+# runaway run; the daily bound per team is cap x the scheduler's runs-per-day limit.
+# The cap must fit a run's real spend plus its in-flight admission holds: a cap near
+# typical spend ends runs after the work is written and before it is committed.
+# TTL 0 (the default) derives TASKS_MAX_RUN_DURATION_SECONDS + 1h so a capped run
+# never outlives its token; a positive value overrides.
+SANDBOX_AI_GATEWAY_TOKEN_CAP_USD: str = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_CAP_USD", "10")
+# Per-team per-run cap overrides as a JSON object of team id to dollars, e.g. {"2": "10"}.
+SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES: str = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES", "")
+SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS: int = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS", 0, type_cast=int)
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
 
 # OTLP destinations for agent-server run telemetry (PostHog Logs/APM).
@@ -114,6 +136,15 @@ TASKS_INACTIVITY_TIMEOUT_SECONDS: int = get_from_env("TASKS_INACTIVITY_TIMEOUT_S
 # site. Set low (e.g. 60) for local testing; 0 or negative disables the cap entirely,
 # matching TASKS_INACTIVITY_TIMEOUT_SECONDS above.
 TASKS_MAX_RUN_DURATION_SECONDS: int = get_from_env("TASKS_MAX_RUN_DURATION_SECONDS", 3 * 60 * 60, type_cast=int)
+
+# Wall-clock cap for *interactive* signals-origin runs (Inbox "Create PR" / "Discuss", scout
+# chat), which are exempt from TASKS_MAX_RUN_DURATION_SECONDS above. Their inference is unbilled,
+# so without this their only time bound is the heartbeat-reset inactivity timer. Defaults to the
+# sandbox TTL: it never ends a conversation the sandbox wouldn't have ended anyway, but it does
+# bound snapshot-resume chains and wedged-but-heartbeating agents. 0 or negative disables.
+TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS: int = get_from_env(
+    "TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS", 6 * 60 * 60, type_cast=int
+)
 
 # Override the delay before the first in-sandbox credential refresh (default 20
 # minutes). Set this low (e.g. 30) for local testing so the refresh loop fires
@@ -185,6 +216,14 @@ EXPERIMENTS_RECALCULATION_TASK_QUEUE = _set_temporal_task_queue("experiments-rec
 HEALTH_CHECK_TASK_QUEUE = _set_temporal_task_queue("health-check-task-queue")
 DUCKLAKE_TASK_QUEUE = _set_temporal_task_queue("ducklake-task-queue")
 TASKS_TASK_QUEUE = _set_temporal_task_queue("tasks-task-queue")
+TASKS_DISPATCHER_BATCH_SIZE = get_from_env("TASKS_DISPATCHER_BATCH_SIZE", 50, type_cast=int)
+TASKS_DISPATCHER_CONCURRENCY = get_from_env("TASKS_DISPATCHER_CONCURRENCY", 20, type_cast=int)
+TASKS_DISPATCHER_LEASE_SECONDS = get_from_env("TASKS_DISPATCHER_LEASE_SECONDS", 60, type_cast=int)
+TASKS_DISPATCHER_POLL_INTERVAL_SECONDS = get_from_env("TASKS_DISPATCHER_POLL_INTERVAL_SECONDS", 1.0, type_cast=float)
+TASKS_DISPATCHER_RPC_TIMEOUT_SECONDS = get_from_env("TASKS_DISPATCHER_RPC_TIMEOUT_SECONDS", 10, type_cast=int)
+TASKS_DISPATCHER_MAX_DISPATCH_AGE_SECONDS = get_from_env(
+    "TASKS_DISPATCHER_MAX_DISPATCH_AGE_SECONDS", 6 * 60 * 60, type_cast=int
+)
 STAMPHOG_TASK_QUEUE = _set_temporal_task_queue("stamphog-task-queue")
 TEST_TASK_QUEUE = _set_temporal_task_queue("test-task-queue")
 BILLING_TASK_QUEUE = _set_temporal_task_queue("billing-task-queue")

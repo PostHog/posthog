@@ -139,11 +139,11 @@ export async function pollForResults(
             }
         } catch (e: any) {
             // Parse error message to extract clean message and code if present
-            const parsed = parseErrorMessage(e.data?.query_status?.error_message)
+            const parsed = parseErrorMessage(e.data?.query_status?.error_message ?? e.data?.detail ?? e.detail)
             e.detail = parsed.message
 
             // Prefer the structured code from QueryStatus over one parsed out of the message
-            e.code = e.data?.query_status?.error_code ?? parsed.code ?? e.code
+            e.code = e.data?.query_status?.error_code ?? e.data?.code ?? parsed.code ?? e.code
 
             // Attach queryId to error for downstream error handling
             e.queryId = queryId

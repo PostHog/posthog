@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
     DATABASE_NAME_REQUIRED_ERROR,
+    MONGO_DOCUMENT_MISSING_ID_ERROR,
     _parse_connection_string,
     filter_mongo_incremental_fields,
     get_collection_names,
@@ -34,6 +35,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 _MONGO_UNREACHABLE_MESSAGE = (
     "Could not reach your MongoDB cluster. Check that the cluster is running and that PostHog's "
     "IP addresses are allowlisted in your database's network access settings."
+)
+
+# `_parse_connection_string` raises a ValueError when the string isn't a usable MongoDB URI: a
+# wrong or missing scheme, or a host/port that urlparse rejects. The raw reason gives the user
+# little to act on, so point at the expected scheme and format instead.
+_MONGO_INVALID_CONNECTION_STRING_MESSAGE = (
+    # nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
+    "PostHog couldn't read your MongoDB connection string. It must start with mongodb:// or "
+    "mongodb+srv:// and follow the standard format, for example "
+    "mongodb+srv://user:password@cluster.mongodb.net/database. Check the connection string and try again."
 )
 
 _MONGO_UNESCAPED_CREDENTIALS_MESSAGE = (
@@ -85,6 +96,12 @@ _DNS_RESOLUTION_FAILURE_MARKERS = (
     "Temporary failure in name resolution",
 )
 
+# For a `mongodb+srv://` URI, pymongo resolves the SRV record via dnspython inside the
+# MongoClient constructor and wraps any dnspython exception as ConfigurationError. dnspython's
+# NXDOMAIN carries this fixed prefix when the SRV record's DNS name doesn't exist at all —
+# a deleted, renamed, or mistyped cluster hostname — distinct from a timed-out lookup.
+_SRV_DNS_NAME_NOT_FOUND_MARKER = "The DNS query name does not exist"
+
 
 @SourceRegistry.register
 class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
@@ -124,6 +141,10 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             # reach the user — match the stable 'not authorized' fragment. Granting permission is a
             # config change the user must make, so this never recovers on retry.
             "not authorized": _MONGO_NOT_AUTHORIZED_MESSAGE,
+            # A view whose pipeline drops `_id` yields documents the importer can't key on. mongo.py
+            # raises MONGO_DOCUMENT_MISSING_ID_ERROR for this instead of a bare KeyError. Every retry
+            # reads the same `_id`-less documents, so it never recovers. Match our own stable phrase.
+            "one of its documents has no _id field": MONGO_DOCUMENT_MISSING_ID_ERROR,
             "SSL handshake failed": None,
             # Atlas SQL / Data Federation endpoints live under *.query.mongodb.net and are served by
             # a query proxy the standard MongoDB driver can't drive: the handshake is closed, the
@@ -217,12 +238,12 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        from pymongo.errors import OperationFailure, ServerSelectionTimeoutError
+        from pymongo.errors import ConfigurationError, OperationFailure, ServerSelectionTimeoutError
 
         try:
             connection_params = _parse_connection_string(config.connection_string, config.database_name)
-        except:
-            return False, "Invalid connection string"
+        except Exception:
+            return False, _MONGO_INVALID_CONNECTION_STRING_MESSAGE
 
         if not connection_params.get("database"):
             return False, DATABASE_NAME_REQUIRED_ERROR
@@ -270,14 +291,24 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             if any(marker in message for marker in _DNS_RESOLUTION_FAILURE_MARKERS):
                 return False, _MONGO_HOST_UNRESOLVED_MESSAGE
             return False, _MONGO_UNREACHABLE_MESSAGE
-        except Exception as e:
-            # pymongo raises InvalidURI with the RFC-3986 hint before any network call when the
-            # credentials contain unescaped reserved characters. This is a malformed connection
-            # string the user must fix — already surfaced with an actionable message — so don't
-            # report it to error tracking as a bug. Any other exception is unexpected: capture it
-            # and fall back to a generic message so internal exception text never reaches the user.
-            if "must be escaped according to RFC 3986" in str(e):
+        except ConfigurationError as e:
+            # InvalidURI (raised with the RFC-3986 hint before any network call when
+            # credentials contain unescaped reserved characters) is itself a ConfigurationError
+            # subclass, so it lands here too. An SRV DNS name that doesn't exist is the same
+            # user-side problem as the non-SRV host-not-found case above. Both are malformed-
+            # input problems the user must fix — already surfaced with an actionable message —
+            # so don't report them to error tracking as noise. Any other ConfigurationError is
+            # unexpected, so capture it and fall back to a generic message.
+            message = str(e)
+            if _SRV_DNS_NAME_NOT_FOUND_MARKER in message:
+                return False, _MONGO_HOST_UNRESOLVED_MESSAGE
+            if "must be escaped according to RFC 3986" in message:
                 return False, _MONGO_UNESCAPED_CREDENTIALS_MESSAGE
+            capture_exception(e)
+            return False, _MONGO_CONNECT_FAILED_MESSAGE
+        except Exception as e:
+            # Any other exception is unexpected: capture it and fall back to a generic message
+            # so internal exception text never reaches the user.
             capture_exception(e)
             return False, _MONGO_CONNECT_FAILED_MESSAGE
 
@@ -314,7 +345,9 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
                     SourceFieldInputConfig(
                         name="connection_string",
                         label="Connection String",
-                        type=SourceFieldInputConfigType.TEXT,
+                        # The connection string is this source's only credential, so `password` keeps
+                        # it editable on update for rotation.
+                        type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="mongodb://username:password@host:port/database?authSource=admin&tls=true",
                         secret=True,

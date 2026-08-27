@@ -6,12 +6,15 @@ import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixture
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { waitForExpect } from '~/tests/helpers/expectations'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
+import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
+import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
 import { EmailService, parseAddressList, sanitizeEmailSubject } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
@@ -64,17 +67,26 @@ describe('parseAddressList', () => {
     })
 })
 
+let integrationIdBase: number
+
+const getIntegrationId = (id: number): number => integrationIdBase + id
+
 const createEmailParams = (
     params: Partial<CyclotronInvocationQueueParametersEmailType> = {}
 ): CyclotronInvocationQueueParametersEmailType => {
+    const from = params.from ?? { integrationId: 1 }
     return {
         type: 'email',
         to: { email: 'test@example.com', name: 'Test User' },
-        from: { integrationId: 1 },
         subject: 'Test Subject',
         text: 'Test Text',
         html: 'Test HTML',
         ...params,
+        from: {
+            ...from,
+            integrationId: getIntegrationId(from.integrationId),
+            integrationIds: from.integrationIds?.map(getIntegrationId),
+        },
     }
 }
 describe('EmailService', () => {
@@ -82,9 +94,9 @@ describe('EmailService', () => {
     let hub: Hub
     let team: Team
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub({})
-        team = await getFirstTeam(hub.postgres)
+        team = (await createTestTeamFixture(hub.postgres)).team
+        integrationIdBase = team.id
         service = new EmailService(
             {
                 sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
@@ -93,7 +105,6 @@ describe('EmailService', () => {
                 sesEndpoint: hub.SES_ENDPOINT,
                 sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
                 sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
-                sesTenantAttributionEnabled: hub.EMAIL_SES_TENANT_ATTRIBUTION_ENABLED,
             },
             hub.integrationManager,
             new TeamWorkflowsConfigService(hub.postgres),
@@ -118,7 +129,6 @@ describe('EmailService', () => {
                     sesEndpoint: '',
                     sesTrackedConfigurationSet: 'posthog-messaging',
                     sesUntrackedConfigurationSet: '',
-                    sesTenantAttributionEnabled: false,
                 },
                 hub.integrationManager,
                 new TeamWorkflowsConfigService(hub.postgres),
@@ -131,7 +141,7 @@ describe('EmailService', () => {
             expect(serviceWithoutSES.sesV2Client).toBeNull()
 
             await insertIntegration(hub.postgres, team.id, {
-                id: 1,
+                id: getIntegrationId(1),
                 kind: 'email',
                 config: {
                     email: 'test@posthog.com',
@@ -156,7 +166,7 @@ describe('EmailService', () => {
         let sendEmailSpy: jest.SpyInstance
         beforeEach(async () => {
             await insertIntegration(hub.postgres, team.id, {
-                id: 1,
+                id: getIntegrationId(1),
                 kind: 'email',
                 config: {
                     email: 'test@posthog.com',
@@ -180,7 +190,7 @@ describe('EmailService', () => {
         describe('integration validation', () => {
             beforeEach(async () => {
                 await insertIntegration(hub.postgres, team.id, {
-                    id: 2,
+                    id: getIntegrationId(2),
                     kind: 'email',
                     config: {
                         email: 'test@other-domain.com',
@@ -190,7 +200,7 @@ describe('EmailService', () => {
                     },
                 })
                 await insertIntegration(hub.postgres, team.id, {
-                    id: 3,
+                    id: getIntegrationId(3),
                     kind: 'slack',
                     config: {},
                 })
@@ -248,6 +258,103 @@ describe('EmailService', () => {
                 })
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
+            })
+
+            it('uses and logs the sender selected for this workflow invocation', async () => {
+                await insertIntegration(hub.postgres, team.id, {
+                    id: getIntegrationId(4),
+                    kind: 'email',
+                    config: {
+                        email: 'second@posthog.com',
+                        name: 'Second Sender',
+                        domain: 'posthog.com',
+                        verified: true,
+                        provider: 'ses',
+                    },
+                })
+                invocation.id = Array.from({ length: 10 }, (_, index) => `invocation-${index}`).find(
+                    (id) =>
+                        selectEmailSenderIntegrationId(id, {
+                            integrationId: getIntegrationId(1),
+                            integrationIds: [getIntegrationId(1), getIntegrationId(4)],
+                        }) === getIntegrationId(4)
+                )!
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1, integrationIds: [1, 4] },
+                })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                expect(sentCommand.input.FromEmailAddress).toBe('"Second Sender" <second@posthog.com>')
+                expect(result.logs.map((log) => log.message)).toContain(
+                    'Email sent to test@example.com from Second Sender <second@posthog.com>'
+                )
+            })
+        })
+        describe('from overrides', () => {
+            it.each<[string, { email?: string; name?: string }, string, string]>([
+                [
+                    'address on the verified domain',
+                    { email: 'community@posthog.com' },
+                    '"Test User" <community@posthog.com>',
+                    'community@posthog.com',
+                ],
+                [
+                    'address with different domain casing',
+                    { email: 'community@POSTHOG.com' },
+                    '"Test User" <community@POSTHOG.com>',
+                    'community@POSTHOG.com',
+                ],
+                ['name only', { name: 'Community Team' }, '"Community Team" <test@posthog.com>', 'test@posthog.com'],
+                [
+                    'name and address',
+                    { email: 'community@posthog.com', name: 'Community Team' },
+                    '"Community Team" <community@posthog.com>',
+                    'community@posthog.com',
+                ],
+                [
+                    'empty overrides fall back to the integration sender',
+                    { email: '', name: '' },
+                    '"Test User" <test@posthog.com>',
+                    'test@posthog.com',
+                ],
+                [
+                    'name with header-breaking characters is sanitized',
+                    { name: '"Evil" <fake@evil.com>,\r\n Bcc:' },
+                    '"Evil fake@evil.com, Bcc:" <test@posthog.com>',
+                    'test@posthog.com',
+                ],
+            ])('applies the %s', async (_desc, fromOverride, expectedFrom, expectedFeedback) => {
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1, ...fromOverride },
+                })
+                const result = await service.executeSendEmail(invocation)
+                expect(result.error).toBeUndefined()
+                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                expect(sentCommand.input.FromEmailAddress).toBe(expectedFrom)
+                expect(sentCommand.input.FeedbackForwardingEmailAddress).toBe(expectedFeedback)
+            })
+
+            it.each([
+                ['an address on an unverified domain', 'someone@evil.com'],
+                ['an address on a subdomain of the verified domain', 'someone@sub.posthog.com'],
+                ['a list of addresses', 'a@posthog.com, b@posthog.com'],
+                ['an RFC-822 formatted address', '"Name" <a@posthog.com>'],
+                ['a value that is not an email address', 'not-an-email'],
+            ])('discards %s and sends from the integration sender', async (_desc, email) => {
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1, email },
+                })
+                const result = await service.executeSendEmail(invocation)
+                // Failing the send would break every step still carrying the placeholder address
+                // an old sender picker wrote, so an unusable override degrades to the integration's
+                // own sender. The unverified address must never reach the provider either way.
+                expect(result.error).toBeUndefined()
+                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                expect(sentCommand.input.FromEmailAddress).toBe('"Test User" <test@posthog.com>')
+                expect(result.logs.some((log) => log.level === 'warn' && log.message.includes(email))).toBe(true)
             })
         })
         describe('email sending', () => {
@@ -312,6 +419,23 @@ describe('EmailService', () => {
                 expect(result.metrics ?? []).toEqual([])
             })
 
+            it('keeps the send priority class across a throttle reschedule', async () => {
+                // A bulk send enters the email queue at priority 1. On an SES throttle the job is
+                // rescheduled on the email queue, so its priority must stay 1 — resetting it to the
+                // fast-lane value 0 would let throttled bulk bursts jump ahead of transactional sends,
+                // which is exactly the traffic the fast lane exists to protect.
+                invocation.queuePriority = 1
+                sendEmailSpy.mockRejectedValueOnce(
+                    new TooManyRequestsException({ $metadata: {}, message: 'Too many requests' })
+                )
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.finished).toBe(false)
+                expect(result.invocation.queueScheduledAt).toBeDefined()
+                expect(result.invocation.queuePriority).toBe(1)
+            })
+
             it('hard-fails (not retry) when SES returns SendingPausedException', async () => {
                 // Reputation/account-state pause won't recover in 500ms; retrying
                 // just burns reschedules. Hard-fail so the failure surfaces via
@@ -344,6 +468,103 @@ describe('EmailService', () => {
                 )
             })
         })
+
+        describe('workflow sending rate limit', () => {
+            let claimUpTo: jest.Mock
+            let limitedService: EmailService
+            let limitedSendSpy: jest.SpyInstance
+
+            beforeEach(() => {
+                claimUpTo = jest.fn().mockResolvedValue(1)
+                limitedService = new EmailService(
+                    {
+                        sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
+                        sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
+                        sesRegion: hub.SES_REGION,
+                        sesEndpoint: hub.SES_ENDPOINT,
+                        sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
+                        sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
+                    },
+                    hub.integrationManager,
+                    new TeamWorkflowsConfigService(hub.postgres),
+                    hub.ENCRYPTION_SALT_KEYS,
+                    hub.SITE_URL,
+                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+                    new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+                    new RecipientsManagerService(hub.postgres),
+                    undefined,
+                    { claimUpTo } as unknown as RateLimiterService
+                )
+                limitedSendSpy = jest.spyOn(limitedService.sesV2Client!, 'send') as any
+                limitedSendSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+                invocation.hogFunction.metadata = {
+                    email_sending_rate_limit: { count: 120, period: 'minute' },
+                }
+            })
+
+            it('reschedules without sending when the bucket denies a token', async () => {
+                claimUpTo.mockResolvedValue(0)
+
+                const before = Date.now()
+                const result = await limitedService.executeSendEmail(invocation)
+
+                expect(limitedSendSpy).not.toHaveBeenCalled()
+                expect(result.error).toBeUndefined()
+                expect(result.finished).toBe(false)
+                expect(result.invocation.queueScheduledAt).toBeDefined()
+                // The reschedule must carry the email payload forward: without queueParameters the
+                // retry has nothing to send and the throttled email is dropped rather than delayed.
+                expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
+                // 120/minute refills a token every 500ms, so the clamped jittered wake lands in [1s, 2s].
+                const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
+                expect(scheduledMs).toBeGreaterThanOrEqual(before + 1000)
+                expect(scheduledMs).toBeLessThan(before + 3000)
+                // No business metric on a pacing delay — the eventual send produces email_sent.
+                expect(result.metrics ?? []).toEqual([])
+            })
+
+            it('claims one token scoped to the workflow and sends when granted', async () => {
+                const result = await limitedService.executeSendEmail(invocation)
+
+                expect(claimUpTo).toHaveBeenCalledWith({
+                    key: `@posthog/workflow-email-rate/${team.id}/function-1`,
+                    requested: 1,
+                    // Burst capacity is ~1s of budget (not the count), so the first period can't
+                    // send ~2x the limit and an idle-expired bucket can't re-burst.
+                    capacity: 2,
+                    refillPerSecond: 2,
+                })
+                expect(result.finished).toBe(true)
+                expect(limitedSendSpy).toHaveBeenCalled()
+            })
+
+            it.each([
+                ['no rate limit is configured', (): void => void (invocation.hogFunction.metadata = {})],
+                [
+                    'the configured value is malformed',
+                    (): void =>
+                        void (invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 'lots' } }),
+                ],
+            ])('does not consult the bucket when %s', async (_name, setup) => {
+                setup()
+
+                const result = await limitedService.executeSendEmail(invocation)
+
+                expect(claimUpTo).not.toHaveBeenCalled()
+                expect(result.finished).toBe(true)
+                expect(limitedSendSpy).toHaveBeenCalled()
+            })
+
+            it('skips the limit for test sends', async () => {
+                claimUpTo.mockResolvedValue(0)
+
+                const result = await limitedService.executeSendEmail(invocation, true)
+
+                expect(claimUpTo).not.toHaveBeenCalled()
+                expect(result.finished).toBe(true)
+                expect(limitedSendSpy).toHaveBeenCalled()
+            })
+        })
     })
     describe('native email sending with maildev', () => {
         let invocation: CyclotronJobInvocationHogFunction
@@ -354,7 +575,7 @@ describe('EmailService', () => {
                 return actualFetch(...args) as any
             })
             await insertIntegration(hub.postgres, team.id, {
-                id: 1,
+                id: getIntegrationId(1),
                 kind: 'email',
                 config: {
                     email: 'test@posthog.com',
@@ -410,7 +631,7 @@ describe('EmailService', () => {
                 return actualFetch(...args) as any
             })
             await insertIntegration(hub.postgres, team.id, {
-                id: 1,
+                id: getIntegrationId(1),
                 kind: 'email',
                 config: {
                     email: 'test@posthog-test.com',
@@ -507,8 +728,7 @@ describe('EmailService', () => {
         })
 
         describe('SES tenant attribution', () => {
-            it('attributes the send to the team tenant when enabled', async () => {
-                service['sesConfig'].sesTenantAttributionEnabled = true
+            it('attributes the send to the team tenant', async () => {
                 sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
 
                 const result = await service.executeSendEmail(invocation)
@@ -518,18 +738,7 @@ describe('EmailService', () => {
                 expect(sentCommand.input.TenantName).toEqual(`team-${team.id}`)
             })
 
-            it('omits TenantName by default (flag off)', async () => {
-                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
-
-                const result = await service.executeSendEmail(invocation)
-
-                expect(result.error).toBeUndefined()
-                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-                expect(sentCommand.input.TenantName).toBeUndefined()
-            })
-
             it('attributes test-panel sends too — they are real SES sends', async () => {
-                service['sesConfig'].sesTenantAttributionEnabled = true
                 sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
 
                 const result = await service.executeSendEmail(invocation, true)
@@ -537,6 +746,58 @@ describe('EmailService', () => {
                 expect(result.error).toBeUndefined()
                 const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
                 expect(sentCommand.input.TenantName).toEqual(`team-${team.id}`)
+            })
+        })
+
+        describe('team suspension enforcement at send time', () => {
+            // Guards the reputation kill switch: while a team is suspended, no send path may
+            // reach SES — including editor test sends, which count against the tenant too.
+            // The first two write a real row so they also cover the service's SELECT; mocking
+            // isEmailSendingSuspended would pass with the column missing from the query.
+            const suspendTeam = async (): Promise<void> => {
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO workflows_teamworkflowsconfig
+                        (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                         email_sending_suspended_at, email_sending_suspension_reason)
+                     VALUES ($1, false, 'off', now(), 'testing suspension')
+                     ON CONFLICT (team_id) DO UPDATE SET email_sending_suspended_at = now()`,
+                    [team.id],
+                    'test-suspend-email-sending'
+                )
+            }
+
+            it('does not call SES while the team is suspended and records email_suspended', async () => {
+                await suspendTeam()
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(sendEmailSpy).not.toHaveBeenCalled()
+                expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_suspended'])
+                expect(invocation.state.vmState?.stack).toEqual([{ success: false }])
+            })
+
+            it('blocks editor test sends while suspended without recording metrics', async () => {
+                await suspendTeam()
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation, true)
+
+                expect(sendEmailSpy).not.toHaveBeenCalled()
+                expect(result.metrics).toEqual([])
+            })
+
+            it('fails open when the suspension lookup errors', async () => {
+                // The config lookup rejecting must never block a legitimate send. Rejects once:
+                // the suspension check is the first config read; later reads use the real loader.
+                jest.spyOn(service['teamWorkflowsConfigService'], 'get').mockRejectedValueOnce(new Error('pg down'))
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                expect(result.metrics.map((m) => m.metric_name)).toContain('email_sent')
             })
         })
 

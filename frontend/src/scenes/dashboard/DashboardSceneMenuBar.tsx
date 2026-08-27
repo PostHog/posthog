@@ -148,13 +148,15 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                                     <IconNotebook />
                                     Notebook from dashboard
                                 </SceneMenuBarItem>
-                                <SceneMenuBarItem
-                                    onClick={() => push(urlForSubscriptions({ dashboardId: dashboard.id }))}
-                                    data-attr={`${RESOURCE_TYPE}-menubar-subscribe`}
-                                >
-                                    <IconBell />
-                                    Subscription
-                                </SceneMenuBarItem>
+                                {tiles.length > 0 && (
+                                    <SceneMenuBarItem
+                                        onClick={() => push(urlForSubscriptions({ dashboardId: dashboard.id }))}
+                                        data-attr={`${RESOURCE_TYPE}-menubar-subscribe`}
+                                    >
+                                        <IconBell />
+                                        Subscription
+                                    </SceneMenuBarItem>
+                                )}
                             </SceneMenuBarSubMenu>
                             <SceneMenuBarSeparator />
                         </>
@@ -276,7 +278,7 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                         <IconCopy />
                         Duplicate
                     </SceneMenuBarItem>
-                    {canEditDashboard && hasDashboardColors && (
+                    {canEditDashboard && hasDashboardColors && tiles.length > 0 && (
                         <SceneMenuBarItem
                             opensFloatingUi
                             onClick={() => showInsightColorsModal(dashboard.id)}

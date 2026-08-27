@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonInput, LemonSegmentedButton, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
-import type { LemonSegmentedButtonOption, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
+import type { LemonSegmentedButtonOption } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { logsServicesLogic, SERVICES_PAGE_SIZE, ServiceRow, ServicesViewMode } from './logsServicesLogic'
+import { logsServicesLogic, ServicesViewMode } from './logsServicesLogic'
+import { ServicesList } from './ServicesList'
 
 const DATE_OPTIONS = [
     { value: '-1h', label: 'Last hour' },
@@ -19,25 +20,6 @@ const VIEW_MODE_OPTIONS: LemonSegmentedButtonOption<ServicesViewMode>[] = [
     { value: 'grid', label: 'Grid', 'data-attr': 'logs-services-view-mode-grid' },
 ]
 
-const COLUMNS: LemonTableColumns<ServiceRow> = [
-    { title: 'Service name', dataIndex: 'service_name' },
-    {
-        title: 'Log volume',
-        dataIndex: 'log_count',
-        align: 'right',
-        render: (_, row) => humanFriendlyNumber(row.log_count),
-    },
-    {
-        title: 'Error rate',
-        dataIndex: 'error_rate',
-        align: 'right',
-        render: (_, row) => {
-            const type = row.error_rate > 0.1 ? 'danger' : row.error_rate > 0.01 ? 'warning' : 'success'
-            return <LemonTag type={type}>{(row.error_rate * 100).toFixed(1)}%</LemonTag>
-        },
-    },
-]
-
 function ServicesGrid(): JSX.Element {
     return (
         <div className="p-4 text-center text-muted">
@@ -47,9 +29,9 @@ function ServicesGrid(): JSX.Element {
 }
 
 export function LogsServicesV2(): JSX.Element {
-    const { pageRows, services, totalServices, servicesDataLoading, searchTerm, dateFrom, page, viewMode } =
+    const { sortedServices, services, totalServices, servicesDataLoading, searchTerm, dateFrom, viewMode } =
         useValues(logsServicesLogic)
-    const { setDateFrom, setSearchTerm, setPage, setViewMode } = useActions(logsServicesLogic)
+    const { setDateFrom, setSearchTerm, setViewMode } = useActions(logsServicesLogic)
 
     return (
         <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
@@ -88,25 +70,7 @@ export function LogsServicesV2(): JSX.Element {
                 {viewMode === 'grid' ? (
                     <ServicesGrid />
                 ) : (
-                    <LemonTable
-                        columns={COLUMNS}
-                        dataSource={pageRows}
-                        loading={servicesDataLoading}
-                        pagination={{
-                            controlled: true,
-                            pageSize: SERVICES_PAGE_SIZE,
-                            currentPage: page,
-                            entryCount: services.length,
-                            onForward: () => setPage(page + 1),
-                            onBackward: () => setPage(page - 1),
-                            useUrl: false,
-                        }}
-                        emptyState={
-                            searchTerm ? 'No services match your search' : 'No services found in this time range'
-                        }
-                        rowKey="service_name"
-                        size="small"
-                    />
+                    <ServicesList services={sortedServices} loading={servicesDataLoading} searchTerm={searchTerm} />
                 )}
             </div>
         </div>

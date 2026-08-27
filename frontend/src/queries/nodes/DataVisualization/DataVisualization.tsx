@@ -35,12 +35,12 @@ import { ElapsedTime } from '../DataNode/ElapsedTime'
 import { Reload } from '../DataNode/Reload'
 import { QueryFeature } from '../DataTable/queryFeatures'
 import { PieChart } from './Components/Charts/PieChart'
+import { SqlBoxPlot } from './Components/Charts/SqlBoxPlot'
 import { SqlChart } from './Components/Charts/SqlChart'
 import { SqlScatterGraph } from './Components/Charts/SqlScatterGraph'
 import { TwoDimensionalHeatmap } from './Components/Heatmap/TwoDimensionalHeatmap'
 import { seriesBreakdownLogic } from './Components/seriesBreakdownLogic'
 import { SideBar } from './Components/SideBar'
-import { SqlInsightDateFilterNotice } from './Components/SqlInsightDateFilterNotice'
 import { Table } from './Components/Table'
 import { TableDisplay } from './Components/TableDisplay'
 import { AddVariableButton } from './Components/Variables/AddVariableButton'
@@ -182,6 +182,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         isChartSettingsPanelOpen,
         xData,
         yData,
+        columns,
         chartSettings,
         dashboardId,
         dataVisualizationProps,
@@ -300,6 +301,17 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 presetChartHeight={presetChartHeight}
             />
         )
+    } else if (effectiveVisualizationType === ChartDisplayType.BoxPlot) {
+        const rows = ('results' in response ? response.results : 'result' in response ? response.result : []) ?? []
+        component = (
+            <SqlBoxPlot
+                rows={Array.isArray(rows) ? rows : []}
+                columns={columns}
+                chartSettings={chartSettings}
+                analyticsKey={dataVisualizationProps.key}
+                presetChartHeight={presetChartHeight}
+            />
+        )
     } else if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
         component = <TwoDimensionalHeatmap allowSorting={!(props.embedded && readOnly)} />
     } else if (effectiveVisualizationType === ChartDisplayType.BoldNumber) {
@@ -375,8 +387,6 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                         </div>
                     </>
                 )}
-
-                <SqlInsightDateFilterNotice source={query.source} />
 
                 {!props.embedded && <VariablesForInsight />}
 

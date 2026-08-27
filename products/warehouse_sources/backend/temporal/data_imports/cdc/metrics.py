@@ -43,9 +43,24 @@ def get_micro_batches_flushed_metric(team_id: int, source_id: str) -> MetricCoun
     )
 
 
-def get_shadow_buffer_files_written_metric(team_id: int, source_id: str) -> MetricCounter:
+def get_buffer_files_written_metric(team_id: int, source_id: str, lane: str) -> MetricCounter:
+    """`lane` is "shadow" (validation copy) or "ingress" (authoritative delivery)."""
+    return (
+        _source_meter(team_id, source_id)
+        .with_additional_attributes({"lane": lane})
+        .create_counter("cdc_buffer_files_written_total", "Total buffer files written, by lane")
+    )
+
+
+def get_extract_retry_metric(team_id: int, source_id: str) -> MetricCounter:
+    """Extraction runs that are not the first attempt.
+
+    Exposure proxy for the zombie-attempt collision: a superseded attempt that is still alive can
+    overwrite a live attempt's buffer file over the same position range with fewer rows, and that
+    loss has no detector of its own. It takes a retry to reach, so a quiet counter bounds the risk.
+    """
     return _source_meter(team_id, source_id).create_counter(
-        "cdc_shadow_buffer_files_written_total", "Total buffer files written in shadow mode"
+        "cdc_extract_retried_attempts_total", "Extraction runs starting at attempt > 1"
     )
 
 
@@ -55,9 +70,11 @@ def get_shadow_buffer_write_errors_metric(team_id: int, source_id: str) -> Metri
     )
 
 
-def get_shadow_buffer_write_duration_metric(team_id: int, source_id: str) -> MetricHistogramFloat:
-    return _source_meter(team_id, source_id).create_histogram_float(
-        "cdc_shadow_buffer_write_duration_seconds", "Duration of shadow buffer S3 writes", "s"
+def get_buffer_write_duration_metric(team_id: int, source_id: str, lane: str) -> MetricHistogramFloat:
+    return (
+        _source_meter(team_id, source_id)
+        .with_additional_attributes({"lane": lane})
+        .create_histogram_float("cdc_buffer_write_duration_seconds", "Duration of buffer S3 writes, by lane", "s")
     )
 
 

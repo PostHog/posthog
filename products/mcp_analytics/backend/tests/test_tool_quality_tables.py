@@ -11,15 +11,16 @@ from posthog.schema import (
     IntervalType,
     MCPToolCategoriesQuery,
     MCPToolCategoryCountsQuery,
+    MCPToolCategoryMapQuery,
     MCPToolQualityDailyStatsQuery,
     MCPToolQualityRowsQuery,
 )
 
-from posthog.rbac.user_access_control import UserAccessControlError
-
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.mcp_analytics.backend.hogql_queries.tool_quality_tables import (
     MCPToolCategoriesQueryRunner,
     MCPToolCategoryCountsQueryRunner,
+    MCPToolCategoryMapQueryRunner,
     MCPToolQualityDailyStatsQueryRunner,
     MCPToolQualityRowsQueryRunner,
 )
@@ -152,6 +153,40 @@ class TestMCPToolCategoriesQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickho
         assert categories == ["Data", "Insights"]
 
 
+class TestMCPToolCategoryMapQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    def test_pairs_are_deduped_and_skip_rows_missing_either_side(self) -> None:
+        _emit(self.team, tool_name="query_run", category="Insights")
+        _emit(self.team, tool_name="query_run", category="Insights")
+        _emit(self.team, tool_name="docs_search", category="Data")
+        # No category: the tool is real but unclassifiable, so it must not appear at all
+        # rather than land under an empty-string category the scope selector would show.
+        _emit(self.team, tool_name="orphan_tool", category=None)
+        flush_persons_and_events()
+
+        runner = MCPToolCategoryMapQueryRunner(
+            query=MCPToolCategoryMapQuery(dateRange=DateRange(date_from="-7d")),
+            team=self.team,
+        )
+        pairs = [(r.tool, r.category) for r in runner.calculate().results]
+
+        assert pairs == [("docs_search", "Data"), ("query_run", "Insights")]
+
+    def test_recategorised_tool_keeps_both_categories(self) -> None:
+        # Filtering by either category has to keep finding the tool, so both rows survive
+        # instead of one arbitrarily winning.
+        _emit(self.team, tool_name="query_run", category="Insights")
+        _emit(self.team, tool_name="query_run", category="SQL")
+        flush_persons_and_events()
+
+        runner = MCPToolCategoryMapQueryRunner(
+            query=MCPToolCategoryMapQuery(dateRange=DateRange(date_from="-7d")),
+            team=self.team,
+        )
+        pairs = [(r.tool, r.category) for r in runner.calculate().results]
+
+        assert pairs == [("query_run", "Insights"), ("query_run", "SQL")]
+
+
 class TestMCPToolQualityGate(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
     # The whole point of the migration: each kind gates on `mcp-analytics`, so the generic /query/
     # endpoint can't reach it without the flag. Every other test here calls calculate() with the flag
@@ -162,6 +197,7 @@ class TestMCPToolQualityGate(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMix
             (MCPToolQualityDailyStatsQueryRunner, MCPToolQualityDailyStatsQuery()),
             (MCPToolCategoryCountsQueryRunner, MCPToolCategoryCountsQuery()),
             (MCPToolCategoriesQueryRunner, MCPToolCategoriesQuery()),
+            (MCPToolCategoryMapQueryRunner, MCPToolCategoryMapQuery()),
         ]
     )
     def test_runner_gates_on_mcp_analytics_flag(self, runner_cls: Any, query: Any) -> None:
