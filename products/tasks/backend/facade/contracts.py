@@ -680,19 +680,6 @@ class WorkflowTaskSlackContext:
 
 
 @dataclass(frozen=True)
-class CodeInviteRedeemResult:
-    """Outcome of attempting to redeem a PostHog Desktop invite.
-
-    ``outcome`` is one of ``redeemed`` (or ``already_redeemed``), ``invalid_code``, or
-    ``not_redeemable``. The presentation layer maps it to the success/error HTTP response;
-    the ORM redemption, idempotency check, count increment, and analytics capture all
-    happen inside the facade so no model leaks across the boundary.
-    """
-
-    outcome: str
-
-
-@dataclass(frozen=True)
 class DesktopBetaTermsAcceptanceDTO:
     is_desktop_beta_terms_accepted: bool
 

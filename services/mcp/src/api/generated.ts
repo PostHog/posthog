@@ -5368,6 +5368,48 @@ export namespace Schemas {
       start?: number | null;
     }
 
+    export type PredicateScope = typeof PredicateScope[keyof typeof PredicateScope];
+
+
+    export const PredicateScope = {
+      Event: 'event',
+      Person: 'person',
+      Group: 'group',
+      Unknown: 'unknown',
+    } as const;
+
+    export type PredicateIndexVerdict = typeof PredicateIndexVerdict[keyof typeof PredicateIndexVerdict];
+
+
+    export const PredicateIndexVerdict = {
+      Indexed: 'indexed',
+      Blocked: 'blocked',
+      UnindexedColumn: 'unindexed_column',
+      UnindexedJson: 'unindexed_json',
+      OperatorNotIndexable: 'operator_not_indexable',
+    } as const;
+
+    export interface PredicateIndexUsage {
+      column_name?: string | null;
+      end?: number | null;
+      fix?: string | null;
+      message: string;
+      /** HogQL comparison operator, e.g. `==`, `in`, `ilike`. */
+      operator: string;
+      /** Type the value is physically stored as. */
+      physical_type: string;
+      property_name: string;
+      scope: PredicateScope;
+      /** Type the property definition declares. */
+      semantic_type: string;
+      /** Where the value is physically read from, e.g. `materialized column` or `JSON blob`. */
+      source_label: string;
+      start?: number | null;
+      /** Skip indexes this predicate can actually use. */
+      usable_indexes: string[];
+      verdict: PredicateIndexVerdict;
+    }
+
     export type QueryIndexUsage = typeof QueryIndexUsage[keyof typeof QueryIndexUsage];
 
 
@@ -5381,6 +5423,8 @@ export namespace Schemas {
     export interface HogQLMetadataResponse {
       ch_table_names?: string[] | null;
       errors: HogQLNotice[];
+      /** One entry per property filter, in query order. */
+      index_usage?: PredicateIndexUsage[] | null;
       isUsingIndices?: QueryIndexUsage | null;
       isValid?: boolean | null;
       notices: HogQLNotice[];
@@ -8468,6 +8512,18 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface BoxPlotSettings {
+      excludeOutliers?: boolean | null;
+      maxColumn?: string | null;
+      meanColumn?: string | null;
+      medianColumn?: string | null;
+      minColumn?: string | null;
+      p25Column?: string | null;
+      p75Column?: string | null;
+      seriesColumn?: string | null;
+      xAxisColumn?: string | null;
+    }
+
     export interface HeatmapGradientStop {
       color: string;
       value: number;
@@ -8623,6 +8679,7 @@ export namespace Schemas {
     export type ChartSettingsResultCustomizations = {[key: string]: ResultCustomizationByValue} | null;
 
     export interface ChartSettings {
+      boxPlot?: BoxPlotSettings | null;
       /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
       chartStyle?: ChartStyle | null;
       goalLines?: GoalLine[] | null;
@@ -17624,11 +17681,6 @@ export namespace Schemas {
       LimitReached: 'limit_reached',
       StaleVersion: 'stale_version',
     } as const;
-
-    export interface CodeInviteRedeemRequest {
-      /** @maxLength 50 */
-      code: string;
-    }
 
     /**
      * * `codex` - codex
@@ -44434,6 +44486,8 @@ export namespace Schemas {
       filters?: HogQLFilters | null;
       /** Extra globals for the query */
       globals?: HogQLMetadataGlobals;
+      /** Analyze how each property filter reads its data. Costs a second type-resolution pass, so only editors that render the result should ask for it. */
+      indexUsage?: boolean | null;
       kind?: 'HogQLMetadata';
       /** Language to validate */
       language: HogLanguage;
@@ -46520,7 +46574,7 @@ export namespace Schemas {
     }
 
     export interface LegacyDesktopAccessResponse {
-      /** Whether the user has legacy PostHog Desktop access. */
+      /** Whether the current project can use PostHog Desktop. */
       has_access: boolean;
       /** Whether the independent Loops feature is enabled. */
       has_loops_access: boolean;
@@ -70101,6 +70155,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative9 {
       ch_table_names?: string[] | null;
       errors: HogQLNotice[];
+      /** One entry per property filter, in query order. */
+      index_usage?: PredicateIndexUsage[] | null;
       isUsingIndices?: QueryIndexUsage | null;
       isValid?: boolean | null;
       notices: HogQLNotice[];
