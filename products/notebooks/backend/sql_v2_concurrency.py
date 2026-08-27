@@ -19,7 +19,7 @@ those are the two release sites. The TTL is the backstop for a process that dies
 
 from contextlib import suppress
 
-from posthog.clickhouse.client.limit import ConcurrencySlot, RateLimit
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 
 # One run at a time per notebook, matching what the editor has always shown. A notebook is the
 # unit a person reasons about, and cells in one notebook usually depend on each other, so
@@ -93,16 +93,19 @@ def acquire_run_slots(team_id: int, notebook_short_id: str, run_id: str) -> None
     notebook_limiter = _get_notebook_limiter()
     team_limiter = _get_team_limiter()
 
+    # Only a full ceiling becomes NotebookRunBusy. Anything else — Redis unreachable above
+    # all — propagates as the error it is, rather than telling a caller its notebook is busy
+    # when nothing is running at all.
     try:
         notebook_limiter.use(team_id=team_id, notebook_short_id=notebook_short_id, task_id=run_id)
-    except Exception as exc:
+    except ConcurrencyLimitExceeded as exc:
         raise NotebookRunBusy(
             "This notebook already has a cell running. Wait for it to finish, then run this one."
         ) from exc
 
     try:
         team_limiter.use(team_id=team_id, task_id=run_id)
-    except Exception as exc:
+    except ConcurrencyLimitExceeded as exc:
         # The notebook slot is already ours, so give it back rather than holding a notebook
         # hostage for the TTL over a ceiling the caller never got past.
         _release(notebook_limiter, _notebook_key(team_id, notebook_short_id), run_id)
