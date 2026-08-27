@@ -74,21 +74,25 @@ function fakeServer(params?: SignalReportsQueryParams): SignalReportsResponse {
   if (params?.has_implementation_pr === false) {
     return { count: REPORT_TAB_TOTAL, results: [] };
   }
+  const offset = params?.offset ?? 0;
+  const limit = params?.limit ?? 100;
+  const resultCount = Math.max(0, Math.min(limit, PIPELINE_TOTAL - offset));
   return {
     count: PIPELINE_TOTAL,
-    results: Array.from({ length: params?.limit ?? 100 }, (_, i) =>
-      readyReport(i),
+    results: Array.from({ length: resultCount }, (_, i) =>
+      readyReport(offset + i),
     ),
   };
 }
 
-function pipelineParams(): SignalReportsQueryParams | undefined {
+function pipelineRequests(): SignalReportsQueryParams[] {
+  const requests: SignalReportsQueryParams[] = [];
   for (const [params] of mockGetSignalReports.mock.calls) {
     if (params?.has_implementation_pr == null && params?.count_only == null) {
-      return params;
+      requests.push(params);
     }
   }
-  return undefined;
+  return requests;
 }
 
 /** Params of the Reports-count request, or undefined if it was never fired. */
@@ -135,13 +139,24 @@ describe("useInboxAllReports", () => {
     expect(reportsCountParams()?.count_only).toBe(true);
   });
 
-  it("loads a small first page before continuing through infinite scroll", async () => {
+  it("stitches subsequent pages without gaps or duplicate reports", async () => {
     const { result } = renderCounts();
 
     await waitFor(() => {
-      expect(result.current.allReports).toHaveLength(25);
+      expect(result.current.allReports).toHaveLength(100);
     });
-    expect(pipelineParams()).toMatchObject({ limit: 25, offset: 0 });
+
+    await result.current.fetchNextPage();
+
+    await waitFor(() => {
+      expect(result.current.allReports.map((report) => report.id)).toEqual(
+        Array.from({ length: 200 }, (_, index) => `report-${index}`),
+      );
+    });
+    expect(pipelineRequests()).toMatchObject([
+      { limit: 100, offset: 0 },
+      { limit: 100, offset: 100 },
+    ]);
   });
 
   it("skips the Reports count query for consumers that only read the pulls badge", async () => {

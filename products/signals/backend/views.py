@@ -1631,7 +1631,22 @@ class SignalReportViewSet(
             return Response({"count": total_count, "next": None, "previous": None, "results": []})
 
         report_ids = [str(r.id) for r in reports]
-        trace.get_current_span().set_attribute("signals.reports.list.count", len(report_ids))
+        list_span = trace.get_current_span()
+        list_span.set_attribute("signals.reports.list.count", len(report_ids))
+        if page is not None:
+            page_limit = getattr(self.paginator, "limit", None)
+            page_offset = getattr(self.paginator, "offset", None)
+            total_count = getattr(self.paginator, "count", None)
+            if isinstance(page_limit, int):
+                list_span.set_attribute("signals.reports.list.page_limit", page_limit)
+            if isinstance(page_offset, int):
+                list_span.set_attribute("signals.reports.list.page_offset", page_offset)
+            if isinstance(total_count, int):
+                list_span.set_attribute("signals.reports.list.total_count", total_count)
+                if isinstance(page_offset, int):
+                    list_span.set_attribute(
+                        "signals.reports.list.has_next_page", page_offset + len(report_ids) < total_count
+                    )
 
         # Both lookups are best-effort decorative metadata (source-product badges, scout names, PR
         # urls). The serializer degrades to empty values when a map is missing, so a ClickHouse or
