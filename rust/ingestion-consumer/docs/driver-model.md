@@ -129,37 +129,41 @@ Four structural findings fall out of the inventory:
 
 ```text
 consumer driver                   (1 per pod)
-  ├── partition driver            (1 per assigned partition)
-  │     └── key driver            (1 per active routing key, passive)
-  ├── worker batcher              (1 per event loop; bins per worker stream)
-  │     └── packer + size defense (request composition; §2.10 kept below it)
+  ├── partition manager           (1 per pod; assignments + work distribution)
+  │     └── partition driver      (1 per assigned partition)
+  │           └── key driver      (1 per active routing key, passive)
+  ├── worker batcher              (1 per event loop; the transport side, whole)
+  │     ├── router/aperture       (placement — §4.3)
+  │     ├── packer + size defense (request composition; §2.10 kept below it)
+  │     └── stream runners        (1 task per worker; depth-1 ordered send)
   ├── commit manager              (1 per pod; frontiers → one batched commit)
   └── budget · timer service      (the B poll gate; one deadline heap)
 
-shared services: worker registry + discovery · router/aperture ·
-                 worker stream runners (1 per worker) · transport classifier ·
+shared services: worker registry + discovery · transport classifier ·
                  sentinels (asserts) · debug recorder
 ```
 
 The hierarchy follows containment in the *data*: a partition contains per-key message sequences; a key's sequence is consumed in **groups** (one poll's messages for one key — the code's `MessageGroup`). The Kafka batch is demoted to an input format: it exists during collection and **dissolves at demux**. Nothing downstream tracks it. A *driver* here means exactly one thing: the single owner of one unit's state, advanced only by events.
 
-- **Consumer driver** — polls rdkafka, demultiplexes messages to partition drivers, applies backpressure (§4.4), owns rebalance lifecycle: partition assigned ⇒ create a partition driver; revoked ⇒ tear it down wholesale, with its key drivers and pending state. The rebalance unit and the component unit coincide.
+Below the consumer driver the tree has exactly two sides: the **domain side** (partition manager down to key drivers) and the **transport side** (the batcher and everything under it). Neither holds a reference into the other. Work crosses between them only through the consumer driver, as plain values: **releases** down, **request results** up (§4.7).
+
+- **Consumer driver** — polls rdkafka, applies backpressure (§4.4), and shuttles values between the two sides: polled messages and request results go down to the partition manager, the releases it returns go to the batcher. Owns nothing partition- or worker-shaped itself.
+- **Partition manager** — the domain side's root. Owns the partition drivers and their lifecycle: partition assigned ⇒ create a driver; revoked ⇒ tear it down wholesale, with its key drivers and pending state (the rebalance unit and the component unit coincide). Distributes work: demuxes each poll to its partition drivers, routes each request result's groups back to the partition driver that owns them, and discards results whose assignment epoch is dead. Everything it passes down and collects up is a value.
 - **Partition driver** — splits its messages by routing key into groups and hands them to key drivers; owns the **offset ledger**: the set of pending offsets and the highest contiguous completed offset (the **frontier**), which is what gets committed, on a cadence. Contiguity becomes *constructive* — the ledger computes exactly the committable frontier — instead of a property to verify after the fact.
-- **Key driver** — a passive state machine (a struct in a map, not a task; key cardinality is unbounded): a FIFO of groups, **at most one group released at a time** (buffered in a worker stream's bin or in flight), the rest queued behind it. On ACK: report offsets to the partition ledger, release the next group. On failure: take the group back, arm a backoff timer, re-route on expiry per current worker health. Created on first group, evicted when idle and empty. Holds the sticky-pin identity (its current worker).
-- **Worker batcher** — per-worker bins that coalesce released groups into target-sized requests and fan resolutions back out to the contributing key drivers. Placement and composition rules in §4.3; its packer applies them, and the §2.10 size defense sits below the packer, rarely hit once `T` is under the worker body limit.
+- **Key driver** — a passive state machine (a struct in a map, not a task; key cardinality is unbounded): a FIFO of groups, **at most one group released at a time** (buffered in a worker stream's bin or in flight), the rest queued behind it. On ACK: report offsets to the partition ledger, remember which worker served it (the sticky pin), release the next group. On failure: take the group back, arm a backoff timer, release again on expiry. It names a *preference*, never a worker — placement is the batcher's. Created on first group, evicted when idle and empty.
+- **Worker batcher** — the entire transport side behind two calls. `submit(releases)` places each group (router + pins-as-preferences, §4.3), bins it per worker, and fires target-sized requests down the ordered streams; `poll()` yields one **request result** — every group a resolved request carried, with its outcome — and nothing else escapes. It never calls a driver. The packer and the §2.10 size defense sit below it, as do the stream runners: one task per worker — connect, greet with the assignment epoch, transmit, await ACKs, depth 1 — and the transport classifier, §2.9 unchanged (backpressure vs fault vs non-retriable, backpressure excluded from passive health).
 - **Commit manager** — on the commit cadence, reads each partition driver's frontier, issues one batched manual commit, and refunds the budget for the retired work. The §2.3 verification rides here unchanged: the commit sentinel as a cheap assert, the commit monitor because librdkafka still drops async commit results.
 - **Budget and timer service** — the `B` accounting (charged at poll, refunded at commit and at revoke teardown), and one deadline heap for key backoffs and linger timers. Key cardinality is unbounded, so a timer is an entry in the heap the loop polls — never a per-key task.
-- **Below the batcher** (shared services) — one worker stream runner per worker: connect, greet with the assignment epoch, transmit, await ACKs, depth 1. The transport classifier is §2.9 unchanged: backpressure vs fault vs non-retriable, backpressure excluded from passive health.
 
 ### 4.2 One event loop, synchronous cascades
 
 All state transitions run on a single event loop (sharding noted in §4.6) driven by three event sources:
 
-1. **Poll delivered** — demux to partition drivers → key drivers enqueue → released groups land in the worker streams' bins → flush every *idle* stream touched this cycle.
-2. **Send resolved** — resolve the request's groups: ACK ⇒ ledger updates, key drivers advance, next groups land in bins; failure ⇒ groups return to their key drivers, backoff timers arm. Then refill the stream if its bin is non-empty.
-3. **Timer fired** — key-driver backoff expiry (re-route and re-release), linger-timer expiry (fire an undersized bin), commit cadence.
+1. **Poll delivered** — the partition manager demuxes to partition drivers → key drivers enqueue and hand back released groups → the loop submits them to the batcher, which places and bins them and fires every *idle* stream touched this cycle.
+2. **Request resolved** — the loop polls one **request result** from the batcher (everything the request carried, with its outcome) and feeds it to the partition manager: ACK ⇒ ledgers update, key drivers advance and hand back their next groups; failure ⇒ groups go back to their key drivers' queue heads, backoff timers arm. The loop submits the new releases, then refires the freed stream.
+3. **Timer fired** — key backoff expiry (the partition manager re-releases the key; the loop submits), linger-timer expiry (fire an undersized bin), commit cadence.
 
-The only spawned tasks are the send path itself: one worker stream runner per worker — encode, transmit, await the ACK, post a `SendResolved` event back. Because every enqueue and every failure cleanup runs to completion on one thread, **ordering is a property of the structure**: nothing can slip a newer group past a failure being processed, which is exactly the race the worker-stream fences exist to close today. Send origination has one call site instead of four.
+The only spawned tasks are the send path itself, inside the batcher: one worker stream runner per worker — encode, transmit, await the ACK, post the resolution back to the batcher. Because every enqueue and every failure cleanup runs to completion on one thread, **ordering is a property of the structure**: nothing can slip a newer group past a failure being processed, which is exactly the race the worker-stream fences exist to close today. Send origination has one call site instead of four. And the two sides are decoupled by construction: the domain side never calls the batcher, the batcher never calls a driver — work crosses only as values through the loop, releases down, results up.
 
 ### 4.3 The batcher: packing, placement, composition
 
@@ -170,7 +174,7 @@ The only spawned tasks are the send path itself: one worker stream runner per wo
 - *Target cap `TARGET_REQUEST_EVENTS` / `_KB`*: a bin at target fires immediately; an over-target bin splits into consecutive requests.
 - *Linger timer*: bounds latency for undersized bins at low traffic. Set well under end-to-end latency budgets; the one timer the trigger design needs.
 
-**Placement** (which worker a group's key uses): pins are placement *constraints* — a pinned key's group must go to its worker, and its volume counts toward that bin's fill. Fresh keys fill open, in-slice, below-target bins first (load-checked), then rotating P2C opens further slice workers. Fan-out is **emergent**: demand ÷ target, clamped below by the aperture coverage floor, with slice coverage achieved over seconds by rotation rather than within every batch. The elastic-dispatch fan-out formula stops being a formula.
+**Placement** (which worker a group's key uses): pins are placement *preferences* carried on each release — honored unless the pinned worker is draining, dead, or drastically overloaded (`slack(T)` — pin abandonment). A preference, not a constraint, is safe here because a key releases only while nothing of its own is in flight (§4.7), so re-picking cannot reorder; the pinned group's volume still counts toward that bin's fill. Fresh keys fill open, in-slice, below-target bins first (load-checked), then rotating P2C opens further slice workers. Fan-out is **emergent**: demand ÷ target, clamped below by the aperture coverage floor, with slice coverage achieved over seconds by rotation rather than within every batch. The elastic-dispatch fan-out formula stops being a formula.
 
 **Composition** (which groups ride together): each group carries an opaque **affinity** hint — stamped by the consumer driver with the partition id, but the batcher knows only the preference rule: *minimize distinct affinities per request, choosing affinities oldest-head-first*. A stream's bin holds at most one group per key (key drivers release one at a time), and cross-key order is unconstrained, so composition is free to pack. Affinity-pure requests mean a failed request wounds one partition's frontier, not eight (blast radius), and a slow request delays few frontiers (frontier coupling). Oldest-first keeps the packing strictly latency-safe. The affinity hint also acts as a placement *tie-break* among otherwise-equivalent bins — never overriding load or fill, so a hot partition cannot become a hot worker.
 
@@ -188,112 +192,158 @@ Concurrency then self-clocks. Fast workers: ACKs return quickly, frontiers advan
 ### 4.5 Failure handling in the new shape
 
 - **503 / stream busy**: unchanged — the transport's jittered backoff absorbs deliberate backpressure below the model, excluded from passive health.
-- **Send failure (fault)**: the resolution event synchronously returns the request's groups to their key drivers; each holds its group at queue head, arms backoff, re-routes on expiry against current health. This replaces `defer_failed` + re-stash + both flush paths' retry pacing with one local rule. The order argument is trivial: the key's queue *is* the order, and nothing for that key was in flight behind the failure (depth-1 streams, one-release key drivers).
-- **Draining/dead worker**: the registry is unchanged; the *consequence* becomes local. A key pinned to a drainer simply doesn't release until its in-flight resolves, then re-routes at its next release. The cascade rule is the queue: newer groups are behind older ones by construction. No stash, no batch-sequence bookkeeping, no outstanding-count subtlety.
-- **Unroutable pool**: key drivers hold, backoff timers re-check; the partition frontiers stall; the watchdog below bounds it.
+- **Send failure (fault)**: the request result returns the request's groups whole; the partition manager hands each back to its key driver, which holds it at queue head, arms backoff, and releases again on expiry — placement then re-routes it against current health. This replaces `defer_failed` + re-stash + both flush paths' retry pacing with one local rule. The order argument is trivial: the key's queue *is* the order, and nothing for that key was in flight behind the failure (depth-1 streams, one-release key drivers).
+- **Draining/dead worker**: the registry is unchanged; the *consequence* becomes local. A key whose sticky worker is draining simply gets re-placed at its next release — nothing of the key's is in flight at that moment, so re-routing cannot reorder. The cascade rule is the queue: newer groups are behind older ones by construction. No stash, no batch-sequence bookkeeping, no outstanding-count subtlety.
+- **Unroutable pool**: the batcher hands unplaceable releases straight back from `submit`; their key drivers hold them at queue head and pace re-releases with backoff timers; the partition frontiers stall; the watchdog below bounds it.
 - **Stall watchdog**: per-partition — a frontier stuck for the timeout while work is pending fails the process, replaying that exposure (≤ B). Today's `deferred_flush_timeout` semantics, at the granularity where a wedge actually lives. A wedged key stalls *its partition's* frontier while healthy partitions keep committing — today it stalls every partition on the pod.
-- **Rebalance**: revoke tears down the partition driver; in-flight requests containing its groups resolve and are discarded against the dead ledger; the assignment-epoch stamp (from #85238) keeps worker-side sentinels re-baselined. No batch-scoped state cuts across the revocation.
+- **Rebalance**: revoke tears down the partition driver via the partition manager; in-flight requests containing its groups resolve and their results are discarded there by epoch; the assignment-epoch stamp (from #85238) keeps worker-side sentinels re-baselined. No batch-scoped state cuts across the revocation.
 
 ### 4.6 CPU concurrency
 
-The event loop stays pure bookkeeping; CPU parallelism lives in two places. **Leaves:** encode/compress on the worker stream runners, which already ride the multi-threaded runtime. **Shards:** partition is the natural sharding unit — both invariants are per-partition — so the loop can be sharded by partition (worker streams then per shard×worker; registry load read as snapshots) with no cross-shard ordering concerns. Ship single-shard with the boundary designed in (no shared mutable state between partition drivers), instrument loop occupancy the way `assign_duration_seconds` is watched today, and shard only when the metric says the loop is the ceiling. Fleet-level parallelism remains partition assignment across pods.
+The event loop stays pure bookkeeping; CPU parallelism lives in two places. **Leaves:** encode/compress on the worker stream runners, which already ride the multi-threaded runtime. **Shards:** partition is the natural sharding unit — both invariants are per-partition — so the loop can be sharded by partition (one partition manager and one batcher per shard; worker streams then per shard×worker; registry load read as snapshots) with no cross-shard ordering concerns. Ship single-shard with the boundary designed in (no shared mutable state between partition drivers), instrument loop occupancy the way `assign_duration_seconds` is watched today, and shard only when the metric says the loop is the ceiling. Fleet-level parallelism remains partition assignment across pods.
 
 ### 4.7 The drivers in pseudocode
 
-Rust-ish pseudocode in §8's vocabulary. The concurrency inventory is deliberately small: **one event-loop task** owning every driver by value, **one long-lived stream runner task per worker**, and two read-only background tasks (the commit monitor, the health probes). Exactly two channel families cross task boundaries, and requests move through them **by value**:
+Rust-ish pseudocode in §8's vocabulary. The concurrency inventory is deliberately small: **one event-loop task** owning every driver by value, **one long-lived stream runner task per worker**, and two read-only background tasks (the commit monitor, the health probes). Exactly two channel families cross task boundaries, both **private to the batcher**, and requests move through them **by value**:
 
 ```text
-resolutions   mpsc, bound ≥ pool size   runners → loop     send never blocks (≤1 unreported per runner)
-requests[w]   mpsc, capacity 1          loop → runner w    depth 1 *is* the capacity; try_send never fails
-health        snapshot (ArcSwap-style)  probes → place()   the only cross-task shared read
+resolutions   mpsc, bound ≥ pool size   runners → batcher   send never blocks (≤1 unreported per runner)
+requests[w]   mpsc, capacity 1          batcher → runner w  depth 1 *is* the capacity; try_send never fails
+health        snapshot (ArcSwap-style)  probes → router     the only cross-task shared read
 ```
 
-Both channel families are created in one place, so every later use has a declaration:
+The batcher holds the `resolutions` receive side and every `requests[w]` send side, and hands a runner its two ends at spawn (`on_worker_discovered` below). Nothing outside the batcher touches a channel — the loop sees the transport only as `submit(releases)` in and `poll() -> RequestResult` out, and the two values crossing that seam are:
 
 ```rust
-// Startup: the one resolutions channel; the event loop keeps the receive side.
-let (resolutions_tx, resolutions) = mpsc::channel(RESOLUTIONS_BOUND);   // ≥ pool size
+struct Release {                             // one group, ready to send
+    group: Group,                            // carries partition (affinity), epoch, offsets
+    sticky: Option<WorkerId>,                // the key's last worker: a placement preference,
+}                                            //   honored unless draining/dead/overloaded (§4.3)
 
-// On registry discovery of worker w (torn down when the worker is reaped):
-let (requests_tx, requests_rx) = mpsc::channel(1);      // capacity 1 *is* stream depth 1
-batcher.requests.insert(w, requests_tx);                // the side try_fire sends on
-spawn(stream_runner(w, requests_rx, resolutions_tx.clone()));
+struct RequestResult {                       // one resolved request, whole
+    worker: WorkerId,
+    outcome: Ack | Failure,                  // transport-classified (§2.9); backpressure and
+    groups: Vec<Group>,                      //   413 splits are absorbed below the batcher
+}
 ```
 
-There is no `Mutex`, no `Arc`'d mutable state, and no atomic in the model: every struct below is owned by the event loop and mutated under plain `&mut`, so lock ordering stops being a concept. The loop has exactly one await point (its `select!`); the runners block only on their own channel and their own socket.
+There is no `Mutex`, no `Arc`'d mutable state, and no atomic in the model: every struct below is owned by the event loop and mutated under plain `&mut`, so lock ordering stops being a concept. The loop has exactly one await point (its `select!`); the runners block only on their own channel and their own socket. And no component calls across the seam in either direction: the domain side hands releases up as return values, the batcher hands results up from `poll` — the loop is the only glue.
 
 **Consumer driver — the event loop.** Backpressure is the *absence of the poll branch*, not a check inside it.
 
 ```rust
 // One task. Sole owner of everything below; mutation is plain &mut, no locks.
 struct ConsumerDriver {
-    partitions: Map<Partition, PartitionDriver>,
-    batcher: WorkerBatcher,                  // includes per-stream busy flags — the loop's
-    timers: BinaryHeap<(Deadline, Timer)>,   //   own bookkeeping, never shared with runners
+    partitions: PartitionManager,            // the domain side: assignments + distribution
+    batcher: WorkerBatcher,                  // the transport side: placement, bins, streams
+    timers: BinaryHeap<(Deadline, Timer)>,   // loop-owned deadline heap (§4.1)
     budget: Budget,                          // uncommitted events+bytes — the B gate (§4.4)
     commits: CommitManager,                  // frontiers → one batched commit; tick() below
     kafka: KafkaConsumer,                    // rdkafka client: poll, commits, rebalance events
 }
 
+fn dispatch(released) {                      // every hand-off to the batcher goes through here
+    let unplaced = batcher.submit(released); // placement fails only pool-wide (§4.5) —
+    partitions.hold(unplaced);               //   unplaced releases go back to their keys,
+}                                            //   which pace re-releases with backoff timers
+
 loop {
     select! {                                // the loop's ONLY await point; arms run to
         biased;                              //   completion — drain before taking new work
 
-        r = resolutions.recv() => {
-            batcher.on_resolved(r);          // a failure's cleanup cannot interleave with
-        }                                    //   any enqueue: this *is* the fence, structurally
+        result = batcher.poll() => {         // one resolved request, whole — a value, not
+            dispatch(partitions.apply(result));      //   a callback into the drivers;
+            batcher.refire(result.worker);   //   successors first, then the freed stream —
+        }                                    //   the busy-stream trigger (§4.3)
 
         _ = sleep_until(timers.peek()) => {
             match timers.pop() {
-                KeyBackoff(key) => key.try_release(),   // entry carries (partition, key)
-                Linger(w)       => batcher.try_fire(w),
-                CommitTick      => { commits.tick(); for p in partitions { p.check_stall() } }
+                KeyBackoff(p, key) => dispatch(partitions.retry(p, key)),
+                Linger(w)          => batcher.refire(w),
+                CommitTick         => { commits.tick(); partitions.check_stalls() }
             }
         }
 
         msgs = kafka.recv(), if budget.used < B => {
             // the gate is rdkafka pause/resume, not an unpolled consumer: polling must
             // continue for rebalance callbacks and max.poll.interval liveness at B
-            for (p, part) in msgs.by_partition() {
-                budget.charge(part);
-                partitions[p].accept(part);  // the Kafka batch dissolves here
-            }
-            batcher.end_of_demux_flush();
+            budget.charge(msgs);
+            dispatch(partitions.accept(msgs));       // the Kafka batch dissolves here
+            batcher.flush_touched();         // idle-stream trigger: end-of-demux flush
         }
 
         ev = kafka.rebalance() => {          // surfaces via the same client, serialized
             match ev {                       //   with every other arm: no teardown race
-                Assigned(p) => partitions.insert(p, PartitionDriver::new(epoch)),
-                Revoked(p)  => partitions.remove(p).teardown(),  // refunds budget; late
-            }                                //   resolutions for p discard by epoch
+                Assigned(p) => partitions.assign(p, epoch),
+                Revoked(p)  => budget.refund(partitions.revoke(p)),  // late results for p
+            }                                //   discard by epoch in apply()
         }
     }
 }
 ```
 
-**Partition driver — demux and the offset ledger.** A plain struct owned by the loop, mutated under `&mut`.
+**Partition manager — assignments and work distribution.** The domain side's root: the only component that maps a group back to the state that must act on it.
 
 ```rust
-// Loop-owned struct; methods are synchronous and never block.
+// Loop-owned. Owns every partition driver; passes values down, collects releases up.
+struct PartitionManager {
+    partitions: Map<Partition, PartitionDriver>,
+}
+
+fn assign(p, epoch) { partitions.insert(p, PartitionDriver::new(epoch)) }
+
+fn revoke(p) -> Refund {                     // wholesale: key drivers and pending state go
+    partitions.remove(p).teardown()          //   with it; returns the budget to refund
+}
+
+fn accept(msgs) -> Vec<Release> {            // one poll, demuxed to its partitions
+    msgs.by_partition()
+        .flat_map(|(p, part)| partitions[p].accept(part))
+}
+
+fn apply(result) -> Vec<Release> {           // one request result, distributed
+    result.groups
+        .filter(|g| !g.epoch.dead())         // results for revoked partitions die here
+        .flat_map(|g| partitions[g.partition].apply(g, result))
+}
+
+fn retry(p, key) -> Vec<Release> { partitions[p].retry(key) }
+fn hold(releases) { for r in releases { partitions[r.partition].hold(r) } }
+fn check_stalls() { for p in partitions { p.check_stall() } }
+```
+
+**Partition driver — demux, the offset ledger, and acting on results.** A plain struct owned by its partition manager, mutated under `&mut`.
+
+```rust
+// Loop-owned (via the partition manager); methods are synchronous and never block.
 struct PartitionDriver {
     keys: Map<RoutingKey, KeyDriver>,
     ledger: OffsetLedger,                    // pending offsets (+sizes) · completed · frontier
     stall_deadline: Deadline,
 }
 
-fn accept(msgs) {                            // one poll's messages for this partition
+fn accept(msgs) -> Vec<Release> {            // one poll's messages for this partition
     ledger.add_pending(msgs);
-    for (key, group) in msgs.by_routing_key() {          // offset order preserved
-        keys.entry(key).or_create().enqueue(group)       // stamped: affinity = partition, epoch
+    msgs.by_routing_key()                    // offset order preserved; groups stamped:
+        .filter_map(|(key, group)|           //   affinity = partition, epoch
+            keys.entry(key).or_create().enqueue(group))
+}
+
+fn apply(group, result) -> Option<Release> { // one group of one resolved request
+    match result.outcome {
+        Ack => {
+            ledger.complete(group.offsets);
+            if ledger.advance_frontier() {   // highest contiguous completed offset
+                stall_deadline = now + STALL_TIMEOUT;
+            }
+            keys[group.key].acked(result.worker)   // learn the pin, release the next group
+        }
+        Failure => keys[group.key].failed(group)   // back to queue head, backoff arms
     }
 }
 
-fn offsets_completed(offsets) {              // reported by a key driver's ACK
-    ledger.complete(offsets);
-    if ledger.advance_frontier() {           // highest contiguous completed offset
-        stall_deadline = now + STALL_TIMEOUT;
-    }
-}
+fn retry(key) -> Vec<Release> { keys[key].try_release().into() }   // backoff expiry
+fn hold(release) { keys[release.key].hold(release.group) }         // unroutable pool (§4.5)
 
 fn check_stall() {
     if ledger.has_pending() && now > stall_deadline {
@@ -322,91 +372,102 @@ task commit_monitor {
 }
 ```
 
-**Key driver — a passive state machine.** The deferral cascade, the pin, and the retry pacing are all this struct — a plain entry in its partition driver's map: no task, no lock, no ref-count.
+**Key driver — a passive state machine.** The deferral cascade, the pin, and the retry pacing are all this struct — a plain entry in its partition driver's map: no task, no lock, no ref-count. It hands releases up as return values; it calls nothing.
 
 ```rust
 // A plain entry in its partition driver's map. No task, no lock, no ref-count.
 // Methods run on the loop and never block: "waiting" is an entry in the timer heap.
 struct KeyDriver {
     queue: FifoQueue<Group>,
-    released: Option<Group>,                 // at most one: in a bin or in flight
-    worker: Option<WorkerId>,                // the sticky pin
+    in_flight: bool,                         // at most one release out at a time
+    worker: Option<WorkerId>,                // the sticky pin — learned from ACK results
     backoff: Option<Deadline>,               // armed = an entry in the loop's timer heap
 }
 
-fn enqueue(group) {
+fn enqueue(group) -> Option<Release> {
     queue.push_back(group);
-    try_release();
+    try_release()
 }
 
-fn try_release() {                           // on enqueue, after ACK, on backoff expiry
-    if released.is_some() || queue.is_empty() || backoff.is_some() { return }
-    if worker is draining or dead        { worker = None }   // safe: nothing in flight
-    if worker is overloaded beyond slack(T) { worker = None }  // pin abandonment
-    worker = worker.or(router.place(self));  // §4.3 placement; a pin is a constraint
-    if worker.is_none() { backoff = arm(UNROUTABLE_PAUSE); return }  // unroutable pool
-    released = queue.pop_front();
-    batcher.add(worker, released);           // ≤1 group per key per bin, by construction
-}
+fn try_release() -> Option<Release> {        // on enqueue, after ACK, on backoff expiry
+    if in_flight || queue.is_empty() || backoff.is_some() { return None }
+    in_flight = true;
+    Some(Release { group: queue.pop_front(), sticky: worker })
+}                                            // placement is the batcher's — the pin is a
+                                             //   preference; safe: nothing of ours in flight
 
-fn acked(group) {                            // via the batcher's fan-out
-    partition.offsets_completed(group.offsets);
-    released = None;
-    try_release();
-    maybe_evict();                           // evict when idle and empty; the pin dies too
-}
+fn acked(worker) -> Option<Release> {
+    self.worker = worker;                    // stickiness for the next release
+    in_flight = false;
+    try_release()                            // then maybe_evict when idle and empty —
+}                                            //   the pin dies with the driver
 
-fn failed(group) {
+fn failed(group) -> Option<Release> {
     queue.push_front(group);                 // back to head — the key's queue *is* the order
-    released = None;
-    worker = None;                           // re-place at expiry (may re-pick if healthy)
-    backoff = arm(RETRY_BACKOFF);
+    in_flight = false;
+    worker = None;                           // let placement re-pick at the retry
+    backoff = arm(RETRY_BACKOFF);            // expiry → retry(p, key) → try_release
+    None
+}
+
+fn hold(group) {                             // unroutable pool: like failed, gentler pace
+    queue.push_front(group);
+    in_flight = false;
+    backoff = arm(UNROUTABLE_PAUSE);         // sticky kept: the pool, not the pin, failed
 }
 ```
 
-**Worker batcher — bins, triggers, packing, fan-out.**
+**Worker batcher — the transport side, whole.** Placement, bins, triggers, packing, and both channel families live behind `submit`/`poll`/`refire`/`flush_touched`; it never calls a driver.
 
 ```rust
-// Loop-owned. busy[w] is the loop's own record of stream state — set on fire,
-// cleared on resolution; never a flag shared with runners.
+// Loop-owned. Nothing outside it touches a channel, a bin, or a stream; nothing
+// inside it holds a reference to a driver.
 struct WorkerBatcher {
     bins: Map<WorkerId, Bin>,                // bin: ordered groups, events/bytes, affinities
-    busy: Map<WorkerId, bool>,
-    touched: Set<WorkerId>,                  // streams touched by the current demux cycle
-    requests: Map<WorkerId, Sender<Request>>, // send side per runner (see wiring above)
+    busy: Map<WorkerId, bool>,               // its own record of stream state — set on fire,
+    touched: Set<WorkerId>,                  //   cleared in poll(); never shared with runners
+    router: Router,                          // aperture + P2C over the health snapshot (§4.3)
+    requests: Map<WorkerId, Sender<Request>>,    // send side per runner, capacity 1
+    resolutions: Receiver<Resolution>,           // (worker, request, outcome); runners → here
+    resolutions_sender: Sender<Resolution>,      // cloned into each runner at spawn
 }
 
-fn add(w, group) {                           // called by key drivers' try_release
-    bins[w].push(group);
-    touched.insert(w);
-    if bins[w].size >= T {
-        try_fire(w)                          // target cap: fires now if idle; a busy
-    }                                        //   stream's resolution picks it up instead
-    else if !busy[w] && !in_demux_cycle {
-        arm_linger(w)                        // covers releases via ACK-advance and backoff
-    }                                        //   expiry — no demux flush follows those
+fn on_worker_discovered(w) {                 // from registry discovery; a reaped worker's
+    let (tx, rx) = mpsc::channel(1);         //   runner and channel are torn down with it
+    requests.insert(w, tx);
+    spawn(stream_runner(w, rx, resolutions_sender.clone()));
 }
 
-fn end_of_demux_flush() {
-    for w in touched { try_fire(w) }         // idle-stream trigger: one request per
-    touched.clear();                         //   worker per poll, zero added latency
-}
-
-fn on_resolved(w, request, outcome) {
-    busy[w] = false;
-    match outcome {
-        Ack => {
-            for g in request.groups { g.key.acked(g) }
-        }
-        Failure => {
-            for g in request.groups {
-                if g.epoch.dead() { discard(g) }     // the dead ledger (§4.5)
-                else { g.key.failed(g) }             // handed back by value, whole
+fn submit(releases) -> Vec<Release> {        // place and bin; returns what no worker can take
+    let mut unplaced = vec![];
+    for r in releases {
+        match router.place(r.sticky, &bins) {        // §4.3: sticky honored unless
+            None    => unplaced.push(r),             //   draining/dead/overloaded
+            Some(w) => {
+                bins[w].push(r.group);               // ≤1 group per key per bin: key drivers
+                touched.insert(w);                   //   release one at a time
+                if bins[w].size >= T { try_fire(w) }         // target cap: fires now if idle
+                else if !busy[w] && !in_demux_cycle {
+                    arm_linger(w)                    // covers releases via ACK-advance and
+                }                                    //   backoff expiry — no demux flush follows
             }
         }
     }
-    try_fire(w)                              // busy-stream trigger — the eager chain,
-}                                            //   generalized from one key to the stream
+    unplaced
+}
+
+fn flush_touched() {
+    for w in touched.drain() { try_fire(w) } // idle-stream trigger: one request per
+}                                            //   worker per poll, zero added latency
+
+async fn poll() -> RequestResult {           // the loop's one view of the transport
+    let (w, request, outcome) = resolutions.recv().await;
+    busy[w] = false;                         // refire comes from the loop, after it applies
+    RequestResult { worker: w, outcome, groups: request.take_groups() }
+}                                            //   the result and submits the successors (§4.2)
+
+fn refire(w) { try_fire(w) }                 // the busy-stream trigger — the eager chain,
+                                             //   generalized from one key to the stream
 
 fn try_fire(w) {                             // the single send-origination site
     if busy[w] || bins[w].is_empty() { return }
@@ -414,15 +475,20 @@ fn try_fire(w) {                             // the single send-origination site
                                              //   oldest-head-first; remainder stays binned
     requests[w].try_send(request).unwrap();  // non-blocking; capacity 1, provably never full:
     busy[w] = true;                          //   sends happen only while !busy, and busy
-}                                            //   clears only on this request's resolution
+}                                            //   clears only in poll(), on this request's
+                                             //   resolution
 ```
 
-**Router placement** (§4.3):
+**Router placement** (§4.3) — inside the batcher; `sticky` is the release's preference, not a constraint:
 
 ```rust
-fn place(key) -> Option<WorkerId> {
+fn place(sticky, bins) -> Option<WorkerId> {
     let health = registry.snapshot();        // published by the probe task; the model's
                                              //   only cross-task shared read — no lock
+    if let Some(w) = sticky {
+        if healthy(w) && !overloaded_beyond_slack(w, T) { return Some(w) }
+    }                                        // else fall through: pin abandonment — safe,
+                                             //   nothing of that key is in flight (§4.3)
     let slice = aperture.slice(health);      // in-slice candidates
     let open = slice.healthy, below-target bins, load-checked;
     if open is non-empty {
@@ -430,15 +496,15 @@ fn place(key) -> Option<WorkerId> {
     } else {
         rotating_p2c(slice)                  // opens further slice workers
     }
-    // none healthy → None: the caller arms its backoff timer
+    // none healthy → None: the release comes back unplaced; its key driver backs off
 }
 ```
 
-**Worker stream runner — one task per worker, depth 1.** The machinery below the batcher.
+**Worker stream runner — one task per worker, depth 1.** The machinery below the batcher, which hands it both channel ends at spawn.
 
 ```rust
-// One long-lived task per worker. Owns its connection; shares only the two channels,
-// and both hand data over by value.
+// One long-lived task per worker. Owns its connection; shares only the two channels
+// (received from on_worker_discovered), and both hand data over by value.
 task stream_runner(w, requests: Receiver<Request>, resolutions: Sender<Resolution>) {
     loop {
         connect_and_greet(epoch).await;      // BLOCKS (its own socket); on failure:
@@ -460,14 +526,14 @@ fn classify(outcome) {                       // the transport classifier, §2.9 
         Ack          => Ack,
         Busy | 503   => Backpressure,        // long jittered backoff; excluded from
                                              //   passive health
-        Fault        => Failure,             // counts against passive health; groups
-                                             //   return to their key drivers
+        Fault        => Failure,             // counts against passive health; the result
+                                             //   path hands the groups back whole
         Oversize413  => split_halve_resend() // §2.10 defense below the model — rare
     }                                        //   once T is under the worker body limit
 }
 ```
 
-What is *not* here is the point: no stash, no batch-sequence bookkeeping, no fences or `FenceGuard`, no eager reconciliation, no completion serialization — and no locks: today's `PinTable` mutex and its lock-ordering discipline have no successor, because nothing is shared to lock. The order argument is visible as four structural facts — one origination site (`try_fire`), at most one released group per key, capacity-1 request channels, and a loop that finishes each event's cascade before starting the next.
+What is *not* here is the point: no stash, no batch-sequence bookkeeping, no fences or `FenceGuard`, no eager reconciliation, no completion serialization — and no locks: today's `PinTable` mutex and its lock-ordering discipline have no successor, because nothing is shared to lock. The order argument is visible as four structural facts — one origination site (`try_fire`), at most one released group per key, capacity-1 request channels, and a loop that finishes each event's cascade before starting the next. And the coupling argument is a fifth: the domain side and the transport side exchange only values through the loop — releases down, results up — so neither can observe, or corrupt, the other mid-transition.
 
 ## 5. Construct-by-construct disposition
 
@@ -496,7 +562,7 @@ The through-line: the mechanisms that survive are the ones facing the outside wo
 
 The elastic-dispatch plan's three changes map onto the model as follows:
 
-1. **Target-sized worker batches** — the batcher's `T` and packing rules (§4.3) *are* stage 1 of the plan, with the fan-out clamp formula replaced by emergence and the pins-as-constraints packing expressed structurally.
+1. **Target-sized worker batches** — the batcher's `T` and packing rules (§4.3) *are* stage 1 of the plan, with the fan-out clamp formula replaced by emergence and the pins-as-preferences packing expressed structurally.
 2. **Demand-proportional concurrency** — the plan's controller (fill-EWMA → slots, duration budget, shed policy) is subsumed by `B` + self-clocking (§4.4). The behaviors the controller had to *steer toward* — MIN concurrency when drained, MAX under backlog, held pressure during worker saturation, bounded replay window, walk-down during a wedge (per-partition stalls now localize it) — are the only behaviors the structure permits. No EWMA, no tick, no shed policy, nothing to mis-tune.
 3. **One-signal worker HPA** (the elastic plan's "processor HPA") — unchanged from the plan (`ingestion_api_event_seconds_in_flight_total`, time-weighted in-flight events per pod), and *strengthened*: every request is target-normalized, so in-flight work per worker is an honest, comparable unit.
 
@@ -544,6 +610,9 @@ The consumer's vocabulary has to survive three audiences at once: this crate, th
 | `eager-flush task` | the ACK-speed drain task (`run_eager_flush_loop`) | sidecar |
 | `window` | always qualified: in-flight, passive, stall, replay window | bare "the window" |
 | `driver` | the single owner of one unit's state, advanced only by events | — |
+| `partition manager` | the domain side's root: assignment lifecycle + work distribution | — |
+| `release` | one group handed to the batcher, with its placement preference | the ship-a-version sense |
+| `request result` | one resolved request, whole: groups + outcome + worker | resolution, outside the batcher |
 
 ### 8.2 Why these words are reserved
 
