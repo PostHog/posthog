@@ -396,11 +396,21 @@ def create_custom_product_push_campaigns_for_org_batch(
             continue
 
         if active is not None:
-            if on_active_campaign == ON_ACTIVE_OVERRIDE:
-                cancel_campaigns([str(active.id)], now)
+            # Cancelling skips a locked row, so an override can come back empty. The
+            # custom push is then simply queued behind the running campaign, and the
+            # run has to say so rather than report an override that did not happen.
+            overrode = on_active_campaign == ON_ACTIVE_OVERRIDE and cancel_campaigns([str(active.id)], now) == 1
+            if overrode:
                 result.overrode_active += 1
             else:
                 result.queued_behind_active += 1
+                if on_active_campaign == ON_ACTIVE_OVERRIDE:
+                    logger.warning(
+                        "custom_product_push_override_skipped",
+                        organization_id=str(organization.id),
+                        product_key=product_key,
+                        active_campaign_id=str(active.id),
+                    )
 
         result.created += 1
         created_rows.append((campaign, "scheduled"))

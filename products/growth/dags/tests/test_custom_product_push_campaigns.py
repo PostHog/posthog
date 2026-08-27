@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import timedelta
 from typing import Any
@@ -7,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+import dagster
 from parameterized import parameterized
 
 from posthog.models.organization import Organization
@@ -17,8 +19,8 @@ from products.growth.dags.product_push_campaigns import product_push_campaigns_j
 
 
 @contextmanager
-def _mock_capture():
-    capture_fn: Any = MagicMock()
+def _mock_capture() -> Iterator[MagicMock]:
+    capture_fn = MagicMock()
     with patch("products.growth.backend.product_push.service.ph_scoped_capture") as mock_csm:
         mock_csm.return_value.__enter__.return_value = capture_fn
         mock_csm.return_value.__exit__.return_value = False
@@ -26,7 +28,7 @@ def _mock_capture():
 
 
 class TestCustomProductPushCampaignsJob(BaseTest):
-    def _run_job(self, raise_on_error: bool = True, **config: Any) -> Any:
+    def _run_job(self, raise_on_error: bool = True, **config: Any) -> dagster.ExecuteInProcessResult:
         today = timezone.now().date()
         run_config = {
             "ops": {

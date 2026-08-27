@@ -21,6 +21,7 @@ that already holds a scheduled or active campaign for the product is counted and
 skipped.
 """
 
+from collections.abc import Iterator
 from datetime import UTC, date, datetime, time
 
 from django.conf import settings
@@ -128,7 +129,9 @@ def _parse_window(config: CustomProductPushCampaignConfig) -> tuple[date, dateti
 
 
 @dagster.op(out=dagster.DynamicOut(CustomProductPushBatchSpec))
-def get_custom_product_push_batches_op(context: dagster.OpExecutionContext, config: CustomProductPushCampaignConfig):
+def get_custom_product_push_batches_op(
+    context: dagster.OpExecutionContext, config: CustomProductPushCampaignConfig
+) -> Iterator[dagster.DynamicOutput[CustomProductPushBatchSpec]]:
     """Validate the config and fan out the organization list as batches."""
     try:
         product_key = ProductKey(config.product_key)
@@ -270,6 +273,6 @@ def summarize_custom_product_push_run_op(
     executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 5}),
     tags={"owner": JobOwners.TEAM_GROWTH.value},
 )
-def custom_product_push_campaigns_job():
+def custom_product_push_campaigns_job() -> None:
     results = get_custom_product_push_batches_op().map(create_custom_product_push_batch_op).collect()
     summarize_custom_product_push_run_op(results)
