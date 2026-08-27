@@ -6,10 +6,6 @@ logger = structlog.get_logger(__name__)
 
 BATCH_SIZE = 500
 
-# The only operator a flag-dependency property can carry. Deliberately a frozen copy of the
-# constant in filters_validation, since migrations must stay self-contained while app code moves.
-FLAG_PROPERTY_OPERATOR = "flag_evaluates_to"
-
 
 def _variant_keys(filters: dict) -> set[str]:
     variants = (filters.get("multivariate") or {}).get("variants")
@@ -22,9 +18,10 @@ def _clean_filters(filters: dict) -> tuple[dict, set[str]]:
     """Idempotent transform for the #50084 violations that no evaluator can observe.
 
     Every rule here is a no-op at runtime, so the stored value changes and flag behaviour does
-    not. Violations that need a human decision (rollout sums, property types for the condition
-    set's aggregation) are deliberately absent. Returns (new_filters, rules_applied); an empty
-    set means the flag is untouched."""
+    not. Violations that change what a flag does are deliberately absent: rollout sums, property
+    types that don't suit the condition set's aggregation, and flag dependencies carrying the
+    wrong operator, which the evaluator treats as an unmatchable condition rather than ignoring.
+    Returns (new_filters, rules_applied); an empty set means the flag is untouched."""
     rules: set[str] = set()
     new_filters = dict(filters)
     variant_keys = _variant_keys(new_filters)
@@ -44,22 +41,6 @@ def _clean_filters(filters: dict) -> tuple[dict, set[str]]:
             if variant and variant not in variant_keys:
                 new_group["variant"] = None
                 rules.add("group_variant_not_a_variant")
-
-            # A flag dependency is only ever compared with flag_evaluates_to; the evaluator
-            # reads the dependency by type, so the stored operator never changes the outcome.
-            properties = new_group.get("properties")
-            if isinstance(properties, list):
-                new_properties = []
-                for prop in properties:
-                    if not isinstance(prop, dict):
-                        new_properties.append(prop)
-                        continue
-                    new_prop = dict(prop)
-                    if new_prop.get("type") == "flag" and new_prop.get("operator") != FLAG_PROPERTY_OPERATOR:
-                        new_prop["operator"] = FLAG_PROPERTY_OPERATOR
-                        rules.add("flag_property_requires_flag_evaluates_to")
-                    new_properties.append(new_prop)
-                new_group["properties"] = new_properties
 
             new_groups.append(new_group)
         new_filters["groups"] = new_groups
@@ -95,6 +76,7 @@ def clean_flag_filters_inert_violations(apps, schema_editor):
     FeatureFlag = apps.get_model("feature_flags", "FeatureFlag")
 
     total = 0
+    skipped_concurrent = 0
     rule_counts: dict[str, int] = {}
 
     # Keyset pagination instead of .iterator(): server-side cursors are disabled when migrations
@@ -102,7 +84,7 @@ def clean_flag_filters_inert_violations(apps, schema_editor):
     # whole table client-side. id-range batches are memory-bounded however the connection is pooled.
     last_id = 0
     while True:
-        # _base_manager: the default manager excludes soft-deleted flags, also inside bulk_update.
+        # _base_manager: the default manager excludes soft-deleted flags.
         rows = list(
             FeatureFlag._base_manager.filter(id__gt=last_id)
             .exclude(filters=None)
@@ -113,23 +95,29 @@ def clean_flag_filters_inert_violations(apps, schema_editor):
             break
         last_id = rows[-1].id
 
-        to_update = []
         for flag in rows:
             if not isinstance(flag.filters, dict):
                 continue
             new_filters, rules = _clean_filters(flag.filters)
             if not rules:
                 continue
+            # Compare-and-swap on the value we read: a flag edited between the batch select and
+            # this write keeps the newer filters instead of being reverted to our snapshot. Only
+            # a few hundred rows change fleet-wide, so per-row writes cost little.
+            written = FeatureFlag._base_manager.filter(id=flag.id, filters=flag.filters).update(filters=new_filters)
+            if not written:
+                skipped_concurrent += 1
+                continue
             for rule in rules:
                 rule_counts[rule] = rule_counts.get(rule, 0) + 1
-            flag.filters = new_filters
-            to_update.append(flag)
+            total += 1
 
-        if to_update:
-            FeatureFlag._base_manager.bulk_update(to_update, ["filters"])
-            total += len(to_update)
-
-    logger.info("cleaned_flag_filters_inert_violations", updated_rows=total, **rule_counts)
+    logger.info(
+        "cleaned_flag_filters_inert_violations",
+        updated_rows=total,
+        skipped_concurrent=skipped_concurrent,
+        **rule_counts,
+    )
 
 
 class Migration(migrations.Migration):
