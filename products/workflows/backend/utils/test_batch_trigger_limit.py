@@ -84,6 +84,16 @@ class TestTieredHogflowBatchTriggerLimit(BaseTest):
         TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults={"email_sending_tier": 0})
         assert get_hogflow_batch_trigger_limit(self.team.id) == 5000
 
+    @override_settings(
+        WORKFLOWS_EMAIL_TIER_MODE="enforce",
+        WORKFLOWS_EMAIL_TIER_ENFORCE_TEAMS_CREATED_AFTER="not-a-date",
+    )
+    def test_unparseable_cutoff_does_not_enforce_globally(self) -> None:
+        # A typo in the cutoff must fail open. It cannot silently widen enforcement to every team,
+        # so an unparseable value leaves the team on the flat ceiling instead of the tier-0 cap.
+        TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults={"email_sending_tier": 0})
+        assert get_hogflow_batch_trigger_limit(self.team.id) == 5000
+
     @override_settings(WORKFLOWS_EMAIL_TIER_MODE="enforce")
     def test_a_workflow_without_an_email_step_keeps_the_flat_limit(self) -> None:
         # The tiers protect SES reputation, so an SMS or push batch must not inherit the email cap.

@@ -97,8 +97,12 @@ def get_email_sending_tier_limits(tier: int) -> EmailSendingTierLimits:
     )
 
 
+def _enforcement_cutoff_raw() -> str:
+    return str(settings.WORKFLOWS_EMAIL_TIER_ENFORCE_TEAMS_CREATED_AFTER or "").strip()
+
+
 def _enforcement_cutoff() -> Optional[datetime]:
-    raw = str(settings.WORKFLOWS_EMAIL_TIER_ENFORCE_TEAMS_CREATED_AFTER or "").strip()
+    raw = _enforcement_cutoff_raw()
     if not raw:
         return None
     # Read on the send path, so a typo in the env var must not raise here.
@@ -119,7 +123,11 @@ def is_tier_enforced_for_team(team_created_at: Optional[datetime]) -> bool:
         return False
     cutoff = _enforcement_cutoff()
     if cutoff is None:
-        return True
+        # An empty cutoff enforces every team. A set but unparseable cutoff must not, because an
+        # operator typo has to narrow enforcement rather than widen it to everyone. This matches
+        # email_sending_tier_mode(), which reads an unrecognized value as "off", and the module's
+        # rule that a config problem must never throttle a paying customer.
+        return not _enforcement_cutoff_raw()
     # An unknown creation date reads as "not after the cutoff": the cutoff exists to spare
     # established teams, so an unresolvable team must land on the established side.
     return team_created_at is not None and team_created_at >= cutoff
