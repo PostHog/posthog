@@ -1,19 +1,27 @@
 import { getAuthIdentity } from "@posthog/core/auth/authIdentity";
 import { ToastProvider } from "@posthog/quill";
 import { EXTERNAL_LINKS, isNotAuthenticatedError } from "@posthog/shared";
-import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
-import { AiApprovalScreen } from "@posthog/ui/features/ai-approval/AiApprovalScreen";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
-import {
-  useAuthStateValue,
-  useCurrentUser,
-} from "@posthog/ui/features/auth/authQueries";
+import { useAuthStateValue } from "@posthog/ui/features/auth/authQueries";
 import { AuthScreen } from "@posthog/ui/features/auth/components/AuthScreen";
-import { InviteCodeScreen } from "@posthog/ui/features/auth/components/InviteCodeScreen";
+import { DesktopAccessScreen } from "@posthog/ui/features/auth/components/DesktopAccessScreen";
 import { ScopeReauthPrompt } from "@posthog/ui/features/auth/components/ScopeReauthPrompt";
+import {
+  useLogoutMutation,
+  useRedeemInviteCodeMutation,
+  useRetryDesktopAccessMutation,
+  useSelectProjectMutation,
+  useSwitchOrgMutation,
+} from "@posthog/ui/features/auth/useAuthMutations";
 import { useAuthSession } from "@posthog/ui/features/auth/useAuthSession";
 import { useIsOrgAdmin } from "@posthog/ui/features/auth/useOrgRole";
 import { CanvasGenerationToaster } from "@posthog/ui/features/canvas/freeform/useCanvasGenerationToasts";
+import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import { showChannelList } from "@posthog/ui/features/canvas/stores/channelPaneStore";
+import { useSpaceTreeStore } from "@posthog/ui/features/canvas/stores/spaceTreeStore";
+import { ConsentScreen } from "@posthog/ui/features/consent/ConsentScreen";
+import { useConsentAnalytics } from "@posthog/ui/features/consent/consentAnalytics";
+import { useOrgConsent } from "@posthog/ui/features/consent/useOrgConsent";
 import { AddDirectoryDialog } from "@posthog/ui/features/folder-picker/AddDirectoryDialog";
 import { ErrorDetailsDialog } from "@posthog/ui/features/notifications/ErrorDetailsDialog";
 import { OnboardingFlow } from "@posthog/ui/features/onboarding/components/OnboardingFlow";
@@ -23,14 +31,15 @@ import { UpdateBanner } from "@posthog/ui/features/sidebar/components/UpdateBann
 import { PendingPromptRecovery } from "@posthog/ui/features/task-detail/components/PendingPromptRecovery";
 import { router } from "@posthog/ui/router/router";
 import { AppLoadingScreen } from "@posthog/ui/shell/AppLoadingScreen";
-import { track } from "@posthog/ui/shell/analytics";
 import { ErrorBoundary } from "@posthog/ui/shell/ErrorBoundary";
+import { ensureSession } from "@posthog/ui/shell/firstRun";
 import { logger } from "@posthog/ui/shell/logger";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import {
   rememberStartupLocation,
   resolveStartupLocation,
 } from "@posthog/ui/shell/startupLocation";
+import { useAppLoadingGateTelemetry } from "@posthog/ui/shell/useAppLoadingGateTelemetry";
 import { useAppVisibilityWatchdog } from "@posthog/ui/shell/useAppVisibilityWatchdog";
 import { RouterProvider } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
@@ -50,7 +59,20 @@ function App({ devToolbar }: AppProps) {
     (state) => state.hasCompletedOnboarding,
   );
   const isAuthenticated = authState.status === "authenticated";
-  const hasCodeAccess = authState.hasCodeAccess;
+  const desktopAccess = authState.desktopAccess;
+  const selectProjectMutation = useSelectProjectMutation();
+  const switchOrgMutation = useSwitchOrgMutation();
+  const retryDesktopAccessMutation = useRetryDesktopAccessMutation();
+  const redeemInviteCodeMutation = useRedeemInviteCodeMutation();
+  const logoutMutation = useLogoutMutation();
+  const desktopAccessIsCurrent =
+    desktopAccess.projectId === authState.currentProjectId;
+  const hasDesktopAccess =
+    desktopAccessIsCurrent && desktopAccess.status === "allowed";
+  const switchError =
+    selectProjectMutation.isError || switchOrgMutation.isError
+      ? "Couldn't switch your selection. Try again."
+      : null;
   // Analytics init + dev inbox console moved to host CONTRIBUTIONs
   // (AnalyticsBootContribution / InboxDemoDevContribution), started by
   // boot at boot.
@@ -59,44 +81,52 @@ function App({ devToolbar }: AppProps) {
   // CONTRIBUTIONs (WorkspaceEventsContribution / FocusEventsContribution
   // / AgentEventsContribution), started by boot at boot.
 
-  const needsInviteCode =
-    isAuthenticated && hasCodeAccess === false && hasCompletedOnboarding;
-  const isCheckingAccess =
-    isAuthenticated && hasCodeAccess === null && hasCompletedOnboarding;
-
+  const isBlockedByAccessPolicy =
+    isAuthenticated &&
+    desktopAccessIsCurrent &&
+    ["blocked", "error"].includes(desktopAccess.status);
   const authenticatedClient = useOptionalAuthenticatedClient();
-  const { data: currentUser } = useCurrentUser({
-    client: authenticatedClient,
-    enabled:
-      isAuthenticated && hasCompletedOnboarding && hasCodeAccess === true,
-    refetchOnWindowFocus: "always",
-  });
-  const currentOrg = currentUser?.organization;
-  const needsAiApproval =
+  const consent = useOrgConsent(isAuthenticated && hasDesktopAccess);
+  const needsConsent =
     isAuthenticated &&
     hasCompletedOnboarding &&
-    hasCodeAccess === true &&
-    currentOrg != null &&
-    currentOrg.is_ai_data_processing_approved !== true;
+    hasDesktopAccess &&
+    consent.status === "resolved" &&
+    !consent.satisfied;
+  const isCheckingAccess =
+    isAuthenticated &&
+    hasCompletedOnboarding &&
+    (!desktopAccessIsCurrent ||
+      ["unchecked", "checking"].includes(desktopAccess.status) ||
+      (hasDesktopAccess && consent.status === "loading"));
   const { isAdmin: isOrgAdmin } = useIsOrgAdmin();
   const isAdmin = isOrgAdmin === true;
+  useConsentAnalytics(
+    hasCompletedOnboarding ? consent : { status: "loading" },
+    isAdmin,
+    "standalone_gate",
+  );
 
-  const wasShowingAiGateRef = useRef(false);
-  useEffect(() => {
-    if (wasShowingAiGateRef.current && !needsAiApproval && currentOrg != null) {
-      track(ANALYTICS_EVENTS.AI_CONSENT_APPROVED);
-    }
-    wasShowingAiGateRef.current = needsAiApproval;
-  }, [needsAiApproval, currentOrg]);
+  const spacesLayoutEnabled = useChannelsLayout();
+  // Read through a ref so a flag arriving mid-startup cannot re-run the resolve and replace
+  // a route the user has already moved off.
+  const spacesLayoutEnabledRef = useRef(spacesLayoutEnabled);
+  spacesLayoutEnabledRef.current = spacesLayoutEnabled;
 
   const readyForMainApp =
     isBootstrapped &&
     isAuthenticated &&
     hasCompletedOnboarding &&
-    !isCheckingAccess &&
-    !needsInviteCode &&
-    !needsAiApproval;
+    hasDesktopAccess &&
+    consent.status === "resolved" &&
+    consent.satisfied;
   const startupIdentity = getAuthIdentity(authState);
+
+  useEffect(() => {
+    if (consent.status !== "resolved" || !consent.satisfied) return;
+    if (!startupIdentity || !authenticatedClient) return;
+    void ensureSession(startupIdentity, authenticatedClient);
+  }, [consent, startupIdentity, authenticatedClient]);
 
   // Resolve and load the initial route before mounting the router. Reset when
   // the user leaves the main app so a later re-entry starts fresh.
@@ -112,10 +142,15 @@ function App({ devToolbar }: AppProps) {
     let cancelled = false;
     const loadInitialRoute = async (): Promise<void> => {
       try {
-        const href = await resolveStartupLocation(
+        const { href, firstRun } = await resolveStartupLocation(
           startupIdentity,
           authenticatedClient,
+          spacesLayoutEnabledRef.current,
         );
+        if (firstRun) {
+          showChannelList({ keepForRoute: firstRun.generalChannelId });
+          useSpaceTreeStore.getState().expandSpace(firstRun.generalChannelId);
+        }
         router.history.replace(href);
         rememberStartupLocation(startupIdentity, href);
         await router.load();
@@ -148,6 +183,16 @@ function App({ devToolbar }: AppProps) {
   // Mirrors the "main" branch of renderContent() below; keep the two in sync.
   const showingMainApp = readyForMainApp && initialRouteLoaded;
   useAppVisibilityWatchdog(mainRef, showingMainApp);
+  useAppLoadingGateTelemetry(showingMainApp, {
+    isBootstrapped,
+    isCheckingAccess,
+    readyForMainApp,
+    initialRouteLoaded,
+    authStatus: authState.status,
+    desktopAccessStatus: desktopAccess.status,
+    desktopAccessIsCurrent,
+    consentStatus: consent.status,
+  });
 
   // Single gate for every state where the whole app is still loading.
   if (
@@ -158,16 +203,17 @@ function App({ devToolbar }: AppProps) {
     return <AppLoadingScreen />;
   }
 
-  // Rendering: onboarding (includes auth + invite code gate) → main app
   const renderContent = () => {
-    if (!hasCompletedOnboarding) {
+    if (!hasCompletedOnboarding && !isBlockedByAccessPolicy) {
       return (
         <motion.div
           key="onboarding"
           initial={{ opacity: 1 }}
           className="h-full"
         >
-          <OnboardingFlow />
+          <OnboardingFlow
+            onOpenSupport={() => openExternalUrl(EXTERNAL_LINKS.discord)}
+          />
         </motion.div>
       );
     }
@@ -180,28 +226,47 @@ function App({ devToolbar }: AppProps) {
       );
     }
 
-    if (needsInviteCode) {
+    if (isBlockedByAccessPolicy) {
       return (
         <motion.div
-          key="invite-code"
+          key="desktop-access"
           initial={{ opacity: 1 }}
           className="h-full"
         >
-          <InviteCodeScreen />
+          <DesktopAccessScreen
+            access={desktopAccess}
+            orgProjectsMap={authState.orgProjectsMap}
+            currentOrgId={authState.currentOrgId}
+            currentProjectId={authState.currentProjectId}
+            isSwitching={
+              selectProjectMutation.isPending || switchOrgMutation.isPending
+            }
+            isRetrying={retryDesktopAccessMutation.isPending}
+            isRedeemingInviteCode={redeemInviteCodeMutation.isPending}
+            isLoggingOut={logoutMutation.isPending}
+            switchError={switchError}
+            redemptionError={redeemInviteCodeMutation.error?.message ?? null}
+            onSelectOrganization={(organizationId) =>
+              switchOrgMutation.mutate(organizationId)
+            }
+            onSelectProject={(projectId) =>
+              selectProjectMutation.mutate(projectId)
+            }
+            onRedeemInviteCode={(inviteCode) =>
+              redeemInviteCodeMutation.mutate(inviteCode)
+            }
+            onRetry={() => retryDesktopAccessMutation.mutate()}
+            onLogout={() => logoutMutation.mutate()}
+            onOpenSupport={() => openExternalUrl(EXTERNAL_LINKS.talkToHuman)}
+          />
         </motion.div>
       );
     }
 
-    if (needsAiApproval) {
+    if (consent.status === "error" || needsConsent) {
       return (
-        <motion.div
-          key="ai-approval"
-          initial={{ opacity: 1 }}
-          className="h-full"
-        >
-          <AiApprovalScreen
-            orgName={currentOrg?.name ?? null}
-            isAdmin={isAdmin}
+        <motion.div key="consent" initial={{ opacity: 1 }} className="h-full">
+          <ConsentScreen
             banner={<UpdateBanner variant="compact" />}
             onOpenSupport={() => openExternalUrl(EXTERNAL_LINKS.discord)}
             settingsDialog={<SettingsDialog />}

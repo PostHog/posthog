@@ -1,0 +1,42 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "limit": {
+            "default": 20,
+            "description": "Maximum number of results (default 20, at most 50).",
+            "maximum": 50,
+            "minimum": 1,
+            "type": "number"
+        },
+        "max_score": {
+            "description": "Keep only scorer observations with a score at or below this value.",
+            "type": "number"
+        },
+        "min_score": {
+            "description": "Keep only scorer observations with a score at or above this value.",
+            "type": "number"
+        },
+        "q": {
+            "description": "Natural-language description of what to find, e.g. 'users confused by the pricing page'.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+        },
+        "scanner_id": {
+            "description": "Search a single scanner's observations. Defaults to every scanner you can read.",
+            "type": "string"
+        },
+        "tags": {
+            "description": "Comma-separated classifier tags to keep. Matching is case- and format-insensitive. Unlike `verdict`, tags are not validated against a fixed list, so an unknown tag matches nothing.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "verdict": {
+            "description": "Comma-separated monitor verdicts to keep, e.g. `yes,inconclusive`.",
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "required": ["q"],
+    "type": "object"
+}

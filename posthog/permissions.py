@@ -17,6 +17,7 @@ from rest_framework.viewsets import ViewSet
 
 from posthog.auth import (
     IDJagAccessTokenAuthentication,
+    JwtAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
@@ -30,7 +31,8 @@ from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict, EnterpriseFeatureException, PaidFeatureException
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, is_enforcement_disable_request
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Project, Team, User
-from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl, ordered_access_levels
+from posthog.models.oauth import OAuthAccessToken
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.scopes import (
     INTERNAL_API_SCOPE_OBJECTS,
     MCP_BUILT_IN_AGENT_SCOPE,
@@ -39,6 +41,12 @@ from posthog.scopes import (
 )
 from posthog.session.reauth import sensitive_action_reference, step_up_required
 from posthog.utils import get_can_create_org
+
+from products.access_control.backend.facade.user_access_control import (
+    AccessControlLevel,
+    UserAccessControl,
+    ordered_access_levels,
+)
 
 CREATE_ACTIONS = ["create", "update"]
 
@@ -611,6 +619,14 @@ class ScopeBasePermission(BasePermission):
         return None
 
 
+def get_authenticator_user_credential(authenticator: object) -> PersonalAPIKey | OAuthAccessToken | None:
+    if isinstance(authenticator, PersonalAPIKeyAuthentication):
+        return authenticator.personal_api_key
+    if isinstance(authenticator, OAuthAccessTokenAuthentication):
+        return authenticator.access_token
+    return None
+
+
 def get_authenticator_scopes(authenticator) -> list[str] | None:
     """The API scopes carried by a scoped-token authenticator, or None for session and
     other non-token auth. Single source of truth for the token->scopes mapping, shared by
@@ -619,7 +635,6 @@ def get_authenticator_scopes(authenticator) -> list[str] | None:
     if isinstance(authenticator, PersonalAPIKeyAuthentication):
         return list(authenticator.personal_api_key.scopes or [])
     if isinstance(authenticator, OAuthAccessTokenAuthentication):
-        # OAuth tokens store scopes as a space-separated string.
         return str(authenticator.access_token.scope or "").split()
     if isinstance(authenticator, IDJagAccessTokenAuthentication):
         return list(authenticator.scopes or [])
@@ -635,10 +650,9 @@ def get_authenticator_scoped_organization_ids(authenticator) -> list[str] | None
     The organization-level counterpart of `get_authenticator_scoped_team_ids`. Both exist so that a
     check outside `TeamAndOrgViewSetMixin` reads a credential's reach from one place.
     """
-    if isinstance(authenticator, PersonalAPIKeyAuthentication):
-        return list(authenticator.personal_api_key.scoped_organizations or []) or None
-    if isinstance(authenticator, OAuthAccessTokenAuthentication):
-        return list(authenticator.access_token.scoped_organizations or []) or None
+    credential = get_authenticator_user_credential(authenticator)
+    if credential is not None:
+        return list(credential.scoped_organizations or []) or None
     if isinstance(authenticator, IDJagAccessTokenAuthentication):
         # An ID-JAG access token is bound to the one PostHog organization whose OrganizationDomain
         # pinned the trusted IdP, carried in the `org_id` claim. Confining it to that organization
@@ -656,10 +670,9 @@ def get_authenticator_scoped_team_ids(authenticator) -> list[int] | None:
     check that has to re-derive a credential's reach outside `TeamAndOrgViewSetMixin` reads both
     legs from one place.
     """
-    if isinstance(authenticator, PersonalAPIKeyAuthentication):
-        return list(authenticator.personal_api_key.scoped_teams or []) or None
-    if isinstance(authenticator, OAuthAccessTokenAuthentication):
-        return list(authenticator.access_token.scoped_teams or []) or None
+    credential = get_authenticator_user_credential(authenticator)
+    if credential is not None:
+        return list(credential.scoped_teams or []) or None
     return None
 
 
@@ -782,7 +795,10 @@ class APIScopePermission(ScopeBasePermission):
         authenticator = request.successful_authenticator
         if not isinstance(
             authenticator,
-            OAuthAccessTokenAuthentication | PersonalAPIKeyAuthentication | IDJagAccessTokenAuthentication,
+            OAuthAccessTokenAuthentication
+            | PersonalAPIKeyAuthentication
+            | JwtAuthentication
+            | IDJagAccessTokenAuthentication,
         ):
             raise ValueError("Unexpected authentication type")
 
@@ -821,7 +837,8 @@ class APIScopePermission(ScopeBasePermission):
         Admins can always use personal API keys regardless of the organization setting.
         """
         # Only applies to personal API keys — OAuth tokens are exempt.
-        if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+        credential = get_authenticator_user_credential(request.successful_authenticator)
+        if not isinstance(credential, PersonalAPIKey):
             return
 
         try:

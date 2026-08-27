@@ -344,9 +344,8 @@ class TestExternalTicketAPI(BaseTest):
         self.assertEqual(assignee["user"]["email"], self.user.email)
 
     def test_get_ticket_returns_role_assignee(self):
+        from products.access_control.backend.models.role import Role
         from products.conversations.backend.models import TicketAssignment
-
-        from ee.models.rbac.role import Role
 
         role = Role.objects.create(name="Support", organization=self.organization)
         TicketAssignment.objects.create(ticket=self.ticket, role=role)

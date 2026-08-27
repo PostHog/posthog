@@ -1,4 +1,4 @@
-import { Gauge, register } from 'prom-client'
+import { Counter, Gauge, register } from 'prom-client'
 
 import { GROUPS_OUTPUT } from '~/common/outputs'
 import { GroupFlushResult } from '~/ingestion/common/groups/group-store.interface'
@@ -36,6 +36,12 @@ describe('IngestionApiServer', () => {
         return (server as any).handleIngestRequest(req, res)
     }
 
+    async function eventSecondsInFlight(): Promise<number> {
+        const counter = register.getSingleMetric('ingestion_api_event_seconds_in_flight_total') as Counter<string>
+        const { values } = await counter.get()
+        return values[0]?.value ?? 0
+    }
+
     async function eventsInFlight(): Promise<number> {
         const gauge = register.getSingleMetric('ingestion_api_events_in_flight') as Gauge<string>
         const { values } = await gauge.get()
@@ -49,13 +55,14 @@ describe('IngestionApiServer', () => {
     beforeEach(() => {
         server = new IngestionApiServer()
         pipeline = { feed: jest.fn(), next: jest.fn() }
-        ;(server as any).joinedPipeline = pipeline
+        ;(server as any).httpPipeline = pipeline
         ;(server as any).promiseScheduler = { schedule: jest.fn(), waitForAll: jest.fn().mockResolvedValue(undefined) }
         ;(server as any).hogTransformer = { processInvocationResults: jest.fn().mockResolvedValue(undefined) }
         // stop() would call process.exit; stub it so the test only observes that it was invoked.
         stopSpy = jest.spyOn(server, 'stop').mockResolvedValue(undefined)
         // The gauge is a module-level singleton shared across tests in this file.
         register.getSingleMetric('ingestion_api_events_in_flight')?.reset()
+        register.getSingleMetric('ingestion_api_event_seconds_in_flight_total')?.reset()
     })
 
     it('reports healthy before any failure', () => {
@@ -102,9 +109,9 @@ describe('IngestionApiServer', () => {
         expect(stopSpy).not.toHaveBeenCalled()
     })
 
-    describe('events in flight gauge', () => {
-        type Gate = { resolve: () => void; reject: (error: Error) => void }
+    type Gate = { resolve: () => void; reject: (error: Error) => void }
 
+    describe('events in flight gauge', () => {
         // One gate per in-flight batch. The handler calls next() exactly once
         // (the mock resolves to null, ending its drain loop), so holding that
         // promise open holds the batch in flight and lets a test decide the
@@ -248,6 +255,120 @@ describe('IngestionApiServer', () => {
             await handle(makeRes(), 5)
 
             expect(await eventsInFlight()).toBe(0)
+        })
+    })
+
+    describe('event-seconds counter', () => {
+        // The counter is the integral of the gauge, so its whole value is that
+        // rate() over it recovers mean events in flight without depending on
+        // when a scrape lands. Driving Date.now directly keeps that arithmetic
+        // exact and avoids faking the timers the request path runs on.
+        let clock: jest.SpyInstance
+
+        beforeEach(() => {
+            clock = jest.spyOn(Date, 'now')
+        })
+
+        afterEach(() => {
+            clock.mockRestore()
+        })
+
+        function gateBatches(): Gate[] {
+            const gates: Gate[] = []
+            pipeline.feed.mockResolvedValue({ ok: true })
+            pipeline.next.mockImplementation(
+                () =>
+                    new Promise<null>((resolve, reject) => {
+                        gates.push({ resolve: () => resolve(null), reject })
+                    })
+            )
+            return gates
+        }
+
+        function flush(): Promise<void> {
+            return new Promise((resolve) => setImmediate(resolve))
+        }
+
+        it('accumulates events multiplied by seconds in flight', async () => {
+            const gates = gateBatches()
+            clock.mockReturnValue(1_000)
+
+            const batch = handle(makeRes(), 10)
+            await flush()
+
+            clock.mockReturnValue(3_500)
+            gates[0].resolve()
+            await batch
+
+            // 10 events held for 2.5s.
+            expect(await eventSecondsInFlight()).toBe(25)
+        })
+
+        it('credits each concurrent batch its own duration', async () => {
+            const gates = gateBatches()
+            clock.mockReturnValue(0)
+
+            const long = handle(makeRes(), 100)
+            await flush()
+            clock.mockReturnValue(1_000)
+            const short = handle(makeRes(), 4)
+            await flush()
+
+            // short: accepted at 1s, ends at 3s  -> 4 * 2  =   8
+            clock.mockReturnValue(3_000)
+            gates[1].resolve()
+            await short
+            expect(await eventSecondsInFlight()).toBe(8)
+
+            // long: accepted at 0s, ends at 4s   -> 100 * 4 = 400
+            clock.mockReturnValue(4_000)
+            gates[0].resolve()
+            await long
+            expect(await eventSecondsInFlight()).toBe(408)
+        })
+
+        it('recovers mean events in flight, which is the point of the counter', async () => {
+            // One event held for 60s and 60 events each held for 1s both mean
+            // "1 event in flight on average over a minute". A gauge scraped
+            // once would report 1 or 60 depending on timing; the counter says
+            // 60 event-seconds either way.
+            const gates = gateBatches()
+
+            clock.mockReturnValue(0)
+            const steady = handle(makeRes(), 1)
+            await flush()
+            clock.mockReturnValue(60_000)
+            gates[0].resolve()
+            await steady
+            const heldLong = await eventSecondsInFlight()
+
+            register.getSingleMetric('ingestion_api_event_seconds_in_flight_total')?.reset()
+
+            for (let i = 0; i < 60; i++) {
+                clock.mockReturnValue(i * 1_000)
+                const burst = handle(makeRes(), 60)
+                await flush()
+                clock.mockReturnValue(i * 1_000 + 1_000)
+                gates[gates.length - 1].resolve()
+                await burst
+            }
+            const burstsShort = await eventSecondsInFlight()
+
+            expect(heldLong).toBe(60)
+            expect(burstsShort).toBe(3_600)
+            // Same mean over their own window: 60/60s = 1, 3600/60s = 60.
+            expect(heldLong / 60).toBe(1)
+            expect(burstsShort / 60).toBe(60)
+        })
+
+        it('does not credit a batch rejected at capacity', async () => {
+            clock.mockReturnValue(0)
+            pipeline.feed.mockResolvedValue({ ok: false, kind: 'at_capacity', reason: 'at capacity' })
+
+            clock.mockReturnValue(5_000)
+            await handle(makeRes(), 10)
+
+            expect(await eventSecondsInFlight()).toBe(0)
         })
     })
 

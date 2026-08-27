@@ -338,5 +338,15 @@ export const canvasToHostMessageSchema = z.discriminatedUnion("type", [
     type: z.literal("comment-activate"),
     id: z.string().min(1).max(128),
   }),
+  z.object({
+    channel: z.literal(CANVAS_CHANNEL),
+    type: z.literal("keydown"),
+    key: z.string().min(1).max(32),
+    code: z.string().max(32),
+    metaKey: z.boolean(),
+    ctrlKey: z.boolean(),
+    shiftKey: z.boolean(),
+    altKey: z.boolean(),
+  }),
 ]);
 export type CanvasToHostMessage = z.infer<typeof canvasToHostMessageSchema>;

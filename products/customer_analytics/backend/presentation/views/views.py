@@ -18,7 +18,10 @@ from dataclasses import asdict
 from typing import Any, cast
 from uuid import UUID
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import DomainNameValidator
 from django.db import transaction
+from django.http import HttpResponse
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -33,6 +36,7 @@ from rest_framework.throttling import UserRateThrottle
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
+from posthog.cdp.services.icons import CDPIconsService
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
@@ -44,11 +48,15 @@ from posthog.permissions import (
     get_authenticator_scopes,
     is_service_auth,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControl, model_to_resource
+from posthog.rate_limit import RunSavedQueryRateThrottle
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl, model_to_resource
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.customer_analytics.backend.facade import api, contracts
-from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG
+from products.customer_analytics.backend.facade.constants import (
+    CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG,
+    CUSTOMER_ANALYTICS_TRACK_RULES_FLAG,
+)
 from products.customer_analytics.backend.presentation.views.serializers import (
     AccountChannelSummarySerializer,
     AccountEmailThreadMessageSerializer,
@@ -59,6 +67,10 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     AccountRelationshipSerializer,
     AccountRelationshipWriteSerializer,
     AccountSerializer,
+    AccountTrackRulePreviewSerializer,
+    AccountTrackRuleRunRequestSerializer,
+    AccountTrackRuleRunSerializer,
+    AccountTrackRulesConfigSerializer,
     CalendarSyncStatusSerializer,
     CalendarSyncTriggerResponseSerializer,
     CalendarSyncTriggerSerializer,
@@ -67,6 +79,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     CustomPropertyDefinitionSerializer,
     CustomPropertySourceSerializer,
     CustomPropertySourceUpdateSerializer,
+    CustomPropertySyncRunListQuerySerializer,
     CustomPropertySyncRunSerializer,
     CustomPropertySyncTriggerResponseSerializer,
     CustomPropertyValueSerializer,
@@ -75,7 +88,11 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     EventStreamMemberWriteSerializer,
     EventStreamSerializer,
     EventStreamTestMessageSerializer,
+    FeatureRequestAddAccountSerializer,
     FeatureRequestCreateSerializer,
+    FeatureRequestEvidenceCreateSerializer,
+    FeatureRequestEvidenceDeleteSerializer,
+    FeatureRequestEvidenceUpdateSerializer,
     FeatureRequestHistorySerializer,
     FeatureRequestListQuerySerializer,
     FeatureRequestProductAreaListQuerySerializer,
@@ -85,6 +102,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     FeatureRequestUpdateSerializer,
     FeatureRequestVersionSerializer,
     MeetingSerializer,
+    SupportTicketMessageSerializer,
     SupportTicketSerializer,
 )
 
@@ -96,15 +114,23 @@ from ee.hogai.tools.create_notebook.tiptap import markdown_to_tiptap_nodes
 _OBJECT_READ_LEVEL = "viewer"
 _OBJECT_WRITE_LEVEL = "editor"
 
+_ICON_DOMAIN_VALIDATOR = DomainNameValidator(accept_idna=False)
+
+
+# The warehouse resources a person/group-property source can bind to: the import source behind a
+# table, or a materialized view. Each needs its own API-token scope folded into the object check.
+_WAREHOUSE_SCOPE_GATED_RESOURCES = frozenset({"external_data_source", "warehouse_view"})
+
 
 class _WarehouseScopeGatedAccessControl:
-    """Wraps ``UserAccessControl`` so object-level ``external_data_source`` access additionally
-    requires the request token to carry the matching ``external_data_source`` scope (``read`` for
-    viewer, ``write`` for editor). Person-property sources gate all warehouse read/write through
-    ``check_access_level_for_object`` on the linked ``external_data_source``, so folding the token
-    scope in here enforces the cross-resource scope on every path without threading it through the
-    facade. Session auth (no token scopes) and ``*`` tokens are unaffected — API scopes never gate
-    session requests, which stay RBAC-only. Everything else delegates to the wrapped instance."""
+    """Wraps ``UserAccessControl`` so object-level warehouse access additionally requires the request
+    token to carry the matching scope for that resource (``read`` for viewer, ``write`` for editor) —
+    ``external_data_source`` for a table binding, ``warehouse_view`` for a view binding.
+    Person-property sources gate all warehouse read/write through ``check_access_level_for_object`` on
+    the bound warehouse object, so folding the token scope in here enforces the cross-resource scope on
+    every path without threading it through the facade. Session auth (no token scopes) and ``*`` tokens
+    are unaffected — API scopes never gate session requests, which stay RBAC-only. Everything else
+    delegates to the wrapped instance."""
 
     def __init__(self, inner: UserAccessControl, token_scopes: list[str]) -> None:
         self._inner = inner
@@ -120,16 +146,17 @@ class _WarehouseScopeGatedAccessControl:
 
     def _token_lacks_scope_for(self, obj: Any, required_level: Any) -> bool:
         scopes = self._token_scopes
-        if "*" in scopes or model_to_resource(obj) != "external_data_source":
+        resource = model_to_resource(obj)
+        if "*" in scopes or resource not in _WAREHOUSE_SCOPE_GATED_RESOURCES:
             return False
-        if "external_data_source:write" in scopes:
+        if f"{resource}:write" in scopes:
             return False  # write implies read, so it satisfies both viewer and editor
-        return not (required_level == "viewer" and "external_data_source:read" in scopes)
+        return not (required_level == "viewer" and f"{resource}:read" in scopes)
 
 
 def _warehouse_scoped_uac(view: Any) -> UserAccessControl:
-    """The view's ``UserAccessControl``, additionally gating ``external_data_source`` object access on
-    the request token's warehouse scope. A no-op for session/other non-token auth (no token scopes)."""
+    """The view's ``UserAccessControl``, additionally gating warehouse object access on the request
+    token's scope for that resource. A no-op for session/other non-token auth (no token scopes)."""
     scopes = get_authenticator_scopes(getattr(view.request, "successful_authenticator", None))
     if scopes is None:
         return view.user_access_control
@@ -206,6 +233,169 @@ def _has_group_scope(request: Request, *, write: bool) -> bool:
 def _assert_group_scope(request: Request, *, write: bool) -> None:
     if not _has_group_scope(request, write=write):
         raise PermissionDenied(f"This action requires the `group:{'write' if write else 'read'}` API scope.")
+
+
+class AccountTrackRuleThrottle(UserRateThrottle):
+    scope = "account_track_rules"
+    rate = "10/minute"
+
+
+class AccountTrackRuleViewSet(
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    _FacadePaginationMixin,
+    viewsets.GenericViewSet,
+):
+    scope_object = "customer_analytics"
+    serializer_class = AccountTrackRulesConfigSerializer
+    queryset = None
+    pagination_class = None
+    permission_classes = [PostHogFeatureFlagPermission, TeamMemberStrictManagementPermission]
+    posthog_feature_flag = CUSTOMER_ANALYTICS_TRACK_RULES_FLAG
+
+    @classmethod
+    def as_view(cls, actions=None, **initkwargs):
+        if actions and actions.get("get") == "list":
+            actions = {**actions, "put": "update_config"}
+        return super().as_view(actions, **initkwargs)
+
+    def dangerously_get_required_scopes(self, _request: Request, _view: Any) -> list[str] | None:
+        if self.action == "update_config":
+            return ["customer_analytics:write"]
+        return None
+
+    @extend_schema(responses={200: AccountTrackRulesConfigSerializer(many=False)})
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        config = api.get_account_track_rules(self.team_id)
+        return Response(AccountTrackRulesConfigSerializer(instance=config).data)
+
+    def _report_usage(self, request: Request, event: str, **properties: Any) -> None:
+        report_user_action(cast(User, request.user), event, properties, team=self.team)
+
+    @extend_schema(
+        request=AccountTrackRulesConfigSerializer,
+        responses={200: AccountTrackRulesConfigSerializer},
+    )
+    def update_config(self, request: Request, *args, **kwargs) -> Response:
+        serializer = AccountTrackRulesConfigSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            config = api.update_account_track_rules(
+                team_id=self.team_id,
+                raw_config=dict(serializer.validated_data),
+                user=cast(User, request.user),
+                organization_id=self.organization.id,
+                was_impersonated=is_impersonated(request),
+            )
+        except api.AccountTrackRuleValidationError as error:
+            raise ValidationError({"validation_errors": error.errors})
+        except api.AccountTrackRuleVersionConflict as error:
+            raise Conflict(str(error))
+        self._report_usage(
+            request,
+            "account track rules config saved",
+            schema_version=config.schema_version,
+            config_version=config.version,
+            enabled=config.enabled,
+            group_count=len(config.groups),
+            condition_count=sum(len(group.conditions) for group in config.groups),
+        )
+        return Response(AccountTrackRulesConfigSerializer(instance=config).data)
+
+    @extend_schema(
+        request=AccountTrackRulesConfigSerializer,
+        responses={200: AccountTrackRulePreviewSerializer},
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="preview",
+        required_scopes=["customer_analytics:write"],
+        throttle_classes=[AccountTrackRuleThrottle],
+    )
+    def preview(self, request: Request, *args, **kwargs) -> Response:
+        raw_config = None
+        if request.data:
+            serializer = AccountTrackRulesConfigSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            raw_config = dict(serializer.validated_data)
+        try:
+            preview = api.preview_account_track_rules(self.team_id, raw_config)
+        except api.AccountTrackRuleValidationError as error:
+            self._report_usage(request, "account track rules preview failed", failure_type="validation")
+            raise ValidationError({"validation_errors": error.errors})
+        self._report_usage(
+            request,
+            "account track rules preview completed",
+            config_version=preview.config_version,
+            eligible_active=preview.eligible_active,
+            skipped_churned=preview.skipped_churned,
+            tracked=preview.tracked,
+            ignored=preview.ignored,
+            newly_ignored=preview.newly_ignored,
+            restored=preview.restored,
+        )
+        return Response(AccountTrackRulePreviewSerializer(instance=preview).data)
+
+    @extend_schema(
+        request=AccountTrackRuleRunRequestSerializer,
+        responses={202: AccountTrackRuleRunSerializer},
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="run",
+        required_scopes=["customer_analytics:write"],
+        throttle_classes=[AccountTrackRuleThrottle],
+    )
+    def run(self, request: Request, *args, **kwargs) -> Response:
+        serializer = AccountTrackRuleRunRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            run, started = api.trigger_account_track_rule_run(
+                team_id=self.team_id,
+                idempotency_key=data["idempotency_key"],
+                user_id=cast(User, request.user).id,
+            )
+        except api.AccountTrackRuleValidationError as error:
+            self._report_usage(request, "account track rules run start failed", failure_type="validation")
+            raise ValidationError({"validation_errors": error.errors})
+        except api.AccountTrackRuleRunError as error:
+            self._report_usage(request, "account track rules run start failed", failure_type="disabled")
+            raise ValidationError({"detail": str(error)})
+        except api.AccountTrackRuleRunAlreadyActive as error:
+            self._report_usage(request, "account track rules run start failed", failure_type="overlap")
+            raise Conflict(str(error))
+        if started:
+            self._report_usage(
+                request,
+                "account track rules run started",
+                config_version=run.config_version,
+                trigger=run.trigger,
+            )
+        return Response(AccountTrackRuleRunSerializer(instance=run).data, status=status.HTTP_202_ACCEPTED)
+
+    @extend_schema(
+        responses={200: AccountTrackRuleRunSerializer(many=True)},
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="runs",
+        pagination_class=LimitOffsetPagination,
+        required_scopes=["customer_analytics:read"],
+    )
+    def runs(self, request: Request, *args, **kwargs) -> Response:
+        return self._paginate_via_facade(
+            request,
+            lambda offset, limit: api.list_account_track_rule_runs(
+                self.team_id,
+                offset=offset,
+                limit=limit,
+            ),
+            AccountTrackRuleRunSerializer,
+        )
 
 
 class FeatureRequestProductAreaViewSet(
@@ -285,6 +475,19 @@ class FeatureRequestProductAreaViewSet(
         return self.update(request, *args, **kwargs)
 
 
+def _feature_request_evidence_input(data: dict[str, Any] | None) -> contracts.FeatureRequestEvidenceInput | None:
+    if data is None:
+        return None
+    return contracts.FeatureRequestEvidenceInput(
+        summary=data["summary"],
+        customer_quote=data["customer_quote"],
+        evidence_source=data["evidence_source"],
+        source_url=data["source_url"],
+        requested_on=data["requested_on"],
+        image_ids=tuple(data.get("image_ids", ())),
+    )
+
+
 class FeatureRequestViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
@@ -318,6 +521,7 @@ class FeatureRequestViewSet(
                     priorities=tuple(data.get("priorities", ())),
                     product_area_ids=tuple(data.get("product_area_ids", ())),
                     account_ids=tuple(data.get("account_ids", ())),
+                    created_by_ids=tuple(data.get("created_by_ids", ())),
                     archive_state=data["archive_state"],
                     ordering=data["request_ordering"],
                 ),
@@ -354,6 +558,7 @@ class FeatureRequestViewSet(
                     account_id=data["account_id"],
                     product_area_ids=tuple(data["product_area_ids"]),
                     idempotency_key=data["idempotency_key"],
+                    evidence=_feature_request_evidence_input(data.get("evidence")),
                 ),
                 actor_id=cast(User, request.user).id,
                 user_access_control=self.user_access_control,
@@ -376,7 +581,11 @@ class FeatureRequestViewSet(
                     expected_version=data["expected_version"],
                     title=data.get("title"),
                     description=data.get("description"),
-                    account_id=data.get("account_id"),
+                    account_ids=(
+                        tuple(data["account_ids"])
+                        if "account_ids" in request.data
+                        else ((data["account_id"],) if "account_id" in request.data else None)
+                    ),
                     product_area_ids=(tuple(data["product_area_ids"]) if "product_area_ids" in request.data else None),
                     request_status=data.get("request_status"),
                     request_priority=data.get("request_priority"),
@@ -397,6 +606,120 @@ class FeatureRequestViewSet(
     def partial_update(self, request: Request, *args, **kwargs) -> Response:
         return self.update(request, *args, **kwargs)
 
+    @extend_schema(request=FeatureRequestAddAccountSerializer, responses={200: FeatureRequestSerializer})
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
+    def add_account(self, request: Request, *args, **kwargs) -> Response:
+        serializer = FeatureRequestAddAccountSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        evidence = _feature_request_evidence_input(data.get("evidence"))
+        try:
+            feature_request = api.add_feature_request_account(
+                team_id=self.team_id,
+                feature_request_id=self.kwargs["pk"],
+                input=contracts.AddFeatureRequestAccountInput(
+                    expected_version=data["expected_version"],
+                    account_id=data["account_id"],
+                    evidence=evidence,
+                ),
+                actor_id=cast(User, request.user).id,
+                user_access_control=self.user_access_control,
+            )
+        except api.FeatureRequestValidationError as error:
+            raise ValidationError({error.field: error.message})
+        except api.FeatureRequestConflictError as error:
+            raise Conflict(str(error))
+        if feature_request is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestSerializer(instance=feature_request).data)
+
+    @extend_schema(request=FeatureRequestEvidenceCreateSerializer, responses={200: FeatureRequestSerializer})
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
+    def add_evidence(self, request: Request, *args, **kwargs) -> Response:
+        serializer = FeatureRequestEvidenceCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            feature_request = api.create_feature_request_evidence(
+                team_id=self.team_id,
+                feature_request_id=self.kwargs["pk"],
+                input=contracts.CreateFeatureRequestEvidenceInput(
+                    expected_version=data["expected_version"],
+                    account_link_id=data["account_link_id"],
+                    summary=data["summary"],
+                    customer_quote=data["customer_quote"],
+                    evidence_source=data["evidence_source"],
+                    source_url=data["source_url"],
+                    requested_on=data["requested_on"],
+                    image_ids=tuple(data.get("image_ids", ())),
+                ),
+                actor_id=cast(User, request.user).id,
+                user_access_control=self.user_access_control,
+            )
+        except api.FeatureRequestValidationError as error:
+            raise ValidationError({error.field: error.message})
+        except api.FeatureRequestConflictError as error:
+            raise Conflict(str(error))
+        if feature_request is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestSerializer(instance=feature_request).data)
+
+    @extend_schema(request=FeatureRequestEvidenceUpdateSerializer, responses={200: FeatureRequestSerializer})
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
+    def update_evidence(self, request: Request, *args, **kwargs) -> Response:
+        serializer = FeatureRequestEvidenceUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            feature_request = api.update_feature_request_evidence(
+                team_id=self.team_id,
+                feature_request_id=self.kwargs["pk"],
+                input=contracts.UpdateFeatureRequestEvidenceInput(
+                    expected_version=data["expected_version"],
+                    evidence_id=data["evidence_id"],
+                    summary=data["summary"],
+                    customer_quote=data["customer_quote"],
+                    evidence_source=data["evidence_source"],
+                    source_url=data["source_url"],
+                    requested_on=data["requested_on"],
+                    image_ids=tuple(data["image_ids"]) if "image_ids" in request.data else None,
+                ),
+                actor_id=cast(User, request.user).id,
+                user_access_control=self.user_access_control,
+            )
+        except api.FeatureRequestValidationError as error:
+            raise ValidationError({error.field: error.message})
+        except api.FeatureRequestConflictError as error:
+            raise Conflict(str(error))
+        if feature_request is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestSerializer(instance=feature_request).data)
+
+    @extend_schema(request=FeatureRequestEvidenceDeleteSerializer, responses={200: FeatureRequestSerializer})
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
+    def remove_evidence(self, request: Request, *args, **kwargs) -> Response:
+        serializer = FeatureRequestEvidenceDeleteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            feature_request = api.delete_feature_request_evidence(
+                team_id=self.team_id,
+                feature_request_id=self.kwargs["pk"],
+                input=contracts.DeleteFeatureRequestEvidenceInput(
+                    expected_version=data["expected_version"],
+                    evidence_id=data["evidence_id"],
+                ),
+                actor_id=cast(User, request.user).id,
+                user_access_control=self.user_access_control,
+            )
+        except api.FeatureRequestValidationError as error:
+            raise ValidationError({error.field: error.message})
+        except api.FeatureRequestConflictError as error:
+            raise Conflict(str(error))
+        if feature_request is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestSerializer(instance=feature_request).data)
+
     def _set_archived(self, request: Request, *, archived: bool) -> Response:
         serializer = FeatureRequestVersionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -416,17 +739,17 @@ class FeatureRequestViewSet(
         return Response(FeatureRequestSerializer(instance=feature_request).data)
 
     @extend_schema(request=FeatureRequestVersionSerializer, responses={200: FeatureRequestSerializer})
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
     def archive(self, request: Request, *args, **kwargs) -> Response:
         return self._set_archived(request, archived=True)
 
     @extend_schema(request=FeatureRequestVersionSerializer, responses={200: FeatureRequestSerializer})
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
     def restore(self, request: Request, *args, **kwargs) -> Response:
         return self._set_archived(request, archived=False)
 
     @extend_schema(responses={200: FeatureRequestHistorySerializer(many=True)})
-    @action(methods=["GET"], detail=True, pagination_class=None)
+    @action(methods=["GET"], detail=True, pagination_class=None, required_scopes=["customer_analytics:read"])
     def history(self, request: Request, *args, **kwargs) -> Response:
         history = api.list_feature_request_history(
             team_id=self.team_id,
@@ -438,7 +761,7 @@ class FeatureRequestViewSet(
         return Response(FeatureRequestHistorySerializer(instance=history, many=True).data)
 
     @extend_schema(responses={200: FeatureRequestStatusHistorySerializer(many=True)})
-    @action(methods=["GET"], detail=True, pagination_class=None)
+    @action(methods=["GET"], detail=True, pagination_class=None, required_scopes=["customer_analytics:read"])
     def status_history(self, request: Request, *args, **kwargs) -> Response:
         history = api.list_feature_request_status_history(
             team_id=self.team_id,
@@ -805,6 +1128,22 @@ def _account_relationship_definition_write_fields(validated, raw_data: dict) -> 
     return fields
 
 
+class CustomPropertySourceSyncThrottle(RunSavedQueryRateThrottle):
+    """A manual sync starts a real warehouse run — a billable import for a table binding, a
+    materialization for a view. Keying on the bound warehouse object instead of the mapping puts a
+    view-bound sync in the same bucket as the canonical saved-query run endpoint, so a caller can't
+    exceed that view's run limit by pointing two mappings at it (or by using this route instead)."""
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        source_id = view.kwargs.get("pk", "")
+        if team_id and source_id:
+            binding_id = api.get_custom_property_source_binding_id(team_id, source_id)
+            if binding_id:
+                return self.cache_format % {"scope": self.scope, "ident": f"{team_id}_{binding_id}"}
+        return super().get_cache_key(request, view)
+
+
 class CustomPropertySourceViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
@@ -948,11 +1287,11 @@ class CustomPropertySourceViewSet(
         request=None,
         responses={202: CustomPropertySyncTriggerResponseSerializer},
     )
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, throttle_classes=[CustomPropertySourceSyncThrottle])
     def sync(self, request: Request, *args, **kwargs) -> Response:
-        """Person and group sources only: trigger the underlying warehouse schema's sync now. This
-        re-runs a real (billable) warehouse sync; the incremental person/group-property update runs
-        off it."""
+        """Person and group sources only: run what this source reads now — an import for a table
+        binding (a real, billable warehouse sync), a materialization for a view binding. The
+        incremental person/group-property update runs off that run."""
         self._guard_group_source(request, self.kwargs["pk"])
         try:
             triggered = api.trigger_person_property_sync(
@@ -960,7 +1299,7 @@ class CustomPropertySourceViewSet(
             )
         except api.ResourceForbiddenError:
             raise PermissionDenied()
-        except api.WarehouseSyncPausedError as e:
+        except (api.WarehouseSyncPausedError, api.ViewNotSyncableError) as e:
             return Response({"message": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         if not triggered:
             raise ValidationError("This action is only available for enabled person- or group-property sources.")
@@ -997,13 +1336,13 @@ class CustomPropertySourceViewSet(
 
     @extend_schema(
         operation_id="custom_property_sources_runs_list",
+        parameters=[CustomPropertySyncRunListQuerySerializer],
         responses={200: CustomPropertySyncRunSerializer(many=True)},
     )
     @action(methods=["GET"], detail=True)
     def runs(self, request: Request, *args, **kwargs) -> Response:
-        """Person and group sources only: the source's sync/backfill run history, newest first. Gated
-        on the caller's warehouse-source viewer access, since the runs expose its row counts and sync
-        errors."""
+        """The source's sync history, newest first. Person and group runs require viewer access to
+        their warehouse source because the response includes row counts and sync errors."""
         # Hide the run history of a group-target source from callers without group read authorization.
         source = api.get_custom_property_source(self.team_id, self.kwargs["pk"])
         if (
@@ -1012,6 +1351,11 @@ class CustomPropertySourceViewSet(
             and not _has_group_scope(request, write=False)
         ):
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        if source is not None and self._definition_target_type(source.definition) == "account":
+            self._report_usage(request, "account property sync history viewed")
+        query = CustomPropertySyncRunListQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        search = query.validated_data.get("search", "").strip() or None
         try:
             return self._paginate_via_facade(
                 request,
@@ -1021,6 +1365,8 @@ class CustomPropertySourceViewSet(
                     offset=offset,
                     limit=limit,
                     user_access_control=_warehouse_scoped_uac(self),
+                    include_temporal_urls=bool(request.user.is_staff or is_impersonated(request)),
+                    search=search,
                 ),
                 CustomPropertySyncRunSerializer,
             )
@@ -1211,6 +1557,14 @@ class AccountViewSet(
                 description="Include churned accounts. Churned accounts are hidden by default.",
             ),
             OpenApiParameter(
+                name="include_ignored",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                default=False,
+                description="Include ignored accounts. Ignored accounts are hidden by default.",
+            ),
+            OpenApiParameter(
                 name="ordering",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
@@ -1235,6 +1589,7 @@ class AccountViewSet(
                 tags=tags,
                 all_roles_unassigned=request.query_params.get("all_roles_unassigned", "").lower() == "true",
                 include_churned=request.query_params.get("include_churned", "").lower() == "true",
+                include_ignored=request.query_params.get("include_ignored", "").lower() == "true",
                 ordering=ordering,
             ),
             AccountSerializer,
@@ -1269,6 +1624,50 @@ class AccountViewSet(
         if tickets is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(SupportTicketSerializer(instance=tickets, many=True).data)
+
+    @extend_schema(
+        operation_id="accounts_support_ticket_messages_list",
+        parameters=[_ACCOUNT_ID_PARAM],
+        responses={200: SupportTicketMessageSerializer(many=True)},
+    )
+    @action(
+        methods=["GET"],
+        detail=True,
+        url_path=r"support_tickets/(?P<ticket_id>[^/.]+)",
+        url_name="support-ticket-detail",
+        pagination_class=AccountEmailThreadMessagePagination,
+    )
+    def support_ticket(self, request: Request, ticket_id: str, *args, **kwargs) -> Response:
+        try:
+            parsed_ticket_id = str(UUID(ticket_id))
+        except ValueError:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        paginator = cast(LimitOffsetPagination, self.paginator)
+        limit = paginator.get_limit(request)
+        assert limit is not None
+        offset = paginator.get_offset(request)
+        try:
+            result = api.get_account_support_ticket_messages(
+                self.team_id,
+                self.kwargs["pk"],
+                parsed_ticket_id,
+                self.user_access_control,
+                offset=offset,
+                limit=limit,
+            )
+        except api.ResourceForbiddenError:
+            raise PermissionDenied()
+        if result is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        messages, count = result
+        paginator.request = request
+        paginator.limit = limit
+        paginator.offset = offset
+        paginator.count = count
+        serializer = SupportTicketMessageSerializer(instance=messages, many=True)
+        return paginator.get_paginated_response(serializer.data)
 
     @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: AccountEmailThreadSerializer(many=True)})
     @action(methods=["GET"], detail=True, url_path="email_threads")
@@ -1375,9 +1774,28 @@ class AccountViewSet(
                 return mixin_result
         # Ticket content behind an account-scoped viewset — a token holding only
         # account:read must not read it.
-        if view.action in {"support_tickets", "email_threads", "email_thread"}:
+        if view.action in {"support_tickets", "support_ticket", "email_threads", "email_thread"}:
             return ["account:read", "ticket:read"]
         return None
+
+    # Image bytes for <img src>; deliberately outside the typed client surface.
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], detail=False, required_scopes=["account:read"])
+    def icon(self, request: Request, *args, **kwargs) -> HttpResponse:
+        domain = request.query_params.get("domain", "").strip().lower().rstrip(".")
+        try:
+            _ICON_DOMAIN_VALIDATOR(domain)
+        except DjangoValidationError:
+            raise ValidationError("domain must be a bare hostname, e.g. posthog.com")
+        theme = request.query_params.get("theme")
+        return CDPIconsService().get_icon_http_response(
+            domain,
+            # Bound cache keys to the themes logo.dev supports.
+            theme=theme if theme in ("light", "dark") else None,
+            # AccountLogo renders its own lettermark on 404 instead of logo.dev's monogram.
+            fallback="404",
+            team_id=self.team_id,
+        )
 
     def create(self, request: Request, *args, **kwargs) -> Response:
         serializer = AccountSerializer(data=request.data)

@@ -15,18 +15,14 @@ from posthog.api.tagged_item import set_tags_on_object
 from posthog.constants import AvailableFeature
 from posthog.models import Tag, User
 from posthog.models.team import Team
-from posthog.rbac.user_access_control import UserAccessControlError
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.hogql_queries.accounts_query_runner import AccountsQueryRunner
 from products.customer_analytics.backend.logic import relationships as relationships_logic
 from products.customer_analytics.backend.models import AccountRelationshipDefinition, CustomPropertyValue
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
 from products.notebooks.backend.models import Notebook, ResourceNotebook
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -82,6 +78,13 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         create_account(team_id=self.team.id, name="B")
         self.assertEqual(len(self._ids(search="")), 2)
         self.assertEqual(len(self._ids(search="   ")), 2)
+
+    def test_ignored_accounts_are_hidden_by_default(self):
+        create_account(team_id=self.team.id, name="Tracked")
+        create_account(team_id=self.team.id, name="Ignored", ignored_at=timezone.now())
+
+        self.assertEqual(self._names(), ["Tracked"])
+        self.assertEqual(set(self._names(includeIgnored=True)), {"Tracked", "Ignored"})
 
     def test_search_respects_team_isolation(self):
         other_team = Team.objects.create(organization=self.organization)

@@ -25,6 +25,13 @@ const STORY_USER: UserBasicType = {
 
 const EMPTY_INSIGHT = {} as QueryBasedInsightModel
 
+/**
+ * Point labels land on the x-axis, so a live clock moves the snapshot on every visual-regression
+ * run. The `mockDate` parameter cannot cover this on its own, because story args are built at
+ * module load, before the decorator runs.
+ */
+const STORY_NOW = dayjs('2026-07-16T12:00:00')
+
 function buildStoryAlert(overrides: Partial<AlertType> & Pick<AlertType, 'threshold'>): AlertType {
     return {
         id: '11111111-1111-1111-1111-111111111111',
@@ -35,10 +42,10 @@ function buildStoryAlert(overrides: Partial<AlertType> & Pick<AlertType, 'thresh
         config: { type: 'TrendsAlertConfig', series_index: 0 },
         subscribed_users: [],
         created_by: STORY_USER,
-        created_at: dayjs().toISOString(),
+        created_at: STORY_NOW.toISOString(),
         state: AlertState.NOT_FIRING,
-        last_notified_at: dayjs().toISOString(),
-        last_checked_at: dayjs().toISOString(),
+        last_notified_at: STORY_NOW.toISOString(),
+        last_checked_at: STORY_NOW.toISOString(),
         checks: [],
         calculation_interval: AlertCalculationInterval.DAILY,
         detector_config: null,
@@ -49,9 +56,7 @@ function buildStoryAlert(overrides: Partial<AlertType> & Pick<AlertType, 'thresh
 function makePoints(count: number, seed = 0): AlertHistoryChartPoint[] {
     return Array.from({ length: count }, (_, i) => ({
         value: 45 + Math.sin((i + seed) / 2.5) * 22 + (i % 5) * 4 + (i === 12 ? 35 : 0),
-        label: dayjs()
-            .subtract(count - 1 - i, 'hour')
-            .format('MMM D, HH:mm'),
+        label: STORY_NOW.subtract(count - 1 - i, 'hour').format('MMM D, HH:mm'),
     }))
 }
 
@@ -75,6 +80,9 @@ function withHistoricalFirings(
 const meta: Meta<typeof AlertHistoryChart> = {
     title: 'Products/Alerts/Alert history chart',
     component: AlertHistoryChart,
+    parameters: {
+        mockDate: STORY_NOW.toISOString(),
+    },
     args: {
         historyLimit: CHART_CHECKS_LIMIT,
         checksTotal: null,
@@ -137,9 +145,7 @@ export const AnomalyProbabilityCutoff: Story = {
     args: {
         points: Array.from({ length: 16 }, (_, i) => ({
             value: Math.min(0.99, 0.15 + i * 0.045 + (i === 10 ? 0.25 : 0)),
-            label: dayjs()
-                .subtract(16 - 1 - i, 'hour')
-                .format('MMM D, HH:mm'),
+            label: STORY_NOW.subtract(16 - 1 - i, 'hour').format('MMM D, HH:mm'),
         })),
         valueLabel: 'Anomaly score',
         chartPlotsAnomalyScore: true,

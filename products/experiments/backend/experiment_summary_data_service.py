@@ -2,7 +2,6 @@ import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, TypeIs, Union
-from zoneinfo import ZoneInfo
 
 from django.conf import settings
 
@@ -56,12 +55,6 @@ class ExposureQueryResult:
 
 
 MAX_CONCURRENT_EXPERIMENT_SUMMARY_QUERIES = 10
-
-# This threshold is just to avoid minor discrepancies in timestamps.
-# The check itself compares the frontend timestamp with the last
-# backend refresh timestamp. So leaving the browser open while not
-# having any new data on the backend will not trigger a warning.
-FRESHNESS_THRESHOLD_SECONDS = 60
 
 ExperimentMetricType = Union[
     ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric, ExperimentRetentionMetric
@@ -136,6 +129,18 @@ def transform_variant_for_max(
 def is_incomplete_response(result: Any) -> TypeIs[CacheMissResponse | QueryStatusResponse]:
     """Check if result is a cache miss or pending query status (i.e. incomplete result)."""
     return isinstance(result, (CacheMissResponse, QueryStatusResponse))
+
+
+def order_metrics_by_uuid(metrics: list[dict], ordered_uuids: list | None) -> list[dict]:
+    """
+    Apply the UI's display order so metric numbering in the AI summary matches the
+    metrics list in the app. Metrics missing from the ordering keep their relative
+    position at the end.
+    """
+    if not ordered_uuids:
+        return metrics
+    position = {uuid: index for index, uuid in enumerate(ordered_uuids)}
+    return sorted(metrics, key=lambda metric: position.get(metric.get("uuid"), len(position)))
 
 
 class ExperimentSummaryDataService:
@@ -299,6 +304,9 @@ class ExperimentSummaryDataService:
             else:
                 secondary_metrics.append(query)
 
+        primary_metrics = order_metrics_by_uuid(primary_metrics, experiment.primary_metrics_ordered_uuids)
+        secondary_metrics = order_metrics_by_uuid(secondary_metrics, experiment.secondary_metrics_ordered_uuids)
+
         omitted_metric_count = max(0, len(primary_metrics) - MAX_METRICS_TO_SUMMARIZE) + max(
             0, len(secondary_metrics) - MAX_METRICS_TO_SUMMARIZE
         )
@@ -383,32 +391,3 @@ class ExperimentSummaryDataService:
             pending_calculation=pending_calculation,
             omitted_metric_count=omitted_metric_count,
         )
-
-    def check_data_freshness(
-        self, frontend_last_refresh: str | None, backend_last_refresh: datetime | None
-    ) -> str | None:
-        """
-        Check if there's a significant difference between frontend and backend data freshness.
-        Returns a warning message if data might have changed, None otherwise.
-        """
-        if not frontend_last_refresh or not backend_last_refresh:
-            return None
-
-        try:
-            frontend_time = datetime.fromisoformat(frontend_last_refresh.replace("Z", "+00:00"))
-            if frontend_time.tzinfo is None:
-                frontend_time = frontend_time.replace(tzinfo=ZoneInfo("UTC"))
-            if backend_last_refresh.tzinfo is None:
-                backend_last_refresh = backend_last_refresh.replace(tzinfo=ZoneInfo("UTC"))
-
-            time_diff = abs((backend_last_refresh - frontend_time).total_seconds())
-            if time_diff > FRESHNESS_THRESHOLD_SECONDS:
-                return (
-                    f"**Note:** The experiment data has been updated since you loaded this page "
-                    f"(approximately {int(time_diff / 60)} minutes ago). "
-                    f"The summary below reflects the most current data."
-                )
-        except (ValueError, TypeError):
-            pass
-
-        return None

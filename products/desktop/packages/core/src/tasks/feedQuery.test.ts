@@ -30,6 +30,7 @@ const context: FeedQueryPlanContext = {
     { id: "space-web", name: "desktop app" },
   ],
   me: shy,
+  reportsEnabled: true,
 };
 
 function task(overrides: Partial<FeedQueryTask> = {}): FeedQueryTask {
@@ -401,6 +402,15 @@ describe("feedQuery", () => {
       expect(plan.requests).toEqual([{ pinned: true }]);
     });
 
+    it("matches no tasks when archived is both required and excluded", () => {
+      const plan = planFeedQuery(
+        parseFeedQuery("is:archived -is:archived"),
+        context,
+      );
+      expect(plan.requests).toEqual([{}]);
+      expect(plan.matches(task())).toBe(false);
+    });
+
     it("flags -is:pinned as unsupported instead of silently ignoring it", () => {
       const plan = planFeedQuery(parseFeedQuery("-is:pinned"), context);
       expect(plan.requests).toEqual([{}]);
@@ -478,6 +488,92 @@ describe("feedQuery", () => {
       expect(plan.requests).toEqual([{}]);
       expect(plan.issues.some((i) => i.message.includes("missing"))).toBe(true);
     });
+
+    it("stays in tasks mode without type:report", () => {
+      const plan = planFeedQuery(parseFeedQuery("space:mobile"), context);
+      expect(plan.mode).toBe("tasks");
+      expect(plan.matchesReport).toBeUndefined();
+    });
+  });
+
+  describe("planFeedQuery type:report", () => {
+    it("flips the plan into reports mode with no task requests", () => {
+      const plan = planFeedQuery(parseFeedQuery("type:report"), context);
+      expect(plan.mode).toBe("reports");
+      expect(plan.requests).toEqual([]);
+      expect(plan.reportChannelId).toBeUndefined();
+    });
+
+    it("ignores type:report when the reports rollout is off", () => {
+      const plan = planFeedQuery(parseFeedQuery("type:report"), {
+        ...context,
+        reportsEnabled: false,
+      });
+      // Stays a task feed and flags the token instead of opening the unreleased
+      // reports-only mode.
+      expect(plan.mode).toBe("tasks");
+      expect(plan.matchesReport).toBeUndefined();
+      expect(
+        plan.issues.some(
+          (i) => i.kind === "unsupported" && i.raw === "type:report",
+        ),
+      ).toBe(true);
+    });
+
+    it("space: narrows the report fetch to that space", () => {
+      const plan = planFeedQuery(
+        parseFeedQuery("type:report space:mobile"),
+        context,
+      );
+      expect(plan.mode).toBe("reports");
+      expect(plan.reportChannelId).toBe("space-mobile");
+    });
+
+    it("an unknown space narrows to nothing instead of every report", () => {
+      const plan = planFeedQuery(
+        parseFeedQuery("type:report space:missing"),
+        context,
+      );
+      expect(plan.mode).toBe("reports");
+      expect(plan.reportChannelId).toBeUndefined();
+      expect(plan.issues.some((i) => i.message.includes("missing"))).toBe(true);
+      // Without a resolved channel filter the fetch is unscoped, so the plan
+      // must reject every report client-side rather than show the whole team's.
+      expect(plan.matchesReport?.({ title: "Any", status: "ready" })).toBe(
+        false,
+      );
+    });
+
+    it("flags task-shaped tokens as unsupported instead of half-applying them", () => {
+      const plan = planFeedQuery(
+        parseFeedQuery("type:report status:failed created-by:shy"),
+        context,
+      );
+      expect(plan.mode).toBe("reports");
+      expect(
+        plan.issues.filter((i) => i.kind === "unsupported").map((i) => i.raw),
+      ).toEqual(expect.arrayContaining(["status:failed", "created-by:shy"]));
+    });
+
+    it("free text matches report titles case-insensitively", () => {
+      const plan = planFeedQuery(
+        parseFeedQuery("type:report billing"),
+        context,
+      );
+      const matches = plan.matchesReport;
+      expect(matches?.({ title: "Fix Billing bug", status: "ready" })).toBe(
+        true,
+      );
+      expect(matches?.({ title: "Cohort query", status: "ready" })).toBe(false);
+    });
+
+    it.each(["suppressed", "resolved", "deleted"])(
+      "excludes %s reports",
+      (status) => {
+        const plan = planFeedQuery(parseFeedQuery("type:report"), context);
+        expect(plan.matchesReport?.({ title: "Any", status })).toBe(false);
+      },
+    );
   });
 
   describe("suggestFeedName", () => {
