@@ -166,11 +166,16 @@
             "type": "string"
         },
         "output_config": {
-            "description": "Output config. For 'boolean' output_type: {allows_na} to permit N/A results.",
+            "description": "Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_pass} to declare whether reports label a true result as a pass (default) or a fail.",
             "properties": {
                 "allows_na": {
                     "default": false,
                     "description": "Whether the evaluation can return N/A for non-applicable generations.",
+                    "type": "boolean"
+                },
+                "true_is_pass": {
+                    "default": true,
+                    "description": "How reports label a boolean result. True (the default) means a true result is a pass. Set it to false for detector-style evaluations, where a true result flags a problem and reports must count it as a fail.",
                     "type": "boolean"
                 }
             },
