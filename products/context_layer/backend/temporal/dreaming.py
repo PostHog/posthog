@@ -234,7 +234,7 @@ def _build_dream_prompt(since: dt.datetime | None) -> str:
     if since is None:
         preamble = (
             "This is the first dream: review the last 7 days of organizational activity. "
-            "Treat this as a seed run: prioritize public Space pages that still have no substantive content, "
+            "Treat this as a seed run: include public Space pages that still have no substantive content, "
             "and fill them only when their channels have qualifying activity in the seed window."
         )
     else:

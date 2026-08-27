@@ -22,7 +22,7 @@ class TestDreamPrompt(SimpleTestCase):
                 None,
                 (
                     "This is the first dream: review the last 7 days of organizational activity. "
-                    "Treat this as a seed run: prioritize public Space pages that still have no substantive content, "
+                    "Treat this as a seed run: include public Space pages that still have no substantive content, "
                     "and fill them only when their channels have qualifying activity in the seed window."
                 ),
             ),
@@ -48,6 +48,7 @@ class TestDreamPrompt(SimpleTestCase):
         assert "A queued, running, test, demo, fixture, or abandoned task is not evidence" in prompt
         assert "never edit, delete, move, or replace them" in prompt
         assert "The server scaffolds every public Space and regenerates its indexes" in prompt
+        assert "include every public Space page with no substantive content in the activity scan" in prompt
         assert "Do not impose a fixed item cap" in prompt
         assert "next_cursor" in prompt
         assert "offset" in prompt
