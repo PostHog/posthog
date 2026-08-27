@@ -49,10 +49,7 @@ const VERIFIED_DOMAIN_WITH_SAML_SCIM: OrganizationDomainType = {
     verification_challenge: 'abc',
     jit_provisioning_enabled: true,
     sso_enforcement: 'google-oauth2',
-    has_saml: true,
-    has_scim: true,
     scim_base_url: 'https://posthog.com/scim/v2',
-    has_id_jag: true,
 }
 
 const VERIFIED_DOMAIN_NO_SAML_SCIM: OrganizationDomainType = {
@@ -63,9 +60,6 @@ const VERIFIED_DOMAIN_NO_SAML_SCIM: OrganizationDomainType = {
     verification_challenge: 'def',
     jit_provisioning_enabled: false,
     sso_enforcement: '',
-    has_saml: false,
-    has_scim: false,
-    has_id_jag: false,
 }
 
 const UNVERIFIED_DOMAIN: OrganizationDomainType = {
@@ -76,9 +70,6 @@ const UNVERIFIED_DOMAIN: OrganizationDomainType = {
     verification_challenge: 'ghi',
     jit_provisioning_enabled: false,
     sso_enforcement: '',
-    has_saml: false,
-    has_scim: false,
-    has_id_jag: false,
 }
 
 const ALL_FEATURES = [
@@ -105,6 +96,21 @@ const meta: Meta<typeof App> = {
                 '/_preflight': CLOUD_PREFLIGHT,
                 '/api/projects/:id/integrations': { results: [] },
                 '/api/organizations/:id/integrations': { results: [] },
+                '/api/organizations/:id/identity_provider_configs': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [
+                        {
+                            id: 'idp-config',
+                            config_scope: null,
+                            organization_domain_ids: ['1'],
+                            has_saml: true,
+                            has_scim: true,
+                            has_id_jag: true,
+                        },
+                    ],
+                },
                 '/api/environments/:team_id/conversations/': { results: [] },
                 '/api/user_home_settings/@me/': {},
             },

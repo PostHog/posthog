@@ -410,20 +410,18 @@ def test_metric_set_windows_the_timeline_and_stops_at_the_freshness_date() -> No
     assert manager.saved == [GooglePlayConsoleResumeConfig(app="com.example.app", date="2024-03-10")]
 
 
-def test_metric_set_falls_back_to_a_lagged_end_date_without_freshness() -> None:
+def test_metric_set_skips_an_app_without_freshness() -> None:
     manager = _manager()
+    calls: list[str] = []
 
     def request(method: str, path: str, params: Any = None, body: Any = None) -> dict[str, Any]:
-        if path.endswith(":query"):
-            return {"rows": []}
+        calls.append(path)
+        # Empty freshness — the app has no queryable data for this metric set.
         return {}
 
-    with (
-        mock.patch(f"{MODULE}._today", return_value=TODAY),
-        mock.patch.object(GooglePlayConsoleClient, "request", side_effect=request),
-    ):
+    with mock.patch.object(GooglePlayConsoleClient, "request", side_effect=request):
         client = _client(mock.MagicMock())
-        list(
+        batches = list(
             _iter_metric_set_rows(
                 client=client,
                 endpoint=METRIC_SETS["anr_rate"],
@@ -434,8 +432,66 @@ def test_metric_set_falls_back_to_a_lagged_end_date_without_freshness() -> None:
             )
         )
 
-    # 2024-03-29 is the last day queried (today minus the freshness lag), so the checkpoint moves past it.
-    assert manager.saved[-1].date == "2024-03-30"
+    # No freshness means no queryable data: the app is skipped rather than queried with a guessed
+    # window Google rejects as an invalid timeframe. No `:query` is issued and nothing is yielded.
+    assert batches == []
+    assert not any(path.endswith(":query") for path in calls)
+
+
+def test_metric_set_skips_an_app_denied_a_games_only_metric_set() -> None:
+    manager = _manager()
+    queried: list[str] = []
+    games_denial = requests.HTTPError(
+        "403 Client Error: for url: https://playdeveloperreporting.googleapis.com",
+        response=_response(403, text="slowRenderingRateMetricSet resource is only accessible to games"),
+    )
+
+    def request(method: str, path: str, params: Any = None, body: Any = None) -> dict[str, Any]:
+        if path.endswith(":query"):
+            queried.append(path)
+            return {"rows": [_metric_row(dt.date(2024, 3, 5), 12, "0.01")]}
+        if path.startswith("apps/com.fintech.app/"):
+            raise games_denial
+        return _freshness(dt.date(2024, 3, 10))
+
+    with mock.patch.object(GooglePlayConsoleClient, "request", side_effect=request):
+        client = _client(mock.MagicMock())
+        batches = list(
+            _iter_metric_set_rows(
+                client=client,
+                endpoint=METRIC_SETS["slow_rendering_rate"],
+                package_names=["com.fintech.app", "com.game.app"],
+                history_start=dt.date(2024, 3, 1),
+                manager=manager,
+                resume=None,
+            )
+        )
+
+    # The non-game app can never have this metric set, so it is skipped instead of failing the
+    # sync with a 403 the error classifier reads as missing permissions. The game still syncs.
+    assert queried == ["apps/com.game.app/slowRenderingRateMetricSet:query"]
+    assert len(batches) == 1
+
+
+def test_metric_set_reraises_a_403_that_is_not_the_games_restriction() -> None:
+    denial = requests.HTTPError(
+        "403 Client Error: for url: https://playdeveloperreporting.googleapis.com",
+        response=_response(403, text="The caller does not have permission"),
+    )
+
+    with mock.patch.object(GooglePlayConsoleClient, "request", side_effect=denial):
+        client = _client(mock.MagicMock())
+        with pytest.raises(requests.HTTPError):
+            list(
+                _iter_metric_set_rows(
+                    client=client,
+                    endpoint=METRIC_SETS["slow_rendering_rate"],
+                    package_names=["com.example.app"],
+                    history_start=dt.date(2024, 3, 1),
+                    manager=_manager(),
+                    resume=None,
+                )
+            )
 
 
 def test_metric_set_query_follows_pagination_until_the_token_runs_out() -> None:
@@ -812,6 +868,45 @@ def test_metric_set_source_streams_rows_for_the_incremental_window() -> None:
     # `_freshness` reports latestEndTime 2024-03-30, already Play's exclusive bound, so the
     # window closes out at 2024-03-29 and the checkpoint moves to the day after.
     assert manager.saved[-1].date == "2024-03-30"
+
+
+@pytest.mark.parametrize(
+    "resource_name,expected_start",
+    [
+        # The vitals rate metric sets keep the deep 180-day backfill.
+        ("crash_rate", dt.date(2023, 10, 3)),
+        # Error counts live on the short-retention error backend, which rejects a start that
+        # far back with a 400, so the first sync begins inside the error history window.
+        ("error_counts", dt.date(2024, 3, 1)),
+    ],
+)
+def test_first_sync_history_window_depends_on_the_metric_set(resource_name: str, expected_start: dt.date) -> None:
+    bodies: list[dict[str, Any]] = []
+
+    def request(method: str, path: str, params: Any = None, body: Any = None) -> dict[str, Any]:
+        if path.endswith(":query"):
+            bodies.append(body)
+            return {"rows": []}
+        return _freshness(dt.date(2024, 3, 30))
+
+    response = google_play_console_source(
+        key=_key(),
+        package_names=("com.example.app",),
+        resource_name=resource_name,
+        api_version="v1beta1",
+        resumable_source_manager=_manager(),
+        logger=structlog.get_logger(),
+    )
+
+    with (
+        mock.patch(f"{MODULE}._today", return_value=TODAY),
+        mock.patch(f"{MODULE}.make_tracked_session", return_value=mock.MagicMock()),
+        mock.patch.object(GooglePlayConsoleClient, "request", side_effect=request),
+    ):
+        list(cast("Iterable[Any]", response.items()))
+
+    first_start = bodies[0]["timelineSpec"]["startTime"]
+    assert dt.date(first_start["year"], first_start["month"], first_start["day"]) == expected_start
 
 
 def test_error_reports_always_carry_an_event_time_column() -> None:

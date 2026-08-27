@@ -8,6 +8,7 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
+from django.utils import timezone
 
 import structlog
 from django_deprecate_fields import deprecate_field
@@ -34,7 +35,12 @@ logger = structlog.get_logger(__name__)
 
 class ErrorTrackingIssueManager(models.Manager):
     def with_first_seen(self):
-        return self.annotate(first_seen=models.Min("fingerprints__first_seen"))
+        first_seen = (
+            ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=models.OuterRef("pk"))
+            .order_by("first_seen")
+            .values("first_seen")[:1]
+        )
+        return self.annotate(first_seen=models.Subquery(first_seen))
 
 
 class ErrorTrackingIssueMergeResult(StrEnum):
@@ -126,6 +132,11 @@ class ErrorTrackingIssue(UUIDTModel):
                 team_id=team_id, target_issue_id=target_issue_id, source_issue_ids=existing_source_issue_ids
             )
             ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=existing_source_issue_ids).delete()
+
+            # Stamp the surviving row so deleting the latest source cannot move the cache watermark backward.
+            ErrorTrackingIssue.objects.filter(team_id=team_id, id=target_issue_id).update(
+                state_updated_at=timezone.now()
+            )
 
             _sync_error_tracking_issue_changes_on_commit(
                 team_id=team_id, issue_ids=[target_issue_id], overrides=overrides

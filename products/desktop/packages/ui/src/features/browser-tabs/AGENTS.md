@@ -1,28 +1,33 @@
-# Browser tabs (Channels canvas surface)
+# Browser tabs
 
-A browser-style tab strip in the Channels title bar (`/spaces/*`), each tab
-fronting an open **canvas, task, or channel sub-section** (a `TabIdentity`:
-`dashboardId | taskId | channel(+section) | blank`).
+A browser-style tab strip in the title bar. **A tab is a location**: it stores an
+`href`, plus the nav state that href cannot express (`viewState`). Any route can
+be a tab — a space, a canvas, a task, `/inbox`, `/loops`, `/settings/$category`.
 This file documents the UX and the model; edit it when the behaviour changes.
 
-Canvases and tasks are equal citizens: navigating to either
-(`/spaces/$channelId/dashboards/$dashboardId` or
-`/spaces/$channelId/tasks/$taskId`) replaces the active tab's target in place,
-the label resolves from the canvas name or the task title, and switching back
-returns to whichever the tab points at. `setTabTarget` is the in-tab-nav
-primitive for both.
+The rule everything else follows:
 
-Channel sub-sections are tabs too: the header nav (`Loops`, `Recents`,
-`CONTEXT.md` — see `canvas/channelSections.ts`) routes to
-`/spaces/$channelId/<section>`, which is identified by `channelId` +
-`channelSection`. The tab labels by the section (`Recents`) with a `#` icon; the
-channel home (`/spaces/$channelId`, no section) labels by the channel name.
-Every channel tab's hover leads with `#<channel>` then the page name (the home
-tab, whose label already is the channel, shows just the one line). Switching
-sections is an in-tab replace — one channel tab, the section is sub-navigation
-within it — because the identity differs only by `channelSection`.
-Dedup/identity keys on all four fields, so two channels' sub-sections are
-distinct tabs.
+> **Navigation never changes which tab you're in. Back/forward may.**
+
+So there is exactly one path that moves focus between tabs (a history entry
+tagged with a different tab), and a plain navigation can never reach it.
+Navigating while a tab is active replaces that tab's location in place;
+`setTabTarget` is the in-tab-nav primitive.
+
+**There is no dedup.** Navigating to a page another tab already shows does not
+focus that tab, and opening the same page twice gives you two tabs, as in any
+browser. Earlier versions deduped on a `TabIdentity`, which also made the strip
+navigate off any route outside that identity's vocabulary (`/loops` and
+`/archived` are both all-null through it, so they compared equal).
+
+The identity fields (`dashboardId | taskId | channelId + channelSection |
+appView`) survive **only as a label and icon cache**, written alongside the href.
+Never compare them to decide where a tab is.
+
+The strip is gated inside the spaces layout by `useSpacesTabs`
+(`SPACES_TABS_FLAG`). Off is the same code path with a single tab, not a second
+implementation: with one tab, the tab is the window, so per-tab history and view
+state behave the way the window-global versions did.
 
 ## Components & styling
 
@@ -39,13 +44,12 @@ The feature is deliberately split so the rules are portable and testable:
 
 - **`@posthog/shared` (`browser-tabs.ts`, `browser-tabs-schemas.ts`)** — pure,
   host-neutral logic: the domain shapes (`BrowserTab` / `BrowserWindow` /
-  `TabsSnapshot` / `TabTarget`), the transforms (`openOrFocusTab`, `newBlankTab`,
-  `setTabTarget`, `closeTab`, `closeTabs`, `setTabOrder`), `decideTabNavigation` (what a
-  location change means for the strip), and the snapshot predicates
-  (`primaryWindow`, `activeTabIsBlank`, `primaryWindowHasNoTabs`) — `activeTabIsBlank`
-  gates the blank new-tab placeholder on the `/spaces` index. No
-  React, no I/O. This is where behaviour is unit-tested. Back/forward is driven by
-  router history + `decideTabNavigation`, not a separate action stack.
+  `TabsSnapshot` / `TabLocation` / `TabViewState` / `RailVisit`), the transforms
+  (`openTab`, `setTabTarget`, `closeTab`, `closeTabs`, `setTabOrder`),
+  `decideTabNavigation` (what a location change means for the strip), and
+  `primaryWindow`. No React, no I/O. This is where behaviour is unit-tested.
+  Back/forward is driven by router history + `decideTabNavigation`, not a
+  separate action stack.
 - **`@posthog/workspace-server` (`services/browser-tabs/`, `db/`)** — the
   authoritative single-instance `BrowserTabsService` in the main process. Owns
   the durable snapshot in sqlite (`browser_tabs` / `browser_windows`), applies
@@ -58,8 +62,8 @@ The feature is deliberately split so the rules are portable and testable:
   the snapshot, seeded once and kept live by the subscription.
 - **this folder (`@posthog/ui`)** — `BrowserTabStrip` (container; mounted in the
   Channels title bar in `router/routes/__root.tsx`), `TabStrip` (presentational),
-  `BlankTabView` (the new-tab placeholder), `TaskTabIcon` (sidebar-parity status
-  icon for task tabs), the client facade, the boot contribution that seeds +
+  `TaskTabMarks` (a session tab's status dot, in the session
+  list's vocabulary), the client facade, the boot contribution that seeds +
   subscribes the store, and **`tabsSync.ts` — the local-first sync policy**:
   every operation applies its shared pure transform to the renderer mirror
   synchronously (interactions are instant; new tabs mint their id client-side
@@ -87,31 +91,39 @@ differ. Desktop ships first.
 - Labels **fade** at the right edge (a CSS mask, not an ellipsis). The close
   affordance reveals on hover; on hover the button gains right padding so the
   label shrinks and its fade follows, clearing room for the close button.
-- Icon: a canvas tab uses the template icon (`iconForTemplate`); a task tab uses
-  `TaskTabIcon` — the **same status icon as the sidebar** (cloud run status, PR
-  state, generating / unread / pinned / needs-permission), so a tab and its
-  sidebar row never drift.
+- Icon: a canvas tab uses the template icon (`iconForTemplate`); a session tab
+  uses **the session list's status dot** (`TaskTabMarks` → `taskDot`), so a tab
+  and its list row never say different things about the same session. The list's
+  trailing identity badges are deliberately *not* carried over: a pill is
+  `max-w-[200px]` and shrinking, and the name is what a tab is scanned for.
 - Hover shows a tooltip with the name and (if any) the channel. All tab tooltips
   share one `TooltipProvider` so moving across tabs shows each instantly.
 - The **active tab's name + highlight follow the current route / history state**
   — they update the instant you navigate, not after the server snapshot
   round-trips (see Gotchas).
 
-### Opening, replacing, the new-tab page
-- **Navigating while a tab is active replaces that tab's target in place**
-  (in-tab navigation) — it does *not* open or dedup-focus another tab.
-- **New tabs come only from `+`.** `+` opens a **blank tab** (no target); the
-  content pane renders a quill `<Empty>` "new tab page" (`BlankTabView`).
-  Navigating to a canvas/task while the blank tab is active fills it in.
-- `openOrFocusTab` **dedups per window** on the full target (canvas or task);
-  the same target may be open in different windows.
+### Opening, replacing, and blank tabs
+- **Navigating while a tab is active replaces that tab's location in place**
+  (in-tab navigation). It does *not* open or focus another tab, ever.
+- **New tabs come only from explicit new-tab actions.** `+` and Cmd/Ctrl+T open
+  `/activity`. Cmd/Ctrl-clicking a navigation destination opens that destination's
+  root in a new tab (the rail in Spaces, the sidebar in the legacy layout).
+- `openTab` always appends. There is no dedup to focus an existing tab.
 
 ### Closing
 - Closing the active tab focuses its neighbour.
 - Closing the last tab of a **secondary** window closes the window; closing the
-  last tab of the **primary** window empties the strip and lands on the
-  **new-tab screen** at `/spaces` — it does *not* jump to the first channel
-  (see Gotchas).
+  last tab of the **primary** window lands on `/activity`, which opens a fresh tab.
+
+### Keyboard
+- **⌘1-9 switches tabs**, the browser way: 1-8 pick that position, 9 picks the
+  last tab however many there are. It reads the **displayed** (pinned-first)
+  order, so the key matches what you count on screen.
+- Those keys have other owners elsewhere — starred spaces (`ChannelHotkeys`)
+  and task switching (`GlobalEventHandlers`) — so both yield wherever the strip
+  claims them, gated on the same `useSpacesTabs()`. Two owners firing on one
+  press is worse than either.
+- ⌘T opens a tab, ⌘W closes the active one.
 
 ### Context menu & pinning
 - Right-click on a pill opens a quill `ContextMenu`: **Pin/Unpin tab**, then
@@ -167,9 +179,40 @@ differ. Desktop ships first.
   tab is derived from the current history entry; entries for tabs you've since
   closed are skipped.
 
+### Per-tab nav state
+Each tab carries the nav state its href cannot express, in `viewState`:
+
+- `listOpen` / `spaceId` — which sidebar pane is drawn and the space it is drawn
+  over, so two tabs can sit on different spaces with different sidebars.
+- `lastByPane` — **where each rail destination was when this tab last left it.**
+  A rail click navigates the active tab back to its own remembered href rather
+  than to the destination's root. Per tab on purpose: a window-global memory
+  would let one tab's rail click restore an href another tab established.
+
+`BrowserTabStrip`'s navigation effect is the **single writer for settled router
+navigation**. It runs on every settled navigation, including the ones a rail
+click does not make (hotkeys, deep links, links in the content), which is why a
+note taken as you click away is not enough. Async completion can explicitly
+retarget its originating background tab as described below. `railHistoryStore`
+/ `RailHistorySync` were the window-global predecessors and are gone.
+
+### In-flight task creation
+- Submitting a new task snapshots the prompt and originating `tabId` before its
+  first asynchronous preflight. Switching tabs cannot unmount the editor out
+  from under task creation or change which prompt is sent.
+- Pending, success, and failure routes replace the originating tab. When that
+  tab is in the background, `setTabTarget({ activate: false })` updates its
+  durable target without changing the active tab.
+- New-task editor drafts are keyed by `tabId`. Two tabs on the same `/new` route
+  can hold different prompts; successful submission or closing a tab clears
+  only that tab's draft.
+
 ### Cross-window & persistence
-- Tabs, order, and windows persist to sqlite; the full session (all windows +
-  their tabs + active tab) is restored on launch.
+- Tabs, order, windows, and each tab's `href` + `viewState` persist to sqlite;
+  the full session (all windows + their tabs + active tab) is restored on launch.
+- `rewriteSavedLocation` (in `@posthog/shared`) runs over persisted hrefs on
+  load, so a snapshot written before the routes were flattened does not restore
+  tabs onto `/website/*` routes that no longer exist.
 - Per-tab `scrollState` is reserved but **unwired** — scroll restoration is a
   later follow-up (it needs a sandbox postMessage contract; the canvas iframe is
   null-origin so the host can't read scroll).
@@ -182,6 +225,11 @@ differ. Desktop ships first.
   tag as a "switch" **only when it differs** from the active tab; an equal tag
   falls through to a route-based replace. Getting this wrong makes in-tab
   navigation silently noop (the tab reverts on switch-away).
+- **A same-href tab switch must push history directly.** Router-level
+  `navigate({ href })` may collapse a navigation when the selected tab has the
+  same href as the active tab, leaving the old history `tabId` in place. Tab
+  selection uses `pushTabHistoryEntry` so the selected tab identity changes
+  even when its location does not.
 - **Stamp with `loc.href`.** When stamping a history entry, use the full
   `router.history.location.href` (a string). Reconstructing `pathname + search`
   crashes — `search` is parsed to an object at runtime ("Cannot convert object
@@ -191,6 +239,34 @@ differ. Desktop ships first.
   round-trips. The strip prefers history for "which tab is active" and resolves
   the active tab's label from the *route* target so the name/highlight don't lag
   a navigation behind.
+- **Tab selection writes history first.** A click must not optimistically focus
+  the mirror or restore the target's `viewState` while the outgoing route is
+  still settled. That transient pairing lets the navigation effect write the
+  outgoing href into the selected tab. Selection only pushes the target's
+  tagged history entry; that settled entry drives view-state restore,
+  activation, and durable focus through the navigation effect. The sidebar may
+  project the tagged target's stored `viewState` while navigation is pending,
+  but that projection is render-only: it must not write stores or trigger
+  visibility side effects such as marking the projected space seen.
+- **The effect reconciles SETTLED state only (`settledLocation.ts`).** During a
+  pending navigation the router's `location` is already the destination while
+  `resolvedLocation` (and `matches`, and so `params` / `railPane`) still describe
+  the page being left. Read the href from one and the tab tag from the other and
+  the effect is told "tab B is on tab A's href", which it writes to B — this is
+  the "switching tabs rewrites another tab's URL" corruption, and it has been
+  reintroduced twice by changing one selector and not the other. `settledLocation`
+  returns the pair from one snapshot and marks it current only when both the
+  href and tab owner match the in-flight entry. The effect must skip every write
+  until that happens: even a harmless-looking `stamp` would otherwise replace
+  the new entry's tab owner with the outgoing tab. The in-flight `location`
+  still drives the strip's **highlight**, which should flip instantly — that is
+  a render, not a write.
+- **A session is not always a path param.** Activity reads its picked item out
+  of `/activity`'s *search*, and a feed does the same. The strip's identity and
+  label therefore come from `useActiveSession()`, never `params.taskId`, or a
+  tab sitting on an open session reads "New tab". That selection lives in the
+  URL precisely so a tab can name it and restore it — don't move it back into a
+  store.
 - **Label resolution is reactive + cached.** Names come from the active
   record's warm fetch, then the channel list / all-tasks list, then a
   module-level cache — and the `tabs` memo references those sources directly (so
@@ -199,34 +275,24 @@ differ. Desktop ships first.
   cannot nest inside the Button (button-in-button is invalid + fails a11y lint);
   it's an absolutely-positioned sibling. The wrapper is `flex` so it hugs the
   button height (a block wrapper adds an inline line-box ~2px taller).
-- **`/spaces` is a page, not a redirect.** It used to bounce to `channels[0]`,
-  which put a channel in the route and made `decideTabNavigation` open a tab for
-  it — hijacking a blank `+` tab, or re-filling a strip the user had just
-  emptied. Three guards existed only to hold that bounce off
-  (`activeTabIsBlank`, `primaryWindowHasNoTabs`, and an `onIndexPath` check for
-  the frames TanStack renders the stale index after the URL has already moved).
-  The index renders the space list in place now, so none of them are needed and
-  the blank `+` tab keeps its placeholder through `showBlankTab` in `__root`.
-  Don't reintroduce a redirect here.
+- **`/spaces` is a page, not a redirect.** It used to bounce to `channels[0]`.
+  The rail can land there and return to it, so don't reintroduce the redirect.
 - **All writes are local-first (`tabsSync.ts`).** Close/open/new/reorder apply
-  their shared transform to the mirror and navigate in the same tick; the
-  `/spaces` index therefore always renders against post-mutation state. Mutation results and
-  subscription pushes are never applied while writes are in flight — only the
-  last settle reconciles. Don't add a mutation `onSuccess` that calls
-  `setSnapshot`; route new writes through `applyLocalTransform` +
-  `persistWrite`.
+  their shared transform to the mirror and navigate in the same tick. Mutation
+  results and subscription pushes are never applied while writes are in flight —
+  only the last settle reconciles. Don't add a mutation `onSuccess` that calls
+  `setSnapshot`; route new writes through `applyLocalTransform` + `persistWrite`.
 
 ## Testing
 
 - **Pure behaviour** is tested in `@posthog/shared` (`browser-tabs.test.ts`):
-  open/dedup, close (neighbour / secondary-window / primary-landing),
-  `closeTabs` (bulk close + anchor focus), `setTabOrder`, `newBlankTab`,
-  `setTabTarget` (canvas + task), and
-  **`decideTabNavigation`** — which encodes the activate / replace / open /
-  stamp / noop decision the strip makes on every navigation (including "back
-  returns to the previous tab" and the inherited-tag in-tab case) — plus the
-  snapshot predicates (`activeTabIsBlank`, `primaryWindowHasNoTabs`,
-  `primaryWindow`).
+  `openTab` (always appends, never dedups), close (neighbour /
+  secondary-window / primary-landing), `closeTabs` (bulk close + anchor focus),
+  `setTabOrder`, `setTabTarget` (href + view state + label cache move together),
+  `primaryWindow`, `setWindowActiveTab`, and **`decideTabNavigation`** — the
+  activate / replace / open / stamp / noop decision the strip makes on every
+  navigation, including the two cases href-matching exists for (two routes
+  outside the label vocabulary, and a search-param-only change).
   `BrowserTabStrip`'s effect dispatches that decision, so the tested function is
   the one that runs.
 - **Presentational** rendering is tested in `TabStrip.test.tsx` (active styling,

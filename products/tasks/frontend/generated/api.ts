@@ -19,7 +19,9 @@ import type {
     ChannelWriteApi,
     CodeInviteRedeemRequestApi,
     ConnectionTokenResponseApi,
+    DesktopAccessResponseApi,
     DesktopBetaTermsAcceptanceDTOApi,
+    LegacyDesktopAccessResponseApi,
     LoopDTOApi,
     LoopFireResultApi,
     LoopPreviewDTOApi,
@@ -34,6 +36,8 @@ import type {
     LoopsTriggerCreateBodyTwo,
     ModelCatalogueResponseApi,
     OnboardingSessionApi,
+    OnboardingSessionTestApi,
+    OnboardingSessionTestResponseApi,
     PaginatedChannelDTOListApi,
     PaginatedChannelFeedMessageDTOListApi,
     PaginatedChannelInstructionsDTOListApi,
@@ -141,8 +145,11 @@ import type {
     TasksSlackThreadContextRetrieveParams,
     TasksSummariesCreateParams,
     TasksThreadMessagesListParams,
+    TeachingCanvasApi,
     WarmTaskRequestApi,
     WarmTaskResponseApi,
+    WarmTaskResumeRequestApi,
+    WarmTaskResumeResponseApi,
     WizardCloudRunDTOApi,
 } from './api.schemas'
 
@@ -151,11 +158,13 @@ export const getCodeInvitesCheckAccessRetrieveUrl = () => {
 }
 
 /**
- * Check whether the authenticated user has access to PostHog Desktop and to Loops.
+ * Check whether the authenticated user has legacy PostHog Desktop access and Loops access.
  * @summary Check access
  */
-export const codeInvitesCheckAccessRetrieve = async (options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getCodeInvitesCheckAccessRetrieveUrl(), {
+export const codeInvitesCheckAccessRetrieve = async (
+    options?: RequestInit
+): Promise<LegacyDesktopAccessResponseApi> => {
+    return apiMutator<LegacyDesktopAccessResponseApi>(getCodeInvitesCheckAccessRetrieveUrl(), {
         ...options,
         method: 'GET',
     })
@@ -166,7 +175,7 @@ export const getCodeInvitesRedeemCreateUrl = () => {
 }
 
 /**
- * Redeem a PostHog Desktop invite code to enable access.
+ * Redeem a PostHog Desktop invite code to enable legacy access.
  * @summary Redeem invite code
  */
 export const codeInvitesRedeemCreate = async (
@@ -221,6 +230,24 @@ export const desktopBetaTermsCreate = async (
     return apiMutator<DesktopBetaTermsAcceptanceDTOApi>(getDesktopBetaTermsCreateUrl(organizationId), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getDesktopAccessRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/desktop/access/`
+}
+
+/**
+ * Evaluate Desktop access for the selected project and organization.
+ * @summary Check PostHog Desktop access
+ */
+export const desktopAccessRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DesktopAccessResponseApi> => {
+    return apiMutator<DesktopAccessResponseApi>(getDesktopAccessRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -1133,6 +1160,27 @@ export const taskChannelsOnboardingSessionCreate = async (
     })
 }
 
+export const getTaskChannelsOnboardingSessionTestCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_channels/onboarding_session_test/`
+}
+
+/**
+ * Feature-flagged test path that creates a repeatable session from explicit prompt-building inputs, in the requester's personal space.
+ * @summary Start a test first-run onboarding session
+ */
+export const taskChannelsOnboardingSessionTestCreate = async (
+    projectId: string,
+    onboardingSessionTestApi?: OnboardingSessionTestApi,
+    options?: RequestInit
+): Promise<OnboardingSessionTestResponseApi> => {
+    return apiMutator<OnboardingSessionTestResponseApi>(getTaskChannelsOnboardingSessionTestCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(onboardingSessionTestApi),
+    })
+}
+
 export const getTaskChannelsProvisionDefaultsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/task_channels/provision_defaults/`
 }
@@ -1146,6 +1194,24 @@ export const taskChannelsProvisionDefaultsCreate = async (
     options?: RequestInit
 ): Promise<ProvisionedChannelsApi> => {
     return apiMutator<ProvisionedChannelsApi>(getTaskChannelsProvisionDefaultsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getTaskChannelsTeachingCanvasTestCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_channels/teaching_canvas_test/`
+}
+
+/**
+ * Feature-flagged test path that resolves or creates the teaching canvas in the requester's personal space.
+ * @summary Create the teaching canvas for testing
+ */
+export const taskChannelsTeachingCanvasTestCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<TeachingCanvasApi> => {
+    return apiMutator<TeachingCanvasApi>(getTaskChannelsTeachingCanvasTestCreateUrl(projectId), {
         ...options,
         method: 'POST',
     })
@@ -1562,6 +1628,28 @@ export const tasksUsageRetrieve = async (
     return apiMutator<TaskUsageResponseApi>(getTasksUsageRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTasksWarmResumeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/warm/`
+}
+
+/**
+ * Warm an idling successor for the task's latest terminal Run while the user composes the next message. The successor restores the prior snapshot when compatible and waits for the normal run endpoint to activate it. Best-effort: returns an empty body when warming is disabled, capped, or the task advanced to another Run.
+ * @summary Warm a resumed task sandbox
+ */
+export const tasksWarmResumeCreate = async (
+    projectId: string,
+    id: string,
+    warmTaskResumeRequestApi: WarmTaskResumeRequestApi,
+    options?: RequestInit
+): Promise<WarmTaskResumeResponseApi> => {
+    return apiMutator<WarmTaskResumeResponseApi>(getTasksWarmResumeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(warmTaskResumeRequestApi),
     })
 }
 
@@ -2737,7 +2825,7 @@ export const getTasksWarmCreateUrl = (projectId: string) => {
 }
 
 /**
- * Warm a full idling Run for a Code-app cloud task while the user composes: boot a sandbox, clone the repo, check out the branch, and start the agent, then idle awaiting the first message. On submit the normal create+run path transparently reuses and activates this Run; abandoned warms are reaped by the Run's inactivity timeout. Best-effort: returns an empty body when the feature flag is off, the warm pool is full, or the GitHub integration doesn't belong to the team.
+ * Warm a full idling Run for a cloud task while the user composes: boot a sandbox, clone the repo, check out the branch, and start the agent, then idle awaiting the first message. On submit the normal create+run path transparently reuses and activates this Run; abandoned warms are reaped by the Run's inactivity timeout. Best-effort: returns an empty body when the feature flag is off, the warm pool is full, or the GitHub integration doesn't belong to the team.
  * @summary Warm a task sandbox
  */
 export const tasksWarmCreate = async (

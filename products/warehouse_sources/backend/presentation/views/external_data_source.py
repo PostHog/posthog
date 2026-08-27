@@ -62,9 +62,12 @@ from posthog.rate_limit import (
     CustomSourceAIBuilderDailyThrottle,
     CustomSourceAIBuilderSustainedThrottle,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin, access_level_satisfied_for_resource
 
+from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.cdp.backend.facade.api import HogFunctionSerializer
 from products.cdp.backend.facade.models import HogFunction
 from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
@@ -181,6 +184,15 @@ RESERVED_SOURCE_NAME_MESSAGE = "This source name is reserved by PostHog."
 INVALID_CREDENTIALS_FALLBACK_MESSAGE = (
     "We couldn't validate those credentials. Check they're correct and have the required access, then try again."
 )
+
+
+def _source_unavailable_message(source_type: str) -> str:
+    # A source with no schema discovery is an unreleased scaffold the UI normally hides. Tell the
+    # user it isn't ready rather than exposing the internal "schema discovery" wording.
+    return (
+        f"The {source_type} source isn't available to connect yet. "
+        "Choose a different source, or contact support if you were expecting it."
+    )
 
 
 def _canonical_legacy_managed_warehouse_source(
@@ -474,6 +486,9 @@ _CDC_EXPOSED_JOB_INPUT_KEYS = {
     "cdc_lag_warning_threshold_mb",
     "cdc_lag_critical_threshold_mb",
     "cdc_consistent_point",
+    # Set by migrate_cdc_source_to_buffered, never by the API. Losing it on an unrelated PATCH
+    # would resume legacy delivery from an advanced slot and strand the unread buffer.
+    "cdc_ingest_mode",
 }
 
 
@@ -626,11 +641,18 @@ def get_postgres_source_table_location(
     )
 
 
-DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE = (
-    "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, Redshift, and ClickHouse sources."
-)
+DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE = "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, Redshift, ClickHouse, MotherDuck, and Trino sources."
 # Engines surfaced on a direct connection's `connection_metadata.engine` (duckdb backs direct Postgres).
-DIRECT_CONNECTION_ENGINE_CHOICES = ["duckdb", "postgres", "mysql", "snowflake", "redshift", "clickhouse", "motherduck"]
+DIRECT_CONNECTION_ENGINE_CHOICES = [
+    "duckdb",
+    "postgres",
+    "mysql",
+    "snowflake",
+    "redshift",
+    "clickhouse",
+    "motherduck",
+    "trino",
+]
 
 
 def count_active_sources(team_id: int, source_type: str) -> int:
@@ -1679,6 +1701,10 @@ class ExternalDataSourceCreateResponseSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="ID of the created external data source.")
 
 
+class ExternalDataSourceErrorResponseSerializer(serializers.Serializer):
+    message = serializers.CharField(help_text="Human-readable explanation of why the source could not be created.")
+
+
 class SourceConnectLinkSerializer(serializers.Serializer):
     source_type = serializers.CharField(help_text="The source type the link is for.")
     auth_method = serializers.ChoiceField(
@@ -2423,6 +2449,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     payload[key] = value.strip()
         source_type_model = ExternalDataSourceType(source_type)
         source = SourceRegistry.get_source(source_type_model)
+        if not is_direct_query and not source.supports_scheduled_sync:
+            return Response(
+                ExternalDataSourceErrorResponseSerializer(
+                    {"message": f"{source_type_model.label} is available only as a direct connection."}
+                ).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         max_instances = source.max_instances_per_team
         if max_instances is not None and count_active_sources(self.team_id, source_type_model) >= max_instances:
             return Response(
@@ -2478,9 +2511,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # Roll back the row just created so a caller can't accumulate orphaned sources, and return
             # a clean 400 instead of the uncaught 500 this would otherwise raise. Mirrors `setup`.
             new_source_model.delete()
+            # nosemgrep: api-response-must-match-schema -- conventional error message, not a schema-bound payload
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Source type '{source_type}' does not support schema discovery."},
+                data={"message": _source_unavailable_message(source_type)},
             )
         except Exception as e:
             # `get_schemas` opens its own connection, so credentials validated above can still fail
@@ -2515,7 +2549,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         schema_names = [schema.name for schema in source_schemas]
         source_config_dict = source_config.to_dict()
         default_source_schema = source_config_dict.get("schema")
-        default_source_catalog = source_config_dict.get("database")
+        default_source_catalog = source_config_dict.get("database") or source_config_dict.get("catalog")
         schema_label_by_name = {s.name: s.label for s in source_schemas}
 
         # Omitting `schemas` means "sync what you found", the same defaults `setup` builds. A
@@ -3379,9 +3413,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         except NotImplementedError:
             # Source doesn't implement schema discovery (e.g. an unreleased source), so there are
             # no tables to list — a caller mistake, not a server error worth capturing. Mirrors `setup`.
+            # nosemgrep: api-response-must-match-schema -- conventional error message, not a schema-bound payload
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Source type '{source_type}' does not support schema discovery."},
+                data={"message": _source_unavailable_message(source_type)},
             )
         except Exception as e:
             error_message, is_expected_source_error = _classify_refresh_schemas_error(source, e)
@@ -3494,9 +3529,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         except NotImplementedError:
             # Source doesn't implement schema discovery (e.g. an unreleased source) so it can't be
             # set up via this one-shot flow — a caller mistake, not a server error worth capturing.
+            # nosemgrep: api-response-must-match-schema -- conventional error message, not a schema-bound payload
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Source type '{source_type}' does not support one-shot setup."},
+                data={"message": _source_unavailable_message(source_type)},
             )
         except Exception as e:
             # Credentials validated above can still fail here — `get_schemas` opens its own
