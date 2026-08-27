@@ -4,6 +4,7 @@ import { LemonBanner, LemonButton, LemonDialog, Spinner } from '@posthog/lemon-u
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { pluralize } from 'lib/utils/strings'
+import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'
 
@@ -12,14 +13,18 @@ import { NotificationConceptRow } from './NotificationConceptRow'
 import { notificationGovernanceLogic } from './notificationGovernanceLogic'
 
 export function NotificationGovernanceSetting(): JSX.Element {
-    // Wrapping rather than gating inside: an unentitled organization must not mount the logic,
-    // whose first act is a request the server answers with a payment prompt.
+    const { hasAvailableFeature } = useValues(userLogic)
+    // PayGateMini falls through to its children when billing carries no metadata for the feature,
+    // so the entitlement is checked here too. Otherwise the list below mounts and its first
+    // request comes back as a payment prompt.
+    const entitled = hasAvailableFeature(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
+
     return (
         <PayGateMini
             feature={AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}
             featureDetail="organization-member-notifications"
         >
-            <MemberNotifications />
+            {entitled ? <MemberNotifications /> : null}
         </PayGateMini>
     )
 }
