@@ -408,7 +408,7 @@ class TestAccountRelationshipChangedEvent(BaseTest):
         assert properties["current_user_email"] is None
 
     @parameterized.expand([("active", False), ("ended", True)])
-    def test_hard_delete_emits_only_for_active_assignment(self, _case, ended, mock_capture):
+    def test_hard_delete_emits_only_for_active_assignment(self, mock_capture, _case, ended):
         relationship = self._assign()
         mock_capture.reset_mock()
         if ended:
