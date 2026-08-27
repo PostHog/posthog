@@ -5,10 +5,12 @@ exclude = [
     "**/*__pycache__",
     "**/*egg-info",
     "docs",
-    "tests",
-    # Eval trees are dev/CI-only tooling (same class as `tests`): the harness orchestrates
-    # many products by design, and product-owned suites under products/*/evals import the
-    # harness contracts, so neither fits the production dependency graph.
+    # Test directories stay in the graph so that a test outside a product that imports the
+    # product's internals is an interface violation. They are not dependency edges: `hogli
+    # lint:tach` (what CI runs) excludes test code from the dependency pass only.
+    # Eval trees are dev/CI-only tooling: the harness orchestrates many products by
+    # design, and product-owned suites under products/*/evals import the harness
+    # contracts, so neither fits the production dependency graph.
     "products/posthog_ai/eval_harness",
     "products/*/evals",
 ]
@@ -327,6 +329,18 @@ depends_on = [
     "products.managed_warehouse", "products.access_control",
 ]
 layer = "modules"
+
+# Isolation debt: warehouse_sources' API tests build the webhook create result to mock
+# the facade call, and the result hands out a HogFunction model that the consumers mutate.
+# Drain by narrowing the result to a hog function id in facade/contracts.py and moving the
+# mutation behind the cdp facade, then delete this block.
+[[interfaces]]
+expose = [
+    "backend\\.logic\\.external_data_source\\.webhooks\\.WebhookHogFunctionCreateResult",
+]
+from = [
+    "products.data_warehouse",
+]
 
 [[modules]]
 path = "products.data_warehouse"
@@ -899,6 +913,20 @@ from = [
 # product-owned boundary; Canvas never imports Comments or Tasks here.
 [[interfaces]]
 expose = [
+    "backend\\.teaching.*",
+    "backend\\.artifacts.*",
+    "backend\\.tasks.*",
+    # tasks' tests build canvases that point at a generation task.
+    "backend\\.models\\.Canvas",
+]
+from = [
+    "products.canvas",
+]
+
+# Generic Comments delegates Canvas ownership checks to this narrow,
+# product-owned boundary; Canvas never imports Comments or Tasks here.
+[[interfaces]]
+expose = [
     "backend\\.comment_access.*",
 ]
 from = [
@@ -1297,6 +1325,18 @@ layer = "modules"
 path = "products.field_notes"
 depends_on = ["posthog"]
 layer = "modules"
+
+# Isolation debt: outside test suites build tasks rows and read its enums straight
+# from the models. Drain by adding factories to facade/testing.py and migrating the
+# suites, then delete this block. Consumers: canvas, slack_app, review_hog,
+# replay_vision, posthog_ai, stamphog, conversations, signals, ee.
+[[interfaces]]
+expose = [
+    "backend\\.models\\.(Channel|SandboxEnvironment|Task|TaskRun|TaskThreadMessage)",
+]
+from = [
+    "products.tasks",
+]
 
 [[modules]]
 path = "products.stamphog"

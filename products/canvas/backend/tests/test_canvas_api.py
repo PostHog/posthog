@@ -25,7 +25,7 @@ from products.canvas.backend import activity_visibility, build_service
 from products.canvas.backend.actions import CANVAS_ACTIONS, TaskCreatePayloadSerializer
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
-from products.tasks.backend.logic.services.compute_quota import ComputeQuotaDenialReason
+from products.tasks.backend.facade.contracts import ComputeQuotaDenialReason
 from products.tasks.backend.models import Channel, Task, TaskRun, TaskThreadMessage
 
 

@@ -27,10 +27,8 @@ from posthog.models.utils import generate_random_token_personal
 from posthog.temporal.common.schedule import describe_schedule
 
 from products.data_modeling.backend.facade.models import Edge, Node
-from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
-from products.data_warehouse.backend.direct_snowflake import DIRECT_SNOWFLAKE_URL_PATTERN
+from products.data_warehouse.backend.facade.api import DIRECT_POSTGRES_URL_PATTERN, DIRECT_SNOWFLAKE_URL_PATTERN
 from products.data_warehouse.backend.logic.external_data_source.webhooks import WebhookHogFunctionCreateResult
-from products.data_warehouse.backend.tests.api.utils import create_external_data_source_ok
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataSchema,
@@ -46,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
+from products.warehouse_sources.backend.tests.api.utils import create_external_data_source_ok
 
 pytestmark = [
     pytest.mark.django_db,

@@ -1273,7 +1273,8 @@ jobs:
                     run: python .github/scripts/check-operator-parity.py
 
                   - name: Check module boundaries (tach)
-                    run: tach check --dependencies --interfaces
+                    # Two passes: tests are in the interface graph but not the dependency graph.
+                    run: ./bin/hogli lint:tach
 
                   - name: Check product facade enforcement (import-linter)
                     run: lint-imports
