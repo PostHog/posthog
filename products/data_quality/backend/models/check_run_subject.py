@@ -19,12 +19,16 @@ class DataQualityCheckRunSubject(TeamScopedRootMixin, UUIDModel):
     index over it, never a second source of truth.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    # db_index=False on both FKs: the composite index leads with team, and the unique constraint
+    # leads with run, so each column is already a btree prefix. The default standalone FK index
+    # would only be a redundant second copy to maintain.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False)
     run = models.ForeignKey(
         "data_quality.DataQualityCheckRun",
         on_delete=models.CASCADE,
         related_name="referenced_subject_rows",
         db_constraint=False,
+        db_index=False,
     )
 
     subject_type = models.CharField(max_length=32, choices=[(t.value, t.value) for t in SubjectType])

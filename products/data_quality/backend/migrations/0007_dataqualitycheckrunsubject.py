@@ -34,6 +34,7 @@ class Migration(migrations.Migration):
                     "run",
                     models.ForeignKey(
                         db_constraint=False,
+                        db_index=False,
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="referenced_subject_rows",
                         to="data_quality.dataqualitycheckrun",
@@ -43,6 +44,7 @@ class Migration(migrations.Migration):
                     "team",
                     models.ForeignKey(
                         db_constraint=False,
+                        db_index=False,
                         on_delete=django.db.models.deletion.CASCADE,
                         to="posthog.team",
                     ),
