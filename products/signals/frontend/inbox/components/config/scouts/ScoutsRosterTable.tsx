@@ -17,6 +17,7 @@ import {
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutNameCell } from './ScoutNameCell'
 import { ScoutNextRunLabel } from './ScoutNextRunLabel'
+import { ScoutOwnersCell } from './ScoutOwnersCell'
 import { ScoutRunBoxes } from './ScoutRunBoxes'
 import { ScoutStatusDot } from './ScoutStatusDot'
 
@@ -25,8 +26,8 @@ import { ScoutStatusDot } from './ScoutStatusDot'
  * than a section heading, so finding one by name is a single scan instead of a guess at which bucket
  * the scheduler put it in.
  *
- * `compact` is the phone-width roster: Cadence and Next run drop out and their space goes to the
- * name and the run strip. Both are schedule detail rather than state, and the scout page states
+ * `compact` is the phone-width roster: Owners, Cadence, and Next run drop out and their space goes
+ * to the name and the run strip. All three are detail rather than state, and the scout page states
  * them in full — at 375px they were 45px columns holding a truncated word each.
  */
 export function ScoutsRosterTable({ compact }: { compact: boolean }): JSX.Element {
@@ -63,7 +64,7 @@ export function ScoutsRosterTable({ compact }: { compact: boolean }): JSX.Elemen
                 {
                     title: 'Scout',
                     key: 'scout',
-                    width: compact ? '40%' : '34%',
+                    width: compact ? '40%' : '28%',
                     sorter: (a: ScoutRosterRow, b: ScoutRosterRow) => compareScoutsByName(a.config, b.config),
                     render: (_, row: ScoutRosterRow) => (
                         <ScoutNameCell
@@ -87,9 +88,19 @@ export function ScoutsRosterTable({ compact }: { compact: boolean }): JSX.Elemen
                     ),
                 },
                 {
+                    // Custom scouts only, so canonical rows read exactly as they did before. At
+                    // phone width it drops out with Cadence and Next run: the scout page names the
+                    // owner in full, and faces are the first thing worth cutting for the run strip.
+                    title: 'Owners',
+                    key: 'owners',
+                    width: '10%',
+                    isHidden: compact,
+                    render: (_, row: ScoutRosterRow) => <ScoutOwnersCell config={row.config} />,
+                },
+                {
                     title: 'Cadence',
                     key: 'cadence',
-                    width: '12%',
+                    width: '11%',
                     isHidden: compact,
                     render: (_, row: ScoutRosterRow) => (
                         <span className="text-xs text-secondary">{scoutCadenceLabel(row.config)}</span>
@@ -98,7 +109,7 @@ export function ScoutsRosterTable({ compact }: { compact: boolean }): JSX.Elemen
                 {
                     title: 'Next run',
                     key: 'nextRun',
-                    width: '12%',
+                    width: '11%',
                     isHidden: compact,
                     render: (_, row: ScoutRosterRow) => (
                         <span className="text-xs text-secondary tabular-nums">

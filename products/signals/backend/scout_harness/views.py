@@ -171,7 +171,11 @@ from products.signals.backend.scout_harness.tools.structured_output import (
     record_structured_output_sync,
 )
 from products.signals.backend.scout_report import InvalidScoutReportError
-from products.skills.backend.api.skill_services import LLMSkillDuplicateNameConflictError, create_skill
+from products.skills.backend.api.skill_services import (
+    LLMSkillDuplicateNameConflictError,
+    create_skill,
+    resolve_skill_owners_for_names,
+)
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -1918,6 +1922,30 @@ def _skill_info_for(team_id: int, skill_names: list[str]) -> dict[str, _ScoutSki
     }
 
 
+def _canonical_team(view: TeamAndOrgViewSetMixin) -> Team:
+    """The team scout rows belong to — see `_canonical_team_id` for why a child environment
+    resolves to its parent. Costs a query only on a child-environment request."""
+    team_id = _canonical_team_id(view)
+    return view.team if view.team.id == team_id else Team.objects.get(id=team_id)
+
+
+def scout_config_context(team: Team, skill_names: list[str]) -> dict[str, Any]:
+    """Serializer context for `SignalScoutConfigSerializer`: skill metadata plus skill owners.
+
+    Both maps are keyed on `skill_name` and resolved for the whole set at once, so listing the
+    fleet stays a fixed number of queries instead of one per scout. They are built together
+    because the serializer reads both, and a caller that passed only one would quietly serialize
+    every scout as unowned.
+    """
+    return {
+        "skill_info": _skill_info_for(team.id, skill_names),
+        # Owners are recorded on the scout's skill (`LLMSkillOwner`, keyed on the same
+        # `skill_name`), so they hold across edits to the skill body. `created_by` / `enabled_by`
+        # on the config row say who last flipped a switch, which is a different question.
+        "owners_by_skill_name": resolve_skill_owners_for_names(team, skill_names),
+    }
+
+
 class SignalScoutViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Create a runnable custom scout and its config through one atomic API call."""
 
@@ -1985,7 +2013,7 @@ class SignalScoutViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         response = SignalScoutCreateResponseSerializer(
             {"created": outcome.created, "skill": outcome.skill, "config": outcome.config},
-            context={"skill_info": _skill_info_for(canonical_team.id, [validated["name"]])},
+            context=scout_config_context(canonical_team, [validated["name"]]),
         )
         return Response(
             response.data,
@@ -2066,7 +2094,8 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         operation_id="signals_scout_config_list",
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
-        team_id = _canonical_team_id(self)
+        team = _canonical_team(self)
+        team_id = team.id
         # Don't surface held-back scouts here either — keeps the config read surface consistent
         # with the sync response and the seeding gate, so a withheld scout stays invisible to a
         # held-back team across the whole config API. Storage is untouched; the row reappears if
@@ -2080,8 +2109,8 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if tags:
             queryset = queryset.filter(tags__overlap=tags)
         configs = list(queryset.order_by("skill_name"))
-        skill_info = _skill_info_for(team_id, [c.skill_name for c in configs])
-        serializer = SignalScoutConfigSerializer(configs, many=True, context={"skill_info": skill_info})
+        context = scout_config_context(team, [c.skill_name for c in configs])
+        serializer = SignalScoutConfigSerializer(configs, many=True, context=context)
         return Response(serializer.data)
 
     @extend_schema(
@@ -2111,7 +2140,8 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         operation_id="signals_scout_config_create",
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
-        team_id = _canonical_team_id(self)
+        team = _canonical_team(self)
+        team_id = team.id
         if self._sets_structured_output_schema(request):
             self._assert_can_author_structured_output_schema()
         serializer = SignalScoutConfigCreateSerializer(
@@ -2135,9 +2165,9 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             request=request,
             serializer_context={**self.get_serializer_context(), "project_id": self.team.project_id},
         )
-        skill_info = _skill_info_for(team_id, [config.skill_name])
+        context = scout_config_context(team, [config.skill_name])
         return Response(
-            SignalScoutConfigSerializer(config, context={"skill_info": skill_info}).data,
+            SignalScoutConfigSerializer(config, context=context).data,
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
 
@@ -2161,7 +2191,8 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         operation_id="signals_scout_config_update",
     )
     def partial_update(self, request: Request, *args, **kwargs) -> Response:
-        team_id = _canonical_team_id(self)
+        team = _canonical_team(self)
+        team_id = team.id
         if self._sets_structured_output_schema(request):
             self._assert_can_author_structured_output_schema()
         config_id = _parse_run_id_or_404(kwargs)
@@ -2183,8 +2214,8 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if enabling:
             save_kwargs["enabled_by"] = request.user
         instance = serializer.save(**save_kwargs)
-        skill_info = _skill_info_for(team_id, [instance.skill_name])
-        return Response(SignalScoutConfigSerializer(instance, context={"skill_info": skill_info}).data)
+        context = scout_config_context(team, [instance.skill_name])
+        return Response(SignalScoutConfigSerializer(instance, context=context).data)
 
     @extend_schema(
         request=None,
@@ -2375,5 +2406,5 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             .exclude(skill_name__in=withheld)
             .order_by("skill_name")
         )
-        skill_info = _skill_info_for(team.id, [c.skill_name for c in configs])
-        return Response(SignalScoutConfigSerializer(configs, many=True, context={"skill_info": skill_info}).data)
+        context = scout_config_context(team, [c.skill_name for c in configs])
+        return Response(SignalScoutConfigSerializer(configs, many=True, context=context).data)
