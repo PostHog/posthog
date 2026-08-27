@@ -527,7 +527,7 @@ class TestSandboxRotation:
 
         async def provision_replacement():
             state = wf.context.state or {}
-            resume_flags_at_provision["value"] = (state.get("handoff_resumed"), state.get("handoff_resume_idle"))
+            resume_flags_at_provision["value"] = (state.get("same_run_resume"), state.get("same_run_resume_idle"))
             return self._replacement()
 
         monkeypatch.setattr(wf, "_get_sandbox_for_repository", provision_replacement)
