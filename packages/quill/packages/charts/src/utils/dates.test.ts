@@ -60,6 +60,12 @@ describe('createXAxisTickCallback', () => {
             expected: ['10:00', '10:01', '10:02'],
         },
         {
+            scenario: 'hourly, single day, newest-first → still HH:mm, no date markers',
+            interval: undefined,
+            allDays: hourlyDates('2025-04-01', 6).reverse(),
+            expected: ['05:00', '04:00', '03:00', '02:00', '01:00', '00:00'],
+        },
+        {
             scenario: 'inferred day interval from newest-first daily results',
             interval: undefined,
             allDays: ['2025-04-03 00:00:00', '2025-04-02 00:00:00', '2025-04-01 00:00:00'],
