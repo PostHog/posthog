@@ -241,14 +241,12 @@ export function GatewayAddServer({
             <Flex direction="column" gap="3">
               {isAdmin && (
                 <ToggleRow
-
                   title="Enabled for your organization"
                   description={
                     values.teamEnabled
                       ? "Anyone in your organization can find and use this server. Each person connects with their own account."
                       : "This server is turned off for everyone in your organization."
                   }
-
                   checked={values.teamEnabled}
                   onChange={(checked) => set("teamEnabled", checked)}
                 />
