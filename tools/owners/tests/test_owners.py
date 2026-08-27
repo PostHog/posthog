@@ -9,8 +9,8 @@ from posthog_owners import fmt as fmt_module
 from posthog_owners.cli import _consolidation_suggestions, _live_scope, _reserved_location_error
 from posthog_owners.fmt import CanonicalPlacer, CanonicalPlan
 from posthog_owners.matcher import path_matches_pattern
-from posthog_owners.resolver import OwnersResolver
-from posthog_owners.schema import is_simple_owners_file, parse_owners_file
+from posthog_owners.resolver import OwnersResolver, team_channel
+from posthog_owners.schema import TeamEntry, is_simple_owners_file, parse_owners_file
 
 
 @pytest.mark.parametrize(
@@ -260,7 +260,7 @@ def test_teams_registry_is_root_only(tmp_path: Path) -> None:
     assert any("only allowed in the repo-root" in e for e in sub_errors)
     root, root_errors = parse_owners_file(text, path=tmp_path / "owners.yaml", directory="")
     assert root_errors == []
-    assert root is not None and root.teams == {"team-a": "#a"}
+    assert root is not None and root.teams == {"team-a": TeamEntry(slack="#a")}
 
 
 @pytest.mark.parametrize(
@@ -268,6 +268,7 @@ def test_teams_registry_is_root_only(tmp_path: Path) -> None:
     [
         ("teams: [team-a]\n", "'teams' must be a mapping"),
         ("teams:\n  team-a:\n    slack: 'no-hash'\n", "must be a string starting with '#' or false"),
+        ("teams:\n  team-a:\n    notifications: 'no-hash'\n", "must be a string starting with '#' or false"),
         ("teams:\n  team-a:\n    channel: '#a'\n", "unknown field 'channel'"),
         ("teams:\n  team-a: '#a'\n", "entry must be a mapping"),
         ("teams:\n  '@alice':\n    slack: '#a'\n", "not @handles"),
@@ -279,6 +280,37 @@ def test_teams_registry_invalid_shapes(tmp_path: Path, teams_yaml: str, needle: 
     file, errors = parse_owners_file(text, path=tmp_path / "owners.yaml", directory="")
     assert any(needle in e for e in errors)
     assert file is not None  # a bad registry entry doesn't make the file unusable
+
+
+@pytest.mark.parametrize(
+    "entry,purpose,channel,declared",
+    [
+        (TeamEntry(slack="#team-a"), "slack", "#team-a", True),
+        # A team that never separates the two keeps one entry, and automation follows the people.
+        (TeamEntry(slack="#team-a"), "notifications", "#team-a", True),
+        (TeamEntry(slack="#team-a", notifications="#bots-a"), "notifications", "#bots-a", True),
+        # Silencing automation must not read as "this team has no channel": people still have one.
+        (TeamEntry(slack="#team-a", notifications=False), "notifications", None, True),
+        (TeamEntry(slack="#team-a", notifications=False), "slack", "#team-a", True),
+        # Declaring only the automation channel leaves the people lookup on the derived name.
+        (TeamEntry(notifications="#bots-a"), "slack", "#team-a", False),
+        (TeamEntry(slack=False), "notifications", None, True),
+    ],
+)
+def test_team_channel_falls_back_by_purpose(
+    entry: TeamEntry, purpose: str, channel: str | None, declared: bool
+) -> None:
+    # The fallback is what lets one entry serve both readers. Losing it would route every digest to
+    # a derived #<slug> that may not exist, and conflating a silenced automation channel with a
+    # team that has no channel at all would take the people channel down with it.
+    resolved = team_channel("team-a", {"team-a": entry}, purpose)
+    assert (resolved.channel, resolved.declared) == (channel, declared)
+
+
+def test_team_channel_derives_for_an_unregistered_slug() -> None:
+    assert team_channel("team-b", {"team-a": TeamEntry(slack="#a")}, "notifications") == team_channel(
+        "team-b", {}, "notifications"
+    )
 
 
 def test_teams_registry_pins_file_as_non_simple(tmp_path: Path) -> None:

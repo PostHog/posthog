@@ -45,6 +45,7 @@ from products.notebooks.backend.sql_v2 import (
     verify_data_plane_token,
 )
 from products.notebooks.backend.sql_v2_direct import apply_page_bounds
+from products.notebooks.backend.sql_v2_runs import touch_run_progress
 from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2DataPlaneRequestSerializer
 
 logger = structlog.get_logger(__name__)
@@ -138,6 +139,13 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
 
     if not Notebook.objects.filter(team_id=claims.team_id, short_id=claims.notebook_short_id).exists():
         return JsonResponse({"error": "Notebook not found"}, status=404)
+
+    # This request is the kernel's only observable sign of life during a run, so it resets the
+    # run's watchdog clock. A python cell materializes one input per upstream node, one after
+    # another, and without this the watchdog would count that whole sequence against a single
+    # budget and fail a cell that is working correctly.
+    if claims.run_id:
+        touch_run_progress(claims.team_id, claims.run_id)
     team = Team.objects.get(id=claims.team_id)
     user = User.objects.filter(id=claims.user_id).first() if claims.user_id else None
 

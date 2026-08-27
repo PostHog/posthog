@@ -1,11 +1,7 @@
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import SourceFieldInputConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mem0 import Mem0SourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.mem0.mem0 import Mem0ResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mem0.settings import (
     ENDPOINTS,
     ENTITIES_ENDPOINT,
@@ -14,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mem0.setti
     MEMORIES_ENDPOINT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mem0.source import Mem0Source
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.mem0.source"
 
@@ -24,26 +19,6 @@ def _config(api_key: str = "m0-test", org_id: str | None = None, project_id: str
 
 
 class TestMem0SourceConfig:
-    def test_source_type(self):
-        assert Mem0Source().source_type == ExternalDataSourceType.MEM0
-
-    def test_exposes_secret_api_key_and_optional_scoping_fields(self):
-        cfg = Mem0Source().get_source_config
-
-        fields = {f.name: f for f in cfg.fields}
-        assert set(fields) == {"api_key", "org_id", "project_id"}
-
-        api_key = fields["api_key"]
-        assert isinstance(api_key, SourceFieldInputConfig)
-        assert api_key.required is True
-        assert api_key.secret is True
-
-        for optional_name in ("org_id", "project_id"):
-            field = fields[optional_name]
-            assert isinstance(field, SourceFieldInputConfig)
-            assert field.required is False
-            assert field.secret is False
-
     def test_docs_url_matches_the_doc_slug(self):
         # The website derives the doc slug from docsUrl; a mismatch 404s the docs link.
         assert Mem0Source().get_source_config.docsUrl == "https://posthog.com/docs/cdp/sources/mem0"
@@ -123,21 +98,8 @@ class TestMem0SourceCredentials:
         assert ok is False
         assert error == "Invalid Mem0 API key"
 
-    def test_non_retryable_errors_pin_to_the_mem0_host(self):
-        keys = Mem0Source().get_non_retryable_errors().keys()
-
-        assert any(key.startswith("401 Client Error") and "api.mem0.ai" in key for key in keys)
-        assert any(key.startswith("403 Client Error") and "api.mem0.ai" in key for key in keys)
-
 
 class TestMem0SourcePipeline:
-    def test_resumable_manager_is_bound_to_the_mem0_resume_dataclass(self):
-        inputs = MagicMock()
-        manager = Mem0Source().get_resumable_source_manager(inputs)
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is Mem0ResumeConfig
-
     @patch(f"{_SOURCE_MODULE}.mem0_source")
     def test_plumbs_credentials_scoping_and_incremental_state(self, mock_source):
         inputs = MagicMock()

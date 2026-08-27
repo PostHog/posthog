@@ -20,6 +20,7 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/configuration-policy'
 import { DynamoDBCrawlHistory } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/dynamodb-crawl-history'
 import { FetchRunner } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/fetch-runner'
+import { KafkaFrontierDeadLetterSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/frontier-dead-letter-sink'
 import { FrontierPublisher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/frontier-publisher'
 import { HostBudget } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/host-budget'
 import { HttpImageFetcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetcher'
@@ -48,6 +49,14 @@ const STORE_BATCH_BUDGET_MS = 50_000
 /** Matches MAX_URL_LEN in the crate, which is what the collector applied to the first candidate. */
 const MAX_REDIRECT_URL_LENGTH = 2048
 
+const BLOCKED_IMAGE_FETCH_DEAD_LETTER_TOPICS = [
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH,
+    KAFKA_SESSION_REPLAY_IMAGE_SCRUB,
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1M,
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M,
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H,
+]
+
 /** The addon holds a 15 MB native library and `index.ts` imports every server, so it loads on first use. */
 let anonymizer: typeof import('@posthog/replay-anonymizer') | undefined
 function getAnonymizer(): typeof import('@posthog/replay-anonymizer') {
@@ -68,11 +77,12 @@ export function buildFrontierPublisher(
         frontierTopic: KAFKA_SESSION_REPLAY_IMAGE_FETCH,
         scrubTopic: KAFKA_SESSION_REPLAY_IMAGE_SCRUB,
         delayTiers: [
-            { topic: KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1M, delayMs: 60_000 },
-            { topic: KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M, delayMs: 600_000 },
-            { topic: KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H, delayMs: 3_600_000 },
+            { topic: KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1M, delayMs: 60_000, metricTopic: 'retry_1m' },
+            { topic: KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M, delayMs: 600_000, metricTopic: 'retry_10m' },
+            { topic: KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H, delayMs: 3_600_000, metricTopic: 'retry_1h' },
         ],
         maxConcurrentImagePublishes,
+        maxConcurrentRepublishes: maxConcurrentImagePublishes,
     })
 }
 
@@ -116,6 +126,11 @@ export function buildFetchRunner(
             maxConcurrentPerRegistrableDomain:
                 config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN,
             maxInFlightRequests: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS,
+            lowOriginDiversityMinimumRequestSlots:
+                config.SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_MINIMUM_REQUEST_SLOTS,
+            lowOriginDiversityRepublishThreshold:
+                config.SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_REPUBLISH_THRESHOLD,
+            lowOriginDiversityProgress: config.SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_PROGRESS,
             batchBudgetMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_BUDGET_MS,
             maxBytes: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES,
             requestTimeoutMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_TIMEOUT_MS,
@@ -202,10 +217,15 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
         // Built even in dry run, so the wiring is exercised by every start rather than only by the
         // one that clears the flag.
         this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
+        const producer = this.producerRegistry.getProducer(INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER)
         const publisher = buildFrontierPublisher(
-            this.producerRegistry.getProducer(INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER),
+            producer,
             this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_PENDING_PUBLISHES
         )
+        const deadLetterTopic = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_DLQ_TOPIC
+        const deadLetters = deadLetterTopic
+            ? new KafkaFrontierDeadLetterSink(producer, deadLetterTopic, BLOCKED_IMAGE_FETCH_DEAD_LETTER_TOPICS)
+            : null
 
         const fetchConsumer = new UrlFetchConsumer(
             crawlHistory,
@@ -214,7 +234,8 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
                 seenTtlSeconds: this.config.AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS,
                 dryRun,
             },
-            buildFetchRunner(this.config, publisher)
+            buildFetchRunner(this.config, publisher),
+            deadLetters
         )
         logger.info('🌐', 'ml_image_fetch_started', { dryRun })
 

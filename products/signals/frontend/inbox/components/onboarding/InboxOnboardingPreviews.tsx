@@ -65,7 +65,13 @@ const REPORT_SAMPLE: Omit<SignalReport, 'created_at' | 'updated_at'> = {
  * "Example" tag labels it at a glance, and a single click surface on top plays the meep flair while
  * a tooltip explains that real work lands here once the setup command runs.
  */
-function PreviewCard({ report, tabKey }: { report: SignalReport; tabKey: 'pulls' | 'reports' }): JSX.Element {
+function PreviewCard({
+    report,
+    sectionKey,
+}: {
+    report: SignalReport
+    sectionKey: 'monitoring' | 'needs-decision'
+}): JSX.Element {
     return (
         // `@container` so ReportCard's `@lg:` row layout resolves against the preview width (it has no
         // inbox-list container here). `role="presentation"` – the whole thing is decorative.
@@ -74,7 +80,7 @@ function PreviewCard({ report, tabKey }: { report: SignalReport; tabKey: 'pulls'
                 sample report id (which 404s) out of reach – nobody can click or tab into it – on top
                 of the `pointer-events-none` and overlay below. */}
             <div aria-hidden className="pointer-events-none">
-                <ReportCard report={report} tabKey={tabKey} preview />
+                <ReportCard report={report} sectionKey={sectionKey} preview />
             </div>
 
             {/* Always-visible label so the sample reads as a sample, not live work. Sits on the top
@@ -99,10 +105,20 @@ function PreviewCard({ report, tabKey }: { report: SignalReport; tabKey: 'pulls'
 
 export function PullRequestPreview(): JSX.Element {
     const landed = landedHoursAgo(2)
-    return <PreviewCard report={{ ...PULL_REQUEST_SAMPLE, created_at: landed, updated_at: landed }} tabKey="pulls" />
+    return (
+        <PreviewCard
+            report={{ ...PULL_REQUEST_SAMPLE, created_at: landed, updated_at: landed }}
+            sectionKey="monitoring"
+        />
+    )
 }
 
 export function ReportPreview(): JSX.Element {
     const landed = landedHoursAgo(4)
-    return <PreviewCard report={{ ...REPORT_SAMPLE, created_at: landed, updated_at: landed }} tabKey="reports" />
+    return (
+        <PreviewCard
+            report={{ ...REPORT_SAMPLE, created_at: landed, updated_at: landed }}
+            sectionKey="needs-decision"
+        />
+    )
 }

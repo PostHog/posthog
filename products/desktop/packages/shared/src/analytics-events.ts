@@ -66,6 +66,7 @@ export type CommandMenuAction =
   | "open-archived"
   | "open-loops"
   | "open-usage"
+  | "open-cost-management"
   | "search-files"
   | "open-file"
   | "reload-window"
@@ -276,8 +277,7 @@ export type SidebarNavItem =
   | "activity"
   | "configure"
   | "loops"
-  | "more"
-  | "customize_sidebar";
+  | "more";
 
 /** Which sidebar shell the click came from, so the two can be compared. */
 export type SidebarLayout = "code" | "channels";
@@ -292,18 +292,6 @@ export interface SidebarNavItemClickedProperties {
    * them is the whole point of running one behind a flag.
    */
   layout?: SidebarLayout;
-}
-
-export interface SidebarCustomizedProperties {
-  item: SidebarNavItem;
-  /** True when the item was promoted to the top level, false when moved under More. */
-  visible: boolean;
-}
-
-export interface SidebarReorderedProperties {
-  item: SidebarNavItem;
-  /** Zero-based position of the item in the nav after the drag. */
-  to_index: number;
 }
 
 export interface TaskListGroupingChangedProperties {
@@ -490,13 +478,11 @@ export interface TaskFeedbackProperties {
 
 // Onboarding events
 export type OnboardingStepId =
-  | "welcome"
   | "project-select"
   | "invite-code"
   | "consent"
   | "connect-github"
   | "install-cli"
-  | "import-config"
   | "select-repo";
 
 type OnboardingSkipReason = "no_repo_selected" | "dev_skip";
@@ -677,7 +663,8 @@ export type InboxReportActionType =
   | "add_suggested_reviewer"
   | "remove_suggested_reviewer"
   | "expand_task_section"
-  | "play_session_recording";
+  | "play_session_recording"
+  | "create_canvas";
 
 export type InboxReportActionSurface =
   | "detail_pane"
@@ -1119,6 +1106,13 @@ export interface CanvasRenderedProperties {
   build_id?: string;
 }
 
+export interface CanvasViewedProperties {
+  channel_id: string;
+  dashboard_id: string;
+  canvas_kind: "freeform" | "grid" | "component";
+  template_id: string;
+}
+
 export interface CanvasRuntimeErrorProperties {
   channel_id?: string;
   dashboard_id?: string;
@@ -1432,8 +1426,6 @@ export const ANALYTICS_EVENTS = {
   BRAINROT_PLAYER_ERROR: "Brainrot player error",
   POSTHOG_WEB_OPENED: "PostHog web opened",
   SIDEBAR_NAV_ITEM_CLICKED: "Sidebar nav item clicked",
-  SIDEBAR_CUSTOMIZED: "Sidebar customized",
-  SIDEBAR_REORDERED: "Sidebar reordered",
   TASK_LIST_GROUPING_CHANGED: "Task list grouping changed",
   TASK_LIST_APPEARANCE_CHANGED: "Task list appearance changed",
 
@@ -1545,6 +1537,7 @@ export const ANALYTICS_EVENTS = {
   TASK_FEED_ACTION: "Task feed action",
   DASHBOARD_ACTION: "Dashboard action",
   CANVAS_PROMPT_SENT: "Canvas prompt sent",
+  CANVAS_VIEWED: "Canvas viewed",
   CANVAS_RENDERED: "Canvas rendered",
   CANVAS_RUNTIME_ERROR: "Canvas runtime error",
   CONTEXT_ACTION: "Context action",
@@ -1625,8 +1618,6 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.BRAINROT_PLAYER_ERROR]: BrainrotPlayerErrorProperties;
   [ANALYTICS_EVENTS.POSTHOG_WEB_OPENED]: never;
   [ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED]: SidebarNavItemClickedProperties;
-  [ANALYTICS_EVENTS.SIDEBAR_CUSTOMIZED]: SidebarCustomizedProperties;
-  [ANALYTICS_EVENTS.SIDEBAR_REORDERED]: SidebarReorderedProperties;
   [ANALYTICS_EVENTS.TASK_LIST_GROUPING_CHANGED]: TaskListGroupingChangedProperties;
   [ANALYTICS_EVENTS.TASK_LIST_APPEARANCE_CHANGED]: TaskListAppearanceChangedProperties;
 
@@ -1737,6 +1728,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.TASK_FEED_ACTION]: TaskFeedActionProperties;
   [ANALYTICS_EVENTS.DASHBOARD_ACTION]: DashboardActionProperties;
   [ANALYTICS_EVENTS.CANVAS_PROMPT_SENT]: CanvasPromptSentProperties;
+  [ANALYTICS_EVENTS.CANVAS_VIEWED]: CanvasViewedProperties;
   [ANALYTICS_EVENTS.CANVAS_RENDERED]: CanvasRenderedProperties;
   [ANALYTICS_EVENTS.CANVAS_RUNTIME_ERROR]: CanvasRuntimeErrorProperties;
   [ANALYTICS_EVENTS.CONTEXT_ACTION]: ContextActionProperties;

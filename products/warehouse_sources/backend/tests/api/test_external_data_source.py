@@ -42,6 +42,7 @@ from posthog.models.project import Project
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
+from products.data_warehouse.backend.direct_trino import DIRECT_TRINO_URL_PATTERN
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
 from products.warehouse_sources.backend.facade.models import (
@@ -57,6 +58,7 @@ from products.warehouse_sources.backend.facade.types import IncrementalFieldType
 from products.warehouse_sources.backend.models.custom_oauth2_integration import CustomOAuth2Integration
 from products.warehouse_sources.backend.presentation.views.external_data_schema import ExternalDataSchemaSerializer
 from products.warehouse_sources.backend.presentation.views.external_data_source import (
+    DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE,
     INVALID_CREDENTIALS_FALLBACK_MESSAGE,
     ExternalDataSourceViewSet,
     get_declared_field_names,
@@ -533,6 +535,72 @@ class TestExternalDataSource(APIBaseTest):
         mock_sync_discover.assert_not_called()
 
     @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.trino.source.TrinoSource.get_schemas",
+        return_value=[
+            SourceSchema(
+                name="analytics.events",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "bigint", False)],
+                source_catalog="hive",
+                source_schema="analytics",
+                source_table_name="events",
+            )
+        ],
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.trino.source.TrinoSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_direct_trino_connection(self, _mock_validate, _mock_get_schemas):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Trino",
+                "created_via": "web",
+                "access_method": "direct",
+                "prefix": "Lakehouse",
+                "payload": {
+                    "host": "trino.example.com",
+                    "port": 443,
+                    "catalog": "hive",
+                    "schema": "analytics",
+                    "auth_type": {"selection": "password", "user": "posthog", "password": "secret"},
+                    "use_ssl": True,
+                    "verify_ssl": True,
+                    "schemas": [{"name": "analytics.events", "should_sync": True, "sync_type": None}],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        source = ExternalDataSource.objects.get(pk=response.json()["id"])
+        schema = ExternalDataSchema.objects.get(source=source, name="analytics.events")
+        assert source.direct_engine == "trino"
+        assert source.access_method == ExternalDataSource.AccessMethod.DIRECT
+        assert schema.table is not None
+        assert schema.table.url_pattern == DIRECT_TRINO_URL_PATTERN
+        assert schema.table.options == {
+            "direct_trino_catalog": "hive",
+            "direct_trino_schema": "analytics",
+            "direct_trino_table": "events",
+        }
+
+    def test_create_trino_rejects_warehouse_mode(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Trino",
+                "created_via": "web",
+                "access_method": "warehouse",
+                "payload": {},
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"message": "Trino is available only as a direct connection."}
+
+    @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
@@ -939,6 +1007,7 @@ class TestExternalDataSource(APIBaseTest):
                 "cdc_lag_warning_threshold_mb": 512,
                 "cdc_lag_critical_threshold_mb": 1024,
                 "cdc_consistent_point": "0/AA",
+                "cdc_ingest_mode": "buffered",
             },
         )
 
@@ -959,6 +1028,7 @@ class TestExternalDataSource(APIBaseTest):
                     "cdc_lag_warning_threshold_mb": 1,
                     "cdc_lag_critical_threshold_mb": 2,
                     "cdc_consistent_point": "0/BAD",
+                    "cdc_ingest_mode": "legacy",
                 }
             },
             format="json",
@@ -975,6 +1045,7 @@ class TestExternalDataSource(APIBaseTest):
         assert str(source.job_inputs["cdc_lag_warning_threshold_mb"]) == "512"
         assert str(source.job_inputs["cdc_lag_critical_threshold_mb"]) == "1024"
         assert source.job_inputs["cdc_consistent_point"] == "0/AA"
+        assert source.job_inputs["cdc_ingest_mode"] == "buffered"
 
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
@@ -2578,13 +2649,17 @@ class TestExternalDataSource(APIBaseTest):
         source_types = {option["source_type"] for option in payload}
 
         # Guards the drift the picker hit: a direct-capable engine must surface as an addable option.
-        self.assertTrue({"Postgres", "MySQL", "Snowflake", "Redshift", "ClickHouse"}.issubset(source_types))
+        self.assertTrue({"Postgres", "MySQL", "Snowflake", "Redshift", "ClickHouse", "Trino"}.issubset(source_types))
         self.assertNotIn("Stripe", source_types)
 
         clickhouse = next(option for option in payload if option["source_type"] == "ClickHouse")
         self.assertEqual(clickhouse["label"], "ClickHouse")
         self.assertIsNotNone(clickhouse["icon_path"])
         self.assertTrue(clickhouse["icon_path"].endswith("clickhouse.png"))
+
+        trino = next(option for option in payload if option["source_type"] == "Trino")
+        self.assertEqual(trino["label"], "Trino")
+        self.assertEqual(trino["icon_path"], "/static/services/trino.svg")
 
         for option in payload:
             self.assertTrue(option["label"])
@@ -2865,6 +2940,7 @@ class TestExternalDataSource(APIBaseTest):
                     "enabled_columns": None,
                     "row_filters": None,
                     "available_columns": [],
+                    "source_column_metadata_available": False,
                     "source": None,
                     "api_version": None,
                     "api_version_deprecation": None,
@@ -4828,9 +4904,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {
-                "message": "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, Redshift, and ClickHouse sources."
-            },
+            {"message": DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE},
         )
 
     def test_source_prefix_rejects_direct_unsupported_source_type(self):
@@ -4846,9 +4920,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {
-                "message": "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, Redshift, and ClickHouse sources."
-            },
+            {"message": DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE},
         )
 
     def test_source_prefix_accepts_direct_mysql(self):

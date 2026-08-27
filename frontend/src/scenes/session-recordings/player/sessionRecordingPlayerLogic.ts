@@ -59,6 +59,7 @@ import { analysisNudgeLogic } from 'products/replay_vision/frontend/logics/analy
 import {
     MAX_REPLAY_IFRAME_HTML_CHARS,
     ReplayIframeData,
+    isUsableHeatmapUrl,
     persistReplayIframeData,
 } from 'products/web_analytics/frontend/heatmaps/replayIframeData'
 
@@ -239,6 +240,8 @@ export function stripRrwebScriptShims(html: string): string {
 }
 
 const SNAPSHOT_REJECTION_PROBLEM = {
+    not_ready: 'This recording has not finished loading this frame yet.',
+    no_url: 'This moment has no page address to build a heatmap for.',
     too_large: 'This part of the recording is too large to use as a heatmap background.',
     storage_failed: "Couldn't save this moment as a heatmap background.",
 } as const
@@ -287,6 +290,10 @@ export function findNewEvents(allSnapshots: eventWithTime[], currentEvents: even
     }
     return newEvents
 }
+
+// Longer than any legit in-session idle span (the default session idle timeout is 30 minutes),
+// so a gap past this exists only in recordings with corrupted timestamps.
+export const INSTANT_SKIP_INACTIVITY_THRESHOLD_MS = 60 * 60 * 1000
 
 /** Find the segment containing this timestamp, falling back to the nearest valid one if out of range. */
 export function findSegmentForTimestamp(segments: RecordingSegment[], timestamp?: number): RecordingSegment | null {
@@ -2317,6 +2324,23 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     actions.seekToTimestamp(segment.endTimestamp)
                     return
                 }
+                // fast-forwarding a multi-hour span saturates the main thread; only 'gap' segments
+                // are event-free, so only they are safe to jump with a seek
+                const remainingMs =
+                    segment.endTimestamp -
+                    clamp(
+                        values.currentTimestamp ?? segment.startTimestamp,
+                        segment.startTimestamp,
+                        segment.endTimestamp
+                    )
+                if (
+                    values.playingState === SessionPlayerState.PLAY &&
+                    segment.kind === 'gap' &&
+                    remainingMs > INSTANT_SKIP_INACTIVITY_THRESHOLD_MS
+                ) {
+                    actions.seekToTimestamp(segment.endTimestamp)
+                    return
+                }
                 actions.setSkippingInactivity(true)
             } else {
                 actions.setSkippingInactivity(false)
@@ -2603,6 +2627,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.setEndReached(false)
 
             if (nextTimestamp !== undefined) {
+                // resuming inside a long gap re-enters it without a segment change, so jump here too
+                const segment = values.segmentForTimestamp(nextTimestamp)
+                if (
+                    values.skipInactivitySetting &&
+                    segment?.kind === 'gap' &&
+                    segment.endTimestamp - nextTimestamp > INSTANT_SKIP_INACTIVITY_THRESHOLD_MS
+                ) {
+                    nextTimestamp = segment.endTimestamp
+                }
                 actions.seekToTimestamp(nextTimestamp, true)
             }
 
@@ -3126,6 +3159,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const rawIframeHtml = iframe?.contentWindow?.document?.documentElement?.innerHTML
             const resolution = values.resolution
             if (!rawIframeHtml || !resolution) {
+                rejectHeatmapSnapshot('not_ready', rawIframeHtml?.length ?? 0)
+                return
+            }
+
+            const url = values.currentURL?.trim()
+            if (!isUsableHeatmapUrl(url)) {
+                rejectHeatmapSnapshot('no_url', rawIframeHtml.length)
                 return
             }
 
@@ -3141,7 +3181,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 width: resolution.width,
                 height: resolution.height,
                 startDateTime: values.sessionPlayerMetaData?.start_time,
-                url: values.currentURL,
+                url,
             }
             const key = persistReplayIframeData(data)
             if (!key) {

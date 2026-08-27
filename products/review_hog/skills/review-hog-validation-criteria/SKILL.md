@@ -1,7 +1,7 @@
 ---
 name: review-hog-validation-criteria
 description: >
-  The validation criteria for ReviewHog — the bar for deciding whether a flagged PR issue is worth
+  The validation criteria for PostHog Review, the bar for deciding whether a flagged PR issue is worth
   keeping. Keeps real, user-affecting correctness / security / data-loss / contract / performance
   problems; drops overengineering, speculation, paranoia, never-gonna-happen edge cases, and style.
 metadata:
@@ -55,7 +55,7 @@ Drop it if it is any of:
 - **Never-gonna-happen edge cases** — theoretically possible but practically unreachable, or so rare
   and low-impact that handling it isn't worth the code.
 - **Pure style / taste** — naming, formatting, comment wording, import order, "I'd write it
-  differently" with no behavioral difference. (Formatting is not a ReviewHog concern.)
+  differently" with no behavioral difference. (Formatting is not a PostHog Review concern.)
 - **Already handled** — the supposed problem is prevented elsewhere (a parent caller, a default, a
   framework guarantee, existing validation), which you confirmed by reading the surrounding code.
 - **Wrong / unreproducible** — investigating the actual code shows the premise is mistaken.

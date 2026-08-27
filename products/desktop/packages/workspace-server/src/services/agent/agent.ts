@@ -32,6 +32,7 @@ import {
   getAvailableModes,
 } from "@posthog/agent/execution-mode";
 import { fetchGatewayModels } from "@posthog/agent/gateway-models";
+import { buildTaskSystemPrompt } from "@posthog/agent/pi/task-system-prompt";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import {
   findPrUrls,
@@ -71,7 +72,6 @@ import {
   type CloudRegion,
   type ExecutionMode,
   isAuthError,
-  type McpServerConnection,
   resolveCloudInitialPermissionMode,
   serializeError,
   TypedEventEmitter,
@@ -680,6 +680,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   private buildSystemPrompt(
     credentials: Credentials,
     taskId: string,
+    cwd: string,
     customInstructions?: string,
     additionalDirectories?: string[],
     systemPromptOverride?: string,
@@ -696,75 +697,22 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
       };
     }
 
-    let prompt = `PostHog context: use project ${credentials.projectId} on ${credentials.apiHost}. When using PostHog MCP tools, operate only on this project.`;
-
-    prompt += `
-
-## Attribution
-Do NOT use Claude Code's default attribution (no "Co-Authored-By" trailers, no "Generated with [Claude Code]" lines).
-
-Instead, add the following trailers to EVERY commit message (after a blank line at the end):
-  Generated-By: PostHog Desktop
-  Task-Id: ${taskId}
-
-Example:
-\`\`\`
-git commit -m "$(cat <<'EOF'
-fix: resolve login redirect loop
-
-Generated-By: PostHog Desktop
-Task-Id: ${taskId}
-EOF
-)"
-\`\`\`
-
-When creating new branches, prefix them with \`posthog/\` (e.g. \`posthog/fix-login-redirect\`).
-
-When creating pull requests, add the following footer at the end of the PR description:
-\`\`\`
----
-*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*
-\`\`\`
-
-When you mention a pull request in any reply or summary, always hyperlink it to its full URL (e.g. a Markdown link like [#123](https://github.com/org/repo/pull/123)) rather than plain text, so readers can open it directly.
-
-## Questions
-When you need an answer from the user before you can continue, use the structured user-input tool available in your current mode. Never end a turn with a blocking question in a normal assistant message because plain-text questions mark the task as finished instead of waiting for the user's response.
-
-## Shell efficiency
-Optimize for the fewest shell round trips.
-- Batch related commands into one Bash invocation using \`&&\` (e.g. \`npm run typecheck && npm run lint && npm test\`).
-- Emit all independent tool calls in the same response.
-- Read multiple files at once.
-- Never rerun a command solely to reproduce output you already have.
-
-`;
-
-    if (channelMode) {
-      prompt += `
-
-## Channel task (no repository attached)
-You are running in a PostHog channel as a general-purpose assistant. This task may not need a code repository. It could be data analysis via PostHog tools, drafting a message, or answering a question. Do not assume you need a repo.
-
-- Your working directory is a scratch directory, not a git checkout. Treat it as empty.
-- Decide from the user's request and the channel CONTEXT.md, if present, whether the task requires a code repository. If it doesn't, do the work in the scratch directory.
-- Do not \`cd\` into or edit an existing checkout elsewhere on the machine. Another task may be using it.
-
-If a repository is required, call \`list_repos\` to find it, then use \`clone_repo\` with its \`owner/repo\`. The tool creates a task-specific clone inside the scratch directory and returns the path to use. If you cannot confidently identify the repository, ask the user which repository to clone.`;
-    }
-
-    if (customInstructions) {
-      prompt += `\n\nUser custom instructions:\n${customInstructions}`;
-    }
-
-    if (additionalDirectories?.length) {
-      const escapeXml = (s: string) =>
-        s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-      const dirs = additionalDirectories
-        .map((d) => `  <directory>${escapeXml(d)}</directory>`)
-        .join("\n");
-      prompt += `\n\nThe user has granted you access to additional directories outside the working directory. You may read and edit files in these paths just like the working directory:\n<additional_directories>\n${dirs}\n</additional_directories>`;
-    }
+    const prompt = buildTaskSystemPrompt(
+      {
+        projectId: credentials.projectId,
+        apiHost: credentials.apiHost,
+        taskId,
+        cwd,
+        environment: "local",
+        customInstructions,
+        additionalDirectories,
+        channelMode,
+      },
+      {
+        structuredInput: true,
+        repositoryTools: true,
+      },
+    );
 
     return {
       append: appendRichOutputPrompt(prependProductEngineerPrompt(prompt)),
@@ -919,6 +867,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
       const systemPrompt = this.buildSystemPrompt(
         credentials,
         taskId,
+        repoPath,
         customInstructions,
         additionalDirectories,
         systemPromptOverride,
@@ -1036,16 +985,6 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
         })),
       );
 
-      // codex-acp connects to every MCP server eagerly during session creation
-      // and treats an unreachable one as fatal, which kills the session
-      // ("ACP connection closed") and makes the host silently fall back to a
-      // Claude/Opus session. Claude connects lazily and is unaffected, so only
-      // the Codex server list is pruned to the reachable ones.
-      const sessionMcpServers =
-        adapter === "codex"
-          ? await this.filterReachableMcpServers(mcpServers, taskRunId)
-          : mcpServers;
-
       let externalPlugins: Awaited<ReturnType<typeof discoverExternalPlugins>> =
         [];
       try {
@@ -1097,7 +1036,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
           const loadResponse = await connection.loadSession({
             sessionId: importedSessionId,
             cwd: repoPath,
-            mcpServers: sessionMcpServers,
+            mcpServers,
             _meta: {
               ...(logUrl && {
                 persistence: { taskId, runId: taskRunId, logUrl },
@@ -1185,7 +1124,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
         const resumeResponse = await connection.resumeSession({
           sessionId: existingSessionId,
           cwd: repoPath,
-          mcpServers: sessionMcpServers,
+          mcpServers,
           _meta: {
             ...(logUrl && {
               persistence: { taskId, runId: taskRunId, logUrl },
@@ -1223,7 +1162,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
         }
         const newSessionResponse = await connection.newSession({
           cwd: repoPath,
-          mcpServers: sessionMcpServers,
+          mcpServers,
           _meta: {
             taskRunId,
             environment: "local",
@@ -1385,78 +1324,6 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
     const history = formatConversationForResume(conversation);
     if (!history) return undefined;
     return `You are resuming a previous conversation after the native session could not be restored. Here is the conversation history from the previous session:\n\n${history}\n\nContinue from where you left off when responding to the user's next message.`;
-  }
-
-  private async filterReachableMcpServers<T extends McpServerConnection>(
-    servers: T[],
-    taskRunId: string,
-  ): Promise<T[]> {
-    const probed = await Promise.all(
-      servers.map(async (server) => ({
-        server,
-        reachable: await this.isMcpServerReachable(server),
-      })),
-    );
-    const reachable: T[] = [];
-    for (const { server, reachable: ok } of probed) {
-      if (ok) {
-        reachable.push(server);
-      } else {
-        this.log.warn(
-          "Dropping unreachable MCP server from Codex session; codex-acp treats an unreachable server as a fatal startup error",
-          { taskRunId, server: server.name, url: server.url },
-        );
-      }
-    }
-    return reachable;
-  }
-
-  private async isMcpServerReachable(
-    server: Pick<McpServerConnection, "url" | "headers">,
-  ): Promise<boolean> {
-    const PROBE_TIMEOUT_MS = 2_000;
-    try {
-      const headers: Record<string, string> = {
-        "content-type": "application/json",
-        accept: "application/json, text/event-stream",
-      };
-      for (const header of server.headers) {
-        headers[header.name] = header.value;
-      }
-      const response = await fetch(server.url, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 0,
-          method: "initialize",
-          params: {
-            protocolVersion: "2025-06-18",
-            capabilities: {},
-            clientInfo: { name: "posthog-code", version: "1.0.0" },
-          },
-        }),
-        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
-      });
-      // Release the body without draining it. A cancel rejection (e.g. an
-      // already-disturbed stream) is a cleanup detail, not a reachability
-      // signal, so it must not flip the result to unreachable.
-      try {
-        await response.body?.cancel();
-      } catch {
-        // ignore body cleanup failures
-      }
-      // Any HTTP response means the endpoint is reachable. codex-acp only treats
-      // transport failures (connection refused, DNS, timeout) as fatal; HTTP or
-      // JSON-RPC error responses are handled gracefully.
-      return true;
-    } catch (err) {
-      this.log.debug("MCP server reachability probe failed", {
-        url: server.url,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return false;
-    }
   }
 
   async prompt(

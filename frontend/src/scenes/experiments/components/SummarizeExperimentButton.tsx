@@ -6,6 +6,7 @@ import { IconSparkles } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { addProductIntent } from 'lib/utils/product-intents'
+import { isLaunched } from 'scenes/experiments/experimentStatus'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -14,7 +15,6 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { experimentLogic } from '../experimentLogic'
-import { isLaunched } from '../experimentsLogic'
 
 /**
  * Minimal context sent to the backend for experiment summarization.
@@ -24,40 +24,25 @@ import { isLaunched } from '../experimentsLogic'
 interface MinimalExperimentSummaryContext {
     experiment_id: number | string
     experiment_name: string
-    /** ISO8601 timestamp of when the frontend last refreshed the data */
-    frontend_last_refresh: string | null
 }
 
 function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
-    const { experiment, orderedPrimaryMetricsWithResults, primaryMetricsResults, secondaryMetricsResults } =
-        useValues(experimentLogic)
-
-    // Get the most recent last_refresh timestamp from metric results
-    const frontendLastRefresh = useMemo(() => {
-        const allResults = [...(primaryMetricsResults || []), ...(secondaryMetricsResults || [])]
-        const timestamps = allResults
-            .map((r) => r?.last_refresh)
-            .filter((t): t is string => typeof t === 'string')
-            .sort()
-            .reverse()
-        return timestamps[0] || null
-    }, [primaryMetricsResults, secondaryMetricsResults])
+    const { experiment, orderedPrimaryMetricsWithResults } = useValues(experimentLogic)
 
     // Simplified context - backend will fetch full data using experiment_id
     const maxToolContext = useMemo(
         (): MinimalExperimentSummaryContext => ({
             experiment_id: experiment.id,
             experiment_name: experiment.name || 'Unnamed experiment',
-            frontend_last_refresh: frontendLastRefresh,
         }),
-        [experiment.id, experiment.name, frontendLastRefresh]
+        [experiment.id, experiment.name]
     )
 
     const shouldShowMaxSummaryTool = useMemo(() => {
         const hasResults = orderedPrimaryMetricsWithResults.length > 0
         const hasStarted = isLaunched(experiment)
         return hasResults && hasStarted
-    }, [orderedPrimaryMetricsWithResults, experiment.status, experiment.start_date, experiment.end_date, experiment])
+    }, [orderedPrimaryMetricsWithResults, experiment.status, experiment.start_date, experiment.end_date, experiment]) //eslint-disable-line react-hooks/exhaustive-deps
 
     const maxToolResult = useMaxTool({
         identifier: 'experiment_results_summary',

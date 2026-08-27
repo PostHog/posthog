@@ -68,7 +68,7 @@ export function AppMetricsSparkline({
             ) : !appMetricsTrends || appMetricsTrendsLoading ? (
                 <LemonSkeleton className="h-8 max-w-24" />
             ) : (
-                <Sparkline labels={labels} data={displayData} className="h-8 max-w-24" maximumIndicator={false} />
+                <Sparkline labels={labels} data={displayData} className="h-8 max-w-24" />
             )}
         </div>
     )
