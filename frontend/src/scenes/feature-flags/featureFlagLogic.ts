@@ -3201,6 +3201,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
         },
+        // A server verdict about the saved flag, so it does not follow the working copy. Every
+        // mutation that can change staleness or rollout must dispatch this again, or the stale
+        // banner outlives the change the reader just made.
         flagStatus: [
             null as FeatureFlagStatusResponseApi | null,
             {
@@ -3504,6 +3507,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // Whole flag just persisted — the baseline is now the saved state, so the form reads clean.
             actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlag))
             actions.updateFlag(featureFlag)
+            actions.loadFeatureFlagStatus()
             if (featureFlag.id && isOnFeatureFlagPage(props.id)) {
                 router.actions.replace(urls.featureFlag(featureFlag.id))
             }
@@ -3589,6 +3593,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlagActiveUpdate))
                 }
                 actions.updateFlag(featureFlagActiveUpdate)
+                actions.loadFeatureFlagStatus()
             }
         },
         toggleProjectFlagActive: async ({ teamId, flagId, active }) => {
@@ -3662,6 +3667,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlagActiveUpdate))
                 }
                 actions.updateFlag(featureFlagActiveUpdate)
+                actions.loadFeatureFlagStatus()
             }
         },
         updateFeatureFlagArchivedFailure: ({ errorObject }) => {

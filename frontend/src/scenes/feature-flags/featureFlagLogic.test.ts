@@ -2204,6 +2204,34 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('stale status after a mutation', () => {
+        const STATUS_URL = `/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/status`
+
+        function statusMock(status: string, reason: string): Parameters<typeof useMocks>[0] {
+            return { get: { [STATUS_URL]: () => [200, { ...MOCK_FEATURE_FLAG_STATUS, status, reason }] } }
+        }
+
+        // The banner asks the reader to disable the flag or change its rollout. `flagStatus` is a
+        // server verdict about the saved flag, so without a refetch it keeps the boot-time answer
+        // and the banner advises an action the reader already took.
+        it.each([
+            [
+                'the flag is disabled',
+                () => logic.actions.updateFeatureFlagActiveSuccess({ ...MOCK_FEATURE_FLAG, active: false }),
+            ],
+            ['an edit is saved', () => logic.actions.saveFeatureFlagSuccess(MOCK_FEATURE_FLAG)],
+        ])('clears the stale banner when %s', async (_name, mutate) => {
+            useMocks(statusMock('stale', 'Flag has not been called in 45 days'))
+            await expectLogic(logic, () => logic.actions.loadFeatureFlagStatus()).toFinishAllListeners()
+            expect(logic.values.showStaleFlagBanner).toBe(true)
+
+            useMocks(statusMock('active', 'Flag is disabled (not evaluated for staleness)'))
+            await expectLogic(logic, mutate).toFinishAllListeners()
+
+            expect(logic.values.showStaleFlagBanner).toBe(false)
+        })
+    })
+
     describe('updateFeatureFlagArchived archive telemetry', () => {
         // One test here rejects the archive request on purpose; kea-loaders would log the failure
         beforeEach(silenceKeaLoadersErrors)
