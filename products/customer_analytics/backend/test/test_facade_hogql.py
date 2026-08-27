@@ -147,7 +147,7 @@ class TestAccountCommunicationHogqlProjectSecretKey(NonAtomicBaseTest):
 class TestAccountCommunicationHogqlIsolation(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
-    def test_hidden_email_tables_require_ticket_access_and_filter_denied_accounts(self) -> None:
+    def test_hidden_email_tables_require_ticket_access_but_ignore_account_denies(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -186,8 +186,8 @@ class TestAccountCommunicationHogqlIsolation(NonAtomicBaseTest):
             "SELECT account_id FROM system._account_email_thread_links", team=self.team, user=viewer
         ).results
 
-        assert threads == [("Visible thread",)]
-        assert links == [(str(visible_account.id),)]
+        assert {row[0] for row in threads} == {"Visible thread", "Denied thread"}
+        assert {row[0] for row in links} == {str(visible_account.id), str(denied_account.id)}
 
         AccessControl.objects.create(
             team=self.team,

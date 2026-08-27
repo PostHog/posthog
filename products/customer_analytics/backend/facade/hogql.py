@@ -101,6 +101,7 @@ account_meetings: PostgresTable = PostgresTable(
     postgres_table_name="customer_analytics_meeting",
     access_scope="account",
     access_control_id_field="account_id",
+    rbac_unrestricted_read=True,
     description="Internal table of account meetings. Use `system.accounts.meetings` instead.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Meeting UUID."),
@@ -120,6 +121,7 @@ account_channel_summaries: PostgresTable = PostgresTable(
     postgres_table_name="customer_analytics_accountchannelsummary",
     access_scope="account",
     access_control_id_field="account_id",
+    rbac_unrestricted_read=True,
     description="Internal table of account Slack summaries. Use `system.accounts.slack_summaries` instead.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Summary UUID."),
