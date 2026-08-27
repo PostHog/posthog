@@ -657,22 +657,34 @@ body {
   border-left: 2px solid var(--blue-a6);
 }
 
+/* Scrollbars follow quill's ScrollArea: --input for the thumb, a faint
+   --input wash for the track. Every scrollbar rule reads these three. */
+:root {
+  --scrollbar-track: color-mix(in oklab, var(--input) 35%, transparent);
+  --scrollbar-thumb: var(--input);
+  --scrollbar-thumb-hover: color-mix(
+    in oklab,
+    var(--muted-foreground) 50%,
+    transparent
+  );
+}
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--gray-3);
+  background: var(--scrollbar-track);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--gray-8);
+  background: var(--scrollbar-thumb);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--gray-9);
+  background: var(--scrollbar-thumb-hover);
 }
 
 [data-slot="autocomplete-list"]::-webkit-scrollbar {
@@ -682,7 +694,7 @@ body {
   background: transparent;
 }
 [data-slot="autocomplete-list"]::-webkit-scrollbar-thumb {
-  background-color: var(--gray-a7);
+  background-color: var(--scrollbar-thumb);
   border-radius: 10px;
 }
 
@@ -718,11 +730,11 @@ body {
 }
 
 .scrollbar-overlay:hover::-webkit-scrollbar-thumb {
-  background: var(--gray-a6);
+  background: var(--scrollbar-thumb);
 }
 
 .scrollbar-overlay:hover::-webkit-scrollbar-thumb:hover {
-  background: var(--gray-a8);
+  background: var(--scrollbar-thumb-hover);
 }
 
 .scrollbar-overlay-y {
@@ -746,15 +758,15 @@ body {
 }
 
 .scrollbar-overlay-y:hover {
-  scrollbar-color: var(--gray-a6) transparent;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
 .scrollbar-overlay-y:hover::-webkit-scrollbar-thumb {
-  background: var(--gray-a6);
+  background: var(--scrollbar-thumb);
 }
 
 .scrollbar-overlay-y:hover::-webkit-scrollbar-thumb:hover {
-  background: var(--gray-a8);
+  background: var(--scrollbar-thumb-hover);
 }
 
 /* File mention list styles */
@@ -1147,50 +1159,52 @@ body.ph-window-blurred .app-fade-in {
 :root,
 .light,
 .light-theme {
-  /* PostHog-inspired neutral greenish-grey palette */
-  --gray-1: #f2f3ee;
-  --gray-2: #eceee8;
-  --gray-3: #e4e5de;
-  --gray-4: #d8dbd1;
-  --gray-5: #cbd0c3;
-  --gray-6: #bcc1b4;
-  --gray-7: #a9af9f;
-  --gray-8: #93998a;
-  --gray-9: #6b7165;
-  --gray-10: #5a6054;
-  --gray-11: #3a4036;
-  --gray-12: #0d0d0d;
+  /* Radix grey scale on quill's theme hue and tint, so legacy --gray-*
+     consumers match the quill surfaces (--background 0.966, --border 0.9,
+     --input 0.81). Alpha steps mix --foreground like quill's fills do. */
+  --gray-1: oklch(0.985 calc(var(--theme-tint) * 0.5) var(--theme-hue));
+  --gray-2: oklch(0.966 calc(var(--theme-tint) * 0.79) var(--theme-hue));
+  --gray-3: oklch(0.94 calc(var(--theme-tint) * 0.8) var(--theme-hue));
+  --gray-4: oklch(0.92 calc(var(--theme-tint) * 0.8) var(--theme-hue));
+  --gray-5: oklch(0.9 calc(var(--theme-tint) * 0.8) var(--theme-hue));
+  --gray-6: oklch(0.86 calc(var(--theme-tint) * 0.7) var(--theme-hue));
+  --gray-7: oklch(0.81 calc(var(--theme-tint) * 0.5) var(--theme-hue));
+  --gray-8: oklch(0.7 calc(var(--theme-tint) * 0.5) var(--theme-hue));
+  --gray-9: oklch(0.55 calc(var(--theme-tint) * 0.5) var(--theme-hue));
+  --gray-10: oklch(0.5 calc(var(--theme-tint) * 0.5) var(--theme-hue));
+  --gray-11: oklch(0.4 calc(var(--theme-tint) * 0.5) var(--theme-hue));
+  --gray-12: var(--foreground);
 
-  --gray-a1: rgba(20, 24, 10, 0.02);
-  --gray-a2: rgba(20, 24, 10, 0.05);
-  --gray-a3: rgba(20, 24, 10, 0.1);
-  --gray-a4: rgba(20, 24, 10, 0.16);
-  --gray-a5: rgba(20, 24, 10, 0.22);
-  --gray-a6: rgba(20, 24, 10, 0.29);
-  --gray-a7: rgba(20, 24, 10, 0.38);
-  --gray-a8: rgba(20, 24, 10, 0.48);
-  --gray-a9: rgba(20, 24, 10, 0.62);
-  --gray-a10: rgba(20, 24, 10, 0.7);
-  --gray-a11: rgba(20, 24, 10, 0.79);
-  --gray-a12: rgba(13, 13, 13, 0.92);
+  --gray-a1: color-mix(in oklab, var(--foreground) 2%, transparent);
+  --gray-a2: color-mix(in oklab, var(--foreground) 5%, transparent);
+  --gray-a3: color-mix(in oklab, var(--foreground) 10%, transparent);
+  --gray-a4: color-mix(in oklab, var(--foreground) 16%, transparent);
+  --gray-a5: color-mix(in oklab, var(--foreground) 22%, transparent);
+  --gray-a6: color-mix(in oklab, var(--foreground) 29%, transparent);
+  --gray-a7: color-mix(in oklab, var(--foreground) 38%, transparent);
+  --gray-a8: color-mix(in oklab, var(--foreground) 48%, transparent);
+  --gray-a9: color-mix(in oklab, var(--foreground) 62%, transparent);
+  --gray-a10: color-mix(in oklab, var(--foreground) 70%, transparent);
+  --gray-a11: color-mix(in oklab, var(--foreground) 79%, transparent);
+  --gray-a12: color-mix(in oklab, var(--foreground) 92%, transparent);
 
   --gray-contrast: #ffffff;
-  --gray-surface: rgba(242, 243, 238, 0.8);
-  --gray-indicator: #6b7165;
-  --gray-track: #6b7165;
+  --gray-surface: color-mix(in oklab, var(--background) 80%, transparent);
+  --gray-indicator: var(--gray-9);
+  --gray-track: var(--gray-9);
 }
 
 :root,
 .light,
 .light-theme,
 .radix-themes {
-  --color-background: #f2f3ee;
-  --terminal-foreground: #0d0d0d;
+  --color-background: var(--background);
+  --terminal-foreground: var(--foreground);
   --terminal-background: transparent;
   --terminal-cursor: #f54d00;
-  --terminal-cursor-accent: #f2f3ee;
+  --terminal-cursor-accent: var(--background);
   --terminal-selection-bg: rgba(245, 77, 0, 0.2);
-  --terminal-selection-fg: #0d0d0d;
+  --terminal-selection-fg: var(--foreground);
 }
 
 .dark,
@@ -1230,49 +1244,50 @@ body.ph-window-blurred .app-fade-in {
 
 .dark,
 .dark-theme {
-  /* PostHog-inspired cool blue-grey dark palette */
-  --gray-1: #131316;
-  --gray-2: #18181f;
-  --gray-3: #1e1e28;
-  --gray-4: #24243e;
-  --gray-5: #2a2a37;
-  --gray-6: #2e2e3d;
-  --gray-7: #40405a;
-  --gray-8: #616180;
-  --gray-9: #7c7c9e;
-  --gray-10: #8d8daa;
-  --gray-11: #9898b6;
-  --gray-12: #e6e6e6;
+  /* Dark grey scale on quill's dark hue and tint (--background 0.187,
+     --card 0.2, --border 0.27, --input 0.3). */
+  --gray-1: oklch(0.187 calc(var(--theme-tint) * 1.1) var(--theme-dark-hue));
+  --gray-2: oklch(0.2 calc(var(--theme-tint) * 1.2) var(--theme-dark-hue));
+  --gray-3: oklch(0.225 calc(var(--theme-tint) * 1.2) var(--theme-dark-hue));
+  --gray-4: oklch(0.25 calc(var(--theme-tint) * 1.2) var(--theme-dark-hue));
+  --gray-5: oklch(0.27 calc(var(--theme-tint) * 1.2) var(--theme-dark-hue));
+  --gray-6: oklch(0.3 calc(var(--theme-tint) * 1.5) var(--theme-dark-hue));
+  --gray-7: oklch(0.36 calc(var(--theme-tint) * 1.5) var(--theme-dark-hue));
+  --gray-8: oklch(0.44 calc(var(--theme-tint) * 1.5) var(--theme-dark-hue));
+  --gray-9: oklch(0.55 calc(var(--theme-tint) * 1.5) var(--theme-dark-hue));
+  --gray-10: oklch(0.62 calc(var(--theme-tint) * 1.5) var(--theme-dark-hue));
+  --gray-11: oklch(0.75 calc(var(--theme-tint) * 1.5) var(--theme-dark-hue));
+  --gray-12: var(--foreground);
 
-  --gray-a1: rgba(200, 200, 240, 0);
-  --gray-a2: rgba(200, 200, 240, 0.03);
-  --gray-a3: rgba(200, 200, 240, 0.07);
-  --gray-a4: rgba(200, 200, 240, 0.1);
-  --gray-a5: rgba(200, 200, 240, 0.14);
-  --gray-a6: rgba(200, 200, 240, 0.18);
-  --gray-a7: rgba(200, 200, 240, 0.24);
-  --gray-a8: rgba(200, 200, 240, 0.36);
-  --gray-a9: rgba(200, 200, 240, 0.48);
-  --gray-a10: rgba(200, 200, 240, 0.55);
-  --gray-a11: rgba(200, 200, 240, 0.7);
-  --gray-a12: rgba(230, 230, 230, 0.92);
+  --gray-a1: color-mix(in oklab, var(--foreground) 0%, transparent);
+  --gray-a2: color-mix(in oklab, var(--foreground) 3%, transparent);
+  --gray-a3: color-mix(in oklab, var(--foreground) 7%, transparent);
+  --gray-a4: color-mix(in oklab, var(--foreground) 10%, transparent);
+  --gray-a5: color-mix(in oklab, var(--foreground) 14%, transparent);
+  --gray-a6: color-mix(in oklab, var(--foreground) 18%, transparent);
+  --gray-a7: color-mix(in oklab, var(--foreground) 24%, transparent);
+  --gray-a8: color-mix(in oklab, var(--foreground) 36%, transparent);
+  --gray-a9: color-mix(in oklab, var(--foreground) 48%, transparent);
+  --gray-a10: color-mix(in oklab, var(--foreground) 55%, transparent);
+  --gray-a11: color-mix(in oklab, var(--foreground) 70%, transparent);
+  --gray-a12: color-mix(in oklab, var(--foreground) 92%, transparent);
 
   --gray-contrast: #ffffff;
-  --gray-surface: rgba(19, 19, 22, 0.5);
-  --gray-indicator: #7c7c9e;
-  --gray-track: #7c7c9e;
+  --gray-surface: color-mix(in oklab, var(--background) 50%, transparent);
+  --gray-indicator: var(--gray-9);
+  --gray-track: var(--gray-9);
 }
 
 .dark,
 .dark-theme,
 :is(.dark, .dark-theme) :where(.radix-themes:not(.light, .light-theme)) {
-  --color-background: #131316;
-  --terminal-foreground: #e6e6e6;
+  --color-background: var(--background);
+  --terminal-foreground: var(--foreground);
   --terminal-background: transparent;
   --terminal-cursor: #f8be2a;
-  --terminal-cursor-accent: #131316;
+  --terminal-cursor-accent: var(--background);
   --terminal-selection-bg: rgba(248, 190, 42, 0.25);
-  --terminal-selection-fg: #e6e6e6;
+  --terminal-selection-fg: var(--foreground);
 }
 
 /*
@@ -1465,6 +1480,18 @@ body.ph-window-blurred .app-fade-in {
  * caps are utility classes on the elements themselves, and a rule inside
  * @layer components would lose to them.
  */
+@layer components {
+  /*
+   * Arrow navigation can place one row under a stationary pointer while another row stays highlighted.
+   * Remove the non-highlighted row's hover style so the list shows one active row.
+  */
+  .sidebar-autocomplete-tree:has([data-highlighted])
+  [role="option"]:not([data-highlighted]):hover {
+    color: inherit;
+    background-color: transparent;
+  }
+}
+
 /*
  * @posthog/quill Tabs — quill paints an active trigger `var(--background)` with
  * `!important`, and `!important` inverts cascade-layer order, so no utility
