@@ -172,7 +172,7 @@ And the batcher's:
 2. **Resolution received** — settle every key the request carried (asserted outstanding; ACK ⇒ pin, forward the completion, re-ready the rest of the queue; failure ⇒ re-queue at head, unpin), then dispatch — the freed stream refills at once, up to a full request from one key's backlog.
 3. **Park-retry due** — dispatch again for the ready keys the pool could not take; armed only while any exist (§4.5).
 
-The spawned tasks are the batcher and, below it, one worker stream runner per worker — encode, transmit, await the ACK, post the resolution back. Because every structure is owned by exactly one task and each task finishes a cascade before its next event, **ordering is a property of the structure**: a key's entire order lives in one queue in one task, and at most one request carries a key's work at any moment — *asserted* at settlement, not assumed — so nothing can slip a newer group past a failure being processed, exactly the race the worker-stream fences exist to close today. Send origination has one call site instead of four. And the two sides overlap in time: while the batcher dispatches one poll's groups, the loop is already demuxing the next.
+The loop's `biased` select is ordered as its own starvation proof: an arm can only starve the arms below it, so the tick (ready at most once per interval) and the rare rebalance events sit on top where nothing can starve them — the stall watchdog has no other trigger — while completions sit above the poll deliberately: drain before taking new work, and self-limiting, since depth-1 streams cap completions at one per worker in flight. The spawned tasks are the batcher and, below it, one worker stream runner per worker — encode, transmit, await the ACK, post the resolution back. Because every structure is owned by exactly one task and each task finishes a cascade before its next event, **ordering is a property of the structure**: a key's entire order lives in one queue in one task, and at most one request carries a key's work at any moment — *asserted* at settlement, not assumed — so nothing can slip a newer group past a failure being processed, exactly the race the worker-stream fences exist to close today. Send origination has one call site instead of four. And the two sides overlap in time: while the batcher dispatches one poll's groups, the loop is already demuxing the next.
 
 ### 4.3 The batcher: packing, placement, composition
 
@@ -263,11 +263,32 @@ struct ConsumerLoop {
 
 loop {
     select! {                                // the loop's ONLY await point; arms run to
-        biased;                              //   completion — drain before taking new work
+        biased;                              //   completion. The order IS the starvation
+                                             //   proof: a biased arm can only starve arms
+                                             //   below it, so the clock and control arms —
+                                             //   ready at bounded frequency — sit on top,
+                                             //   where nothing can starve them
 
-        up = completions.recv() => match up {
-            Completed(groups) => {           // one ACKed request's groups — ledgers
-                budget.refund(               //   advance, and every advance goes straight
+        _ = tick.next() => {                 // ready once per interval, so harmless first;
+            budget.refund(commits.tick(kafka));      //   and the stall watchdog has no
+            partitions.check_stalls();       //   other trigger, so it must not sit below
+        }                                    //   a hot arm (commits alone would survive —
+                                             //   progress also issues)
+
+        ev = kafka.rebalance() => {          // rare, must be prompt; serialized with
+            match ev {                       //   every other arm: no teardown race
+                Assigned(p) => partitions.assign(p, epoch),
+                Revoked(p)  => {             // begin the drain (§4.5): the driver stays —
+                    partitions.revoking(p);  //   its ledger must absorb the completions
+                    commits.begin_revoke(p); //   still in flight; the in-band marker
+                    accumulators.revoked(p)  //   drops the batcher's queued work for p
+                }
+            }
+        }
+
+        up = completions.recv() => match up {        // hot, deliberately above the poll —
+            Completed(groups) => {           //   drain before taking new work — and self-
+                budget.refund(               //   limiting: ≤1 in flight per worker
                     commits.progress(kafka, partitions.complete(groups)))
             }                                // whether to issue now is commits' call alone
             Drained(p) => {                  // the drain's end (§4.5), riding behind p's
@@ -277,11 +298,6 @@ loop {
             }                                //   partition handed back
         }
 
-        _ = tick.next() => {                 // the loop's one clock — the jobs that must
-            budget.refund(commits.tick(kafka));      //   run when no events arrive: give
-            partitions.check_stalls();       //   commits its clock (it issues if its own
-        }                                    //   delay is up), check the stall deadlines
-
         msgs = kafka.recv(), if budget.under_cap() => {
             // the gate is rdkafka pause/resume, not an unpolled consumer: polling must
             // continue for rebalance callbacks and max.poll.interval liveness at B
@@ -289,17 +305,6 @@ loop {
             budget.charge(partitions.accept(msgs, &mut acc));    // the Kafka batch
             accumulators.release(acc);       //   dissolves here; the charge comes back
         }                                    //   from the same ledger that will refund it
-
-        ev = kafka.rebalance() => {          // surfaces via the same client, serialized
-            match ev {                       //   with every other arm: no teardown race
-                Assigned(p) => partitions.assign(p, epoch),
-                Revoked(p)  => {             // begin the drain (§4.5): the driver stays —
-                    partitions.revoking(p);  //   its ledger must absorb the completions
-                    commits.begin_revoke(p); //   still in flight; the in-band marker
-                    accumulators.revoked(p)  //   drops the batcher's queued work for p
-                }
-            }
-        }
     }
 }
 ```
