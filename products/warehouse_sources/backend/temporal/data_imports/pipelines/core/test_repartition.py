@@ -34,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     select_coarsen_target,
     select_repartition_target,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import PartitionFormat
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import (
     _redis_client,
     run_key,
@@ -62,6 +63,12 @@ def _schema(**kwargs):
     return SimpleNamespace(**defaults)
 
 
+def _patch_finalize():
+    # The real one writes the whole scheme through the ORM under a row lock; these tests drive the
+    # rewrite with SimpleNamespace schemas that have no row behind them.
+    return patch.object(repartition_module, "finalize_repartition_scheme", Mock(return_value=True))
+
+
 def _make_table_ref(**kwargs):
     # Stand-in for DeltaTableRef; untyped on purpose so callers can pass it to the real signature.
     defaults = {
@@ -85,17 +92,23 @@ def _fake_s3(**kwargs):
     return SimpleNamespace(**defaults)
 
 
-def _write_month_partitioned(path: str, rows: list[tuple[int, datetime.datetime]]) -> deltalake.DeltaTable:
+def _write_datetime_partitioned(
+    path: str, rows: list[tuple[int, datetime.datetime]], partition_format: PartitionFormat
+) -> deltalake.DeltaTable:
     table = pa.table(
         {
             "id": pa.array([r[0] for r in rows], type=pa.int64()),
             "created_at": pa.array([r[1] for r in rows], type=pa.timestamp("us")),
         }
     )
-    result = append_partition_key_to_table(table, None, None, ["created_at"], "datetime", "month", logger)
+    result = append_partition_key_to_table(table, None, None, ["created_at"], "datetime", partition_format, logger)
     assert result is not None
     deltalake.write_deltalake(path, result.table, partition_by=PARTITION_KEY)
     return deltalake.DeltaTable(path)
+
+
+def _write_month_partitioned(path: str, rows: list[tuple[int, datetime.datetime]]) -> deltalake.DeltaTable:
+    return _write_datetime_partitioned(path, rows, "month")
 
 
 class TestSelectRepartitionTarget:
@@ -1453,6 +1466,7 @@ class TestResumeWithInvalidTemp:
             patch.object(repartition_module, "_rewrite_into_temp", new=AsyncMock(return_value=(2, target))) as rewrite,
             patch.object(repartition_module, "_swap_temp_into_live", new=AsyncMock()) as swap,
             patch.object(repartition_module, "_current_claim_token", return_value="tok"),
+            _patch_finalize(),
         ):
             result = asyncio.run(
                 repartition_table_in_place(
@@ -1468,6 +1482,153 @@ class TestResumeWithInvalidTemp:
         swap.assert_awaited_once()
         schema.set_repartition_swap.assert_called_once()  # fresh temp validated and re-marked
         assert result["outcome"] == "completed"
+
+
+class TestLiveMatchesScheme:
+    """Which scheme the data in S3 is bucketed under is otherwise only recorded in the schema row, and
+    a lost settings write is exactly what leaves that row stale — so the answer has to come from the
+    data. A wrong `True` here saves a scheme the table does not have, which is the corruption itself."""
+
+    def _live(self, tmp_path) -> str:
+        _write_month_partitioned(
+            str(tmp_path / "live"), [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 2, 2))]
+        )
+        return str(tmp_path / "live")
+
+    @pytest.mark.parametrize(
+        "partition_mode, partition_format, expected",
+        [
+            ("datetime", "month", True),
+            ("datetime", "day", False),
+            # A sample can auto-detect a different mode than the whole table did, so a mismatch would
+            # say nothing — and the only use of True is to skip a rebuild.
+            (None, None, None),
+        ],
+        ids=["the_scheme_the_keys_were_built_from", "a_finer_tier_of_the_same_mode", "an_auto_detect_target"],
+    )
+    def test_answers_from_the_live_rows(self, partition_mode, partition_format, expected, tmp_path):
+        target = RepartitionTarget(
+            partition_keys=["created_at"],
+            trigger_reason="resume",
+            partition_mode=partition_mode,
+            partition_format=partition_format,
+        )
+        assert (
+            asyncio.run(repartition_module._live_matches_scheme(self._live(tmp_path), {}, target, logger)) is expected
+        )
+
+
+class TestSwapSchemeIsRecorded:
+    """The swap re-buckets the data in S3; a separate write records the scheme it was bucketed under.
+    Between the two the schema row describes a layout the table no longer has, and the incremental
+    merge scopes its predicate to a partition that cannot exist — matching nothing and inserting every
+    fetched row instead of upserting it."""
+
+    STALE = RepartitionTarget(
+        partition_keys=["created_at"], trigger_reason="resume", partition_mode="datetime", partition_format="month"
+    )
+    STAGED = {
+        "partition_keys": ["created_at"],
+        "trigger_reason": "proactive_threshold",
+        "partition_mode": "datetime",
+        "partition_format": "day",
+    }
+
+    def _schema_resuming(self):
+        return _schema(
+            id="s1",
+            repartition_swap={
+                "state": "ready",
+                "temp_uri": "s3://bucket/live__repartitioned",
+                "live_uri": "s3://bucket/live",
+                "target": self.STAGED,
+            },
+            set_repartition_swap=Mock(),
+            clear_repartition_swap=Mock(),
+            clear_repartition_pending=Mock(),
+            stamp_last_repartition_at=Mock(),
+        )
+
+    def _table_ref(self, tmp_path, partition_format="month"):
+        live = _write_datetime_partitioned(
+            str(tmp_path / "live"),
+            [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 2, 2))],
+            partition_format,
+        )
+        return _make_table_ref(
+            get_table_uri=AsyncMock(return_value=str(tmp_path / "live")),
+            get_delta_table=AsyncMock(return_value=live),
+        )
+
+    def test_a_resume_saves_the_staged_scheme_not_the_schemas_own_settings(self, tmp_path):
+        # `target` is rebuilt from the schema's current settings whenever the pending marker is gone,
+        # and those still describe the pre-swap layout. Saving them once the new temp is swapped in
+        # leaves the data and the settings permanently disagreeing.
+        table_ref = self._table_ref(tmp_path)
+        schema = self._schema_resuming()
+
+        with (
+            patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=2)),
+            patch.object(repartition_module, "_swap_temp_into_live", new=AsyncMock()),
+            patch.object(repartition_module, "_current_claim_token", return_value="tok"),
+            _patch_finalize() as finalize,
+        ):
+            result = asyncio.run(
+                repartition_table_in_place(
+                    table_ref=table_ref, schema=schema, target=self.STALE, logger=logger, claim_token="tok"
+                )
+            )
+
+        assert result["outcome"] == "completed"
+        assert finalize.call_args.kwargs["partition_format"] == "day"
+
+    def test_a_swap_that_already_landed_is_finished_without_rewriting_the_table(self, tmp_path):
+        # temp is gone because the swap deleted it — only the scheme write was lost. Live is on the
+        # staged `day` keys already while the schema row still says `month`, so re-streaming the whole
+        # table would buy nothing the recorded scheme does not already describe.
+        table_ref = self._table_ref(tmp_path, "day")
+        schema = self._schema_resuming()
+
+        with (
+            patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=None)),
+            patch.object(repartition_module, "_rewrite_into_temp", new=AsyncMock()) as rewrite,
+            patch.object(repartition_module, "_swap_temp_into_live", new=AsyncMock()) as swap,
+            patch.object(repartition_module, "_current_claim_token", return_value="tok"),
+            _patch_finalize() as finalize,
+        ):
+            result = asyncio.run(
+                repartition_table_in_place(
+                    table_ref=table_ref, schema=schema, target=self.STALE, logger=logger, claim_token="tok"
+                )
+            )
+
+        assert result["recovered"] == "scheme_only"
+        rewrite.assert_not_awaited()
+        swap.assert_not_awaited()
+        assert finalize.call_args.kwargs["partition_format"] == "day"
+
+    def test_a_lost_scheme_write_raises_instead_of_reporting_success(self, tmp_path):
+        # The swap has already landed, so a database blip here is not the noise it looks like: every
+        # merge from now on duplicates its whole lookback window. The caller has to see a failure.
+        table_ref = self._table_ref(tmp_path)
+        schema = self._schema_resuming()
+
+        with (
+            patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=2)),
+            patch.object(repartition_module, "_swap_temp_into_live", new=AsyncMock()),
+            patch.object(repartition_module, "_current_claim_token", return_value="tok"),
+            patch.object(
+                repartition_module,
+                "finalize_repartition_scheme",
+                Mock(side_effect=django.db.OperationalError("server conn crashed?")),
+            ),
+            pytest.raises(repartition_module.RepartitionSchemePersistError),
+        ):
+            asyncio.run(
+                repartition_table_in_place(
+                    table_ref=table_ref, schema=schema, target=self.STALE, logger=logger, claim_token="tok"
+                )
+            )
 
 
 class TestRewriteCheckpointResume:
@@ -1507,6 +1668,7 @@ class TestRewriteCheckpointResume:
             patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(_fake_s3())),
             patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()),
             patch.object(repartition_module, "_current_claim_token", return_value="tok"),
+            _patch_finalize(),
             patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=1)),
             patch.object(repartition_module, "save_repartition_checkpoint_if_claimed", return_value=True) as saved,
             patch.object(
@@ -1560,6 +1722,7 @@ class TestRewriteCheckpointResume:
         with (
             patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()) as purge,
             patch.object(repartition_module, "_current_claim_token", return_value="tok"),
+            _patch_finalize(),
             # First read validates the checkpoint temp (1 row); second validates the completed rewrite.
             patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(side_effect=[1, 3])),
             patch.object(repartition_module, "_rewrite_into_temp", new=AsyncMock(return_value=(2, target))) as rewrite,
@@ -1601,6 +1764,7 @@ class TestRewriteCheckpointResume:
             patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(_fake_s3())),
             patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()) as purge,
             patch.object(repartition_module, "_current_claim_token", return_value="tok"),
+            _patch_finalize(),
             patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(side_effect=[1, 2])),
             patch.object(repartition_module, "_rewrite_into_temp", new=AsyncMock(return_value=(2, target))) as rewrite,
             patch.object(repartition_module, "_swap_temp_into_live", new=AsyncMock()),
@@ -1868,6 +2032,7 @@ class TestClaimFencing:
             patch.object(repartition_module, "_current_claim_token", return_value="tok-ours"),
             patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=2)) as valid,
             patch.object(repartition_module, "_swap_temp_into_live", new=AsyncMock()) as swap,
+            _patch_finalize(),
         ):
             result = asyncio.run(
                 repartition_table_in_place(
