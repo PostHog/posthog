@@ -147,8 +147,8 @@ describe('summaryViewLogic', () => {
 
         await generateSummary()
 
-        // `dropUnactionableNetworkExceptions` matches the name and the message, so rewriting either
-        // one files an issue for a failure the platform already treats as unactionable.
+        // The name and the message are the only place the failure reason survives, so rewriting
+        // either one files an issue that misreports what failed.
         // Mounting already asks for a cached summary, so that request fails here too. Assert the
         // call happened rather than a count, so an empty spy fails on the expectation.
         expect(captureSpy).toHaveBeenCalled()

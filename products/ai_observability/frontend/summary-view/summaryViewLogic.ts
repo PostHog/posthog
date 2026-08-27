@@ -128,9 +128,8 @@ function bodylessStatusMessage(error: ApiError): string {
 /**
  * Build the sentence the panel shows, rather than rewriting the rejected error into a new one.
  * The error object continues to error tracking, and a `NetworkError` carries its failure reason in
- * its own `name` and message, which is all `dropUnactionableNetworkExceptions` can match on.
- * Rebuilding it as a plain `ApiError` erased both, so a request the browser dropped filed an issue
- * that read as though summarization itself had broken.
+ * its own `name` and message. Rebuilding it as a plain `ApiError` erases both, so a request the
+ * browser dropped files an issue that reads as though summarization itself had broken.
  */
 function summaryErrorMessage(errorObject: unknown, fallback: string | null): string {
     if (errorObject instanceof NetworkError) {
