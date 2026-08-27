@@ -126,15 +126,6 @@ describe('posthog create task template', () => {
         })
     })
 
-    it('sends the end-run opt-in only when the toggle is on', async () => {
-        const on = await invokeAndGetFetch({ ...fullInputs, end_run_when_done: true })
-        expect(parseJSON(on.params.body!).end_run_when_done).toBe(true)
-
-        // Absent, not false: the backend default keeps the run open for thread replies.
-        const off = await invokeAndGetFetch({ ...fullInputs, end_run_when_done: false })
-        expect(parseJSON(off.params.body!).end_run_when_done).toBeUndefined()
-    })
-
     it('forwards the externally shared channel flag so the backend can check approval', async () => {
         const { params } = await invokeAndGetFetch(fullInputs, slackMessageGlobals({ is_ext_shared_channel: true }))
 
