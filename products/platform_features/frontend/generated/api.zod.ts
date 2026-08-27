@@ -36,6 +36,12 @@ export const CreateBody = /* @__PURE__ */ zod.object({
             'When False, members (below admin) only see themselves in the members list and only project members in access control.'
         ),
     allow_publicly_shared_resources: zod.boolean().optional(),
+    read_only_mcp_access: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "When True, requests through the PostHog MCP server can read but not change this organization's data."
+        ),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
         .boolean()
@@ -88,6 +94,12 @@ export const UpdateBody = /* @__PURE__ */ zod.object({
             'When False, members (below admin) only see themselves in the members list and only project members in access control.'
         ),
     allow_publicly_shared_resources: zod.boolean().optional(),
+    read_only_mcp_access: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "When True, requests through the PostHog MCP server can read but not change this organization's data."
+        ),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
         .boolean()
@@ -140,6 +152,12 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
             'When False, members (below admin) only see themselves in the members list and only project members in access control.'
         ),
     allow_publicly_shared_resources: zod.boolean().optional(),
+    read_only_mcp_access: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "When True, requests through the PostHog MCP server can read but not change this organization's data."
+        ),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
         .boolean()
