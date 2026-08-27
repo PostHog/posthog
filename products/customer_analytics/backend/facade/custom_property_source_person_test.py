@@ -306,7 +306,7 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
             user_access_control=self._uac(allowed=True),
         )
 
-        assert view is not None and view.column_property_map["seats"] == "seat_count"
+        assert view is not None and view.column_property_map == {"plan": "plan_tier", "seats": "seat_count"}
         start_backfill.assert_not_called()
 
     def test_update_person_mapping_replacement_drops_descriptions_for_removed_columns(self):
