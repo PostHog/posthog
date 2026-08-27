@@ -113,9 +113,12 @@ _NETWORK_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
 ]
 
 _FETCH_LITERAL_URL_RE = re.compile(r"\bfetch\s*\(\s*([\"'`])(https://[^\"'`]+)\1")
+# `object` and `embed` are left out on purpose: the artifact CSP keeps
+# `object-src 'none'`, so a declared origin cannot make them load. Matching
+# them would block publish with a remedy that does nothing.
 _RESOURCE_TAG_RE = re.compile(
-    r"<(?:img|audio|video|source|track|iframe|embed|object)\b[^>]*?"
-    r"\b(?:src|poster|data)\s*=\s*(?:\{\s*)?([\"'`])(https://[^\"'`]+)\1",
+    r"<(?:img|audio|video|source|track|iframe)\b[^>]*?"
+    r"\b(?:src|poster)\s*=\s*(?:\{\s*)?([\"'`])(https://[^\"'`]+)\1",
     re.IGNORECASE,
 )
 _SRCSET_TAG_RE = re.compile(r"<(?:img|source)\b[^>]*?\bsrcset\s*=\s*(?:\{\s*)?([\"'`])([^\"'`]+)\1", re.IGNORECASE)

@@ -266,6 +266,22 @@ class TestCanvasSourceAdapter(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("object", '<object data="https://cdn.example.com/report.pdf"></object>'),
+            ("embed", '<embed src="https://cdn.example.com/report.pdf" />'),
+        ]
+    )
+    def test_object_and_embed_do_not_require_network_origin(self, _name, snippet):
+        # The artifact CSP keeps object-src 'none', so a declared origin cannot
+        # make these load. Flagging them would block publish with a remedy that
+        # does nothing.
+        candidate = project(files={CANVAS_COMPONENT_PATH: CODE + snippet})
+
+        diagnostics = validate_source_project(candidate)
+
+        self.assertNotIn("capability_missing_network_origin", [entry["code"] for entry in diagnostics])
+
+    @parameterized.expand(
+        [
             ("http", "http://api.example.com"),
             ("path", "https://api.example.com/v1"),
             ("credentials", "https://user:secret@api.example.com"),
