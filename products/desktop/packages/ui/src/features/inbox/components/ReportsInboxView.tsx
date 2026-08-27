@@ -438,7 +438,7 @@ function InboxReportRow({ report }: { report: SignalReport }) {
     : null;
   const { actionButton: archiveButton, dialog: archiveDialog } =
     useInboxReportDismissAction(report);
-  const { prefetch, pointerHandlers } = useInboxReportDetailPrefetch({
+  const { pointerHandlers } = useInboxReportDetailPrefetch({
     to: "/inbox/reports/$reportId",
     params: { reportId: report.id },
   });
@@ -448,9 +448,7 @@ function InboxReportRow({ report }: { report: SignalReport }) {
       <div
         role="button"
         tabIndex={0}
-        onPointerEnter={prefetch}
-        onFocus={prefetch}
-        onPointerDown={pointerHandlers.onPointerDown}
+        {...pointerHandlers}
         onClick={() => navigateToInboxReportDetail(report.id)}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
