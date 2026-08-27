@@ -170,6 +170,10 @@ class TestErrorTrackingAlerts(APIBaseTest):
                 "missing_channel_in_config",
                 {"destinations": [{"channel_type": "slack", "integration_id": None, "config": {}}]},
             ),
+            (
+                "non_string_channel_in_config",
+                {"destinations": [{"channel_type": "slack", "integration_id": None, "config": {"channel": 1}}]},
+            ),
         ]
     )
     def test_alert_create_rejects_invalid_payload(self, _name, overrides):

@@ -187,7 +187,8 @@ def _validate_destination(team_id: int, destination: dict[str, Any]) -> None:
             team_id=team_id, id=integration_id, kind=Integration.IntegrationKind.SLACK
         ).exists():
             raise AlertValidationError("Slack integration not found for this project.")
-        if not config.get("channel"):
-            raise AlertValidationError("Slack destinations require a channel in the config.")
+        channel = config.get("channel")
+        if not isinstance(channel, str) or not channel:
+            raise AlertValidationError("Slack destinations require a channel id string in the config.")
     else:
         raise AlertValidationError(f"Unsupported destination channel type: {channel_type}")
