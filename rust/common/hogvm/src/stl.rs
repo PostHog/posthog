@@ -3,14 +3,19 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use base64::Engine as _;
-use chrono::{DateTime, Datelike, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike};
+use chrono::{
+    DateTime, Datelike, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike,
+};
+use hmac::digest::KeyInit;
 use hmac::{Hmac, Mac};
 use indexmap::IndexMap;
 use md5::Md5;
 use once_cell::sync::Lazy;
 use rand::Rng;
+use regex::Regex;
 use serde::de::{MapAccess, SeqAccess, Visitor};
 use serde_json::{json, Value as JsonValue};
+use sha1::Sha1;
 use sha2::{Digest, Sha256};
 
 use crate::{
@@ -1126,11 +1131,25 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 hash_optional_encoding(vm, &args, "sha256", |data| Sha256::digest(data).to_vec())
             }),
         ),
+        // SHA-1 is only here because vendors sign webhooks with it. Never pick it for new work.
+        (
+            "sha1Hex",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "sha1Hex")?;
+                hash_with_encoding(vm, &args, |data| Sha1::digest(data).to_vec(), "hex")
+            }),
+        ),
+        (
+            "sha1",
+            native_func(|vm, args| {
+                hash_optional_encoding(vm, &args, "sha1", |data| Sha1::digest(data).to_vec())
+            }),
+        ),
         (
             "sha256HmacChainHex",
             native_func(|vm, args| {
                 assert_argc(&args, 1, "sha256HmacChainHex")?;
-                let digest = sha256_hmac_chain(vm, &args[0])?;
+                let digest = hmac_chain::<HmacSha256>(vm, &args[0], "sha256HmacChain")?;
                 Ok(HogLiteral::String(to_hex(&digest)).into())
             }),
         ),
@@ -1142,7 +1161,28 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                         "sha256HmacChain takes 1 or 2 arguments".to_string(),
                     ));
                 }
-                let digest = sha256_hmac_chain(vm, &args[0])?;
+                let digest = hmac_chain::<HmacSha256>(vm, &args[0], "sha256HmacChain")?;
+                let encoding = encoding_arg(vm, &args, 1)?;
+                Ok(HogLiteral::String(encode_digest(&digest, &encoding)?).into())
+            }),
+        ),
+        (
+            "sha1HmacChainHex",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "sha1HmacChainHex")?;
+                let digest = hmac_chain::<HmacSha1>(vm, &args[0], "sha1HmacChain")?;
+                Ok(HogLiteral::String(to_hex(&digest)).into())
+            }),
+        ),
+        (
+            "sha1HmacChain",
+            native_func(|vm, args| {
+                if args.is_empty() || args.len() > 2 {
+                    return Err(VmError::NativeCallFailed(
+                        "sha1HmacChain takes 1 or 2 arguments".to_string(),
+                    ));
+                }
+                let digest = hmac_chain::<HmacSha1>(vm, &args[0], "sha1HmacChain")?;
                 let encoding = encoding_arg(vm, &args, 1)?;
                 Ok(HogLiteral::String(encode_digest(&digest, &encoding)?).into())
             }),
@@ -1409,6 +1449,8 @@ pub fn hog_stl() -> Module {
       "arrayFilter": [2, [43, 0, 36, 1, 36, 3, 2, "values", 1, 33, 1, 36, 4, 2, "length", 1, 31, 36, 6, 36, 5, 16, 40, 33, 36, 4, 36, 5, 45, 37, 7, 36, 7, 36, 0, 54, 1, 40, 9, 36, 2, 36, 7, 2, "arrayPushBack", 2, 37, 2, 36, 5, 33, 1, 6, 37, 5, 39, -40, 35, 35, 35, 35, 35, 36, 2, 38, 35]],
       "arrayMap": [2, [43, 0, 36, 1, 36, 3, 2, "values", 1, 33, 1, 36, 4, 2, "length", 1, 31, 36, 6, 36, 5, 16, 40, 29, 36, 4, 36, 5, 45, 37, 7, 36, 2, 36, 7, 36, 0, 54, 1, 2, "arrayPushBack", 2, 37, 2, 36, 5, 33, 1, 6, 37, 5, 39, -36, 35, 35, 35, 35, 35, 36, 2, 38, 35]],
       "arrayReduce": [3, [36, 2, 36, 1, 36, 4, 2, "values", 1, 33, 1, 36, 5, 2, "length", 1, 31, 36, 7, 36, 6, 16, 40, 26, 36, 5, 36, 6, 45, 37, 8, 36, 3, 36, 8, 36, 0, 54, 2, 37, 3, 36, 6, 33, 1, 6, 37, 6, 39, -33, 35, 35, 35, 35, 35, 36, 3, 38, 35]],
+      "inCohort": [2, [31, 36, 1, 11, 40, 6, 32, "inCohort() requires cohort membership to be loaded for this evaluation", 2, "Error", 1, 49, 36, 1, 36, 2, 2, "values", 1, 33, 1, 36, 3, 2, "length", 1, 31, 36, 5, 36, 4, 16, 40, 25, 36, 3, 36, 4, 45, 37, 6, 36, 0, 36, 6, 11, 40, 2, 29, 38, 36, 4, 33, 1, 6, 37, 4, 39, -32, 35, 35, 35, 35, 35, 30, 38]],
+      "notInCohort": [2, [31, 36, 1, 11, 40, 6, 32, "notInCohort() requires cohort membership to be loaded for this evaluation", 2, "Error", 1, 49, 36, 1, 36, 2, 2, "values", 1, 33, 1, 36, 3, 2, "length", 1, 31, 36, 5, 36, 4, 16, 40, 25, 36, 3, 36, 4, 45, 37, 6, 36, 0, 36, 6, 11, 40, 2, 30, 38, 36, 4, 33, 1, 6, 37, 4, 39, -32, 35, 35, 35, 35, 35, 29, 38]],
       "sortableSemver": [1, [31, 36, 0, 11, 40, 3, 43, 0, 38, 36, 0, 32, "(\\d+(\\.\\d+)+)", 2, "extractRegex", 2, 36, 1, 2, "empty", 1, 40, 3, 43, 0, 38, 32, ".", 36, 1, 2, "splitByString", 2, 52, "lambda", 1, 0, 11, 36, 0, 2, "toInt", 1, 47, 3, 35, 33, 0, 38, 53, 0, 36, 2, 2, "arrayMap", 2, 38, 35, 35]],
     });
 
@@ -1518,9 +1560,9 @@ fn hog_date_epoch_days(heap: &VmHeap, obj: &IndexMap<String, HogValue>) -> Resul
 /// `toDateTime(input[, zone])` → a Hog DateTime object `{ __hogDateTime__: true, dt, zone }`.
 ///
 /// To match ClickHouse (the parity oracle), this VM orders Hog temporals by `dt` seconds
-/// ([`crate::values::compare_values`]) — the reference Python/TS HogVMs cannot order them, so their
-/// `is_date_before`/`is_date_after` always return `false`. Naive strings parse as UTC (or `zone` for
-/// the 2-arg form), not the process-local timezone; an explicit offset/`Z` is honored as written.
+/// ([`crate::values::compare_values`]), matching the Python/TS reference VMs' `unify_comparison_types`/
+/// `unifyComparisonTypes`. Naive strings parse as UTC (or `zone` for the 2-arg form), not the
+/// process-local timezone; an explicit offset/`Z` is honored as written.
 fn to_datetime(vm: &HogVM, args: Vec<HogValue>) -> Result<HogValue, VmError> {
     if args.is_empty() || args.len() > 2 {
         return Err(VmError::NativeCallFailed(
@@ -1534,7 +1576,7 @@ fn to_datetime(vm: &HogVM, args: Vec<HogValue>) -> Result<HogValue, VmError> {
     let zone = zone.as_deref();
     let dt_seconds = match args[0].deref(&vm.heap)? {
         HogLiteral::Number(n) => n.to_float(),
-        HogLiteral::String(s) => parse_datetime_to_seconds(s, zone)?,
+        HogLiteral::String(s) => parse_datetime_native(s, zone)?,
         other => {
             return Err(VmError::NativeCallFailed(format!(
                 "toDateTime expects a number or string, got {}",
@@ -1553,7 +1595,7 @@ fn to_date(vm: &HogVM, args: Vec<HogValue>) -> Result<HogValue, VmError> {
     assert_argc(&args, 1, "toDate")?;
     let seconds = match args[0].deref(&vm.heap)? {
         HogLiteral::Number(n) => n.to_float(),
-        HogLiteral::String(s) => parse_datetime_to_seconds(s, None)?,
+        HogLiteral::String(s) => parse_datetime_native(s, None)?,
         other => {
             return Err(VmError::NativeCallFailed(format!(
                 "toDate expects a number or string, got {}",
@@ -1570,32 +1612,143 @@ fn to_date(vm: &HogVM, args: Vec<HogValue>) -> Result<HogValue, VmError> {
     )
 }
 
-const NAIVE_DATETIME_FORMATS: [&str; 2] = ["%Y-%m-%d %H:%M:%S%.f", "%Y-%m-%dT%H:%M:%S%.f"];
+/// The shared "date-like string" grammar, implemented identically by all three HogVMs. This is the
+/// canonical copy; `common/hogvm/typescript/src/stl/date.ts` (`parseDateLike`) and
+/// `common/hogvm/python/stl/date.py` (`_parse_date_like`) mirror it and must be changed together.
+///
+/// ```text
+/// input := WS* date ( SEP time zone? )? WS*
+/// date  := YYYY "-" MM "-" DD              # extended format only, YYYY >= 0001
+/// SEP   := "T" | "t" | " "
+/// time  := HH ":" MM ( ":" SS frac? )?     # HH <= 23; a fraction requires seconds
+/// frac  := ("." | ",") DIGIT{1,9}          # truncated to milliseconds
+/// zone  := "Z" | "z" | ("+"|"-") HH ( ":"? MM )?   # offset HH <= 23, MM <= 59
+/// ```
+///
+/// No zone ⇒ UTC (or the explicit `zone` argument when one was passed to `toDateTime`), *never* the
+/// process-local timezone. The result is `f64` epoch seconds at millisecond resolution.
+///
+/// Every numeric field is range-bounded here rather than left to each runtime's own parser, because
+/// the three disagreed on exactly the leftovers: luxon normalized `24:00` to the next midnight while
+/// chrono and `datetime` rejected it, an offset like `+24:00` made Python's `datetime.timezone`
+/// *raise* where luxon accepted and chrono rejected, and year `0000` is valid to chrono and luxon
+/// but not to `datetime`. A fraction is tied to seconds for the same reason — luxon rejects
+/// `HH:MM.sss` where the other two accepted it.
+///
+/// DIGIT means ASCII `[0-9]`, spelled explicitly and never as `\d`: the Rust and Python regex
+/// engines treat `\d` as any Unicode decimal digit (JS's does not), which let Arabic-Indic digits
+/// match fields this parser then byte-slices — a panic on a char boundary — and parse as real
+/// values through Python's `int()`, another three-way divergence.
+///
+/// Deliberately rejected everywhere: bare numeric strings, partial dates (`2024`, `2024-01`), the
+/// compact basic format (`20240101`), ISO week (`2024-W05`) and ordinal (`2024-001`) dates, and
+/// time-only strings. Each of the three VMs used to accept some subset of these — only 4 of 13
+/// tested inputs agreed across all three. Because this coercion is *implicit* (it changes the
+/// meaning of comparisons the filter author never marked as date comparisons), the grammar is
+/// deliberately narrow: it covers exactly what HogQL/ClickHouse and PostHog's filter globals emit
+/// (`YYYY-MM-DD`, ClickHouse `YYYY-MM-DD HH:MM:SS`, and JS `YYYY-MM-DDTHH:MM:SS.sssZ`), and every
+/// rejected form is either ambiguous with an ordinary string property or vanishingly rare. A
+/// time-only `12:30` resolving to *today's* date, as luxon did, is the failure mode to avoid.
+///
+/// Note this is the grammar for the *implicit* comparison coercion. The explicit `toDateTime`/
+/// `toDate` natives accept one form on top of it; see [`parse_datetime_native`].
+static DATE_LIKE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"(?x)
+        ^([0-9]{4})-([0-9]{2})-([0-9]{2})
+        (?:
+            [Tt\x20]([01][0-9]|2[0-3]):([0-5][0-9])
+            (?::([0-5][0-9])(?:[.,]([0-9]{1,9}))?)?
+            (Z|z|[+-](?:[01][0-9]|2[0-3])(?::?[0-5][0-9])?)?
+        )?$",
+    )
+    .expect("date-like grammar is a valid regex")
+});
 
-fn parse_datetime_to_seconds(input: &str, zone: Option<&str>) -> Result<f64, VmError> {
-    let input = input.trim();
-    // An explicit offset/`Z` pins the absolute instant regardless of `zone`.
-    if let Ok(dt) = DateTime::parse_from_rfc3339(input) {
-        return Ok(datetime_to_seconds(dt));
+/// Epoch seconds for a string matching the [`DATE_LIKE`] grammar, else an error.
+///
+/// `zone` (the 2-arg `toDateTime` form) applies only to input that carries no zone of its own; an
+/// explicit offset or `Z` pins the absolute instant regardless.
+pub(crate) fn parse_datetime_to_seconds(input: &str, zone: Option<&str>) -> Result<f64, VmError> {
+    let unparseable = || VmError::NativeCallFailed(format!("toDateTime could not parse {input:?}"));
+
+    let caps = DATE_LIKE.captures(input.trim()).ok_or_else(unparseable)?;
+    let num = |i: usize| caps.get(i).map(|m| m.as_str().parse::<u32>().unwrap_or(0));
+
+    // The regex bounds the time fields; `from_ymd_opt` still has to reject the calendar-invalid
+    // dates it can't express (month 13, Feb 30). Year 0 is valid to chrono but not to Python's
+    // `datetime`, so it is excluded explicitly to keep the three accept-sets identical.
+    let year = caps[1].parse::<i32>().map_err(|_| unparseable())?;
+    if year < 1 {
+        return Err(unparseable());
     }
-    for fmt in NAIVE_DATETIME_FORMATS {
-        if let Ok(naive) = NaiveDateTime::parse_from_str(input, fmt) {
-            return naive_to_seconds(naive, zone);
+    let date = NaiveDate::from_ymd_opt(
+        year,
+        num(2).ok_or_else(unparseable)?,
+        num(3).ok_or_else(unparseable)?,
+    )
+    .ok_or_else(unparseable)?;
+    // Sub-millisecond digits are truncated, not rounded: the Node HogVM is the ingestion shadow
+    // baseline and luxon parses to milliseconds, so keeping microseconds surfaced as a
+    // `result_mismatch`. See `datetime_to_seconds`.
+    // char-wise truncation, not a byte slice: the regex guarantees ASCII, but a byte slice here
+    // panics on a char boundary the moment that guarantee slips.
+    let millis = caps
+        .get(7)
+        .map(|m| format!("{:0<3}", m.as_str().chars().take(3).collect::<String>()))
+        .map_or(Ok(0), |s| s.parse::<u32>())
+        .map_err(|_| unparseable())?;
+    let naive = date
+        .and_hms_milli_opt(
+            num(4).unwrap_or(0),
+            num(5).unwrap_or(0),
+            num(6).unwrap_or(0),
+            millis,
+        )
+        .ok_or_else(unparseable)?;
+
+    match caps.get(8).map(|m| m.as_str()) {
+        // An explicit offset/`Z` pins the absolute instant regardless of `zone`.
+        Some("Z" | "z") => Ok(datetime_to_seconds(naive.and_utc())),
+        Some(offset) => {
+            let sign = if offset.starts_with('-') { -1 } else { 1 };
+            let digits: String = offset[1..].chars().filter(char::is_ascii_digit).collect();
+            // `.get`, not an unchecked slice: a non-ASCII digit sneaking past the regex would
+            // shrink `digits` below 2 and an unchecked `[..2]` panics out of the VM.
+            let hours: i32 = digits
+                .get(..2)
+                .ok_or_else(unparseable)?
+                .parse()
+                .map_err(|_| unparseable())?;
+            let minutes: i32 = digits.get(2..4).unwrap_or("0").parse().unwrap_or(0);
+            let offset = FixedOffset::east_opt(sign * (hours * 3600 + minutes * 60))
+                .ok_or_else(unparseable)?;
+            let dt = naive
+                .and_local_timezone(offset)
+                .single()
+                .ok_or_else(unparseable)?;
+            Ok(datetime_to_seconds(dt))
         }
+        None => naive_to_seconds(naive, zone),
     }
-    if let Some(naive) = NaiveDate::parse_from_str(input, "%Y-%m-%d")
-        .ok()
-        .and_then(|date| date.and_hms_opt(0, 0, 0))
-    {
-        return naive_to_seconds(naive, zone);
-    }
-    // A bare numeric string is unix seconds (e.g. an upstream `toString(<number>)`).
-    if let Ok(seconds) = input.parse::<f64>() {
-        return Ok(seconds);
-    }
-    Err(VmError::NativeCallFailed(format!(
-        "toDateTime could not parse {input:?}"
-    )))
+}
+
+/// [`parse_datetime_to_seconds`] plus a bare-numeric-string fallback, for the *explicit*
+/// `toDateTime`/`toDate` natives only.
+///
+/// ClickHouse — the parity oracle for the realtime cohort evaluator, the only production consumer
+/// that reaches this — reads an all-digit string as a unix timestamp, and the compiled cohort leaf
+/// shape `toDateTime(toString(person.properties.X))` relies on it for numeric date properties
+/// (`rust/cohort-stream-processor/tests/fixtures/hogvm_parity/`). Dropping it would turn those
+/// filters into a `VmError`, which `cohort-core`'s executor collapses to a silent `false`.
+///
+/// It is deliberately *not* part of [`DATE_LIKE`], because that grammar also drives the implicit
+/// string-vs-temporal comparison coercion, where treating every numeric-looking property as an
+/// instant would silently change the meaning of comparisons no one marked as date comparisons.
+/// The reference Python/TS VMs accept neither form here; this is a documented Rust-only extension
+/// of the explicit native, not a divergence introduced by the shared grammar.
+fn parse_datetime_native(input: &str, zone: Option<&str>) -> Result<f64, VmError> {
+    parse_datetime_to_seconds(input, zone).or_else(|e| input.trim().parse::<f64>().map_err(|_| e))
 }
 
 fn naive_to_seconds(naive: NaiveDateTime, zone: Option<&str>) -> Result<f64, VmError> {
@@ -1914,7 +2067,7 @@ fn unix_timestamp_seconds(
             },
             None => None,
         };
-        return Ok(parse_datetime_to_seconds(s, zone.as_deref()).ok());
+        return Ok(parse_datetime_native(s, zone.as_deref()).ok());
     }
     temporal_seconds(vm, &args[0], name).map(Some)
 }
@@ -2342,6 +2495,7 @@ fn ip_to_bytes(ip: &str, is_v4: bool) -> Option<Vec<u8>> {
 }
 
 type HmacSha256 = Hmac<Sha256>;
+type HmacSha1 = Hmac<Sha1>;
 
 // Hash `data` with the supplied digest fn, then encode. Used by md5Hex/sha256Hex (fixed "hex").
 // `null` data returns `null`, matching the reference.
@@ -2376,15 +2530,20 @@ fn hash_optional_encoding(
     hash_with_encoding(vm, args, hasher, &encoding)
 }
 
-// sha256HmacChain: HMAC-SHA256 chained across an array of strings, re-keying each step with the
-// previous raw digest. Mirrors common/hogvm/typescript/src/stl/crypto.ts.
-fn sha256_hmac_chain(vm: &HogVM, arg: &HogValue) -> Result<Vec<u8>, VmError> {
+// sha256HmacChain / sha1HmacChain: HMAC chained across an array of strings, re-keying each step
+// with the previous raw digest. A two-element array is a plain HMAC of key and message.
+// Mirrors common/hogvm/typescript/src/stl/crypto.ts.
+fn hmac_chain<M: Mac + KeyInit>(
+    vm: &HogVM,
+    arg: &HogValue,
+    name: &str,
+) -> Result<Vec<u8>, VmError> {
     let arr = match arg.deref(&vm.heap)? {
         HogLiteral::Array(a) => a.clone(),
         _ => {
-            return Err(VmError::NativeCallFailed(
-                "sha256HmacChain expects an array".to_string(),
-            ))
+            return Err(VmError::NativeCallFailed(format!(
+                "{name} expects an array"
+            )))
         }
     };
     if arr.len() < 2 {
@@ -2393,13 +2552,13 @@ fn sha256_hmac_chain(vm: &HogVM, arg: &HogValue) -> Result<Vec<u8>, VmError> {
         ));
     }
     let key0: &str = arr[0].deref(&vm.heap)?.try_as()?;
-    let mut mac = HmacSha256::new_from_slice(key0.as_bytes())
+    let mut mac = <M as Mac>::new_from_slice(key0.as_bytes())
         .map_err(|e| VmError::NativeCallFailed(e.to_string()))?;
     let msg1: &str = arr[1].deref(&vm.heap)?.try_as()?;
     mac.update(msg1.as_bytes());
     let mut digest = mac.finalize().into_bytes().to_vec();
     for elem in &arr[2..] {
-        let mut next = HmacSha256::new_from_slice(&digest)
+        let mut next = <M as Mac>::new_from_slice(&digest)
             .map_err(|e| VmError::NativeCallFailed(e.to_string()))?;
         let msg: &str = elem.deref(&vm.heap)?.try_as()?;
         next.update(msg.as_bytes());

@@ -1,0 +1,34 @@
+{
+  "name": "@posthog/di",
+  "version": "1.0.0",
+  "description": "DI and boot primitives. Owns the CONTRIBUTION token + interface, boot(), the ROOT_LOGGER logging port, and the useService React boundary hook. Framework-light: depends only on inversify, with React as a peer for the boundary hook.",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": [
+      "./src/*.ts",
+      "./src/*.tsx"
+    ]
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "node ../../scripts/rimraf.mjs .turbo"
+  },
+  "dependencies": {
+    "inversify": "catalog:"
+  },
+  "peerDependencies": {
+    "react": "catalog:"
+  },
+  "devDependencies": {
+    "@posthog/tsconfig": "workspace:*",
+    "@types/react": "catalog:",
+    "react": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "^4.1.8"
+  },
+  "files": [
+    "src/**/*"
+  ]
+}

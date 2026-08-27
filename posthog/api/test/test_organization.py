@@ -14,19 +14,20 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.api.organization import OrganizationSerializer, _fetch_member_count, _org_serializer_cache_version
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, OrganizationMembership, Team
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.user_permissions import UserPermissions
 
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.feature_flag_role_access import FeatureFlagRoleAccess
+from products.access_control.backend.models.role import Role, RoleMembership
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
-from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
-from ee.models.rbac.access_control import AccessControl
-from ee.models.rbac.role import Role, RoleMembership
 
 
 class TestOrganizationAPI(APIBaseTest):
@@ -81,6 +82,32 @@ class TestOrganizationAPI(APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             self.assertEqual(Organization.objects.count(), 2)
             self.assertEqual(response.json()["plugins_access_level"], 3)
+
+    @parameterized.expand(
+        [
+            ("posthog_staff", "hedgehog@posthog.com", True),
+            ("customer", "owner@example.com", False),
+        ]
+    )
+    @patch("posthog.event_usage.posthoganalytics.group_identify")
+    def test_organizations_created_by_posthog_staff_are_excluded_from_crm(
+        self, _name, email, expect_flagged, mock_group_identify
+    ):
+        user = self._create_user(email)
+        self.client.force_login(user)
+
+        with self.is_cloud(True):
+            response = self.client.post("/api/organizations/", {"name": "New org"})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        if expect_flagged:
+            mock_group_identify.assert_called_once_with(
+                "organization",
+                response.json()["id"],
+                properties={"exclude_from_crm": True},
+            )
+        else:
+            mock_group_identify.assert_not_called()
 
     # Updating organizations
 
@@ -290,6 +317,130 @@ class TestOrganizationAPI(APIBaseTest):
         # Verify the value didn't change
         self.organization.refresh_from_db()
         self.assertNotEqual(self.organization.enforce_2fa, True)
+
+    def test_cannot_enable_enforce_verified_domains_when_it_would_block_the_admin(self):
+        # The setting denies access rather than prompting for setup, so an admin outside the verified
+        # domains enabling it would be locked out with no self-service recovery.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = [{"key": AvailableFeature.AUTOMATIC_PROVISIONING}]
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com", organization=self.organization, verified_at=timezone.now()
+        )
+
+        response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"enforce_verified_domains": True})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "would_block_self")
+        self.organization.refresh_from_db()
+        self.assertNotEqual(self.organization.enforce_verified_domains, True)
+
+        # Verifying the admin's own domain unblocks it, which also covers the empty allow-list case.
+        OrganizationDomain.objects.create(
+            domain=self.user.email.split("@")[1], organization=self.organization, verified_at=timezone.now()
+        )
+        response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"enforce_verified_domains": True})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertTrue(self.organization.enforce_verified_domains)
+
+    def test_blocked_admin_can_disable_enforcement_but_change_nothing_else(self):
+        # The escape hatch: an admin who became blocked (email changed, domain deleted) must still be
+        # able to turn the setting off — and only that — or the organization is wedged permanently.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.enforce_verified_domains = True
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com", organization=self.organization, verified_at=timezone.now()
+        )
+
+        # Any other change through the hatch is rejected, alone or alongside the disable.
+        for payload in [{"name": "New name"}, {"enforce_verified_domains": False, "name": "New name"}]:
+            response = self.client.patch(f"/api/organizations/{self.organization.id}/", payload)
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, payload)
+            self.assertEqual(response.json()["code"], "verified_domain_required")
+
+        response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"enforce_verified_domains": False})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertFalse(self.organization.enforce_verified_domains)
+
+    def test_blocked_member_cannot_use_the_enforcement_escape_hatch(self):
+        # The hatch only bypasses the domain gates; the admin-write requirement on the organization
+        # endpoint still applies to members.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.organization.enforce_verified_domains = True
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com", organization=self.organization, verified_at=timezone.now()
+        )
+
+        response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"enforce_verified_domains": False})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.organization.refresh_from_db()
+        self.assertTrue(self.organization.enforce_verified_domains)
+
+    def test_enabling_enforcement_removes_blocked_members_but_never_the_owner(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = [{"key": AvailableFeature.AUTOMATIC_PROVISIONING}]
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="posthog.com", organization=self.organization, verified_at=timezone.now()
+        )
+        admitted = User.objects.create_and_join(self.organization, "admitted@posthog.com", None)
+        blocked = User.objects.create_and_join(self.organization, "blocked@hedgebox.net", None)
+        owner = User.objects.create_and_join(
+            self.organization, "owner@hedgebox.net", None, level=OrganizationMembership.Level.OWNER
+        )
+
+        # The modal previews the removals with these filters, so the two must agree — an owner shown
+        # there would promise a removal that never happens.
+        preview = self.client.get(
+            "/api/organizations/@current/members/",
+            {
+                "outside_verified_domains": "true",
+                "levels": f"{OrganizationMembership.Level.MEMBER},{OrganizationMembership.Level.ADMIN}",
+            },
+        )
+        self.assertEqual(
+            {member["user"]["email"] for member in preview.json()["results"]},
+            {blocked.email},
+        )
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/remove_blocked_members_and_enforce_verified_domains/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True, "removed_members": 1})
+        self.organization.refresh_from_db()
+        self.assertTrue(self.organization.enforce_verified_domains)
+        self.assertCountEqual(
+            self.organization.memberships.values_list("user__email", flat=True),
+            [self.user.email, admitted.email, owner.email],
+        )
+        self.assertFalse(blocked.organization_memberships.exists())
+
+    def test_members_cannot_enable_enforcement_through_the_removal_action(self):
+        self.organization.available_product_features = [{"key": AvailableFeature.AUTOMATIC_PROVISIONING}]
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="posthog.com", organization=self.organization, verified_at=timezone.now()
+        )
+        User.objects.create_and_join(self.organization, "blocked@hedgebox.net", None)
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/remove_blocked_members_and_enforce_verified_domains/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.organization.refresh_from_db()
+        self.assertNotEqual(self.organization.enforce_verified_domains, True)
+        self.assertEqual(self.organization.memberships.count(), 2)
 
     def test_cannot_update_allow_publicly_shared_resources_without_feature(self):
         """Test that allow_publicly_shared_resources cannot be updated without ORGANIZATION_SECURITY_SETTINGS feature."""
@@ -826,7 +977,9 @@ class TestOrganizationSerializer(APIBaseTest):
         [
             (
                 "access_control",
-                lambda self: AccessControl.objects.create(team=self.team, access_level="member", resource="project"),
+                lambda self: AccessControl.objects.create(
+                    team=self.team, access_level="member", resource="project", resource_id=str(self.team.id)
+                ),
             ),
             (
                 "explicit_team_membership",
@@ -1298,3 +1451,33 @@ class TestOrganizationRequestAIAccessAPI(APIBaseTest):
         assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS, second.content
         # Only the first request reached the task.
         mock_task.delay.assert_called_once()
+
+
+class TestOrganizationDataFreshnessAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        self.other_organization = Organization.objects.create(name="Other org")
+        self.other_team = Team.objects.create(organization=self.other_organization, name="Other team")
+        self.user.join(organization=self.other_organization, level=OrganizationMembership.Level.MEMBER)
+        # Joining recomputes available features, so grant access control only once the user is in
+        self.other_organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.other_organization.save()
+
+    @patch("posthog.api.organization.get_organization_data_freshness")
+    def test_access_control_applies_to_the_requested_organization_not_the_current_one(self, mock_freshness):
+        mock_freshness.return_value = []
+        # Admin here, plain member in the organization actually being requested
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        AccessControl.objects.create(
+            team=self.other_team, resource="project", resource_id=str(self.other_team.id), access_level="none"
+        )
+
+        response = self.client.get(f"/api/organizations/{self.other_organization.id}/teams/data_freshness")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        mock_freshness.assert_called_once()
+        assert [team.id for team in mock_freshness.call_args.args[1]] == []

@@ -9,7 +9,7 @@ import { IngestionOverflowMode } from '~/ingestion/config'
 import { BatchingContext, BatchingPipeline } from '~/ingestion/framework/batching-pipeline'
 import { newBatchingPipeline } from '~/ingestion/framework/builders'
 import { TopHogRegistry, createTopHogWrapper, sum, timer } from '~/ingestion/framework/extensions/tophog'
-import { createBatch } from '~/ingestion/framework/helpers'
+import { aggregateKafkaDebugContexts, createBatch } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import { isOkResult, ok } from '~/ingestion/framework/results'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
@@ -138,6 +138,9 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
                                     createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                                         overflowMode,
                                         preservePartitionLocality: true, // Sessions must stay on the same partition
+                                        // Replay never reads or writes persons. The line above pins
+                                        // locality either way, so this only records the fact.
+                                        pipelineWritesPersons: false,
                                     })
                                 )
                                 // Validate the headers capture guarantees (DLQ if missing) and narrow the type
@@ -241,7 +244,8 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
         // One batch in flight at a time (also the framework default): a feed's elements carry the
         // recorder current when it was fed, so a concurrent batch could span a flush and record into a
         // stale recorder.
-        { concurrentBatches: 1 }
+        { concurrentBatches: 1 },
+        { aggregateDebugContexts: aggregateKafkaDebugContexts }
     )
 }
 
@@ -290,7 +294,7 @@ export async function runSessionReplayPipeline(
     const batch = createBatch(messages.map((message) => ({ message, sessionBatchRecorder })))
     // The consumer drains each batch fully before feeding the next and the hooks always succeed,
     // so a rejected feed can only be a framework invariant violation.
-    const feedResult = await pipeline.feed(batch)
+    const feedResult = await pipeline.feed(batch, {})
     if (!feedResult.ok) {
         throw new Error(`session replay pipeline rejected feed: ${feedResult.kind} (${feedResult.reason})`)
     }

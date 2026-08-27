@@ -15,6 +15,7 @@ import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
+import { PUSH_NOTIFICATION_OPENED_EVENT, buildPushOpenedMetric } from './push-open-tracking'
 
 export class CdpEventsConsumer<
     TConfig extends PluginsServerConfig = PluginsServerConfig,
@@ -41,11 +42,12 @@ export class CdpEventsConsumer<
         this.kafkaConsumer = createKafkaConsumer({ groupId, topic })
         this.hogFunctionPipeline = new HogFunctionInvocationPipeline(config, {
             hogFunctionManager: this.hogFunctionManager,
-            hogExecutor: this.hogExecutor,
+            hogInputsService: this.hogInputsService,
             hogWatcher: this.hogWatcher,
             hogWatcherMirror: this.hogWatcherMirror,
             hogMasker: this.hogMasker,
             hogFunctionMonitoringService: this.hogFunctionMonitoringService,
+            cdpUsageReporter: this.cdpUsageReporter,
             quotaLimiting: deps.quotaLimiting,
             redis: this.redis,
             valkeyShadow: this.valkeyShadow,
@@ -99,6 +101,10 @@ export class CdpEventsConsumer<
             this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
         }
 
+        // Turn any $push_notification_opened events in this batch into `push_opened` app-metrics. Queued
+        // here (synchronously) so the monitoring flush in the background task below picks them up.
+        await this.trackPushNotificationOpens(invocationGlobals)
+
         return {
             // This is all IO so we can set them off in the background and start processing the next batch
             backgroundTask: Promise.all([
@@ -121,6 +127,37 @@ export class CdpEventsConsumer<
                 ),
             ]),
             invocations: [...hogInvocations, ...hogflowInvocations],
+        }
+    }
+
+    // Resolve each $push_notification_opened event's workflow and queue its push_opened app-metric.
+    // The attribution + spoof guard live in buildPushOpenedMetric (pure + unit-tested).
+    private async trackPushNotificationOpens(globals: HogFunctionInvocationGlobals[]): Promise<void> {
+        const opens = globals.filter((g) => g.event.event === PUSH_NOTIFICATION_OPENED_EVENT)
+        if (!opens.length) {
+            return
+        }
+        // Match each open's workflow id against the flows its own team owns, which the hog flow pipeline
+        // already loaded for this batch (warm by-team cache). Resolving against that bounded, team-owned
+        // set rather than looking up the client-supplied id directly keeps a spoofed id from hitting
+        // Postgres or polluting the shared by-id cache with negative entries. Best-effort: a lookup
+        // failure here must not abort the batch (that would stall all event processing and force a replay).
+        try {
+            const teamIds = Array.from(new Set(opens.map((g) => g.project.id)))
+            const flowsByTeam = await this.hogFlowManager.getHogFlowsForTeams(teamIds)
+            for (const g of opens) {
+                const workflowId = g.event.properties['$notification_workflow_id']
+                if (typeof workflowId !== 'string') {
+                    continue
+                }
+                const flow = (flowsByTeam[g.project.id] ?? []).find((f) => f.id === workflowId) ?? null
+                const metric = buildPushOpenedMetric(g.event.properties, g.project.id, flow)
+                if (metric) {
+                    this.hogFunctionMonitoringService.queueAppMetric(metric, 'hog_flow')
+                }
+            }
+        } catch (error) {
+            logger.error('[CdpEventsConsumer] Failed to track push notification opens', { error })
         }
     }
 

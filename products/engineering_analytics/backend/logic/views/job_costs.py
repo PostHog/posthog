@@ -18,6 +18,7 @@ non-materialized ``DataWarehouseSavedQuery`` by data_modeling's managed-viewset 
 from typing import TYPE_CHECKING
 
 from posthog.hogql.database.models import (
+    BooleanDatabaseField,
     DateTimeDatabaseField,
     FieldOrTable,
     FloatDatabaseField,
@@ -35,7 +36,7 @@ from products.engineering_analytics.backend.logic.cost import (
     render_provider,
     render_vcpu,
 )
-from products.engineering_analytics.backend.logic.sources import resolve_job_cost_source_pairs
+from products.engineering_analytics.backend.logic.sources import resolve_job_source_tables
 from products.engineering_analytics.backend.logic.views import workflow_jobs, workflow_runs
 
 if TYPE_CHECKING:
@@ -73,6 +74,11 @@ FIELDS: dict[str, FieldOrTable] = {
     "multiplier": IntegerDatabaseField(name="multiplier", nullable=True),
     "billable_seconds": IntegerDatabaseField(name="billable_seconds", nullable=True),
     "estimated_cost_usd": FloatDatabaseField(name="estimated_cost_usd", nullable=True),
+    # Non-nullable unlike the attribution columns above, because it is derived rather than read off
+    # the source: an unjoined run reads 0, the same "no" it gives every other run attribute. Exposed
+    # so "what does the merge queue cost" doesn't get answered by re-deriving a gate branch from
+    # head_branch, which would put that definition somewhere other than logic/merge_queue.py.
+    "is_merge_queue": BooleanDatabaseField(name="is_merge_queue"),
 }
 
 
@@ -147,7 +153,8 @@ def build_query(*, jobs_table: str, runs_table: str, include_run_columns: bool =
             vcpu,
             {render_multiplier("vcpu")} AS multiplier,
             {render_billable_seconds("provider", "os", "duration_seconds")} AS billable_seconds,
-            {render_estimated_cost_usd("provider", "os", "vcpu", "duration_seconds")} AS estimated_cost_usd{run_columns}
+            {render_estimated_cost_usd("provider", "os", "vcpu", "duration_seconds")} AS estimated_cost_usd,
+            is_merge_queue{run_columns}
         FROM (
             SELECT
                 repo_owner,
@@ -166,6 +173,7 @@ def build_query(*, jobs_table: str, runs_table: str, include_run_columns: bool =
                 completed_at,
                 queue_seconds,
                 duration_seconds,
+                is_merge_queue,
                 {render_provider("depot_label", "hosted_label")} AS provider,
                 {render_os("depot_label", "hosted_label")} AS os,
                 {render_vcpu("depot_label", "hosted_label")} AS vcpu{run_columns}
@@ -187,6 +195,7 @@ def build_query(*, jobs_table: str, runs_table: str, include_run_columns: bool =
                     completed_at,
                     queue_seconds,
                     duration_seconds,
+                    is_merge_queue,
                     {render_depot_label("labels_arr")} AS depot_label,
                     {render_hosted_label("labels_arr")} AS hosted_label{run_columns}
                 FROM (
@@ -209,6 +218,7 @@ def build_query(*, jobs_table: str, runs_table: str, include_run_columns: bool =
                         j.completed_at AS completed_at,
                         j.queue_seconds AS queue_seconds,
                         j.duration_seconds AS duration_seconds,
+                        r.is_merge_queue AS is_merge_queue,
                         {labels_array} AS labels_arr{inner_run_columns}
                     FROM ({jobs}) AS j
                     LEFT JOIN ({runs}) AS r ON j.run_id = r.id AND j.run_attempt = r.run_attempt
@@ -224,8 +234,8 @@ def build_team_view(team: "Team") -> str | None:
     None when the team has no qualifying source (no view is created). One view over all sources so
     the exposed name stays stable regardless of how many GitHub sources a team connects.
     """
-    pairs = resolve_job_cost_source_pairs(team)
-    if not pairs:
+    sources = resolve_job_source_tables(team)
+    if not sources:
         return None
-    selects = [build_query(jobs_table=jobs_table, runs_table=runs_table) for jobs_table, runs_table in pairs]
+    selects = [build_query(jobs_table=source.workflow_jobs, runs_table=source.workflow_runs) for source in sources]
     return "\nUNION ALL\n".join(selects)

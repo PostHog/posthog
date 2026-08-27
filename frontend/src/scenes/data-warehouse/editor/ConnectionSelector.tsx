@@ -13,6 +13,7 @@ import {
     CONFIGURE_SOURCES,
     type ConnectionSelectOption,
     POSTHOG_WAREHOUSE,
+    addHiddenSelectedConnectionOption,
     connectionSelectorLogic,
     getConnectionSelectorValue,
 } from './connectionSelectorLogic'
@@ -37,7 +38,9 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
     useOnMountEffect(() => {
         maybeLoadConnectionOptions()
     })
-    const connectionSelectorValue = getConnectionSelectorValue(
+    const connectionSelectorValue = getConnectionSelectorValue(connectionOptionsLoading, selectedConnectionId)
+    const displayedConnectionSelectOptions = addHiddenSelectedConnectionOption(
+        connectionSelectOptions,
         connectionOptions,
         connectionOptionsLoading,
         selectedConnectionId
@@ -52,7 +55,11 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
         <LemonSelect
             size="small"
             fullWidth
-            className="flex-1"
+            // min-w-0 lets the flex item shrink past the label's min-content width, and
+            // truncateText ellipsizes the label — a long source name (e.g. "managed_warehouse
+            // (DuckDB)") otherwise wraps and spills out of the narrow database-tree sidebar.
+            className="flex-1 min-w-0"
+            truncateText={{ maxWidthClass: 'max-w-full' }}
             value={connectionSelectorValue}
             onChange={(nextValue) => {
                 if (!nextValue || nextValue === POSTHOG_WAREHOUSE) {
@@ -91,7 +98,7 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
                 } as typeof sourceQuery)
                 syncUrlWithQuery()
             }}
-            options={connectionSelectOptions.map((group) => ({
+            options={displayedConnectionSelectOptions.map((group) => ({
                 options: group.options.map(toLemonSelectOption),
             }))}
         />
@@ -109,6 +116,7 @@ function toLemonSelectOption(option: ConnectionSelectOption): LemonSelectOption<
         value: option.value as string,
         label: option.label,
         icon,
+        hidden: option.hidden,
         sideAction: option.managementUrl
             ? {
                   onClick: () => newInternalTab(option.managementUrl),

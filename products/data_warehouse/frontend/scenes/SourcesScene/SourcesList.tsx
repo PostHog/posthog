@@ -12,6 +12,7 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { DirectConnectSourcesTable } from 'products/data_warehouse/frontend/shared/components/DirectConnectSourcesTable'
 import { ManagedSourcesTable } from 'products/data_warehouse/frontend/shared/components/ManagedSourcesTable'
 import { SelfManagedSourcesTable } from 'products/data_warehouse/frontend/shared/components/SelfManagedSourcesTable'
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
@@ -70,6 +71,14 @@ export function SourcesList({ action }: { action: JSX.Element }): JSX.Element {
                     <SceneDivider />
                 </>
             </FlaggedFeature>
+
+            <SceneSection
+                title="Direct connect sources"
+                description="Query these sources live from PostHog. Your data stays where it is, nothing gets imported"
+            >
+                <DirectConnectSourcesTable />
+            </SceneSection>
+            <SceneDivider />
 
             <SceneSection
                 title="Self-managed data warehouse sources"

@@ -71,6 +71,29 @@ describe('mcpAnalyticsToolQualityLogic', () => {
         })
     })
 
+    describe('incompleteTail', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+            initKeaTests()
+            jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] })
+        })
+
+        // An open-ended relative window always ends in the bucket that is still collecting, and a
+        // window that closed in the past never does, so this holds whenever the suite runs.
+        it.each([
+            ['an open-ended window', '-7d', null, true],
+            ['a window that already closed', '2026-06-01', '2026-06-10', false],
+        ])('is %s: %s', async (_label, dateFrom, dateTo, expected) => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic, () => {
+                logic.actions.setDateFilter(dateFrom, dateTo)
+            }).toFinishAllListeners()
+
+            expect(logic.values.incompleteTail).toBe(expected)
+        })
+    })
+
     describe('date range and tool filters', () => {
         beforeEach(() => {
             jest.clearAllMocks()
@@ -164,6 +187,36 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.selectedTool).toBe('tool_a')
+        })
+
+        it('refetches the charts at the picked grouping, leaving the table alone', async () => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () => {
+                logic.actions.setPinnedInterval('hour')
+            }).toFinishAllListeners()
+
+            const newCalls = queryCallsSince(callsBefore)
+            expect(newCalls.length).toBe(1) // daily stats only — the table is a single-window aggregate
+            expect(newCalls[0].interval).toBe('hour')
+        })
+
+        // The two filters are independent: changing the window must not silently undo the grouping.
+        it('keeps the picked grouping when the date range changes', async () => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setPinnedInterval('hour')
+            await expectLogic(logic, () => {
+                logic.actions.setDateFilter('-14d', null)
+            }).toFinishAllListeners()
+
+            // Two weeks would auto-group by day.
+            expect(logic.values.interval).toBe('hour')
         })
     })
 })

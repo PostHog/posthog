@@ -3,7 +3,7 @@
 gRPC service that owns exception-level symbol resolution for PostHog error tracking.
 It is a run mode of the `cymbal` binary, selected with `CYMBAL_MODE=resolution`.
 It speaks `cymbal.resolution.v1` and is used by cymbal's processing mode (the client lives in
-[`stages/resolution/remote`](../../stages/resolution/remote)) when remote resolution is enabled.
+[`stages/resolution/remote`](../../stages/resolution/remote)).
 
 ## Architecture
 
@@ -14,10 +14,9 @@ events ──HTTP─────▶│ cymbal                                   
                    │                                                    │
                    │  ┌──────────────────────────────────────────────┐  │
                    │  │ ResolutionStage                              │  │
-                   │  │ - partitions events into local/remote        │  │
                    │  │ - builds ResolveItems at resolution time     │  │
                    │  └──────────────────────┬───────────────────────┘  │
-                   │                         │ sampled remote events    │
+                   │                         │ exception events          │
                    │  ┌──────────────────────▼───────────────────────┐  │
                    │  │ EndpointPool                                 │  │
                    │  │ - DNS-discovered endpoints                   │  │
@@ -46,7 +45,7 @@ events ──HTTP─────▶│ cymbal                                   
 
 The contract is intentionally split across two streams:
 
-- **`Resolve`** is bidirectional work traffic. The caller sends independent `ResolveItem`s, each with a per-stream id, `team_id`, serialized exception JSON, JSON `metadata` bytes, and an item deadline. The server emits an `Accepted` outcome when it admits an item, then exactly one terminal `ResolveOutcome` with the same id: `Done`, `Retry`, or `Error`.
+- **`Resolve`** is bidirectional work traffic. The caller sends independent `ResolveItem`s, each with a per-stream id, `team_id`, serialized exception JSON, JSON `metadata` bytes, and an item deadline. The server emits an `Accepted` outcome when it admits an item, then exactly one terminal `ResolveOutcome` with the same id: `Done`, `Retry`, or `Error`. A `Done` carries the resolved exception JSON plus a `release_id`: the newest release bound to a symbol set the item's frames reference. It is empty when no referenced symbol set has a release, and on servers that predate the field, so callers treat empty as "no release".
 - **`Subscribe`** is endpoint freshness, draining, and soft load state. The cymbal-side `EndpointPool` opens one long-lived stream per pod and treats the latest `LoadEvent` as a freshness snapshot plus an `in_flight` / `max_in_flight` routing bias. `LoadEvent` does not carry overload state or suggested batch sizing.
 
 `Error.kind` is the shared control-flow surface:
@@ -58,17 +57,11 @@ The contract is intentionally split across two streams:
 
 The proto lives at [`proto/cymbal/resolution/v1/resolution.proto`](../../../../../proto/cymbal/resolution/v1/resolution.proto).
 
-## Rollout model
+## Deployment model
 
-Remote resolution is opt-in on the cymbal side. There is intentionally **no silent local fallback** for events sampled into the remote path: when the pool cannot satisfy a sampled remote item, cymbal surfaces an `UnhandledError` for that event so the failure is visible rather than masked. Events not selected by `CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE` are not remote attempts; they run through the inline local exception/frame resolvers.
+Processing always resolves exceptions through the `cymbal-resolution` pool. There is no silent inline fallback: when the pool cannot satisfy an item, cymbal surfaces an `UnhandledError` so the failure is visible rather than masked.
 
-| Mode | Cymbal env vars | Resolution path |
-| ---- | --------------- | --------------- |
-| Local | `CYMBAL_REMOTE_RESOLUTION_ENABLED=false` (default) | Inline local resolver inside `cymbal` |
-| Sampled remote | `CYMBAL_REMOTE_RESOLUTION_ENABLED=true`, sampled by `CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE` | gRPC to the `cymbal-resolution` pool, no fallback |
-| Unsampled local | `CYMBAL_REMOTE_RESOLUTION_ENABLED=true`, not sampled by `CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE` | Inline local resolver inside `cymbal` |
-
-### Enabling remote mode
+### Deploying resolution mode
 
 1. Deploy `cymbal-resolution` pods behind a headless Kubernetes service so each pod is reachable by IP. `cymbal` resolves the service hostname via DNS and opens one channel per returned address.
 2. Confirm the pods are serving:
@@ -76,8 +69,6 @@ Remote resolution is opt-in on the cymbal side. There is intentionally **no sile
    - `/_readiness` returns `ok`
    - `cymbal_remote_resolution_pool_size` becomes non-zero on cymbal pods once they are pointed at the service.
 3. Set on `cymbal` pods:
-   - `CYMBAL_REMOTE_RESOLUTION_ENABLED=true`
-   - `CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE=<0.0..=1.0>` (defaults to `0.0`, so enabling alone routes no traffic)
    - `CYMBAL_REMOTE_RESOLUTION_HOST=<service-hostname>`
    - `CYMBAL_REMOTE_RESOLUTION_PORT=50061` (default)
 4. Roll cymbal pods. Startup eagerly resolves DNS and fails loudly if the host is empty, no addresses come back, or no endpoint produces a fresh non-draining `LoadEvent` during the readiness window.
@@ -94,13 +85,7 @@ symbol stores. The rendezvous score is adjusted by the latest server load
 snapshot and the caller's own local in-flight count, so highly loaded pods
 become less likely to receive new work before they return overload outcomes.
 
-Each endpoint owns one bidirectional Resolve mux with a bounded outbound queue and one waiter per in-flight item. Queue admission failure, stream break, endpoint drain, and endpoint eviction all fail affected items as `ERROR_KIND_OVERLOADED`; the per-item retry layer excludes that endpoint and reroutes only those items. A `Retry` outcome uses the generic retry policy. Cymbal also holds a process-local routing semaphore for items trying to find an accepting pod; a permit is acquired before routing, released on `Accepted`, and otherwise held until routing exhausts or fails terminally. Terminal `ErrorKind`s fail the current all-or-nothing rollout path.
-
-### Disabling / rolling back
-
-Set `CYMBAL_REMOTE_RESOLUTION_ENABLED=false` on the cymbal pods and roll. That fully reverts to local resolution; no data-plane state needs to be flushed and the `cymbal-resolution` pods can keep running without harm.
-
-For a partial rollback, lower `CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE`. The decision is deterministic by `(team_id, event_uuid)`, so the same event keeps the same local/remote decision across retries, pods, and process restarts.
+Each endpoint owns one bidirectional Resolve mux with a bounded outbound queue and one waiter per in-flight item. Queue admission failure, stream break, endpoint drain, and endpoint eviction all fail affected items as `ERROR_KIND_OVERLOADED`; the per-item retry layer excludes that endpoint and reroutes only those items. A `Retry` outcome uses the generic retry policy. Cymbal also holds a process-local routing semaphore for items trying to find an accepting pod; a permit is acquired before routing, released on `Accepted`, and otherwise held until routing exhausts or fails terminally. Terminal `ErrorKind`s fail the batch.
 
 ### Compatibility with the Node error-tracking consumer
 
@@ -114,17 +99,15 @@ All variables are prefixed `CYMBAL_REMOTE_RESOLUTION_` and live on `cymbal::conf
 
 | Env var | Default | Purpose |
 | ------- | ------- | ------- |
-| `CYMBAL_REMOTE_RESOLUTION_ENABLED` | `false` | Master switch. `true` routes sampled exception resolution through the remote pool. |
-| `CYMBAL_REMOTE_RESOLUTION_HOST` | _empty_ | Service hostname resolved via DNS. Required when enabled; empty value fails boot. |
+| `CYMBAL_REMOTE_RESOLUTION_HOST` | _empty_ | Service hostname resolved via DNS. Required; empty value fails boot. |
 | `CYMBAL_REMOTE_RESOLUTION_PORT` | `50061` | gRPC port the pods listen on. Must match the server-side `GRPC_ADDRESS` port. |
-| `INTERNAL_API_SECRET` | _empty_ | Shared secret sent as `X-Internal-Api-Secret` on every `Resolve` and `Subscribe` RPC. Required when remote mode is enabled. |
+| `INTERNAL_API_SECRET` | _empty_ | Shared secret sent as `X-Internal-Api-Secret` on every `Resolve` and `Subscribe` RPC. Required. |
 | `CYMBAL_REMOTE_RESOLUTION_DNS_REFRESH_SECS` | `30` | How often DNS is re-resolved and the pool reconciled. |
 | `CYMBAL_REMOTE_RESOLUTION_DEADLINE_MS` | `15000` | Shared per-event remote deadline used by all item reroutes. |
 | `CYMBAL_REMOTE_RESOLUTION_CONNECT_TIMEOUT_MS` | `1000` | Per-endpoint TCP/HTTP2 connect timeout. |
 | `CYMBAL_REMOTE_RESOLUTION_MAX_RETRIES` | `2` | Caller-side reroutes after transport, overload, or `Retry` outcomes. |
 | `CYMBAL_REMOTE_RESOLUTION_RETRY_BACKOFF_MS` | `50` | Base retry backoff before jitter. |
 | `CYMBAL_REMOTE_RESOLUTION_RETRY_MAX_BACKOFF_MS` | `1000` | Maximum retry backoff after exponential scaling and jitter. |
-| `CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE` | `0.0` | Deterministic event-level remote rollout rate. |
 | `CYMBAL_REMOTE_RESOLUTION_ROUTING_ACCEPTANCE_CONCURRENCY` | `10` | Maximum number of items per cymbal process that can wait concurrently for a pod to emit `Accepted`. |
 | `CYMBAL_REMOTE_RESOLUTION_SUBSCRIBE_TICK_HINT_MS` | `1000` | Cadence hint sent on `SubscribeRequest`; snapshots are considered fresh for two ticks. |
 | `CYMBAL_REMOTE_RESOLUTION_SUBSCRIBE_RECONNECT_BACKOFF_MS` | `500` | Backoff between subscription reconnect attempts when a stream terminates. |
@@ -163,7 +146,6 @@ Shared-secret callers are service-scoped today, so authenticated cymbal pods are
 
 These metric names are exported by the cymbal client unless noted. Definitions live in [`cymbal/src/metric_consts.rs`](../cymbal/src/metric_consts.rs) and the server's Resolve/LoadMonitor modules.
 
-- **Rollout decisions**: `cymbal_remote_resolution_sampling_total{decision="remote"|"local"}`. `local` during a partial rollout is expected and is not fallback.
 - **Item attempts and latency**: `cymbal_remote_resolution_requests_total{outcome, reason?}` and `cymbal_remote_resolution_latency_ms`. The counter is emitted on logical item attempts; `reason` is only a bounded transport status tag.
 - **Reroute shape**: `cymbal_remote_resolution_reroute_depth{outcome}` records how many endpoint changes happened before the terminal item result. The legacy attempts histogram may still be emitted for dashboard continuity, but new alerts should use reroute depth.
 - **Protocol error taxonomy**: client-observed `cymbal_remote_resolution_error_kinds_total{kind}` and server-emitted `cymbal_remote_resolution_server_error_kinds_total{kind}` count `ErrorKind` values with bounded labels.
@@ -176,10 +158,9 @@ These metric names are exported by the cymbal client unless noted. Definitions l
 
 | Symptom | Likely cause | Suggested response |
 | ------- | ------------ | ------------------ |
-| `pool_empty` spikes after cymbal startup | DNS refresh removed every endpoint, Subscribe has not produced fresh snapshots, or every endpoint reports draining | Inspect the `reason` label (`no_endpoints`, `no_fresh_load_snapshots`, `all_endpoints_draining`); startup fails for these states while remote resolution is enabled. |
-| `sampling_total{decision="local"}` rises while remote errors stay flat | Expected partial rollout or lower sample rate | No action unless the configured sample rate is wrong. |
+| `pool_empty` spikes after cymbal startup | DNS refresh removed every endpoint, Subscribe has not produced fresh snapshots, or every endpoint reports draining | Inspect the `reason` label (`no_endpoints`, `no_fresh_load_snapshots`, `all_endpoints_draining`); startup fails for these states. |
 | `transport_retry{reason="unavailable"}` + `grpc_server_load_shed_total` | Server is at `MAX_CONCURRENT_REQUESTS` | Scale server pods or raise the cap after capacity-checking. |
-| `error_kinds_total{kind="overloaded"}` + rising reroute depth | Item-level overload backpressure | Scale server pods, tune item concurrency, or lower sample rate. |
+| `error_kinds_total{kind="overloaded"}` + rising reroute depth | Item-level overload backpressure | Scale server pods or tune item concurrency. |
 | `endpoint_admission_rejections_total{reason="queue_full"}` | Local mux queue saturated before the item reached gRPC | Scale endpoints or increase the mux queue only after checking memory. |
 | `transport_retry{reason="deadline_exceeded"}` with low load | Caller-side deadline shorter than worst-case resolution | Raise `CYMBAL_REMOTE_RESOLUTION_DEADLINE_MS`. |
 | `error_kinds_total{kind="invalid_payload"}` | Wire-format or metadata mismatch | Check deploy skew and the metadata JSON convention. |
@@ -199,9 +180,11 @@ These metric names are exported by the cymbal client unless noted. Definitions l
 Client-side warnings on the cymbal pods:
 
 - `remote resolution dns refresh failed` — DNS refresh task swallowed an error and will retry next tick.
-- `remote resolution transport-level retry` — caller-side transport retry classification, tagged with a bounded reason.
-- `remote resolution returned item overload` — an overloaded result was escalated into a per-item reroute.
+- `remote resolution stream failed to open` / `stream broke` / `stream ended` — the per-endpoint mux stream died; every in-flight item on it is failed over.
+- `temporarily ejected overloaded remote resolution endpoint` — an endpoint was pulled from routing on an overload signal.
 - `remote resolution outcome id did not match submitted item` — the mux ignored an outcome for another id.
+
+Per-item retry/overload/reroute logs (`transport-level retry`, `returned item overload`, `returned item retry`, `outcome had no waiter`) are emitted at debug — they fire O(items × attempts) under overload, so watch the `cymbal_remote_resolution_requests_total{outcome}` counters instead, and enable `RUST_LOG=cymbal=debug` only for targeted investigation.
 
 Logs intentionally do not include raw routing keys as metric labels. Routing keys can contain symbol-set references, so cymbal uses bounded counters/histograms and endpoint labels only where the endpoint set is bounded by discovery.
 
@@ -224,4 +207,4 @@ Logs intentionally do not include raw routing keys as metric labels. Routing key
 ## Tests
 
 - `cargo test -p cymbal-proto` — proto contract round-trips for `ResolveItem`, `ResolveOutcome`, `ErrorKind`, `Retry`, and `LoadEvent`.
-- `cargo test -p cymbal` — resolution-mode service tests (`tests/resolution_service_tests.rs`: bidirectional streaming, accounting, overload, invalid payload, unhandled errors, Subscribe freshness/draining) plus client-side endpoint pool, mux, end-to-end Subscribe routing, and parity vs local mode.
+- `cargo test -p cymbal` — resolution-mode service tests (`tests/resolution_service_tests.rs`: bidirectional streaming, accounting, overload, invalid payload, unhandled errors, Subscribe freshness/draining) plus client-side endpoint pool, mux, and end-to-end Subscribe routing.

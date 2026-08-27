@@ -9,16 +9,13 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.plain import PlainSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.plain.plain import (
     plain_source,
@@ -49,8 +46,7 @@ class PlainSource(SimpleSource[PlainSourceConfig]):
             name=SchemaExternalDataSourceType.PLAIN,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Plain",
-            releaseStatus=ReleaseStatus.ALPHA,
-            featureFlag="dwh_plain",
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Plain API key to automatically pull your Plain customer support data into the PostHog Data warehouse.
 
 You can create an API key in your [Plain workspace settings](https://app.plain.com/settings/api-keys).

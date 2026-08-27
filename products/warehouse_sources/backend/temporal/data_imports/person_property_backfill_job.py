@@ -1,12 +1,13 @@
 """Temporal workflow that backfills person properties from a warehouse table's full Delta data.
 
-Unlike the incremental sync (which reads only the rows a sync staged), this reads the whole table's
+Unlike the incremental sync (which reads only the rows a run staged), this reads the whole table's
 parquet from S3 so a newly-created or changed person mapping populates historical rows it never saw.
-It is keyed by schema, not source: one workflow reads the table once and upserts every enabled person
-source on it, so mapping several properties from one table runs a single backfill.
+It is keyed by binding, not source: one workflow reads the table once and upserts every enabled person
+source on it, so mapping several properties from one table runs a single backfill. The table is either
+an imported schema's or a materialized view's — the read is the same either way.
 
 Started from the customer_analytics facade (auto on mapping create/enable, or a manual "backfill"
-button) with a per-``{team, schema}`` workflow id so concurrent triggers for the same table coalesce.
+button) with a per-``{team, binding}`` workflow id so concurrent triggers for the same table coalesce.
 Runs on the DATA_WAREHOUSE_METADATA_TASK_QUEUE alongside the incremental sync so post-sync processing
 never competes with the sync workers. The snapshot diff still skips unchanged values, so a re-run is
 cheap and idempotent.
@@ -30,7 +31,7 @@ from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     PersonPropertyBackfillActivityInputs,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.person_property_sync import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_sync import (
     record_completed_runs,
     record_failed_runs,
     run_person_property_backfill,
@@ -50,6 +51,14 @@ PERSON_PROPERTY_BACKFILL_DURATION_SECONDS = Histogram(
     buckets=(0.5, 1.0, 2.5, 5.0, 15.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1800.0, 3600.0),
 )
 
+# Same funnel stages as the scheduled sync (warehouse_person_property_sync_rows_total), kept as a
+# separate metric so a large one-off backfill can't distort the steady-state sync funnel.
+PERSON_PROPERTY_BACKFILL_ROWS_TOTAL = Counter(
+    "warehouse_person_property_backfill_rows_total",
+    "Rows flowing through each stage of the person-property backfill funnel",
+    labelnames=["team_id", "stage"],
+)
+
 
 @activity.defn
 async def backfill_warehouse_person_properties_activity(inputs: PersonPropertyBackfillActivityInputs) -> dict[str, Any]:
@@ -58,18 +67,17 @@ async def backfill_warehouse_person_properties_activity(inputs: PersonPropertyBa
     log.info(f"Starting person-property backfill for {inputs.source_type}/{inputs.schema_name}")
     start = time.monotonic()
     started_at = datetime.now(UTC).isoformat()
+    binding = inputs.binding
     try:
         async with Heartbeater():
-            result = await run_person_property_backfill(
-                team_id=inputs.team_id, schema_id=str(inputs.schema_id), trigger=inputs.trigger
-            )
+            result = await run_person_property_backfill(team_id=inputs.team_id, binding=binding, trigger=inputs.trigger)
     except Exception as e:
         PERSON_PROPERTY_BACKFILL_TOTAL.labels(team_id=str(inputs.team_id), outcome="failed").inc()
         log.exception("Person-property backfill failed")
         capture_exception(e)
         await record_failed_runs(
             team_id=inputs.team_id,
-            schema_id=str(inputs.schema_id),
+            binding=binding,
             job_id=None,
             trigger=inputs.trigger,
             started_at=started_at,
@@ -80,7 +88,7 @@ async def backfill_warehouse_person_properties_activity(inputs: PersonPropertyBa
 
     await record_completed_runs(
         team_id=inputs.team_id,
-        schema_id=str(inputs.schema_id),
+        binding=binding,
         job_id=None,
         trigger=inputs.trigger,
         started_at=started_at,
@@ -89,6 +97,15 @@ async def backfill_warehouse_person_properties_activity(inputs: PersonPropertyBa
     )
     PERSON_PROPERTY_BACKFILL_TOTAL.labels(team_id=str(inputs.team_id), outcome="completed").inc()
     PERSON_PROPERTY_BACKFILL_DURATION_SECONDS.observe(time.monotonic() - start)
+    for stage, count in (
+        ("read", result.rows_read),
+        ("changed", result.changed),
+        ("existing", result.existing),
+        ("produced", result.produced),
+        ("skipped_missing_person", result.skipped_missing_person),
+    ):
+        if count:
+            PERSON_PROPERTY_BACKFILL_ROWS_TOTAL.labels(team_id=str(inputs.team_id), stage=stage).inc(count)
 
     log.info(
         "Person-property backfill finished",

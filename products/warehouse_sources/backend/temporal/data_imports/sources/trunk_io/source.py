@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -23,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.trunkio import (
     TrunkIoSourceConfig,
 )
@@ -30,17 +27,25 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.s
     DESCRIPTIONS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    MERGE_QUEUE_PULL_REQUESTS,
     PRIMARY_KEYS,
+    SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.trunk_io import (
     TrunkIoResumeConfig,
     TrunkRepo,
     failing_tests,
+    merge_queue_pull_requests,
     quarantined_tests,
     unhealthy_tests,
     validate_credentials as validate_trunk_io_credentials,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+MISSING_TARGET_BRANCH_ERROR = (
+    f"Trunk.io {MERGE_QUEUE_PULL_REQUESTS} needs a merge queue target branch. "
+    "Add one to this source's settings, or turn this table off."
+)
 
 
 @SourceRegistry.register
@@ -56,6 +61,7 @@ class TrunkIoSource(ResumableSource[TrunkIoSourceConfig, TrunkIoResumeConfig]):
         return {
             "401": "Trunk.io authentication failed. Check your API token, organization slug, and repository details.",
             "Unauthorized": "Trunk.io authentication failed. Check your API token, organization slug, and repository details.",
+            MISSING_TARGET_BRANCH_ERROR: MISSING_TARGET_BRANCH_ERROR,
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -74,7 +80,13 @@ class TrunkIoSource(ResumableSource[TrunkIoSourceConfig, TrunkIoResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, descriptions=DESCRIPTIONS)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            descriptions=DESCRIPTIONS,
+            should_sync_default=SHOULD_SYNC_DEFAULT,
+        )
 
     def validate_credentials(
         self,
@@ -113,6 +125,20 @@ class TrunkIoSource(ResumableSource[TrunkIoSourceConfig, TrunkIoResumeConfig]):
                 if inputs.should_use_incremental_field
                 else None,
             )
+        elif endpoint == MERGE_QUEUE_PULL_REQUESTS:
+            target_branch = (config.merge_queue_target_branch or "").strip()
+            if not target_branch:
+                raise ValueError(MISSING_TARGET_BRANCH_ERROR)
+            items = merge_queue_pull_requests(
+                config.api_token,
+                repo,
+                target_branch,
+                resumable_source_manager,
+                should_use_incremental_field=inputs.should_use_incremental_field,
+                db_incremental_field_last_value=inputs.db_incremental_field_last_value
+                if inputs.should_use_incremental_field
+                else None,
+            )
         else:
             raise ValueError(f"Unknown Trunk.io endpoint: {endpoint}")
 
@@ -128,12 +154,13 @@ class TrunkIoSource(ResumableSource[TrunkIoSourceConfig, TrunkIoResumeConfig]):
             name=SchemaExternalDataSourceType.TRUNK_IO,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Trunk.io (Trunk Technologies, Inc.)",
-            caption="""Enter a Trunk.io API token to sync flaky test data for a single repository.
+            caption="""Enter a Trunk.io API token to sync flaky test and merge queue data for a single repository.
 
 Supported tables:
 - `UnhealthyTests`
 - `QuarantinedTests`
 - `FailingTests`
+- `MergeQueuePullRequests` (needs a merge queue target branch below)
 
 Create an API token in the Trunk app under Settings > Organization > General > API.
 """,
@@ -182,6 +209,15 @@ Create an API token in the Trunk app under Settings > Organization > General > A
                         required=True,
                         placeholder="my-repo",
                         secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="merge_queue_target_branch",
+                        label="Merge queue target branch",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="main",
+                        secret=False,
+                        caption="Only needed for the `MergeQueuePullRequests` table. A Trunk merge queue covers one target branch, so this is the branch your queue merges into.",
                     ),
                 ],
             ),

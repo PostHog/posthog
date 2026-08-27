@@ -1069,6 +1069,88 @@ describe('insightLogic', () => {
         })
     })
 
+    describe('loadInsight refresh mode', () => {
+        // Overridden queries get their own cache key, which nothing warms — a cache-only-ish
+        // `async` read yields `result: null` and the scene shows "Chart data didn't load".
+        const seenRefreshParams: (string | null)[] = []
+
+        beforeEach(() => {
+            seenRefreshParams.length = 0
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': ({ request }) => {
+                        const url = new URL(request.url)
+                        seenRefreshParams.push(url.searchParams.get('refresh'))
+                        return [
+                            200,
+                            {
+                                results: [
+                                    {
+                                        id: 42,
+                                        short_id: Insight42,
+                                        result: ['result from api'],
+                                        filters: API_FILTERS,
+                                        name: 'original name',
+                                    },
+                                ],
+                            },
+                        ]
+                    },
+                },
+            })
+        })
+
+        it('uses async without overrides', async () => {
+            logic = insightLogic({ dashboardItemId: Insight42 })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadInsightSuccess'])
+
+            expect(seenRefreshParams).toEqual(['async'])
+        })
+
+        it('blocks on a cache miss when overrides are present', async () => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                dashboardId: 33,
+                filtersOverride: { date_from: '-14d' },
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadInsightSuccess'])
+
+            expect(seenRefreshParams).toEqual(['async_except_on_cache_miss'])
+        })
+
+        it('treats empty overrides as no overrides', async () => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                dashboardId: 33,
+                filtersOverride: {},
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadInsightSuccess'])
+
+            expect(seenRefreshParams).toEqual(['async'])
+        })
+    })
+
+    describe('insightMissing', () => {
+        // A notebook cell binds a saved insight by short id. When that insight is gone, the API
+        // returns no results and the loader throws — the cell needs a flag it can turn into a
+        // "not found" screen instead of silently rendering a blank default query.
+        it('is set when the insight cannot be found', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': () => [200, { results: [] }],
+                },
+            })
+            logic = insightLogic({ dashboardItemId: Insight42 })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadInsightFailure'])
+
+            expect(logic.values.insightMissing).toBe(true)
+        })
+    })
+
     describe('editingDisabledReason', () => {
         it.each([
             ['overrides present', { filtersOverride: { date_from: '-7d' } }, 'Discard overrides to edit the insight.'],

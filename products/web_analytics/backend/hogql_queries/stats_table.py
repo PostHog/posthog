@@ -18,7 +18,6 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import (
     get_property_key,
@@ -33,6 +32,13 @@ from posthog.clickhouse.query_tagging import clear_tag, get_query_tag_value
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models.filters.mixins.utils import cached_property
 
+from products.web_analytics.backend.hogql_queries.first_pageview_attribution import (
+    FIRST_PAGEVIEW_BREAKDOWNS,
+    INITIAL_TO_FIRST_PAGEVIEW,
+    first_pageview_filter_value_expr,
+    first_pageview_prop,
+    first_pageview_properties_expr,
+)
 from products.web_analytics.backend.hogql_queries.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
 from products.web_analytics.backend.hogql_queries.stats_table_strategies import (
     ChannelTypeStrategy,
@@ -65,56 +71,6 @@ from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precomput
 
 BREAKDOWN_NULL_DISPLAY = "(none)"
 BREAKDOWN_REFERRER_PREFIX = "referrer:"
-
-FIRST_PAGEVIEW_ATTRIBUTION_FEATURE_FLAG = "web-analytics-first-pageview-attribution"
-
-# Flag-on, these Initial* breakdowns transparently compute first-pageview
-# attribution instead of session-entry values. The remap is deliberately
-# partial: INITIAL_REFERRING_URL / INITIAL_PAGE, the Sources drill-downs,
-# row-click session filters, overview tiles, and the weekly digest keep entry
-# semantics — the durable cross-surface fix is the raw_sessions v3 rollout.
-# Note the flag only gates the remap: the FirstPageview* enum values are
-# permanently live API surface and can be requested directly at 0% rollout.
-INITIAL_TO_FIRST_PAGEVIEW = {
-    WebStatsBreakdown.INITIAL_UTM_SOURCE: WebStatsBreakdown.FIRST_PAGEVIEW_UTM_SOURCE,
-    WebStatsBreakdown.INITIAL_UTM_CAMPAIGN: WebStatsBreakdown.FIRST_PAGEVIEW_UTM_CAMPAIGN,
-    WebStatsBreakdown.INITIAL_UTM_MEDIUM: WebStatsBreakdown.FIRST_PAGEVIEW_UTM_MEDIUM,
-    WebStatsBreakdown.INITIAL_UTM_TERM: WebStatsBreakdown.FIRST_PAGEVIEW_UTM_TERM,
-    WebStatsBreakdown.INITIAL_UTM_CONTENT: WebStatsBreakdown.FIRST_PAGEVIEW_UTM_CONTENT,
-    WebStatsBreakdown.INITIAL_REFERRING_DOMAIN: WebStatsBreakdown.FIRST_PAGEVIEW_REFERRING_DOMAIN,
-    WebStatsBreakdown.INITIAL_UTM_SOURCE_MEDIUM_CAMPAIGN: WebStatsBreakdown.FIRST_PAGEVIEW_UTM_SOURCE_MEDIUM_CAMPAIGN,
-    WebStatsBreakdown.INITIAL_CHANNEL_TYPE: WebStatsBreakdown.FIRST_PAGEVIEW_CHANNEL_TYPE,
-}
-
-# Ordered property keys each FirstPageview* breakdown reads from the session's
-# first pageview; the order defines the tuple element indexes used by
-# _first_pageview_prop.
-FIRST_PAGEVIEW_BREAKDOWN_PROPERTIES: dict[WebStatsBreakdown, tuple[str, ...]] = {
-    WebStatsBreakdown.FIRST_PAGEVIEW_UTM_SOURCE: ("utm_source",),
-    WebStatsBreakdown.FIRST_PAGEVIEW_UTM_CAMPAIGN: ("utm_campaign",),
-    WebStatsBreakdown.FIRST_PAGEVIEW_UTM_MEDIUM: ("utm_medium",),
-    WebStatsBreakdown.FIRST_PAGEVIEW_UTM_TERM: ("utm_term",),
-    WebStatsBreakdown.FIRST_PAGEVIEW_UTM_CONTENT: ("utm_content",),
-    WebStatsBreakdown.FIRST_PAGEVIEW_REFERRING_DOMAIN: ("$referring_domain",),
-    WebStatsBreakdown.FIRST_PAGEVIEW_UTM_SOURCE_MEDIUM_CAMPAIGN: (
-        "utm_source",
-        "$referring_domain",
-        "utm_medium",
-        "utm_campaign",
-    ),
-    WebStatsBreakdown.FIRST_PAGEVIEW_CHANNEL_TYPE: (
-        "utm_campaign",
-        "utm_medium",
-        "utm_source",
-        "$current_url",
-        "$referring_domain",
-        "gclid",
-        "fbclid",
-        "gad_source",
-    ),
-}
-
-FIRST_PAGEVIEW_BREAKDOWNS = frozenset(FIRST_PAGEVIEW_BREAKDOWN_PROPERTIES)
 
 
 def _none_if_nan(value):
@@ -238,12 +194,6 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             return "stats_table_entry_bounce"
 
         return "stats_table_simple_breakdown"
-
-    @cached_property
-    def _first_pageview_attribution_enabled(self) -> bool:
-        return self._evaluate_team_rollout_flag(
-            FIRST_PAGEVIEW_ATTRIBUTION_FEATURE_FLAG, "web_analytics_first_pageview_attribution_flag_failed"
-        )
 
     def _effective_breakdown(self) -> WebStatsBreakdown:
         remapped = INITIAL_TO_FIRST_PAGEVIEW.get(self.query.breakdownBy)
@@ -419,7 +369,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
 
         visitor = Visitor()
         visitor.visit(self._counts_breakdown_value())
-        visitor.visit(self._all_properties())
+        visitor.visit(self.all_properties())
         return found
 
     def _period_comparison_tuple(self, column, alias, function_name):
@@ -456,12 +406,14 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         )
 
     def _event_properties(self) -> ast.Expr:
-        properties = [
+        # Each path-bounce events scan gets its own WHERE, so the rewritten
+        # predicates repeat across the bounce and scroll variants below.
+        properties: list = [
             p
-            for p in self.query.properties + self._test_account_filters
+            for p in self.effective_query_properties + self._test_account_filters
             if get_property_type(p) in ["event", "person", "cohort"]
         ]
-        return property_to_expr(properties, team=self.team, scope="event")
+        return property_to_expr([*properties, *self.first_pageview_filter_exprs], team=self.team, scope="event")
 
     def _event_properties_for_scroll(self) -> ast.Expr:
         def map_scroll_property(property: Union[EventPropertyFilter, PersonPropertyFilter]):
@@ -473,12 +425,12 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 )
             return property
 
-        properties = [
+        properties: list = [
             map_scroll_property(p)
-            for p in self.query.properties + self._test_account_filters
+            for p in self.effective_query_properties + self._test_account_filters
             if get_property_type(p) in ["event", "person", "cohort"]
         ]
-        return property_to_expr(properties, team=self.team, scope="event")
+        return property_to_expr([*properties, *self.first_pageview_filter_exprs], team=self.team, scope="event")
 
     def _event_properties_for_bounce_rate(self) -> ast.Expr:
         # Exclude pathname filters for bounce rate calculation
@@ -488,18 +440,12 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         # bounce rates calculations but since we group them by entry_pathname, the results could be misleading
         # as the events would be filtered by a IN(pathname) and the bounce shown would be for the first pathname
         # which users are not necessarily expecting to see.
-        properties = [
+        properties: list = [
             p
-            for p in self.query.properties + self._test_account_filters
+            for p in self.effective_query_properties + self._test_account_filters
             if not (get_property_type(p) == "event" and get_property_key(p) == "$pathname")
         ]
-        return property_to_expr(properties, team=self.team, scope="event")
-
-    def _session_properties(self) -> ast.Expr:
-        properties = [
-            p for p in self.query.properties + self._test_account_filters if get_property_type(p) == "session"
-        ]
-        return property_to_expr(properties, team=self.team, scope="event")
+        return property_to_expr([*properties, *self.first_pageview_filter_exprs], team=self.team, scope="event")
 
     @cached_property
     def should_use_session_id_set(self) -> bool:
@@ -517,16 +463,21 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         return self._session_id_set_common_eligibility()
 
     @cached_property
-    def _session_id_set_bounce_properties(self) -> list[Union[EventPropertyFilter, PersonPropertyFilter, dict]]:
+    def _session_id_set_bounce_properties(
+        self,
+    ) -> list[Union[EventPropertyFilter, PersonPropertyFilter, dict, ast.Expr]]:
         # The bounce side mirrors the join path's `_event_properties_for_bounce_rate`
         # semantics: pathname filters are excluded, because bounce is attributed to
         # the session's ENTRY path — restricting the id collection by the viewed
         # pathname would compute each entry path's bounce rate over the wrong
         # session population.
         return [
-            p
-            for p in self.query.properties + self._test_account_filters
-            if not (get_property_type(p) == "event" and get_property_key(p) == "$pathname")
+            *(
+                p
+                for p in self.effective_query_properties + self._test_account_filters
+                if not (get_property_type(p) == "event" and get_property_key(p) == "$pathname")
+            ),
+            *self.first_pageview_filter_exprs,
         ]
 
     def _session_id_set_bounce_filter(self) -> ast.Expr:
@@ -564,10 +515,6 @@ WHERE and(
             filters=property_to_expr(self._session_id_set_bounce_properties, team=self.team, scope="event"),
             query_type="stats_table_session_id_set_preflight",
         )
-
-    def _all_properties(self) -> ast.Expr:
-        properties = self.query.properties + self._test_account_filters
-        return property_to_expr(properties, team=self.team)
 
     def _lazy_precompute_stale(self) -> Optional[bool]:
         # The lazy modules mark serve-stale reads via tag_queries(precompute_stale=True)
@@ -924,40 +871,11 @@ WHERE and(
             ],
         )
 
-    def _first_pageview_property_keys(self) -> tuple[str, ...]:
-        return FIRST_PAGEVIEW_BREAKDOWN_PROPERTIES[self._effective_breakdown()]
-
     def _first_pageview_properties_expr(self) -> ast.Expr:
-        """One argMinIf over a tuple: every property comes from the session's
-        earliest in-range $pageview/$screen. The event filter keeps
-        conversion-goal events (which share the scan) from winning the argMin,
-        and the single anchor event prevents per-property NULL-skip from
-        stitching values of different pageviews together."""
-        return ast.Call(
-            name="argMinIf",
-            args=[
-                ast.Tuple(
-                    exprs=[
-                        ast.Field(chain=["events", "properties", key]) for key in self._first_pageview_property_keys()
-                    ]
-                ),
-                ast.Field(chain=["events", "timestamp"]),
-                parse_expr("events.event IN ('$pageview', '$screen')"),
-            ],
-        )
+        return first_pageview_properties_expr(self._effective_breakdown())
 
     def _first_pageview_prop(self, key: str) -> ast.Expr:
-        index = self._first_pageview_property_keys().index(key) + 1
-        return ast.Call(
-            name="nullIf",
-            args=[
-                ast.Call(
-                    name="tupleElement",
-                    args=[ast.Field(chain=["first_pageview_properties"]), ast.Constant(value=index)],
-                ),
-                ast.Constant(value=""),
-            ],
-        )
+        return first_pageview_prop(self._effective_breakdown(), key)
 
     def _first_pageview_utm_source_medium_campaign(self) -> ast.Expr:
         return self._source_medium_campaign_expr(
@@ -965,25 +883,6 @@ WHERE and(
             referring_domain=self._first_pageview_prop("$referring_domain"),
             medium=self._first_pageview_prop("utm_medium"),
             campaign=self._first_pageview_prop("utm_campaign"),
-        )
-
-    def _first_pageview_channel_type(self) -> ast.Expr:
-        url = self._first_pageview_prop("$current_url")
-        return create_channel_type_expr(
-            self.modifiers.customChannelTypeRules if self.modifiers else None,
-            ChannelTypeExprs(
-                campaign=self._first_pageview_prop("utm_campaign"),
-                medium=self._first_pageview_prop("utm_medium"),
-                source=self._first_pageview_prop("utm_source"),
-                url=url,
-                hostname=ast.Call(name="domain", args=[url]),
-                pathname=ast.Call(name="path", args=[url]),
-                referring_domain=self._first_pageview_prop("$referring_domain"),
-                has_gclid=ast.Call(name="isNotNull", args=[self._first_pageview_prop("gclid")]),
-                has_fbclid=ast.Call(name="isNotNull", args=[self._first_pageview_prop("fbclid")]),
-                gad_source=self._first_pageview_prop("gad_source"),
-            ),
-            timings=self.timings,
         )
 
     def _counts_breakdown_value(self):
@@ -1060,22 +959,11 @@ WHERE and(
                     medium=ast.Field(chain=["session", "$entry_utm_medium"]),
                     campaign=ast.Field(chain=["session", "$entry_utm_campaign"]),
                 )
-            case WebStatsBreakdown.FIRST_PAGEVIEW_UTM_SOURCE:
-                return self._first_pageview_prop("utm_source")
-            case WebStatsBreakdown.FIRST_PAGEVIEW_UTM_CAMPAIGN:
-                return self._first_pageview_prop("utm_campaign")
-            case WebStatsBreakdown.FIRST_PAGEVIEW_UTM_MEDIUM:
-                return self._first_pageview_prop("utm_medium")
-            case WebStatsBreakdown.FIRST_PAGEVIEW_UTM_TERM:
-                return self._first_pageview_prop("utm_term")
-            case WebStatsBreakdown.FIRST_PAGEVIEW_UTM_CONTENT:
-                return self._first_pageview_prop("utm_content")
-            case WebStatsBreakdown.FIRST_PAGEVIEW_REFERRING_DOMAIN:
-                return self._first_pageview_prop("$referring_domain")
             case WebStatsBreakdown.FIRST_PAGEVIEW_UTM_SOURCE_MEDIUM_CAMPAIGN:
                 return self._first_pageview_utm_source_medium_campaign()
-            case WebStatsBreakdown.FIRST_PAGEVIEW_CHANNEL_TYPE:
-                return self._first_pageview_channel_type()
+            case breakdown if breakdown in FIRST_PAGEVIEW_BREAKDOWNS:
+                # Same expression the rewritten filter compares against, by construction.
+                return first_pageview_filter_value_expr(breakdown, modifiers=self.modifiers, timings=self.timings)
             case WebStatsBreakdown.BROWSER:
                 return ast.Field(chain=["properties", "$browser"])
             case WebStatsBreakdown.OS:

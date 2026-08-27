@@ -7,7 +7,6 @@ from urllib.parse import urlparse
 import requests
 from requests import PreparedRequest, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.baserow.settings import (
     CONNECT_TIMEOUT_SECONDS,
     DEFAULT_BASE_URL,
@@ -31,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 
 @dataclasses.dataclass
@@ -177,10 +177,10 @@ class BaserowPaginator(JSONResponsePaginator):
     def __init__(self, base_url: str) -> None:
         super().__init__(next_url_path="next")
         self._allowed_netloc = urlparse(normalize_base_url(base_url)).netloc.lower()
-        # Cycle guards: a host that keeps returning a `next` link can otherwise keep a
-        # resumable import issuing requests until its week-long activity timeout. Track the
-        # link we just followed to catch a repeated URL, and count pages as a coarse backstop.
-        self._previous_next_url: Optional[str] = None
+        # Page cap: a host that keeps returning fresh `next` links can otherwise keep a
+        # resumable import issuing requests until its week-long activity timeout. The
+        # repeated-URL case is caught by the base paginator's guard, hardened below to
+        # raise rather than silently stop.
         self._pages_followed = 0
 
     def _pin(self, url: str) -> None:
@@ -188,16 +188,18 @@ class BaserowPaginator(JSONResponsePaginator):
         if target.scheme != "https" or target.netloc.lower() != self._allowed_netloc:
             raise ValueError(f"Baserow pagination URL {url!r} is not on the configured instance")
 
+    def _handle_non_advancing_page(self, next_url: str) -> None:
+        # A repeated next link from a user-controlled host is treated as hostile, not as
+        # a benign end-of-data quirk, so fail the sync loudly instead of completing it.
+        raise ValueError(f"Baserow pagination is not advancing (repeated next URL {next_url!r})")
+
     def _guard_progress(self) -> None:
         if self._next_url is None:
             return
         self._pin(self._next_url)
-        if self._next_url == self._previous_next_url:
-            raise ValueError(f"Baserow pagination is not advancing (repeated next URL {self._next_url!r})")
         self._pages_followed += 1
         if self._pages_followed > MAX_PAGES_PER_SYNC:
             raise ValueError(f"Baserow sync exceeded the {MAX_PAGES_PER_SYNC}-page limit")
-        self._previous_next_url = self._next_url
 
     def update_state(self, response: requests.Response, data: Optional[list[Any]] = None) -> None:
         super().update_state(response, data)
@@ -205,12 +207,11 @@ class BaserowPaginator(JSONResponsePaginator):
             self._guard_progress()
 
     def set_resume_state(self, state: dict[str, Any]) -> None:
+        # The base class seeds the repeat guard from the resumed link; pin it here too
+        # (a tampered resume URL must not be followed).
         super().set_resume_state(state)
         if self._next_url is not None:
-            # Seed the repeat guard from the resumed link so a host that immediately echoes it
-            # back is caught, and pin it here too (a tampered resume URL must not be followed).
             self._pin(self._next_url)
-            self._previous_next_url = self._next_url
 
 
 def list_tables(base_url: Optional[str], database_token: str) -> list[dict[str, Any]]:
@@ -220,7 +221,14 @@ def list_tables(base_url: Optional[str], database_token: str) -> list[dict[str, 
         f"{base}/api/database/tables/all-tables/", timeout=REQUEST_TIMEOUT_SECONDS
     )
     response.raise_for_status()
-    tables = response.json()
+    try:
+        tables = response.json()
+    except requests.exceptions.JSONDecodeError:
+        # A user-supplied host can answer 2xx (or a redirect the no-redirect session leaves
+        # unfollowed) with an empty or HTML body; surface a clear reason, not a raw decode error.
+        raise ValueError(
+            "Baserow returned an unexpected response when listing tables. Check that the instance URL points to your Baserow API."
+        )
     if not isinstance(tables, list):
         raise ValueError("Unexpected response from Baserow when listing tables")
     return tables

@@ -6,10 +6,12 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import HashIndex
 from django.core.cache import cache
 from django.core.validators import MaxValueValidator, MinLengthValidator, MinValueValidator
 from django.db import connection, models, transaction
 from django.db.models import QuerySet
+from django.db.models.fields.json import KeyTransform
 from django.db.models.signals import post_delete, post_save
 
 import pytz
@@ -23,7 +25,7 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.signals import mutable_receiver
+from posthog.models.signals import mutable_receiver, secret_api_token_rotated
 from posthog.models.utils import (
     UUIDTClassicModel,
     generate_random_token_project,
@@ -274,6 +276,13 @@ class Team(UUIDTClassicModel):
         # falls back to a bare `Manager()` for related access and re-loads the fat deprecated
         # taxonomy columns on every such fetch — on the hot path that's every authenticated request.
         base_manager_name = "objects"
+        indexes = [
+            HashIndex(
+                KeyTransform("widget_public_token", "conversations_settings"),
+                condition=models.Q(conversations_enabled=True),
+                name="posthog_team_widget_token_idx",
+            ),
+        ]
         constraints = [
             models.CheckConstraint(
                 name="project_id_is_not_null",
@@ -601,6 +610,8 @@ class Team(UUIDTClassicModel):
     human_friendly_comparison_periods = field_access_control(
         models.BooleanField(default=False, null=True, blank=True), "project", "admin"
     )
+    # Enable/disable toggle for cookieless ingestion. STATELESS (1) is sunset: any non-disabled
+    # value is processed as stateful.
     cookieless_server_hash_mode = field_access_control(
         models.SmallIntegerField(
             default=CookielessServerHashMode.DISABLED,
@@ -995,6 +1006,8 @@ class Team(UUIDTClassicModel):
             # Clear the previous backup token from cache since it's being replaced
             set_team_in_cache(expired_token, None)
 
+        secret_api_token_rotated.send(sender=self.__class__, team=self)
+
         # Build up the changes.
 
         masked_old_primary_token = mask_key_value(old_primary_token) if old_primary_token else None
@@ -1118,8 +1131,8 @@ class Team(UUIDTClassicModel):
         from posthog.models.organization import OrganizationMembership
         from posthog.models.user import User
 
-        from ee.models.rbac.access_control import AccessControl
-        from ee.models.rbac.role import RoleMembership
+        from products.access_control.backend.models.access_control import AccessControl
+        from products.access_control.backend.models.role import RoleMembership
 
         # Without ACCESS_CONTROL there is no notion of private teams — all org members have access.
         # Mirrors User.teams and UserTeamPermissions.effective_membership_level_for_parent_membership.

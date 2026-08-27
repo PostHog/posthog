@@ -52,7 +52,6 @@ from posthog.clickhouse.query_tagging import (
     is_api_key_access_method,
     tag_queries,
 )
-from posthog.ducklake.common import is_dev_mode
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.exceptions import (
@@ -88,6 +87,7 @@ from products.endpoints.backend.metrics import (
 )
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.tasks import shadow_compare_ducklake_execution
+from products.managed_warehouse.backend.facade.api import is_dev_mode
 
 from common.hogvm.python.utils import HogVMException
 
@@ -528,6 +528,7 @@ class EndpointExecutionService(PydanticModelMixin):
         _ch_query_start = time.monotonic()
         try:
             result: Response | None = None
+            materialized_failed = False
             if use_materialized:
                 try:
                     result = self._execute_materialized_endpoint(
@@ -542,10 +543,13 @@ class EndpointExecutionService(PydanticModelMixin):
                 except ConcurrencyLimitExceeded:
                     raise
                 except Exception:
-                    # Already logged/captured/signaled inside the materialized path. Serve the
-                    # request from the original query instead of failing — stale tables and
-                    # series drift self-heal on the next materialization run.
-                    execution_type = "materialized_fallback"
+                    # Already logged/captured/signaled inside the materialized path. Re-run
+                    # inline: only stamp materialized_fallback once inline succeeds, because
+                    # only an inline success proves the materialized table was the sole thing
+                    # broken. If inline also fails the request was never recoverable (a bad
+                    # query fails on both paths) — that's an inline failure, not a fallback.
+                    materialized_failed = True
+                    execution_type = "inline"
                     result = None
 
             if result is None:
@@ -558,6 +562,8 @@ class EndpointExecutionService(PydanticModelMixin):
                     limit=limit,
                     offset=offset,
                 )
+                if materialized_failed:
+                    execution_type = "materialized_fallback"
             # Query-only wall-clock, to compare fairly with the DuckLake shadow.
             _ch_query_ms = (time.monotonic() - _ch_query_start) * 1000
             execution_status = "success"

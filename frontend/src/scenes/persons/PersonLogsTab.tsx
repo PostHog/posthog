@@ -14,7 +14,8 @@ import { DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS, logsConfigLogic } from 'produc
 // (LemonTabs renders just the active tab's content), so `logsConfigLogic` only fetches
 // the team's `logs_distinct_id_attribute_keys` on demand rather than on every team load.
 // The config only drives the caption here — the query is scoped via `personId`, which the
-// backend expands to the person's distinct ids and matches against the configured keys.
+// backend expands to the person's distinct ids and matches against the configured keys plus
+// the built-in distinct-id conventions (the same keys the logs UI links as a person).
 export function PersonLogsTab({ person }: { person: PersonType }): JSX.Element {
     const { logsConfig } = useValues(logsConfigLogic)
     const distinctIdAttributeKeys =
@@ -31,7 +32,7 @@ export function PersonLogsTab({ person }: { person: PersonType }): JSX.Element {
                             <code>{key}</code>
                         </span>
                     ))}{' '}
-                    log {distinctIdAttributeKeys.length === 1 ? 'attribute' : 'attributes'}.
+                    and other common distinct ID attributes.
                 </span>
                 <LemonButton
                     size="xsmall"
@@ -43,7 +44,6 @@ export function PersonLogsTab({ person }: { person: PersonType }): JSX.Element {
             <LogsViewer
                 id={`person-${person.uuid ?? person.id}`}
                 personId={String(person.uuid ?? person.id)}
-                showFullScreenButton={false}
                 showSavedViewsButton={false}
             />
         </div>

@@ -40,6 +40,12 @@ class SandboxedEvalCase(BaseEvalCase):
     repo_fixture: str = ""
     """Name of the repo fixture (informational, for tracking)."""
 
+    interaction_origin: str | None = None
+    """Surface to run the case as (e.g. ``"slack"``), for suites grading behavior that only
+    exists on one surface. The agent server branches its system prompt on this, so setting it
+    is what makes a case exercise the real prompt instead of a copy. ``None`` runs the case
+    like a plain task, which is what every non-surface-specific suite wants."""
+
     setup: Callable[[CustomPromptSandboxContext], dict[str, Any]] | None = Field(
         default=None,
         exclude=True,
@@ -85,6 +91,10 @@ class AgentArtifacts(BaseModel):
 
     lint_output: str = ""
     """Lint output extracted from agent tool calls."""
+
+    tool_call_count: int = 0
+    """Tool calls the agent made. Zero alongside a non-zero ``exit_code`` means the run failed before
+    it did any work, which the harness treats as an infrastructure error rather than a score."""
 
     duration_seconds: float = 0.0
     """Wall-clock time for the agent run in seconds."""

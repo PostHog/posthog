@@ -5,30 +5,21 @@ import { IconPlusSmall, IconSparkles } from '@posthog/icons'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconInsightNumber, IconInsightPie, IconInsightTable, IconInsightWorldMap } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
-import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
-import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata'
+import { INSIGHT_TYPES_METADATA, isInsightTypeCreatable } from 'scenes/saved-insights/insightTypesMetadata'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { FunnelsQuery, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    BaseMathType,
-    ChartDisplayType,
-    FunnelVizType,
-    InsightType,
-} from '~/types'
+import { InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType, BaseMathType, ChartDisplayType, InsightType } from '~/types'
 
 import {
     AiSketch,
@@ -69,24 +60,6 @@ function trendsPresetUrl(overrides: Partial<TrendsQuery>): string {
             ],
             trendsFilter: {},
             ...overrides,
-        },
-    }
-    return urls.insightNew({ query })
-}
-
-function funnelsPresetUrl(vizType: FunnelVizType): string {
-    const query: InsightVizNode<FunnelsQuery> = {
-        kind: NodeKind.InsightVizNode,
-        source: {
-            kind: NodeKind.FunnelsQuery,
-            series: [
-                {
-                    kind: NodeKind.EventsNode,
-                    event: '$pageview',
-                    name: '$pageview',
-                },
-            ],
-            funnelsFilter: { funnelVizType: vizType },
         },
     }
     return urls.insightNew({ query })
@@ -182,19 +155,13 @@ const AI_CARD: NewInsightCardSpec = {
 
 function useNewInsightCards(): {
     ai: NewInsightCardSpec
-    ordered: NewInsightCardSpec[]
     byType: Partial<Record<InsightType, NewInsightCardSpec>>
 } {
     const { featureFlags } = useValues(featureFlagLogic)
 
     const byType: Partial<Record<InsightType, NewInsightCardSpec>> = {}
-    const ordered: NewInsightCardSpec[] = []
     for (const [insightType, metadata] of Object.entries(INSIGHT_TYPES_METADATA)) {
-        if (
-            !metadata.inMenu ||
-            insightType === InsightType.JSON ||
-            (!featureFlags[FEATURE_FLAGS.HOG] && insightType === InsightType.HOG)
-        ) {
+        if (!isInsightTypeCreatable(metadata, featureFlags) || insightType === InsightType.JSON) {
             continue
         }
         const spec: NewInsightCardSpec = {
@@ -208,9 +175,8 @@ function useNewInsightCards(): {
             onClick: () => reportNewInsightClicked(insightType as InsightType),
         }
         byType[insightType as InsightType] = spec
-        ordered.push(spec)
     }
-    return { ai: AI_CARD, ordered, byType }
+    return { ai: AI_CARD, byType }
 }
 
 function NewInsightCard({
@@ -251,123 +217,9 @@ function NewInsightCard({
     )
 }
 
-// -- Chips variant: flat card grid, Trends and Funnel cards carry sub-insight chips --
+// -- Two columns of question-framed sections with a divider --
 
-interface NewInsightCardChip {
-    label: string
-    to: string
-    dataAttr: string
-    onClick: () => void
-}
-
-const CARD_CHIPS: Partial<Record<InsightType, NewInsightCardChip[]>> = {
-    [InsightType.TRENDS]: [
-        {
-            label: 'Table',
-            to: TRENDS_PRESET_URLS.table,
-            dataAttr: 'new-insight-menu-chip-table',
-            onClick: () => reportNewInsightClicked(InsightType.TRENDS, 'table'),
-        },
-        {
-            label: 'Map',
-            to: TRENDS_PRESET_URLS.worldMap,
-            dataAttr: 'new-insight-menu-chip-map',
-            onClick: () => reportNewInsightClicked(InsightType.TRENDS, 'world-map'),
-        },
-        {
-            label: 'Number',
-            to: TRENDS_PRESET_URLS.number,
-            dataAttr: 'new-insight-menu-chip-number',
-            onClick: () => reportNewInsightClicked(InsightType.TRENDS, 'number'),
-        },
-        {
-            label: 'Pie',
-            to: TRENDS_PRESET_URLS.pie,
-            dataAttr: 'new-insight-menu-chip-pie',
-            onClick: () => reportNewInsightClicked(InsightType.TRENDS, 'pie'),
-        },
-    ],
-    [InsightType.FUNNELS]: [
-        {
-            label: 'Time to convert',
-            to: funnelsPresetUrl(FunnelVizType.TimeToConvert),
-            dataAttr: 'new-insight-menu-chip-time-to-convert',
-            onClick: () => reportNewInsightClicked(InsightType.FUNNELS, 'time-to-convert'),
-        },
-        {
-            label: 'Conversion trend',
-            to: funnelsPresetUrl(FunnelVizType.Trends),
-            dataAttr: 'new-insight-menu-chip-conversion-trend',
-            onClick: () => reportNewInsightClicked(InsightType.FUNNELS, 'conversion-trend'),
-        },
-    ],
-}
-
-function NewInsightCardWithChips({
-    spec,
-    chips,
-}: {
-    spec: NewInsightCardSpec
-    chips: NewInsightCardChip[]
-}): JSX.Element {
-    const Icon = spec.icon
-    return (
-        <div
-            className={cn(
-                'flex flex-col overflow-hidden rounded border border-primary bg-surface-primary',
-                'transition-all duration-100 hover:-translate-y-0.5 hover:border-accent hover:shadow-md'
-            )}
-        >
-            <Link to={spec.to} data-attr={spec.dataAttr} onClick={spec.onClick} className="flex flex-col">
-                <div className="shrink-0 border-b border-primary bg-fill-secondary">
-                    <spec.sketch />
-                </div>
-                <div className="flex flex-col gap-0.5 p-2 pb-1">
-                    <div className="flex items-center gap-1.5">
-                        <Icon className={cn('text-base shrink-0', spec.iconClassName ?? 'text-secondary')} />
-                        <span className="whitespace-nowrap text-sm font-semibold text-default">{spec.name}</span>
-                    </div>
-                    <span className="text-xs leading-snug text-secondary">{spec.description}</span>
-                </div>
-            </Link>
-            <div className="flex flex-wrap gap-1 px-2 pb-2 pt-1">
-                {chips.map((chip) => (
-                    <Link
-                        key={chip.label}
-                        to={chip.to}
-                        data-attr={chip.dataAttr}
-                        onClick={chip.onClick}
-                        className="rounded-full border border-primary px-1.5 py-0.5 text-[11px] leading-none text-secondary hover:border-accent hover:text-accent"
-                    >
-                        {chip.label}
-                    </Link>
-                ))}
-            </div>
-        </div>
-    )
-}
-
-export function NewInsightMenuChipsOverlay(): JSX.Element {
-    const { ai, ordered } = useNewInsightCards()
-    return (
-        <div className="w-[42rem] max-w-[calc(100vw-1rem)] p-1" data-attr="new-insight-menu-chips">
-            <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-                {[ai, ...ordered].map((spec) => {
-                    const chips = CARD_CHIPS[spec.key as InsightType]
-                    return chips ? (
-                        <NewInsightCardWithChips key={spec.key} spec={spec} chips={chips} />
-                    ) : (
-                        <NewInsightCard key={spec.key} spec={spec} />
-                    )
-                })}
-            </div>
-        </div>
-    )
-}
-
-// -- Grouped variant: two columns of question-framed sections with a divider --
-
-// Terse copy so every description fits the two-line slot at the grouped variant's card width
+// Terse copy so every description fits the two-line slot at the card width
 const SHORT_CARD_DESCRIPTIONS: Record<string, string> = {
     [InsightType.TRENDS]: 'How metrics change over time.',
     [InsightType.STICKINESS]: 'How often users repeat actions.',
@@ -375,6 +227,7 @@ const SHORT_CARD_DESCRIPTIONS: Record<string, string> = {
     [InsightType.FUNNELS]: 'Conversion through a sequence of steps.',
     [InsightType.RETENTION]: 'How many users come back later.',
     [InsightType.PATHS]: 'The routes users take through your product.',
+    [InsightType.JOURNEYS]: 'The steps users take and where they stop.',
     [InsightType.SQL]: 'Query your data with SQL.',
     [InsightType.HOG]: 'Query your data with Hog.',
     ai: 'Describe an insight and let AI build it.',
@@ -407,7 +260,12 @@ function useQuestionSections(): QuestionSection[] {
         {
             title: 'How do users behave?',
             description: 'Funnels, retention, and journeys through your product.',
-            cards: [byType[InsightType.FUNNELS], byType[InsightType.RETENTION], byType[InsightType.PATHS]],
+            cards: [
+                byType[InsightType.FUNNELS],
+                byType[InsightType.RETENTION],
+                byType[InsightType.PATHS],
+                byType[InsightType.JOURNEYS],
+            ],
         },
         {
             title: 'Build your own',
@@ -442,13 +300,13 @@ function QuestionSectionBlock({ section }: { section: QuestionSection }): JSX.El
     )
 }
 
-export function NewInsightMenuGroupedOverlay(): JSX.Element {
+export function NewInsightMenuOverlay(): JSX.Element {
     const sections = useQuestionSections()
     const columns = [sections.slice(0, 2), sections.slice(2)]
     return (
         <div
             className="flex w-[58rem] max-w-[calc(100vw-1rem)] gap-4 overflow-y-auto p-4 max-h-[calc(100vh-10rem)]"
-            data-attr="new-insight-menu-grouped"
+            data-attr="new-insight-menu"
         >
             <div className="flex flex-1 flex-col gap-6">
                 {columns[0].map((section) => (
@@ -465,56 +323,7 @@ export function NewInsightMenuGroupedOverlay(): JSX.Element {
     )
 }
 
-// -- Button with the experiment switch --
-
-function useControlMenuItems(): LemonMenuItems {
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const insightEntries = Object.entries(INSIGHT_TYPES_METADATA).filter(
-        ([insightType]) =>
-            insightType !== InsightType.JSON && (featureFlags[FEATURE_FLAGS.HOG] || insightType !== InsightType.HOG)
-    )
-    return [
-        {
-            icon: <IconSparkles className="text-ai" />,
-            label: (
-                <div className="flex flex-col text-sm py-1">
-                    <strong>AI</strong>
-                    <span className="text-xs font-normal">
-                        Ask PostHog AI to create insights using natural language and query any of your data
-                    </span>
-                </div>
-            ),
-            to: urls.ai(),
-            'data-attr': 'new-insight-menu-ai',
-        },
-        {
-            title: 'Insight types',
-            items: insightEntries
-                .filter(([, metadata]) => metadata.inMenu)
-                .map(([insightType, metadata]) => ({
-                    icon: metadata.icon ? <metadata.icon /> : undefined,
-                    label: (
-                        <div className="flex flex-col text-sm py-1">
-                            <strong>{metadata.name}</strong>
-                            <span className="text-xs font-normal">{metadata.description}</span>
-                        </div>
-                    ),
-                    to: INSIGHT_TYPE_URLS[insightType as InsightType],
-                    'data-attr': `new-insight-menu-${insightType.toLowerCase()}`,
-                    onClick: () => {
-                        reportNewInsightClicked(insightType as InsightType)
-                    },
-                })),
-        },
-    ]
-}
-
 export function NewInsightButton(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const controlMenuItems = useControlMenuItems()
-    const menuVariant = featureFlags[FEATURE_FLAGS.NEW_INSIGHT_MENU_EXPERIMENT]
-
     const button = (
         <LemonButton
             type="primary"
@@ -540,20 +349,9 @@ export function NewInsightButton(): JSX.Element {
                 scope={Scene.SavedInsights}
                 priority={100}
             >
-                {menuVariant === 'chips' || menuVariant === 'grouped' ? (
-                    <LemonDropdown
-                        overlay={
-                            menuVariant === 'chips' ? <NewInsightMenuChipsOverlay /> : <NewInsightMenuGroupedOverlay />
-                        }
-                        placement="bottom-end"
-                    >
-                        {button}
-                    </LemonDropdown>
-                ) : (
-                    <LemonMenu items={controlMenuItems} placement="bottom-end">
-                        {button}
-                    </LemonMenu>
-                )}
+                <LemonDropdown overlay={<NewInsightMenuOverlay />} placement="bottom-end">
+                    {button}
+                </LemonDropdown>
             </Shortcut>
         </AccessControlAction>
     )

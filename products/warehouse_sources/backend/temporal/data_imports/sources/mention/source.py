@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,10 +16,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mention import (
     MentionSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mention.mention import (
+    DEFAULT_API_VERSION,
+    SUPPORTED_API_VERSIONS,
     MentionResumeConfig,
     mention_source,
     validate_credentials,
@@ -38,8 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class MentionSource(ResumableSource[MentionSourceConfig, MentionResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    supported_versions = ("1.19",)
-    default_version = "1.19"
+    supported_versions = SUPPORTED_API_VERSIONS
+    default_version = DEFAULT_API_VERSION
     api_docs_url = "https://dev.mention.com/"
 
     @property
@@ -122,7 +121,7 @@ You can create an access token by registering an API application at [dev.mention
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The access token is account-wide, so a single probe validates access to every schema.
-        return validate_credentials(config.access_token)
+        return validate_credentials(config.access_token, api_version=self.resolve_api_version(api_version))
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MentionResumeConfig]:
         return ResumableSourceManager[MentionResumeConfig](inputs, MentionResumeConfig)
@@ -141,4 +140,5 @@ You can create an access token by registering an API application at [dev.mention
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
         )

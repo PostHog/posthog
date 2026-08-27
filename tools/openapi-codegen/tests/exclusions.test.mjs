@@ -154,6 +154,69 @@ describe('applyNestedExclusions', () => {
         expect(configProps).toHaveProperty('keep')
     })
 
+    it('descends into oneOf variants (nullable nested serializer)', () => {
+        // drf-spectacular renders a nullable nested serializer as oneOf: [$ref, {type: null}],
+        // the shape of content.email on message templates.
+        const spec = {
+            paths: {
+                '/api/templates/': {
+                    post: {
+                        operationId: 'templates_create',
+                        requestBody: {
+                            content: {
+                                'application/json': {
+                                    schema: {
+                                        type: 'object',
+                                        properties: {
+                                            content: {
+                                                type: 'object',
+                                                properties: {
+                                                    email: {
+                                                        oneOf: [
+                                                            { $ref: '#/components/schemas/EmailTemplate' },
+                                                            { type: 'null' },
+                                                        ],
+                                                    },
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+            components: {
+                schemas: {
+                    EmailTemplate: {
+                        type: 'object',
+                        properties: {
+                            subject: { type: 'string' },
+                            html: { type: 'string' },
+                            design: { type: 'object' },
+                        },
+                    },
+                },
+            },
+        }
+
+        applyNestedExclusions(spec, new Map([['templates_create', ['content.email.html']]]))
+
+        // Shared component schema must be untouched
+        expect(spec.components.schemas.EmailTemplate.properties).toHaveProperty('html')
+
+        const emailSchema =
+            spec.paths['/api/templates/'].post.requestBody.content['application/json'].schema.properties.content
+                .properties.email
+        const objectVariant = emailSchema.oneOf.find((v) => v.type === 'object')
+        expect(objectVariant).not.toHaveProperty('$ref')
+        expect(objectVariant.properties).not.toHaveProperty('html')
+        expect(objectVariant.properties).toHaveProperty('subject')
+        expect(objectVariant.properties).toHaveProperty('design')
+        expect(emailSchema.oneOf.find((v) => v.type === 'null')).toBeTruthy()
+    })
+
     it('resolves $ref at the request body level', () => {
         const spec = {
             paths: {

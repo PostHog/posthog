@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 from freezegun import freeze_time
@@ -6,30 +6,45 @@ from posthog.test.base import ClickhouseTestMixin, _create_event, flush_persons_
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 
 from rest_framework import status
 
+import posthog.hogql.query as hogql_query_module
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import Table, TableNode
 
+from posthog.clickhouse.query_tagging import Product, get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
+from posthog.rate_limit import SessionContextsBurstRateThrottle
+from posthog.session_recordings.models.session_recording import SessionRecording
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.access_control.backend.facade.api import upsert_property_access_control
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
+from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
+from products.experiments.backend.session_context import (
+    MAX_SESSION_CONTEXT_BATCH,
+    _bounded_metadata_ids,
+    _query_stamped_flag_properties,
+)
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.test.base import APILicensedTest
-from ee.models.rbac.access_control import AccessControl
 
 RECORDING_START = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
 RECORDING_END = datetime(2026, 1, 1, 10, 30, 0, tzinfo=UTC)
 SESSION_ID = str(uuid7(unix_ms_time=int(RECORDING_START.timestamp() * 1000)))
+# A second recording on a different day, so batch tests exercise the per-day chunking path.
+DAY_TWO_RECORDING_START = datetime(2025, 12, 31, 10, 0, 0, tzinfo=UTC)
+DAY_TWO_RECORDING_END = datetime(2025, 12, 31, 10, 30, 0, tzinfo=UTC)
+DAY_TWO_SESSION_ID = str(uuid7(unix_ms_time=int(DAY_TWO_RECORDING_START.timestamp() * 1000)))
 
 
 def _hogql_table_tree(node: TableNode) -> dict[str, Any]:
@@ -120,6 +135,27 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         params = {"session_id": session_id} if session_id is not None else {}
         return self.client.get(f"/api/projects/{self.team.id}/experiments/session_context/", params)
 
+    def _post_session_contexts(self, session_ids: list[str]) -> Any:
+        return self.client.post(
+            f"/api/projects/{self.team.id}/experiments/session_contexts/",
+            {"session_ids": session_ids},
+            format="json",
+        )
+
+    def _create_day_two_recording_with_exposure(self, variant: str = "control") -> None:
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id=DAY_TWO_SESSION_ID,
+            distinct_id="user1",
+            first_timestamp=DAY_TWO_RECORDING_START,
+            last_timestamp=DAY_TWO_RECORDING_END,
+        )
+        self._create_session_event(
+            timestamp="2025-12-31T10:03:00Z",
+            properties={"$feature_flag": "checkout-cta", "$feature_flag_response": variant},
+            session_id=DAY_TWO_SESSION_ID,
+        )
+
     def test_requires_session_id(self) -> None:
         response = self._get_session_context(session_id=None)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -139,6 +175,31 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         response = self._get_session_context()
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"session_id": SESSION_ID, "results": []}
+
+    def test_tags_its_scans_as_experiments(self) -> None:
+        # The scans are experiments' own logic and cost, rendered in the replay player. They used
+        # to inherit product=replay from the recording-metadata lookup that runs first, so the
+        # tag has to be applied after it — and local dev hard-errors on a query with no tag at
+        # all, which TEST mode doesn't reproduce.
+        self._create_recording()
+        self._create_experiment()
+        self._create_session_event(
+            properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"},
+        )
+        flush_persons_and_events()
+
+        tagged_products = []
+        original = hogql_query_module.sync_execute
+
+        def _capturing_sync_execute(*args: Any, **kwargs: Any) -> Any:
+            tagged_products.append(get_query_tags().product)
+            return original(*args, **kwargs)
+
+        with patch.object(hogql_query_module, "sync_execute", side_effect=_capturing_sync_execute):
+            assert self._get_session_context().status_code == status.HTTP_200_OK
+
+        assert tagged_products
+        assert set(tagged_products) == {Product.EXPERIMENTS}
 
     def test_resolves_variant_from_flag_called_event(self) -> None:
         self._create_recording()
@@ -618,6 +679,38 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         response = self._get_session_context()
         assert [result["flag_key"] for result in response.json()["results"]] == ["checkout-cta"]
 
+    def test_cached_context_drops_experiments_the_viewer_lost_access_to(self) -> None:
+        self._enable_access_controls()
+        other_user = self._create_user("other-experimenter@posthog.com")
+        self._create_recording()
+        self._create_experiment()
+        revoked_experiment = self._create_experiment(
+            key="revoked-exp", name="Revoked experiment", created_by=other_user
+        )
+        self._create_session_event(
+            properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"},
+        )
+        self._create_session_event(
+            properties={"$feature_flag": "revoked-exp", "$feature_flag_response": "control"},
+        )
+        flush_persons_and_events()
+
+        first = self._get_session_context()
+        assert [result["flag_key"] for result in first.json()["results"]] == ["checkout-cta", "revoked-exp"]
+
+        AccessControl.objects.create(
+            team=self.team, resource="experiment", resource_id=str(revoked_experiment.pk), access_level="none"
+        )
+
+        # Both endpoints serve this session from the warm entry, so the revocation is only
+        # honored if the cached items are re-checked on read rather than at compute time.
+        with patch("products.experiments.backend.session_context._compute_session_experiment_contexts") as compute:
+            single = self._get_session_context()
+            batch = self._post_session_contexts([SESSION_ID])
+        compute.assert_not_called()
+        assert [result["flag_key"] for result in single.json()["results"]] == ["checkout-cta"]
+        assert [result["flag_key"] for result in batch.json()["results"][0]["results"]] == ["checkout-cta"]
+
     def test_repeat_request_is_served_from_cache(self) -> None:
         self._create_recording()
         self._create_experiment()
@@ -627,7 +720,7 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         first = self._get_session_context()
         assert first.status_code == status.HTTP_200_OK
 
-        with patch("products.experiments.backend.session_context._compute_session_experiment_context") as compute:
+        with patch("products.experiments.backend.session_context._compute_session_experiment_contexts") as compute:
             second = self._get_session_context()
         compute.assert_not_called()
         assert second.json() == first.json()
@@ -692,6 +785,25 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
 
         response = self._get_session_context()
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_denies_recordings_blocked_by_object_level_access(self) -> None:
+        self._enable_access_controls()
+        self._create_recording()
+        self._create_experiment()
+        self._create_session_event(properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"})
+        self._create_day_two_recording_with_exposure()
+        flush_persons_and_events()
+
+        blocked = SessionRecording.objects.create(team=self.team, session_id=SESSION_ID)
+        AccessControl.objects.create(
+            team=self.team, resource="session_recording", resource_id=str(blocked.id), access_level="none"
+        )
+
+        assert self._get_session_context().status_code == status.HTTP_403_FORBIDDEN
+
+        batch = self._post_session_contexts([SESSION_ID, DAY_TWO_SESSION_ID])
+        assert batch.status_code == status.HTTP_200_OK
+        assert [result["session_id"] for result in batch.json()["results"]] == [DAY_TWO_SESSION_ID]
 
     def test_requires_session_recording_read_scope(self) -> None:
         self._create_recording()
@@ -834,3 +946,459 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         response = self._get_session_context()
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"] == []
+
+    def test_batch_returns_same_items_as_single_calls(self) -> None:
+        # Two sessions on different recording days force the day-chunked path, a custom-criteria
+        # experiment forces the branch query, and a metric event in only one session forces
+        # per-session metric attribution — all of which must produce exactly what N single
+        # requests produce.
+        metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "11111111-1111-1111-1111-111111111111",
+            "name": "Purchases",
+            "source": {"kind": "EventsNode", "event": "purchase"},
+        }
+        self._create_experiment(metrics=[metric])
+        self._create_experiment(
+            key="pricing-banner",
+            name="Pricing banner",
+            exposure_criteria={
+                "exposure_config": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "checkout started",
+                    "properties": [],
+                }
+            },
+        )
+        self._create_recording()
+        self._create_session_event(properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"})
+        self._create_session_event(event="purchase", timestamp="2026-01-01T10:09:00Z")
+        self._create_session_event(
+            event="checkout started",
+            timestamp="2026-01-01T10:05:00Z",
+            properties={"$feature/pricing-banner": "test"},
+        )
+        self._create_day_two_recording_with_exposure(variant="control")
+        flush_persons_and_events()
+
+        singles = {
+            session_id: self._get_session_context(session_id).json() for session_id in (SESSION_ID, DAY_TWO_SESSION_ID)
+        }
+        cache.clear()
+
+        # The duplicate id must collapse to one entry, in request order.
+        response = self._post_session_contexts([SESSION_ID, DAY_TWO_SESSION_ID, SESSION_ID])
+
+        assert response.status_code == status.HTTP_200_OK
+        entries = response.json()["results"]
+        assert [entry["session_id"] for entry in entries] == [SESSION_ID, DAY_TWO_SESSION_ID]
+        assert {entry["session_id"]: entry for entry in entries} == singles
+        # Guard against "singles and batch are both wrong": pin the expected values too.
+        day_one = {result["flag_key"]: result for result in entries[0]["results"]}
+        assert day_one["checkout-cta"]["variant"] == "test"
+        assert [hit["metric_uuid"] for hit in day_one["checkout-cta"]["metrics_in_session"]] == [metric["uuid"]]
+        assert day_one["pricing-banner"]["first_exposure_timestamp"] == "2026-01-01T10:05:00Z"
+        assert [
+            (result["flag_key"], result["variant"], result["metrics_in_session"]) for result in entries[1]["results"]
+        ] == [("checkout-cta", "control", [])]
+
+    def test_batch_warms_cache_for_single_endpoint(self) -> None:
+        self._create_recording()
+        self._create_experiment()
+        self._create_session_event(properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"})
+        flush_persons_and_events()
+
+        batch = self._post_session_contexts([SESSION_ID])
+        assert batch.status_code == status.HTTP_200_OK
+
+        with patch("products.experiments.backend.session_context._compute_session_experiment_contexts") as compute:
+            single = self._get_session_context()
+        compute.assert_not_called()
+        assert single.json() == batch.json()["results"][0]
+
+    def test_batch_written_cache_is_not_shared_across_users(self) -> None:
+        self._enable_access_controls()
+        other_user = self._create_user("other-experimenter@posthog.com")
+        self._create_recording()
+        self._create_experiment()
+        private_experiment = self._create_experiment(
+            key="private-exp", name="Private experiment", created_by=other_user
+        )
+        AccessControl.objects.create(
+            team=self.team, resource="experiment", resource_id=str(private_experiment.pk), access_level="none"
+        )
+        self._create_session_event(
+            properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"},
+        )
+        self._create_session_event(
+            properties={"$feature_flag": "private-exp", "$feature_flag_response": "control"},
+        )
+        flush_persons_and_events()
+
+        # Prefetch as the private experiment's creator, who sees both experiments.
+        self.client.force_login(other_user)
+        response = self._post_session_contexts([SESSION_ID])
+        assert [result["flag_key"] for result in response.json()["results"][0]["results"]] == [
+            "checkout-cta",
+            "private-exp",
+        ]
+
+        # The batch-written entry must not leak the private experiment to another viewer.
+        self.client.force_login(self.user)
+        response = self._get_session_context()
+        assert [result["flag_key"] for result in response.json()["results"]] == ["checkout-cta"]
+
+    def test_batch_omits_missing_recordings_and_never_caches_them(self) -> None:
+        self._create_recording()
+        self._create_experiment()
+        self._create_session_event(properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"})
+        flush_persons_and_events()
+
+        response = self._post_session_contexts([SESSION_ID, DAY_TWO_SESSION_ID])
+        assert response.status_code == status.HTTP_200_OK
+        assert [entry["session_id"] for entry in response.json()["results"]] == [SESSION_ID]
+
+        # The missing recording finishes ingesting; the next batch must compute it rather
+        # than serve a cached "absent".
+        self._create_day_two_recording_with_exposure(variant="control")
+        flush_persons_and_events()
+
+        response = self._post_session_contexts([SESSION_ID, DAY_TWO_SESSION_ID])
+        by_id = {entry["session_id"]: entry["results"] for entry in response.json()["results"]}
+        assert [result["variant"] for result in by_id[DAY_TWO_SESSION_ID]] == ["control"]
+
+    def test_batch_never_caches_sessions_a_single_request_would_enrich_more(self) -> None:
+        # The chunk-wide scan caps the metric union across a batch's sessions, so a session
+        # registered later can lose a metric its own single-session scan (same cap, but only
+        # its own experiments) would have kept. Caching that truncated result would serve it as
+        # truth for the TTL; the session must be returned best-effort but left uncached, while
+        # the session that claimed the budget stays cacheable.
+        first_metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "22222222-2222-2222-2222-222222222222",
+            "name": "Purchases",
+            "source": {"kind": "EventsNode", "event": "purchase"},
+        }
+        second_metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "33333333-3333-3333-3333-333333333333",
+            "name": "Signups",
+            "source": {"kind": "EventsNode", "event": "signup"},
+        }
+        self._create_experiment(
+            key="first-exp",
+            name="First experiment",
+            start_date=datetime(2025, 12, 15, tzinfo=UTC),
+            metrics=[first_metric],
+        )
+        self._create_experiment(key="second-exp", name="Second experiment", metrics=[second_metric])
+
+        # Each session surfaces a different experiment, so which metric survives the patched
+        # one-slot cap is decided purely by session registration order — pinned below.
+        self._create_recording()
+        self._create_session_event(properties={"$feature_flag": "first-exp", "$feature_flag_response": "test"})
+        self._create_session_event(event="purchase", timestamp="2026-01-01T10:09:00Z")
+
+        # A second same-day recording, so both sessions share one chunk (and one metric scan).
+        second_session_id = str(uuid7(unix_ms_time=int((RECORDING_START + timedelta(minutes=40)).timestamp() * 1000)))
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id=second_session_id,
+            distinct_id="user1",
+            first_timestamp=RECORDING_START + timedelta(minutes=40),
+            last_timestamp=RECORDING_END + timedelta(minutes=40),
+        )
+        for event, timestamp, properties in (
+            (
+                "$feature_flag_called",
+                "2026-01-01T10:41:00Z",
+                {"$feature_flag": "second-exp", "$feature_flag_response": "control"},
+            ),
+            ("signup", "2026-01-01T10:43:00Z", {}),
+        ):
+            self._create_session_event(
+                event=event, timestamp=timestamp, properties=properties, session_id=second_session_id
+            )
+        flush_persons_and_events()
+
+        # Sessions register their metrics in window order, and windows follow the metadata
+        # lookup's dict order — which follows ClickHouse row order. Pin it so the first
+        # session's metric deterministically takes the only patched slot.
+        original_get_group_metadata = SessionReplayEvents.get_group_metadata
+
+        def _ordered_metadata(
+            replay_events: SessionReplayEvents, session_ids: list[str], team: Team, **kwargs: Any
+        ) -> dict[str, Any]:
+            metadata = original_get_group_metadata(replay_events, session_ids, team, **kwargs)
+            return {session_id: metadata[session_id] for session_id in (SESSION_ID, second_session_id)}
+
+        with (
+            patch.object(SessionReplayEvents, "get_group_metadata", _ordered_metadata),
+            patch("products.experiments.backend.metric_events.MAX_SCANNED_METRICS", 1),
+        ):
+            response = self._post_session_contexts([SESSION_ID, second_session_id])
+
+        assert response.status_code == status.HTTP_200_OK
+        by_id = {entry["session_id"]: entry["results"] for entry in response.json()["results"]}
+        assert [hit["metric_uuid"] for hit in by_id[SESSION_ID][0]["metrics_in_session"]] == [first_metric["uuid"]]
+        assert by_id[second_session_id][0]["metrics_in_session"] == []
+
+        # The session that kept its metric was cached: the single endpoint serves it without
+        # recomputing.
+        with patch("products.experiments.backend.session_context._compute_session_experiment_contexts") as compute:
+            single_first = self._get_session_context()
+        compute.assert_not_called()
+        assert single_first.json()["results"] == by_id[SESSION_ID]
+
+        # The capped session was not cached: under the same cap, the single endpoint's scan
+        # covers only this session's experiment, so the recompute restores the dropped hit.
+        with patch("products.experiments.backend.metric_events.MAX_SCANNED_METRICS", 1):
+            single_second = self._get_session_context(second_session_id)
+        assert [hit["metric_uuid"] for hit in single_second.json()["results"][0]["metrics_in_session"]] == [
+            second_metric["uuid"]
+        ]
+
+    def test_batch_caches_capped_session_a_single_request_could_not_improve(self) -> None:
+        # On experiment-heavy teams a single session's own surfaced experiments carry more
+        # metrics than the scan cap, so every batch (and every single request) is capped in
+        # steady state. Metrics the session's own scan would drop anyway must not disqualify
+        # it from caching — otherwise the batch prefetch never caches anything on exactly the
+        # teams that need it most, and every open recomputes the same truncated result.
+        first_metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "22222222-2222-2222-2222-222222222222",
+            "name": "Purchases",
+            "source": {"kind": "EventsNode", "event": "purchase"},
+        }
+        second_metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "33333333-3333-3333-3333-333333333333",
+            "name": "Signups",
+            "source": {"kind": "EventsNode", "event": "signup"},
+        }
+        # The first experiment is newer, and a session's metrics register in candidate
+        # (newest-first) order, so the second experiment's metric falls past the patched
+        # one-slot cap — in the batch and in a hypothetical single request alike.
+        self._create_experiment(
+            key="first-exp",
+            name="First experiment",
+            start_date=datetime(2025, 12, 15, tzinfo=UTC),
+            metrics=[first_metric],
+        )
+        self._create_experiment(key="second-exp", name="Second experiment", metrics=[second_metric])
+
+        self._create_recording()
+        self._create_session_event(properties={"$feature_flag": "first-exp", "$feature_flag_response": "test"})
+        self._create_session_event(
+            timestamp="2026-01-01T10:03:00Z",
+            properties={"$feature_flag": "second-exp", "$feature_flag_response": "control"},
+        )
+        self._create_session_event(event="purchase", timestamp="2026-01-01T10:09:00Z")
+        self._create_session_event(event="signup", timestamp="2026-01-01T10:10:00Z")
+        flush_persons_and_events()
+
+        with patch("products.experiments.backend.metric_events.MAX_SCANNED_METRICS", 1):
+            response = self._post_session_contexts([SESSION_ID])
+
+        assert response.status_code == status.HTTP_200_OK
+        by_flag = {result["flag_key"]: result for result in response.json()["results"][0]["results"]}
+        assert [hit["metric_uuid"] for hit in by_flag["first-exp"]["metrics_in_session"]] == [first_metric["uuid"]]
+        assert by_flag["second-exp"]["metrics_in_session"] == []
+
+        # Capped, but cached anyway: the single endpoint serves the batch's result without
+        # recomputing, because a recompute under the same cap would drop the same metric.
+        with patch("products.experiments.backend.session_context._compute_session_experiment_contexts") as compute:
+            single = self._get_session_context()
+        compute.assert_not_called()
+        assert single.json()["results"] == response.json()["results"][0]["results"]
+
+    def test_batch_caps_candidates_per_day_chunk(self) -> None:
+        # A newest-first candidate cap applied once over the whole batch's window can displace
+        # an older experiment that a single request for an old recording would surface —
+        # stamped-only evidence is never rescued. The cap must apply per day-chunk.
+        self._create_experiment(
+            key="old-exp",
+            name="Old experiment",
+            start_date=datetime(2025, 12, 1, tzinfo=UTC),
+            end_date=datetime(2025, 12, 31, 23, 0, tzinfo=UTC),
+        )
+        self._create_experiment(key="new-exp", name="New experiment", start_date=datetime(2026, 1, 1, tzinfo=UTC))
+        self._create_recording()
+        self._create_session_event(event="$pageview", properties={"$feature/new-exp": "test"})
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id=DAY_TWO_SESSION_ID,
+            distinct_id="user1",
+            first_timestamp=DAY_TWO_RECORDING_START,
+            last_timestamp=DAY_TWO_RECORDING_END,
+        )
+        self._create_session_event(
+            event="$pageview",
+            timestamp="2025-12-31T10:03:00Z",
+            properties={"$feature/old-exp": "control"},
+            session_id=DAY_TWO_SESSION_ID,
+        )
+        flush_persons_and_events()
+
+        with patch("products.experiments.backend.session_context.MAX_CANDIDATE_EXPERIMENTS", 1):
+            response = self._post_session_contexts([SESSION_ID, DAY_TWO_SESSION_ID])
+
+        assert response.status_code == status.HTTP_200_OK
+        by_id = {entry["session_id"]: entry["results"] for entry in response.json()["results"]}
+        assert [result["flag_key"] for result in by_id[SESSION_ID]] == ["new-exp"]
+        assert [result["flag_key"] for result in by_id[DAY_TWO_SESSION_ID]] == ["old-exp"]
+
+    def test_batch_caps_distinct_recording_days(self) -> None:
+        # Ids scattered across many days would fan one throttled HTTP request out into a scan
+        # set per day; only the most recent days within the budget are computed, and the rest
+        # are omitted without being cached, so the single endpoint still computes them.
+        self._create_recording()
+        self._create_experiment()
+        self._create_session_event(properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"})
+        self._create_day_two_recording_with_exposure()
+        flush_persons_and_events()
+
+        with patch("products.experiments.backend.session_context.MAX_SESSION_CONTEXT_BATCH_DAYS", 1):
+            response = self._post_session_contexts([SESSION_ID, DAY_TWO_SESSION_ID])
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [entry["session_id"] for entry in response.json()["results"]] == [SESSION_ID]
+
+        single = self._get_session_context(DAY_TWO_SESSION_ID)
+        assert [result["variant"] for result in single.json()["results"]] == ["control"]
+
+    def test_batch_rejects_invalid_session_id_lists(self) -> None:
+        assert self._post_session_contexts([]).status_code == status.HTTP_400_BAD_REQUEST
+        over_cap = [str(uuid7()) for _ in range(MAX_SESSION_CONTEXT_BATCH + 1)]
+        assert self._post_session_contexts(over_cap).status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_batch_builds_hogql_database_once(self) -> None:
+        # Two sessions on different days run as two day-chunks; the expensive HogQL database
+        # build must still happen once for the whole batch, not once per chunk or per scan.
+        self._create_recording()
+        self._create_experiment()
+        self._create_session_event(properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"})
+        self._create_day_two_recording_with_exposure()
+        flush_persons_and_events()
+
+        original_create_for = Database.create_for
+        with patch.object(Database, "create_for", side_effect=original_create_for) as create_for:
+            response = self._post_session_contexts([SESSION_ID, DAY_TWO_SESSION_ID])
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 2
+        assert create_for.call_count == 1
+
+    def test_batch_failing_chunk_omits_only_its_sessions(self) -> None:
+        # The batch prefetch is best-effort: one chunk's scans blowing up must not fail the
+        # request (or poison the cache) for the other sessions.
+        self._create_recording()
+        self._create_experiment()
+        self._create_session_event(properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"})
+        self._create_day_two_recording_with_exposure()
+        flush_persons_and_events()
+
+        def _explode_for_day_two(team: Any, user: Any, shared_hogql: Any, session_ids: list[str], *args: Any) -> Any:
+            if DAY_TWO_SESSION_ID in session_ids:
+                raise ValueError("simulated scan failure")
+            return _query_stamped_flag_properties(team, user, shared_hogql, session_ids, *args)
+
+        with patch(
+            "products.experiments.backend.session_context._query_stamped_flag_properties",
+            side_effect=_explode_for_day_two,
+        ):
+            response = self._post_session_contexts([SESSION_ID, DAY_TWO_SESSION_ID])
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [entry["session_id"] for entry in response.json()["results"]] == [SESSION_ID]
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_batch_throttles_session_authenticated_users(self, _enabled: Any) -> None:
+        # The ClickHouse* throttle pair only limits personal-API-key traffic; this endpoint's
+        # primary caller is the session-authenticated web app, so swapping back to those
+        # classes would leave the heavy batch compute unthrottled for its real traffic.
+        self._create_recording()
+
+        with patch.object(SessionContextsBurstRateThrottle, "rate", "2/minute"):
+            assert self._post_session_contexts([SESSION_ID]).status_code == status.HTTP_200_OK
+            assert self._post_session_contexts([SESSION_ID]).status_code == status.HTTP_200_OK
+            throttled = self._post_session_contexts([SESSION_ID])
+
+        assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_batch_throttle_budget_is_shared_across_personal_api_keys(self, _enabled: Any) -> None:
+        # The default throttle cache key idents personal-API-key requests by key hash, so a
+        # user could mint keys to multiply the expensive batch compute; the budget must be one
+        # project-wide bucket regardless of which key (or session) makes the request.
+        self._create_recording()
+        self.client.logout()
+
+        def _post_with_new_key() -> Any:
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                user=self.user,
+                label="t",
+                secure_value=hash_key_value(token),
+                scopes=["experiment:read", "session_recording:read"],
+            )
+            return self.client.post(
+                f"/api/projects/{self.team.id}/experiments/session_contexts/",
+                {"session_ids": [SESSION_ID]},
+                format="json",
+                headers={"authorization": f"Bearer {token}"},
+            )
+
+        with patch.object(SessionContextsBurstRateThrottle, "rate", "2/minute"):
+            assert _post_with_new_key().status_code == status.HTTP_200_OK
+            assert _post_with_new_key().status_code == status.HTTP_200_OK
+            throttled = _post_with_new_key()
+
+        assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+    def test_batch_requires_session_recording_read_scope(self) -> None:
+        self._create_recording()
+        self.client.logout()
+
+        def _personal_api_key(scopes: list[str]) -> str:
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(user=self.user, label="t", secure_value=hash_key_value(token), scopes=scopes)
+            return token
+
+        token = _personal_api_key(["experiment:read"])
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/session_contexts/",
+            {"session_ids": [SESSION_ID]},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+        token = _personal_api_key(["experiment:read", "session_recording:read"])
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/session_contexts/",
+            {"session_ids": [SESSION_ID]},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+
+class TestBoundedMetadataIds(SimpleTestCase):
+    def test_id_without_usable_bound_is_excluded_instead_of_unbounding_the_scan(self) -> None:
+        # One legacy/garbage id in a batch must not remove the min_first_timestamp bound from
+        # the whole metadata query — it gets dropped from the lookup, keeping the bound from
+        # the ids that parse.
+        bounded_ids, lower_bound = _bounded_metadata_ids([SESSION_ID, "legacy-session-id", DAY_TWO_SESSION_ID])
+
+        assert bounded_ids == [SESSION_ID, DAY_TWO_SESSION_ID]
+        assert lower_bound is not None
+        assert lower_bound <= DAY_TWO_RECORDING_START
+
+    def test_all_ids_without_bound_yield_empty_lookup(self) -> None:
+        assert _bounded_metadata_ids(["legacy-a", "legacy-b"]) == ([], None)

@@ -359,3 +359,14 @@ def test_slo_operation_sampled_out_still_propagates_exception(
 
     mock_emit_slo_started.assert_not_called()
     mock_emit_slo_completed.assert_not_called()
+
+
+@pytest.mark.parametrize("sample_rate", [0.0, 0.01, 1.0])
+def test_slo_spec_accepts_sample_rate_within_unit_interval(sample_rate: float) -> None:
+    assert dataclasses.replace(_build_spec(), sample_rate=sample_rate).sample_rate == sample_rate
+
+
+@pytest.mark.parametrize("sample_rate", [-0.01, 1.01, 50.0])
+def test_slo_spec_rejects_sample_rate_outside_unit_interval(sample_rate: float) -> None:
+    with pytest.raises(ValueError, match="sample_rate"):
+        dataclasses.replace(_build_spec(), sample_rate=sample_rate)

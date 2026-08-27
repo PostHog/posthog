@@ -261,7 +261,7 @@ class TestAgentOtelTelemetryStateGate(SimpleTestCase):
         assert agent_otel_telemetry_enabled_for_state(None) is True
 
 
-@override_settings(TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS=["signals_scout"])
+@override_settings(TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS=["signals_scout", "user_created"])
 class TestAppendLogMirroring(TestCase):
     organization: Organization
     team: Team
@@ -284,11 +284,12 @@ class TestAppendLogMirroring(TestCase):
     @parameterized.expand(
         [
             (Task.OriginProduct.SIGNALS_SCOUT, True),
-            (Task.OriginProduct.USER_CREATED, False),
+            (Task.OriginProduct.USER_CREATED, True),
+            (Task.OriginProduct.LOOP, False),
         ]
     )
     @patch("products.tasks.backend.logic.services.run_log_mirror.logger")
-    @patch("products.tasks.backend.models.object_storage")
+    @patch("products.tasks.backend.storage.object_storage")
     def test_mirrors_only_allowlisted_origin_products(self, origin_product, expect_mirrored, mock_storage, mock_logger):
         mock_storage.read.return_value = None
         run = self._create_run(origin_product)
@@ -307,7 +308,7 @@ class TestAppendLogMirroring(TestCase):
             mock_logger.info.assert_not_called()
 
     @patch("products.tasks.backend.logic.services.run_log_mirror.logger")
-    @patch("products.tasks.backend.models.object_storage")
+    @patch("products.tasks.backend.storage.object_storage")
     def test_no_mirroring_without_telemetry_flag_stamp(self, mock_storage, mock_logger):
         mock_storage.read.return_value = None
         run = self._create_run(Task.OriginProduct.SIGNALS_SCOUT, telemetry_enabled=None)
@@ -319,7 +320,7 @@ class TestAppendLogMirroring(TestCase):
 
     @override_settings(TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS=[])
     @patch("products.tasks.backend.logic.services.run_log_mirror.logger")
-    @patch("products.tasks.backend.models.object_storage")
+    @patch("products.tasks.backend.storage.object_storage")
     def test_no_mirroring_when_disabled(self, mock_storage, mock_logger):
         mock_storage.read.return_value = None
         run = self._create_run(Task.OriginProduct.SIGNALS_SCOUT)
@@ -333,7 +334,7 @@ class TestAppendLogMirroring(TestCase):
         "products.tasks.backend.logic.services.run_log_mirror.mirror_entries",
         side_effect=RuntimeError("kaboom"),
     )
-    @patch("products.tasks.backend.models.object_storage")
+    @patch("products.tasks.backend.storage.object_storage")
     def test_mirror_failure_does_not_break_log_write(self, mock_storage, mock_mirror):
         mock_storage.read.return_value = None
         run = self._create_run(Task.OriginProduct.SIGNALS_SCOUT)

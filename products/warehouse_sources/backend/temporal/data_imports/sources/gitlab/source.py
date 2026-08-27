@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gitlab import GitLabSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitlab.gitlab import (
     HOST_NOT_ALLOWED_ERROR,
@@ -111,6 +108,13 @@ For self-managed GitLab, set the instance URL (for example `https://gitlab.examp
             HOST_NOT_ALLOWED_ERROR: "The GitLab host is not allowed. Please use a publicly reachable instance URL.",
             HTTP_NOT_ALLOWED_ERROR: "The GitLab host must use HTTPS. Please update the instance URL to use https://.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # A GitLabRetryableError (rate limit or transient upstream 5xx) that survives
+        # fetch_page's own tenacity retry still gets picked up by Temporal's activity retry;
+        # classify it as retryable so it's logged as a warning rather than tracked as an
+        # exception. Mirrors GitHub's equivalent case.
+        return {"GitLab API error (retryable)"}
 
     def get_schemas(
         self,

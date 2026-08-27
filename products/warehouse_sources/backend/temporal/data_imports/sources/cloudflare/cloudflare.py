@@ -4,7 +4,6 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.settings import (
     ACCOUNTS_PARENT,
     CLOUDFLARE_ENDPOINTS,
@@ -37,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     Endpoint,
     EndpointResource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 CLOUDFLARE_BASE_URL = "https://api.cloudflare.com/client/v4"
 # Cloudflare list pages cap at 50 by default; most endpoints allow more.
@@ -286,7 +286,8 @@ def _fanout_resource(
 
     child_endpoint = _endpoint(config, params, should_use_incremental_field)
     child_endpoint["response_actions"] = [
-        {"status_code": status, "action": "ignore"} for status in FANOUT_SKIP_STATUS_CODES
+        {"status_code": status, "action": "ignore"}
+        for status in (*FANOUT_SKIP_STATUS_CODES, *config.extra_skip_status_codes)
     ]
 
     child = _resource(endpoint, child_endpoint)

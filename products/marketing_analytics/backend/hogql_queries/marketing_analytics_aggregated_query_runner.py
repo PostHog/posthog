@@ -19,6 +19,7 @@ from .constants import (
     BASE_COLUMN_MAPPING,
     HIERARCHY_BASE_COLUMNS,
     HIERARCHY_DRILL_DOWN_LEVELS,
+    ROAS_COLUMN,
     UNIFIED_CONVERSION_GOALS_CTE_ALIAS,
     to_marketing_analytics_data,
 )
@@ -117,9 +118,12 @@ class MarketingAnalyticsAggregatedQueryRunner(
         # Add conversion goal columns using the aggregator
         if conversion_aggregator:
             conversion_columns = conversion_aggregator.get_conversion_goal_columns()
-            # We exclude the `Cost per` conversion goal columns from the mapping because we'll recalculate them later
+            # A sum of per-row ratios isn't the ratio of the totals, so rate-shaped columns can't
+            # ride the generic SUM() wrapper.
             conversion_columns = {
-                k: v for k, v in conversion_columns.items() if not k.startswith(MarketingAnalyticsConstants.COST_PER)
+                k: v
+                for k, v in conversion_columns.items()
+                if not k.startswith(MarketingAnalyticsConstants.COST_PER) and k != ROAS_COLUMN
             }
             all_columns.update(conversion_columns)
 
@@ -179,7 +183,7 @@ class MarketingAnalyticsAggregatedQueryRunner(
             hogql=response.hogql,
             timings=response.timings,
             modifiers=self.modifiers,
-            error="; ".join(self._conversion_goal_warnings) if self._conversion_goal_warnings else None,
+            error=self._conversion_goal_error,
         )
 
     def calculate_without_compare(self) -> ast.SelectQuery:

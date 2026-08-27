@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 import asyncio
+import hashlib
 from dataclasses import dataclass
-from datetime import datetime, timedelta, tzinfo
+from datetime import UTC, datetime, timedelta, tzinfo
+from uuid import UUID
 
-from django.db.models import Q
+from django.db.models import Case, DateTimeField, Q, Value, When
 from django.utils import timezone
 
 import structlog
@@ -14,6 +16,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -21,6 +24,14 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.config_registry import live_scout_skill_names, register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
+from products.signals.backend.scout_harness.limits import (
+    AUTO_PAUSE_PROBE_INTERVAL_S,
+    COORDINATOR_INTERVAL_MINUTES,
+    DISPATCH_BATCH_INTERVAL_SECONDS,
+    DISPATCH_SMEAR_SECONDS,
+    DUE_GRACE_SECONDS,
+    dispatch_ticks_per_interval,
+)
 
 # Per-team cap resolution + the flag-payload read live in the temporalio-free `team_limits` module
 # so the HTTP metadata surface can share them. Imported by name so the planning code below calls
@@ -32,9 +43,11 @@ from products.signals.backend.scout_harness.team_limits import (
     _default_team_config,
     _parse_enrollment,
     _read_flag_payload,
+    _resolve_dispatch_smear_seconds,
     _resolve_global_max_runs_per_tick,
     _resolve_max_runs_per_day,
     _resolve_max_runs_per_tick,
+    _resolve_slot_aligned_dispatch,
     _resolve_withheld_skills,
     _runs_today_by_team,
     _team_configs,
@@ -49,13 +62,10 @@ logger = structlog.get_logger(__name__)
 # round-robin allocation do the day-to-day fairness work; this is the global ceiling.
 MAX_RUNS_PER_TICK = 1000
 
-# Coordinator tick cadence. Per-scout schedules are enforced via the due-check, so this is
-# just the polling granularity — the floor on how often any scout can run.
-COORDINATOR_INTERVAL_MINUTES = 30
-
-# Slack on the due-check so a scout that's a few seconds short at a tick still counts as due —
-# else stamp jitter makes it skip every other tick (a 60-min scout runs every 2h).
-DUE_GRACE_SECONDS = 60
+# The tick grid itself (`COORDINATOR_INTERVAL_MINUTES`, `DUE_GRACE_SECONDS`,
+# `dispatch_ticks_per_interval`) lives in `scout_harness/limits.py` so the failure breaker can
+# size lanes off the cadence dispatch actually produces; it is imported above.
+TICK_SECONDS = COORDINATOR_INTERVAL_MINUTES * 60
 
 
 @dataclass
@@ -73,16 +83,19 @@ class FetchEnabledRunsInput:
     pass
 
 
-@dataclass
+@frozen
 class FetchEnabledRunsOutput:
     planned_runs: list[PlannedRun]
+    dispatch_smear_seconds: int = 0
 
 
-@dataclass
+@frozen
 class StampDispatchedRunsInput:
-    """The (team, skill) runs whose child workflow was dispatched this tick."""
+    """The (team, skill) runs whose child workflow was dispatched this tick, and the tick's own
+    start time to anchor their stamps on (`None` falls back to the wall clock)."""
 
     dispatched_runs: list[PlannedRun]
+    dispatched_at: datetime | None = None
 
 
 @dataclass
@@ -122,39 +135,133 @@ async def fetch_enabled_signals_scout_runs_activity(
         # snapshot, falling back to the code constant. `MAX_RUNS_PER_TICK` is read at call time so
         # tests patching the module global still take effect.
         global_max_runs_per_tick = _resolve_global_max_runs_per_tick(payload, MAX_RUNS_PER_TICK)
+        smear_seconds = _resolve_dispatch_smear_seconds(payload, DISPATCH_SMEAR_SECONDS)
         planned = await database_sync_to_async(_collect_planned_runs, thread_sensitive=False)(
             enrollment, team_configs, default_team_config, global_max_runs_per_tick
         )
     logger.info("signals_scout coordinator: planned runs", count=len(planned))
-    return FetchEnabledRunsOutput(planned_runs=planned)
+    return FetchEnabledRunsOutput(planned_runs=planned, dispatch_smear_seconds=smear_seconds)
 
 
 @activity.defn
 async def stamp_dispatched_signals_scout_runs_activity(
     stamp_input: StampDispatchedRunsInput,
 ) -> None:
-    """Advance `last_run_at` for the configs whose child workflow was dispatched this tick.
+    """Advance `last_run_at` for the configs whose child workflow was dispatched this batch.
 
     Split out of planning so the schedule only advances for scouts a child was actually
     launched for: if fan-out fails (or the coordinator dies) before dispatch, the config
     stays unstamped and re-dispatches next tick instead of being silently suppressed for a
     full interval. The trade is a rare double-run if this stamp fails after children started
     — far less harmful than a day of suppression, and bounded by the activity retry policy.
+    Called once per dispatch batch, so a coordinator that dies mid-smear leaves only its
+    undispatched batches unstamped rather than the whole tick.
     """
     async with Heartbeater():
-        await database_sync_to_async(_stamp_dispatched_runs, thread_sensitive=False)(stamp_input.dispatched_runs)
+        # Same off-the-DB-pool read as planning: the SDK call can block on a cold cache, and
+        # `database_sync_to_async`'s pool is sized for DB-bound work.
+        payload = await asyncio.to_thread(_read_flag_payload)
+        slot_aligned = _resolve_slot_aligned_dispatch(payload)
+        await database_sync_to_async(_stamp_dispatched_runs, thread_sensitive=False)(
+            stamp_input.dispatched_runs, slot_aligned=slot_aligned, dispatched_at=stamp_input.dispatched_at
+        )
 
 
-def _stamp_dispatched_runs(dispatched_runs: list[PlannedRun]) -> None:
+def _dispatch_slot(config_pk: str, run_interval_minutes: int) -> int:
+    """The config's stable slot within its interval, as a count of coordinator ticks.
+
+    Derived from a digest of the config's primary key so it never moves: the same scout keeps the
+    same slot across restarts, redeploys, and re-enrolments, and the fleet's slots are spread by
+    the digest's uniformity rather than by whenever each scout happened to be enabled.
+    """
+    ticks_per_interval = dispatch_ticks_per_interval(run_interval_minutes)
+    digest = hashlib.sha256(str(config_pk).encode("utf-8"), usedforsecurity=False).digest()
+    return int.from_bytes(digest[:8], "big") % ticks_per_interval
+
+
+def _slot_anchor(config_pk: str, run_interval_minutes: int, dispatched_at: datetime) -> datetime:
+    """The schedule anchor to stamp: the config's own slot, at or before this tick.
+
+    Stamping `timezone.now()` here instead made `last_run_at` absorb the tick's planning and
+    fan-out latency, so the next due time crept later every run. Once that creep passed
+    `DUE_GRACE_SECONDS` a scout missed its usual tick and re-anchored on the next one, merging its
+    cohort into that tick's cohort. The bigger merged wave then took longer to fan out, which made
+    the next slip more likely, so waves only ever grew.
+
+    Snapping back to the config's own slot removes both halves of that. Latency never accumulates,
+    because the anchor is a grid point rather than a measured time. A run deferred past its slot by
+    a per-team cap or a missed tick anchors on the slot it was meant to have, so cohorts drift back
+    together on the grid instead of ratcheting forward off it.
+
+    The snapped anchor always lands in `(this tick - period, this tick]`, where the period is the
+    scout's cadence from `dispatch_ticks_per_interval`. Once a scout is dispatched on its own slot the
+    anchor is exactly that tick, so its cadence is the configured one forever after.
+
+    Before then the anchor can sit up to one period back, which shortens that single gap and costs
+    the scout ONE EXTRA RUN. The shift is permanent rather than repaid: the scout keeps its new
+    phase and its normal cadence from there, so it never skips a later run to make up for the early
+    one. Each scout pays it once, when it first lands on its slot, and again after an interval edit
+    (which changes its period, and so its slot). Accepted deliberately: it buys a de-merge that
+    needs no migration and no backfill command, and the extra runs spread across every tick in the
+    period rather than landing in the wave this is meant to break up.
+    """
+    ticks_per_interval = dispatch_ticks_per_interval(run_interval_minutes)
+    slot = _dispatch_slot(config_pk, run_interval_minutes)
+    tick_index = int(dispatched_at.timestamp()) // TICK_SECONDS
+    snapped_index = tick_index - ((tick_index - slot) % ticks_per_interval)
+    return datetime.fromtimestamp(snapped_index * TICK_SECONDS, tz=UTC)
+
+
+def _stamp_dispatched_runs(
+    dispatched_runs: list[PlannedRun], *, slot_aligned: bool = True, dispatched_at: datetime | None = None
+) -> None:
     """Sync bulk stamp. `.update()` bypasses save(), so this per-tick write never hits the
-    activity log."""
+    activity log.
+
+    `dispatched_at` is the tick's start time, not the moment this batch happens to run: a late
+    batch would otherwise floor to the next tick index (re-anchoring those scouts by a whole
+    period) and push a cron scout's croniter reference past an occurrence it should still serve.
+
+    Rolling-interval scouts are stamped with their slot anchor (see `_slot_anchor`). Anchors differ
+    per config, so they are applied through a single `CASE` expression rather than one `.update()`
+    per anchor: at the global tick cap a per-anchor loop would be up to `MAX_RUNS_PER_TICK`
+    sequential round trips inside an activity whose timeout is a minute, and a timeout there lands
+    after the children have already launched. Two kinds of config are stamped with the wall clock
+    instead:
+
+    - A cron scout, because `_overdue_seconds` feeds `last_run_at` to croniter as the reference for
+      the next slot. Cron slots are already absolute, so that path never had the drift, and moving
+      the reference backwards could re-select the slot this dispatch just fulfilled.
+    - A disabled config, which here is a lane the failure breaker paused and the coordinator is
+      probing. Its `last_run_at` is the probe cooldown clock rather than a schedule anchor, so
+      backdating it would shorten the cooldown the breaker is counting.
+    """
     if not dispatched_runs:
         return
-    now = timezone.now()
+    now = dispatched_at or timezone.now()
     predicate = Q()
     for run in dispatched_runs:
         predicate |= Q(team_id=run.team_id, skill_name=run.skill_name)
-    SignalScoutConfig.all_teams.filter(predicate).update(last_run_at=now)
+    dispatched = SignalScoutConfig.all_teams.filter(predicate)
+    if not slot_aligned:
+        dispatched.update(last_run_at=now)
+        return
+
+    pks_by_anchor: dict[datetime, list[UUID]] = {}
+    for pk, enabled, cron_schedule, interval_minutes in dispatched.values_list(
+        "pk", "enabled", "run_cron_schedule", "run_interval_minutes"
+    ):
+        anchor = _slot_anchor(str(pk), interval_minutes, now) if enabled and not cron_schedule else now
+        pks_by_anchor.setdefault(anchor, []).append(pk)
+    if not pks_by_anchor:
+        return
+    dispatched.update(
+        last_run_at=Case(
+            *(When(pk__in=pks, then=Value(anchor)) for anchor, pks in pks_by_anchor.items()),
+            default=Value(now),
+            output_field=DateTimeField(),
+        )
+    )
 
 
 @dataclass
@@ -181,6 +288,7 @@ def _collect_planned_runs(
     team_configs = _canonicalize_team_config_keys(team_configs or {})
     default_team_config = default_team_config or {}
     due: list[_DueRun] = []
+    paused_by_team = _breaker_paused_configs_by_team()
     for team, needs_seed in _participating_teams(enrollment):
         # Scouts held back from this team via the `withheld_skills` denylist (resolved most-
         # specific-first from this team's `team_configs` entry, then the fleet `default_team_config`):
@@ -229,6 +337,7 @@ def _collect_planned_runs(
             if overdue_s is None:
                 continue
             due.append(_DueRun(overdue_s, str(config.pk), team.id, config.skill_name))
+        due.extend(_collect_probe_runs(paused_by_team.get(team.id, []), live_skills, now))
 
     if not due:
         return []
@@ -378,8 +487,19 @@ def _participating_teams(enrollment: Enrollment) -> list[tuple[Team, bool]]:
     wildcard_ids: set[int] = set()
     if enrollment.wildcard:
         # Config rows persist under the canonical parent team, so these ids are already canonical.
+        # Breaker-paused configs keep the team enrolled even when nothing else is enabled: a
+        # wildcard team whose only scout tripped the breaker would otherwise drop out of
+        # participation entirely, and the recovery probe it was promised could never dispatch.
         wildcard_ids = set(
-            SignalScoutConfig.all_teams.filter(enabled=True).values_list("team_id", flat=True).distinct()
+            SignalScoutConfig.all_teams.filter(
+                Q(enabled=True)
+                | Q(
+                    status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+                    pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+                )
+            )
+            .values_list("team_id", flat=True)
+            .distinct()
         )
     wildcard_ids -= skip_canonical
     wildcard_ids -= explicit  # explicit wins the tag — it gets the seed pass below
@@ -389,6 +509,69 @@ def _participating_teams(enrollment: Enrollment) -> list[tuple[Team, bool]]:
         return []
     teams = {team.id: team for team in Team.objects.filter(id__in=all_ids)}
     return [(teams[team_id], team_id in explicit) for team_id in sorted(all_ids) if team_id in teams]
+
+
+def _breaker_paused_configs_by_team() -> dict[int, list[SignalScoutConfig]]:
+    """One cross-team fetch of every lane the failure-streak breaker has paused, keyed by team.
+
+    Deliberately a single fleet-wide query hoisted out of `_collect_planned_runs`'s per-team
+    loop: breaker trips are rare, so a per-team lookup would be one mostly-empty round-trip per
+    participating team per tick. The filter is reason-scoped — only the breaker's own pauses —
+    so a human's pause or another writer's is never fetched, let alone probed. Genuinely
+    cross-team, which is what `all_teams` is for; per-team scoping happens at the call site.
+    """
+    paused_by_team: dict[int, list[SignalScoutConfig]] = {}
+    paused = SignalScoutConfig.all_teams.filter(
+        status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+        pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+    )
+    for config in paused:
+        paused_by_team.setdefault(config.team_id, []).append(config)
+    return paused_by_team
+
+
+def _collect_probe_runs(paused_configs: list[SignalScoutConfig], live_skills: set[str], now: datetime) -> list[_DueRun]:
+    """The half-open side of the failure-streak breaker: one probe per cooldown for paused lanes.
+
+    A `(team, skill)` lane that fails every run still looks due every tick, and each dispatch
+    takes a sandbox lease for the full runtime cap to produce nothing — so an unrecoverable lane
+    costs a lease per interval indefinitely, with the only trace in the failure event stream.
+    Once the runner trips the breaker (`runner._record_failure_streak` →
+    `transition_status_by_system`), the pause syncs `enabled=False`, so the main dispatch query
+    stops seeing the lane. This is the reason-scoped exception that keeps the breaker half-open:
+    lanes paused with `repeated_failures` — never a human's pause, never another writer's,
+    guaranteed by `_breaker_paused_configs_by_team`'s filter — get one probe per
+    `AUTO_PAUSE_PROBE_INTERVAL_S`. A probe that succeeds resumes the lane
+    (`runner._clear_failure_streak`); a failed probe restarts the cooldown through its own
+    `last_run_at` stamp, with no extra bookkeeping.
+    """
+    probes: list[_DueRun] = []
+    for config in paused_configs:
+        if config.skill_name not in live_skills:
+            continue
+        # The cooldown runs from the later of the lane's last dispatch and the moment it was
+        # paused. `last_run_at` alone is not enough: the run that trips the breaker was dispatched
+        # while the lane was still enabled, so it was stamped with a slot anchor that can sit up to
+        # a full period before the trip, and the cooldown would then read as already elapsed and
+        # probe on the next tick. `status_changed_at` alone is not enough either, because a failed
+        # probe leaves the status untouched and only `last_run_at` advances to restart the
+        # cooldown. Neither set (possible only through manual row surgery) probes immediately
+        # rather than never.
+        cooldown_anchors = [moment for moment in (config.last_run_at, config.status_changed_at) if moment is not None]
+        cooldown_elapsed_s = (
+            (now - max(cooldown_anchors)).total_seconds() if cooldown_anchors else float(AUTO_PAUSE_PROBE_INTERVAL_S)
+        )
+        overdue_s = cooldown_elapsed_s - AUTO_PAUSE_PROBE_INTERVAL_S
+        if overdue_s < 0:
+            continue
+        logger.info(
+            "signals_scout coordinator: dispatching probe for auto-paused scout",
+            team_id=config.team_id,
+            skill_name=config.skill_name,
+            consecutive_failure_count=config.consecutive_failure_count,
+        )
+        probes.append(_DueRun(overdue_s, str(config.pk), config.team_id, config.skill_name))
+    return probes
 
 
 def _overdue_seconds(config: SignalScoutConfig, now: datetime, project_timezone: tzinfo) -> float | None:
@@ -439,15 +622,22 @@ class SignalsScoutCoordinatorWorkflow:
     """Coordinator: scans dogfood teams, fans out per-(team, skill) child runs for due scouts.
 
     Dispatch is fire-and-forget: each child is started with `ParentClosePolicy.ABANDON`
-    so it outlives this workflow, and the coordinator returns right after the last
-    `start_child_workflow` call plus one fast bookkeeping activity that advances
-    `last_run_at` for the children it dispatched. This keeps the coordinator's lifetime to
-    seconds regardless of how many children are dispatched, so the schedule's `SKIP` overlap
-    policy never collapses ticks at scale. Temporal's task queue + worker concurrency
-    handles the throttling — if workers are saturated, the children just queue.
+    so it outlives this workflow. Temporal's task queue + worker concurrency handles the
+    throttling — if workers are saturated, the children just queue.
+
+    The fan-out is paced rather than emitted in one burst: the planned runs are split into
+    batches dispatched `DISPATCH_BATCH_INTERVAL_SECONDS` apart across a `dispatch_smear_seconds`
+    window, so the fleet's runs are created over minutes instead of landing in the single minute
+    of the tick. The window is bounded well under the tick and the schedule caps the workflow's
+    execution at one tick interval, so `SKIP` still never collapses ticks; a coordinator is now
+    alive for a meaningful fraction of every tick, though, so any later edit to this method needs
+    a `workflow.patched()` gate (see `.claude/rules/temporal-workflow-versioning.md`) — this
+    change itself is gated on `FetchEnabledRunsOutput.dispatch_smear_seconds` defaulting to 0.
 
     The schedule advances only after dispatch (not during planning) so a fan-out failure
-    re-dispatches next tick rather than silently suppressing a scout for a full interval.
+    re-dispatches next tick rather than silently suppressing a scout for a full interval, and
+    is stamped per batch so a coordinator that dies mid-smear leaves only its undispatched
+    batches unstamped.
 
     Idempotency: child workflow IDs are deterministic per `(team_id, skill_name, tick_id)`,
     so a retried coordinator can't double-launch within a single tick. A separate
@@ -482,32 +672,57 @@ class SignalsScoutCoordinatorWorkflow:
         # dedupe a retry without re-launching. `run_id` would break that: a retry would mint
         # new child ids and double-launch.
         tick_id = workflow.info().workflow_id
+        tick_started_at = workflow.info().start_time
+        smear_seconds = max(0, fetch_result.dispatch_smear_seconds)
+        smear_deadline = tick_started_at + timedelta(seconds=smear_seconds)
+        batches = _dispatch_batches(planned_runs, smear_seconds)
+
         started = 0
         skipped = 0
-        dispatched: list[PlannedRun] = []
-        for idx, planned in enumerate(planned_runs):
-            if await _start_child(planned=planned, tick_id=tick_id, idx=idx):
-                started += 1
-            else:
-                skipped += 1
-            # Both branches mean a child for this (team, skill, tick) now exists (started, or
-            # dedupe-skipped because a retry already started it) — so its schedule should
-            # advance. A hard `start_child` error raises out of `_start_child` before reaching
-            # here, leaving that config unstamped to re-dispatch next tick.
-            dispatched.append(planned)
+        for batch_number, batch in enumerate(batches, start=1):
+            dispatched: list[PlannedRun] = []
+            for idx, planned in batch:
+                if await _start_child(planned=planned, tick_id=tick_id, idx=idx):
+                    started += 1
+                else:
+                    skipped += 1
+                # Both branches mean a child for this (team, skill, tick) now exists (started, or
+                # dedupe-skipped because a retry already started it) — so its schedule should
+                # advance. A hard `start_child` error raises out of `_start_child` before reaching
+                # here, leaving that config unstamped to re-dispatch next tick.
+                dispatched.append(planned)
 
-        # Stamp only after dispatch, so a fan-out failure can't suppress a scout for a day.
-        await workflow.execute_activity(
-            stamp_dispatched_signals_scout_runs_activity,
-            StampDispatchedRunsInput(dispatched_runs=dispatched),
-            start_to_close_timeout=timedelta(minutes=1),
-            retry_policy=RetryPolicy(maximum_attempts=5),
-        )
+            # Stamp only after dispatch, so a fan-out failure can't suppress a scout for a day.
+            await workflow.execute_activity(
+                stamp_dispatched_signals_scout_runs_activity,
+                StampDispatchedRunsInput(dispatched_runs=dispatched, dispatched_at=tick_started_at),
+                start_to_close_timeout=timedelta(minutes=1),
+                retry_policy=RetryPolicy(maximum_attempts=5),
+            )
+
+            if batch_number < len(batches) and workflow.now() < smear_deadline:
+                await workflow.sleep(timedelta(seconds=DISPATCH_BATCH_INTERVAL_SECONDS))
+
         return CoordinatorWorkflowOutput(
             planned_count=len(planned_runs),
             started_count=started,
             skipped_count=skipped,
         )
+
+
+def _dispatch_batches(planned_runs: list[PlannedRun], smear_seconds: int) -> list[list[tuple[int, PlannedRun]]]:
+    """Split the tick's planned runs into the batches to dispatch one `DISPATCH_BATCH_INTERVAL_SECONDS`
+    apart, each entry carrying its index in the full planned list so child ids stay stable.
+
+    Strided rather than sliced contiguously: `planned_runs` is sorted by `(team_id, skill_name)`,
+    so contiguous batches would put a whole team in one batch and make how late a team dispatches
+    a permanent function of its id. A stride of 1 (`smear_seconds=0`, which is also what an
+    in-flight coordinator replaying a pre-smear history resolves to) yields today's single batch
+    in today's order.
+    """
+    indexed = list(enumerate(planned_runs))
+    num_batches = max(1, min(smear_seconds // DISPATCH_BATCH_INTERVAL_SECONDS, len(indexed)))
+    return [indexed[offset::num_batches] for offset in range(num_batches)]
 
 
 async def _start_child(*, planned: PlannedRun, tick_id: str, idx: int) -> bool:

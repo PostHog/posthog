@@ -91,7 +91,7 @@ def _first_user_github_integration(user_ids: Iterable[int]) -> UserIntegration |
 
 
 def resolve_team_github_integration(
-    team_id: int, team: Team | None = None, requester_user_id: int | None = None
+    team_id: int, team: Team | None = None, requester_user_id: int | None = None, team_only: bool = False
 ) -> GitHubIntegrationBase | None:
     """Resolve the GitHub source the agent should use for this team.
 
@@ -108,6 +108,10 @@ def resolve_team_github_integration(
 
     The owner fallback still applies after the requester check, so an owner-connected source backs
     a requester who has none of their own.
+
+    ``team_only=True`` disables both personal-connection fallbacks. Use it when the resolved
+    source's repository names are shown to other team members, or when the work runs under the
+    team installation's bot identity — a personal connection is a cross-account leak there.
     """
     integration = (
         Integration.objects.filter(team_id=team_id, kind="github")
@@ -124,6 +128,9 @@ def resolve_team_github_integration(
     # Prefer the first GitHub integration from the team
     if integration is not None:
         return GitHubIntegration(integration)
+
+    if team_only:
+        return None
 
     # User-initiated path: the requester's own connected GitHub (their own credentials, not a leak)
     # takes precedence over the owner fallback so they can reference repos only they have connected.
@@ -168,12 +175,16 @@ async def _github_reconnect_required(team_id: int) -> bool:
     ).aexists()
 
 
-def _list_candidate_repos(github: GitHubIntegrationBase, team_id: int) -> list[str]:
+def _list_candidate_repos(
+    github: GitHubIntegrationBase, team_id: int, *, allow_refresh: bool = True, exclude_archived: bool = False
+) -> list[str]:
     """Fetch all repositories accessible via the resolved GitHub source."""
     repos: set[str] = set()
-    for repo in github.list_all_cached_repositories(max_repos=_MAX_GITHUB_REPOS):
+    for repo in github.list_all_cached_repositories(max_repos=_MAX_GITHUB_REPOS, allow_refresh=allow_refresh):
         full_name = repo.get("full_name")
         if not full_name:
+            continue
+        if exclude_archived and repo.get("archived") is True:
             continue
         repos.add(full_name.lower())
         if len(repos) >= _MAX_GITHUB_REPOS:
@@ -185,6 +196,28 @@ def _list_candidate_repos(github: GitHubIntegrationBase, team_id: int) -> list[s
             )
             return sorted(repos)
     return sorted(repos)
+
+
+def list_team_connected_repositories(team_id: int) -> list[str]:
+    """The `owner/repo` names the team's own GitHub installation can reach, lowercased.
+
+    The candidate list without the agent — for a caller that already has a repository in hand and
+    only needs to know whether the team connected it. `team_only` because such a caller runs under
+    the team's identity with no requester to act for, and the personal-connection fallbacks would
+    let one member's private repos answer for the team. Reads the cache as-is: an unattended caller
+    should not make a repo check storm GitHub with refreshes.
+
+    Archived repos are dropped for the same reason `select_repository` drops them: a caller resolves
+    a repository to change code in, and an archived one accepts no change. The flag comes from the
+    light cache rather than `_list_eligible_full_names`, whose heavy `repository_cache_entries` rows
+    only `sync_full_cache()` writes — a sync this path deliberately never runs, so intersecting with
+    it would answer "nothing is connected" for every team yet to run a full selection. Absent heavy
+    metadata therefore reads as unknown here, not as archived.
+    """
+    github = resolve_team_github_integration(team_id, team_only=True)
+    if github is None:
+        return []
+    return _list_candidate_repos(github, team_id, allow_refresh=False, exclude_archived=True)
 
 
 def _list_eligible_full_names(github: GitHubIntegrationBase, team_id: int) -> set[str]:
@@ -204,6 +237,9 @@ def _build_repo_selection_prompt(context_block: str, candidate_repos: list[str])
     schema = RepoSelectionResult.model_json_schema()
     # `task_id` is system-set after the run — keep it out of the agent's output contract.
     schema.get("properties", {}).pop("task_id", None)
+    # So is `autostart_eligible`: it records how the repo was chosen, which is the caller's fact,
+    # not the model's. Offering it would let untrusted context talk the model into vetoing autostart.
+    schema.get("properties", {}).pop("autostart_eligible", None)
     schema_json = json.dumps(schema, indent=2)
     repo_list = "\n".join(f"{i + 1}. `{repo}`" for i, repo in enumerate(candidate_repos))
 
@@ -474,6 +510,9 @@ async def select_repository(
     # Stamp the producing task onto the result (overwriting anything the LLM may have emitted)
     # so downstream persistence can attribute the selection to it.
     result.task_id = str(session.task.id)
+    # A selection this agent made is a candidate-list pick for a caller that asked for one, so it
+    # carries full autostart authority no matter what the model emitted.
+    result.autostart_eligible = True
     try:
         if result.repository is not None:
             result.repository = result.repository.strip().lower()

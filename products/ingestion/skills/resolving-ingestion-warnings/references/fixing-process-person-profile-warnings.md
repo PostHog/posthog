@@ -11,7 +11,7 @@ Both failure modes are silent from the SDK's side. The first quietly opts you ba
 
 ## Diagnose
 
-1. `posthog:ingestion-warnings-list` with either `type`. For the non-boolean variant, the sample details show the exact value received — its type names the bug (`"false"` = stringified config/env value, `0` = numeric flag). For the dropped variant, the samples show which identity event was dropped and for which distinct IDs.
+1. Query the warnings with `posthog:execute-sql`: `SELECT timestamp, details FROM system.ingestion_warnings WHERE type IN ('invalid_process_person_profile', 'invalid_event_when_process_person_profile_is_false') AND timestamp > now() - INTERVAL 7 DAY ORDER BY timestamp DESC LIMIT 20` (narrow to a single `type` to isolate one variant). For the non-boolean variant, the `details` JSON shows the exact value received — its type names the bug (`"false"` = stringified config/env value, `0` = numeric flag). For the dropped variant, the `details` show which identity event was dropped and for which distinct IDs.
 2. Find where the flag gets attached: SDK config, a shared capture wrapper, or the callsite. Env vars and JSON configs are the usual source of stringified booleans; a global "mark everything anonymous" wrapper is the usual source of the identity-event contradiction.
 
 ## Fix
@@ -25,4 +25,4 @@ Decide which intent is real, then make the flag match it:
 
 ## Verify
 
-Re-run the flow, re-query `posthog:ingestion-warnings-list` with a post-fix `since` — no new occurrences of either type — and confirm the intended behavior: anonymous events stop creating person profiles, and persons/groups update again where they should.
+Re-run the flow, re-query `system.ingestion_warnings` with `posthog:execute-sql` (filter `type IN ('invalid_process_person_profile', 'invalid_event_when_process_person_profile_is_false')`, `timestamp` after your fix) — no new occurrences of either type — and confirm the intended behavior: anonymous events stop creating person profiles, and persons/groups update again where they should.

@@ -9,19 +9,26 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.squadcast.settings import (
     SQUADCAST_ENDPOINTS,
     SquadcastEndpointConfig,
 )
 
+
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class RegionHosts:
+    auth_host: str
+    api_host: str
+
+
 # Squadcast is region-sharded: a US account's refresh token only works against the US hosts and
 # vice versa, so the user picks the region in the source form.
-REGION_HOSTS: dict[str, tuple[str, str]] = {
-    "us": ("https://auth.squadcast.com", "https://api.squadcast.com"),
-    "eu": ("https://auth.eu.squadcast.com", "https://api.eu.squadcast.com"),
+REGION_HOSTS: dict[str, RegionHosts] = {
+    "us": RegionHosts(auth_host="https://auth.squadcast.com", api_host="https://api.squadcast.com"),
+    "eu": RegionHosts(auth_host="https://auth.eu.squadcast.com", api_host="https://api.eu.squadcast.com"),
 }
 
 PAGE_SIZE = 100
@@ -64,7 +71,7 @@ class SquadcastResumeConfig:
     cursor: str | None = None
 
 
-def _hosts_for_region(region: str | None) -> tuple[str, str]:
+def _hosts_for_region(region: str | None) -> RegionHosts:
     return REGION_HOSTS.get((region or "us").lower(), REGION_HOSTS["us"])
 
 
@@ -99,7 +106,9 @@ class SquadcastClient:
     bearer access token and transparently re-exchanges it before expiry."""
 
     def __init__(self, refresh_token: str, region: str | None, logger: FilteringBoundLogger) -> None:
-        self._auth_host, self.api_host = _hosts_for_region(region)
+        hosts = _hosts_for_region(region)
+        self._auth_host = hosts.auth_host
+        self.api_host = hosts.api_host
         self._refresh_token = refresh_token
         self._logger = logger
         # Sessions are reused across requests so urllib3 keeps the connection alive. The refresh
@@ -472,7 +481,7 @@ def validate_credentials(
     Returns ``(ok, status_code, error_message)``. ``status_code`` is 0 on transport failure.
     The caller decides how to treat 403 (valid token, missing access for the probed endpoint).
     """
-    auth_host, api_host = _hosts_for_region(region)
+    hosts = _hosts_for_region(region)
     # Same credential hardening as SquadcastClient: mask the refresh token, never follow
     # redirects with credentialed headers, and keep both the token exchange and the API probe
     # out of sample capture — the probe response body carries customer operational data.
@@ -481,7 +490,7 @@ def validate_credentials(
 
     try:
         auth_response = auth_session.get(
-            f"{auth_host}/oauth/access-token",
+            f"{hosts.auth_host}/oauth/access-token",
             headers={"X-Refresh-Token": refresh_token},
             timeout=10,
         )
@@ -504,7 +513,7 @@ def validate_credentials(
 
     try:
         response = session.get(
-            f"{api_host}{probe_path}",
+            f"{hosts.api_host}{probe_path}",
             headers={"Authorization": f"Bearer {access_token}"},
             timeout=10,
         )

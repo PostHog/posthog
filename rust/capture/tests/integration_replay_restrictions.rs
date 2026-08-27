@@ -6,7 +6,7 @@ use axum::http::StatusCode;
 use axum::Router;
 use axum_test_helper::TestClient;
 use capture::api::CaptureError;
-use capture::config::{AiRouting, CaptureMode};
+use capture::config::CaptureMode;
 use capture::event_restrictions::{
     EventRestrictionService, Pipeline, Restriction, RestrictionManager, RestrictionScope,
     RestrictionType,
@@ -111,9 +111,8 @@ async fn setup_recordings_router_with_restriction(
         quota_limiter,
         TokenDropper::default(),
         Some(service),
-        false,
+        None, // recorder_handle
         CaptureMode::Recordings,
-        String::from("capture-recordings"),
         None,
         25 * 1024 * 1024,
         false,
@@ -121,20 +120,20 @@ async fn setup_recordings_router_with_restriction(
         false,
         0.0_f32,
         26_214_400,
-        None, // no blob storage for recordings
+        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
         None,
-        256,                // body_read_chunk_size_kb
-        10 * 1024 * 1024,   // capture_v1_max_compressed_body_bytes
-        50 * 1024 * 1024,   // capture_v1_max_decompressed_body_bytes
-        None,               // overflow_limiter
-        None,               // ai_events_overflow_limiter
-        None,               // replay_overflow_limiter
-        None,               // v1_sink_router
-        8,                  // capture_v1_scatter_gather_min_batch
-        None,               // ai_gateway_signing_secret
-        AiRouting::Primary, // ai_routing
-        false,              // ai_events_overflow_enabled
-        None,               // ingestion_warning_emitter
+        256,              // body_read_chunk_size_kb
+        10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
+        None,             // overflow_limiter
+        None,             // ai_events_overflow_limiter
+        None,             // ai_byte_rate_limiter
+        None,             // replay_overflow_limiter
+        None,             // v1_sink_router
+        8,                // capture_v1_scatter_gather_min_batch
+        None,             // ai_gateway_signing_secret
+        false,            // ai_events_overflow_enabled
+        None,             // ingestion_warning_emitter
     );
 
     (router, sink_clone)
@@ -485,9 +484,8 @@ async fn setup_recordings_router_with_redirect_to_topic(
         quota_limiter,
         TokenDropper::default(),
         Some(service),
-        false,
+        None, // recorder_handle
         CaptureMode::Recordings,
-        String::from("capture-recordings"),
         None,
         25 * 1024 * 1024,
         false,
@@ -495,20 +493,20 @@ async fn setup_recordings_router_with_redirect_to_topic(
         false,
         0.0_f32,
         26_214_400,
-        None, // no blob storage for recordings
+        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
         None,
-        256,                // body_read_chunk_size_kb
-        10 * 1024 * 1024,   // capture_v1_max_compressed_body_bytes
-        50 * 1024 * 1024,   // capture_v1_max_decompressed_body_bytes
-        None,               // overflow_limiter
-        None,               // ai_events_overflow_limiter
-        None,               // replay_overflow_limiter
-        None,               // v1_sink_router
-        8,                  // capture_v1_scatter_gather_min_batch
-        None,               // ai_gateway_signing_secret
-        AiRouting::Primary, // ai_routing
-        false,              // ai_events_overflow_enabled
-        None,               // ingestion_warning_emitter
+        256,              // body_read_chunk_size_kb
+        10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
+        None,             // overflow_limiter
+        None,             // ai_events_overflow_limiter
+        None,             // ai_byte_rate_limiter
+        None,             // replay_overflow_limiter
+        None,             // v1_sink_router
+        8,                // capture_v1_scatter_gather_min_batch
+        None,             // ai_gateway_signing_secret
+        false,            // ai_events_overflow_enabled
+        None,             // ingestion_warning_emitter
     );
 
     (router, sink_clone)

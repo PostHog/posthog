@@ -17,10 +17,12 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { objectsEqual } from 'lib/utils/objects'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { TeamType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, Breadcrumb, TeamType } from '~/types'
 
 import { conversationsViewsRetrieve } from '../../generated/api'
 import { normalizeAssigneeFilter } from '../../types'
@@ -199,6 +201,7 @@ export interface supportTicketsSceneLogicValues {
     aiTriageResultFilter: AITriageFilterValue[]
     assigneeFilter: AssigneeFilterEntry[]
     assigneeFilterEntries: AssigneeFilterEntry[]
+    breadcrumbs: Breadcrumb[]
     bulkUpdating: boolean
     channelFilter: TicketChannel | 'all'
     currentFilters: TicketViewFilters
@@ -209,6 +212,7 @@ export interface supportTicketsSceneLogicValues {
         dateTo: string | null
     } | null
     dateTo: string | null
+    editableSelectedTicketIds: string[]
     hasActiveFilters: boolean
     orderBy: string
     priorityFilter: TicketPriority[]
@@ -336,9 +340,11 @@ export interface supportTicketsSceneLogicActions {
 export interface supportTicketsSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        breadcrumbs: (activeView: SavedTicketView | null) => Breadcrumb[]
         aiEnabled: (currentTeam: TeamType | null | import('~/types').TeamPublicType) => boolean
         orderBy: (sorting: Sorting | null) => string
         selectedTickets: (tickets: Ticket[], selectedTicketIds: string[]) => Ticket[]
+        editableSelectedTicketIds: (selectedTickets: Ticket[]) => string[]
         assigneeFilterEntries: (assigneeFilter: AssigneeFilterEntry[]) => AssigneeFilterEntry[]
         hasActiveFilters: (
             statusFilter: TicketStatus[],
@@ -576,6 +582,12 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         ],
     }),
     selectors({
+        breadcrumbs: [
+            (s) => [s.activeView],
+            (activeView: SavedTicketView | null): Breadcrumb[] => [
+                { key: Scene.SupportTickets, name: activeView?.name || 'Ticket list' },
+            ],
+        ],
         aiEnabled: [
             () => [teamLogic.selectors.currentTeam],
             (currentTeam: TeamType | null): boolean => !!currentTeam?.conversations_settings?.ai_suggestions_enabled,
@@ -596,6 +608,21 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 const idSet = new Set(selectedIds)
                 return tickets.filter((t) => idSet.has(t.id))
             },
+        ],
+        editableSelectedTicketIds: [
+            (s) => [s.selectedTickets],
+            (selectedTickets: Ticket[]): string[] =>
+                selectedTickets
+                    .filter(
+                        (ticket) =>
+                            !ticket.user_access_level ||
+                            accessLevelSatisfied(
+                                AccessControlResourceType.Ticket,
+                                ticket.user_access_level,
+                                AccessControlLevel.Editor
+                            )
+                    )
+                    .map((ticket) => ticket.id),
         ],
         assigneeFilterEntries: [
             (s) => [s.assigneeFilter],

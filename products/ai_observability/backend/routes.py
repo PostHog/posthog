@@ -4,6 +4,7 @@ from posthog.settings import CLOUD_DEPLOYMENT, DEBUG, TEST
 from products.ai_observability.backend.api import (
     AIBlobViewSet,
     AIObservabilityClusteringRunViewSet,
+    AIObservabilityInstrumentationChecklistViewSet,
     AIObservabilityOfflineEvaluationsViewSet,
     AIObservabilitySummarizationViewSet,
     AIObservabilityTextReprViewSet,
@@ -13,10 +14,10 @@ from products.ai_observability.backend.api import (
     DatasetItemViewSet,
     DatasetViewSet,
     EvaluationConfigViewSet,
+    EvaluationDirectoryViewSet,
     EvaluationReportViewSet,
     EvaluationRunViewSet,
     EvaluationViewSet,
-    LLMEvaluationSummaryViewSet,
     LLMModelsViewSet,
     LLMProviderKeyValidationViewSet,
     LLMProviderKeyViewSet,
@@ -34,6 +35,14 @@ from products.ai_observability.backend.api import (
 
 def register_routes(routers: RouterRegistry) -> None:
     routers.projects.register(r"ai_blob", AIBlobViewSet, "project_ai_blob", ["project_id"])
+    # `ai_observability` is the canonical name; the `llm_analytics/` prefixes below are the
+    # unfinished half of a rename the frontend scene URLs already completed.
+    routers.projects.register(
+        r"ai_observability/instrumentation_checklist",
+        AIObservabilityInstrumentationChecklistViewSet,
+        "project_ai_observability_instrumentation_checklist",
+        ["team_id"],
+    )
     routers.root.register(r"llm_proxy", LLMProxyViewSet, "llm_proxy")
     # @me/spend is only useful where billing data is available; mirrors the
     # CLOUD/DEBUG/TEST gate the registration carried inline.
@@ -48,6 +57,12 @@ def register_routes(routers: RouterRegistry) -> None:
     routers.projects.register(r"datasets", DatasetViewSet, "project_datasets", ["team_id"])
     routers.projects.register(r"dataset_items", DatasetItemViewSet, "project_dataset_items", ["team_id"])
     routers.projects.register(r"evaluations", EvaluationViewSet, "project_evaluations", ["team_id"])
+    routers.projects.register(
+        r"evaluation_directories",
+        EvaluationDirectoryViewSet,
+        "project_evaluation_directories",
+        ["team_id"],
+    )
     routers.projects.register(r"taggers", TaggerViewSet, "project_taggers", ["team_id"])
     routers.projects.register(r"evaluation_runs", EvaluationRunViewSet, "project_evaluation_runs", ["team_id"])
     routers.projects.register(
@@ -57,12 +72,6 @@ def register_routes(routers: RouterRegistry) -> None:
         r"llm_analytics/summarization",
         AIObservabilitySummarizationViewSet,
         "project_llm_analytics_summarization",
-        ["team_id"],
-    )
-    routers.projects.register(
-        r"llm_analytics/evaluation_summary",
-        LLMEvaluationSummaryViewSet,
-        "project_llm_analytics_evaluation_summary",
         ["team_id"],
     )
     routers.projects.register(

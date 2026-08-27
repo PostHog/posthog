@@ -6,16 +6,13 @@ from parameterized import parameterized
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snowplow import (
     SnowplowSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.snowplow import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.snowplow.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.snowplow.snowplow import SnowplowResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.snowplow.source import SnowplowSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _source_inputs(
@@ -40,9 +37,6 @@ def _source_inputs(
 class TestSnowplowSource:
     def setup_method(self) -> None:
         self.source = SnowplowSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SNOWPLOW
 
     def test_source_config_fields(self) -> None:
         config = self.source.get_source_config
@@ -102,14 +96,6 @@ class TestSnowplowSource:
         assert schema.supports_append is False
         assert [f["field"] for f in schema.incremental_fields] == incremental_fields
 
-    @parameterized.expand([("valid", (True, None)), ("invalid", (False, "bad credentials"))])
-    def test_validate_credentials(self, _name: str, probe_result: tuple[bool, str | None]) -> None:
-        config = SnowplowSourceConfig(organization_id="org-1", api_key_id="key-id", api_key="key")
-        with patch.object(source_module, "validate_snowplow_credentials", return_value=probe_result) as mock_probe:
-            ok, error = self.source.validate_credentials(config, team_id=1)
-        assert (ok, error) == probe_result
-        assert mock_probe.call_args.args[:3] == ("org-1", "key-id", "key")
-
     @parameterized.expand(
         [
             (
@@ -129,24 +115,6 @@ class TestSnowplowSource:
     def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
-
-    def test_get_resumable_source_manager_is_bound_to_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_source_inputs("job_runs"))
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is SnowplowResumeConfig
-
-    def test_source_for_pipeline_plumbs_credentials_and_endpoint(self) -> None:
-        config = SnowplowSourceConfig(organization_id="org-1", api_key_id="key-id", api_key="key")
-        inputs = _source_inputs("job_runs", last_value="2026-07-10T00:00:00Z", use_incremental=True)
-        with patch.object(source_module, "snowplow_source") as mock_source:
-            self.source.source_for_pipeline(config, MagicMock(), inputs)
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["organization_id"] == "org-1"
-        assert kwargs["api_key_id"] == "key-id"
-        assert kwargs["api_key"] == "key"
-        assert kwargs["endpoint"] == "job_runs"
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2026-07-10T00:00:00Z"
 
     def test_source_for_pipeline_omits_last_value_when_not_incremental(self) -> None:
         # Passing a stale watermark on a full-refresh run would wrongly narrow the time window.

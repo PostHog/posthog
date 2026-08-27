@@ -7,6 +7,9 @@ description: |
     one namespace (`pnpm-<os>-<lockfile-hash>`), so the store is cached once
     instead of fragmenting across runner-arch casings or per-workflow keys.
 
+    Also pre-seeds the Node tool cache (`node-toolcache-<os>-<arch>-<version>`,
+    master-gated save) so setup-node makes no GitHub API calls on a hit.
+
     Deliberately does NOT use setup-node's `cache: pnpm`: that auto-saves on
     every run (PRs included, and the post-save can't be gated) and keys on
     `os.arch()` (lowercase `x64`), which never matches a hand-written
@@ -25,6 +28,13 @@ inputs:
         description: 'Directory to run the install command in.'
         required: false
         default: '.'
+    token:
+        description: |
+            GitHub token for setup-node's version-manifest lookup and Node download.
+            Pass an app token at high-fanout call sites to keep those API calls off
+            the shared per-repo GITHUB_TOKEN core bucket.
+        required: false
+        default: ${{ github.token }}
 
 runs:
     using: composite
@@ -36,11 +46,46 @@ runs:
           shell: bash
           run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
 
+        - name: Resolve Node version
+          id: node-version
+          shell: bash
+          # An empty version (missing file or non-exact pin) skips the tool cache
+          # steps, so setup-node falls back to resolving the version itself. Only
+          # exact x.y.z pins are cacheable: the tool-cache directory is named after
+          # the resolved version, so a range spec would never match it.
+          env:
+              NODE_VERSION_FILE: ${{ inputs.node-version-file }}
+          run: |
+              version=""
+              [[ -f "$NODE_VERSION_FILE" ]] && version=$(tr -d 'v[:space:]' < "$NODE_VERSION_FILE")
+              [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || version=""
+              echo "version=$version" >> "$GITHUB_OUTPUT"
+
+        # A tool-cache hit turns setup-node into a filesystem lookup. On a miss it
+        # fetches the version manifest from api.github.com (two rate-limited API
+        # calls per job) and downloads the tarball, on every Node job, because
+        # runner images don't ship the .nvmrc version.
+        - name: Restore Node tool cache
+          id: node-toolcache
+          if: steps.node-version.outputs.version != ''
+          uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+          with:
+              path: ${{ runner.tool_cache }}/node/${{ steps.node-version.outputs.version }}
+              key: node-toolcache-${{ runner.os }}-${{ runner.arch }}-${{ steps.node-version.outputs.version }}
+
         - name: Set up Node.js
           uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
           with:
               node-version-file: ${{ inputs.node-version-file }}
-              token: ${{ github.token }}
+              token: ${{ inputs.token }}
+
+        # Save only on the default branch, for the same reasons as the pnpm store save below.
+        - name: Save Node tool cache
+          if: github.ref == 'refs/heads/master' && steps.node-version.outputs.version != '' && steps.node-toolcache.outputs.cache-hit != 'true'
+          uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+          with:
+              path: ${{ runner.tool_cache }}/node/${{ steps.node-version.outputs.version }}
+              key: node-toolcache-${{ runner.os }}-${{ runner.arch }}-${{ steps.node-version.outputs.version }}
 
         - name: Get pnpm store path
           id: pnpm-store

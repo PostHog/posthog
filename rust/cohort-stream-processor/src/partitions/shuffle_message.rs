@@ -56,7 +56,13 @@ pub enum ShuffleMessage {
     /// A backfill day-tile (or its consume-side skip), paired with its topic offset. Marked on
     /// the seed tracker, never the events tracker. Boxed so the tile doesn't inflate every
     /// `ShuffleMessage`.
-    Seed { work: Box<SeedWork>, offset: i64 },
+    Seed {
+        work: Box<SeedWork>,
+        offset: i64,
+        /// Broker timestamp of the consumed seed message — the oldest-held age gauge's input.
+        /// Rides the round trip so a channel-full bounce keeps it; `None` reads as age 0.
+        broker_ts_ms: Option<i64>,
+    },
 }
 
 impl ShuffleMessage {
@@ -229,6 +235,7 @@ mod tests {
         let message = ShuffleMessage::Seed {
             work: Box::new(sample_seed_work()),
             offset: 17,
+            broker_ts_ms: Some(1_700_000_000_000),
         };
 
         assert_eq!(

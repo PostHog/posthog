@@ -1,4 +1,5 @@
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { logger } from '~/common/utils/logger'
 
 import { pipelineStepDurationHistogram } from './metrics'
 import { OkResultWithContext, Pipeline, PipelineResultWithContext } from './pipeline.interface'
@@ -45,6 +46,13 @@ export class StepPipeline<TInput, TIntermediate, TOutput, C, RPrev extends strin
             end({ result: PipelineResultType[currentResult.type].toLowerCase() })
         } catch (e) {
             end({ result: 'exception' })
+            // The exception propagates and crashes the process; log the input's
+            // origin (set at the pipeline boundary) while it is still in scope.
+            logger.error('🔥', `Step ${this.stepName} threw`, {
+                error: e instanceof Error ? e.message : String(e),
+                stack: e instanceof Error ? e.stack : undefined,
+                debugContext: previousResultWithContext.context.debugContext,
+            })
             throw e
         }
         return {

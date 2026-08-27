@@ -377,7 +377,7 @@ export interface BatchExportDestinationApi {
      */
     integration?: number | null
     /**
-     * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, and BigQuery destinations; optional for AwsS3, S3Compatible and Snowflake (inline credentials remain supported); unused for other types.
+     * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake (inline credentials remain supported); unused for other types.
      * @nullable
      */
     integration_id?: number | null
@@ -1274,8 +1274,8 @@ export const AwsS3DestinationRequestApiType = {
  */
 export interface AwsS3DestinationRequestApi {
     type: AwsS3DestinationRequestApiType
-    /** ID of an aws-s3-kind Integration providing AWS credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one. */
-    integration_id?: number
+    /** ID of an aws-s3-kind Integration providing AWS credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one. */
+    integration_id: number
     config: AwsS3DestinationConfigApi
 }
 
@@ -1291,8 +1291,8 @@ export const S3CompatibleDestinationRequestApiType = {
  */
 export interface S3CompatibleDestinationRequestApi {
     type: S3CompatibleDestinationRequestApiType
-    /** ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Preferred over inline credentials. Use the integrations-list MCP tool to find one. */
-    integration_id?: number
+    /** ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Required when creating a batch export. Use the integrations-list MCP tool to find one. */
+    integration_id: number
     config: S3CompatibleDestinationConfigApi
 }
 
@@ -1645,10 +1645,28 @@ export interface FileDownloadSessionsRequestApi {
     data_interval_end: string
 }
 
+export type FileDownloadHogQLRequestApiModel =
+    (typeof FileDownloadHogQLRequestApiModel)[keyof typeof FileDownloadHogQLRequestApiModel]
+
+export const FileDownloadHogQLRequestApiModel = {
+    Hogql: 'hogql',
+} as const
+
+/**
+ * Typed configuration for the hogql model.
+ */
+export interface FileDownloadHogQLRequestApi {
+    file: FileDownloadDestinationFileConfigApi
+    model: FileDownloadHogQLRequestApiModel
+    /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
+    hogql_query: string
+}
+
 export type CreateFileDownloadRequestApi =
     | FileDownloadEventsRequestApi
     | FileDownloadPersonsRequestApi
     | FileDownloadSessionsRequestApi
+    | FileDownloadHogQLRequestApi
 
 /**
  * Typed output for view set `create`.
@@ -1716,6 +1734,7 @@ export type RetrieveFileDownloadResponseApi =
  * * `events` - events
  * * `persons` - persons
  * * `sessions` - sessions
+ * * `hogql` - hogql
  */
 export type FileDownloadBatchExportOnDemandModelEnumApi =
     (typeof FileDownloadBatchExportOnDemandModelEnumApi)[keyof typeof FileDownloadBatchExportOnDemandModelEnumApi]
@@ -1724,6 +1743,7 @@ export const FileDownloadBatchExportOnDemandModelEnumApi = {
     Events: 'events',
     Persons: 'persons',
     Sessions: 'sessions',
+    Hogql: 'hogql',
 } as const
 
 /**
@@ -1734,8 +1754,12 @@ export interface FileDownloadBatchExportOnDemandApi {
     model: FileDownloadBatchExportOnDemandModelEnumApi
     include?: string[]
     exclude?: string[]
-    data_interval_start: string
-    data_interval_end: string
+    /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
+    hogql_query?: string
+    /** Start of the data interval to export */
+    data_interval_start?: string
+    /** End of the data interval to export */
+    data_interval_end?: string
 }
 
 /**
@@ -1766,6 +1790,16 @@ export type FileDownloadSessionsRequestModelEnumApi =
 
 export const FileDownloadSessionsRequestModelEnumApi = {
     Sessions: 'sessions',
+} as const
+
+/**
+ * * `hogql` - hogql
+ */
+export type FileDownloadHogQLRequestModelEnumApi =
+    (typeof FileDownloadHogQLRequestModelEnumApi)[keyof typeof FileDownloadHogQLRequestModelEnumApi]
+
+export const FileDownloadHogQLRequestModelEnumApi = {
+    Hogql: 'hogql',
 } as const
 
 /**
@@ -1904,18 +1938,66 @@ export type BatchExportsBackfillsListParams = {
 
 export type BatchExportsRunsListParams = {
     /**
+     * Only return runs created at or after this point. Accepts an ISO-8601 datetime or a relative value like `-7d`. Defaults to `-7d`. Ignored when ordering by `data_interval_start`.
+     */
+    after?: string
+    /**
+     * Only return runs created at or before this point. Accepts an ISO-8601 datetime or a relative value like `-1d`. Defaults to now. Ignored when ordering by `data_interval_start`.
+     */
+    before?: string
+    /**
      * The pagination cursor value.
      */
     cursor?: string
     /**
+     * Only return runs whose data interval ends at or before this point. Accepts an ISO-8601 datetime or a relative value like `-1d`. Defaults to now. Only applies when ordering by `data_interval_start`.
+     */
+    end?: string
+    /**
      * Which field to use when ordering the results.
      */
     ordering?: string
+    /**
+     * Only return runs whose data interval starts at or after this point. Accepts an ISO-8601 datetime or a relative value like `-7d`. Defaults to `-7d`. Only applies when ordering by `data_interval_start`.
+     */
+    start?: string
+    /**
+     * Only return runs in these statuses. Repeat the parameter to pass more than one status.
+     */
+    status?: BatchExportsRunsListStatusItem[]
 }
+
+/**
+ * * `Cancelled` - Cancelled
+ * * `Completed` - Completed
+ * * `ContinuedAsNew` - Continued As New
+ * * `Failed` - Failed
+ * * `FailedRetryable` - Failed Retryable
+ * * `FailedBilling` - Failed Billing
+ * * `Terminated` - Terminated
+ * * `TimedOut` - Timedout
+ * * `Running` - Running
+ * * `Starting` - Starting
+ */
+export type BatchExportsRunsListStatusItem =
+    (typeof BatchExportsRunsListStatusItem)[keyof typeof BatchExportsRunsListStatusItem]
+
+export const BatchExportsRunsListStatusItem = {
+    Cancelled: 'Cancelled',
+    Completed: 'Completed',
+    ContinuedAsNew: 'ContinuedAsNew',
+    Failed: 'Failed',
+    FailedRetryable: 'FailedRetryable',
+    FailedBilling: 'FailedBilling',
+    Terminated: 'Terminated',
+    TimedOut: 'TimedOut',
+    Running: 'Running',
+    Starting: 'Starting',
+} as const
 
 export type BatchExportsRunsLogsRetrieveParams = {
     /**
-     * Only return entries after this ISO 8601 timestamp.
+     * Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.
      */
     after?: string
     /**
@@ -1947,7 +2029,7 @@ export type BatchExportsRunsLogsRetrieveParams = {
 
 export type BatchExportsLogsRetrieveParams = {
     /**
-     * Only return entries after this ISO 8601 timestamp.
+     * Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.
      */
     after?: string
     /**
@@ -1990,7 +2072,7 @@ export type FileDownloadBatchExportsListParams = {
 
 export type FileDownloadBatchExportsLogsRetrieveParams = {
     /**
-     * Only return entries after this ISO 8601 timestamp.
+     * Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.
      */
     after?: string
     /**

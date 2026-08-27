@@ -9,11 +9,12 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.openweather.settings import (
-    OPENWEATHER_ENDPOINTS,
+    PROBE_ENDPOINT_BY_VERSION,
     OpenWeatherEndpointConfig,
+    endpoints_for_version,
 )
 
 OPENWEATHER_BASE_URL = "https://api.openweathermap.org"
@@ -138,8 +139,16 @@ def _normalize_rows(
     if config.data_key is None:
         items: list[dict[str, Any]] = [dict(response)]
     else:
-        items = [dict(item) for item in response.get(config.data_key, []) if isinstance(item, dict)]
-        # The forecast response carries city metadata alongside the per-slot list; attach it so
+        section = response.get(config.data_key)
+        # A section is either a list of rows (forecast slots, One Call hourly/daily) or a single
+        # object (One Call `current`); anything else (missing/null) yields no rows.
+        if isinstance(section, list):
+            items = [dict(item) for item in section if isinstance(item, dict)]
+        elif isinstance(section, dict):
+            items = [dict(section)]
+        else:
+            items = []
+        # The 2.5 forecast response carries city metadata alongside the per-slot list; attach it so
         # rows are self-describing.
         city = response.get("city")
         if city is not None:
@@ -157,12 +166,14 @@ def _normalize_rows(
     return items
 
 
-def validate_credentials(api_key: str, locations_raw: str | None) -> tuple[bool, str | None]:
-    """Probe the current-weather endpoint with the first configured location.
+def validate_credentials(api_key: str, locations_raw: str | None, api_version: str) -> tuple[bool, str | None]:
+    """Probe the version's current-weather endpoint with the first configured location.
 
     OpenWeather returns 401 for a missing/invalid key (and, since paid products live behind the
     same auth, for a key not yet subscribed to a product). A freshly created key can take up to a
-    couple of hours to activate, so the message points users at that.
+    couple of hours to activate, so the message points users at that. Probing the version's own
+    endpoint means a key not subscribed to that product (e.g. One Call 3.0) fails here rather than
+    passing and 404ing at sync time.
     """
     try:
         locations = parse_locations(locations_raw)
@@ -170,8 +181,9 @@ def validate_credentials(api_key: str, locations_raw: str | None) -> tuple[bool,
         return False, str(exc)
 
     location = locations[0]
+    endpoints = endpoints_for_version(api_version)
     url = _build_url(
-        OPENWEATHER_ENDPOINTS["current_weather"].path,
+        endpoints[PROBE_ENDPOINT_BY_VERSION[api_version]].path,
         {"lat": location.lat, "lon": location.lon, "appid": api_key},
     )
 
@@ -195,8 +207,9 @@ def get_rows(
     endpoint: str,
     locations: list[Location],
     logger: FilteringBoundLogger,
+    api_version: str,
 ) -> Iterator[list[dict[str, Any]]]:
-    config = OPENWEATHER_ENDPOINTS[endpoint]
+    config = endpoints_for_version(api_version)[endpoint]
     # One session reused across every location so urllib3 keeps the connection alive.
     session = make_tracked_session()
 
@@ -213,13 +226,16 @@ def openweather_source(
     endpoint: str,
     locations_raw: str | None,
     logger: FilteringBoundLogger,
+    api_version: str,
 ) -> SourceResponse:
-    config = OPENWEATHER_ENDPOINTS[endpoint]
+    config = endpoints_for_version(api_version)[endpoint]
     locations = parse_locations(locations_raw)
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(api_key=api_key, endpoint=endpoint, locations=locations, logger=logger),
+        items=lambda: get_rows(
+            api_key=api_key, endpoint=endpoint, locations=locations, logger=logger, api_version=api_version
+        ),
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,

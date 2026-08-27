@@ -36,6 +36,16 @@ extensions:
         endpoint: 0.0.0.0:13133
 
 service:
+    # Expose the collector's own metrics (scrape health, queue depth, drops)
+    # on :8888 so the agent is self-observable, the way vmagent exposes its.
+    telemetry:
+        metrics:
+            readers:
+                - pull:
+                      exporter:
+                          prometheus:
+                              host: 0.0.0.0
+                              port: 8888
     extensions: [health_check]
     pipelines:
         metrics:

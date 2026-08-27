@@ -85,8 +85,6 @@ class SessionRecording(UUIDTModel):
     matching_events: Optional[RecordingMatchingEvents] = None
     ongoing: Optional[bool] = None
     activity_score: Optional[float] = None
-    has_summary: Optional[bool] = None
-    summary_outcome: Optional[dict] = None
     expiry_time: Optional[datetime] = None
     recording_ttl: Optional[int] = None
     # False when this recording was included in listing results via session_recording_id
@@ -137,6 +135,7 @@ class SessionRecording(UUIDTModel):
             self.retention_period_days = metadata["retention_period_days"]
             self.expiry_time = metadata["expiry_time"]
             self.recording_ttl = metadata["recording_ttl"]
+            self.ongoing = metadata["ongoing"]
 
         return True
 

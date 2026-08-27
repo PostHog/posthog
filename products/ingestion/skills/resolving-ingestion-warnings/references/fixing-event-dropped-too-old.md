@@ -15,7 +15,7 @@ It's **silent data loss** when legitimate late data hits a too-tight threshold:
 
 ## Diagnose
 
-1. `posthog:ingestion-warnings-list` with `type: event_dropped_too_old`. Sample details carry the event name, `distinctId`, `eventTimestamp`, `ageInSeconds`, and `dropThresholdSeconds` — so you can see exactly how late the data was and what the bar is.
+1. Query the warnings with `posthog:execute-sql`: `SELECT timestamp, details FROM system.ingestion_warnings WHERE type = 'event_dropped_too_old' AND timestamp > now() - INTERVAL 7 DAY ORDER BY timestamp DESC LIMIT 20`. The `details` JSON carries the event name, `distinctId`, `eventTimestamp`, `ageInSeconds`, and `dropThresholdSeconds` — so you can see exactly how late the data was and what the bar is.
 2. Read the pattern:
    - A **burst** around one time window with one event family → an import or replayed batch.
    - A **steady trickle** with ages of hours-to-days, from mobile platforms (check `$lib` on the affected persons' other events) → offline queues being deleted.
@@ -34,7 +34,7 @@ Dropped events are gone — an import that ran into the threshold must be re-run
 
 ## Verify
 
-Re-run the flow or import, then re-query `posthog:ingestion-warnings-list` with a post-fix `since` — no new occurrences (for mobile, judge over several days, since offline flushes are sporadic) — and confirm the late events now appear with their original timestamps.
+Re-run the flow or import, then re-query `system.ingestion_warnings` with `posthog:execute-sql` (filter `type = 'event_dropped_too_old'`, `timestamp` after your fix) — no new occurrences (for mobile, judge over several days, since offline flushes are sporadic) — and confirm the late events now appear with their original timestamps.
 
 ## Related
 

@@ -10,13 +10,23 @@ disallow reverse relations with related_name='+'.
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import CreatedMetaFields, UUIDModel
 
 from products.wizard.backend.facade.enums import RunPhase
 
 
-class WizardSession(UUIDModel, TeamScopedRootMixin):
+class WizardSession(UUIDModel, TeamScopedRootMixin, CreatedMetaFields):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+
+    # db_constraint=False because posthog_user is a hot table (a constrained FK would lock it).
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        db_constraint=False,
+    )
 
     session_id = models.CharField(max_length=255)
     workflow_id = models.CharField(max_length=255)
@@ -28,8 +38,15 @@ class WizardSession(UUIDModel, TeamScopedRootMixin):
     tasks = models.JSONField(default=list)
     event_plan = models.JSONField(null=True, blank=True)
     error = models.JSONField(null=True, blank=True)
+    # An in-flight wizard_ask prompt ({id, asked_at, question_count, sensitive, prompts?}).
+    # Null means no input is pending — each push replaces it, so the CLI clearing the
+    # question is just the next upsert without the field.
+    pending_input = models.JSONField(null=True, blank=True)
+    # The markdown handoff doc (the wizard's setup report) once the run has produced one.
+    # Unlike the fields above it is monotonic within a session: a push without it keeps
+    # the stored value (see upsert_session), since the doc arrives late in the run.
+    handoff_text = models.TextField(null=True, blank=True)
 
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta(TeamScopedRootMixin.Meta):

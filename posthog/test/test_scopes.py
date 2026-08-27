@@ -17,12 +17,15 @@ from posthog.scopes import (
     OIDC_SCOPES,
     PRIVILEGED_SCOPES,
     UNPRIVILEGED_SCOPES,
+    clamp_scopes_to_ceiling,
     downgrade_scopes_to_read_only,
     effective_ceiling,
     filter_to_unprivileged_scopes,
     get_oauth_scopes_supported,
     get_scope_descriptions,
+    grantable_ceiling,
     narrow_scopes_to_ceiling,
+    resolve_ceiling,
     scopes_outside_ceiling,
     scopes_within_ceiling,
 )
@@ -233,6 +236,47 @@ class TestScopesWithinCeiling(SimpleTestCase):
     ) -> None:
         assert scopes_within_ceiling(requested, app_scopes) is True
 
+    @parameterized.expand(
+        [
+            ("write_entry_admits_its_read_half", ["insight:write"], ["insight:read"], ["insight:read"]),
+            ("read_entry_does_not_admit_write", ["insight:read"], ["insight:write"], []),
+            (
+                "read_only_downgrade_of_a_whole_write_ceiling",
+                ["insight:write", "experiment:write"],
+                ["insight:read", "experiment:read"],
+                ["experiment:read", "insight:read"],
+            ),
+        ]
+    )
+    def test_write_ceiling_entry_admits_read(
+        self, _name: str, app_scopes: list[str], requested: list[str], expected: list[str]
+    ) -> None:
+        assert clamp_scopes_to_ceiling(requested, app_scopes) == expected
+
+    def test_read_halves_do_not_reach_the_literal_ceiling(self) -> None:
+        # `create_wizard_oauth_access_token_for_user` and the provisioning account-request
+        # path mint `resolve_ceiling`/`effective_ceiling` verbatim as a token. Adding read
+        # halves there would hand out scope strings nobody asked for, so the expansion
+        # lives in `grantable_ceiling`, which only decides what a request may name.
+        assert resolve_ceiling(["insight:write"]) == frozenset({"insight:write"})
+        assert effective_ceiling(["insight:write"]) == frozenset({"insight:write"})
+        assert grantable_ceiling(["insight:write"]) == frozenset({"insight:write", "insight:read"})
+
+    @parameterized.expand(
+        [
+            # A token that HELD scopes now outside the ceiling: rejecting is right,
+            # because re-authorizing can still grant whatever is inside it.
+            ("held_scopes_now_outside_ceiling_rejects", ["experiment:write"], None),
+            # A token that never held any: rejecting would loop, since /authorize
+            # clamps and hands the same empty grant back on re-authorization.
+            ("never_held_any_scope_narrows_to_empty", [], []),
+        ]
+    )
+    def test_nothing_surviving_narrowing_depends_on_whether_there_was_anything(
+        self, _name: str, original: list[str], expected: list[str] | None
+    ) -> None:
+        assert narrow_scopes_to_ceiling(original, ["dashboard:read"]) == expected
+
     def test_wildcard_under_empty_ceiling_gated_by_flag(self) -> None:
         # The one resolution difference between callers: /authorize grandfathers `*`
         # under an empty ceiling, provisioning (default) does not.
@@ -323,10 +367,73 @@ class TestNarrowScopesToCeiling(SimpleTestCase):
             ),
         ]
     )
-    def test_resolution(
-        self, _name: str, requested: list[str], app_scopes: list[str], expected: list[str] | None
-    ) -> None:
+    def test_resolution(self, _name: str, requested: list[str], app_scopes: list[str], expected: list[str]) -> None:
         assert narrow_scopes_to_ceiling(requested, app_scopes) == expected
+
+
+class TestClampScopesToCeiling(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("subset_of_ceiling_passes_through", ["query:read"], ["query:read", "insight:read"], ["query:read"]),
+            # The regression this exists for: one ungrantable scope used to fail the whole
+            # authorization, so a client asking for a retired or hidden scope alongside valid
+            # ones could not connect at all.
+            (
+                "ungrantable_scope_dropped_not_rejected",
+                ["query:read", "insight:write"],
+                ["query:read"],
+                ["query:read"],
+            ),
+            ("retired_scope_dropped_under_empty_ceiling", ["query:read", "agents:read"], [], ["query:read"]),
+            ("hidden_scope_dropped_under_empty_ceiling", ["query:read", "wizard_session:read"], [], ["query:read"]),
+            ("privileged_scope_dropped_under_empty_ceiling", ["query:read", "llm_gateway:read"], [], ["query:read"]),
+            # An identity-only grant is a real outcome, not a rejection: /authorize never
+            # fails on scope grounds, so the client signs in and 403s on resource calls.
+            ("all_resource_scopes_ungrantable_grants_nothing", ["insight:write"], ["query:read"], []),
+            ("unknown_scope_alone_grants_nothing", ["agents:read"], [], []),
+            ("identity_only_request_is_not_a_rejection", ["openid", "email"], ["query:read"], ["email", "openid"]),
+            (
+                "always_allowed_survive_alongside_dropped_scopes",
+                ["openid", "query:read", "insight:write"],
+                ["query:read"],
+                ["openid", "query:read"],
+            ),
+            (
+                "wildcard_resolves_to_explicit_ceiling",
+                ["*"],
+                ["query:read", "insight:read"],
+                ["insight:read", "query:read"],
+            ),
+            (
+                "default_sentinel_keeps_unprivileged_and_listed_extra",
+                ["query:read", "llm_gateway:read", "llm_gateway:write"],
+                ["@default", "llm_gateway:read"],
+                ["llm_gateway:read", "query:read"],
+            ),
+        ]
+    )
+    def test_resolution(self, _name: str, requested: list[str], app_scopes: list[str], expected: list[str]) -> None:
+        assert clamp_scopes_to_ceiling(requested, app_scopes) == expected
+
+    def test_wildcard_under_empty_ceiling_gated_by_flag(self) -> None:
+        # Narrowing `*` under an empty ceiling would strip the legacy client's full access,
+        # so it is kept verbatim where the caller grandfathers it and dropped where it doesn't.
+        assert clamp_scopes_to_ceiling(["*"], [], allow_wildcard_under_empty_ceiling=True) == ["*"]
+        assert clamp_scopes_to_ceiling(["*"], [], allow_wildcard_under_empty_ceiling=False) == []
+
+    def test_never_grants_outside_the_ceiling(self) -> None:
+        # The ceiling stays the sole authority on what a token may hold: clamping may only
+        # ever shrink a request, so any result is a subset of what the old all-or-nothing
+        # check would have allowed through.
+        cases = [
+            (["query:read", "insight:write", "llm_gateway:read"], ["query:read", "insight:read"]),
+            (["*"], ["query:read"]),
+            (["query:read", "agents:read"], []),
+            (["query:read", "llm_gateway:write"], ["@default", "llm_gateway:read"]),
+        ]
+        for requested, app_scopes in cases:
+            clamped = clamp_scopes_to_ceiling(requested, app_scopes, allow_wildcard_under_empty_ceiling=True)
+            assert scopes_within_ceiling(clamped, app_scopes, allow_wildcard_under_empty_ceiling=True)
 
 
 class TestFilterToUnprivilegedScopes(SimpleTestCase):

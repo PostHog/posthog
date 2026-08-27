@@ -22,6 +22,7 @@ from products.engineering_analytics.backend.logic.pull_requests import (
     build_author_workflow_costs as build_author_workflow_costs,
     build_ci_cards as build_ci_cards,
     build_ci_failure_logs as build_ci_failure_logs,
+    build_merged_pull_requests as build_merged_pull_requests,
     build_pr_cost as build_pr_cost,
     build_pr_lifecycle as build_pr_lifecycle,
     build_pr_runs as build_pr_runs,

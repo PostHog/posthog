@@ -183,7 +183,10 @@ pub async fn remote_config(
 
     // Flag lookup scoped to the project. 404 if missing or not a remote config flag (the query
     // filters on `is_remote_configuration`).
-    let Some((filters, has_encrypted_payloads)) =
+    // `resolved_key` is the flag's actual `key` column, not the URL segment (which may be a
+    // numeric id when the caller addresses the flag by id), so decrypt-failure logs always carry
+    // the human-readable key.
+    let Some((filters, has_encrypted_payloads, resolved_key)) =
         load_remote_config_flag(&state, scope_project_id, &key).await?
     else {
         return Ok(StatusCode::NOT_FOUND.into_response());
@@ -204,7 +207,7 @@ pub async fn remote_config(
     let payload: Option<Value> = if has_encrypted_payloads != Some(true) {
         stored.cloned()
     } else if should_decrypt {
-        resolve_decrypted_payload(&state, stored)?
+        resolve_decrypted_payload(&state, stored, scope_project_id, &resolved_key)?
     } else {
         stored.map(|_| Value::String(REDACTED_PAYLOAD_VALUE.to_string()))
     };
@@ -287,24 +290,37 @@ fn not_modified(etag: &str) -> Response {
 /// Decrypts the stored ciphertext on the personal-key path. Returns `None` when there is no
 /// stored value or it is not a string (Django 500s on those malformed rows; we render an empty
 /// body instead). Errors (500) on a decrypt failure or a missing decryptor.
+///
+/// `project_id`/`flag_key` are logged on failure only for correlation (which flag keeps
+/// failing) -- never the token or any key material, which `FlagPayloadDecryptorError`'s
+/// `Display` already excludes by construction (see `flag_payload_decryptor.rs`).
 fn resolve_decrypted_payload(
     state: &AppState,
     stored: Option<&Value>,
+    project_id: i64,
+    flag_key: &str,
 ) -> Result<Option<Value>, FlagError> {
     let Some(Value::String(token)) = stored else {
         return Ok(None);
     };
     let Some(decryptor) = state.flag_payload_decryptor.as_ref() else {
-        return Err(FlagError::Internal(
-            "no FLAGS_SECRET_KEYS configured; cannot decrypt remote config payload".to_string(),
+        warn!(
+            project_id,
+            flag_key, "remote_config: no FLAGS_SECRET_KEYS configured; cannot decrypt payload"
+        );
+        return Err(FlagError::RemoteConfigDecryptFailed(
+            "no decryption keys configured".to_string(),
         ));
     };
     decryptor
         .decrypt(token)
         .map(|plaintext| Some(Value::String(plaintext)))
         .map_err(|e| {
-            warn!("remote_config payload decrypt failed: {e}");
-            FlagError::Internal("failed to decrypt remote config payload".to_string())
+            warn!(
+                project_id,
+                flag_key, "remote_config payload decrypt failed: {e}"
+            );
+            FlagError::RemoteConfigDecryptFailed(e.to_string())
         })
 }
 
@@ -470,15 +486,17 @@ async fn project_id_for_team(state: &AppState, team_id: i32) -> Result<Option<i6
     Ok(row.map(|r| r.0))
 }
 
-/// Loads `(filters, has_encrypted_payloads)` for a remote-config flag matched by numeric id (if
-/// `key` is all digits) or key, scoped to `team.project_id == project_id`. The query filters on
-/// `is_remote_configuration IS TRUE`, so a non-remote-config flag returns `None` and the caller
-/// 404s. Uses its own query — not the flag-list path, which excludes encrypted RC flags.
+/// Loads `(filters, has_encrypted_payloads, key)` for a remote-config flag matched by numeric id
+/// (if `key` is all digits) or key, scoped to `team.project_id == project_id`. The returned `key`
+/// is the flag's canonical key column, which is why it is selected even though the caller may have
+/// addressed the flag by id. The query filters on `is_remote_configuration IS TRUE`, so a
+/// non-remote-config flag returns `None` and the caller 404s. Uses its own query, not the
+/// flag-list path, which excludes encrypted RC flags.
 async fn load_remote_config_flag(
     state: &AppState,
     project_id: i64,
     key: &str,
-) -> Result<Option<(Value, Option<bool>)>, FlagError> {
+) -> Result<Option<(Value, Option<bool>, String)>, FlagError> {
     let client: common_database::PostgresReader = state.database_pools.non_persons_reader.clone();
     let mut conn = get_connection_with_metrics(&client, "non_persons_reader", "remote_config")
         .await
@@ -500,8 +518,8 @@ async fn load_remote_config_flag(
     };
 
     let result = if let Some(id) = parsed_id {
-        sqlx::query_as::<_, (Value, Option<bool>)>(
-            "SELECT f.filters, f.has_encrypted_payloads \
+        sqlx::query_as::<_, (Value, Option<bool>, String)>(
+            "SELECT f.filters, f.has_encrypted_payloads, f.key \
              FROM posthog_featureflag f JOIN posthog_team t ON f.team_id = t.id \
              WHERE t.project_id = $1 AND f.deleted = false AND f.is_remote_configuration IS TRUE \
              AND f.id = $2 LIMIT 1",
@@ -511,8 +529,8 @@ async fn load_remote_config_flag(
         .fetch_optional(&mut *conn)
         .await
     } else {
-        sqlx::query_as::<_, (Value, Option<bool>)>(
-            "SELECT f.filters, f.has_encrypted_payloads \
+        sqlx::query_as::<_, (Value, Option<bool>, String)>(
+            "SELECT f.filters, f.has_encrypted_payloads, f.key \
              FROM posthog_featureflag f JOIN posthog_team t ON f.team_id = t.id \
              WHERE t.project_id = $1 AND f.deleted = false AND f.is_remote_configuration IS TRUE \
              AND f.key = $2 LIMIT 1",

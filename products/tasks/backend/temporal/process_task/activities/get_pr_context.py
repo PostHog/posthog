@@ -6,15 +6,21 @@ from django.core.exceptions import ObjectDoesNotExist
 
 from temporalio import activity
 
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.models import Integration
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.temporal.common.utils import close_db_connections
 
-from products.tasks.backend.exceptions import ProcessTaskTransientError
+from products.tasks.backend.constants import CI_STATUSES, PR_STATES
+from products.tasks.backend.exceptions import GitHubRateLimitedError, ProcessTaskTransientError
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.observability import log_activity_execution
 from products.tasks.backend.temporal.process_task.activities import TaskProcessingContext
+
+# GitHub's documented guidance when it rate-limits without timing headers is to wait ≥1 minute;
+# also the fallback for our own egress-budget shed, which carries no reset hint.
+DEFAULT_GITHUB_RATE_LIMIT_BACKOFF_SECONDS = 60
 
 
 @dataclass
@@ -132,6 +138,21 @@ def get_pr_context(input: GetPrContextInput) -> GetPrContextOutput | None:
             if not pull_request.get("success"):
                 return None
             fingerprint = compute_pr_fingerprint(pull_request)
+        except (GitHubRateLimitError, GitHubEgressBudgetExhausted) as e:
+            # A GitHub rate limit (its own 429) or our egress budget shedding the call is a
+            # normal, recoverable condition — not a fault. Keep it retryable but skip error
+            # tracking capture, and honor the backoff hint so the retry lands after the limit
+            # window instead of burning every attempt inside it.
+            retry_after = getattr(e, "retry_after", None) or DEFAULT_GITHUB_RATE_LIMIT_BACKOFF_SECONDS
+            raise GitHubRateLimitedError(
+                f"GitHub rate limited PR context fetch for URL {pr_url}; retrying in {retry_after}s",
+                context={
+                    "pr_url": pr_url,
+                    "github_integration_id": ctx.github_integration_id,
+                    "github_user_integration_id": ctx.github_user_integration_id,
+                },
+                retry_after=retry_after,
+            )
         except Exception as e:
             # A failed snapshot fetch is almost always a transient GitHub hiccup (a network
             # blip, a rate limit, or a 200-with-`errors` GraphQL server error). Raise it as
@@ -146,6 +167,22 @@ def get_pr_context(input: GetPrContextInput) -> GetPrContextOutput | None:
                 },
                 cause=e,
             )
+
+        # Persist the snapshot the CI loop just paid for, so the task list's
+        # pr:/ci: filters read live state off the run's output instead of
+        # needing their own GitHub round trips. Only canonical values land in
+        # output, and best-effort: the follow-up decision must not fail
+        # because a row write did.
+        updates: dict[str, Any] = {}
+        if pull_request.get("state") in PR_STATES:
+            updates["pr_state"] = pull_request["state"]
+        if pull_request.get("ci_status") in CI_STATUSES:
+            updates["ci_status"] = pull_request["ci_status"]
+        if updates:
+            try:
+                TaskRun.update_output_atomic(ctx.run_id, updates=updates)
+            except Exception:
+                activity.logger.warning("get_pr_context_snapshot_persist_failed", exc_info=True)
 
         return GetPrContextOutput(
             pr_url=pr_url,

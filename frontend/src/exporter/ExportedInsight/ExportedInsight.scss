@@ -32,21 +32,16 @@
         border-radius: 0 0 var(--radius) var(--radius);
     }
 
-    // A metric card renders best as a wide 2:1 card — header plus chart, proportioned like a dashboard
-    // tile — rather than stretched to the full exporter height. The aspect-ratio derives the card's
-    // height from the export width, and the content flex-fills the space under the header so the
-    // filling sparkline hugs the bottom of the card.
+    // A metric renders as a dashboard-tile-like card — header plus chart band — rather than stretched to
+    // the full exporter height. The ratio sits on the band, not the card, so a tall header (a long
+    // description wrapping over several lines) grows the card instead of squeezing the chart to a sliver.
     &--metric {
         flex: 0 0 auto;
         height: auto;
-        aspect-ratio: 2 / 1;
 
         .ExportedInsight__content {
-            flex: 1 1 0;
-
-            // `min-height: 0` overrides the flex-item `auto` floor so the aspect-ratio governs the card's
-            // height instead of the content's min-content height stretching the card taller.
-            min-height: 0;
+            flex: 0 0 auto;
+            aspect-ratio: 2 / 1;
         }
 
         // The quill sparkline shifts itself down 6px (`top-[6px]`) so its zero-baseline — drawn 6px

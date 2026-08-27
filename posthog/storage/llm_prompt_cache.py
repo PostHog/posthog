@@ -2,11 +2,14 @@ from collections.abc import Iterable
 from typing import Any, cast
 
 from django.conf import settings
+from django.db import InterfaceError, OperationalError
 from django.db.models import QuerySet
+
+import structlog
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
-from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing, KeyType
+from posthog.storage.hypercache import HyperCache, HyperCacheDependencyUnavailable, HyperCacheStoreMissing, KeyType
 from posthog.storage.llm_prompt_cache_keys import (
     parse_prompt_cache_key,
     prompt_label_cache_key,
@@ -21,6 +24,7 @@ from posthog.storage.llm_prompt_cache_payloads import (
     serialize_prompt_version,
     strip_internal_metadata,
 )
+from posthog.utils import capture_exception_throttled
 
 from products.ai_observability.backend.models.llm_prompt import (
     LLMPrompt,
@@ -28,8 +32,50 @@ from products.ai_observability.backend.models.llm_prompt import (
     annotate_llm_prompt_version_history_metadata,
 )
 
+logger = structlog.get_logger(__name__)
+
 # Used in tests; keep as module export.
 _serialize_prompt = serialize_prompt
+
+# Transient DB failures (e.g. a PgBouncer query_wait_timeout under pool pressure) that should
+# degrade to a cache miss rather than surfacing a 500, mirroring the Redis and S3 read tiers.
+_TRANSIENT_DB_ERRORS = (OperationalError, InterfaceError)
+
+# One capture per window across processes. This read is SDK-facing, so a sustained pool-pressure
+# incident would otherwise report once per request and bury everything else in error tracking.
+_DB_UNAVAILABLE_CAPTURE_THROTTLE_KEY = "llm_prompt_cache_db_unavailable_capture_throttle"
+_DB_UNAVAILABLE_CAPTURE_THROTTLE_TTL = 60  # seconds
+
+
+class PromptCacheDatabaseUnavailable(HyperCacheDependencyUnavailable):
+    """Raised by the prompt ``load_fn`` when the Postgres tier is transiently unavailable.
+
+    Subclasses the storage-layer base so HyperCache returns a miss without caching a
+    miss sentinel, which means the next read retries the DB instead of being pinned to
+    "not found" for the whole cache_miss_ttl. That is how the Redis and S3 tiers already
+    degrade, and it is why the raiser has to report the error itself (see
+    ``_record_prompt_db_unavailable``).
+    """
+
+
+def _record_prompt_db_unavailable(exc: BaseException, prompt_name: str) -> None:
+    """Report a transient prompt-DB failure where it is detected.
+
+    HyperCache deliberately does not capture ``HyperCacheDependencyUnavailable``, because it
+    trusts the raiser to have reported it already. Nothing downstream reports it either: a
+    versioned read served over a warm latest entry never reaches the wrapper in
+    ``get_prompt_by_name_from_cache``, so without this the request 404s with only a counter
+    to show the DB was down.
+    """
+    captured = capture_exception_throttled(
+        _DB_UNAVAILABLE_CAPTURE_THROTTLE_KEY, exc, _DB_UNAVAILABLE_CAPTURE_THROTTLE_TTL
+    )
+    logger.exception(
+        "llm_prompt_cache_db_unavailable",
+        prompt_name=prompt_name,
+        exception_captured=captured,
+        capture_throttled=not captured,
+    )
 
 
 def _get_active_prompt_queryset_for_team_id(team_id: int) -> QuerySet[LLMPrompt]:
@@ -94,25 +140,27 @@ def _load_prompt_cache(cache_key: KeyType) -> dict[str, Any] | HyperCacheStoreMi
     if parsed_key is None:
         return HyperCacheStoreMissing()
 
-    team_id, prompt_name, version, label_name = parsed_key
+    try:
+        if parsed_key.label is not None:
+            labeled_prompt = _get_labeled_prompt_from_db(parsed_key.team_id, parsed_key.prompt_name, parsed_key.label)
+            if labeled_prompt is None:
+                return HyperCacheStoreMissing()
+            return _serialize_labeled_prompt(labeled_prompt, parsed_key.label)
 
-    if label_name is not None:
-        labeled_prompt = _get_labeled_prompt_from_db(team_id, prompt_name, label_name)
-        if labeled_prompt is None:
-            return HyperCacheStoreMissing()
-        return _serialize_labeled_prompt(labeled_prompt, label_name)
+        if parsed_key.version is None:
+            prompt = _get_latest_prompt_from_db(parsed_key.team_id, parsed_key.prompt_name)
+            if prompt is None:
+                return HyperCacheStoreMissing()
+            return serialize_prompt(prompt, include_internal=True)
 
-    if version is None:
-        prompt = _get_latest_prompt_from_db(team_id, prompt_name)
+        prompt = _get_prompt_version_from_db(parsed_key.team_id, parsed_key.prompt_name, parsed_key.version)
         if prompt is None:
             return HyperCacheStoreMissing()
-        return serialize_prompt(prompt, include_internal=True)
 
-    prompt = _get_prompt_version_from_db(team_id, prompt_name, version)
-    if prompt is None:
-        return HyperCacheStoreMissing()
-
-    return serialize_prompt_version(prompt, include_internal=True)
+        return serialize_prompt_version(prompt, include_internal=True)
+    except _TRANSIENT_DB_ERRORS as err:
+        _record_prompt_db_unavailable(err, parsed_key.prompt_name)
+        raise PromptCacheDatabaseUnavailable(f"Prompt database unavailable loading {parsed_key.prompt_name}") from err
 
 
 llm_prompts_hypercache = HyperCache(
@@ -141,6 +189,22 @@ llm_prompts_label_hypercache = HyperCache(
 
 
 def get_prompt_by_name_from_cache(
+    team: Team,
+    prompt_name: str,
+    version: int | None = None,
+    label: str | None = None,
+) -> dict[str, Any] | None:
+    try:
+        return _get_prompt_by_name_from_cache(team, prompt_name, version, label)
+    except _TRANSIENT_DB_ERRORS as err:
+        # The direct DB fallbacks below bypass the hypercache tier, so a transient DB failure
+        # here (e.g. a PgBouncer query_wait_timeout) must degrade to a miss like the cache tiers
+        # rather than surfacing a 500 on this SDK-facing read.
+        _record_prompt_db_unavailable(err, prompt_name)
+        return None
+
+
+def _get_prompt_by_name_from_cache(
     team: Team,
     prompt_name: str,
     version: int | None = None,

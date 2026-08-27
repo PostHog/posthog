@@ -1,6 +1,5 @@
 from typing import Any
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.settings import (
     COHERE_ENDPOINTS,
     CohereEndpointConfig,
@@ -18,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 # Cohere serves a single global API host; there are no regional variants.
 COHERE_BASE_URL = "https://api.cohere.com/v1"

@@ -11,16 +11,13 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metabase import (
     MetabaseSourceConfig,
 )
@@ -138,6 +135,10 @@ The API key (or user) needs read access to the data you want to sync.""",
             # Deterministic and permanent until the Instance URL is corrected, so stop
             # retrying. Match the stable prefix, not the customer's hostname that follows it.
             "Couldn't resolve the host": "The Metabase Instance URL could not be resolved via DNS. Check that it's spelled correctly and reachable from the public internet, then reconnect.",
+            # `_is_host_safe` raises this when the Instance URL resolves to an internal or
+            # private address (SSRF guard). Deterministic and permanent until the customer
+            # points the source at a publicly reachable host, so stop retrying.
+            "internal or private IP address": "The Metabase Instance URL resolves to an internal or private IP address. Use your instance's public URL, then reconnect.",
         }
 
     def _build_auth(self, config: MetabaseSourceConfig) -> MetabaseAuth:

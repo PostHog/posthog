@@ -27,7 +27,6 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings, LimitContext
-from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
@@ -45,6 +44,7 @@ from posthog.hogql_queries.insights.funnels.funnel_validation_rules import (
     RequireAtLeastTwoFunnelSteps,
     ValidateFunnelExclusions,
     ValidateFunnelStepRange,
+    ValidateMaxFunnelSteps,
     ValidateOptionalFunnelSteps,
 )
 from posthog.hogql_queries.insights.funnels.utils import get_breakdown_cohort_name
@@ -103,6 +103,7 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
     def validators(self) -> Sequence[QueryValidationRule[FunnelsQuery]]:
         return (
             RequireAtLeastTwoFunnelSteps(),
+            ValidateMaxFunnelSteps(),
             ValidateFunnelStepRange(),
             ValidateFunnelExclusions(),
             ValidateOptionalFunnelSteps(),
@@ -283,14 +284,14 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         timings = []
 
         # TODO: can we get this from execute_hogql_query as well?
-        # Display-only response HogQL (never executed); bypass warehouse ACL so printing doesn't fail closed userless.
-        hogql = to_printed_hogql(query, self.team, bypass_warehouse_access_control=True)
+        hogql = self.response_hogql(query)
 
         response = execute_hogql_query(
             query_type="FunnelsQuery",
             query=query,
             team=self.team,
             user=self.user,
+            context=self.build_hogql_context(),
             timings=effective_timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,

@@ -41,6 +41,12 @@ ACTIVE_COHORT_BACKFILL_RUN_STATUSES = (
     CohortBackfillRunStatus.RECONCILING,
 )
 
+# Derived, so the two tuples always partition the enum: a ninth status joins one or the other, and
+# cannot fall out of both and into no gauge.
+TERMINAL_COHORT_BACKFILL_RUN_STATUSES = tuple(
+    status for status in CohortBackfillRunStatus if status not in ACTIVE_COHORT_BACKFILL_RUN_STATUSES
+)
+
 
 class CohortBackfillChunkStatus(models.TextChoices):
     PENDING = "pending", "Pending"
@@ -66,6 +72,7 @@ class CohortBackfillRun(TeamScopedRootMixin, UUIDTModel):
     )
     timezone = models.CharField(max_length=240)
     boundary_at = models.DateTimeField(null=True, blank=True)
+    person_scan_since = models.DateTimeField(null=True, blank=True)
     boundary_established_at = models.DateTimeField(null=True, blank=True)
     pinned = models.JSONField(default=dict)
     preconditions = models.JSONField(default=dict)
@@ -78,7 +85,7 @@ class CohortBackfillRun(TeamScopedRootMixin, UUIDTModel):
         blank=True,
         help_text=(
             "Opaque watcher resume state written by the Rust seeder, shape "
-            '{"schema":1,"positions":{...},"ends":{...}|null}. Django never interprets it.'
+            '{"schema":2,"topic":"...","positions":{...},"ends":{...}|null}. Django never interprets it.'
         ),
     )
     blocked_reason = models.TextField(blank=True, default="")
@@ -106,14 +113,14 @@ class CohortBackfillRun(TeamScopedRootMixin, UUIDTModel):
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=["cohort"],
+                fields=["cohort", "backfill_kind"],
                 condition=Q(cohort__isnull=False, status__in=ACTIVE_COHORT_BACKFILL_RUN_STATUSES),
-                name="cohort_bfr_active_cohort_uq",
+                name="cohort_bfr_active_cohort_kind_uq",
             ),
             models.UniqueConstraint(
-                fields=["team"],
+                fields=["team", "backfill_kind"],
                 condition=Q(scope=CohortBackfillScope.TEAM, status__in=ACTIVE_COHORT_BACKFILL_RUN_STATUSES),
-                name="cohort_bfr_active_team_uq",
+                name="cohort_bfr_active_team_kind_uq",
             ),
         ]
 
@@ -124,6 +131,7 @@ class CohortBackfillRunCohort(TeamScopedRootMixin, UUIDModel):
     cohort = models.ForeignKey("cohorts.Cohort", on_delete=models.CASCADE, related_name="backfill_participations")
     filters_shape_hash = models.CharField(max_length=64)
     behavioral_filters_shape_hash = models.CharField(max_length=64, default="")
+    person_filters_shape_hash = models.CharField(max_length=64, default="")
     pinned_filters = models.JSONField()
     stamped_at = models.DateTimeField(null=True, blank=True)
     superseded_at = models.DateTimeField(null=True, blank=True)
@@ -159,6 +167,8 @@ class CohortBackfillChunk(TeamScopedRootMixin, UUIDModel):
     claimed_at = models.DateTimeField(null=True, blank=True)
     lease_expires_at = models.DateTimeField(null=True, blank=True)
     s_chunk_at = models.DateTimeField(null=True, blank=True)
+    person_range_lo = models.UUIDField(null=True, blank=True)
+    person_range_hi = models.UUIDField(null=True, blank=True)
     attempts = models.IntegerField(default=0)
     last_error = models.TextField(blank=True, default="")
     tiles_produced = models.BigIntegerField(default=0)

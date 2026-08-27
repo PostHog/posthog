@@ -721,6 +721,7 @@ async fn spawn_instance(
         ),
         register_transfer_enabled: false,
         reconcile: cohort_stream_processor::workers::ReconcileDeps::default(),
+        person_seed: cohort_stream_processor::workers::PersonSeedDeps::default(),
     });
 
     let dispatcher = Arc::new(EventDispatcher::new(
@@ -864,7 +865,7 @@ fn commit_follower_offsets_from_manifest(
 }
 
 /// `durable_restore_enabled && cohort_cascade_enabled` requires `durable_restore_single_pod &&
-/// pod_identity().is_some()` to pass `validate_durability_startup`, so those knobs are set too.
+/// pod_identity().is_some()` to pass `validate_startup`, so those knobs are set too.
 #[allow(clippy::too_many_arguments)]
 fn merge_durability_config(
     store_path: &Path,
@@ -927,7 +928,7 @@ fn merge_durability_config(
     }
     let config = Config::init_from_hashmap(&env).expect("build merge-durability config");
     config
-        .validate_durability_startup()
+        .validate_startup()
         .expect("merge-durability config must satisfy the durability startup guard");
     config
 }

@@ -7,34 +7,35 @@ use bytes::Bytes;
 use common_types::{CapturedEvent, HasEventName};
 use futures::stream;
 use limiters::redis::QuotaResource;
-use metrics::{counter, histogram};
+use metrics::counter;
 use multer::{parse_boundary, Multipart};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashSet;
 use time::format_description::well_known::Iso8601;
 use time::OffsetDateTime;
 use tracing::{debug, error, warn};
 use uuid::Uuid;
 
-// Blob metrics
-const AI_BLOB_COUNT_PER_EVENT: &str = "capture_ai_blob_count_per_event";
-const AI_BLOB_SIZE_BYTES: &str = "capture_ai_blob_size_bytes";
-const AI_BLOB_TOTAL_BYTES_PER_EVENT: &str = "capture_ai_blob_total_bytes_per_event";
-const AI_BLOB_EVENTS_TOTAL: &str = "capture_ai_blob_events_total";
+use common_ingestion_warnings::WarningRequestContext;
 
+use crate::ai_rejection::{AiFailure, AiRejection, ALLOWED_AI_EVENTS};
 use crate::api::{CaptureError, CaptureResponse, CaptureResponseCode};
 use crate::event_restrictions::{
     AppliedRestrictions, EventContext as RestrictionEventContext, Pipeline,
 };
+use crate::events::ai_byte_limit::charge_ai_bytes;
 use crate::events::overflow_stamping::stamp_overflow_reason;
 use crate::extractors::extract_body_with_timeout;
+use crate::ingestion_warnings::ai::emit_ai_failure_warning;
+use crate::ingestion_warnings::{unknown_if_missing, within_bound};
 use crate::payload::decompression::decompress_gzip_to_bytes;
 use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
 use crate::router::State as AppState;
 use crate::timestamp;
 use crate::token::validate_token;
-use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata};
+use crate::v0_request::{
+    exceeds_max_ai_event_bytes, DataType, ProcessedEvent, ProcessedEventMetadata,
+};
 use crate::v1::gateway_provenance as gp;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,29 +51,6 @@ pub struct PartInfo {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AIEndpointResponse {
     pub accepted_parts: Vec<PartInfo>,
-}
-
-/// A blob part from the multipart request, including headers for S3 storage
-#[derive(Debug)]
-struct BlobPart {
-    name: String,
-    content_type: Option<String>,
-    content_encoding: Option<String>,
-    data: Bytes,
-}
-
-/// Insert S3 URLs from uploaded blobs into event properties.
-fn insert_blob_urls_into_properties(
-    uploaded: &crate::ai_s3::UploadedBlobs,
-    properties: &mut serde_json::Map<String, Value>,
-) {
-    for part in &uploaded.parts {
-        let url = format!(
-            "{}?range={}-{}",
-            uploaded.base_url, part.range_start, part.range_end
-        );
-        properties.insert(part.property_name.clone(), Value::String(url));
-    }
 }
 
 /// Metadata extracted from the event part for early checks (token dropper, quota)
@@ -105,7 +83,6 @@ impl HasEventName for EventMetadata {
 struct RetrievedMultipartParts {
     event_json: Value,
     properties_json: Value,
-    blob_parts: Vec<BlobPart>,
     accepted_parts: Vec<PartInfo>,
 }
 
@@ -119,7 +96,6 @@ struct ParsedMultipartData {
     event_uuid: Uuid,
     timestamp: Option<String>,
     sent_at: Option<OffsetDateTime>,
-    blob_parts: Vec<BlobPart>,
 }
 
 pub async fn ai_handler(
@@ -129,9 +105,27 @@ pub async fn ai_handler(
     headers: HeaderMap,
     body: Body,
 ) -> Result<Json<AIEndpointResponse>, CaptureError> {
-    ai_handler_inner(state, ip, path, headers, body)
-        .await
-        .inspect_err(|err| report_internal_error_metrics(err.to_metric_tag(), "ai"))
+    let emitter = state.ingestion_warning_emitter.clone();
+    // Filled by the inner handler once the token is known, and enriched once the
+    // event part parses. Staying `None` is what keeps pre-token failures — an
+    // oversized body, a missing Bearer header — from emitting a warning nobody
+    // can be attributed for.
+    let mut attribution = None;
+
+    let result = ai_handler_inner(state, ip, path, headers, body, &mut attribution).await;
+
+    let failure = match result {
+        Ok(response) => return Ok(response),
+        Err(failure) => failure,
+    };
+
+    if let Some(request) = attribution.as_ref() {
+        emit_ai_failure_warning(emitter.as_deref(), request, &failure);
+    }
+
+    let err = CaptureError::from(failure);
+    report_internal_error_metrics(err.to_metric_tag(), "ai");
+    Err(err)
 }
 
 async fn ai_handler_inner(
@@ -140,7 +134,8 @@ async fn ai_handler_inner(
     path: MatchedPath,
     headers: HeaderMap,
     body: Body,
-) -> Result<Json<AIEndpointResponse>, CaptureError> {
+    attribution: &mut Option<WarningRequestContext>,
+) -> Result<Json<AIEndpointResponse>, AiFailure> {
     debug!("Received request to /i/v0/ai endpoint");
 
     // Extract body with timed streaming (same pattern as analytics/recordings handlers)
@@ -157,7 +152,7 @@ async fn ai_handler_inner(
 
     // Check for empty body
     if body.is_empty() {
-        return Err(CaptureError::EmptyPayload);
+        return Err(CaptureError::EmptyPayload.into());
     }
 
     // Authenticate before any CPU/memory-intensive decompression work
@@ -167,11 +162,16 @@ async fn ai_handler_inner(
         .unwrap_or("");
 
     if !auth_header.starts_with("Bearer ") {
-        return Err(CaptureError::NoTokenError);
+        return Err(CaptureError::NoTokenError.into());
     }
 
     let token = &auth_header[7..]; // Remove "Bearer " prefix
-    validate_token(token)?;
+    validate_token(token).map_err(CaptureError::from)?;
+
+    // Everything from here on is attributable. SDK identity isn't known yet —
+    // it lives in the event part's properties — so warnings raised before that
+    // part parses stamp the unknown fallback.
+    *attribution = Some(ai_request_context(token, path.as_str(), None));
 
     // Check for Content-Encoding header and decompress if needed
     let content_encoding = headers
@@ -193,15 +193,12 @@ async fn ai_handler_inner(
         .unwrap_or("");
 
     if !content_type.starts_with("multipart/form-data") {
-        return Err(CaptureError::RequestDecodingError(
-            "Content-Type must be multipart/form-data".to_string(),
-        ));
+        return Err(AiRejection::NotMultipart.into());
     }
 
     // Extract boundary from Content-Type header using multer's built-in parser
-    let boundary = parse_boundary(content_type).map_err(|e| {
-        CaptureError::RequestDecodingError(format!("Invalid boundary in Content-Type: {e}"))
-    })?;
+    let boundary =
+        parse_boundary(content_type).map_err(|e| AiRejection::InvalidBoundary(e.to_string()))?;
 
     // Capture body size for logging (before we move the Bytes)
     let body_size = decompressed_body.len();
@@ -214,6 +211,14 @@ async fn ai_handler_inner(
 
     // Step 1: Retrieve event metadata (parses only the first 'event' part)
     let event_metadata = retrieve_event_metadata(&mut multipart).await?;
+
+    // The event part carries $lib/$lib_version, so attribution can be upgraded
+    // from the unknown fallback for everything that fails after this point.
+    *attribution = Some(ai_request_context(
+        token,
+        path.as_str(),
+        Some(&event_metadata.event_json),
+    ));
 
     // Step 2: Check event restrictions early - before parsing remaining parts
     let applied_restrictions = if let Some(ref service) = state.event_restriction_service {
@@ -283,7 +288,7 @@ async fn ai_handler_inner(
             .is_quota_limited_v1(token, &QuotaResource::Events)
             .await
         {
-            return Err(CaptureError::BillingLimit);
+            return Err(CaptureError::BillingLimit.into());
         }
         event_metadata
     } else {
@@ -301,89 +306,11 @@ async fn ai_handler_inner(
     };
 
     // Step 5: Retrieve and validate remaining multipart parts (continues parsing from multipart)
-    let parts = retrieve_multipart_parts(
-        &mut multipart,
-        state.ai_max_sum_of_parts_bytes,
-        event_metadata,
-    )
-    .await?;
+    let parts =
+        retrieve_multipart_parts(&mut multipart, event_metadata, state.ai_max_event_bytes).await?;
 
     // Step 6: Parse the parts
     let mut parsed = parse_multipart_data(parts)?;
-
-    // Step 7: Record blob metrics and upload to S3
-    let blob_count = parsed.blob_parts.len();
-    if blob_count > 0 {
-        // Record blob metrics
-        histogram!(AI_BLOB_COUNT_PER_EVENT).record(blob_count as f64);
-
-        let mut total_blob_bytes: usize = 0;
-        for blob in &parsed.blob_parts {
-            let blob_size = blob.data.len();
-            total_blob_bytes += blob_size;
-            histogram!(AI_BLOB_SIZE_BYTES).record(blob_size as f64);
-
-            // Track content type distribution (normalize to known types)
-            let content_type = match blob.content_type.as_deref() {
-                Some("application/json") => "application/json",
-                Some("application/octet-stream") => "application/octet-stream",
-                Some(ct) if ct.starts_with("text/plain") => "text/plain",
-                Some(_) => "other",
-                None => "unknown",
-            };
-            counter!(AI_BLOB_EVENTS_TOTAL, "has_blobs" => "true", "content_type" => content_type)
-                .increment(1);
-        }
-        histogram!(AI_BLOB_TOTAL_BYTES_PER_EVENT).record(total_blob_bytes as f64);
-    } else {
-        counter!(AI_BLOB_EVENTS_TOTAL, "has_blobs" => "false", "content_type" => "none")
-            .increment(1);
-    }
-
-    // Upload blobs to S3 and insert URLs into event properties
-    if !parsed.blob_parts.is_empty() {
-        let blob_storage = state.ai_blob_storage.as_ref().ok_or_else(|| {
-            error!("AI endpoint received blobs but S3 is not configured");
-            CaptureError::ServiceUnavailable("blob storage not configured".to_string())
-        })?;
-
-        // Convert blob_parts to format expected by AiBlobStorage
-        let blobs: Vec<crate::ai_s3::BlobData> = parsed
-            .blob_parts
-            .iter()
-            .filter_map(|bp| {
-                bp.name
-                    .strip_prefix("event.properties.")
-                    .map(|prop_name| crate::ai_s3::BlobData {
-                        property_name: prop_name.to_string(),
-                        content_type: bp.content_type.clone(),
-                        content_encoding: bp.content_encoding.clone(),
-                        data: bp.data.clone(),
-                    })
-            })
-            .collect();
-
-        // Upload blobs and get URLs
-        // TODO: Replace token with team_id once secret key signing is implemented
-        // and we can resolve tokens to team IDs in capture
-        let uploaded = blob_storage
-            .upload_blobs(token, &parsed.event_uuid.to_string(), blobs)
-            .await
-            .map_err(|e| {
-                warn!("Failed to upload blobs to S3: {:?}", e);
-                CaptureError::NonRetryableSinkError
-            })?;
-
-        // Insert S3 URLs into event properties
-        if let Some(properties) = parsed
-            .event
-            .as_object_mut()
-            .and_then(|obj| obj.get_mut("properties"))
-            .and_then(|p| p.as_object_mut())
-        {
-            insert_blob_urls_into_properties(&uploaded, properties);
-        }
-    }
 
     // AI-gateway provenance: stamp the trusted marker (overwriting client values) on a
     // verified event, else strip the whole $ai_gateway* namespace so a forged marker
@@ -433,6 +360,29 @@ async fn ai_handler_inner(
     let (accepted_parts, mut processed_event) =
         build_kafka_event(parsed, token, &client_ip, &state, &applied_restrictions)?;
 
+    // Step 8a: Charge the AI lane's per-project byte budget. This endpoint
+    // builds its event at the handler and reaches the sink through neither
+    // analytics pipeline, so without this a sender could spend an unbounded
+    // number of bytes here while the same bytes on `/i/v0/ai/batch` are capped.
+    //
+    // Charged on the serialized event the sink would produce, which is the
+    // measure the legacy path charges, and after restrictions, quota, and the
+    // combined-size ceiling — nothing that was never going to publish spends
+    // the project's budget.
+    //
+    // An over-budget event answers 200 with no accepted parts, the shape this
+    // handler already uses for the token dropper and for a `DropEvent`
+    // restriction. A rate drop is ops-imposed, so it is reported to the client
+    // only as "nothing was accepted", never as a request failure.
+    if let Some(ref limiter) = state.ai_byte_rate_limiter {
+        if charge_ai_bytes(limiter, token, processed_event.event.data.len()).await {
+            report_dropped_events("ai_byte_rate_limited", 1);
+            return Ok(Json(AIEndpointResponse {
+                accepted_parts: vec![],
+            }));
+        }
+    }
+
     // Step 8b: Apply the in-process OverflowLimiter governor. The analytics
     // pipeline stamps overflow reasons inside `process_events`, but AI
     // bypasses that path, so we invoke the shared helper here to preserve
@@ -472,23 +422,45 @@ pub async fn options() -> Result<CaptureResponse, CaptureError> {
     })
 }
 
+/// Warning attribution for an AI request.
+///
+/// The endpoint has no `PostHog-Sdk-Info` contract, so SDK identity comes from
+/// the event's own `$lib`/`$lib_version` properties. `event` is `None` before the
+/// event part has parsed, which is when several rejections fire, so both fields
+/// fall back to the unknown placeholder rather than dropping the keys.
+fn ai_request_context(token: &str, path: &str, event: Option<&Value>) -> WarningRequestContext {
+    let properties = event
+        .and_then(|e| e.as_object())
+        .and_then(|obj| obj.get("properties"))
+        .and_then(|props| props.as_object());
+    let property = |key: &str| {
+        properties
+            .and_then(|props| props.get(key))
+            .and_then(|v| v.as_str())
+            .and_then(|v| within_bound(v.to_string()))
+    };
+
+    WarningRequestContext {
+        token: token.to_string(),
+        lib: unknown_if_missing(property("$lib").as_deref()),
+        lib_version: unknown_if_missing(property("$lib_version").as_deref()),
+        path: path.to_string(),
+    }
+}
+
 /// Retrieve event metadata from the first multipart part for early checks.
 /// This parses only the 'event' part to extract event_name and distinct_id
 /// before processing the rest of the multipart body.
 /// The multipart parser is passed in and will be reused for remaining parts.
 async fn retrieve_event_metadata(
     multipart: &mut Multipart<'_>,
-) -> Result<EventMetadata, CaptureError> {
+) -> Result<EventMetadata, AiRejection> {
     // Get the first field - must be 'event'
     let field = multipart
         .next_field()
         .await
-        .map_err(|e| CaptureError::RequestDecodingError(format!("Multipart parsing failed: {e}")))?
-        .ok_or_else(|| {
-            CaptureError::RequestParsingError(
-                "Missing required 'event' part in multipart data".to_string(),
-            )
-        })?;
+        .map_err(|e| AiRejection::MultipartParseFailed(e.to_string()))?
+        .ok_or(AiRejection::MissingEventPart)?;
 
     let field_name = field.name().unwrap_or("unknown").to_string();
     let content_type = field.content_type().map(|ct| ct.to_string());
@@ -500,39 +472,32 @@ async fn retrieve_event_metadata(
 
     // Validate that the first part is the event part
     if field_name != "event" {
-        return Err(CaptureError::RequestParsingError(format!(
-            "First part must be 'event', got '{field_name}'"
-        )));
+        return Err(AiRejection::FirstPartNotEvent(field_name));
     }
 
     // Read the field data
-    let field_data = field.bytes().await.map_err(|e| {
-        CaptureError::RequestDecodingError(format!("Failed to read field data: {e}"))
-    })?;
+    let field_data = field
+        .bytes()
+        .await
+        .map_err(|e| AiRejection::FieldDataUnreadable(e.to_string()))?;
 
     // Process the event part
     let (event_json, event_part_info) =
         process_event_part(field_data, content_type, content_encoding)?;
 
     // Extract event_name and distinct_id
-    let event_obj = event_json.as_object().ok_or_else(|| {
-        CaptureError::RequestParsingError("Event must be a JSON object".to_string())
-    })?;
+    let event_obj = event_json.as_object().ok_or(AiRejection::EventNotObject)?;
 
     let event_name = event_obj
         .get("event")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            CaptureError::RequestParsingError("Event missing 'event' field".to_string())
-        })?
+        .ok_or(AiRejection::EventMissingName)?
         .to_string();
 
     let distinct_id = event_obj
         .get("distinct_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            CaptureError::RequestParsingError("Event missing 'distinct_id' field".to_string())
-        })?
+        .ok_or(AiRejection::EventMissingDistinctId)?
         .to_string();
 
     Ok(EventMetadata {
@@ -541,15 +506,6 @@ async fn retrieve_event_metadata(
         event_json,
         event_part_info,
     })
-}
-
-/// Validate blob part content type
-fn is_valid_blob_content_type(content_type: &str) -> bool {
-    // Supported content types for blob parts
-    content_type == "application/octet-stream"
-        || content_type == "application/json"
-        || content_type == "text/plain"
-        || content_type.starts_with("text/plain;") // Allow text/plain with charset
 }
 
 /// Build a Kafka event from parsed multipart data
@@ -627,7 +583,7 @@ fn build_kafka_event(
 
     // Create metadata
     let metadata = ProcessedEventMetadata {
-        data_type: DataType::AnalyticsMain,
+        data_type: DataType::AiEvents,
         session_id: None,
         computed_timestamp: Some(computed_timestamp),
         event_name: parsed.event_name,
@@ -637,6 +593,7 @@ fn build_kafka_event(
         redirect_to_topic: restrictions.redirect_to_topic().map(|s| s.to_string()),
         skip_heatmap_processing: false,
         overflow_reason: None,
+        distinct_id_truncated_from: None,
     };
 
     // Create ProcessedEvent
@@ -653,26 +610,25 @@ fn process_event_part(
     field_data: Bytes,
     content_type: Option<String>,
     content_encoding: Option<String>,
-) -> Result<(Value, PartInfo), CaptureError> {
+) -> Result<(Value, PartInfo), AiRejection> {
     const MAX_EVENT_SIZE: usize = 32 * 1024; // 32KB
 
     let event_size = field_data.len();
 
     // Check event size limit
     if event_size > MAX_EVENT_SIZE {
-        return Err(CaptureError::EventTooBig(format!(
-            "Event part size ({event_size} bytes) exceeds maximum allowed size ({MAX_EVENT_SIZE} bytes)"
-        )));
+        return Err(AiRejection::EventPartTooBig {
+            size: event_size,
+            max: MAX_EVENT_SIZE,
+        });
     }
 
     // Parse the event JSON
-    let event_json_str = std::str::from_utf8(&field_data).map_err(|_| {
-        CaptureError::RequestParsingError("Event part must be valid UTF-8".to_string())
-    })?;
+    let event_json_str =
+        std::str::from_utf8(&field_data).map_err(|_| AiRejection::EventPartNotUtf8)?;
 
-    let event_json = serde_json::from_str(event_json_str).map_err(|_| {
-        CaptureError::RequestParsingError("Event part must be valid JSON".to_string())
-    })?;
+    let event_json =
+        serde_json::from_str(event_json_str).map_err(|_| AiRejection::EventPartNotJson)?;
 
     let part_info = PartInfo {
         name: "event".to_string(),
@@ -690,15 +646,13 @@ fn process_properties_part(
     field_data: Bytes,
     content_type: Option<String>,
     content_encoding: Option<String>,
-) -> Result<(Value, PartInfo), CaptureError> {
+) -> Result<(Value, PartInfo), AiRejection> {
     // Parse the properties JSON
-    let properties_json_str = std::str::from_utf8(&field_data).map_err(|_| {
-        CaptureError::RequestParsingError("Properties part must be valid UTF-8".to_string())
-    })?;
+    let properties_json_str =
+        std::str::from_utf8(&field_data).map_err(|_| AiRejection::PropertiesPartNotUtf8)?;
 
-    let properties_json = serde_json::from_str(properties_json_str).map_err(|_| {
-        CaptureError::RequestParsingError("Properties part must be valid JSON".to_string())
-    })?;
+    let properties_json = serde_json::from_str(properties_json_str)
+        .map_err(|_| AiRejection::PropertiesPartNotJson)?;
 
     let part_info = PartInfo {
         name: "event.properties".to_string(),
@@ -711,76 +665,19 @@ fn process_properties_part(
     Ok((properties_json, part_info))
 }
 
-/// Process a blob part
-fn process_blob_part(
-    field_name: String,
-    field_data: Bytes,
-    content_type: Option<String>,
-    content_encoding: Option<String>,
-) -> Result<(BlobPart, PartInfo), CaptureError> {
-    // Validate content type for blob parts - it's required
-    if let Some(ref ct) = content_type {
-        let ct_lower = ct.to_lowercase();
-        if !is_valid_blob_content_type(&ct_lower) {
-            return Err(CaptureError::RequestParsingError(
-                format!("Unsupported content type for blob part '{field_name}': '{ct}'. Supported types: application/octet-stream, application/json, text/plain"),
-            ));
-        }
-    } else {
-        return Err(CaptureError::RequestParsingError(format!(
-            "Missing required Content-Type header for blob part '{field_name}'"
-        )));
-    }
-
-    // Get length before moving data
-    let field_data_len = field_data.len();
-
-    // Reject empty blobs
-    if field_data_len == 0 {
-        return Err(CaptureError::RequestParsingError(format!(
-            "Blob part '{field_name}' cannot be empty (0 bytes)"
-        )));
-    }
-
-    // Create part info (clones needed for response)
-    let part_info = PartInfo {
-        name: field_name.clone(),
-        length: field_data_len,
-        content_type: content_type.clone(),
-        content_encoding: content_encoding.clone(),
-    };
-
-    // Create blob part - moves field_name, field_data, includes headers for S3 storage
-    let blob_part = BlobPart {
-        name: field_name,
-        content_type,
-        content_encoding,
-        data: field_data, // MOVE - no clone of actual blob data!
-    };
-
-    debug!("Blob part processed successfully");
-    Ok((blob_part, part_info))
-}
-
 /// Retrieve and validate multipart parts from the request body.
 /// The event metadata (first part) has already been parsed by retrieve_event_metadata.
 /// Continues parsing from where retrieve_event_metadata left off.
 async fn retrieve_multipart_parts(
     multipart: &mut Multipart<'_>,
-    max_sum_of_parts_bytes: usize,
     event_metadata: EventMetadata,
-) -> Result<RetrievedMultipartParts, CaptureError> {
-    // Size limits
-    const MAX_COMBINED_SIZE: usize = 1024 * 1024 - 64 * 1024; // 1MB - 64KB = 960KB
-
+    max_event_bytes: u64,
+) -> Result<RetrievedMultipartParts, AiRejection> {
     let mut part_count = 0;
     let mut accepted_parts = Vec::new();
-    let mut seen_property_names = HashSet::new();
-    let mut blob_parts: Vec<BlobPart> = Vec::new();
     let mut properties_json: Option<Value> = None;
     let event_size: usize = event_metadata.event_part_info.length;
     let mut properties_size: usize = 0;
-    let mut sum_of_parts_bytes: usize = event_size;
 
     // Add the pre-parsed event part info
     accepted_parts.push(event_metadata.event_part_info);
@@ -789,7 +686,7 @@ async fn retrieve_multipart_parts(
     while let Some(field) = multipart
         .next_field()
         .await
-        .map_err(|e| CaptureError::RequestDecodingError(format!("Multipart parsing failed: {e}")))?
+        .map_err(|e| AiRejection::MultipartParseFailed(e.to_string()))?
     {
         part_count += 1;
 
@@ -809,18 +706,14 @@ async fn retrieve_multipart_parts(
 
         // Event part was already consumed by retrieve_event_metadata - reject duplicates
         if field_name == "event" {
-            return Err(CaptureError::RequestParsingError(
-                "Duplicate 'event' part found".to_string(),
-            ));
+            return Err(AiRejection::DuplicateEventPart);
         }
 
         // Read the field data to get the length (this consumes the field)
-        let field_data = field.bytes().await.map_err(|e| {
-            CaptureError::RequestDecodingError(format!("Failed to read field data: {e}"))
-        })?;
-
-        // Track sum of all part sizes
-        sum_of_parts_bytes += field_data.len();
+        let field_data = field
+            .bytes()
+            .await
+            .map_err(|e| AiRejection::FieldDataUnreadable(e.to_string()))?;
 
         // Process based on field name
         if field_name == "event.properties" {
@@ -829,53 +722,21 @@ async fn retrieve_multipart_parts(
                 process_properties_part(field_data, content_type, content_encoding)?;
             properties_json = Some(properties);
             accepted_parts.push(part_info);
-        } else if let Some(property_name) = field_name.strip_prefix("event.properties.") {
-            // Extract the property name after "event.properties."
-            // Validate that the property name doesn't contain dots (enforce top-level properties only)
-            if property_name.contains('.') {
-                return Err(CaptureError::RequestParsingError(format!(
-                    "Blob property '{field_name}' contains nested properties (dots). Only top-level properties are allowed."
-                )));
-            }
-
-            // Check for duplicates before processing
-            if seen_property_names.contains(&field_name) {
-                return Err(CaptureError::RequestParsingError(format!(
-                    "Duplicate blob property: {field_name}"
-                )));
-            }
-
-            let (blob_part, part_info) = process_blob_part(
-                field_name.clone(),
-                field_data,
-                content_type,
-                content_encoding,
-            )?;
-
-            seen_property_names.insert(field_name);
-            blob_parts.push(blob_part);
-            accepted_parts.push(part_info);
         } else {
-            // Reject unknown fields that don't match expected patterns
-            return Err(CaptureError::RequestParsingError(format!(
-                "Unknown multipart field: '{field_name}'. Expected 'event', 'event.properties', or 'event.properties.<property_name>'"
-            )));
+            return Err(AiRejection::UnknownField(field_name));
         }
     }
 
-    // Check combined size limit
+    // The event and its properties are merged into one event downstream, so the
+    // deployment's per-event ceiling applies to their sum. Rejecting here keeps
+    // an oversized event off the producer, whose own cap would refuse it only
+    // after the whole body had been read.
     let combined_size = event_size + properties_size;
-    if combined_size > MAX_COMBINED_SIZE {
-        return Err(CaptureError::EventTooBig(format!(
-            "Combined event and properties size ({combined_size} bytes) exceeds maximum allowed size ({MAX_COMBINED_SIZE} bytes)"
-        )));
-    }
-
-    // Check sum of all parts limit
-    if sum_of_parts_bytes > max_sum_of_parts_bytes {
-        return Err(CaptureError::EventTooBig(format!(
-            "Sum of all parts ({sum_of_parts_bytes} bytes) exceeds maximum allowed size ({max_sum_of_parts_bytes} bytes)"
-        )));
+    if exceeds_max_ai_event_bytes(combined_size, max_event_bytes) {
+        return Err(AiRejection::EventAndPropertiesTooBig {
+            size: combined_size,
+            max: max_event_bytes as usize,
+        });
     }
 
     // Use the event JSON from the pre-parsed metadata
@@ -888,10 +749,7 @@ async fn retrieve_multipart_parts(
         .is_some();
 
     if has_embedded_properties && properties_json.is_some() {
-        return Err(CaptureError::RequestParsingError(
-            "Event cannot have both embedded properties and a separate 'event.properties' part"
-                .to_string(),
-        ));
+        return Err(AiRejection::ConflictingProperties);
     }
 
     // Determine which properties to use:
@@ -908,33 +766,25 @@ async fn retrieve_multipart_parts(
             .unwrap_or(serde_json::json!({}))
     };
 
-    debug!(
-        "Multipart parts retrieved: {} parts processed, {} blob parts found",
-        part_count,
-        blob_parts.len()
-    );
+    debug!("Multipart parts retrieved: {part_count} parts processed");
 
     Ok(RetrievedMultipartParts {
         event_json: event,
         properties_json: final_properties,
-        blob_parts,
         accepted_parts,
     })
 }
 
 /// Parse retrieved multipart parts and validate event structure.
-/// Returns parsed data with blob_parts for later S3 upload.
 fn parse_multipart_data(
     parts: RetrievedMultipartParts,
-) -> Result<ParsedMultipartData, CaptureError> {
+) -> Result<ParsedMultipartData, AiRejection> {
     // Merge properties into the event
     let mut event = parts.event_json;
     if let Some(event_obj) = event.as_object_mut() {
         event_obj.insert("properties".to_string(), parts.properties_json);
     } else {
-        return Err(CaptureError::RequestParsingError(
-            "Event must be a JSON object".to_string(),
-        ));
+        return Err(AiRejection::EventNotObject);
     }
 
     // Now validate the complete event structure
@@ -945,14 +795,14 @@ fn parse_multipart_data(
         .as_object()
         .and_then(|obj| obj.get("event"))
         .and_then(|v| v.as_str())
-        .ok_or_else(|| CaptureError::RequestParsingError("Event name is required".to_string()))?
+        .ok_or(AiRejection::EventNameRequired)?
         .to_string();
 
     let distinct_id = event
         .as_object()
         .and_then(|obj| obj.get("distinct_id"))
         .and_then(|v| v.as_str())
-        .ok_or_else(|| CaptureError::RequestParsingError("distinct_id is required".to_string()))?
+        .ok_or(AiRejection::DistinctIdRequired)?
         .to_string();
 
     // Extract and validate UUID
@@ -960,10 +810,9 @@ fn parse_multipart_data(
         .as_object()
         .and_then(|obj| obj.get("uuid"))
         .and_then(|v| v.as_str())
-        .ok_or_else(|| CaptureError::RequestParsingError("Event UUID is required".to_string()))
+        .ok_or(AiRejection::EventUuidRequired)
         .and_then(|uuid_str| {
-            Uuid::parse_str(uuid_str)
-                .map_err(|e| CaptureError::RequestParsingError(format!("Invalid UUID format: {e}")))
+            Uuid::parse_str(uuid_str).map_err(|e| AiRejection::EventUuidInvalid(e.to_string()))
         })?;
 
     let timestamp = event
@@ -979,11 +828,6 @@ fn parse_multipart_data(
         .and_then(|v| v.as_str())
         .and_then(|sent_at_str| OffsetDateTime::parse(sent_at_str, &Iso8601::DEFAULT).ok());
 
-    debug!(
-        "Multipart parsing completed: {} blob parts",
-        parts.blob_parts.len()
-    );
-
     Ok(ParsedMultipartData {
         accepted_parts: parts.accepted_parts,
         event,
@@ -992,89 +836,56 @@ fn parse_multipart_data(
         event_uuid,
         timestamp,
         sent_at,
-        blob_parts: parts.blob_parts,
     })
 }
 
 /// Validate the structure and content of an AI event
-fn validate_event_structure(event: &Value) -> Result<(), CaptureError> {
+fn validate_event_structure(event: &Value) -> Result<(), AiRejection> {
     // Check if event is an object
-    let event_obj = event.as_object().ok_or_else(|| {
-        CaptureError::RequestParsingError("Event must be a JSON object".to_string())
-    })?;
+    let event_obj = event.as_object().ok_or(AiRejection::EventNotObject)?;
 
     // Validate event name
     let event_name = event_obj
         .get("event")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            CaptureError::RequestParsingError("Event missing 'event' field".to_string())
-        })?;
+        .ok_or(AiRejection::EventMissingName)?;
 
     if event_name.is_empty() {
-        return Err(CaptureError::RequestParsingError(
-            "Event name cannot be empty".to_string(),
-        ));
+        return Err(AiRejection::EventNameEmpty);
     }
 
-    // Only accept specific AI event types
-    const ALLOWED_AI_EVENTS: [&str; 6] = [
-        "$ai_generation",
-        "$ai_trace",
-        "$ai_span",
-        "$ai_embedding",
-        "$ai_metric",
-        "$ai_feedback",
-    ];
-
     if !ALLOWED_AI_EVENTS.contains(&event_name) {
-        return Err(CaptureError::RequestParsingError(format!(
-            "Event name must be one of: {}, got '{}'",
-            ALLOWED_AI_EVENTS.join(", "),
-            event_name
-        )));
+        return Err(AiRejection::EventNameNotAllowed(event_name.to_string()));
     }
 
     // Validate distinct_id
     let distinct_id = event_obj
         .get("distinct_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            CaptureError::RequestParsingError("Event missing 'distinct_id' field".to_string())
-        })?;
+        .ok_or(AiRejection::EventMissingDistinctId)?;
 
     if distinct_id.is_empty() {
-        return Err(CaptureError::RequestParsingError(
-            "distinct_id cannot be empty".to_string(),
-        ));
+        return Err(AiRejection::DistinctIdEmpty);
     }
 
     // Validate properties object
     let properties = event_obj
         .get("properties")
         .and_then(|v| v.as_object())
-        .ok_or_else(|| {
-            CaptureError::RequestParsingError("Event missing 'properties' field".to_string())
-        })?;
+        .ok_or(AiRejection::EventMissingProperties)?;
 
     // Validate required AI properties
     if !properties.contains_key("$ai_model") {
-        return Err(CaptureError::RequestParsingError(
-            "Event properties must contain '$ai_model'".to_string(),
-        ));
+        return Err(AiRejection::AiModelMissing);
     }
 
     let ai_model = properties
         .get("$ai_model")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            CaptureError::RequestParsingError("$ai_model must be a string".to_string())
-        })?;
+        .ok_or(AiRejection::AiModelNotString)?;
 
     if ai_model.is_empty() {
-        return Err(CaptureError::RequestParsingError(
-            "$ai_model cannot be empty".to_string(),
-        ));
+        return Err(AiRejection::AiModelEmpty);
     }
 
     debug!(
@@ -1083,42 +894,4 @@ fn validate_event_structure(event: &Value) -> Result<(), CaptureError> {
     );
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::ai_s3::{BlobPartRange, UploadedBlobs};
-
-    #[test]
-    fn test_insert_blob_urls_into_properties() {
-        let uploaded = UploadedBlobs {
-            base_url: "s3://capture/llma/phc_test_token/abc-def".to_string(),
-            boundary: "----posthog-ai-abc-def".to_string(),
-            parts: vec![
-                BlobPartRange {
-                    property_name: "$ai_input".to_string(),
-                    range_start: 0,
-                    range_end: 99,
-                },
-                BlobPartRange {
-                    property_name: "$ai_output".to_string(),
-                    range_start: 100,
-                    range_end: 249,
-                },
-            ],
-        };
-
-        let mut properties = serde_json::Map::new();
-        insert_blob_urls_into_properties(&uploaded, &mut properties);
-
-        assert_eq!(
-            properties.get("$ai_input").unwrap().as_str().unwrap(),
-            "s3://capture/llma/phc_test_token/abc-def?range=0-99"
-        );
-        assert_eq!(
-            properties.get("$ai_output").unwrap().as_str().unwrap(),
-            "s3://capture/llma/phc_test_token/abc-def?range=100-249"
-        );
-    }
 }

@@ -5,7 +5,8 @@ you what's broken on master, preflight stops you from being the one who breaks
 it. It scopes a curated set of checks to the files your branch actually touched,
 each mapped to a CI failure class we've seen take master down, plus an always-on
 branch-freshness check that flags concrete merge risks (textual conflicts,
-migration collisions, generated-file drift, CI changes on master).
+migration collisions, generated-file drift, CI changes on master), plus
+companion-file checks that fail when a mirrored file moves without its pair.
 
     hogli ci:preflight            # report what your diff could break in CI
     hogli ci:preflight --fix      # auto-remediate what's safe, report the rest
@@ -45,8 +46,9 @@ from hogli_commands.build import (
     _match_commands,
 )
 from hogli_commands.change_detection import changed_files, matches_globs
+from hogli_commands.devenv.generator import TRACKED_MPROCS_FILES
 
-Requirement = Literal["node", "stack", "clickhouse"]
+Requirement = Literal["node", "desktop-node", "stack", "clickhouse"]
 
 
 @dataclass
@@ -62,6 +64,10 @@ class DiffCheck:
     advice: str | None = None  # nudge-only: preflight never runs this check, it just says what to run
     requires: tuple[Requirement, ...] = ()  # capabilities the check needs, else it skips
     takes_files: bool = False  # append matched files to the command
+    # Run once per pnpm workspace containing matched files (cwd = that workspace),
+    # so nested workspaces like products/desktop validate their own lockfile instead
+    # of the root one. Capability (node_modules present) is checked per workspace.
+    workspace_scoped: bool = False
     matched: list[str] = field(default_factory=list)
 
 
@@ -73,12 +79,23 @@ DIFF_CHECKS: list[DiffCheck] = [
         key="lockfile",
         label="broken pnpm-lock.yaml (blocks ALL CI)",
         # pnpm-workspace.yaml (catalog versions) and patches/* (patchedDependencies
-        # hashes) invalidate the lockfile just like a package.json edit.
-        triggers=["package.json", "*/package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches/*"],
+        # hashes) invalidate the lockfile just like a package.json edit. The `*/`
+        # variants reach nested standalone workspaces (products/desktop), which
+        # workspace scoping then validates against their own lockfile.
+        triggers=[
+            "package.json",
+            "*/package.json",
+            "pnpm-lock.yaml",
+            "*/pnpm-lock.yaml",
+            "pnpm-workspace.yaml",
+            "*/pnpm-workspace.yaml",
+            "patches/*",
+            "*/patches/*",
+        ],
         # --lockfile-only validates manifest/lockfile agreement without touching node_modules.
         verify=["pnpm", "install", "--frozen-lockfile", "--lockfile-only"],
         fix=["pnpm", "install", "--no-frozen-lockfile"],
-        requires=("node",),
+        workspace_scoped=True,
     ),
     DiffCheck(
         key="uv-lock",
@@ -102,6 +119,23 @@ DIFF_CHECKS: list[DiffCheck] = [
         verify=["ruff", "format", "--check"],
         fix=["ruff", "format"],
         takes_files=True,
+    ),
+    DiffCheck(
+        key="desktop-biome",
+        label="desktop lint/format (Biome, what desktop-quality CI runs)",
+        triggers=[
+            "products/desktop/*.ts",
+            "products/desktop/*.tsx",
+            "products/desktop/*.json",
+            "products/desktop/*.jsonc",
+            "products/desktop/*.css",
+        ],
+        # `pnpm --dir` runs from the nested workspace, so `.` is products/desktop
+        # and Biome resolves desktop's own biome.jsonc. `biome ci` is read-only;
+        # the fix path applies safe fixes only (desktop's own lint script is --unsafe).
+        verify=["pnpm", "--dir", "products/desktop", "exec", "biome", "ci", "."],
+        fix=["pnpm", "--dir", "products/desktop", "exec", "biome", "check", "--write", "."],
+        requires=("desktop-node",),
     ),
     DiffCheck(
         key="type-check",
@@ -139,6 +173,17 @@ DIFF_CHECKS: list[DiffCheck] = [
         verify=["hogli", "lint:workflows"],
     ),
     DiffCheck(
+        key="mprocs",
+        label="bin/mprocs*.yaml docker-compose shell out of sync with generator.py",
+        # From TRACKED_MPROCS_FILES so preflight can't drift on which files need a regen.
+        triggers=[
+            "tools/hogli-commands/hogli_commands/devenv/generator.py",
+            *(t.name for t in TRACKED_MPROCS_FILES),
+        ],
+        verify=["hogli", "dev:regenerate-mprocs", "--check"],
+        fix=["hogli", "dev:regenerate-mprocs"],
+    ),
+    DiffCheck(
         key="openapi",
         label="OpenAPI types out of date (frontend/MCP drift)",
         # From build.py so preflight and build:openapi can't drift on which diffs need a regen.
@@ -159,6 +204,39 @@ DIFF_CHECKS: list[DiffCheck] = [
 ]
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class CompanionCheck:
+    """Paths a CI gate requires to move together."""
+
+    key: str
+    label: str
+    source: str
+    companion: str
+    escape_hatch: str  # what to do when the change is deliberately one-sided
+    exact_mirror: bool = False
+
+
+# Duplicated from .github/workflows/ci-backend-shadow-drift.yml so the failure lands
+# pre-push instead of a CI round-trip. A test binds the two so they cannot drift.
+COMPANION_CHECKS: list[CompanionCheck] = [
+    CompanionCheck(
+        key="shadow-drift",
+        label="depot shadow drift (.depot mirror of ci-backend.yml)",
+        source=".github/workflows/ci-backend.yml",
+        companion=".depot/workflows/ci-backend.yml",
+        escape_hatch="document it as an intentional delta in that file's header",
+    ),
+    CompanionCheck(
+        key="paths-filter-shadow-drift",
+        label="depot paths-filter drift (.depot mirror of the canonical action)",
+        source=".github/actions/paths-filter/**",
+        companion=".depot/actions/paths-filter/**",
+        escape_hatch="mirror the canonical action change",
+        exact_mirror=True,
+    ),
+]
+
+
 def _has_node_modules() -> bool:
     return (REPO_ROOT / "node_modules" / ".pnpm").exists()
 
@@ -174,6 +252,9 @@ def _port_open(port: int) -> bool:
 def _capability_met(req: Requirement) -> bool:
     if req == "node":
         return _has_node_modules()
+    if req == "desktop-node":
+        # products/desktop is a nested standalone workspace with its own install.
+        return (REPO_ROOT / "products" / "desktop" / "node_modules" / ".pnpm").exists()
     if req == "stack":
         # Postgres reachable — proxy for "dev stack is running".
         return _port_open(5432)
@@ -191,10 +272,68 @@ Status = Literal["pass", "fail", "advisory", "skipped"]
 _CHECK_TIMEOUT_SECONDS = 600
 
 
+def _pnpm_workspace_root(file_path: str) -> str:
+    """Repo-relative root of the pnpm workspace owning *file_path* ("." for the root
+    workspace): the nearest ancestor directory with a pnpm-workspace.yaml. The lockfile
+    is not a workspace marker on purpose — products/desktop/packages/agent carries a
+    publish-only pnpm-lock.yaml but belongs to the desktop workspace."""
+    current = (REPO_ROOT / file_path).parent.resolve()
+    root = REPO_ROOT.resolve()
+    while current != root and root in current.parents:
+        if (current / "pnpm-workspace.yaml").exists():
+            return current.relative_to(root).as_posix()
+        current = current.parent
+    return "."
+
+
+def _workspace_install_present(ws_root: Path) -> bool:
+    return (ws_root / "node_modules" / ".pnpm").exists()
+
+
+def _run_workspace_scoped(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
+    """Run *chk* once per pnpm workspace containing matched files, cwd'd into it."""
+    statuses: list[Status] = []
+    parts: list[str] = []
+    for ws in sorted({_pnpm_workspace_root(f) for f in chk.matched}):
+        ws_root = REPO_ROOT if ws == "." else REPO_ROOT / ws
+        label = "root" if ws == "." else ws
+        if not _workspace_install_present(ws_root):
+            statuses.append("skipped")
+            parts.append(f"{label}: needs node (no install)")
+            continue
+        cmd = list(chk.fix) if do_fix and chk.fix is not None else list(chk.verify or [])
+        if not cmd or shutil.which(cmd[0]) is None:
+            statuses.append("skipped")
+            parts.append(f"{label}: {cmd[0] if cmd else 'command'} not found")
+            continue
+        try:
+            result = subprocess.run(cmd, cwd=ws_root, capture_output=True, text=True, timeout=_CHECK_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            statuses.append("fail")
+            parts.append(f"{label}: timed out after {_CHECK_TIMEOUT_SECONDS}s")
+            continue
+        if result.returncode == 0:
+            statuses.append("pass")
+            parts.append(f"{label}: {'fixed' if do_fix else 'ok'}")
+        else:
+            lines = (result.stdout or result.stderr).strip().splitlines()
+            parts.append(f"{label}: {lines[0] if lines else f'exit {result.returncode}'}")
+            statuses.append("fail")
+    if "fail" in statuses:
+        overall: Status = "fail"
+    elif "pass" in statuses:
+        overall = "pass"
+    else:
+        overall = "skipped"
+    return overall, " · ".join(parts)
+
+
 def _run_diff_check(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
     if chk.advice is not None:
         # Nudge-only: nothing to run, nothing to auto-fix — the advisory *is* the check.
         return "advisory", chk.advice
+    if chk.workspace_scoped:
+        return _run_workspace_scoped(chk, do_fix)
     unmet = _unmet(chk)
     if do_fix and chk.fix is not None and not unmet:
         cmd = list(chk.fix)
@@ -223,6 +362,26 @@ def _run_diff_check(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
         return "pass", "fixed" if do_fix else "ok"
     lines = (result.stdout or result.stderr).strip().splitlines()
     return "fail", " · ".join(lines[:3]) if lines else f"exit {result.returncode}"
+
+
+def _run_companion_check(chk: CompanionCheck, files: list[str]) -> tuple[Status, str]:
+    if any(matches_globs(path, [chk.companion]) for path in files):
+        if chk.exact_mirror:
+            source_root = REPO_ROOT / chk.source.removesuffix("/**")
+            companion_root = REPO_ROOT / chk.companion.removesuffix("/**")
+            source_files = {path.relative_to(source_root): path for path in source_root.rglob("*") if path.is_file()}
+            companion_files = {
+                path.relative_to(companion_root): path for path in companion_root.rglob("*") if path.is_file()
+            }
+            if source_files.keys() != companion_files.keys():
+                return "fail", "mirror file sets differ"
+            differing = [
+                path for path in source_files if source_files[path].read_bytes() != companion_files[path].read_bytes()
+            ]
+            if differing:
+                return "fail", f"mirrors differ: {', '.join(str(path) for path in differing[:3])}"
+        return "pass", "both files updated"
+    return "fail", f"mirror the change into {chk.companion}, or {chk.escape_hatch}"
 
 
 # Branch-freshness backstop thresholds. The risk signals in ``_staleness_risks``
@@ -450,6 +609,15 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
         chk.matched = [f for f in files if matches_globs(f, chk.triggers)]
         if chk.matched:
             triggered.append(chk)
+    triggered_companions = [
+        companion
+        for companion in COMPANION_CHECKS
+        if any(
+            matches_globs(path, [companion.source])
+            or (companion.exact_mirror and matches_globs(path, [companion.companion]))
+            for path in files
+        )
+    ]
 
     results: list[dict[str, Any]] = []
     failures = 0
@@ -466,6 +634,14 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
         click.secho(f"   {_ICON[stale_status]} [staleness] branch freshness vs master", fg=_COLOR[stale_status])
         click.echo(f"       {stale_detail}")
 
+    for companion in triggered_companions:
+        status, detail = _run_companion_check(companion, files)
+        failures += status == "fail"
+        results.append({"check": companion.key, "status": status, "files": 1, "detail": detail})
+        if not as_json:
+            click.secho(f"   {_ICON[status]} [{companion.key}] {companion.label}", fg=_COLOR[status])
+            click.echo(f"       {detail}")
+
     for chk in triggered:
         status, detail = _run_diff_check(chk, do_fix)
         failures += status == "fail"
@@ -479,7 +655,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
 
     summary = {
         "changed_files": len(files),
-        "triggered": [c.key for c in triggered],
+        "triggered": [c.key for c in triggered_companions] + [c.key for c in triggered],
         "failures": failures,
         "advisories": advisories,
         "mode": "fix" if do_fix else ("strict" if strict else "advisory"),
@@ -489,7 +665,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
     if as_json:
         click.echo(json.dumps(summary))
     else:
-        if not triggered:
+        if not triggered and not triggered_companions:
             click.secho("   ✓ Nothing in this diff maps to a known CI failure class.", fg="green")
         click.echo()
         click.echo(

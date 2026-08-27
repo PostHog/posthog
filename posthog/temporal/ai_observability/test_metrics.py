@@ -75,6 +75,28 @@ class TestExecutionTimeRecorder:
             assert call_args["status"] == "SKIPPED"
             assert call_args["exception"] == ""
 
+    def test_forwards_duration_and_terminal_attributes_to_recorder(self):
+        mock_meter = MagicMock()
+        mock_hist = MagicMock()
+        histogram_recorder = MagicMock()
+        mock_meter.create_histogram_timedelta.return_value = mock_hist
+
+        with (
+            patch("posthog.temporal.common.metrics.get_metric_meter", return_value=mock_meter),
+            patch("posthog.temporal.common.metrics.time.perf_counter", side_effect=[1.0, 1.25]),
+        ):
+            with ExecutionTimeRecorder(
+                "test_histogram",
+                histogram_attributes={"stage": "copy"},
+                histogram_recorder=histogram_recorder,
+            ) as recorder:
+                recorder.set_status("SKIPPED")
+
+        histogram_recorder.assert_called_once_with(
+            250.0,
+            {"stage": "copy", "status": "SKIPPED", "exception": ""},
+        )
+
 
 class TestEvalsMetricsInterceptor:
     def test_interceptor_creates_activity_interceptor(self):
@@ -103,7 +125,6 @@ class TestActivityTypes:
             "emit_evaluation_event_activity",
             "emit_internal_telemetry_activity",
             "update_key_state_activity",
-            "emit_eval_signal_activity",
         }
         assert EVAL_ACTIVITY_TYPES == expected
 

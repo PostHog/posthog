@@ -14,6 +14,7 @@ import re
 import dataclasses
 from typing import cast
 
+from django.db.models import Count, F, Prefetch
 from django.shortcuts import get_object_or_404
 
 from django_filters.rest_framework import DjangoFilterBackend
@@ -52,10 +53,10 @@ from posthog.permissions import (
     is_authenticated_via_project_secret_api_key,
 )
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import access_level_satisfied_for_resource
 from posthog.schema_migrations.upgrade import upgrade
 
+from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.endpoints.backend.facade.api import (
     REWRITE_CONTRACT,
     EndpointCrudService,
@@ -272,6 +273,47 @@ class EndpointViewSet(
             return sorted({ti.tag.name for ti in endpoint.prefetched_tags})
         return sorted(endpoint.tagged_items.values_list("tag__name", flat=True))
 
+    @staticmethod
+    def _with_serialization_prefetches(queryset):
+        """Tags are prefetched by TaggedItemViewSetMixin.filter_queryset; repeating them here
+        raises a lookup conflict.
+
+        Only the current version is fetched, and the history is counted in the database, so an
+        endpoint with a long version history costs the same as a fresh one.
+        """
+        return (
+            queryset.select_related("created_by")
+            .prefetch_related(
+                Prefetch(
+                    "versions",
+                    queryset=EndpointVersion.objects.filter(version=F("endpoint__current_version")).select_related(
+                        "saved_query"
+                    ),
+                    to_attr="prefetched_current_versions",
+                ),
+            )
+            .annotate(versions_count=Count("versions", distinct=True))
+        )
+
+    @staticmethod
+    def _current_version(endpoint: Endpoint) -> EndpointVersion:
+        """Read the current version from the prefetch, falling back to a query.
+
+        The prefetch is empty if `current_version` ever drifts from the versions actually stored,
+        so the fallback also covers that.
+        """
+        prefetched = getattr(endpoint, "prefetched_current_versions", None)
+        if prefetched:
+            return prefetched[0]
+        return endpoint.get_version()
+
+    @staticmethod
+    def _versions_count(endpoint: Endpoint) -> int:
+        annotated = getattr(endpoint, "versions_count", None)
+        if annotated is not None:
+            return annotated
+        return endpoint.versions.count()
+
     def _serialize(
         self,
         obj: Endpoint | EndpointVersion,
@@ -286,7 +328,7 @@ class EndpointViewSet(
             version = obj
         else:
             endpoint = obj
-            version = endpoint.get_version()
+            version = self._current_version(endpoint)
 
         url = None
         ui_url = None
@@ -311,7 +353,7 @@ class EndpointViewSet(
             "is_materialized": version.is_materialized,
             "current_version": endpoint.current_version,
             "current_version_id": str(version.id),
-            "versions_count": endpoint.versions.count(),
+            "versions_count": self._versions_count(endpoint),
             "derived_from_insight": endpoint.derived_from_insight,
             "last_executed_at": endpoint.last_executed_at.isoformat() if endpoint.last_executed_at else None,
             "materialization": build_materialization_info(version),
@@ -343,7 +385,7 @@ class EndpointViewSet(
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
         """List all endpoints for the team."""
-        queryset = self.filter_queryset(self.get_queryset())
+        queryset = self._with_serialization_prefetches(self.filter_queryset(self.get_queryset()))
         page = self.paginate_queryset(queryset)
         if page is not None:
             results = [self._serialize(endpoint, request) for endpoint in page]
@@ -695,6 +737,7 @@ class EndpointViewSet(
                 "original_reason": result.original_reason,
             },
             team=self.team,
+            request=request,
         )
 
         return Response(

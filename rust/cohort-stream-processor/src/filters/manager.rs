@@ -4,12 +4,12 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use arc_swap::{ArcSwap, Guard};
 use common_types::cohort::TeamAllowlist;
 use lifecycle::Handle;
-use metrics::gauge;
+use metrics::{counter, gauge};
 use rand::Rng;
 use sqlx::PgPool;
 use tokio::sync::Notify;
@@ -18,7 +18,10 @@ use tracing::{debug, info, warn};
 use crate::filters::loader::{build_catalog_from_rows, load_realtime_cohorts, CohortRow};
 use crate::filters::FilterError;
 use crate::filters::{FilterCatalog, Generation};
-use crate::observability::metrics::{FILTER_CATALOG_TEAMS, FILTER_CATALOG_UNIQUE_CONDITIONS};
+use crate::observability::metrics::{
+    FILTER_CATALOG_LAST_SUCCESS_TIMESTAMP_SECONDS, FILTER_CATALOG_REFRESH_TOTAL,
+    FILTER_CATALOG_TEAMS, FILTER_CATALOG_UNIQUE_CONDITIONS,
+};
 
 /// Snapshot counts returned by [`CatalogHandle::refresh`] for logging.
 #[derive(Debug, Clone, Copy)]
@@ -122,7 +125,25 @@ impl CatalogHandle {
     }
 
     /// Query `posthog_cohort`, drop out-of-scope teams, rebuild the catalog, and swap it in.
+    ///
+    /// The staleness metrics are stamped here rather than in [`run_refresh_loop`] so the boot load
+    /// in `main` counts too — otherwise a pod that booted fine and then lost its refresh loop would
+    /// look identical to one that never loaded.
     pub async fn refresh(&self, pool: &PgPool) -> Result<CatalogStats, FilterError> {
+        match self.refresh_inner(pool).await {
+            Ok(stats) => {
+                gauge!(FILTER_CATALOG_LAST_SUCCESS_TIMESTAMP_SECONDS).set(now_unix_seconds());
+                counter!(FILTER_CATALOG_REFRESH_TOTAL, "result" => "success").increment(1);
+                Ok(stats)
+            }
+            Err(err) => {
+                counter!(FILTER_CATALOG_REFRESH_TOTAL, "result" => "error").increment(1);
+                Err(err)
+            }
+        }
+    }
+
+    async fn refresh_inner(&self, pool: &PgPool) -> Result<CatalogStats, FilterError> {
         let mut rows = load_realtime_cohorts(pool).await?;
         let fetched_rows = rows.len();
         retain_allowlisted(&mut rows, &self.allowlist);
@@ -141,6 +162,14 @@ impl CatalogHandle {
         self.store(catalog);
         Ok(stats)
     }
+}
+
+/// Seconds since the Unix epoch, saturating at 0 on a clock set before it.
+fn now_unix_seconds() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|since| since.as_secs_f64())
+        .unwrap_or(0.0)
 }
 
 /// Drop rows outside the configured team scope before catalog construction.
@@ -220,6 +249,7 @@ mod tests {
             team_id,
             filters: serde_json::Value::Null,
             behavioral_filters_shape_hash: None,
+            person_filters_shape_hash: None,
             timezone: "UTC".to_string(),
         }
     }
@@ -318,6 +348,14 @@ mod tests {
             team_with_one_behavioral(),
         )]));
         assert_eq!(handle.load().generation(), Generation(1));
+    }
+
+    #[test]
+    fn now_unix_seconds_is_a_plausible_epoch_second() {
+        // The staleness alert computes `time() - gauge`, so a gauge stamped in the wrong unit (or
+        // from a monotonic clock starting near zero) would read as decades stale and page forever.
+        let now = now_unix_seconds();
+        assert!(now > 1_700_000_000.0, "expected epoch seconds, got {now}");
     }
 
     #[test]

@@ -22,7 +22,6 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
@@ -51,6 +50,14 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
             RequireLifecycleDataWarehouseSeriesForCustomAggregationTarget(),
             DisallowUnsupportedDataWarehouseSettings(),
         )
+
+    def get_cache_payload(self) -> dict:
+        # Bump when format_results changes shape so old cached responses (e.g. the pre-alignment
+        # positional arrays) are invalidated rather than served stale. Lifecycle-scoped on purpose,
+        # so it doesn't invalidate every other query type's cache.
+        payload = super().get_cache_payload()
+        payload["lifecycle_formatter_version"] = 1
+        return payload
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         if self.query.samplingFactor == 0:
@@ -164,14 +171,14 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
 
     def _calculate(self) -> LifecycleQueryResponse:
         query = self.to_query()
-        # Display-only response HogQL (never executed); bypass warehouse ACL so printing doesn't fail closed userless.
-        hogql = to_printed_hogql(query, self.team, bypass_warehouse_access_control=True)
+        hogql = self.response_hogql(query)
 
         response = execute_hogql_query(
             query_type="LifecycleQuery",
             query=query,
             team=self.team,
             user=self.user,
+            context=self.build_hogql_context(),
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
@@ -204,16 +211,22 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
         order = {"new": 1, "returning": 2, "resurrecting": 3, "dormant": 4}
         raw_results = sorted(response.results or [], key=lambda row: order.get(row[cols["status"]], 5))
 
+        # Each status is grouped independently in ClickHouse, and groupArray does not guarantee that the
+        # per-status (date, count) arrays share the same length or ordering. The chart plots every status
+        # positionally against a single shared axis, so align all statuses to one canonical, sorted set of
+        # periods here (filling gaps with 0) to keep the series aligned.
+        all_dates = sorted({date for val in raw_results for date in val[cols["date"]]})
+        labels = [format_label_date(item, self.query_date_range, self.team.week_start_day) for item in all_dates]
+        days = [
+            item.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if self.query_date_range.interval_name == "hour" else ""))
+            for item in all_dates
+        ]
+
         results = []
         for val in raw_results:
-            counts = val[cols["total"]]
-            dates = val[cols["date"]]
+            counts_by_date = dict(zip(val[cols["date"]], val[cols["total"]]))
             status = val[cols["status"]]
-            labels = [format_label_date(item, self.query_date_range, self.team.week_start_day) for item in dates]
-            days = [
-                item.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if self.query_date_range.interval_name == "hour" else ""))
-                for item in dates
-            ]
+            data = [float(counts_by_date.get(date, 0)) for date in all_dates]
 
             # legacy response compatibility object
             action_object = {}
@@ -263,8 +276,8 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
             results.append(
                 {
                     "action": action_object,
-                    "data": [float(c) for c in counts],
-                    "count": float(sum(counts)),
+                    "data": data,
+                    "count": float(sum(data)),
                     "labels": labels,
                     "days": days,
                     **additional_values,
@@ -350,9 +363,9 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                     timings=self.timings,
                 )
             )
-            day_of_week_filter = self.query_date_range.day_of_week_filter_expr(self.timestamp_field)
-            if day_of_week_filter is not None:
-                event_filters.append(day_of_week_filter)
+            # dateRange.daysOfWeek is deliberately ignored: lifecycle statuses are defined by
+            # interval adjacency, which a sparse day axis breaks (weekend-only users would be
+            # misclassified as resurrecting, and dormant would land on excluded days).
         with self.timings.measure("properties"):
             if self.query.properties is not None and self.query.properties != []:
                 event_filters.append(property_to_expr(self.query.properties, self.team))

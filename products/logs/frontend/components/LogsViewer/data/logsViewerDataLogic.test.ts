@@ -9,6 +9,7 @@ import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/t
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
+import { OTHER_BREAKDOWN_LABEL, OTHER_BREAKDOWN_VALUE } from 'products/logs/frontend/sparklineOtherBreakdown'
 
 import { logsViewerDataLogic, shouldSkipFilterGroupChange } from './logsViewerDataLogic'
 
@@ -65,6 +66,7 @@ describe('logsViewerDataLogic', () => {
 
         it.each([
             ['new query started', 'exact match for NEW_QUERY_STARTED_ERROR_MESSAGE'],
+            ['unmounting component', 'exact match for UNMOUNTING_ERROR_MESSAGE'],
             ['Fetch is aborted', 'Safari abort message'],
             ['The operation was aborted', 'alternative abort message'],
             ['ABORTED', 'uppercase abort'],
@@ -163,25 +165,71 @@ describe('logsViewerDataLogic', () => {
 
             expect(logic.values.newLogUuids.size).toBe(0)
         })
+
+        it('unmounting mid-poll does not throw ([KEA] Can not find path ...)', async () => {
+            // beforeUnmount aborts the in-flight live-tail request. pollForNewLogs' finally
+            // block used to run unconditionally after that abort, dispatching actions against
+            // a logic that had already been torn down and crashing with a Kea "path not found"
+            // error. Guarding the finally block on signal.aborted (mirroring the existing catch
+            // block) fixes it.
+            let resolveQuery: (() => void) | undefined
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/logs/query/': () =>
+                        new Promise((resolve) => {
+                            resolveQuery = () => resolve([200, { results: [], maxExportableLogs: 5000 }])
+                        }),
+                },
+            })
+
+            logic.actions.setLiveTailRunning(true)
+            await expectLogic(logic).toDispatchActions(['setLiveTailAbortController'])
+
+            expect(() => logic.unmount()).not.toThrow()
+
+            // Let the aborted request's rejection propagate through pollForNewLogs' catch/finally.
+            resolveQuery?.()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+        })
     })
 
     describe('sparklineData selector', () => {
         it.each([
-            ['null', null, { labels: [], dates: [], data: [] }],
-            ['an empty array', [], { labels: [], dates: [], data: [] }],
+            ['null', null, { dates: [], data: [] }],
+            ['an empty array', [], { dates: [], data: [] }],
             [
                 'valid data',
                 [
                     { time: '2024-01-01T00:00:00Z', severity: 'info', count: 5 },
                     { time: '2024-01-01T00:01:00Z', severity: 'error', count: 3 },
                 ],
-                { labels: expect.any(Array), dates: expect.any(Array), data: expect.any(Array) },
+                {
+                    dates: ['2024-01-01T00:00:00Z', '2024-01-01T00:01:00Z'],
+                    data: [
+                        expect.objectContaining({ name: 'error', values: [0, 3] }),
+                        expect.objectContaining({ name: 'info', values: [5, 0] }),
+                    ],
+                },
             ],
         ])('returns correct data when sparkline is %s', async (_, sparklineInput, expected) => {
             logic.actions.setSparkline(sparklineInput as any[] | null)
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.sparklineData).toEqual(expected)
+        })
+
+        it('renders the collapsed bucket as a muted trailing series, not as a literal sentinel', async () => {
+            // The sentinel starts with '$', so without special-casing it would sort ahead of every
+            // real value and be drawn as a breakdown value named "$$_posthog_breakdown_other_$$".
+            logic.actions.setSparkline([
+                { time: '2024-01-01T00:00:00Z', severity: 'info', count: 5 },
+                { time: '2024-01-01T00:00:00Z', severity: OTHER_BREAKDOWN_VALUE, count: 7 },
+            ] as any[])
+            await expectLogic(logic).toFinishAllListeners()
+
+            const { data } = logic.values.sparklineData
+            expect(data.map((series: { name: string }) => series.name)).toEqual(['info', OTHER_BREAKDOWN_LABEL])
+            expect(data[1]).toEqual(expect.objectContaining({ color: 'muted', values: [7] }))
         })
     })
 
@@ -331,8 +379,6 @@ describe('logsViewerDataLogic', () => {
         it.each([
             ['setSearchTerm', 'error message'],
             ['setDateRange', { date_from: '-24h', date_to: null }],
-            ['setSeverityLevels', ['error', 'warn']],
-            ['setServiceNames', ['api-server']],
         ])('%s triggers runQuery', async (action, value) => {
             await expectLogic(logic, () => {
                 ;(filtersLogic.actions as any)[action](value)

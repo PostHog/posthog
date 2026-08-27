@@ -27,7 +27,6 @@ from urllib.parse import urlencode, urlparse
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -38,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     PageNumberPaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.lago.settings import (
     LAGO_ENDPOINTS,
     LagoEndpointConfig,
@@ -139,11 +139,20 @@ def validate_credentials(
             return True, None
         return False, "Lago API key lacks the required permissions for this endpoint"
 
-    try:
-        body = response.json()
-        return False, body.get("error", response.text)
-    except Exception:
-        return False, response.text
+    if response.status_code == 404:
+        # Lago's 404 body is a bare "Not Found" that gives the user nothing to act on. A 404 on the
+        # customers probe almost always means the API URL doesn't point at a Lago instance.
+        return False, (
+            "PostHog reached the host, but it returned 404 Not Found for the Lago API. "
+            "Check the API URL points to your Lago instance (leave it blank to use Lago Cloud), then try again."
+        )
+
+    # Any other status: report the code without echoing the raw upstream body, which can be
+    # unactionable (a bare "Not Found") or reflect request details back to the user.
+    return (
+        False,
+        f"Lago rejected the request (HTTP {response.status_code}). Check the API key and API URL, then try again.",
+    )
 
 
 def lago_source(

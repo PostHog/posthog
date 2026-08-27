@@ -1,3 +1,4 @@
+import dataclasses
 from dataclasses import dataclass, field
 
 from temporalio import activity
@@ -5,26 +6,14 @@ from temporalio import activity
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify, retry_on_db_connection_drop
 
-from products.tasks.backend.exceptions import (
-    CredentialUnavailableError,
-    SandboxNotFoundError,
-    SandboxNotRunningError,
-    TaskNotFoundError,
-)
-from products.tasks.backend.logic.services.agent_command import send_refresh_session
-from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
-from products.tasks.backend.logic.services.sandbox import Sandbox
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.exceptions import CredentialUnavailableError, SandboxNotFoundError, SandboxNotRunningError
+from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
+from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, Task, TaskRun
 from products.tasks.backend.temporal.metrics import increment_credential_refresh
 from products.tasks.backend.temporal.observability import log_activity_execution, track_event
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     DEFAULT_REFRESH_INTERVAL_SECONDS,
     build_sandbox_credentials,
-)
-from products.tasks.backend.temporal.process_task.utils import (
-    get_actor_distinct_id,
-    get_task_run_credential_user,
-    is_slack_interaction_state,
 )
 
 from .get_task_processing_context import TaskProcessingContext
@@ -32,27 +21,20 @@ from .get_task_processing_context import TaskProcessingContext
 logger = get_logger(__name__)
 
 
-def _notify_agent_server_of_refresh(ctx: TaskProcessingContext, task: Task, refreshed_kinds: list[str]) -> None:
-    """Tell the running agent-server which credentials were re-injected so it logs them.
-    This is best-effort since the sandbox may be unreachable, so a failure here never fails the refresh itself.
+def _with_current_authorship(ctx: TaskProcessingContext) -> TaskProcessingContext:
+    """Re-read the run's PR authorship, which `ctx.state` can no longer be trusted for.
+
+    The context is captured once at workflow start, but a run is promoted from bot to user
+    authorship mid-run when its creator connects GitHub. Reading the stale value here resolves
+    the run as bot-authored and re-applies the team installation token over the personal one —
+    handing the creator every repo that installation covers. Only this key is overlaid: the rest
+    of the snapshot (sandbox id, actor) is what the sandbox being refreshed was built against.
     """
-    try:
-        task_run = TaskRun.objects.get(id=ctx.run_id)
-        auth_token = None
-        actor_user = get_task_run_credential_user(task, ctx.state)
-        if is_slack_interaction_state(ctx.state) and actor_user is None:
-            logger.warning("sandbox_credentials_refresh_notify_missing_slack_actor", run_id=ctx.run_id)
-            return
-        if actor_user and actor_user.id:
-            auth_token = create_sandbox_connection_token(
-                task_run, user_id=actor_user.id, distinct_id=get_actor_distinct_id(actor_user)
-            )
-        authorship = (ctx.state or {}).get("pr_authorship_mode")
-        send_refresh_session(
-            task_run, [], auth_token=auth_token, refreshed_credentials=refreshed_kinds, authorship=authorship
-        )
-    except Exception:
-        logger.warning("sandbox_credentials_refresh_notify_failed", run_id=ctx.run_id, exc_info=True)
+    persisted = TaskRun.objects.filter(id=ctx.run_id).values_list("state", flat=True).first()
+    mode = (persisted or {}).get("pr_authorship_mode")
+    if not mode or mode == (ctx.state or {}).get("pr_authorship_mode"):
+        return ctx
+    return dataclasses.replace(ctx, state={**(ctx.state or {}), "pr_authorship_mode": mode})
 
 
 @dataclass
@@ -72,6 +54,10 @@ class RefreshSandboxCredentialsOutput:
     sandbox_gone: bool = False
     orphaned_kinds: list[str] = field(default_factory=list)
     no_credentials_left: bool = False
+    # Task rows were hard-deleted mid-run (team deletion cascade); the loop should stop.
+    # A flag rather than an error so old histories (which decode the missing field as
+    # False) replay unchanged, per the workflow-versioning rules.
+    task_gone: bool = False
 
 
 @activity.defn
@@ -103,8 +89,30 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
                     id=ctx.task_id
                 )
             )
-        except Task.DoesNotExist as e:
-            raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
+            context_ownership_version = (ctx.state or {}).get(TASK_OWNERSHIP_VERSION_STATE_KEY)
+            if context_ownership_version != task.ownership_version:
+                logger.info(
+                    "sandbox_credentials_refresh_stopped_ownership_changed",
+                    sandbox_id=input.sandbox_id,
+                    run_id=ctx.run_id,
+                    task_id=ctx.task_id,
+                )
+                return RefreshSandboxCredentialsOutput(
+                    next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS,
+                    refreshed_kinds=[],
+                    no_credentials_left=True,
+                )
+            ctx = _with_current_authorship(ctx)
+        except Task.DoesNotExist:
+            logger.info(
+                "sandbox_credentials_refresh_stopped_task_gone",
+                sandbox_id=input.sandbox_id,
+                run_id=ctx.run_id,
+                task_id=ctx.task_id,
+            )
+            return RefreshSandboxCredentialsOutput(
+                next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS, refreshed_kinds=[], task_gone=True
+            )
 
         refreshed_kinds: list[str] = []
         orphaned_kinds: list[str] = []
@@ -113,7 +121,7 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
         credentials = [c for c in build_sandbox_credentials(ctx) if c.kind not in input.exclude_kinds]
 
         try:
-            sandbox = Sandbox.get_by_id(input.sandbox_id)
+            sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
         except SandboxNotFoundError:
             # Reaped by Modal — gone for good, signal the loop to stop.
             for credential in credentials:
@@ -193,8 +201,14 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
         if intervals:
             next_refresh = min(intervals)
 
-        if refreshed_kinds:
-            _notify_agent_server_of_refresh(ctx, task, refreshed_kinds)
+        logger.info(
+            "sandbox_credentials_refreshed",
+            run_id=ctx.run_id,
+            sandbox_id=input.sandbox_id,
+            refreshed_kinds=refreshed_kinds,
+            orphaned_kinds=orphaned_kinds,
+            next_refresh_seconds=next_refresh,
+        )
 
         track_event(
             "sandbox_credentials_refreshed",

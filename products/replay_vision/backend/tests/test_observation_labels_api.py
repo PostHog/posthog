@@ -54,18 +54,27 @@ class TestObservationLabels(_VisionAPITestCase):
         label = self.client.get(self._retrieve_url(self.observation)).json()["label"]
         self.assertEqual(label, {"is_correct": False, "feedback": "should be yes"})
 
-    def test_product_flag_off_hides_observation_endpoints(self) -> None:
-        with patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", return_value=False):
-            post_resp = self.client.post(self._label_url(self.observation), {"is_correct": True}, format="json")
-            read_resp = self.client.get(self._retrieve_url(self.observation))
-        self.assertEqual(post_resp.status_code, 404, post_resp.content)
-        self.assertEqual(read_resp.status_code, 404, read_resp.content)
-        self.assertFalse(ReplayObservationLabel.objects.filter(observation=self.observation).exists())
+    def test_rating_reports_calibration_event(self) -> None:
+        # The thumb direction, feedback presence, and calling surface must all ride on the event.
+        # Asserted at the capture boundary, where the source tag lands.
+        with patch("posthoganalytics.capture") as capture:
+            resp = self.client.post(
+                self._label_url(self.observation), {"is_correct": False, "feedback": "should be yes"}, format="json"
+            )
+        self.assertEqual(resp.status_code, 200, resp.content)
+        rated = [
+            call for call in capture.call_args_list if call.kwargs.get("event") == "replay_vision_observation_rated"
+        ]
+        self.assertEqual(len(rated), 1)
+        properties = rated[0].kwargs["properties"]
+        self.assertFalse(properties["is_correct"])
+        self.assertTrue(properties["has_feedback"])
+        self.assertEqual(properties["source"], "web")
 
     def test_label_write_denied_without_scanner_editor_access_on_session_route(self) -> None:
         # The session route's get_object only checks the observation row; label writes must object-check the scanner.
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
             side_effect=lambda obj, required_level=None, **_: not isinstance(obj, ReplayScanner),
         ):
             resp = self.client.post(
@@ -163,6 +172,16 @@ class TestObservationLabels(_VisionAPITestCase):
         )
         # All six ratings were given today, including those on out-of-window observations.
         self.assertEqual(labels["by_rating_day"], [{"date": now.date().isoformat(), "up": 2, "down": 4}])
+        # These snapshots carry only a version and a config, so the wider fields read as not recorded.
+        not_recorded = {
+            "scanner_type": None,
+            "model": None,
+            "provider": None,
+            "emits_signals": None,
+            "query": None,
+            "sampling_rate": None,
+            "sampling_mode": None,
+        }
         self.assertEqual(
             labels["version_markers"],
             [
@@ -171,6 +190,7 @@ class TestObservationLabels(_VisionAPITestCase):
                     "version": 1,
                     "prompt": "v1 prompt",
                     "scanner_config": v1_config,
+                    **not_recorded,
                     "up": 0,
                     "down": 1,
                     "total": 1,
@@ -180,11 +200,54 @@ class TestObservationLabels(_VisionAPITestCase):
                     "version": 2,
                     "prompt": "v2 prompt",
                     "scanner_config": v2_config,
+                    **not_recorded,
                     "up": 1,
                     "down": 1,
                     "total": 3,
                 },
             ],
+        )
+
+    def test_version_markers_carry_every_tracked_field(self) -> None:
+        newer = self._create_observation(self.scanner, "sess-newer")
+        query = {"kind": "RecordingsQuery", "events": [{"id": "$pageview"}]}
+        ReplayObservation.objects.filter(id=self.observation.id).update(
+            scanner_snapshot={
+                "scanner_version": 1,
+                "scanner_config": {"prompt": "same prompt"},
+                "scanner_type": "monitor",
+                "model": "gemini-3.5-flash-lite",
+                "provider": "google",
+                "emits_signals": False,
+                "query": query,
+                "sampling_rate": 0.5,
+                "sampling_mode": "focused",
+            }
+        )
+        ReplayObservation.objects.filter(id=newer.id).update(
+            scanner_snapshot={
+                "scanner_version": 2,
+                "scanner_config": {"prompt": "same prompt"},
+                "scanner_type": "monitor",
+                "model": "gemini-3.5-flash-lite",
+                "provider": "google",
+                "emits_signals": False,
+                "query": query,
+                "sampling_rate": 1.0,
+                "sampling_mode": "balanced",
+            }
+        )
+
+        markers = self.client.get(f"{self.observations_url(self.scanner.id)}stats/").json()["labels"]["version_markers"]
+
+        # v1 to v2 changed sampling only, so without these fields the bump looks like nothing changed.
+        self.assertEqual(
+            [(m["version"], m["sampling_rate"], m["sampling_mode"]) for m in markers],
+            [(1, 0.5, "focused"), (2, 1.0, "balanced")],
+        )
+        self.assertEqual(
+            [(m["scanner_type"], m["model"], m["provider"], m["emits_signals"], m["query"]) for m in markers],
+            [("monitor", "gemini-3.5-flash-lite", "google", False, query)] * 2,
         )
 
     def test_order_by_label_groups_labeled_with_unlabeled_last(self) -> None:
@@ -209,7 +272,7 @@ class TestObservationLabels(_VisionAPITestCase):
     def _deny_editor(self):
         # Viewer-level object checks still pass (reading observations); only editor is withheld.
         return patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
             side_effect=lambda obj, required_level=None, **_: required_level != "editor",
         )
 

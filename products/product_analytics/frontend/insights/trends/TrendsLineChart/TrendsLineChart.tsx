@@ -1,12 +1,15 @@
 import { useValues } from 'kea'
+import { router } from 'kea-router'
 import { useCallback, useMemo } from 'react'
 
 import { DEFAULT_Y_AXIS_ID, TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
 import { useChartTheme, useChartConfig, useDateRangeZoom } from 'lib/charts/hooks'
+import { dayjs } from 'lib/dayjs'
 import { ciRanges } from 'lib/statistics'
 import { percentage } from 'lib/utils/numbers'
+import { isMultiSeriesFormula } from 'lib/utils/strings'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -15,15 +18,17 @@ import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'scenes/trends/types'
+import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { ChartDisplayType } from '~/types'
+import { ChartDisplayType, type IntervalType } from '~/types'
 
 import { chartStyleCurve } from '../../shared/chartStyleAdapter'
+import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
@@ -38,11 +43,41 @@ import { buildTrendsLineTimeSeriesConfig, buildTrendsSeries } from './trendsChar
 interface TrendsLineChartProps {
     context?: QueryContext<InsightVizNode>
     inSharedMode?: boolean
+    embedded?: boolean
 }
 
 const handleChartError = makeChartErrorHandler('trends-line-chart')
 
-export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineChartProps): JSX.Element | null {
+// A completed comparison ("previous") period can span more buckets than the still-in-progress
+// current period — e.g. a full "yesterday" against "today" so far at hour granularity. The x-axis
+// is keyed off the current period's days, so the extra previous-period points would fall outside
+// the domain and get clipped. Extend the domain forward by the interval so the previous series
+// spans the full width; the current series keeps its shorter, dashed tail.
+export function extendLabelsToLongestSeries(
+    labels: string[],
+    interval: IntervalType | null | undefined,
+    results: IndexedTrendResult[]
+): string[] {
+    const maxLength = results.reduce((max, r) => Math.max(max, r.data?.length ?? 0), 0)
+    if (!labels.length || labels.length >= maxLength) {
+        return labels
+    }
+    const hasTime = labels[0].includes(' ')
+    const format = hasTime ? 'YYYY-MM-DD HH:mm:ss' : 'YYYY-MM-DD'
+    const extended = [...labels]
+    let cursor = dayjs(labels[labels.length - 1])
+    while (extended.length < maxLength) {
+        cursor = cursor.add(1, (interval ?? 'day') as dayjs.ManipulateType)
+        extended.push(cursor.format(format))
+    }
+    return extended
+}
+
+export function TrendsLineChart({
+    context,
+    inSharedMode = false,
+    embedded = false,
+}: TrendsLineChartProps): JSX.Element | null {
     const theme = useChartTheme()
     const { insightProps, insight } = useValues(insightLogic)
 
@@ -94,12 +129,21 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
     const isPercentStackView = !!showPercentStackView && !!supportsPercentStackView
     const resolvedGroupTypeLabel = context?.groupTypeLabel ?? resolveGroupTypeLabel(labelGroupType, aggregationLabel)
 
-    const labels = currentPeriodResult?.labels ?? []
+    // The chart keys x positions off these strings, so they must be unique per point. The
+    // backend's display labels are not: week and hour labels omit the year, so a multi-year
+    // range repeats them and every repeated point snaps back to the first occurrence's x,
+    // drawing the line backwards. Pass the ISO days instead; the interval-aware tick and
+    // tooltip formatters already render display text from them. Stickiness x values are
+    // interval counts rather than dates, so it keeps its (already unique) labels.
+    const days = currentPeriodResult?.days
+    const useDayLabels = !isStickiness && !!days?.length
+    const labels = useDayLabels
+        ? extendLabelsToLongestSeries(days as string[], interval, indexedResults ?? [])
+        : (currentPeriodResult?.labels ?? [])
+    // Keep the tick formatter's day context in step with the (possibly extended) domain.
+    const allDays = useDayLabels ? labels : (currentPeriodResult?.days ?? [])
 
-    const hasData =
-        indexedResults &&
-        indexedResults[0]?.data &&
-        indexedResults.filter((result: IndexedTrendResult) => result.count !== 0).length > 0
+    const hasData = hasTrendsChartData(indexedResults)
 
     const valueLabelFormatter = useCallback(
         (value: number) => {
@@ -128,6 +172,22 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
     )
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
+    // The persons modal is intentionally unavailable for multi-series formulas (there's no
+    // single series of actors behind a computed ratio). On dashboard/card tiles a click
+    // instead opens the underlying insight, since there's nowhere else for the click to go.
+    const isFormulaDrillDownDisabled = !canHandleClick && isMultiSeriesFormula(formula)
+    const canNavigateToInsight = embedded && !inSharedMode && isFormulaDrillDownDisabled && !!insight.short_id
+    const canHandlePointInteraction = canHandleClick || canNavigateToInsight
+
+    const navigateToInsight = useCallback(() => {
+        if (!insight.short_id) {
+            return
+        }
+        router.actions.push(urls.insightView(insight.short_id, insightProps.dashboardId))
+    }, [insight.short_id, insightProps.dashboardId])
+
+    // The default footer offers persons, which isn't where this click goes.
+    const viewInsightFooter = canNavigateToInsight ? 'Click to view the insight' : undefined
 
     const clickDeps = useMemo(
         () => ({
@@ -155,19 +215,27 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
 
     const onPointClick = useCallback(
         (clickData: PointClickData) => {
-            handleTrendsChartClick(clickData.series.key, clickData.dataIndex, clickDeps)
+            if (canHandleClick) {
+                handleTrendsChartClick(clickData.series.key, clickData.dataIndex, clickDeps)
+            } else if (canNavigateToInsight) {
+                navigateToInsight()
+            }
         },
-        [clickDeps]
+        [canHandleClick, canNavigateToInsight, clickDeps, navigateToInsight]
     )
 
     const onDateRangeZoom = useDateRangeZoom(currentPeriodResult?.days, context?.onDateRangeZoom)
 
     const renderTooltip = useCallback(
         (ctx: TooltipContext<TrendsSeriesMeta>) => {
-            const onRowClick = canHandleClick
+            const onRowClick = canHandlePointInteraction
                 ? (datum: SeriesDatum) => {
-                      const seriesKey = ctx.seriesData[datum.datasetIndex].series.key
-                      handleTrendsChartClick(seriesKey, datum.dataIndex, clickDeps)
+                      if (canHandleClick) {
+                          const seriesKey = ctx.seriesData[datum.datasetIndex].series.key
+                          handleTrendsChartClick(seriesKey, datum.dataIndex, clickDeps)
+                      } else {
+                          navigateToInsight()
+                      }
                   }
                 : undefined
             const tooltipProps = {
@@ -184,6 +252,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 groupTypeLabel: resolvedGroupTypeLabel,
                 formatCompareLabel: context?.formatCompareLabel,
                 onRowClick,
+                footerOverride: viewInsightFooter,
             }
             return <InsightSeriesTooltip {...tooltipProps} />
         },
@@ -199,7 +268,10 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             baseCurrency,
             resolvedGroupTypeLabel,
             context?.formatCompareLabel,
+            canHandlePointInteraction,
             canHandleClick,
+            navigateToInsight,
+            viewInsightFooter,
             clickDeps,
         ]
     )
@@ -240,9 +312,12 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 yAxisScaleType,
                 interval,
                 timezone,
-                allDays: currentPeriodResult?.days ?? [],
+                allDays,
                 xAxisLabel: trendsFilter?.xAxisLabel,
                 yAxisLabel: trendsFilter?.yAxisLabel,
+                yAxisStartAtZero: trendsFilter?.yAxisStartAtZero,
+                yAxisMin: trendsFilter?.yAxisMin,
+                yAxisMax: trendsFilter?.yAxisMax,
                 goalLines,
                 incompletenessOffsetFromEnd,
                 getHidden: getTrendsHidden,
@@ -268,7 +343,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             yAxisScaleType,
             interval,
             timezone,
-            currentPeriodResult?.days,
+            allDays,
             goalLines,
             incompletenessOffsetFromEnd,
             getTrendsHidden,
@@ -304,7 +379,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             theme={theme}
             config={config}
             tooltip={renderTooltip}
-            onPointClick={canHandleClick ? onPointClick : undefined}
+            onPointClick={canHandlePointInteraction ? onPointClick : undefined}
             onDateRangeZoom={onDateRangeZoom}
             className="LineGraph"
             dataAttr="trend-line-graph"

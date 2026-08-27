@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 import pytest
 from posthog.test.base import BaseTest
 from unittest import mock
@@ -13,7 +15,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team
 
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from .max_tools import CreateAlertAction, UpdateAlertAction, UpsertAlertTool
 
@@ -442,6 +444,12 @@ class TestUpsertAlertTool(BaseTest):
                 lambda a, t: a.enabled is False,
             ),
             (
+                "unchanged_enabled_preserves_firing_state",
+                {"enabled": True},
+                {"enabled": True},
+                lambda a, t: a.enabled is True and a.state == AlertState.FIRING,
+            ),
+            (
                 "condition_type",
                 {"condition_type": AlertConditionType.ABSOLUTE_VALUE},
                 {"condition_type": AlertConditionType.RELATIVE_INCREASE},
@@ -497,7 +505,10 @@ class TestUpsertAlertTool(BaseTest):
     async def test_update_alert(self, _name, create_kwargs, update_kwargs, check):
         insight = await self._create_insight()
         alert = await self._create_alert(insight, **create_kwargs)
-        await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(state=AlertState.FIRING)
+        await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(
+            state=AlertState.FIRING,
+            next_check_at=datetime(2027, 1, 1, tzinfo=UTC),
+        )
 
         tool = self._setup_tool()
         content, artifact = await tool._arun_impl(action=UpdateAlertAction(alert_id=str(alert.id), **update_kwargs))
@@ -506,6 +517,7 @@ class TestUpsertAlertTool(BaseTest):
         await sync_to_async(alert.refresh_from_db)()
         threshold = await sync_to_async(lambda: alert.threshold)()
         assert check(alert, threshold), f"Check failed for {_name}"
+        assert alert.next_check_at is None
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

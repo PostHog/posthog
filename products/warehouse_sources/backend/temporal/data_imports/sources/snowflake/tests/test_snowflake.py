@@ -9,11 +9,11 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from snowflake.connector.errors import DatabaseError, HttpError
 
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snowflake import (
     SnowflakeSourceConfig,
 )
@@ -175,6 +175,12 @@ class TestBuildQuery:
         # None last-value triggers fallback to incremental_type_to_initial_value
         _, params = _build_query("DB", "PUBLIC", "t", True, "created_at", IncrementalFieldType.DateTime, None)
         assert params[1] is not None
+
+    def test_incremental_field_with_space_is_quoted_not_rejected(self):
+        # Real Snowflake column names can contain spaces (e.g. "Date Established").
+        sql, _ = _build_query("DB", "PUBLIC", "t", True, "Date Established", IncrementalFieldType.DateTime, None)
+        assert 'WHERE "Date Established"' in sql
+        assert 'ORDER BY "Date Established" ASC' in sql
 
 
 class TestBuildQueryRowFilters:
@@ -895,6 +901,14 @@ class TestSnowflakeSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Encrypted-key passphrase error should be non-retryable: {error_msg}"
 
+    def test_unencrypted_key_with_passphrase_is_non_retryable(self, source):
+        # A passphrase supplied for an unencrypted key (cryptography TypeError) — the inverse of the
+        # encrypted-key cases above. Fails to parse before reaching Snowflake, so retrying can't help.
+        error_msg = "Password was given but private key is not encrypted."
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Unencrypted-key-with-passphrase error should be non-retryable: {error_msg}"
+
     @pytest.mark.parametrize(
         "error_msg",
         [
@@ -929,6 +943,17 @@ class TestSnowflakeSourceRetryableErrors:
         retryable = source.get_retryable_errors()
         is_retryable = any(pattern in error_msg for pattern in retryable)
         assert is_retryable, f"Chunk-download bad-request error should be classified retryable: {error_msg}"
+
+    def test_login_internal_error_is_retryable(self, source):
+        # The real shape from production: the login-request endpoint responded with a generic
+        # internal-error message instead of a credential/config-specific one.
+        error_msg = (
+            "250001 (08001): None: Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. "
+            "Internal error:  [f189e7a4-177b-4b96-a5cf-50a7193e2fff]"
+        )
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Snowflake login internal-error should be classified retryable: {error_msg}"
 
 
 class TestSnowflakeValidateCredentials:
@@ -973,6 +998,22 @@ class TestSnowflakeValidateCredentials:
 
         assert ok is False
         assert message is not None and "passphrase" in message
+        mock_capture.assert_not_called()
+
+    def test_unencrypted_key_with_passphrase_returns_friendly_message_without_capture(self, source):
+        # A passphrase supplied for an unencrypted key — a TypeError raised while parsing, so it's a
+        # user config error that should surface an actionable message, not be captured.
+        error = TypeError("Password was given but private key is not encrypted.")
+        with (
+            patch.object(source, "get_schemas", side_effect=error),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.capture_exception"
+            ) as mock_capture,
+        ):
+            ok, message = source.validate_credentials(_make_config("keypair"), team_id=1)
+
+        assert ok is False
+        assert message is not None and "not encrypted" in message
         mock_capture.assert_not_called()
 
     def test_mfa_enrollment_required_returns_friendly_message_without_capture(self, source):

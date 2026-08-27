@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonMenu, LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonMenu, LemonTable, LemonTableColumns, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { newInternalTab } from 'lib/utils/newInternalTab'
@@ -10,6 +10,28 @@ import { urls } from 'scenes/urls'
 
 import { SDK_DOCS_LINKS, SDK_TYPE_READABLE_NAME } from './sdkConstants'
 import { AugmentedTeamSdkVersionsInfoRelease, type SdkType, sdkHealthLogic } from './sdkHealthLogic'
+
+/**
+ * A version status tag that reveals its status reason on click and on keyboard focus, not just on
+ * hover – users kept clicking the tag that flagged the problem they came here for and getting nothing.
+ */
+export function SdkVersionStatusTag({
+    type,
+    statusReason,
+    children,
+}: {
+    type: LemonTagType
+    statusReason: string
+    children: React.ReactNode
+}): JSX.Element {
+    return (
+        <Tooltip placement="right" title={statusReason} openOnClick>
+            <LemonTag type={type} className="shrink-0 cursor-help" tabIndex={0}>
+                {children}
+            </LemonTag>
+        </Tooltip>
+    )
+}
 
 // The version drill-in SQL and Activity page URL are computed by the backend (sql_query /
 // activity_page_url on each release) so the UI and the SDK Health MCP tool stay in lockstep.
@@ -23,7 +45,7 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
                         <>
                             Click on a version number to view events captured.
                             <br />
-                            Hover over status for version age and/or suggestion.
+                            Hover or click a status for version age and/or suggestion.
                         </>
                     }
                 >
@@ -66,23 +88,17 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
                         </code>
                     </LemonMenu>
                     {record.isOutdated ? (
-                        <Tooltip placement="right" title={record.statusReason}>
-                            <LemonTag type="danger" className="shrink-0 cursor-help">
-                                {record.migrationRequired ? 'Migration required' : 'Outdated'}
-                            </LemonTag>
-                        </Tooltip>
+                        <SdkVersionStatusTag type="danger" statusReason={record.statusReason}>
+                            {record.migrationRequired ? 'Migration required' : 'Outdated'}
+                        </SdkVersionStatusTag>
                     ) : record.isCurrentOrNewer ? (
-                        <Tooltip placement="right" title={record.statusReason}>
-                            <LemonTag type="success" className="shrink-0 cursor-help">
-                                Current
-                            </LemonTag>
-                        </Tooltip>
+                        <SdkVersionStatusTag type="success" statusReason={record.statusReason}>
+                            Current
+                        </SdkVersionStatusTag>
                     ) : (
-                        <Tooltip placement="right" title={record.statusReason}>
-                            <LemonTag type="warning" className="shrink-0 cursor-help">
-                                Recent
-                            </LemonTag>
-                        </Tooltip>
+                        <SdkVersionStatusTag type="warning" statusReason={record.statusReason}>
+                            Recent
+                        </SdkVersionStatusTag>
                     )}
                 </div>
             )
@@ -127,7 +143,7 @@ export function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
                     <Tooltip
                         title={
                             <>
-                                Version number cached once a day.
+                                Version number refreshed hourly.
                                 <br />
                                 Click 'Releases ↗' to check for any since.
                             </>

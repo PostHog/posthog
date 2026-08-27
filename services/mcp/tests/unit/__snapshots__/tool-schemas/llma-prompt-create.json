@@ -1,6 +1,19 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "config": {
+            "anyOf": [
+                {
+                    "additionalProperties": {},
+                    "properties": {},
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt."
+        },
         "name": {
             "description": "Unique prompt name using letters, numbers, hyphens, and underscores only.",
             "maxLength": 255,

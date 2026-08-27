@@ -16,27 +16,31 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub max_pg_connections: u32,
 
+    // Backstop only; the writer guard is what detects a failover. Kept because the guard's
+    // `before_acquire` hook never sees a freshly opened connection, so recycling still bounds a
+    // connection the guard cannot reach. Overrides sqlx's 30 minute default. Jitter puts the
+    // effective lifetime in `base..=base + base/5`, so 300 here means 300-360s.
+    #[envconfig(default = "300")]
+    pub pg_max_lifetime_secs: u64,
+
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
 
     #[envconfig(nested = true)]
     pub consumer: ConsumerConfig,
 
-    #[envconfig(default = "10")]
-    pub max_concurrent_transactions: usize,
-
     #[envconfig(default = "1000")]
     pub update_batch_size: usize,
 
-    // We issue updates in batches of update_batch_size, or when we haven't
-    // received a new update in this many seconds
+    // Ceiling on how long the consumer will wait for a batch to reach update_batch_size before
+    // issuing it short. Measured from the start of the fill, not from the last update received,
+    // so a batch that trickles in one update at a time still breaks out after this many seconds.
     #[envconfig(default = "300")]
     pub max_issue_period: u64,
 
-    // Propdefs spawns N workers to pull events from kafka,
-    // marshal, and convert to updates. The number of
-    // concurrent update batches sent to postgres is controlled
-    // by max_concurrent_transactions
+    // Propdefs spawns N workers to pull events from kafka, marshal, and convert to updates.
+    // Write concurrency is not bounded by any semaphore: process_batch spawns a task per chunk,
+    // so max_pg_connections is the only thing applying backpressure to Postgres.
     #[envconfig(default = "4")]
     pub worker_loop_count: usize,
 
@@ -55,10 +59,16 @@ pub struct Config {
     #[envconfig(default = "10000")]
     pub compaction_batch_size: usize,
 
-    // Workers send updates back to the main thread over a channel,
-    // which has a depth of this many slots. If the main thread slows,
-    // which usually means if postgres is slow, the workers will block
-    // after filling this channel.
+    // How long a producer's compaction batch may sit before it is flushed regardless of size.
+    // Bounds how stale the tail of a partition's updates can get once its traffic stops.
+    #[envconfig(default = "10")]
+    pub producer_drain_interval_secs: u64,
+
+    // Multiplier on update_batch_size for the depth of the single channel workers send updates
+    // back to the main thread over, so the real depth is update_batch_size * this. The channel is
+    // shared across all workers and its size does not vary with worker_loop_count, despite the
+    // name. If the main thread slows, which usually means postgres is slow, workers block once
+    // the channel fills.
     #[envconfig(default = "1000")]
     pub channel_slots_per_worker: usize,
 
@@ -66,18 +76,25 @@ pub struct Config {
     #[envconfig(default = "10000")]
     pub update_count_skip_threshold: usize,
 
-    // Do everything except actually write to the DB
-    #[envconfig(default = "true")]
-    pub skip_writes: bool,
+    // Period an event definition's last_seen_at is floored to for dedup purposes, which bounds
+    // how often we re-issue its write: once per (team, name) per period, per pod. The stored
+    // value is generated fresh at write time, so a coarser period only means a staler
+    // last_seen_at in the DB. Its only consumers are staleness filters, so read them before
+    // raising this: `?exclude_stale=true` compares against 30 days, but the event-screenshots
+    // Temporal workflow shortlists event types on a 3 hour window. Must be in
+    // 1..=MAX_EVENTDEF_LAST_SEEN_FLOOR_SECS: flooring is what bounds this table's write volume,
+    // so startup fails rather than run without it.
+    #[envconfig(from = "EVENTDEF_LAST_SEEN_FLOOR_SECS", default = "3600")]
+    pub eventdef_last_seen_floor_secs: i64,
 
-    // Do everything except actually read or write from the DB
+    // Skip group-type resolution, which is the only read this service performs. Writes are
+    // unaffected: process_batch runs regardless of this setting.
     #[envconfig(default = "true")]
     pub skip_reads: bool,
 
-    // We maintain a small cache for mapping from group names to group type indexes.
-    // You have very few reasons to ever change this... group type index resolution
-    // is done as a final step before writing an update, and is low-cost even without
-    // caching, compared to the rest of the process.
+    // Cache mapping group names to group type indexes. Resolution runs once per consumer batch,
+    // before the batch is written, and is a gRPC round trip to personhog with retries and
+    // backoff, so caching matters more than the size of this value usually does.
     #[envconfig(default = "100000")]
     pub group_type_cache_size: usize,
 
@@ -108,14 +125,6 @@ pub struct Config {
     #[envconfig(default = "opt_out")]
     pub filter_mode: TeamFilterMode,
 
-    // this enables codepaths used by the new mirror deployment
-    // property-defs-rs-v2 in ArgoCD. NOTE: this is likely to be
-    // removed in the future since the v2 deployment is no longer
-    // part of the future plan for propdefs service.
-    #[envconfig(default = "false")]
-    pub enable_mirror: bool,
-
-    // TODO: rename deploy cfg var to "write_batch_size" and update this after to complete the cutover!
     #[envconfig(default = "100")]
     pub write_batch_size: usize,
 
@@ -191,6 +200,9 @@ impl TeamFilterMode {
 
 impl Config {
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
+        // Production overrides KAFKA_CONSUMER_TOPIC to team_event_partitioned_events_json, which
+        // a WarpStream Bento pipeline repartitions out of clickhouse_events_json. This default is
+        // only what a local run gets.
         ConsumerConfig::set_defaults("property-defs-rs", "clickhouse_events_json", true);
         Config::init_from_env()
     }

@@ -2,9 +2,9 @@ import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.settings import (
     CAL_COM_ENDPOINTS,
+    CAL_COM_HOSTS,
     CalComEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -20,11 +20,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
-CAL_COM_BASE_URL = "https://api.cal.com/v2"
 # Cheap single-object endpoint used to confirm an API key is genuine. The key is account-wide, so
 # one probe validates access to every list endpoint.
 DEFAULT_PROBE_PATH = "/me"
+DEFAULT_REGION = "us"
 
 
 @dataclasses.dataclass
@@ -34,6 +35,12 @@ class CalComResumeConfig:
     cursor: str | None = None
     # `skip` offset for offset-paginated endpoints (webhooks).
     skip: int | None = None
+
+
+def _host(region: str) -> str:
+    # Fall back to US rather than raising: an unrecognized stored value must not break a sync that
+    # is already running.
+    return CAL_COM_HOSTS.get(region, CAL_COM_HOSTS[DEFAULT_REGION])
 
 
 def _headers(config: CalComEndpointConfig) -> dict[str, str]:
@@ -100,6 +107,7 @@ def cal_com_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[CalComResumeConfig],
+    region: str = DEFAULT_REGION,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
@@ -116,7 +124,7 @@ def cal_com_source(
 
     rest_config: RESTAPIConfig = {
         "client": {
-            "base_url": CAL_COM_BASE_URL,
+            "base_url": _host(region),
             "headers": _headers(config),
             "auth": {"type": "bearer", "token": api_key},
             "paginator": _make_paginator(config),
@@ -183,17 +191,21 @@ def cal_com_source(
     )
 
 
-def validate_credentials(api_key: str) -> tuple[bool, str | None]:
+def validate_credentials(api_key: str, region: str = DEFAULT_REGION) -> tuple[bool, str | None]:
     # The API key is account-wide, so a single probe validates access to every list endpoint.
     ok, status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_key,)),
-        f"{CAL_COM_BASE_URL}{DEFAULT_PROBE_PATH}",
+        f"{_host(region)}{DEFAULT_PROBE_PATH}",
         headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
     )
     if ok:
         return True, None
     if status in (401, 403):
-        return False, "Invalid Cal.com API key"
+        # A key from the other region is rejected exactly like a bad key, so name the region too.
+        return (
+            False,
+            "Cal.com rejected this API key. Check the key, and check that the selected region matches your Cal.com account.",
+        )
     if status is None:
         return False, "Could not connect to Cal.com"
     return False, f"Cal.com returned HTTP {status}"

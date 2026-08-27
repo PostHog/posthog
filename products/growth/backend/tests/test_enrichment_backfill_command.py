@@ -68,6 +68,24 @@ class TestBackfillSignupEnrichment(BaseTest):
             with self.assertRaises(CommandError):
                 call_command("backfill_signup_enrichment", **_window())
 
+    def test_dispatches_in_eu(self):
+        target = self._org(email="a@stripe.com")
+
+        with (
+            patch(f"{_COMMAND_MODULE}.get_instance_region", return_value="EU"),
+            patch(f"{_COMMAND_MODULE}.dispatch_signup_enrichment") as dispatch,
+        ):
+            call_command("backfill_signup_enrichment", "--delay=0", **_window())
+
+        assert dispatch.call_count == 1
+        assert dispatch.call_args.args[0].organization_id == str(target.id)
+
+    def test_refuses_outside_us_and_eu(self):
+        self._org(email="a@stripe.com")
+        with patch(f"{_COMMAND_MODULE}.get_instance_region", return_value="DEV"):
+            with self.assertRaises(CommandError):
+                call_command("backfill_signup_enrichment", **_window())
+
     def test_continues_past_a_failed_dispatch(self):
         self._org(email="a@stripe.com")
         second = self._org(email="b@vercel.com")

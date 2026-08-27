@@ -10,8 +10,9 @@ Two fetch paths:
 - get_rows_via_search: POST to /crm/v3/objects/{entity}/search with server-side date
   filtering, used for subsequent incremental syncs. Mirrors Airbyte's CRM-search
   pattern: time-windowed queries sorted by the cursor property, with cursor-advance
-  sub-slicing when the 10k result cap is hit within a window. Backfills associations
-  per page via v4 batch-read.
+  sub-slicing when the 10k result cap is hit within a window, falling back to
+  hs_object_id-based sub-slicing when every record in the cap shares one cursor value.
+  Backfills associations per page via v4 batch-read.
 """
 
 import dataclasses
@@ -25,10 +26,10 @@ from requests.exceptions import JSONDecodeError as RequestsJSONDecodeError
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.auth import (
     HubspotRetryableError,
     hubspot_refresh_access_token,
@@ -37,12 +38,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.he
     BASE_URL,
     _get_headers,
     _get_property_names,
+    raise_for_hubspot_status,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.metadata import METADATA_FETCHERS
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.settings import (
     ASSOCIATIONS_BATCH_SIZE,
     DEFAULT_PROPS,
     HUBSPOT_API_VERSION_V3,
     HUBSPOT_ENDPOINTS,
+    HUBSPOT_METADATA_ENDPOINTS,
     OBJECT_TYPE_SINGULAR,
     SEARCH_PAGE_SIZE,
     SEARCH_RESULT_CAP,
@@ -58,11 +62,6 @@ SEARCH_PROPERTIES_LIMIT = 250
 WINDOW_SIZE_MS = SEARCH_WINDOW_DAYS * 24 * 60 * 60 * 1000
 
 
-class HubspotPathologicalWindowError(Exception):
-    """Raised when a single cursor-ms value has >SEARCH_RESULT_CAP records and the window
-    cannot be sub-divided further. Extremely unlikely in practice for HubSpot CRM data."""
-
-
 @dataclasses.dataclass
 class HubspotResumeConfig:
     # Full-refresh / seed incremental (GET) path
@@ -71,6 +70,12 @@ class HubspotResumeConfig:
     sync_start_ms: Optional[int] = None
     sync_end_ms: Optional[int] = None
     last_cursor_ms: Optional[int] = None
+
+
+def _object_type_for(endpoint: str) -> str:
+    """The object type used to look up an endpoint's property definitions. Only the original eight
+    endpoints have a distinct singular form; later ones are named by their own plural."""
+    return OBJECT_TYPE_SINGULAR.get(endpoint, endpoint)
 
 
 def _get_properties_str(
@@ -82,6 +87,7 @@ def _get_properties_str(
     include_custom_props: bool = True,
     source_id: str | None = None,
     api_version: str = HUBSPOT_API_VERSION_V3,
+    discover_all_properties: bool = False,
 ) -> str:
     """Builds a comma-separated string of properties to request from the HubSpot API (GET path)."""
     props = list(props)
@@ -89,7 +95,7 @@ def _get_properties_str(
         all_props = _get_property_names(
             api_key, refresh_token, object_type, source_id=source_id, api_version=api_version
         )
-        custom_props = [prop for prop in all_props if not prop.startswith("hs_")]
+        custom_props = [prop for prop in all_props if discover_all_properties or not prop.startswith("hs_")]
         props = props + [c for c in custom_props if c not in props]
 
     props_str = ""
@@ -120,6 +126,7 @@ def _resolve_search_properties(
     logger: FilteringBoundLogger,
     source_id: str | None,
     api_version: str = HUBSPOT_API_VERSION_V3,
+    discover_all_properties: bool = False,
 ) -> tuple[list[str], list[str]]:
     """Resolve the properties list for the search body.
 
@@ -156,7 +163,7 @@ def _resolve_search_properties(
             all_props = _get_property_names(
                 api_key, refresh_token, object_type, source_id=source_id, api_version=api_version
             )
-            custom = [p for p in all_props if not p.startswith("hs_") and p not in props]
+            custom = [p for p in all_props if (discover_all_properties or not p.startswith("hs_")) and p not in props]
             props.extend(custom)
 
     # Force-include required properties (cursor + id).
@@ -264,7 +271,7 @@ def get_rows(
 ) -> Iterator[Any]:
     """Full-refresh (and seed-incremental) fetch via the paginated GET endpoint."""
     config = HUBSPOT_ENDPOINTS[endpoint]
-    object_type = OBJECT_TYPE_SINGULAR[endpoint]
+    object_type = _object_type_for(endpoint)
 
     # Build properties string (called once before sync loop)
     # Keep track of the expected properties so we can backfill missing ones with None.
@@ -312,6 +319,7 @@ def get_rows(
             logger=logger,
             source_id=source_id,
             api_version=api_version,
+            discover_all_properties=config.discover_all_properties,
         )
         expected_properties = props_str.split(",") if props_str else []
 
@@ -359,7 +367,7 @@ def get_rows(
 
         if not response.ok:
             logger.error(f"Hubspot API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
+            raise_for_hubspot_status(response, page_url)
 
         # Parse inside the retry so a truncated/partial body (JSONDecodeError, e.g. an
         # "Unterminated string" mid-stream) is reissued like a 429/5xx instead of bubbling
@@ -473,7 +481,7 @@ def _batch_read_associations(
             logger.error(
                 f"Hubspot v4 associations error: status={response.status_code}, body={response.text}, url={url}"
             )
-            response.raise_for_status()
+            raise_for_hubspot_status(response, url)
 
         # See fetch_page: a truncated/partial body is transient, so retry rather than crash.
         try:
@@ -559,13 +567,15 @@ def get_rows_via_search(
     - Within each window, sort by the cursor property ASC and paginate via `after`.
     - When a sub-slice exceeds SEARCH_RESULT_CAP results, advance the lower bound to
       `sub_slice_max_cursor` (the highest cursor seen in the slice) and continue with
-      GTE so boundary-cursor records are re-fetched and deduplicated by primary key,
-      rather than id-walking. This avoids skipping records that share the boundary cursor.
+      GTE so boundary-cursor records are re-fetched and deduplicated by primary key.
+      This avoids skipping records that share the boundary cursor. If every record in the
+      capped slice shares one cursor value, fall back to hs_object_id-based sub-slicing
+      (see `_drain_tied_cursor`).
     - Backfill associations (if any) per page via the v4 batch-read endpoint.
     - Checkpoint (sync_start_ms, sync_end_ms, last_cursor_ms) to Redis on each batch flush.
     """
     config = HUBSPOT_ENDPOINTS[endpoint]
-    object_type = OBJECT_TYPE_SINGULAR[endpoint]
+    object_type = _object_type_for(endpoint)
     cursor_prop = config.cursor_filter_property_field
     if not cursor_prop:
         raise ValueError(f"Endpoint {endpoint} does not support search-based incremental sync")
@@ -581,6 +591,7 @@ def get_rows_via_search(
         logger=logger,
         source_id=source_id,
         api_version=api_version,
+        discover_all_properties=config.discover_all_properties,
     )
 
     headers = _get_headers(api_key)
@@ -602,6 +613,9 @@ def get_rows_via_search(
         current_lower = sync_start_ms
 
     last_cursor_ms = current_lower
+    # Placeholder; reassigned per-window below. Bound here so the nested `_process_results`
+    # closure (defined before the window loop) has a `nonlocal` target to resolve against.
+    sub_slice_max_cursor = current_lower - 1
 
     @retry(
         retry=retry_if_exception_type(
@@ -635,7 +649,7 @@ def get_rows_via_search(
 
         if not response.ok:
             logger.error(f"Hubspot search error: status={response.status_code}, body={response.text}, url={search_url}")
-            response.raise_for_status()
+            raise_for_hubspot_status(response, search_url)
 
         # See fetch_page: a truncated/partial body is transient, so retry rather than crash.
         try:
@@ -651,6 +665,106 @@ def get_rows_via_search(
                 last_cursor_ms=last_cursor_ms,
             )
         )
+
+    def _process_results(results: list[dict[str, Any]]) -> Iterator[Any]:
+        """Flatten, batch, and yield `results`, tracking cursor progress as a side effect."""
+        nonlocal last_cursor_ms, sub_slice_max_cursor
+        for result in results:
+            row = _flatten_result(result)
+            if expected_properties:
+                _backfill_missing_properties(row, expected_properties)
+
+            row_cursor_ms = _iso_to_ms(row.get(cursor_prop))
+            if row_cursor_ms is not None:
+                if row_cursor_ms > last_cursor_ms:
+                    last_cursor_ms = row_cursor_ms
+                if row_cursor_ms > sub_slice_max_cursor:
+                    sub_slice_max_cursor = row_cursor_ms
+
+            batcher.batch(row)
+            if batcher.should_yield():
+                yield batcher.get_table()
+                save_progress()
+
+    def _drain_tied_cursor(cursor_ms: int) -> Iterator[Any]:
+        """SEARCH_RESULT_CAP+ records share `cursor_ms` (e.g. a bulk import stamping a whole
+        batch with the same lastmodifieddate), so the cursor value can't sub-divide the window
+        any further. Page through them by the unique hs_object_id instead: each query filters
+        on `hs_object_id > anchor_id`, so re-issuing a fresh query with an advanced anchor once
+        one query's own `after`-pagination ends shrinks the match count each time, sidestepping
+        HubSpot's per-query SEARCH_RESULT_CAP regardless of how many records are tied. This
+        re-walks records already seen for `cursor_ms` in the caller's cursor-sorted pass, but
+        writes dedup by primary key, so re-fetching is safe.
+        """
+        next_anchor_id = -1
+        while True:
+            anchor_id = next_anchor_id
+            after: Optional[str] = None
+            got_any = False
+            anchor_result_count = 0
+
+            while True:
+                body: dict[str, Any] = {
+                    "limit": SEARCH_PAGE_SIZE,
+                    "sorts": [{"propertyName": "hs_object_id", "direction": "ASCENDING"}],
+                    "filterGroups": [
+                        {
+                            "filters": [
+                                {"propertyName": cursor_prop, "operator": "EQ", "value": str(cursor_ms)},
+                                {"propertyName": "hs_object_id", "operator": "GT", "value": str(anchor_id)},
+                            ]
+                        }
+                    ],
+                    "properties": props_list,
+                }
+                if after is not None:
+                    body["after"] = after
+
+                data = fetch_search(body)
+                results = data.get("results", [])
+                if not results:
+                    break
+                got_any = True
+                anchor_result_count += len(results)
+
+                if config.associations:
+                    _backfill_associations_into_results(
+                        results=results,
+                        from_entity_plural=endpoint,
+                        association_types=config.associations,
+                        headers=headers,
+                        refresh_token=refresh_token,
+                        source_id=source_id,
+                        logger=logger,
+                        api_version=api_version,
+                    )
+
+                for result in results:
+                    try:
+                        result_id = int(result["id"])
+                    except (KeyError, ValueError):
+                        continue
+                    if result_id > next_anchor_id:
+                        next_anchor_id = result_id
+
+                yield from _process_results(results)
+
+                # HubSpot rejects paging a single query past SEARCH_RESULT_CAP results ("Attempting
+                # to page beyond 10,000"). Restart with the advanced anchor before that happens,
+                # rather than waiting for `after` to run out.
+                if anchor_result_count >= SEARCH_RESULT_CAP:
+                    break
+
+                next_cursor = data.get("paging", {}).get("next", {}).get("after")
+                if not next_cursor:
+                    break
+                after = next_cursor
+
+            # An empty result for this anchor means every tied record has been seen; a
+            # non-empty query that just ran out of `after` pages (likely SEARCH_RESULT_CAP)
+            # restarts fresh with the advanced anchor to keep shrinking the match count.
+            if not got_any:
+                break
 
     while current_lower <= sync_end_ms:
         window_upper = min(current_lower + WINDOW_SIZE_MS, sync_end_ms)
@@ -701,23 +815,7 @@ def get_rows_via_search(
                     api_version=api_version,
                 )
 
-            for result in results:
-                row = _flatten_result(result)
-                if expected_properties:
-                    _backfill_missing_properties(row, expected_properties)
-
-                row_cursor_ms = _iso_to_ms(row.get(cursor_prop))
-                if row_cursor_ms is not None:
-                    if row_cursor_ms > last_cursor_ms:
-                        last_cursor_ms = row_cursor_ms
-                    if row_cursor_ms > sub_slice_max_cursor:
-                        sub_slice_max_cursor = row_cursor_ms
-
-                batcher.batch(row)
-                if batcher.should_yield():
-                    py_table = batcher.get_table()
-                    yield py_table
-                    save_progress()
+            yield from _process_results(results)
 
             window_result_count += len(results)
             paging = data.get("paging", {})
@@ -726,18 +824,17 @@ def get_rows_via_search(
             # Sub-slice the window if we hit the 10k cap.
             if window_result_count >= SEARCH_RESULT_CAP:
                 # If every record in this sub-slice had cursor == window_lower we can't
-                # safely advance (moving to window_lower + 1 would skip any unseen records
-                # at the same timestamp). This requires 10k+ records at a single ms,
-                # which is effectively impossible for real HubSpot CRM data.
+                # safely advance by cursor value alone (moving to window_lower + 1 would skip
+                # any unseen records at the same timestamp) — sub-divide by the unique
+                # hs_object_id instead.
                 if sub_slice_max_cursor <= window_lower:
-                    raise HubspotPathologicalWindowError(
-                        f"Hubspot search: {SEARCH_RESULT_CAP} records share cursor={window_lower}ms "
-                        f"for {endpoint}; cannot sub-divide further"
-                    )
-                # Use GTE (not GT) so boundary records at sub_slice_max_cursor are re-fetched.
-                # Primary-key dedup handles the duplicates without risk of skipping records
-                # that share the boundary cursor.
-                window_lower = sub_slice_max_cursor
+                    yield from _drain_tied_cursor(window_lower)
+                    window_lower = window_lower + 1
+                else:
+                    # Use GTE (not GT) so boundary records at sub_slice_max_cursor are re-fetched.
+                    # Primary-key dedup handles the duplicates without risk of skipping records
+                    # that share the boundary cursor.
+                    window_lower = sub_slice_max_cursor
                 sub_slice_max_cursor = window_lower - 1
                 after = None
                 window_result_count = 0
@@ -785,7 +882,27 @@ def hubspot_source(
       upstream so the watermark is meaningful and associations backfill is the cheaper option).
     - `use_search_path=False` → GET path (full refresh, seed incremental, or endpoints without
       search support).
+
+    Lookup tables (pipelines, pipeline stages, property definitions, owners) take neither path:
+    they aren't CRM objects, so they go straight to their own fetcher and are always full refresh.
     """
+    metadata_config = HUBSPOT_METADATA_ENDPOINTS.get(endpoint)
+    if metadata_config is not None:
+        fetcher = METADATA_FETCHERS[endpoint]
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: fetcher(
+                api_key=api_key,
+                refresh_token=refresh_token,
+                logger=logger,
+                source_id=source_id,
+                api_version=api_version,
+            ),
+            primary_keys=metadata_config.primary_keys,
+            partition_count=1,
+            partition_size=1,
+        )
+
     endpoint_config = HUBSPOT_ENDPOINTS[endpoint]
 
     if use_search_path and not endpoint_config.cursor_filter_property_field:
@@ -824,6 +941,10 @@ def hubspot_source(
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if endpoint_config.partition_key else None,
-        partition_format="week" if endpoint_config.partition_key else None,
+        # Month, not finer: the partition key is a creation date while the incremental cursor is
+        # last-modified, so each batch touches partitions across the portal's whole history and the
+        # merge commits once per touched partition. Auto-repartition steps finer if a month
+        # partition ever outgrows the budget.
+        partition_format="month" if endpoint_config.partition_key else None,
         partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
     )

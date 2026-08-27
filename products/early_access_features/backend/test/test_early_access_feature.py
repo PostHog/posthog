@@ -20,12 +20,11 @@ from posthog.models.team.team_caching import set_team_in_cache
 from posthog.models.user import User
 from posthog.test.persons import create_person
 
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, flag_payload_codec
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-
-from ee.models.rbac.access_control import AccessControl
-from ee.models.rbac.role import Role
 
 if TYPE_CHECKING:
     from products.surveys.backend.models import Survey as SurveyModel
@@ -118,6 +117,83 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response_data["stage"] == "alpha"
         assert "super_groups" not in response_data["feature_flag"]["filters"]
         assert response_data["feature_flag"]["filters"]["feature_enrollment"] is True
+
+    @parameterized.expand(
+        [
+            ("omitted", None),
+            ("blank", ""),
+            ("whitespace_only", "   "),
+        ]
+    )
+    def test_posthog_team_requires_description_on_us_cloud(self, _name, description):
+        with (
+            self.settings(CLOUD_DEPLOYMENT="US"),
+            patch("products.early_access_features.backend.api.POSTHOG_TEAM_ID", self.team.id),
+        ):
+            data: dict = {"name": "Hick bondoogling", "stage": "concept"}
+            if description is not None:
+                data["description"] = description
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/early_access_feature/",
+                data=data,
+                format="json",
+            )
+            response_data = response.json()
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert response_data["attr"] == "description"
+        assert not EarlyAccessFeature.objects.filter(name="Hick bondoogling").exists()
+
+    def test_posthog_team_allows_creation_with_description_on_us_cloud(self):
+        with (
+            self.settings(CLOUD_DEPLOYMENT="US"),
+            patch("products.early_access_features.backend.api.POSTHOG_TEAM_ID", self.team.id),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/early_access_feature/",
+                data={"name": "Hick bondoogling", "description": "A real description", "stage": "concept"},
+                format="json",
+            )
+            response_data = response.json()
+
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert response_data["description"] == "A real description"
+
+    def test_other_team_does_not_require_description_on_us_cloud(self):
+        with (
+            self.settings(CLOUD_DEPLOYMENT="US"),
+            patch("products.early_access_features.backend.api.POSTHOG_TEAM_ID", self.team.id + 1000),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/early_access_feature/",
+                data={"name": "Hick bondoogling", "stage": "concept"},
+                format="json",
+            )
+            response_data = response.json()
+
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+
+    @parameterized.expand(
+        [
+            ("eu_cloud", "EU"),
+            ("self_hosted", ""),
+        ]
+    )
+    def test_team_id_2_does_not_require_description_outside_us_cloud(self, _name, cloud_deployment):
+        # project id 2 is PostHog's own team only on US cloud — elsewhere it's an unrelated customer.
+        with (
+            self.settings(CLOUD_DEPLOYMENT=cloud_deployment),
+            patch("products.early_access_features.backend.api.POSTHOG_TEAM_ID", self.team.id),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/early_access_feature/",
+                data={"name": "Hick bondoogling", "stage": "concept"},
+                format="json",
+            )
+            response_data = response.json()
+
+        assert response.status_code == status.HTTP_201_CREATED, response_data
 
     @parameterized.expand(
         [
@@ -344,13 +420,27 @@ class TestEarlyAccessFeature(APIBaseTest):
             },
         )
 
-    def test_cant_create_early_access_feature_with_duplicate_key(self):
-        FeatureFlag.objects.create(
+    @parameterized.expand(
+        [
+            ("linkable_flag", False, "Rename this feature, or link the existing flag instead."),
+            ("flag_already_attached", True, "Rename this feature."),
+        ]
+    )
+    def test_cant_create_early_access_feature_with_duplicate_key(self, _name, attach_existing_feature, remedy):
+        flag = FeatureFlag.objects.create(
             team=self.team,
             filters={"groups": [{"properties": [], "rollout_percentage": None}]},
             key="hick-bondoogling",
             created_by=self.user,
         )
+        if attach_existing_feature:
+            EarlyAccessFeature.objects.create(
+                team=self.team,
+                name="Hick bondoogling (original)",
+                description="The one that got there first.",
+                stage="beta",
+                feature_flag=flag,
+            )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/early_access_feature/",
@@ -365,9 +455,37 @@ class TestEarlyAccessFeature(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
 
+        self.assertEqual(response_data["attr"], "name")
         self.assertEqual(
             response_data["detail"],
-            "There is already a feature flag with this key.",
+            f"A feature flag with the key 'hick-bondoogling' already exists. {remedy}",
+        )
+
+    @parameterized.expand(
+        [
+            ("non_latin_script", "功能名称"),
+            ("emoji_only", "🎉🎉🎉"),
+            ("punctuation_only", "!!!"),
+        ]
+    )
+    def test_cant_create_early_access_feature_whose_name_yields_no_flag_key(self, _name, feature_name):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={
+                "name": feature_name,
+                "description": "A feature whose name slugifies to nothing.",
+                "stage": "beta",
+            },
+            format="json",
+        )
+        response_data = response.json()
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+
+        self.assertEqual(response_data["attr"], "name")
+        self.assertEqual(
+            response_data["detail"],
+            "A feature flag key can't be built from this name. Rename this feature using letters (a-z) or numbers, or link an existing flag instead.",
         )
 
     def test_can_create_new_early_access_feature_with_soft_deleted_flag(self):
@@ -1008,6 +1126,30 @@ class TestEarlyAccessFeature(APIBaseTest):
             "concept",
             "beta",
         )
+
+    @patch("posthog.tasks.early_access_feature.send_events_for_early_access_feature_stage_change.delay")
+    def test_send_events_for_early_access_feature_stage_change_skips_when_stage_omitted(self, mock_celery_task):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={
+                "name": "CeleryTestFeature",
+                "description": "Test firing celery task",
+                "stage": EarlyAccessFeature.Stage.CONCEPT,
+            },
+            format="json",
+        )
+        feature_id = response.json()["id"]
+
+        # A PATCH that only changes the assignee omits stage; it must not read as a move to a null
+        # stage and enqueue a spurious stage-change task.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature_id}",
+            data={"assignee": None},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        mock_celery_task.assert_not_called()
 
     def test_create_early_access_feature_in_specific_folder(self):
         response = self.client.post(

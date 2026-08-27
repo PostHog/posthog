@@ -11,13 +11,13 @@ import { template as geoipTemplate } from '../../../src/cdp/templates/_transform
 import { compileHog } from '../../../src/cdp/templates/compiler'
 import { createTestMonitoringOutputs } from '../../../tests/helpers/ingestion-outputs'
 import { forSnapshot } from '../../../tests/helpers/snapshots'
-import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import { createTestTeamFixture } from '../../../tests/helpers/sql'
 import { Hub } from '../../types'
 import { createHogFunction, insertHogFunction } from '../_tests/fixtures'
 import { posthogPluginGeoip } from '../legacy-plugins/_transformations/posthog-plugin-geoip/template'
 import { propertyFilterPlugin } from '../legacy-plugins/_transformations/property-filter-plugin/template'
-import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { HogFunctionTemplate } from '../types'
+import type { HogTransformerServiceConfig } from './hog-transformer.service'
 import { HogTransformerService, createHogTransformerService } from './hog-transformer.service'
 import { resetHogvmNodeModuleCacheForTests } from './rust-vm'
 
@@ -50,13 +50,12 @@ describe('HogTransformer', () => {
 
     beforeEach(async () => {
         hub = await createHub()
-        await resetTestDatabase()
 
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
 
         // Create a team first before inserting hog functions
-        const team = await getFirstTeam(hub.postgres)
+        const { team } = await createTestTeamFixture(hub.postgres)
         teamId = team.id
 
         hogTransformer = createHogTransformerService(hub, {
@@ -71,6 +70,26 @@ describe('HogTransformer', () => {
         jest.spyOn(hogTransformer['pluginExecutor'], 'execute')
     })
 
+    it('constructs the synchronous executor from only transformation config', async () => {
+        const config: HogTransformerServiceConfig = {
+            SITE_URL: hub.SITE_URL,
+            CDP_HOG_RUST_VM_EXECUTION_ENABLED: false,
+            MMDB_FILE_LOCATION: hub.MMDB_FILE_LOCATION,
+            // Deliberately not the default, so the assertion below proves the value is plumbed
+            // through rather than hardcoded in the factory.
+            TRANSFORMATIONS_HOG_TIMEOUT_MS: 123,
+        }
+        const transformer = createHogTransformerService(config, {
+            ...hub,
+            monitoringOutputs: createTestMonitoringOutputs(mockProducer),
+        })
+
+        expect(transformer['hogExecutor']['hogInputsService']['recipientTokensService']).toBeUndefined()
+        expect(transformer['hogExecutor']['config'].executionTimeoutMs).toBe(123)
+
+        await transformer.stop()
+    })
+
     describe('transformEvent', () => {
         it('handles geoip lookup transformation', async () => {
             // Setup the hog function
@@ -82,7 +101,6 @@ describe('HogTransformer', () => {
                 enabled: true,
                 bytecode: hogByteCode,
                 execution_order: 1,
-                id: 'd77e792e-0f35-431b-a983-097534aa4767',
             })
             await insertHogFunction(hub.postgres, teamId, geoIpFunction)
 
@@ -141,9 +159,6 @@ describe('HogTransformer', () => {
                     "$initial_geoip_subdivision_2_name": null,
                     "$initial_geoip_time_zone": "America/Los_Angeles",
                   },
-                  "$transformations_succeeded": [
-                    "GeoIP (d77e792e-0f35-431b-a983-097534aa4767)",
-                  ],
                 }
             `)
         })
@@ -156,7 +171,6 @@ describe('HogTransformer', () => {
                 enabled: true,
                 bytecode: [],
                 execution_order: 1,
-                id: 'd77e792e-0f35-431b-a983-097534aa4767',
                 hog: `
                     let returnEvent := event
                     if (event.elements_chain ilike '%button%') {
@@ -192,7 +206,6 @@ describe('HogTransformer', () => {
                 enabled: true,
                 bytecode: [],
                 execution_order: 1,
-                id: 'd77e792e-0f35-431b-a983-097534aa4767',
                 hog: `
                     let returnEvent := event
                     returnEvent.distinct_id := 'modified-distinct-id'
@@ -210,7 +223,7 @@ describe('HogTransformer', () => {
             const event: PluginEvent = createPluginEvent({}, teamId)
             const result = await hogTransformer.transformEventAndProduceMessages(event)
 
-            expect(result.event).toMatchInlineSnapshot(`
+            expect(forSnapshot(result.event, { overrides: { team_id: '<REPLACED-TEAM-ID>' } })).toMatchInlineSnapshot(`
                 {
                   "distinct_id": "modified-distinct-id",
                   "event": "modified-event",
@@ -219,13 +232,10 @@ describe('HogTransformer', () => {
                   "properties": {
                     "$current_url": "https://example.com",
                     "$ip": "216.160.83.56",
-                    "$transformations_succeeded": [
-                      "Modifier (d77e792e-0f35-431b-a983-097534aa4767)",
-                    ],
                     "test_property": "modified-test-value",
                   },
                   "site_url": "http://localhost",
-                  "team_id": 2,
+                  "team_id": "<REPLACED-TEAM-ID>",
                   "timestamp": "2024-01-01T00:00:00Z",
                   "uuid": "event-id",
                 }
@@ -323,7 +333,7 @@ describe('HogTransformer', () => {
                     x.value.message = 'geoip location data for ip: [REPLACED]'
                 }
             })
-            expect(forSnapshot(messages)).toMatchSnapshot()
+            expect(forSnapshot(messages, { overrides: { team_id: '<REPLACED-TEAM-ID>' } })).toMatchSnapshot()
         })
 
         it('should delete a property from previous transformation', async () => {
@@ -605,7 +615,7 @@ describe('HogTransformer', () => {
             expect(executeHogFunctionSpy.mock.calls[2][0]).toMatchObject({ execution_order: null })
         })
 
-        it('should track successful and failed transformations', async () => {
+        it('should keep applying transformations after one returns an invalid result', async () => {
             // Create a successful transformation
             const successTemplate: HogFunctionTemplate = {
                 free: true,
@@ -679,11 +689,9 @@ describe('HogTransformer', () => {
 
             const result = await hogTransformer.transformEventAndProduceMessages(event)
 
-            // Verify the event has both success and failure tracking
+            // The failing transformation's invalid result is discarded, the successful one still applies
             expect(result.event?.properties).toEqual({
-                success: true, // From successful transformation
-                $transformations_succeeded: [`Success Template (${successFunction.id})`],
-                $transformations_failed: [`Failing Template (${failFunction.id})`],
+                success: true,
             })
         })
 
@@ -763,7 +771,7 @@ describe('HogTransformer', () => {
             })
         })
 
-        it('should not add transformation tracking properties if no transformations run', async () => {
+        it('should leave the event untouched if no transformations run', async () => {
             const event = createPluginEvent(
                 {
                     event: 'test',
@@ -774,15 +782,12 @@ describe('HogTransformer', () => {
 
             const result = await hogTransformer.transformEventAndProduceMessages(event)
 
-            // Verify the event properties are unchanged
             expect(result.event?.properties).toEqual({
                 original: true,
             })
-            expect(result.event?.properties).not.toHaveProperty('$transformations_succeeded')
-            expect(result.event?.properties).not.toHaveProperty('$transformations_failed')
         })
 
-        it('should ignore existing transformation results when adding new ones', async () => {
+        it('should strip incoming transformation tracking properties', async () => {
             const successTemplate: HogFunctionTemplate = {
                 free: true,
                 status: 'beta',
@@ -820,6 +825,7 @@ describe('HogTransformer', () => {
                     properties: {
                         $transformations_succeeded: ['Previous Success (prev-id)'],
                         $transformations_failed: {}, // malformed value
+                        $transformations_skipped: ['Previous Skip (prev-id)'],
                     },
                 },
                 teamId
@@ -827,70 +833,13 @@ describe('HogTransformer', () => {
 
             const result = await hogTransformer.transformEventAndProduceMessages(event)
 
-            // Verify new results are appended to existing ones
-            expect(result?.event?.properties?.$transformations_succeeded).toEqual([
-                `Success Template (${successFunction.id})`,
-            ])
-            expect(result?.event?.properties?.$transformations_failed).toEqual(undefined)
-        })
-
-        it('should track skipped transformations when filter does not match', async () => {
-            const filterTemplate = {
-                free: true,
-                status: 'beta',
-                type: 'transformation',
-                id: 'template-test',
-                name: 'Filter Template',
-                description: 'A template that should be skipped when filter does not match',
-                category: ['Custom'],
-                hog: `
-                    let returnEvent := event
-                    returnEvent.properties.should_not_be_set := true
-                    return returnEvent
-                `,
-                inputs_schema: [],
-            }
-
-            const hogFunction = createHogFunction({
-                type: 'transformation',
-                name: filterTemplate.name,
-                team_id: teamId,
-                enabled: true,
-                bytecode: await compileHog(filterTemplate.hog),
-                filters: {
-                    bytecode: await compileHog(`
-                        return event = 'match-me'
-                    `),
-                    events: [{ id: 'match-me', name: 'match-me', type: 'events', order: 0 }],
-                },
+            // A client cannot inject these retired properties, and nothing re-adds them
+            expect(result?.event?.properties).toEqual({
+                success: true,
             })
-
-            await insertHogFunction(hub.postgres, teamId, hogFunction)
-            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
-
-            const event = createPluginEvent(
-                {
-                    event: 'does-not-match-me',
-                    properties: {
-                        original: true,
-                    },
-                },
-                teamId
-            )
-
-            const result = await hogTransformer.transformEventAndProduceMessages(event)
-
-            // Verify transformation was skipped and tracked
-            expect(result.event?.properties?.should_not_be_set).toBeUndefined()
-            expect(result.event?.properties?.$transformations_skipped).toEqual([
-                `${hogFunction.name} (${hogFunction.id})`,
-            ])
-            expect(result.event?.properties?.original).toBe(true)
-            expect(result.event?.properties?.$transformations_succeeded).toBeUndefined()
-            expect(result.event?.properties?.$transformations_failed).toBeUndefined()
         })
 
-        it('should catch thrown executeHogFunction errors without crashing, track failure, and queue app metric', async () => {
+        it('should catch thrown executeHogFunction errors without crashing and queue app metric', async () => {
             const successTemplate: HogFunctionTemplate = {
                 free: true,
                 status: 'beta',
@@ -944,12 +893,7 @@ describe('HogTransformer', () => {
             const event = createPluginEvent({ event: 'test', properties: {} }, teamId)
             const result = await hogTransformer.transformEventAndProduceMessages(event)
 
-            expect(result.event?.properties?.$transformations_failed).toEqual([
-                `Broken Template (${brokenFunction.id})`,
-            ])
-            expect(result.event?.properties?.$transformations_succeeded).toEqual([
-                `Success Template (${successFunction.id})`,
-            ])
+            // The thrown error is swallowed and the next transformation still runs
             expect(result.event?.properties?.success).toBe(true)
 
             expect(queueAppMetricSpy).toHaveBeenCalledWith(
@@ -967,7 +911,7 @@ describe('HogTransformer', () => {
             queueAppMetricSpy.mockRestore()
         })
 
-        it('should track both successful and skipped transformations in sequence', async () => {
+        it('should apply a matching transformation and skip a filtered one in sequence', async () => {
             const successTemplate = {
                 free: true,
                 status: 'beta',
@@ -1035,20 +979,9 @@ describe('HogTransformer', () => {
             const event = createPluginEvent({ event: 'does-not-match' }, teamId)
             const result = await hogTransformer.transformEventAndProduceMessages(event)
 
-            // Verify that:
-            // 1. First transformation succeeded (property was set)
-            // 2. Second transformation was skipped (property was NOT set)
-            // 3. We have correct tracking properties
+            // First transformation ran, second was filtered out
             expect(result.event?.properties?.success).toBe(true)
             expect(result.event?.properties?.should_not_be_set).toBeUndefined()
-
-            // Check that transformations_succeeded and transformations_skipped arrays contain the right functions
-            expect(result.event?.properties?.$transformations_succeeded).toContain(
-                `Success Template (${successFunction.id})`
-            )
-            expect(result.event?.properties?.$transformations_skipped).toContain(
-                `Skipped Template (${skippedFunction.id})`
-            )
         })
     })
 
@@ -1069,7 +1002,6 @@ describe('HogTransformer', () => {
                 enabled: true,
                 hog: posthogFilterOutPlugin.template.code,
                 inputs_schema: posthogFilterOutPlugin.template.inputs_schema,
-                id: 'c342e9ae-9f76-4379-a465-d33b4826bc05',
             })
 
             await insertHogFunction(hub.postgres, teamId, filterOutPlugin)
@@ -1094,7 +1026,7 @@ describe('HogTransformer', () => {
             const result = await hogTransformer.transformEventAndProduceMessages(event)
 
             expect(executeSpy).toHaveBeenCalledTimes(1)
-            expect(result.event).toMatchInlineSnapshot(`
+            expect(forSnapshot(result.event, { overrides: { team_id: '<REPLACED-TEAM-ID>' } })).toMatchInlineSnapshot(`
                 {
                   "distinct_id": "distinct-id",
                   "event": "keep-me",
@@ -1103,12 +1035,9 @@ describe('HogTransformer', () => {
                   "properties": {
                     "$current_url": "https://example.com",
                     "$ip": "216.160.83.56",
-                    "$transformations_succeeded": [
-                      "Filter Out Plugin (c342e9ae-9f76-4379-a465-d33b4826bc05)",
-                    ],
                   },
                   "site_url": "http://localhost",
-                  "team_id": 2,
+                  "team_id": "<REPLACED-TEAM-ID>",
                   "timestamp": "2024-01-01T00:00:00Z",
                   "uuid": "event-id",
                 }
@@ -1152,7 +1081,7 @@ describe('HogTransformer', () => {
             const event: PluginEvent = createPluginEvent({ event: 'keep-me', team_id: teamId })
             const result = await hogTransformer.transformEventAndProduceMessages(event)
 
-            expect(forSnapshot(result.event)).toMatchInlineSnapshot(`
+            expect(forSnapshot(result.event, { overrides: { team_id: '<REPLACED-TEAM-ID>' } })).toMatchInlineSnapshot(`
                 {
                   "distinct_id": "distinct-id",
                   "event": "keep-me",
@@ -1203,13 +1132,9 @@ describe('HogTransformer', () => {
                       "$initial_geoip_subdivision_2_name": null,
                       "$initial_geoip_time_zone": "America/Los_Angeles",
                     },
-                    "$transformations_succeeded": [
-                      "GeoIP (<REPLACED-UUID-0>)",
-                      "Property Filter (<REPLACED-UUID-1>)",
-                    ],
                   },
                   "site_url": "http://localhost",
-                  "team_id": 2,
+                  "team_id": "<REPLACED-TEAM-ID>",
                   "timestamp": "2024-01-01T00:00:00Z",
                   "uuid": "event-id",
                 }
@@ -1252,16 +1177,11 @@ describe('HogTransformer', () => {
             await insertHogFunction(hub.postgres, teamId, hogFunction)
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
 
-            const event = createPluginEvent({ event: 'does-not-match-me' }, teamId)
+            const event = createPluginEvent({ event: 'does-not-match-me', properties: { original: true } }, teamId)
             const result = await hogTransformer.transformEventAndProduceMessages(event)
 
-            // Verify transformation was skipped
-            expect(result.event?.properties?.should_not_be_set).toBeUndefined()
-            expect(result.event?.properties?.$transformations_succeeded).toBeUndefined()
-            expect(result.event?.properties?.$transformations_failed).toBeUndefined()
-            expect(result.event?.properties?.$transformations_skipped).toEqual([
-                `${hogFunction.name} (${hogFunction.id})`,
-            ])
+            // The transformation never ran, and the event is passed through untouched
+            expect(result.event?.properties).toEqual({ original: true })
         })
 
         it('should apply transformation when filter matches', async () => {
@@ -1305,9 +1225,6 @@ describe('HogTransformer', () => {
 
             // Verify transformation was applied
             expect(matchResult.event?.properties?.test_property).toBe('test_value')
-            expect(matchResult.event?.properties?.$transformations_succeeded).toContain(
-                `${hogFunction.name} (${hogFunction.id})`
-            )
 
             // Test event that shouldn't match the filter
             const nonMatchingEvent = createPluginEvent({ event: 'dont-match-me' }, teamId)
@@ -1315,11 +1232,6 @@ describe('HogTransformer', () => {
 
             // Verify transformation was skipped
             expect(nonMatchResult.event?.properties?.test_property).toBeUndefined()
-            expect(nonMatchResult.event?.properties?.$transformations_succeeded).toBeUndefined()
-            expect(nonMatchResult.event?.properties?.$transformations_failed).toBeUndefined()
-            expect(nonMatchResult.event?.properties?.$transformations_skipped).toEqual([
-                `${hogFunction.name} (${hogFunction.id})`,
-            ])
         })
 
         it('should apply transformation when no filters are defined', async () => {
@@ -1356,9 +1268,6 @@ describe('HogTransformer', () => {
 
             // Verify transformation was applied
             expect(result.event?.properties?.no_filter_property).toBe('applied')
-            expect(result.event?.properties?.$transformations_succeeded).toContain(
-                `${hogFunction.name} (${hogFunction.id})`
-            )
         })
 
         it('should skip transformation when filter errors and not continue processing', async () => {
@@ -1431,10 +1340,8 @@ describe('HogTransformer', () => {
             const event = createPluginEvent({ event: 'test-event' }, teamId)
             const result = await hogTransformer.transformEventAndProduceMessages(event)
 
-            // Verify one transformation was applied and the other was skipped
-            expect(result.event?.properties?.$transformations_skipped).toContain(
-                `${errorFunction.name} (${errorFunction.id})`
-            )
+            // The erroring filter skips its transformation without setting its property
+            expect(result.event?.properties?.error_filter_property).toBeUndefined()
             expect(queueAppMetricsSpy).toHaveBeenCalledWith(
                 expect.arrayContaining([
                     expect.objectContaining({
@@ -1453,9 +1360,6 @@ describe('HogTransformer', () => {
             )
 
             expect(result.event?.properties?.working_property).toBe('working')
-            expect(result.event?.properties?.$transformations_succeeded).toContain(
-                `${workingFunction.name} (${workingFunction.id})`
-            )
 
             queueAppMetricsSpy.mockRestore()
             queueLogsSpy.mockRestore()
@@ -1508,11 +1412,6 @@ describe('HogTransformer', () => {
 
             // Verify transformation was skipped since no filters matched
             expect(result.event?.properties?.should_not_be_set).toBeUndefined()
-            expect(result.event?.properties?.$transformations_succeeded).toBeUndefined()
-            expect(result.event?.properties?.$transformations_failed).toBeUndefined()
-            expect(result.event?.properties?.$transformations_skipped).toEqual([
-                `${hogFunction.name} (${hogFunction.id})`,
-            ])
         })
 
         it('should apply transformation when at least one of multiple filters match', async () => {
@@ -1558,362 +1457,21 @@ describe('HogTransformer', () => {
 
             // Verify transformation was applied since one filter matched
             expect(result.event?.properties?.should_be_set).toBe(true)
-            expect(result.event?.properties?.$transformations_succeeded).toContain(
-                `${hogFunction.name} (${hogFunction.id})`
-            )
         })
     })
 
-    describe('HogWatcher integration', () => {
-        beforeEach(() => {
-            hogTransformer['config'].hogWatcherSampleRate = 1
-        })
-
-        it('should skip HogWatcher operations when sample rate is 0', async () => {
-            hogTransformer['config'].hogWatcherSampleRate = 0
-
-            const testTemplate: HogFunctionTemplate = {
-                free: true,
-                status: 'beta',
-                type: 'transformation',
-                id: 'template-test',
-                name: 'Test Template',
-                description: 'A simple test template',
-                category: ['Custom'],
-                code_language: 'hog',
-                code: `
-                    let returnEvent := event
-                    returnEvent.properties.test_property := true
-                    return returnEvent
-                `,
-                inputs_schema: [],
-            }
-
-            const hogFunction = createHogFunction({
-                type: 'transformation',
-                name: testTemplate.name,
-                team_id: teamId,
-                enabled: true,
-                bytecode: await compileHog(testTemplate.code),
-                id: '11111111-1111-4111-a111-111111111111',
-            })
-
-            await insertHogFunction(hub.postgres, teamId, hogFunction)
-            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
-
-            const observeResultsSpy = jest.spyOn(hogTransformer['hogWatcher'], 'observeResults')
-
-            const event = createPluginEvent({ event: 'test-event' }, teamId)
-            await hogTransformer.transformEventAndProduceMessages(event)
-
-            expect(observeResultsSpy).not.toHaveBeenCalled()
-            expect(hogTransformer['invocationResults'].length).toBe(1)
-
-            observeResultsSpy.mockRestore()
-        })
-
-        it('should add watcher promise when sample rate is 1', async () => {
-            hogTransformer['config'].hogWatcherSampleRate = 1
-
-            const testTemplate: HogFunctionTemplate = {
-                free: true,
-                status: 'beta',
-                type: 'transformation',
-                id: 'template-test',
-                name: 'Test Template',
-                description: 'A simple test template',
-                category: ['Custom'],
-                code_language: 'hog',
-                code: `
-                    let returnEvent := event
-                    returnEvent.properties.test_property := true
-                    return returnEvent
-                `,
-                inputs_schema: [],
-            }
-
-            const hogFunctionId = '11111111-1111-4111-a111-111111111111'
-            const hogFunction = createHogFunction({
-                type: 'transformation',
-                name: testTemplate.name,
-                team_id: teamId,
-                enabled: true,
-                bytecode: await compileHog(testTemplate.code),
-                id: hogFunctionId,
-            })
-
-            await insertHogFunction(hub.postgres, teamId, hogFunction)
-            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
-
-            // Add the state to the cache to prevent the error from being thrown
-            // This simulates what would happen in production where states would be loaded
-            hogTransformer['cachedStates'][hogFunctionId] = HogWatcherState.healthy
-
-            const observeResultsSpy = jest
-                .spyOn(hogTransformer['hogWatcher'], 'observeResults')
-                .mockImplementation(() => Promise.resolve())
-
-            const event = createPluginEvent({ event: 'test-event' }, teamId)
-            await hogTransformer.transformEventAndProduceMessages(event)
-            expect(hogTransformer['invocationResults'].length).toBe(1)
-            await hogTransformer.processInvocationResults()
-            expect(hogTransformer['invocationResults'].length).toBe(0)
-
-            expect(observeResultsSpy).toHaveBeenCalled()
-
-            observeResultsSpy.mockRestore()
-        })
-
-        it('should save and clear hog function states', async () => {
-            const functionIds = ['11111111-1111-4111-a111-111111111111', '22222222-2222-4222-a222-222222222222']
-            const mockStates = {
-                [functionIds[0]]: { state: HogWatcherState.disabled, tokens: 0, rating: 0 },
-                [functionIds[1]]: { state: HogWatcherState.disabled, tokens: 0, rating: 0 },
-            }
-
-            // Mock getStates
-            jest.spyOn(hogTransformer['hogWatcher'], 'getPersistedStates').mockResolvedValue(
-                Promise.resolve(mockStates)
-            )
-
-            // Save states
-            await hogTransformer.fetchAndCacheHogFunctionStates(functionIds)
-
-            // Verify states were cached
-            expect(hogTransformer['cachedStates'][functionIds[0]]).toBe(HogWatcherState.disabled)
-            expect(hogTransformer['cachedStates'][functionIds[1]]).toBe(HogWatcherState.disabled)
-
-            // Clear specific state
-            hogTransformer.clearHogFunctionStates([functionIds[0]])
-            expect(hogTransformer['cachedStates'][functionIds[0]]).toBeUndefined()
-            expect(hogTransformer['cachedStates'][functionIds[1]]).toBe(HogWatcherState.disabled)
-
-            // Clear all states
-            hogTransformer.clearHogFunctionStates()
-            expect(hogTransformer['cachedStates']).toEqual({})
-        })
-
-        it('should throw error when state is missing from cache', () => {
-            const hogFunctionId = '11111111-1111-4111-a111-111111111111'
-
-            // Create a test hog function
-            createHogFunction({
-                type: 'transformation',
-                name: 'Test Function',
-                team_id: teamId,
-                enabled: true,
-                id: hogFunctionId,
-            })
-
-            // Make sure state is not in cache
-            hogTransformer.clearHogFunctionStates()
-
-            // Verify state is not in cache initially
-            expect(hogTransformer['cachedStates'][hogFunctionId] || null).toBeNull()
-
-            // Create the expected error message
-            const expectedErrorMessage = `Critical error: Missing HogFunction state in cache for function ${hogFunctionId} - this should never happen`
-
-            // Define a function that will throw the error
-            const throwingFunction = () => {
-                if (!hogTransformer['cachedStates'][hogFunctionId]) {
-                    throw new Error(expectedErrorMessage)
-                }
-                return 'This should not be returned'
-            }
-
-            // Verify that the function throws the expected error
-            expect(throwingFunction).toThrow(expectedErrorMessage)
-        })
-
-        it('should skip transformation execution but continue when hogwatcher is enabled and function is disabled', async () => {
-            // Set sample rate to 100% to ensure hogwatcher logic runs
-            hogTransformer['config'].hogWatcherSampleRate = 1
-
-            // Create test transformation function
-            const testTemplate: HogFunctionTemplate = {
-                free: true,
-                status: 'beta',
-                type: 'transformation',
-                id: 'template-test',
-                name: 'Disabled Test Template',
-                description: 'A test template that should be skipped due to disabled state',
-                category: ['Custom'],
-                code_language: 'hog',
-                code: `
-                    let returnEvent := event
-                    returnEvent.properties.should_not_be_set := true
-                    return returnEvent
-                `,
-                inputs_schema: [],
-            }
-
-            const hogFunctionId = '33333333-3333-4333-a333-333333333333'
-            const hogFunction = createHogFunction({
-                type: 'transformation',
-                name: testTemplate.name,
-                team_id: teamId,
-                enabled: true,
-                bytecode: await compileHog(testTemplate.code),
-                id: hogFunctionId,
-            })
-
-            await insertHogFunction(hub.postgres, teamId, hogFunction)
-            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
-
-            // Mock the cached state to indicate the function is disabled
-            hogTransformer['cachedStates'][hogFunctionId] = HogWatcherState.disabled
-
-            // Create a spy to verify the executeHogFunction method is not called
-            const executeHogFunctionSpy = jest.spyOn(hogTransformer as any, 'executeHogFunction')
-
-            const event = createPluginEvent({ event: 'test-event' }, teamId)
-            const result = await hogTransformer.transformEventAndProduceMessages(event)
-
-            // Verify the executeHogFunction method was not called for this function
-            expect(executeHogFunctionSpy).not.toHaveBeenCalled()
-
-            // Verify the transformation result doesn't have the property that would be set
-            expect(result.event?.properties?.should_not_be_set).toBeUndefined()
-
-            // Verify there are no transformation records in the properties
-            expect(result.event?.properties?.$transformations_succeeded).toBeUndefined()
-            expect(result.event?.properties?.$transformations_failed).toBeUndefined()
-
-            // Reset spies
-            executeHogFunctionSpy.mockRestore()
-        })
-
-        it('should execute transformation when hogwatcher is enabled but function is in healthy state', async () => {
-            // Set sample rate to 100% to ensure hogwatcher logic runs
-            hogTransformer['config'].hogWatcherSampleRate = 1
-
-            // Create test transformation function
-            const testTemplate: HogFunctionTemplate = {
-                free: true,
-                status: 'beta',
-                type: 'transformation',
-                id: 'template-test',
-                name: 'Healthy Test Template',
-                description: 'A test template that should execute because state is healthy',
-                category: ['Custom'],
-                code_language: 'hog',
-                code: `
-                    let returnEvent := event
-                    returnEvent.properties.should_be_set := true
-                    return returnEvent
-                `,
-                inputs_schema: [],
-            }
-
-            const hogFunctionId = '55555555-5555-5555-a555-555555555555'
-            const hogFunction = createHogFunction({
-                type: 'transformation',
-                name: testTemplate.name,
-                team_id: teamId,
-                enabled: true,
-                bytecode: await compileHog(testTemplate.code),
-                id: hogFunctionId,
-            })
-
-            await insertHogFunction(hub.postgres, teamId, hogFunction)
-            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
-
-            // Mock the cached state to indicate the function is healthy
-            hogTransformer['cachedStates'][hogFunctionId] = HogWatcherState.healthy
-
-            // Create a spy to verify the executeHogFunction method is called
-            const executeHogFunctionSpy = jest.spyOn(hogTransformer as any, 'executeHogFunction')
-
-            const event = createPluginEvent({ event: 'test-event' }, teamId)
-            const result = await hogTransformer.transformEventAndProduceMessages(event)
-
-            // Verify the executeHogFunction method was called for this function
-            expect(executeHogFunctionSpy).toHaveBeenCalledTimes(1)
-
-            // Verify the transformation result has the property that should be set
-            expect(result.event?.properties?.should_be_set).toBe(true)
-
-            // Verify the transformation is recorded as successful
-            expect(result.event?.properties?.$transformations_succeeded).toContain(
-                `${hogFunction.name} (${hogFunction.id})`
-            )
-
-            // Reset spies
-            executeHogFunctionSpy.mockRestore()
-        })
-
-        it('should apply transformation when hogwatcher is disabled even if function state is disabled', async () => {
-            // Set sample rate to 0% to ensure hogwatcher logic is skipped
-            hogTransformer['config'].hogWatcherSampleRate = 0
-
-            // Create test transformation function
-            const testTemplate: HogFunctionTemplate = {
-                free: true,
-                status: 'beta',
-                type: 'transformation',
-                id: 'template-test',
-                name: 'Test Template',
-                description: 'A test template that should execute despite disabled state because hogwatcher is off',
-                category: ['Custom'],
-                code_language: 'hog',
-                code: `
-                    let returnEvent := event
-                    returnEvent.properties.should_be_set := true
-                    return returnEvent
-                `,
-                inputs_schema: [],
-            }
-
-            const hogFunctionId = '44444444-4444-4444-a444-444444444444'
-            const hogFunction = createHogFunction({
-                type: 'transformation',
-                name: testTemplate.name,
-                team_id: teamId,
-                enabled: true,
-                bytecode: await compileHog(testTemplate.code),
-                id: hogFunctionId,
-            })
-
-            await insertHogFunction(hub.postgres, teamId, hogFunction)
-            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
-
-            // Mock the cached state to indicate the function is disabled
-            hogTransformer['cachedStates'][hogFunctionId] = HogWatcherState.disabled
-
-            // Create a spy to verify the executeHogFunction method is called
-            const executeHogFunctionSpy = jest.spyOn(hogTransformer as any, 'executeHogFunction')
-
-            const event = createPluginEvent({ event: 'test-event' }, teamId)
-            const result = await hogTransformer.transformEventAndProduceMessages(event)
-
-            // Verify the executeHogFunction method was called for this function
-            expect(executeHogFunctionSpy).toHaveBeenCalledTimes(1)
-
-            // Verify the transformation result has the property that should be set
-            expect(result.event?.properties?.should_be_set).toBe(true)
-
-            // Verify the transformation is recorded as successful
-            expect(result.event?.properties?.$transformations_succeeded).toContain(
-                `${hogFunction.name} (${hogFunction.id})`
-            )
-
-            // Reset spies
-            executeHogFunctionSpy.mockRestore()
-        })
-
-        it('should throw when trying to capture events in transformations', async () => {
-            // Create a transformation function that captures an event
-            const captureTemplate: HogFunctionTemplate = {
-                free: true,
-                status: 'beta',
-                type: 'transformation',
-                id: 'template-capture',
-                name: 'Capture Template',
-                description: 'A template that captures an event',
-                category: ['Custom'],
-                code_language: 'hog',
-                code: `
+    it('should throw when trying to capture events in transformations', async () => {
+        // Create a transformation function that captures an event
+        const captureTemplate: HogFunctionTemplate = {
+            free: true,
+            status: 'beta',
+            type: 'transformation',
+            id: 'template-capture',
+            name: 'Capture Template',
+            description: 'A template that captures an event',
+            category: ['Custom'],
+            code_language: 'hog',
+            code: `
                     let returnEvent := event
                     returnEvent.properties.captured := true
 
@@ -1931,26 +1489,24 @@ describe('HogTransformer', () => {
 
                     return returnEvent
                 `,
-                inputs_schema: [],
-            }
+            inputs_schema: [],
+        }
 
-            const hogFunction = createHogFunction({
-                type: 'transformation',
-                name: captureTemplate.name,
-                team_id: teamId,
-                enabled: true,
-                bytecode: await compileHog(captureTemplate.code),
-                id: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa',
-            })
-
-            await insertHogFunction(hub.postgres, teamId, hogFunction)
-            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
-
-            const event = createPluginEvent({ event: 'original-event', distinct_id: 'original_user' }, teamId)
-            const result = await hogTransformer.transformEventAndProduceMessages(event)
-
-            expect(result.invocationResults[0].error).toContain('posthogCapture is not supported in transformations')
+        const hogFunction = createHogFunction({
+            type: 'transformation',
+            name: captureTemplate.name,
+            team_id: teamId,
+            enabled: true,
+            bytecode: await compileHog(captureTemplate.code),
         })
+
+        await insertHogFunction(hub.postgres, teamId, hogFunction)
+        hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
+
+        const event = createPluginEvent({ event: 'original-event', distinct_id: 'original_user' }, teamId)
+        const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+        expect(result.invocationResults[0].error).toContain('posthogCapture is not supported in transformations')
     })
 
     describe('rust vm primary execution', () => {
@@ -1972,7 +1528,6 @@ describe('HogTransformer', () => {
                 team_id: teamId,
                 enabled: true,
                 bytecode,
-                id: 'bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb',
             })
             await insertHogFunction(hub.postgres, teamId, hogFunction)
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
@@ -1992,7 +1547,6 @@ describe('HogTransformer', () => {
             expect(mockHogvmNode.executeSync.mock.calls[0][0]).toEqual(bytecode)
             expect(result.event?.properties).toEqual({
                 from_rust: true,
-                $transformations_succeeded: ['Rust routed (bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb)'],
             })
         })
 
@@ -2007,10 +1561,12 @@ describe('HogTransformer', () => {
             const result = await hogTransformer.transformEventAndProduceMessages(createPluginEvent({}, teamId))
 
             expect(mockHogvmNode.executeSync).toHaveBeenCalledTimes(1)
-            // The node vm ran the real bytecode: the event survives with its original properties.
+            // The node vm ran the real bytecode: the invocation succeeded and the event survives
+            // with its original properties, rather than carrying the rust vm's error.
+            expect(result.invocationResults).toHaveLength(1)
+            expect(result.invocationResults[0].error).toBeFalsy()
             expect(result.event?.properties).toMatchObject({
                 $current_url: 'https://example.com',
-                $transformations_succeeded: ['Rust routed (bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb)'],
             })
         })
     })

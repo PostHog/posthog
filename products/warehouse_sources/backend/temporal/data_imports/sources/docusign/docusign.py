@@ -10,9 +10,9 @@ import requests
 from requests.auth import HTTPBasicAuth
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.docusign.settings import (
     API_VERSION_PATH,
     DEFAULT_LOOKBACK_DAYS,
@@ -56,9 +56,9 @@ class DocusignCredentials:
     selection: str
     integration_key: str
     user_id: Optional[str] = None
-    private_key: Optional[str] = None
-    secret_key: Optional[str] = None
-    refresh_token: Optional[str] = None
+    private_key: Optional[str] = dataclasses.field(default=None, repr=False)
+    secret_key: Optional[str] = dataclasses.field(default=None, repr=False)
+    refresh_token: Optional[str] = dataclasses.field(default=None, repr=False)
     account_id: Optional[str] = None
 
     @property

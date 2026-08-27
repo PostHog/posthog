@@ -1,5 +1,6 @@
 from products.surveys.backend.responses.fetch_rows import (
     SurveyResponseRow,
+    build_choice_translation_map,
     fetch_response_rows,
     resolve_question_metadata,
 )
@@ -23,6 +24,7 @@ __all__ = [
     "SurveyResponseRow",
     "SurveyStats",
     "archived_responses_filter",
+    "build_choice_translation_map",
     "calculate_rates",
     "fetch_per_question_stats",
     "fetch_response_rows",

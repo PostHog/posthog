@@ -36,7 +36,7 @@ pytestmark = [
 
 
 def test_create_batch_export_with_interval_schedule(
-    client: HttpClient, temporal, encryption_codec, organization, team, user
+    client: HttpClient, temporal, encryption_codec, organization, team, user, s3_compatible_integration
 ):
     """Test creating a BatchExport.
 
@@ -59,7 +59,7 @@ def test_create_batch_export_with_interval_schedule(
             "endpoint_url": "https://localhost:9000",
             "use_virtual_style_addressing": True,
         },
-        "integration": None,
+        "integration": s3_compatible_integration.id,
     }
 
     batch_export_data: dict[str, t.Any] = {
@@ -185,7 +185,7 @@ def test_create_batch_export_with_different_intervals_timezones_and_interval_off
     offset. We check the upcoming runs to confirm these look correct based on this information.
     """
 
-    destination_data = {
+    destination_data: dict[str, t.Any] = {
         "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
@@ -211,6 +211,16 @@ def test_create_batch_export_with_different_intervals_timezones_and_interval_off
     # create a team with a timezone different to the one we are testing to ensure this has no effect on the batch export
     team = create_team(organization, timezone="Asia/Seoul")
     user = create_user("test@user.com", "Test User", organization)
+    # Integrations are team-scoped, so this test's own team needs its own.
+    integration = Integration.objects.create(
+        team=team,
+        kind=Integration.IntegrationKind.AWS_S3,
+        integration_id="prod-aws",
+        config={"name": "prod-aws", "aws_account_id": "123456789012"},
+        sensitive_config={"aws_access_key_id": "key", "aws_secret_access_key": "secret"},
+        created_by=user,
+    )
+    destination_data["integration"] = integration.id
     client.force_login(user)
 
     # ensure high-frequency-batch-exports feature flag is enabled
@@ -413,10 +423,11 @@ def test_cannot_create_batch_export_with_integration_from_another_team(
 
 
 def test_cannot_create_a_batch_export_with_higher_frequencies_if_not_enabled(
-    client: HttpClient, temporal, organization, team, user
+    client: HttpClient, temporal, organization, team, user, aws_s3_integration
 ):
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -470,7 +481,7 @@ FROM events
 
 
 def test_create_batch_export_with_custom_schema(
-    client: HttpClient, temporal, encryption_codec, organization, team, user
+    client: HttpClient, temporal, encryption_codec, organization, team, user, aws_s3_integration
 ):
     """Test creating a BatchExport with a custom schema expressed as a HogQL Query.
 
@@ -482,6 +493,7 @@ def test_create_batch_export_with_custom_schema(
 
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -543,7 +555,12 @@ def test_create_batch_export_with_custom_schema(
     }
 
     assert batch_export.schema == expected_schema
-    assert args["batch_export_model"] == {"filters": None, "name": "events", "schema": expected_schema}
+    assert args["batch_export_model"] == {
+        "filters": None,
+        "name": "events",
+        "schema": expected_schema,
+        "hogql_query": None,
+    }
 
 
 @pytest.mark.parametrize(
@@ -571,15 +588,28 @@ def test_create_batch_export_with_custom_schema(
             "SELECT coalesce((SELECT uuid FROM events LIMIT 1), uuid) AS foo FROM events",
             "Subqueries in SELECT expressions are not supported",
         ),
+        (
+            "SELECT event, $session_id FROM events",
+            "Batch exports cannot read these fields: $session_id. Supported fields are: created_at, "
+            "distinct_id, elements_chain, event, person_id, person_properties, properties, team_id, "
+            "timestamp, uuid.",
+        ),
+        (
+            "SELECT event, person.created_at FROM events",
+            "Batch exports cannot read these fields: person_created_at. Supported fields are: created_at, "
+            "distinct_id, elements_chain, event, person_id, person_properties, properties, team_id, "
+            "timestamp, uuid.",
+        ),
     ],
 )
 def test_create_batch_export_fails_with_invalid_query(
-    client: HttpClient, invalid_query, expected_error_message, temporal, organization, team, user
+    client: HttpClient, invalid_query, expected_error_message, temporal, organization, team, user, aws_s3_integration
 ):
     """Test creating a BatchExport should fail with an invalid query."""
 
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -729,6 +759,7 @@ def test_creating_batch_export_with_filters(
     organization,
     team,
     user,
+    aws_s3_integration,
     filters,
     expected_status,
     expected_error,
@@ -737,6 +768,7 @@ def test_creating_batch_export_with_filters(
 
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": _S3_FILTER_TEST_CONFIG,
     }
 

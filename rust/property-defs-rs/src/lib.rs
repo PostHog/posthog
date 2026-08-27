@@ -5,10 +5,10 @@ use batch_ingestion::process_batch;
 use common_kafka::kafka_consumer::{RecvErr, SingleTopicConsumer};
 use config::Config;
 use metrics_consts::{
-    BATCH_ACQUIRE_TIME, CACHE_CONSUMED, CACHE_LEN, COMPACTED_UPDATES, DUPLICATES_IN_BATCH,
-    EMPTY_EVENTS, EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, RECV_DEQUEUED,
-    SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT, UPDATES_SEEN,
-    UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
+    BATCH_ACQUIRE_TIME, CACHE_FILL_RATIO, CACHE_LEN, COMPACTED_UPDATES, DUPLICATES_IN_BATCH,
+    EMPTY_EVENTS, EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, OFFSET_STORE_FAILURES,
+    RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT,
+    UPDATES_SEEN, WORKER_BLOCKED,
 };
 use types::{Event, Update};
 
@@ -28,6 +28,7 @@ pub mod batch_ingestion;
 pub mod config;
 pub mod group_type_resolver;
 pub mod measuring_channel;
+pub mod metrics_buckets;
 pub mod metrics_consts;
 pub mod types;
 pub mod update_cache;
@@ -117,7 +118,7 @@ pub async fn update_consumer_loop(
         ];
         for (cap, label, len) in per_cache {
             let cap_f = cap as f64;
-            metrics::gauge!(CACHE_CONSUMED, &[("cache", label)]).set(if cap_f > 0.0 {
+            metrics::gauge!(CACHE_FILL_RATIO, &[("cache", label)]).set(if cap_f > 0.0 {
                 len as f64 / cap_f
             } else {
                 0.0
@@ -136,8 +137,9 @@ pub async fn update_consumer_loop(
                     e
                 )
             });
+        handle.report_healthy();
 
-        process_batch(&config, cache.clone(), &context.pool, batch).await;
+        process_batch(&config, cache.clone(), &context.pool, batch, &handle).await;
     }
 }
 
@@ -151,70 +153,82 @@ pub async fn update_producer_loop(
     let _guard = handle.process_scope();
     let mut batch = AHashSet::with_capacity(config.compaction_batch_size);
     let mut last_send = tokio::time::Instant::now();
+    let drain_interval = Duration::from_secs(config.producer_drain_interval_secs);
     loop {
+        // The timer arm is what lets the flush check at the bottom of the loop run while no
+        // events are arriving. Without it the loop parks in json_recv(), so a partial compaction
+        // batch left behind when a partition goes quiet stays unwritten until traffic resumes.
+        // The tick period is deliberately independent of drain_interval; it only bounds how
+        // often the elapsed check is re-evaluated, not how long a batch may sit.
         let recv_result = tokio::select! {
             _ = handle.shutdown_recv() => {
                 info!("Producer loop shutting down");
                 return;
             }
-            r = consumer.json_recv() => r,
+            r = consumer.json_recv() => Some(r),
+            _ = tokio::time::sleep(Duration::from_secs(1)) => None,
         };
 
-        let (event, offset): (Event, _) = match recv_result {
-            Ok(r) => r,
-            Err(RecvErr::Empty) => {
-                warn!("Received empty event");
-                metrics::counter!(EMPTY_EVENTS).increment(1);
+        if let Some(recv_result) = recv_result {
+            let (event, offset): (Event, _) = match recv_result {
+                Ok(r) => r,
+                Err(RecvErr::Empty) => {
+                    warn!("Received empty event");
+                    metrics::counter!(EMPTY_EVENTS).increment(1);
+                    continue;
+                }
+                Err(RecvErr::Serde(e)) => {
+                    metrics::counter!(EVENT_PARSE_ERROR).increment(1);
+                    warn!("Failed to parse event: {:?}", e);
+                    continue;
+                }
+                Err(RecvErr::Kafka(e)) => {
+                    handle.signal_failure(format!("Kafka error: {e:?}"));
+                    return;
+                }
+            };
+
+            // NOTE: we extended the autocommit interval in production envs to 20 seconds
+            // as a temporary remediation for events already buffered in a pod's internal
+            // queue being skipped when the consumer group rebalances or the service is
+            // redeployed. Long-term fix: start tracking max partition offsets in the
+            // Update batches and commit them only when each batch succeeds. This will
+            // not be perfect, as batch writes are async and can complete out of order,
+            // but is better than what we're doing right now
+            let curr_offset = offset.get_value();
+            match offset.store() {
+                Ok(_) => (),
+                Err(e) => {
+                    metrics::counter!(OFFSET_STORE_FAILURES).increment(1);
+                    // TODO: consumer json_recv() should expose the source partition ID too
+                    error!("update_producer_loop: failed to store offset {curr_offset}, got: {e}");
+                }
+            }
+
+            if !config
+                .filter_mode
+                .should_process(&config.filtered_teams.teams, event.team_id)
+            {
+                metrics::counter!(SKIPPED_DUE_TO_TEAM_FILTER).increment(1);
                 continue;
             }
-            Err(RecvErr::Serde(e)) => {
-                metrics::counter!(EVENT_PARSE_ERROR).increment(1);
-                warn!("Failed to parse event: {:?}", e);
-                continue;
+
+            let updates = event.into_updates_with(
+                config.update_count_skip_threshold,
+                config.eventdef_last_seen_floor_secs,
+            );
+
+            metrics::counter!(EVENTS_RECEIVED).increment(1);
+            metrics::counter!(UPDATES_SEEN).increment(updates.len() as u64);
+            metrics::histogram!(UPDATES_PER_EVENT).record(updates.len() as f64);
+
+            for update in updates {
+                if batch.contains(&update) {
+                    metrics::counter!(COMPACTED_UPDATES).increment(1);
+                    continue;
+                }
+                batch.insert(update);
             }
-            Err(RecvErr::Kafka(e)) => {
-                handle.signal_failure(format!("Kafka error: {e:?}"));
-                return;
-            }
-        };
-
-        // NOTE: we extended the autocommit interval in production envs to 20 seconds
-        // as a temporary remediation for events already buffered in a pod's internal
-        // queue being skipped when the consumer group rebalances or the service is
-        // redeployed. Long-term fix: start tracking max partition offsets in the
-        // Update batches and commit them only when each batch succeeds. This will
-        // not be perfect, as batch writes are async and can complete out of order,
-        // but is better than what we're doing right now
-        let curr_offset = offset.get_value();
-        match offset.store() {
-            Ok(_) => (),
-            Err(e) => {
-                metrics::counter!(UPDATE_PRODUCER_OFFSET, &[("op", "store_fail")]).increment(1);
-                // TODO: consumer json_recv() should expose the source partition ID too
-                error!("update_producer_loop: failed to store offset {curr_offset}, got: {e}");
-            }
-        }
-
-        if !config
-            .filter_mode
-            .should_process(&config.filtered_teams.teams, event.team_id)
-        {
-            metrics::counter!(SKIPPED_DUE_TO_TEAM_FILTER).increment(1);
-            continue;
-        }
-
-        let updates = event.into_updates(config.update_count_skip_threshold);
-
-        metrics::counter!(EVENTS_RECEIVED).increment(1);
-        metrics::counter!(UPDATES_SEEN).increment(updates.len() as u64);
-        metrics::histogram!(UPDATES_PER_EVENT).record(updates.len() as f64);
-
-        for update in updates {
-            if batch.contains(&update) {
-                metrics::counter!(COMPACTED_UPDATES).increment(1);
-                continue;
-            }
-            batch.insert(update);
         }
 
         // We do the full batch insert before checking the time/batch size, because if we did this
@@ -223,9 +237,7 @@ pub async fn update_producer_loop(
         // wait on the next event, which might come an arbitrary amount of time later. This bit me
         // in testing, and while it's not a correctness problem and under normal load we'd never
         // see it, we may as well just do the full batch insert first.
-        if batch.len() >= config.compaction_batch_size
-            || last_send.elapsed() > Duration::from_secs(10)
-        {
+        if batch.len() >= config.compaction_batch_size || last_send.elapsed() > drain_interval {
             last_send = tokio::time::Instant::now();
             for update in batch.drain() {
                 if shared_cache.contains_key(&update) {
@@ -234,11 +246,9 @@ pub async fn update_producer_loop(
                     continue;
                 }
 
-                // TEMPORARY: both old (v1) and new (v2) write paths will utilize the old
-                // not-great caching strategy for now: optimistically add entries before
-                // they are safely persisted to Postgres, and painfully extract them
-                // when batch writes fail. This may be a fine trade for now, since
-                // v2 batch writes fail much less often than v1
+                // Optimistic caching: entries go in before they are persisted, and are evicted
+                // again if the batch write fails. That trade is acceptable because batch writes
+                // rarely fail, and the alternative costs a second pass over every batch.
                 shared_cache.insert(update.clone());
 
                 match channel.try_send(update) {

@@ -9,12 +9,14 @@ from typing import Any
 from uuid import UUID
 
 from django.db import transaction
+from django.utils import timezone
 
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.tasks.email import send_error_tracking_issue_assigned
 
+from products.access_control.backend.models.role import Role
 from products.cohorts.backend.models.cohort import Cohort
 from products.error_tracking.backend.logic import ErrorTrackingIssueNotFoundError, get_issue
 from products.error_tracking.backend.models import (
@@ -25,8 +27,6 @@ from products.error_tracking.backend.models import (
     sync_issues_to_clickhouse,
 )
 from products.error_tracking.backend.notifications import dispatch_issue_assigned_realtime
-
-from ee.models.rbac.role import Role
 
 
 class CohortNotFoundError(Exception):
@@ -39,6 +39,9 @@ class AssigneeValidationError(Exception):
 
 class InvalidIssueStatusError(Exception):
     pass
+
+
+_CLICKHOUSE_VISIBLE_ISSUE_STATE_FIELDS = ("status", "severity", "name", "description")
 
 
 def _get_issue(team_id: int, issue_id: UUID | str, *, select_related: tuple[str, ...] = ()) -> ErrorTrackingIssue:
@@ -62,6 +65,17 @@ def _status_from_string(status: str) -> "ErrorTrackingIssue.Status | None":
     return None
 
 
+def _has_clickhouse_visible_state_change(issue: ErrorTrackingIssue, fields: dict[str, Any]) -> bool:
+    return any(
+        field in fields and fields[field] != getattr(issue, field) for field in _CLICKHOUSE_VISIBLE_ISSUE_STATE_FIELDS
+    )
+
+
+def _stamp_issue_state(*, team_id: int, issue_ids: list[UUID]) -> None:
+    if issue_ids:
+        ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=issue_ids).update(state_updated_at=timezone.now())
+
+
 def update_issue(
     team_id: int, issue_id: UUID, *, fields: dict[str, Any], user: User, was_impersonated: bool
 ) -> ErrorTrackingIssue:
@@ -69,22 +83,39 @@ def update_issue(
     # (first_seen, assignment, external issues, cohorts) without a second read.
     issue = get_issue(issue_id=issue_id, team_id=team_id)
     status_before = issue.status
+    severity_before = issue.severity
     name_before = issue.name
     status_after = fields.get("status")
+    severity_after = fields.get("severity")
     name_after = fields.get("name")
     status_updated = "status" in fields and status_after != status_before
+    severity_updated = "severity" in fields and severity_after != severity_before
     name_updated = "name" in fields and name_after != name_before
+    state_updated = _has_clickhouse_visible_state_change(issue, fields)
 
-    for key in ("status", "name", "description"):
+    for key in ("status", "severity", "name", "description"):
         if key in fields:
             setattr(issue, key, fields[key])
-    issue.save()
 
     changes = []
     if status_updated:
         changes.append(
             Change(
-                type="ErrorTrackingIssue", field="status", before=status_before, after=status_after, action="changed"
+                type="ErrorTrackingIssue",
+                field="status",
+                before=status_before,
+                after=status_after,
+                action="changed",
+            )
+        )
+    if severity_updated:
+        changes.append(
+            Change(
+                type="ErrorTrackingIssue",
+                field="severity",
+                before=severity_before,
+                after=severity_after,
+                action="changed",
             )
         )
     if name_updated:
@@ -92,17 +123,24 @@ def update_issue(
             Change(type="ErrorTrackingIssue", field="name", before=name_before, after=name_after, action="changed")
         )
 
-    if changes:
-        log_activity(
-            organization_id=issue.team.organization.id,
-            team_id=team_id,
-            user=user,
-            was_impersonated=was_impersonated,
-            item_id=str(issue.id),
-            scope="ErrorTrackingIssue",
-            activity="updated",
-            detail=Detail(name=issue.name, changes=changes),
-        )
+    with transaction.atomic():
+        if state_updated:
+            issue.state_updated_at = timezone.now()
+        issue.save()
+
+        if changes:
+            log_activity(
+                organization_id=issue.team.organization.id,
+                team_id=team_id,
+                user=user,
+                was_impersonated=was_impersonated,
+                item_id=str(issue.id),
+                scope="ErrorTrackingIssue",
+                activity="updated",
+                detail=Detail(name=issue.name, changes=changes),
+            )
+
+    if state_updated:
         sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=team_id)
 
     return issue
@@ -134,9 +172,14 @@ def set_issue_cohort(team_id: int, issue_id: UUID, cohort_id: int) -> None:
 def assign_issue(
     team_id: int, issue_id: UUID, assignee: dict[str, Any] | None, *, user: User, was_impersonated: bool
 ) -> None:
-    issue = _get_issue(team_id, issue_id, select_related=("team__organization",))
-    _assign_one(issue, assignee, issue.team.organization, user, team_id, was_impersonated)
-    sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=team_id)
+    with transaction.atomic():
+        issue = _get_issue(team_id, issue_id, select_related=("team__organization",))
+        assignment_changed = _assign_one(issue, assignee, issue.team.organization, user, team_id, was_impersonated)
+        if assignment_changed:
+            _stamp_issue_state(team_id=team_id, issue_ids=[issue.id])
+
+    if assignment_changed:
+        sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=team_id)
 
 
 def bulk_update_issues(
@@ -149,7 +192,10 @@ def bulk_update_issues(
     user: User,
     was_impersonated: bool,
 ) -> None:
-    issues = ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=issue_ids).select_related("team__organization")
+    issues = list(
+        ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=issue_ids).select_related("team__organization")
+    )
+    changed_issue_ids: list[UUID] = []
 
     with transaction.atomic():
         if action == "set_status":
@@ -157,6 +203,9 @@ def bulk_update_issues(
             if new_status is None:
                 raise InvalidIssueStatusError
             for issue in issues:
+                if issue.status == new_status:
+                    continue
+                changed_issue_ids.append(issue.id)
                 log_activity(
                     organization_id=issue.team.organization_id,
                     team_id=team_id,
@@ -178,12 +227,17 @@ def bulk_update_issues(
                         ],
                     ),
                 )
-            issues.update(status=new_status)
+            if changed_issue_ids:
+                ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=changed_issue_ids).update(
+                    status=new_status, state_updated_at=timezone.now()
+                )
         elif action == "assign":
             for issue in issues:
-                _assign_one(issue, assignee, issue.team.organization, user, team_id, was_impersonated)
+                if _assign_one(issue, assignee, issue.team.organization, user, team_id, was_impersonated):
+                    changed_issue_ids.append(issue.id)
+            _stamp_issue_state(team_id=team_id, issue_ids=changed_issue_ids)
 
-    sync_issues_to_clickhouse(issue_ids=[issue.id for issue in issues], team_id=team_id)
+    sync_issues_to_clickhouse(issue_ids=changed_issue_ids, team_id=team_id)
 
 
 def _assignment_repr(assignment: ErrorTrackingIssueAssignment | None) -> dict[str, Any] | None:
@@ -202,7 +256,7 @@ def _assign_one(
     user: User,
     team_id: int,
     was_impersonated: bool,
-) -> None:
+) -> bool:
     assignment_before = ErrorTrackingIssueAssignment.objects.filter(issue_id=issue.id).first()
     serialized_assignment_before = _assignment_repr(assignment_before)
 
@@ -213,6 +267,13 @@ def _assign_one(
         elif assignee["type"] == "role":
             if not Role.objects.filter(id=assignee["id"], organization=organization).exists():
                 raise AssigneeValidationError("Assignee role does not belong to this organization.")
+
+        serialized_assignment_after = {
+            "id": int(assignee["id"]) if assignee["type"] == "user" else str(assignee["id"]),
+            "type": assignee["type"],
+        }
+        if serialized_assignment_before == serialized_assignment_after:
+            return False
 
         # nosemgrep: idor-lookup-without-team (assignee validated against org above)
         assignment_after, _ = ErrorTrackingIssueAssignment.objects.update_or_create(
@@ -231,11 +292,10 @@ def _assign_one(
             assignee=assignee,
             assigner=user,
         )
-
-        serialized_assignment_after = _assignment_repr(assignment_after)
     else:
-        if assignment_before:
-            assignment_before.delete()
+        if assignment_before is None:
+            return False
+        assignment_before.delete()
         serialized_assignment_after = None
 
     log_activity(
@@ -259,3 +319,4 @@ def _assign_one(
             ],
         ),
     )
+    return True

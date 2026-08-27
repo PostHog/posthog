@@ -18,20 +18,22 @@ from posthog.schema import ReleaseStatus
 
 from posthog.models.integration import Integration
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tiktokads import (
     TikTokAdsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source import TikTokAdsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils import (
+    TIKTOK_NON_RETRYABLE_ERROR_PREFIX,
     TIKTOK_TRANSIENT_ERROR_MESSAGE,
+    TikTokAdsAPIError,
     TikTokAdsPaginator,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 class TestTikTokAdsSource:
@@ -50,10 +52,6 @@ class TestTikTokAdsSource:
         self.mock_integration = Mock(spec=Integration)
         self.mock_integration.access_token = "test_access_token"
         self.mock_integration.team_id = self.team_id
-
-    def test_source_type(self):
-        """Test that source type is correctly identified."""
-        assert self.source.source_type == ExternalDataSourceType.TIKTOKADS
 
     @parameterized.expand(
         [
@@ -77,6 +75,99 @@ class TestTikTokAdsSource:
         assert any(pattern in error_message for pattern in patterns), (
             f"TikTok non-retryable error '{error_message}' does not match any non-retryable pattern"
         )
+
+    @parameterized.expand(
+        [
+            ("video", "advertiser does not grant you /file/video/ad/search/:GET permission"),
+            ("image", "advertiser does not grant you /file/image/ad/search/:GET permission"),
+        ]
+    )
+    def test_creative_permission_denied_is_non_retryable(self, name, message):
+        """Reconnecting is the only fix for a denial, so retrying it would loop forever."""
+        paginator = TikTokAdsPaginator()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"code": 40001, "message": message, "data": {}}
+
+        with pytest.raises(ValueError) as exc_info:
+            paginator.update_state(mock_response)
+
+        error_message = str(exc_info.value)
+        patterns = self.source.get_non_retryable_errors()
+        assert any(pattern in error_message for pattern in patterns)
+
+    @parameterized.expand(
+        [
+            ("video", "advertiser does not grant you /file/video/ad/search/:GET permission"),
+            ("image", "advertiser does not grant you /file/image/ad/search/:GET permission"),
+        ]
+    )
+    def test_creative_permission_denied_surfaces_friendly_message(self, name, message):
+        """Fails if the dict entries are reordered, which would shadow this message with None."""
+        error_message = f"{TIKTOK_NON_RETRYABLE_ERROR_PREFIX} {message} (code: 40001)"
+
+        friendly = [
+            friendly_error
+            for pattern, friendly_error in self.source.get_non_retryable_errors().items()
+            if error_message_matches(error_message, [pattern])
+        ]
+
+        assert friendly, "permission denial matched no non-retryable pattern"
+        assert friendly[0] is not None, "generic prefix shadowed the creative-permission message"
+        assert "creative_videos" in friendly[0]
+        assert "creative_images" in friendly[0]
+
+    @parameterized.expand(
+        [
+            ("report", "advertiser does not grant you /report/integrated/get/:GET permission"),
+            ("campaign", "advertiser does not grant you /campaign/get/:GET permission"),
+        ]
+    )
+    def test_non_creative_permission_denied_keeps_raw_message(self, name, message):
+        """A denial elsewhere shares the wording, so creative-library advice would contradict it."""
+        error_message = f"{TIKTOK_NON_RETRYABLE_ERROR_PREFIX} {message} (code: 40001)"
+
+        friendly = [
+            friendly_error
+            for pattern, friendly_error in self.source.get_non_retryable_errors().items()
+            if error_message_matches(error_message, [pattern])
+        ]
+
+        assert friendly, "permission denial matched no non-retryable pattern"
+        assert friendly[0] is None
+
+    def test_advertiser_deleted_40001_still_has_no_friendly_message(self):
+        """The raw message names the advertiser, so the creative key must not over-match it."""
+        error_message = (
+            f"{TIKTOK_NON_RETRYABLE_ERROR_PREFIX} The advertiser 123 doesn't exist or has been deleted. (code: 40001)"
+        )
+
+        friendly = [
+            friendly_error
+            for pattern, friendly_error in self.source.get_non_retryable_errors().items()
+            if error_message_matches(error_message, [pattern])
+        ]
+
+        assert friendly, "deleted advertiser matched no non-retryable pattern"
+        assert friendly[0] is None
+
+    def test_creative_permission_denied_does_not_match_get_retryable_errors(self):
+        """A permission denial must not be swallowed as a benign retryable error."""
+        paginator = TikTokAdsPaginator()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "code": 40001,
+            "message": "advertiser does not grant you /file/video/ad/search/:GET permission",
+            "data": {},
+        }
+
+        with pytest.raises(ValueError) as exc_info:
+            paginator.update_state(mock_response)
+
+        error_message = str(exc_info.value)
+        patterns = self.source.get_retryable_errors()
+        assert not any(pattern in error_message for pattern in patterns)
 
     @parameterized.expand(
         [
@@ -119,6 +210,48 @@ class TestTikTokAdsSource:
 
     @parameterized.expand(
         [
+            ("system_error", 50000, "System error"),
+            ("rate_limited", 40100, "Requests made too frequently"),
+            ("maintenance", 60001, "The system is in maintenance"),
+            # Internal service error TikTok itself asks callers to retry — must not raise the
+            # non-retryable ValueError the else-branch raises for unclassified codes.
+            ("internal_service_error", 51002, "Internal service error. Please retry later."),
+        ]
+    )
+    def test_retryable_paginator_error_matches_get_retryable_errors(self, name, api_code, message):
+        """A mid-pagination TikTok error the paginator already classifies as transient must
+        match get_retryable_errors, otherwise Temporal's outer retry reports it as a bug on
+        every attempt instead of logging a warning."""
+        paginator = TikTokAdsPaginator()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"code": api_code, "message": message, "data": {}}
+
+        with pytest.raises(TikTokAdsAPIError) as exc_info:
+            paginator.update_state(mock_response)
+
+        error_message = str(exc_info.value)
+        patterns = self.source.get_retryable_errors()
+        assert any(pattern in error_message for pattern in patterns), (
+            f"TikTok retryable error '{error_message}' does not match any retryable pattern"
+        )
+
+    def test_non_retryable_paginator_error_does_not_match_get_retryable_errors(self):
+        """A non-retryable paginator error must not be swallowed as a benign retryable one."""
+        paginator = TikTokAdsPaginator()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"code": 40001, "message": "The advertiser doesn't exist", "data": {}}
+
+        with pytest.raises(ValueError) as exc_info:
+            paginator.update_state(mock_response)
+
+        error_message = str(exc_info.value)
+        patterns = self.source.get_retryable_errors()
+        assert not any(pattern in error_message for pattern in patterns)
+
+    @parameterized.expand(
+        [
             ("connection_reset", RequestsConnectionError("Connection reset by peer")),
             ("timeout", Timeout("Read timed out")),
             ("base_request_exception", RequestException("DNS lookup failed")),
@@ -137,8 +270,45 @@ class TestTikTokAdsSource:
 
         assert str(exc_info.value) == TIKTOK_TRANSIENT_ERROR_MESSAGE
 
+    @parameterized.expand(
+        [
+            ("invalid_access_token", 40105, "Invalid access_token"),
+            ("no_advertiser_permission", 40110, "No permission to access this advertiser"),
+            (
+                "app_token_mismatch",
+                40000,
+                "The app_id is inconsistent with the token's app information. Please retry after correcting it.",
+            ),
+        ]
+    )
+    def test_get_oauth_accounts_maps_auth_errors_to_reconnect_message(self, name, api_code, message):
+        """Auth-rejection responses — including the app/token mismatch TikTok returns under the
+        generic 40000 code — must surface as an actionable reconnect message, not escape as a bug."""
+        _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source"
+        error = TikTokAdsAPIError(message, api_code=api_code)
+        with (
+            patch.object(self.source, "get_oauth_integration", return_value=self.mock_integration),
+            patch(f"{_MODULE}.list_advertisers", side_effect=error),
+        ):
+            with pytest.raises(IntegrationAccountListingError) as exc_info:
+                self.source.get_oauth_accounts(self.integration_id, self.team_id)
+
+        assert "reconnect your TikTok Ads integration" in str(exc_info.value)
+
+    def test_get_oauth_accounts_does_not_treat_other_40000_errors_as_auth(self):
+        """Code 40000 is a generic params-error bucket with many unrelated messages — only the
+        specific app/token mismatch text should map to the reconnect message; anything else must
+        keep surfacing as a bug so real request-construction errors aren't hidden."""
+        _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source"
+        error = TikTokAdsAPIError("Invalid parameter: advertiser_id", api_code=40000)
+        with (
+            patch.object(self.source, "get_oauth_integration", return_value=self.mock_integration),
+            patch(f"{_MODULE}.list_advertisers", side_effect=error),
+        ):
+            with pytest.raises(TikTokAdsAPIError):
+                self.source.get_oauth_accounts(self.integration_id, self.team_id)
+
     def test_get_source_config(self):
-        """Test source configuration generation."""
         config = self.source.get_source_config
 
         assert config.name.value == "TikTokAds"
@@ -170,7 +340,6 @@ class TestTikTokAdsSource:
         ]
     )
     def test_validate_credentials(self, name, advertiser_id, integration_id, expected_valid, expected_error):
-        """Test credential validation scenarios."""
         config = TikTokAdsSourceConfig(advertiser_id=advertiser_id, tiktok_integration_id=integration_id)
 
         with patch.object(self.source, "get_oauth_integration") as mock_get_integration:
@@ -186,10 +355,27 @@ class TestTikTokAdsSource:
                 assert expected_error in str(error)
 
     def test_get_schemas(self):
-        """Test schema retrieval."""
         schemas = self.source.get_schemas(self.config, self.team_id)
 
-        expected_schemas = {"campaigns", "ad_groups", "ads", "campaign_report", "ad_group_report", "ad_report"}
+        expected_schemas = {
+            "campaigns",
+            "ad_groups",
+            "ads",
+            "creative_videos",
+            "creative_images",
+            "campaign_report",
+            "ad_group_report",
+            "ad_report",
+            "campaign_demographic_report",
+            "campaign_country_report",
+            "campaign_platform_report",
+            "ad_group_demographic_report",
+            "ad_group_country_report",
+            "ad_group_platform_report",
+            "ad_demographic_report",
+            "ad_country_report",
+            "ad_platform_report",
+        }
         actual_schema_names = {schema.name for schema in schemas}
 
         assert actual_schema_names == expected_schemas
@@ -203,20 +389,30 @@ class TestTikTokAdsSource:
                 assert schema.supports_incremental is False
                 assert schema.incremental_fields == []
 
-    def test_get_resumable_source_manager(self):
-        """The source must expose a ResumableSourceManager instance."""
-        inputs = MagicMock()
-        inputs.team_id = self.team_id
-        inputs.job_id = self.job_id
-        inputs.logger = MagicMock()
+    def test_only_breakdown_and_creative_tables_are_off_by_default(self):
+        # New tables land in the schema picker pre-ticked. The breakdown reports fan every
+        # entity-day out across its dimension values, and the creative tables need a grant most
+        # advertisers withhold, so both stay opt-in while the rest stay selected.
+        should_sync = {schema.name: schema.should_sync_default for schema in self.source.get_schemas(self.config, 1)}
 
-        manager = self.source.get_resumable_source_manager(inputs)
+        off_by_default = {name for name, default in should_sync.items() if not default}
 
-        assert isinstance(manager, ResumableSourceManager)
+        assert off_by_default == {
+            "creative_videos",
+            "creative_images",
+            "campaign_demographic_report",
+            "campaign_country_report",
+            "campaign_platform_report",
+            "ad_group_demographic_report",
+            "ad_group_country_report",
+            "ad_group_platform_report",
+            "ad_demographic_report",
+            "ad_country_report",
+            "ad_platform_report",
+        }
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source.tiktok_ads_source")
     def test_source_for_pipeline_success(self, mock_tiktok_source):
-        """Test successful pipeline source creation."""
         inputs = SourceInputs(
             schema_name="campaigns",
             schema_id="campaigns_schema",
@@ -254,7 +450,6 @@ class TestTikTokAdsSource:
             )
 
     def test_source_for_pipeline_no_access_token(self):
-        """Test pipeline source creation fails without access token."""
         inputs = SourceInputs(
             schema_name="campaigns",
             schema_id="campaigns_schema",
@@ -279,7 +474,6 @@ class TestTikTokAdsSource:
                 self.source.source_for_pipeline(self.config, MagicMock(), inputs)
 
     def test_validate_credentials_exception_handling(self):
-        """Test credential validation handles exceptions properly."""
         config = TikTokAdsSourceConfig(advertiser_id="123456789", tiktok_integration_id=123)
 
         with patch.object(self.source, "get_oauth_integration") as mock_get_integration:

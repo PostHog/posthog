@@ -1,12 +1,15 @@
+import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
+
 import {
     DataTableNode,
     DateRange,
     DocumentSimilarityQuery,
     ErrorTrackingBreakdownsQuery,
+    ErrorTrackingFingerprintProjectionQuery,
     ErrorTrackingIssueCorrelationQuery,
     ErrorTrackingPendingFingerprintIssueStateUpdate,
     ErrorTrackingQuery,
-    ErrorTrackingSimilarIssuesQuery,
+    ErrorTrackingQueryIssueSeverity,
     EventsQuery,
     InsightVizNode,
     NodeKind,
@@ -17,6 +20,8 @@ import {
     AnyPropertyFilter,
     BaseMathType,
     ChartDisplayType,
+    ErrorTrackingIssueFilter,
+    FilterLogicalOperator,
     PropertyFilterType,
     PropertyGroupFilter,
     PropertyOperator,
@@ -30,9 +35,48 @@ import {
     SEARCHABLE_EXCEPTION_PROPERTIES,
 } from './utils'
 
+function withIssueSeverityFilter(
+    filterGroup: UniversalFiltersGroup,
+    severity: ErrorTrackingQueryIssueSeverity | null | undefined
+): UniversalFiltersGroup {
+    if (!severity) {
+        return filterGroup
+    }
+
+    const severityFilter: ErrorTrackingIssueFilter = {
+        key: 'severity',
+        type: PropertyFilterType.ErrorTrackingIssue,
+        operator: PropertyOperator.Exact,
+        value: [severity],
+    }
+    const firstValue = filterGroup.values[0]
+    const firstGroup: UniversalFiltersGroup = isUniversalGroupFilterLike(firstValue)
+        ? firstValue
+        : {
+              type: FilterLogicalOperator.And,
+              values: firstValue ? [firstValue] : [],
+          }
+    const nextValues =
+        firstGroup.type === FilterLogicalOperator.Or && firstGroup.values.length > 0
+            ? [firstGroup, severityFilter]
+            : [...firstGroup.values, severityFilter]
+
+    return {
+        ...filterGroup,
+        values: [
+            {
+                type: FilterLogicalOperator.And,
+                values: nextValues,
+            },
+            ...filterGroup.values.slice(1),
+        ],
+    }
+}
+
 export const errorTrackingQuery = ({
     orderBy,
     status,
+    severity,
     dateRange,
     assignee,
     filterTestAccounts,
@@ -61,6 +105,7 @@ export const errorTrackingQuery = ({
     | 'groupTypeIndex'
 > & {
     filterGroup: UniversalFiltersGroup
+    severity?: ErrorTrackingQueryIssueSeverity | null
     columns: string[]
     volumeResolution?: number
     pendingFingerprintIssueStateUpdates?: ErrorTrackingPendingFingerprintIssueStateUpdate[]
@@ -74,7 +119,7 @@ export const errorTrackingQuery = ({
             dateRange,
             assignee,
             volumeResolution,
-            filterGroup: filterGroup as PropertyGroupFilter,
+            filterGroup: withIssueSeverityFilter(filterGroup, severity) as PropertyGroupFilter,
             filterTestAccounts: filterTestAccounts,
             searchQuery: searchQuery,
             limit: limit,
@@ -138,14 +183,14 @@ export const errorTrackingIssueQuery = ({
 }
 
 export const errorTrackingIssueEventsQuery = ({
-    fingerprints,
+    issueId,
     filterTestAccounts,
     filterGroup,
     searchQuery,
     dateRange,
     columns,
 }: {
-    fingerprints: string[]
+    issueId: string
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
     searchQuery: string
@@ -155,7 +200,7 @@ export const errorTrackingIssueEventsQuery = ({
     const group = filterGroup.values[0] as UniversalFiltersGroup
     const properties = [...group.values] as AnyPropertyFilter[]
 
-    let where_string = `properties.$exception_fingerprint in [${fingerprints.map((f) => escapeHogQLString(f)).join(', ')}] AND isNotNull(properties.$exception_issue_id)`
+    let where_string = `issue_id = toUUID(${escapeHogQLString(issueId)})`
     if (searchQuery) {
         // This is an ugly hack for the fact I don't think we support nested property filters in
         // the eventsquery
@@ -185,6 +230,11 @@ export const errorTrackingIssueEventsQuery = ({
     return eventsQuery
 }
 
+export const errorTrackingFingerprintProjectionQuery = (issueId: string): ErrorTrackingFingerprintProjectionQuery => ({
+    kind: NodeKind.ErrorTrackingFingerprintProjectionQuery,
+    issueId,
+})
+
 export const errorTrackingIssueCorrelationQuery = ({
     events,
 }: {
@@ -193,24 +243,6 @@ export const errorTrackingIssueCorrelationQuery = ({
     return setLatestVersionsOnQuery<ErrorTrackingIssueCorrelationQuery>({
         kind: NodeKind.ErrorTrackingIssueCorrelationQuery,
         events,
-        tags: { productKey: ProductKey.ERROR_TRACKING },
-    })
-}
-
-export const errorTrackingSimilarIssuesQuery = ({
-    issueId,
-    limit,
-    maxDistance,
-}: {
-    issueId: string
-    limit: number
-    maxDistance: number
-}): ErrorTrackingSimilarIssuesQuery => {
-    return setLatestVersionsOnQuery<ErrorTrackingSimilarIssuesQuery>({
-        kind: NodeKind.ErrorTrackingSimilarIssuesQuery,
-        issueId,
-        limit,
-        maxDistance,
         tags: { productKey: ProductKey.ERROR_TRACKING },
     })
 }
@@ -288,10 +320,8 @@ export const errorTrackingIssueBreakdownQuery = ({
                     math: BaseMathType.TotalCount,
                     properties: [
                         {
-                            key: '$exception_issue_id',
-                            type: PropertyFilterType.Event,
-                            value: issueId,
-                            operator: PropertyOperator.Exact,
+                            key: `issue_id = ${escapeHogQLString(issueId)}`,
+                            type: PropertyFilterType.HogQL,
                         },
                         ...properties,
                     ],
@@ -310,12 +340,14 @@ export const errorTrackingBreakdownsQuery = ({
     issueId,
     breakdownProperties,
     dateRange,
+    filterGroup,
     filterTestAccounts,
     maxValuesPerProperty = LIMIT_ITEMS,
 }: {
     issueId: string
     breakdownProperties: string[]
     dateRange: DateRange
+    filterGroup: UniversalFiltersGroup
     filterTestAccounts: boolean
     maxValuesPerProperty?: number
 }): ErrorTrackingBreakdownsQuery => {
@@ -324,6 +356,7 @@ export const errorTrackingBreakdownsQuery = ({
         issueId,
         breakdownProperties,
         dateRange,
+        filterGroup: filterGroup as PropertyGroupFilter,
         filterTestAccounts,
         maxValuesPerProperty,
         tags: {

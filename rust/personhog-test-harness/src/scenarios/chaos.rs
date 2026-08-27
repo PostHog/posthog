@@ -27,7 +27,7 @@
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use k8s_openapi::api::core::v1::Pod;
@@ -46,6 +46,10 @@ pub enum TargetKind {
     Leader,
     Router,
     Writer,
+    /// The coordination store itself. Deliberately not part of the
+    /// random-draw target pool: only the dedicated `EtcdBounce`
+    /// scenario may touch it, under its own quorum guard.
+    Etcd,
 }
 
 impl TargetKind {
@@ -54,6 +58,7 @@ impl TargetKind {
             TargetKind::Leader => "leader",
             TargetKind::Router => "router",
             TargetKind::Writer => "writer",
+            TargetKind::Etcd => "etcd",
         }
     }
 }
@@ -109,6 +114,14 @@ enum Scenario {
     /// Kill the coordinator, wait for a successor to win the election,
     /// kill that one too — election churn plus orphaned reconciliation.
     CoordinatorDoubleTap,
+    /// Abruptly kill one etcd member of a ≥3-member cluster: quorum
+    /// survives, state survives (persistent volumes), but every client
+    /// stream pinned to that member breaks at once — the coordination
+    /// blip that must never restart the fleet. The expected signature
+    /// is run-supervisor rebuilds (`run_restarts_total` up) with zero
+    /// container restarts, zero handoffs, and zero client-visible
+    /// errors.
+    EtcdBounce,
 }
 
 impl Scenario {
@@ -119,6 +132,7 @@ impl Scenario {
             Scenario::StaggeredFollowUp => "staggered_follow_up",
             Scenario::CoordinatorKill => "coordinator_kill",
             Scenario::CoordinatorDoubleTap => "coordinator_double_tap",
+            Scenario::EtcdBounce => "etcd_bounce",
         }
     }
 
@@ -127,6 +141,10 @@ impl Scenario {
             self,
             Scenario::CoordinatorKill | Scenario::CoordinatorDoubleTap
         )
+    }
+
+    fn needs_etcd_target(self) -> bool {
+        matches!(self, Scenario::EtcdBounce)
     }
 }
 
@@ -138,14 +156,17 @@ const SCENARIO_WEIGHTS: &[(Scenario, u32)] = &[
     (Scenario::StaggeredFollowUp, 12),
     (Scenario::CoordinatorKill, 8),
     (Scenario::CoordinatorDoubleTap, 8),
+    (Scenario::EtcdBounce, 8),
 ];
 
 /// Draw a scenario, excluding coordinator scenarios when no etcd access
-/// is configured (their weight redistributes over the rest).
-fn pick_scenario(rng: &mut impl Rng, coordinator_available: bool) -> Scenario {
+/// is configured and the etcd bounce when no etcd target is configured
+/// (their weight redistributes over the rest).
+fn pick_scenario(rng: &mut impl Rng, coordinator_available: bool, etcd_target: bool) -> Scenario {
     let pool: Vec<(Scenario, u32)> = SCENARIO_WEIGHTS
         .iter()
         .filter(|(s, _)| coordinator_available || !s.needs_coordinator())
+        .filter(|(s, _)| etcd_target || !s.needs_etcd_target())
         .copied()
         .collect();
     let total: u32 = pool.iter().map(|(_, w)| w).sum();
@@ -180,6 +201,11 @@ pub struct ChaosConfig {
     /// etcd endpoints + key prefix of the stack under test. Enables the
     /// coordinator scenarios; without it they are excluded from the draw.
     pub etcd: Option<(String, String)>,
+    /// The etcd cluster's own pods. Enables the `EtcdBounce` scenario;
+    /// without it that scenario is excluded from the draw. Kept out of
+    /// `targets` so the general kill scenarios can never draw etcd —
+    /// only the bounce, with its quorum guard, may touch it.
+    pub etcd_target: Option<TargetSpec>,
 }
 
 pub async fn run(cfg: ChaosConfig, shutdown: Arc<AtomicBool>) {
@@ -230,7 +256,7 @@ pub async fn run(cfg: ChaosConfig, shutdown: Arc<AtomicBool>) {
             return;
         }
 
-        let scenario = pick_scenario(&mut rng, store.is_some());
+        let scenario = pick_scenario(&mut rng, store.is_some(), cfg.etcd_target.is_some());
         tracing::info!(scenario = scenario.label(), "chaos scenario starting");
         // Pods this scenario has already killed, kept out of every later
         // step's min-alive count regardless of how fast k8s reflects the
@@ -302,6 +328,34 @@ async fn execute(
         Scenario::CoordinatorKill => {
             kill_coordinator(client, cfg, store, scenario, rng, killed).await;
         }
+        Scenario::EtcdBounce => {
+            let Some(target) = &cfg.etcd_target else {
+                return;
+            };
+            // Quorum guard: only bounce when all three members are
+            // ready, so the kill leaves two — a healthy majority. The
+            // point is a connection blip, not an availability test;
+            // taking etcd below quorum would halt coordination for the
+            // whole bed and test nothing this scenario is for.
+            let ready = match list_ready(client, target).await {
+                Ok(ready) => ready,
+                Err(e) => {
+                    tracing::warn!(error = %e, namespace = %target.namespace, "listing etcd pods failed");
+                    counter!("personhog_traffic_chaos_skipped_total", "reason" => "list_failed")
+                        .increment(1);
+                    return;
+                }
+            };
+            if ready.len() < 3 {
+                counter!("personhog_traffic_chaos_skipped_total", "reason" => "etcd_quorum_guard")
+                    .increment(1);
+                return;
+            }
+            // Always abrupt: a graceful etcd shutdown hands off cleanly,
+            // but the failure this scenario reproduces is the sudden
+            // stream break every client sees when a member vanishes.
+            kill_one(client, target, KillMode::Abrupt, scenario, rng, killed).await;
+        }
         Scenario::CoordinatorDoubleTap => {
             let Some(first) = kill_coordinator(client, cfg, store, scenario, rng, killed).await
             else {
@@ -310,7 +364,7 @@ async fn execute(
             // The successor needs the old election lease to lapse (abrupt
             // kills leave it until TTL) plus a campaign; poll generously.
             let deadline = Duration::from_secs(25);
-            let start = std::time::Instant::now();
+            let start = Instant::now();
             let successor = loop {
                 if shutdown.load(Ordering::SeqCst) {
                     return;
@@ -566,7 +620,8 @@ mod tests {
     fn coordinator_scenarios_excluded_without_etcd() {
         let mut rng = StdRng::seed_from_u64(7);
         for _ in 0..1000 {
-            assert!(!pick_scenario(&mut rng, false).needs_coordinator());
+            assert!(!pick_scenario(&mut rng, false, false).needs_coordinator());
+            assert!(!pick_scenario(&mut rng, false, false).needs_etcd_target());
         }
     }
 

@@ -17,8 +17,8 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
-import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
@@ -186,7 +186,7 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                     </div>
 
                     <LemonField name="scopes">
-                        {({ error }) => (
+                        {() => (
                             <>
                                 <p className="mb-0">
                                     Personal API keys are scoped to limit what actions they are able to do. We highly
@@ -197,12 +197,6 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                                     Your personal API key can never take actions for which your account is missing
                                     permissions.
                                 </p>
-
-                                {error && (
-                                    <div className="text-danger flex items-center gap-1 text-sm">
-                                        <IconErrorOutline className="text-xl" /> {error}
-                                    </div>
-                                )}
 
                                 {allAccessSelected ? (
                                     <LemonBanner
@@ -535,7 +529,18 @@ function PersonalAPIKeysTable(): JSX.Element {
                     </div>
                 )}
                 renderMaskValue={(key) =>
-                    key.mask_value ? (
+                    key.local_dev_value ? (
+                        <CopyToClipboardInline
+                            description="personal API key"
+                            tooltipMessage="Local development key. Its full value is shown because this instance has DEBUG and ALLOW_DEV_API_KEY_REVEAL set."
+                            selectable
+                            isValueSensitive
+                            iconSize="xsmall"
+                            className="font-mono text-xs max-w-60 whitespace-normal"
+                        >
+                            {key.local_dev_value}
+                        </CopyToClipboardInline>
+                    ) : key.mask_value ? (
                         <span className="font-mono ph-no-capture">{key.mask_value}</span>
                     ) : (
                         <Tooltip title="This key was created before the introduction of previews" placement="right">

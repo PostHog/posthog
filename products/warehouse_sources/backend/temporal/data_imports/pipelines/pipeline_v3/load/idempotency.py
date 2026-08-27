@@ -7,10 +7,10 @@ from asgiref.sync import async_to_sync
 
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_client
+from posthog.temporal.common.errors import NonReportableError
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
-    DeltaTableHelper,
-)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import DeltaWriter
 
 logger = structlog.get_logger(__name__)
 
@@ -54,17 +54,17 @@ def is_batch_already_processed(
     schema_id: str,
     run_uuid: str,
     batch_index: int,
-    delta_table_helper: DeltaTableHelper | None = None,
+    delta_table_ref: DeltaTableRef | None = None,
 ) -> bool:
     """Check if a batch has already been processed.
 
     Fast path: the Redis dedup flag written by `mark_batch_as_processed` after a
     successful delta write.
 
-    Slow path (post-crash recovery): if Redis has no flag and a `DeltaTableHelper`
+    Slow path (post-crash recovery): if Redis has no flag and a `DeltaTableRef`
     is provided, scan recent delta commits for a commit whose userMetadata matches
     this (run_uuid, batch_index). This catches the narrow writer-crash window
-    between `write_to_deltalake` committing and `mark_batch_as_processed` running —
+    between `DeltaWriter.write` committing and `mark_batch_as_processed` running —
     on Kafka redelivery we'd otherwise re-write the same batch and produce
     duplicate rows.
     """
@@ -74,11 +74,11 @@ def is_batch_already_processed(
             if redis_client.exists(key) == 1:
                 return True
 
-    if delta_table_helper is None:
+    if delta_table_ref is None:
         return False
 
     try:
-        return async_to_sync(delta_table_helper.has_batch_been_committed)(run_uuid, batch_index)
+        return async_to_sync(DeltaWriter(delta_table_ref).has_batch_been_committed)(run_uuid, batch_index)
     except Exception as e:
         # Failing open here would re-enable the duplicate-write race we're fixing,
         # so we log and surface the error to the caller (which will retry the message).
@@ -90,7 +90,11 @@ def is_batch_already_processed(
             batch_index=batch_index,
             error=str(e),
         )
-        capture_exception(e)
+        # get_delta_table already re-raises known-transient object-store blips as
+        # NonReportableError (see DeltaTableRef._capture_unless_transient) and
+        # intentionally skips reporting them itself — don't undo that here.
+        if not isinstance(e, NonReportableError):
+            capture_exception(e)
         raise
 
 

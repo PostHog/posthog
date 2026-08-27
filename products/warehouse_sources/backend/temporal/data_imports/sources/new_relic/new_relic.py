@@ -8,9 +8,9 @@ import structlog
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.new_relic.settings import (
     NEW_RELIC_ENDPOINTS,
     NewRelicEndpointConfig,
@@ -196,7 +196,13 @@ def _execute_graphql(
     if errors:
         messages = "; ".join(str(error.get("message", error)) for error in errors)
         # NerdGraph reports server-side timeouts/deadlines inside `errors` on an HTTP 200.
-        if any(term in messages.lower() for term in ("timeout", "deadline", "too many requests")):
+        # "An error occurred resolving this field" is NerdGraph's generic resolver-failure
+        # message; it's known to fire intermittently on otherwise-valid queries and clear on
+        # retry (e.g. the New Relic Terraform provider retries the same message).
+        if any(
+            term in messages.lower()
+            for term in ("timeout", "deadline", "too many requests", "an error occurred resolving this field")
+        ):
             raise NewRelicRetryableError(f"New Relic GraphQL error (retryable): {messages}")
         raise NewRelicGraphQLError(f"New Relic GraphQL error: {messages}")
 

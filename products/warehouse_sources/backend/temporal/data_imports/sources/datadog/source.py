@@ -11,10 +11,6 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FieldType,
     ResumableSource,
@@ -26,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.datadog import (
     DatadogResumeConfig,
     datadog_source,
@@ -128,6 +125,7 @@ Logs, audit logs, and events read access is governed by your Datadog account's d
         return {
             "401 Client Error": "Invalid Datadog API key. Generate a valid key and reconnect.",
             "403 Client Error": "Your Datadog application key is missing the required read scopes for this data. Grant the scopes and reconnect.",
+            "410 Client Error: Gone": "The requested Datadog data has fallen outside your account's retention window, or its pagination cursor expired. Retry the sync to start a fresh query.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

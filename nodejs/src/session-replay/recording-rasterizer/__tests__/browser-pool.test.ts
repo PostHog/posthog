@@ -16,22 +16,23 @@ jest.mock('~/session-replay/recording-rasterizer/logger', () => {
     }
 })
 
-jest.mock(
-    'puppeteer-capture',
-    () => ({
-        launch: jest.fn(),
-    }),
-    { virtual: true }
-)
+jest.mock('puppeteer-capture', () => ({
+    launch: jest.fn(),
+}))
 
 const puppeteerCapture = require('puppeteer-capture')
 
 const ORIGINAL_ENV = process.env
 
 function mockBrowser(): jest.Mocked<Browser> {
+    const handlers: Record<string, () => void> = {}
     return {
         newPage: jest.fn(),
         close: jest.fn(),
+        on: jest.fn((event: string, handler: () => void) => {
+            handlers[event] = handler
+        }),
+        emit: jest.fn((event: string) => handlers[event]?.()),
     } as any
 }
 
@@ -95,6 +96,39 @@ describe('BrowserPool', () => {
         expect(pool.stats.activePages).toBe(0)
     })
 
+    it('closes the browser instead of orphaning it when newPage throws', async () => {
+        const browser = mockBrowser()
+        browser.newPage.mockRejectedValue(new Error('Target closed'))
+        puppeteerCapture.launch.mockResolvedValue(browser)
+
+        pool = new BrowserPool(100)
+        await expect(pool.getPage()).rejects.toThrow('Target closed')
+
+        // The slot was already popped from idle; without the close this Chrome process leaks.
+        expect(browser.close).toHaveBeenCalled()
+        expect(pool.stats.activePages).toBe(0)
+    })
+
+    it('closes released browsers beyond the idle cap instead of keeping them warm', async () => {
+        const browsers = [mockBrowser(), mockBrowser(), mockBrowser()]
+        for (const b of browsers) {
+            b.newPage.mockImplementation(() => Promise.resolve(mockPage()))
+        }
+        puppeteerCapture.launch
+            .mockResolvedValueOnce(browsers[0])
+            .mockResolvedValueOnce(browsers[1])
+            .mockResolvedValueOnce(browsers[2])
+
+        pool = new BrowserPool(100)
+        const pages = [await pool.getPage(), await pool.getPage(), await pool.getPage()]
+        for (const p of pages) {
+            await pool.releasePage(p)
+        }
+
+        // maxIdleBrowsers defaults to 2: the third release closes its browser.
+        expect(browsers.filter((b) => b.close.mock.calls.length > 0)).toHaveLength(1)
+    })
+
     it('reuses idle browser for sequential getPage calls', async () => {
         const browser = mockBrowser()
         browser.newPage.mockImplementation(() => Promise.resolve(mockPage()))
@@ -108,6 +142,38 @@ describe('BrowserPool', () => {
         await pool.releasePage(p2)
 
         expect(puppeteerCapture.launch).toHaveBeenCalledTimes(1)
+    })
+
+    it('evicts a crashed browser instead of reusing it', async () => {
+        const browser1 = mockBrowser()
+        const browser2 = mockBrowser()
+        browser1.newPage.mockResolvedValue(mockPage())
+        browser2.newPage.mockResolvedValue(mockPage())
+        puppeteerCapture.launch.mockResolvedValueOnce(browser1).mockResolvedValueOnce(browser2)
+
+        pool = new BrowserPool(100)
+        const p1 = await pool.getPage()
+        await pool.releasePage(p1) // browser1 is now idle
+        ;(browser1 as any).emit('disconnected') // crash while idle
+
+        await pool.getPage()
+        expect(puppeteerCapture.launch).toHaveBeenCalledTimes(2) // fresh launch, crashed one not reused
+    })
+
+    it('does not re-idle a browser that crashed while its page was checked out', async () => {
+        const browser1 = mockBrowser()
+        const browser2 = mockBrowser()
+        browser1.newPage.mockResolvedValue(mockPage())
+        browser2.newPage.mockResolvedValue(mockPage())
+        puppeteerCapture.launch.mockResolvedValueOnce(browser1).mockResolvedValueOnce(browser2)
+
+        pool = new BrowserPool(100)
+        const p1 = await pool.getPage()
+        ;(browser1 as any).emit('disconnected') // crash mid-capture
+        await pool.releasePage(p1)
+
+        await pool.getPage()
+        expect(puppeteerCapture.launch).toHaveBeenCalledTimes(2)
     })
 
     it('recycles browser when usage hits recycleAfter', async () => {

@@ -42,6 +42,7 @@ from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
 
 from ..facade.api import (
     FACET_COLUMNS,
@@ -99,7 +100,15 @@ class _TracingDateRangeSerializer(serializers.Serializer):
 
 
 _SPAN_PROPERTY_TYPE_CHOICES = ["span", "span_attribute", "span_resource_attribute"]
-_SPAN_STRING_OPERATORS = ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"]
+_SPAN_STRING_OPERATORS = [
+    "exact",
+    "is_not",
+    "icontains",
+    "not_icontains",
+    *STRING_PREFIX_SUFFIX_OPERATORS,
+    "regex",
+    "not_regex",
+]
 _SPAN_NUMERIC_OPERATORS = ["exact", "gt", "lt"]
 _SPAN_EXISTENCE_OPERATORS = ["is_set", "is_not_set"]
 _SPAN_ALL_OPERATORS = _SPAN_STRING_OPERATORS + _SPAN_NUMERIC_OPERATORS + _SPAN_EXISTENCE_OPERATORS

@@ -11,7 +11,7 @@ The symptom side is recordings that never appear or play back with gaps: each dr
 
 ## Diagnose
 
-1. `posthog:ingestion-warnings-list` with the specific `type` (or `q: 'replay'` plus `q: 'message_'`). For `message_timestamp_diff_too_large` the details carry `startDiffDays`/`endDiffDays` vs the 7-day threshold — the magnitude tells the story (8 days = buffering/late flush; hundreds/negative-looking = a broken client clock).
+1. Query the warnings with `posthog:execute-sql`: `SELECT timestamp, details FROM system.ingestion_warnings WHERE type IN ('replay_lib_version_too_old', 'message_contained_no_valid_rrweb_events', 'message_timestamp_diff_too_large') AND timestamp > now() - INTERVAL 7 DAY ORDER BY timestamp DESC LIMIT 20` (narrow to a single `type` to isolate one variant). For `message_timestamp_diff_too_large` the `details` JSON carries `startDiffDays`/`endDiffDays` vs the 7-day threshold — the magnitude tells the story (8 days = buffering/late flush; hundreds/negative-looking = a broken client clock).
 2. **Check SDK version clustering first** (`$lib_version` on the affected sessions' events, via `posthog:execute-sql`): `replay_lib_version_too_old` names the outdated version outright in its details, and the other two also concentrate on old or unusual SDK versions when the payload shape is the problem.
 3. For `message_contained_no_valid_rrweb_events`, look between the SDK and PostHog: a rewriting reverse proxy, compression/decompression middleware, or a custom transport that truncates or re-serializes the snapshot payload is the usual cause when the SDK is current.
 4. Distinguish clock from buffer for timestamp diffs: a device with a wrong clock produces the warning **continuously** for that user; buffered/offline replay produces **bursts** on reconnect.
@@ -24,4 +24,4 @@ The symptom side is recordings that never appear or play back with gaps: each dr
 
 ## Verify
 
-Record a fresh session on the affected app/platform, re-query `posthog:ingestion-warnings-list` with a post-fix `since` — no new occurrences — and confirm the new recording appears (`posthog:query-session-recordings-list`) and plays back complete, without gaps.
+Record a fresh session on the affected app/platform, re-query `system.ingestion_warnings` with `posthog:execute-sql` (filter `type IN ('replay_lib_version_too_old', 'message_contained_no_valid_rrweb_events', 'message_timestamp_diff_too_large')`, `timestamp` after your fix) — no new occurrences — and confirm the new recording appears (`posthog:query-session-recordings-list`) and plays back complete, without gaps.

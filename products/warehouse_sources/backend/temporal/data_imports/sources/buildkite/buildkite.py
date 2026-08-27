@@ -2,7 +2,6 @@ import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.settings import (
     BUILDKITE_ENDPOINTS,
     BuildkiteEndpointConfig,
@@ -17,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 BUILDKITE_BASE_URL = "https://api.buildkite.com"
 # Buildkite caps per_page at 100 (default 30).

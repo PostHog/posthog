@@ -10,12 +10,13 @@
  * zxing-wasm. The source is decoded once to raw RGB (area-capped at SCRUB_MAX_PIXELS) and shared
  * across stages.
  */
-import sharp from 'sharp'
+import sharp, { type Sharp } from 'sharp'
 
-import { BLANK_PNG, LIMIT_INPUT_PIXELS, UndecodableImageError, blurOnly } from './blur.ts'
+import { BLANK_PNG, LIMIT_INPUT_PIXELS, blurOnly } from './blur.ts'
 import { type DbnetModel, detectTextDbnet, loadDbnet } from './dbnet.ts'
 import { numFromEnv } from './env.ts'
 import { type Box } from './geometry.ts'
+import { PermanentImageError, undecodableImageErrorFromDecodeFailure } from './image-input.ts'
 import { detectCodes } from './qr.ts'
 import { type SafetyModel, classifySafety, loadSafety } from './safety.ts'
 import { type Dims, type ScalePlan, limitsFromEnv, planScales } from './scale-plan.ts'
@@ -146,7 +147,7 @@ export async function advancedScrub(
         plan = planScales(meta, limitsFromEnv())
         src = await decodeSrc(input, plan.frame)
     } catch (e) {
-        throw e instanceof UndecodableImageError ? e : new UndecodableImageError(String(e))
+        throw e instanceof PermanentImageError ? e : undecodableImageErrorFromDecodeFailure(e)
     }
     const { W, H } = src
     timings.decodeMs = performance.now() - tDec
@@ -420,7 +421,7 @@ export async function compose(
  * has to happen in a second pass over the composited pixels rather than chained onto the first.
  */
 async function encodeStored(
-    redacted: sharp.Sharp,
+    redacted: Sharp,
     W: number,
     H: number,
     stored: Dims,

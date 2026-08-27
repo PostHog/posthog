@@ -1,12 +1,17 @@
 import datetime
 from zoneinfo import ZoneInfo
 
+from django.db import OperationalError
+
+import structlog
+
 from posthog.schema import CachedErrorTrackingQueryResponse, ErrorTrackingQuery, ErrorTrackingQueryResponse
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.error_tracking_fingerprint_issue_state import PENDING_UPDATES_HOGQL_CONTEXT_KEY
+from posthog.hogql.database.schema.error_tracking_recent_issue_state import RECENT_ISSUE_STATE_HOGQL_CONTEXT_KEY
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -15,18 +20,27 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.utils import relative_date_parse
 
+from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQueryRunnerAccessMixin
 from products.error_tracking.backend.hogql_queries.error_tracking_query_builder import ErrorTrackingQueryBuilder
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import validate_uuid_param
+from products.error_tracking.backend.hogql_queries.issue_state_overlay import (
+    RECENT_ISSUE_STATE_OVERLAY_UNAVAILABLE,
+    RecentIssueState,
+    latest_issue_state_watermark,
+    load_recent_issue_states,
+)
+
+logger = structlog.get_logger(__name__)
 
 
-class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse]):
+class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQueryRunner[ErrorTrackingQueryResponse]):
     query: ErrorTrackingQuery
     cached_response: CachedErrorTrackingQueryResponse
     paginator: HogQLHasMorePaginator
     date_from: datetime.datetime
     date_to: datetime.datetime
 
-    CACHE_VERSION = 2
+    CACHE_VERSION = 4
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -60,6 +74,15 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
         payload["error_tracking_cache_version"] = self.CACHE_VERSION
+        # Use a stable marker when the primary read fails so an existing cached result can still load.
+        try:
+            watermark = latest_issue_state_watermark(self.team.pk)
+        except OperationalError:
+            logger.warning("error_tracking_issue_state_watermark_unavailable", team_id=self.team.pk, exc_info=True)
+            RECENT_ISSUE_STATE_OVERLAY_UNAVAILABLE.labels(read="watermark").inc()
+            payload["error_tracking_issue_state_watermark"] = "unavailable"
+        else:
+            payload["error_tracking_issue_state_watermark"] = watermark.isoformat() if watermark is not None else None
         return payload
 
     @classmethod
@@ -87,32 +110,52 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
 
     MAX_PENDING_FINGERPRINT_ISSUE_STATE_UPDATES = 50
 
-    def _hogql_context(self) -> HogQLContext:
+    def _hogql_context(self, recent_issue_states: list[RecentIssueState] | None = None) -> HogQLContext:
         ctx = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True)
         raw = (self.query.pendingFingerprintIssueStateUpdates or [])[: self.MAX_PENDING_FINGERPRINT_ISSUE_STATE_UPDATES]
         if raw:
             ctx.data_to_ingest[PENDING_UPDATES_HOGQL_CONTEXT_KEY] = [row.model_dump(mode="json") for row in raw]
+        if recent_issue_states:
+            ctx.data_to_ingest[RECENT_ISSUE_STATE_HOGQL_CONTEXT_KEY] = [
+                state.as_external_table_row() for state in recent_issue_states
+            ]
         return ctx
 
     def _calculate(self):
+        with self.timings.measure("error_tracking_query_recent_issue_state"):
+            # Keep ClickHouse available when the primary read fails.
+            try:
+                recent_issue_states = load_recent_issue_states(self.team.pk)
+            except OperationalError:
+                logger.warning("error_tracking_recent_issue_states_unavailable", team_id=self.team.pk, exc_info=True)
+                RECENT_ISSUE_STATE_OVERLAY_UNAVAILABLE.labels(read="recent_states").inc()
+                recent_issue_states = []
+        context = self._hogql_context(recent_issue_states)
+        builder = ErrorTrackingQueryBuilder(
+            self.query,
+            self.team,
+            self.date_from,
+            self.date_to,
+            include_recent_issue_state=bool(recent_issue_states),
+        )
         with self.timings.measure("error_tracking_query_hogql_execute"):
             query_result = self.paginator.execute_hogql_query(
-                query=self._builder.build_query(),
+                query=builder.build_query(),
                 team=self.team,
                 query_type="ErrorTrackingQuery",
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
-                filters=self._builder.hogql_filters(),
+                filters=builder.hogql_filters(),
                 user=self.user,
-                context=self._hogql_context(),
+                context=context,
             )
 
         columns, results = self._attach_events(query_result.columns or [], query_result.results)
 
         return ErrorTrackingQueryResponse(
             columns=columns,
-            results=self._builder.process_results(columns, results),
+            results=builder.process_results(columns, results),
             timings=query_result.timings,
             hogql=query_result.hogql,
             modifiers=self.modifiers,

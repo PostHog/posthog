@@ -12,10 +12,6 @@ from posthog.schema import SourceConfig
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import (
@@ -29,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.incremental import (
     IncrementalFieldFilter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
 
 
@@ -49,7 +46,7 @@ def _fake_filter(
 
 
 @dataclasses.dataclass
-class _FakeImplData:
+class _FakeIntrospection:
     columns_by_table: dict[str, list[tuple[str, str, bool]]] = dataclasses.field(default_factory=dict)
     primary_keys_by_table: dict[str, list[str] | None] = dataclasses.field(default_factory=dict)
     row_counts_by_table: dict[str, int | None] = dataclasses.field(default_factory=dict)
@@ -61,8 +58,8 @@ class _FakeImplData:
 class _FakeImplementation(SQLSourceImplementation[_FakeConfig, object, Any]):
     """Records the arguments it receives so tests can assert on the wiring."""
 
-    def __init__(self, data: _FakeImplData | None = None) -> None:
-        self.data = data or _FakeImplData()
+    def __init__(self, data: _FakeIntrospection | None = None) -> None:
+        self.data = data or _FakeIntrospection()
         self.get_columns_calls: list[tuple[list[str] | None]] = []
         self.get_primary_keys_called = False
         self.get_row_counts_called = False
@@ -125,7 +122,7 @@ class _FakeSQLSource(SQLSource[_FakeConfig]):
 
 
 def _make_source(**data: Any) -> tuple[_FakeSQLSource, _FakeImplementation]:
-    impl = _FakeImplementation(_FakeImplData(**data))
+    impl = _FakeImplementation(_FakeIntrospection(**data))
     return _FakeSQLSource(impl), impl
 
 

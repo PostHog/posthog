@@ -1,5 +1,6 @@
 import time
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from datetime import datetime
 from functools import cached_property
 from typing import Generic, Optional, TypeVar
@@ -12,11 +13,14 @@ from posthog.schema import (
     ConversionGoalFilter2,
     ConversionGoalFilter3,
     DateRange,
+    InfinityValue,
     MarketingAnalyticsConstants,
     MarketingAnalyticsDrillDownLevel,
+    MarketingAnalyticsItem,
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
@@ -27,13 +31,19 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryResponseProtocol, A
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.models.team.team import DEFAULT_CURRENCY
+from posthog.models.team.team import DEFAULT_CURRENCY, Team
 
-from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationTable
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    LazyComputationTable,
+    TtlSchedule,
+    parse_ttl_schedule,
+)
 from products.analytics_platform.backend.lazy_computation.stale_policy import is_background_warming_request
 from products.marketing_analytics.backend.hogql_queries.constants import (
+    CAC_COLUMN_SUFFIX,
     CHANNEL_SESSIONS_CTE_NAME,
     DRILL_DOWN_LEVEL_CONFIG,
+    ROAS_COLUMN,
     TOTAL_SESSIONS_FIELD,
     UNIFIED_CONVERSION_GOALS_CTE_ALIAS,
     UNKNOWN_CHANNEL,
@@ -47,10 +57,23 @@ from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by
 
 from .adapters.base import MarketingSourceAdapter, QueryContext
 from .adapters.factory import MarketingSourceFactory
-from .conversion_goal_processor import ConversionGoalProcessor
+from .conversion_goal_processor import ConversionGoalProcessor, goal_sums_a_property
 from .conversion_goals_aggregator import ConversionGoalsAggregator
 from .marketing_analytics_config import MarketingAnalyticsConfig
 from .utils import build_source_normalization_expr, convert_team_conversion_goals_to_objects
+
+
+@dataclass(frozen=True)
+class SkippedConversionGoal:
+    """A goal that can't be queried, and why.
+
+    Carries the id because goal names are not unique - the duplicate-name skip below exists precisely
+    because they collide - so a caller looking up why *its* goal was dropped can't match on the name.
+    """
+
+    conversion_goal_id: str
+    message: str
+
 
 logger = structlog.get_logger(__name__)
 
@@ -66,6 +89,62 @@ COMPARE_PERIOD_PREVIOUS = "previous"
 # warmer (products/marketing_analytics/dags/marketing_precompute.py) drives ensure_precomputed with the
 # SAME freshness the read path expects — a mismatch would warm jobs the read then treats as stale.
 COSTS_PRECOMPUTE_TTL_SECONDS = {"0d": 6 * 60 * 60, "1d": 24 * 60 * 60, "default": 7 * 24 * 60 * 60}
+
+# Cap for a cost window that materialized zero rows. Short enough that a source which was mid-sync
+# heals the same day, long enough that a genuinely empty window isn't re-scanned on every read.
+# This bounds recomputation, not what a reader sees: the read path serves stale within
+# STALE_WHILE_REVALIDATE_SECONDS, so a $0 window can still be handed back for up to the sum of both.
+COSTS_EMPTY_RESULT_TTL_SECONDS = 6 * 60 * 60  # 6 hours
+
+# How far back the cap above applies, measured from the window's end. A warehouse sync that is going
+# to deliver a window does so within days; past that, empty means empty, and re-capping forever would
+# turn the 7-day band into a 6-hourly rescan of history that will never change.
+COSTS_EMPTY_RESULT_MAX_AGE_SECONDS = 14 * 24 * 60 * 60  # 14 days
+
+# One day per job. `split_ranges_by_ttl` otherwise merges every window sharing a TTL band into a
+# single job, so the whole `default` band (everything older than yesterday) becomes one job — and
+# emptiness is only observable per job. A 10-day sync gap inside a 30-day read would sit in a job
+# that also covered productive days, report rows written, and keep the full 7-day TTL: exactly the
+# stuck-$0 window this schedule exists to prevent. Day-granular jobs make the signal per-day, and
+# match the warmer, which already chunks a day at a time (MARKETING_PRECOMPUTE_CHUNK_DAYS). The cost
+# is more, narrower inserts on a cold read rather than one wide one.
+COSTS_PRECOMPUTE_MAX_WINDOW_DAYS = 1
+
+
+def costs_precompute_ttl_schedule(team: Team) -> TtlSchedule:
+    """The freshness contract for native cost materialization. Both the read path and the Dagster
+    warmer build their schedule here so the two can't drift.
+
+    Costs are materialized from data warehouse tables, which lag: a window computed while its source
+    was mid-sync — or paused by a billing limit — writes no rows and looks like a successful compute.
+    Coverage keys on the job existing rather than on rows existing, so without `empty_result_ttl_seconds`
+    that empty window would stay authoritative for the whole band TTL (up to 7 days of a $0 chart)
+    even once the source catches up.
+    """
+    return parse_ttl_schedule(
+        COSTS_PRECOMPUTE_TTL_SECONDS,
+        team.timezone,
+        max_window_days=COSTS_PRECOMPUTE_MAX_WINDOW_DAYS,
+        empty_result_ttl_seconds=COSTS_EMPTY_RESULT_TTL_SECONDS,
+        empty_result_max_age_seconds=COSTS_EMPTY_RESULT_MAX_AGE_SECONDS,
+    )
+
+
+_INFINITY_SENTINELS = {float(InfinityValue.NUMBER_999999), float(InfinityValue.NUMBER__999999)}
+
+
+def strip_infinity_sentinels(response: AnalyticsQueryResponseProtocol) -> None:
+    """Blank the "infinite change" sentinel (±999999) so tabular exports, which render cells raw, don't show it as a real percentage."""
+    results = getattr(response, "results", None)
+    if isinstance(results, dict):
+        cells = list(results.values())
+    elif isinstance(results, list):
+        cells = [cell for row in results for cell in (row if isinstance(row, list) else [row])]
+    else:
+        return
+    for cell in cells:
+        if isinstance(cell, MarketingAnalyticsItem) and cell.changeFromPreviousPct in _INFINITY_SENTINELS:
+            cell.changeFromPreviousPct = None
 
 
 def _session_start_day(expr: ast.Expr) -> ast.Expr:
@@ -87,7 +166,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         # settings and the precompute feature flags. Subclasses previously each set this; the aggregated
         # runner didn't, so it silently used defaults (cost precompute always off).
         self.config = MarketingAnalyticsConfig.from_team(self.team)
-        self._conversion_goal_warnings: list[str] = []
+        self._skipped_conversion_goals: list[SkippedConversionGoal] = []
         self._valid_conversion_goals_count: Optional[int] = None
         # Cost-precompute observability — surfaced in the query telemetry event so we can confirm,
         # per query, whether the native cost table was used or we fell back to the live S3 union.
@@ -102,6 +181,8 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         start = time.perf_counter()
         try:
             response = self._calculate()
+            if self.limit_context == LimitContext.EXPORT:
+                strip_infinity_sentinels(response)
             self._capture_query_event("marketing analytics query performed", start)
             return response
         except Exception as e:
@@ -195,8 +276,18 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
     @cached_property
     def _shared_hogql_context(self) -> HogQLContext:
         """HogQLContext carrying the prebuilt database, passed to execute_hogql_query so its
-        `_generate_hogql` reuses the database instead of building a second one."""
-        return HogQLContext(team_id=self.team.pk, database=self._shared_hogql_database)
+        `_generate_hogql` reuses the database instead of building a second one.
+
+        Carries the runner's team and user because supplying a context stops `execute_hogql_query` from
+        building a user-aware one, and the printer loads property-level access control off the context:
+        without the user it would see only the team's default restrictions, so a property denied to this
+        user specifically would print unmasked. That masking is what `ConversionGoalProcessor` skips the
+        precompute path to fall back onto, so it has to actually be in force here."""
+        return HogQLContext(
+            team=self.team,
+            database=self._shared_hogql_database,
+            user=self.user,
+        )
 
     def _factory(self, date_range: QueryDateRange):
         """Create factory instance for the given date range"""
@@ -277,7 +368,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             )
             return None
 
-        ttl_seconds = COSTS_PRECOMPUTE_TTL_SECONDS
+        ttl_seconds = costs_precompute_ttl_schedule(self.team)
         # Per source: read the native table when it materializes, otherwise keep that one source on the
         # live S3 union. A single unmaterializable/syncing source must not force every source back to S3.
         materialized_source_ids: list = []
@@ -652,17 +743,29 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
 
         return conversion_goals
 
+    @property
+    def _conversion_goal_error(self) -> Optional[str]:
+        """The skipped goals as one message for the response's `error` field."""
+        if not self._skipped_conversion_goals:
+            return None
+        return "; ".join(skipped.message for skipped in self._skipped_conversion_goals)
+
     def _filter_invalid_conversion_goals(
         self, conversion_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]
-    ) -> tuple[list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3], list[str]]:
+    ) -> tuple[
+        list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3], list[SkippedConversionGoal]
+    ]:
         """
         Filter out invalid conversion goals (e.g., those using "All Events" or
         referencing missing Data Warehouse columns).
-        Returns (valid_goals, warnings).
+        Returns (valid_goals, skipped).
         """
         valid_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3] = []
-        warnings: list[str] = []
+        skipped: list[SkippedConversionGoal] = []
         seen_names: set[str] = set()
+
+        def skip(message: str) -> None:
+            skipped.append(SkippedConversionGoal(conversion_goal_id=goal.conversion_goal_id, message=message))
 
         for goal in conversion_goals:
             goal_name = getattr(goal, "conversion_goal_name", "Unknown")
@@ -675,7 +778,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                         "filtering_out_all_events_conversion_goal",
                         goal_name=goal_name,
                     )
-                    warnings.append(f"Conversion goal '{goal_name}' skipped: 'All Events' cannot be used")
+                    skip(f"Conversion goal '{goal_name}' skipped: 'All Events' cannot be used")
                     continue
 
             # Validate DataWarehouseNode column existence
@@ -687,7 +790,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                         goal_name=goal_name,
                         table_name=goal.table_name,
                     )
-                    warnings.append(f"Conversion goal '{goal_name}' skipped: table '{goal.table_name}' not found")
+                    skip(f"Conversion goal '{goal_name}' skipped: table '{goal.table_name}' not found")
                     continue
 
                 schema_map = goal.schema_map or {}
@@ -708,7 +811,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                         table_name=goal.table_name,
                         missing_columns=missing_cols,
                     )
-                    warnings.append(
+                    skip(
                         f"Conversion goal '{goal_name}' skipped: columns {missing_cols} not found on table '{goal.table_name}'"
                     )
                     continue
@@ -720,13 +823,13 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                     "filtering_out_duplicate_named_conversion_goal",
                     goal_name=goal_name,
                 )
-                warnings.append(f"Conversion goal '{goal_name}' skipped: duplicate name")
+                skip(f"Conversion goal '{goal_name}' skipped: duplicate name")
                 continue
             seen_names.add(goal_name)
 
             valid_goals.append(goal)
 
-        return valid_goals, warnings
+        return valid_goals, skipped
 
     def _get_filtered_select_columns(self, query: ast.SelectQuery) -> list[ast.Expr]:
         """Filter a query's SELECT to the columns requested in self.query.select, in order."""
@@ -753,11 +856,22 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
     ) -> list:
         """Create conversion goal processors for reuse across different methods"""
         processors = []
+        # Needed even when the goals' own columns are hidden, or the ratios change value as
+        # columns are added or removed.
+        roas_selected = self.query.select is not None and ROAS_COLUMN in self.query.select
+        cac_selected = (
+            self.query.select is not None
+            and f"{MarketingAnalyticsConstants.COST_PER} {CAC_COLUMN_SUFFIX}" in self.query.select
+        )
         for index, conversion_goal in enumerate(conversion_goals):
             # Create processor if select is None (all columns) or if conversion goal columns are explicitly selected
             should_create = self.query.select is None or (
                 conversion_goal.conversion_goal_name in self.query.select
                 or f"{MarketingAnalyticsConstants.COST_PER} {conversion_goal.conversion_goal_name}" in self.query.select
+                or (roas_selected and conversion_goal.counts_as_revenue and goal_sums_a_property(conversion_goal))
+                # No sum-math exclusion here: CAC divides by a summing goal's count column,
+                # so dropping its processor would drop the denominator with it.
+                or (cac_selected and conversion_goal.counts_as_customer)
             )
             if should_create:
                 processor = ConversionGoalProcessor(
@@ -1066,7 +1180,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             with self.timings.measure("ma_get_conversion_goals"):
                 conversion_goals = self._get_team_conversion_goals()
             with self.timings.measure("ma_filter_conversion_goals"):
-                valid_conversion_goals, self._conversion_goal_warnings = self._filter_invalid_conversion_goals(
+                valid_conversion_goals, self._skipped_conversion_goals = self._filter_invalid_conversion_goals(
                     conversion_goals
                 )
                 self._valid_conversion_goals_count = len(valid_conversion_goals)

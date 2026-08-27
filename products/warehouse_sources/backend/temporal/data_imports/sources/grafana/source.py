@@ -11,10 +11,6 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -22,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.grafana import (
     GrafanaSourceConfig,
 )
@@ -152,6 +149,12 @@ Self-hosted Grafana OSS can alternatively authenticate with a username and passw
             "403 Client Error": "Your Grafana credentials lack the permissions needed to sync this data. Grant the required read permissions and reconnect.",
             HOST_NOT_ALLOWED_ERROR: "The Grafana host is not allowed. Please use your instance's public URL.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `_make_fetch` already retries a 429/5xx in-line with backoff (see grafana.py); if that
+        # budget is still exhausted, the failure is a transient Grafana-side blip rather than a
+        # bug here, and Temporal's activity retry will pick the sync back up.
+        return {"(retryable)"}
 
     def _build_auth(self, config: GrafanaSourceConfig) -> GrafanaAuth:
         return GrafanaAuth(

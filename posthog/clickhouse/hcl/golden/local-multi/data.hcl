@@ -1,7 +1,7 @@
 database "posthog" {
   table "adhoc_events_deletion" {
     order_by = ["team_id", "uuid"]
-    ttl      = "deleted_at + toIntervalMonth(3)"
+    ttl      = "deleted_at + toIntervalMonth(3) WHERE is_deleted = 1"
     settings = {
       index_granularity = "8192"
     }
@@ -312,6 +312,54 @@ database "posthog" {
       remote_database = "posthog"
       remote_table    = "sharded_app_metrics2"
       sharding_key    = "rand()"
+    }
+  }
+
+  table "billing_usage_records" {
+    column "schema_version" {
+      type = "UInt8"
+    }
+    column "record_id" {
+      type = "String"
+    }
+    column "producer_id" {
+      type = "LowCardinality(String)"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "organization_id" {
+      type = "UUID"
+    }
+    column "usage_key" {
+      type = "LowCardinality(String)"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "quantity" {
+      type = "Int64"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "inserted_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog"
+      remote_database = "posthog"
+      remote_table    = "sharded_billing_usage_records"
+      sharding_key    = "cityHash64(team_id)"
     }
   }
 
@@ -983,6 +1031,9 @@ database "posthog" {
     column "issue_status" {
       type = "String"
     }
+    column "issue_severity" {
+      type = "Nullable(String)"
+    }
     column "assigned_user_id" {
       type = "Nullable(Int64)"
     }
@@ -1075,11 +1126,128 @@ database "posthog" {
     column "distinct_id" {
       type = "String"
     }
-    column "elements_chain" {
-      type = "String"
-    }
     column "created_at" {
       type = "DateTime64(6, 'UTC')"
+    }
+    column "$group_0" {
+      type    = "String"
+      comment = "column_materializer::$group_0"
+    }
+    column "$group_1" {
+      type    = "String"
+      comment = "column_materializer::$group_1"
+    }
+    column "$group_2" {
+      type    = "String"
+      comment = "column_materializer::$group_2"
+    }
+    column "$group_3" {
+      type    = "String"
+      comment = "column_materializer::$group_3"
+    }
+    column "$group_4" {
+      type    = "String"
+      comment = "column_materializer::$group_4"
+    }
+    column "$window_id" {
+      type    = "String"
+      comment = "column_materializer::$window_id"
+    }
+    column "$session_id" {
+      type    = "String"
+      comment = "column_materializer::$session_id"
+    }
+    column "inserted_at" {
+      type    = "Nullable(DateTime64(6, 'UTC'))"
+      default = "now64()"
+    }
+    column "person_mode" {
+      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
+    }
+    column "elements_chain_href" {
+      type    = "String"
+      comment = "column_materializer::elements_chain::href"
+    }
+    column "elements_chain_texts" {
+      type    = "Array(String)"
+      comment = "column_materializer::elements_chain::texts"
+    }
+    column "elements_chain_ids" {
+      type    = "Array(String)"
+      comment = "column_materializer::elements_chain::ids"
+    }
+    column "elements_chain_elements" {
+      type    = "Array(Enum8('a'=1, 'button'=2, 'form'=3, 'input'=4, 'select'=5, 'textarea'=6, 'label'=7))"
+      comment = "column_materializer::elements_chain::elements"
+    }
+    column "properties_group_custom" {
+      type = "Map(String, String)"
+    }
+    column "properties_group_feature_flags" {
+      type = "Map(String, String)"
+    }
+    column "is_deleted" {
+      type = "Bool"
+    }
+    column "person_properties_map_custom" {
+      type = "Map(String, String)"
+    }
+    column "$session_id_uuid" {
+      type = "Nullable(UInt128)"
+    }
+    column "consumer_breadcrumbs" {
+      type = "Array(String)"
+    }
+    column "properties_group_ai" {
+      type = "Map(String, String)"
+    }
+    column "mat_$ai_session_id" {
+      type    = "Nullable(String)"
+      comment = "column_materializer::properties::$ai_session_id"
+    }
+    column "mat_$ai_is_error" {
+      type    = "Nullable(String)"
+      comment = "column_materializer::properties::$ai_is_error"
+    }
+    column "dmat_string_0" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_1" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_2" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_3" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_4" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_5" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_6" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_7" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_8" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_9" {
+      type = "Nullable(String)"
+    }
+    column "historical_migration" {
+      type = "Bool"
+    }
+    column "mat_$ai_prompt_name" {
+      type    = "Nullable(String)"
+      comment = "column_materializer::properties::$ai_prompt_name"
+    }
+    column "elements_chain" {
+      type = "String"
     }
     column "person_id" {
       type = "UUID"
@@ -1126,132 +1294,15 @@ database "posthog" {
     column "group4_created_at" {
       type = "DateTime64(3)"
     }
-    column "person_mode" {
-      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
-    }
-    column "historical_migration" {
-      type = "Bool"
-    }
-    column "dmat_string_0" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_1" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_2" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_3" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_4" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_5" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_6" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_7" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_8" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_9" {
-      type = "Nullable(String)"
-    }
-    column "$group_0" {
-      type    = "String"
-      comment = "column_materializer::$group_0"
-    }
-    column "$group_1" {
-      type    = "String"
-      comment = "column_materializer::$group_1"
-    }
-    column "$group_2" {
-      type    = "String"
-      comment = "column_materializer::$group_2"
-    }
-    column "$group_3" {
-      type    = "String"
-      comment = "column_materializer::$group_3"
-    }
-    column "$group_4" {
-      type    = "String"
-      comment = "column_materializer::$group_4"
-    }
-    column "$window_id" {
-      type    = "String"
-      comment = "column_materializer::$window_id"
-    }
-    column "$session_id" {
-      type    = "String"
-      comment = "column_materializer::$session_id"
-    }
-    column "$session_id_uuid" {
-      type = "Nullable(UInt128)"
-    }
-    column "elements_chain_href" {
-      type    = "String"
-      comment = "column_materializer::elements_chain::href"
-    }
-    column "elements_chain_texts" {
-      type    = "Array(String)"
-      comment = "column_materializer::elements_chain::texts"
-    }
-    column "elements_chain_ids" {
-      type    = "Array(String)"
-      comment = "column_materializer::elements_chain::ids"
-    }
-    column "elements_chain_elements" {
-      type    = "Array(Enum8('a'=1, 'button'=2, 'form'=3, 'input'=4, 'select'=5, 'textarea'=6, 'label'=7))"
-      comment = "column_materializer::elements_chain::elements"
-    }
-    column "properties_group_custom" {
-      type = "Map(String, String)"
-    }
-    column "properties_group_ai" {
-      type = "Map(String, String)"
-    }
-    column "properties_group_feature_flags" {
-      type = "Map(String, String)"
-    }
-    column "person_properties_map_custom" {
-      type = "Map(String, String)"
-    }
     column "_timestamp" {
       type = "DateTime"
     }
     column "_offset" {
       type = "UInt64"
     }
-    column "inserted_at" {
-      type    = "Nullable(DateTime64(6, 'UTC'))"
-      default = "now64()"
-    }
-    column "consumer_breadcrumbs" {
-      type = "Array(String)"
-    }
-    column "is_deleted" {
-      type = "Bool"
-    }
     column "mat_$ai_trace_id" {
       type    = "Nullable(String)"
       comment = "column_materializer::properties::$ai_trace_id"
-    }
-    column "mat_$ai_session_id" {
-      type    = "Nullable(String)"
-      comment = "column_materializer::properties::$ai_session_id"
-    }
-    column "mat_$ai_is_error" {
-      type    = "Nullable(String)"
-      comment = "column_materializer::properties::$ai_is_error"
-    }
-    column "mat_$ai_prompt_name" {
-      type    = "Nullable(String)"
-      comment = "column_materializer::properties::$ai_prompt_name"
     }
     column "mat_$ai_experiment_id" {
       type    = "Nullable(String)"
@@ -1682,6 +1733,106 @@ database "posthog" {
       remote_database = "posthog"
       remote_table    = "sharded_experiment_metric_events_preaggregated"
       sharding_key    = "cityHash64(entity_id)"
+    }
+  }
+
+  table "flag_evaluations" {
+    column "uuid" {
+      type = "UUID"
+    }
+    column "event" {
+      type = "LowCardinality(String)"
+    }
+    column "properties" {
+      type = "String"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "person_properties" {
+      type = "String"
+    }
+    column "group0_properties" {
+      type = "String"
+    }
+    column "group1_properties" {
+      type = "String"
+    }
+    column "group2_properties" {
+      type = "String"
+    }
+    column "group3_properties" {
+      type = "String"
+    }
+    column "group4_properties" {
+      type = "String"
+    }
+    column "inserted_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "timestamp"
+    }
+    column "$group_0" {
+      type    = "String"
+      comment = "column_materializer::$group_0"
+    }
+    column "$group_1" {
+      type    = "String"
+      comment = "column_materializer::$group_1"
+    }
+    column "$group_2" {
+      type    = "String"
+      comment = "column_materializer::$group_2"
+    }
+    column "$group_3" {
+      type    = "String"
+      comment = "column_materializer::$group_3"
+    }
+    column "$group_4" {
+      type    = "String"
+      comment = "column_materializer::$group_4"
+    }
+    column "flag_key" {
+      type    = "String"
+      comment = "column_materializer::properties::$feature_flag"
+    }
+    column "response" {
+      type    = "LowCardinality(String)"
+      comment = "column_materializer::properties::$feature_flag_response"
+    }
+    column "session_id" {
+      type    = "String"
+      comment = "column_materializer::properties::$session_id"
+    }
+    column "request_id" {
+      type    = "String"
+      comment = "column_materializer::properties::$feature_flag_request_id"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog"
+      remote_database = "posthog"
+      remote_table    = "sharded_flag_evaluations"
+      sharding_key    = "sipHash64(distinct_id)"
     }
   }
 
@@ -4811,6 +4962,58 @@ database "posthog" {
     }
   }
 
+  table "sharded_billing_usage_records" {
+    order_by     = ["team_id", "toDate(timestamp)", "producer_id", "usage_key", "record_id"]
+    partition_by = "toYYYYMM(timestamp)"
+    settings = {
+      index_granularity = "8192"
+    }
+    column "schema_version" {
+      type = "UInt8"
+    }
+    column "record_id" {
+      type = "String"
+    }
+    column "producer_id" {
+      type = "LowCardinality(String)"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "organization_id" {
+      type = "UUID"
+    }
+    column "usage_key" {
+      type = "LowCardinality(String)"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "quantity" {
+      type = "Int64"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "inserted_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records"
+      replica_name   = "{replica}"
+      version_column = "inserted_at"
+    }
+  }
+
   table "sharded_distinct_id_usage" {
     order_by     = ["team_id", "minute", "distinct_id"]
     partition_by = "toYYYYMMDD(minute)"
@@ -4864,11 +5067,154 @@ database "posthog" {
     column "distinct_id" {
       type = "String"
     }
-    column "elements_chain" {
-      type = "String"
-    }
     column "created_at" {
       type = "DateTime64(6, 'UTC')"
+    }
+    column "$group_0" {
+      type         = "String"
+      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^\"|\"$', '')"
+      comment      = "column_materializer::$group_0"
+    }
+    column "$group_1" {
+      type         = "String"
+      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^\"|\"$', '')"
+      comment      = "column_materializer::$group_1"
+    }
+    column "$group_2" {
+      type         = "String"
+      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^\"|\"$', '')"
+      comment      = "column_materializer::$group_2"
+    }
+    column "$group_3" {
+      type         = "String"
+      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^\"|\"$', '')"
+      comment      = "column_materializer::$group_3"
+    }
+    column "$group_4" {
+      type         = "String"
+      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^\"|\"$', '')"
+      comment      = "column_materializer::$group_4"
+    }
+    column "$window_id" {
+      type         = "String"
+      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$window_id'), '^\"|\"$', '')"
+      comment      = "column_materializer::$window_id"
+    }
+    column "$session_id" {
+      type         = "String"
+      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^\"|\"$', '')"
+      comment      = "column_materializer::$session_id"
+    }
+    column "inserted_at" {
+      type    = "Nullable(DateTime64(6, 'UTC'))"
+      default = "now64()"
+    }
+    column "person_mode" {
+      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
+    }
+    column "elements_chain_href" {
+      type         = "String"
+      materialized = "EXTRACT(elements_chain, '(?::|\")href=\"(.*?)\"')"
+    }
+    column "elements_chain_texts" {
+      type         = "Array(String)"
+      materialized = "arrayDistinct(extractAll(elements_chain, '(?::|\")text=\"(.*?)\"'))"
+    }
+    column "elements_chain_ids" {
+      type         = "Array(String)"
+      materialized = "arrayDistinct(extractAll(elements_chain, '(?::|\")attr_id=\"(.*?)\"'))"
+    }
+    column "elements_chain_elements" {
+      type         = "Array(Enum8('a'=1, 'button'=2, 'form'=3, 'input'=4, 'select'=5, 'textarea'=6, 'label'=7))"
+      materialized = "arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\\\.|$|:)'))"
+    }
+    column "properties_group_custom" {
+      type         = "Map(String, String)"
+      materialized = "mapSort(mapFilter((key, _) -> ((key NOT LIKE '$%') AND (key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'epik', 'qclid', 'sccid', 'irclid', '_kx'))), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')))"
+      codec        = "ZSTD(1)"
+    }
+    column "properties_group_feature_flags" {
+      type         = "Map(String, String)"
+      materialized = "mapSort(mapFilter((key, _) -> (key LIKE '$feature/%'), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')))"
+      codec        = "ZSTD(1)"
+    }
+    column "is_deleted" {
+      type = "Bool"
+    }
+    column "person_properties_map_custom" {
+      type         = "Map(String, String)"
+      materialized = "mapSort(mapFilter((key, _) -> (key NOT LIKE '$%'), CAST(JSONExtractKeysAndValues(person_properties, 'String'), 'Map(String, String)')))"
+      codec        = "ZSTD(1)"
+    }
+    column "$session_id_uuid" {
+      type         = "Nullable(UInt128)"
+      materialized = "toUInt128(JSONExtract(properties, '$session_id', 'Nullable(UUID)'))"
+    }
+    column "consumer_breadcrumbs" {
+      type = "Array(String)"
+    }
+    column "properties_group_ai" {
+      type         = "Map(String, String)"
+      materialized = "mapSort(mapFilter((key, _) -> ((key LIKE '$ai_%') AND (key NOT IN ('$ai_input', '$ai_input_state', '$ai_output', '$ai_output_choices', '$ai_output_state', '$ai_tools'))), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')))"
+      codec        = "ZSTD(1)"
+    }
+    column "mat_$ai_session_id" {
+      type         = "Nullable(String)"
+      materialized = "JSONExtract(properties, '$ai_session_id', 'Nullable(String)')"
+    }
+    column "mat_$ai_is_error" {
+      type         = "Nullable(String)"
+      materialized = "JSONExtract(properties, '$ai_is_error', 'Nullable(String)')"
+    }
+    column "dmat_string_0" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_1" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_2" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_3" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_4" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_5" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_6" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_7" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_8" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_9" {
+      type = "Nullable(String)"
+    }
+    column "historical_migration" {
+      type = "Bool"
+    }
+    column "mat_$ai_prompt_name" {
+      type         = "Nullable(String)"
+      materialized = "JSONExtract(properties, '$ai_prompt_name', 'Nullable(String)')"
+    }
+    column "properties_map_ephemeral" {
+      type = "Map(String, String)"
+    }
+    column "person_properties_map_ephemeral" {
+      type = "Map(String, String)"
+    }
+    column "mat_$ai_experiment_id" {
+      type    = "Nullable(String)"
+      default = "JSONExtract(properties, '$ai_experiment_id', 'Nullable(String)')"
+    }
+    column "elements_chain" {
+      type = "String"
     }
     column "person_id" {
       type = "UUID"
@@ -4915,158 +5261,120 @@ database "posthog" {
     column "group4_created_at" {
       type = "DateTime64(3)"
     }
-    column "person_mode" {
-      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
-    }
-    column "historical_migration" {
-      type = "Bool"
-    }
-    column "dmat_string_0" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_1" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_2" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_3" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_4" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_5" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_6" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_7" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_8" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_9" {
-      type = "Nullable(String)"
-    }
-    column "$group_0" {
-      type         = "String"
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^\"|\"$', '')"
-      comment      = "column_materializer::$group_0"
-    }
-    column "$group_1" {
-      type         = "String"
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^\"|\"$', '')"
-      comment      = "column_materializer::$group_1"
-    }
-    column "$group_2" {
-      type         = "String"
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^\"|\"$', '')"
-      comment      = "column_materializer::$group_2"
-    }
-    column "$group_3" {
-      type         = "String"
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^\"|\"$', '')"
-      comment      = "column_materializer::$group_3"
-    }
-    column "$group_4" {
-      type         = "String"
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^\"|\"$', '')"
-      comment      = "column_materializer::$group_4"
-    }
-    column "$window_id" {
-      type         = "String"
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$window_id'), '^\"|\"$', '')"
-      comment      = "column_materializer::$window_id"
-    }
-    column "$session_id" {
-      type         = "String"
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^\"|\"$', '')"
-      comment      = "column_materializer::$session_id"
-    }
-    column "$session_id_uuid" {
-      type         = "Nullable(UInt128)"
-      materialized = "toUInt128(JSONExtract(properties, '$session_id', 'Nullable(UUID)'))"
-    }
-    column "elements_chain_href" {
-      type         = "String"
-      materialized = "EXTRACT(elements_chain, '(?::|\")href=\"(.*?)\"')"
-    }
-    column "elements_chain_texts" {
-      type         = "Array(String)"
-      materialized = "arrayDistinct(extractAll(elements_chain, '(?::|\")text=\"(.*?)\"'))"
-    }
-    column "elements_chain_elements" {
-      type         = "Array(Enum8('a'=1, 'button'=2, 'form'=3, 'input'=4, 'select'=5, 'textarea'=6, 'label'=7))"
-      materialized = "arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\\\.|$|:)'))"
-    }
-    column "properties_group_custom" {
-      type         = "Map(String, String)"
-      materialized = "mapSort(mapFilter((key, _) -> ((key NOT LIKE '$%') AND (key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'epik', 'qclid', 'sccid', 'irclid', '_kx'))), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')))"
-      codec        = "ZSTD(1)"
-    }
-    column "properties_group_ai" {
-      type         = "Map(String, String)"
-      materialized = "mapSort(mapFilter((key, _) -> ((key LIKE '$ai_%') AND (key NOT IN ('$ai_input', '$ai_input_state', '$ai_output', '$ai_output_choices', '$ai_output_state', '$ai_tools'))), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')))"
-      codec        = "ZSTD(1)"
-    }
-    column "properties_group_feature_flags" {
-      type         = "Map(String, String)"
-      materialized = "mapSort(mapFilter((key, _) -> (key LIKE '$feature/%'), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')))"
-      codec        = "ZSTD(1)"
-    }
-    column "person_properties_map_custom" {
-      type         = "Map(String, String)"
-      materialized = "mapSort(mapFilter((key, _) -> (key NOT LIKE '$%'), CAST(JSONExtractKeysAndValues(person_properties, 'String'), 'Map(String, String)')))"
-      codec        = "ZSTD(1)"
-    }
     column "_timestamp" {
       type = "DateTime"
     }
     column "_offset" {
       type = "UInt64"
     }
-    column "inserted_at" {
-      type    = "Nullable(DateTime64(6, 'UTC'))"
-      default = "now64()"
-    }
-    column "consumer_breadcrumbs" {
-      type = "Array(String)"
-    }
-    column "elements_chain_ids" {
-      type         = "Array(String)"
-      materialized = "arrayDistinct(extractAll(elements_chain, '(?::|\")attr_id=\"(.*?)\"'))"
-    }
-    column "is_deleted" {
-      type = "Bool"
-    }
-    column "properties_map_ephemeral" {
-      type = "Map(String, String)"
-    }
-    column "person_properties_map_ephemeral" {
-      type = "Map(String, String)"
-    }
     column "mat_$ai_trace_id" {
       type         = "Nullable(String)"
       materialized = "JSONExtract(properties, '$ai_trace_id', 'Nullable(String)')"
     }
-    column "mat_$ai_session_id" {
-      type         = "Nullable(String)"
-      materialized = "JSONExtract(properties, '$ai_session_id', 'Nullable(String)')"
+    index "minmax_inserted_at" {
+      expr        = "coalesce(inserted_at, _timestamp)"
+      type        = "minmax"
+      granularity = 1
     }
-    column "mat_$ai_is_error" {
-      type         = "Nullable(String)"
-      materialized = "JSONExtract(properties, '$ai_is_error', 'Nullable(String)')"
+    index "properties_group_custom_keys_bf" {
+      expr        = "mapKeys(properties_group_custom)"
+      type        = "bloom_filter"
+      granularity = 1
     }
-    column "mat_$ai_prompt_name" {
-      type         = "Nullable(String)"
-      materialized = "JSONExtract(properties, '$ai_prompt_name', 'Nullable(String)')"
+    index "properties_group_custom_values_bf" {
+      expr        = "mapValues(properties_group_custom)"
+      type        = "bloom_filter"
+      granularity = 1
     }
-    column "mat_$ai_experiment_id" {
-      type    = "Nullable(String)"
-      default = "JSONExtract(properties, '$ai_experiment_id', 'Nullable(String)')"
+    index "properties_group_feature_flags_keys_bf" {
+      expr        = "mapKeys(properties_group_feature_flags)"
+      type        = "bloom_filter"
+      granularity = 1
+    }
+    index "properties_group_feature_flags_values_bf" {
+      expr        = "mapValues(properties_group_feature_flags)"
+      type        = "bloom_filter"
+      granularity = 1
+    }
+    index "person_properties_map_custom_keys_bf" {
+      expr        = "mapKeys(person_properties_map_custom)"
+      type        = "bloom_filter"
+      granularity = 1
+    }
+    index "person_properties_map_custom_values_bf" {
+      expr        = "mapValues(person_properties_map_custom)"
+      type        = "bloom_filter"
+      granularity = 1
+    }
+    index "properties_group_ai_keys_bf" {
+      expr        = "mapKeys(properties_group_ai)"
+      type        = "bloom_filter"
+      granularity = 1
+    }
+    index "properties_group_ai_values_bf" {
+      expr        = "mapValues(properties_group_ai)"
+      type        = "bloom_filter"
+      granularity = 1
+    }
+    index "bloom_filter_$ai_trace_id" {
+      expr        = "`mat_$ai_trace_id`"
+      type        = "bloom_filter(0.001)"
+      granularity = 2
+    }
+    index "bloom_filter_$ai_session_id" {
+      expr        = "`mat_$ai_session_id`"
+      type        = "bloom_filter"
+      granularity = 1
+    }
+    index "minmax_$ai_session_id" {
+      expr        = "`mat_$ai_session_id`"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "set_$ai_is_error" {
+      expr        = "`mat_$ai_is_error`"
+      type        = "set(7)"
+      granularity = 1
+    }
+    index "bloom_filter_distinct_id" {
+      expr        = "distinct_id"
+      type        = "bloom_filter"
+      granularity = 1
+    }
+    index "minmax_sharded_events_timestamp" {
+      expr        = "timestamp"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "bloom_filter_$ai_prompt_name" {
+      expr        = "`mat_$ai_prompt_name`"
+      type        = "bloom_filter"
+      granularity = 1
+    }
+    index "minmax_$ai_prompt_name" {
+      expr        = "`mat_$ai_prompt_name`"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "bloom_filter_$ai_experiment_id" {
+      expr        = "`mat_$ai_experiment_id`"
+      type        = "bloom_filter"
+      granularity = 1
+    }
+    index "minmax_$ai_experiment_id" {
+      expr        = "`mat_$ai_experiment_id`"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "minmax_$session_id_uuid" {
+      expr        = "`$session_id_uuid`"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "bloom_filter_$session_id" {
+      expr        = "nullIf(nullIf(`$session_id`, ''), 'null')"
+      type        = "bloom_filter"
+      granularity = 1
     }
     index "minmax_$group_0" {
       expr        = "`$group_0`"
@@ -5103,118 +5411,18 @@ database "posthog" {
       type        = "minmax"
       granularity = 1
     }
-    index "minmax_$session_id_uuid" {
-      expr        = "`$session_id_uuid`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "properties_group_custom_keys_bf" {
-      expr        = "mapKeys(properties_group_custom)"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "properties_group_custom_values_bf" {
-      expr        = "mapValues(properties_group_custom)"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "properties_group_ai_keys_bf" {
-      expr        = "mapKeys(properties_group_ai)"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "properties_group_ai_values_bf" {
-      expr        = "mapValues(properties_group_ai)"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "properties_group_feature_flags_keys_bf" {
-      expr        = "mapKeys(properties_group_feature_flags)"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "properties_group_feature_flags_values_bf" {
-      expr        = "mapValues(properties_group_feature_flags)"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "person_properties_map_custom_keys_bf" {
-      expr        = "mapKeys(person_properties_map_custom)"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "person_properties_map_custom_values_bf" {
-      expr        = "mapValues(person_properties_map_custom)"
-      type        = "bloom_filter"
-      granularity = 1
-    }
     index "kafka_timestamp_minmax_sharded_events" {
       expr        = "_timestamp"
       type        = "minmax"
       granularity = 3
-    }
-    index "minmax_inserted_at" {
-      expr        = "coalesce(inserted_at, _timestamp)"
-      type        = "minmax"
-      granularity = 1
     }
     index "is_deleted_idx" {
       expr        = "is_deleted"
       type        = "minmax"
       granularity = 1
     }
-    index "bloom_filter_$ai_trace_id" {
-      expr        = "`mat_$ai_trace_id`"
-      type        = "bloom_filter(0.001)"
-      granularity = 2
-    }
-    index "bloom_filter_$ai_session_id" {
-      expr        = "`mat_$ai_session_id`"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "minmax_$ai_session_id" {
-      expr        = "`mat_$ai_session_id`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "set_$ai_is_error" {
-      expr        = "`mat_$ai_is_error`"
-      type        = "set(7)"
-      granularity = 1
-    }
-    index "bloom_filter_distinct_id" {
-      expr        = "distinct_id"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "minmax_sharded_events_timestamp" {
-      expr        = "timestamp"
-      type        = "minmax"
-      granularity = 1
-    }
     index "minmax_historical_migration" {
       expr        = "historical_migration"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "bloom_filter_$ai_prompt_name" {
-      expr        = "`mat_$ai_prompt_name`"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "minmax_$ai_prompt_name" {
-      expr        = "`mat_$ai_prompt_name`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "bloom_filter_$ai_experiment_id" {
-      expr        = "`mat_$ai_experiment_id`"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "minmax_$ai_experiment_id" {
-      expr        = "`mat_$ai_experiment_id`"
       type        = "minmax"
       granularity = 1
     }
@@ -5993,6 +6201,145 @@ database "posthog" {
       zoo_path       = "/clickhouse/tables/{shard}/posthog.experiment_exposures_preaggregated"
       replica_name   = "{replica}"
       version_column = "computed_at"
+    }
+  }
+
+  table "sharded_flag_evaluations" {
+    order_by     = ["team_id", "flag_key", "toDate(timestamp)", "cityHash64(distinct_id)"]
+    partition_by = "toYYYYMM(timestamp)"
+    ttl          = "toDate(timestamp) + toIntervalDay(90)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "uuid" {
+      type = "UUID"
+    }
+    column "event" {
+      type = "LowCardinality(String)"
+    }
+    column "properties" {
+      type = "String"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "person_properties" {
+      type = "String"
+    }
+    column "group0_properties" {
+      type = "String"
+    }
+    column "group1_properties" {
+      type = "String"
+    }
+    column "group2_properties" {
+      type = "String"
+    }
+    column "group3_properties" {
+      type = "String"
+    }
+    column "group4_properties" {
+      type = "String"
+    }
+    column "inserted_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "timestamp"
+    }
+    column "$group_0" {
+      type    = "String"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^\"|\"$', '')"
+      comment = "column_materializer::$group_0"
+    }
+    column "$group_1" {
+      type    = "String"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^\"|\"$', '')"
+      comment = "column_materializer::$group_1"
+    }
+    column "$group_2" {
+      type    = "String"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^\"|\"$', '')"
+      comment = "column_materializer::$group_2"
+    }
+    column "$group_3" {
+      type    = "String"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^\"|\"$', '')"
+      comment = "column_materializer::$group_3"
+    }
+    column "$group_4" {
+      type    = "String"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^\"|\"$', '')"
+      comment = "column_materializer::$group_4"
+    }
+    column "flag_key" {
+      type    = "String"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag'), '^\"|\"$', '')"
+      comment = "column_materializer::properties::$feature_flag"
+    }
+    column "response" {
+      type    = "LowCardinality(String)"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^\"|\"$', '')"
+      comment = "column_materializer::properties::$feature_flag_response"
+    }
+    column "session_id" {
+      type    = "String"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^\"|\"$', '')"
+      comment = "column_materializer::properties::$session_id"
+    }
+    column "request_id" {
+      type    = "String"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_request_id'), '^\"|\"$', '')"
+      comment = "column_materializer::properties::$feature_flag_request_id"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    index "distinct_id_idx" {
+      expr        = "distinct_id"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "person_id_idx" {
+      expr        = "person_id"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "session_id_idx" {
+      expr        = "session_id"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "request_id_idx" {
+      expr        = "request_id"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "inserted_at_idx" {
+      expr        = "inserted_at"
+      type        = "minmax"
+      granularity = 1
+    }
+    engine "replicated_merge_tree" {
+      zoo_path     = "/clickhouse/tables/{shard}/posthog.flag_evaluations"
+      replica_name = "{replica}"
     }
   }
 
@@ -9549,6 +9896,9 @@ database "posthog" {
     column "_timestamp" {
       type = "SimpleAggregateFunction(max, DateTime)"
     }
+    column "retention_period_days" {
+      type = "SimpleAggregateFunction(max, Nullable(Int64))"
+    }
     column "is_deleted" {
       type    = "SimpleAggregateFunction(max, UInt8)"
       default = "0"
@@ -9565,9 +9915,6 @@ database "posthog" {
     }
     column "surfacing_score" {
       type = "SimpleAggregateFunction(max, Nullable(Float32))"
-    }
-    column "retention_period_days" {
-      type = "SimpleAggregateFunction(max, Nullable(Int64))"
     }
     engine "distributed" {
       cluster_name    = "posthog"

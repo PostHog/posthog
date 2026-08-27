@@ -1,10 +1,12 @@
 import '../Nodes/NotebookNodeCohort'
+import '../Nodes/NotebookNodeDashboard'
 import '../Nodes/NotebookNodeCustomerJourney/NotebookNodeCustomerJourney'
 import '../Nodes/NotebookNodeSQLV2'
 import '../Nodes/NotebookNodeDuckSQL'
 import '../Nodes/NotebookNodeEarlyAccessFeature'
 import '../Nodes/NotebookNodeEmbed'
 import '../Nodes/NotebookNodeExperiment'
+import '../Nodes/NotebookNodeErrorTrackingIssue'
 import '../Nodes/NotebookNodeFlag'
 import '../Nodes/NotebookNodeFlagCodeExample'
 import '../Nodes/NotebookNodeGroup'
@@ -26,19 +28,34 @@ import '../Nodes/NotebookNodeRecording'
 import '../Nodes/NotebookNodeRelatedGroups'
 import '../Nodes/NotebookNodeSupportTickets'
 import '../Nodes/NotebookNodeSurvey'
+import '../Nodes/NotebookNodeAction'
 import '../Nodes/NotebookNodeTaskCreate'
 import '../Nodes/NotebookNodeUsageMetrics'
 import '../Nodes/NotebookNodeZendeskTickets'
+import '../Nodes/NotebookNodeWorkflow'
 
 import clsx from 'clsx'
 import { BindLogic, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { type CSSProperties, type PointerEvent as ReactPointerEvent, useCallback, useMemo, useRef } from 'react'
+import {
+    type CSSProperties,
+    type PointerEvent as ReactPointerEvent,
+    useCallback,
+    useContext,
+    useEffect,
+    useMemo,
+    useRef,
+} from 'react'
 
 import { IconComment, IconImage } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
 
-import { createMarkdownNotebookRegistry } from 'lib/components/MarkdownNotebook'
+import {
+    COMMON_INSERT_COMMAND_CATEGORY,
+    QUERY_SQL_INSERT_COMMAND_KEY,
+    createMarkdownNotebookRegistry,
+} from 'lib/components/MarkdownNotebook'
+import { NotebookComponentToolbarExtrasContext } from 'lib/components/MarkdownNotebook/componentToolbarExtras'
 import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
 import { isDiscussionCommentProps } from 'lib/components/MarkdownNotebook/markdown'
 import {
@@ -49,7 +66,7 @@ import {
     NotebookComponentRegistry,
     NotebookPropValue,
 } from 'lib/components/MarkdownNotebook/types'
-import { isNotebookPropValue, toSerializablePropValue } from 'lib/components/MarkdownNotebook/utils'
+import { getSerializableProps, isNotebookPropValue } from 'lib/components/MarkdownNotebook/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
@@ -59,24 +76,44 @@ import { uuid } from 'lib/utils/dom'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { NODE_ICONS } from '../nodeIcons'
+import { NotebookCodeCellRunButton } from '../Nodes/components/NotebookCodeCellRunButton'
 import { NotebookNodeContext } from '../Nodes/NotebookNodeContext'
 import { notebookNodeLogic } from '../Nodes/notebookNodeLogic'
+import { getNotebookWidgetViewMenuItem } from '../notebookWidgetMenu'
 import { CreatePostHogWidgetNodeOptions, NotebookNodeAttributes, NotebookNodeType } from '../types'
 import { KNOWN_NODES } from '../utils'
 import { NotebookDiscussionComment, getNotebookDiscussionCommentTitle } from './MarkdownNotebookDiscussionComment'
+import { MarkdownNotebookNodeAttributeInput } from './MarkdownNotebookNodeAttributeInput'
+import { getSqlV2PropsFromQueryProp } from './markdownNotebookV2'
 import { notebookLogic } from './notebookLogic'
 
-const INTERNAL_MARKDOWN_NODE_ATTRIBUTE_KEYS = new Set(['height', 'nodeId', '__init', 'children', 'tabId', 'placement'])
+const INTERNAL_MARKDOWN_NODE_ATTRIBUTE_KEYS = new Set([
+    'height',
+    'nodeId',
+    '__init',
+    'children',
+    'tabId',
+    'placement',
+    'view',
+])
 
 const NUMERIC_MARKDOWN_NODE_ATTRIBUTE_KEYS: Partial<Record<NotebookNodeType, string[]>> = {
     [NotebookNodeType.Cohort]: ['id'],
     [NotebookNodeType.Experiment]: ['id'],
+    [NotebookNodeType.Dashboard]: ['id'],
+    [NotebookNodeType.Action]: ['id'],
     [NotebookNodeType.Group]: ['groupTypeIndex'],
 }
 
 const MARKDOWN_NODE_ATTRIBUTE_LABELS: Partial<Record<NotebookNodeType, Record<string, string>>> = {
     [NotebookNodeType.Cohort]: {
         id: 'Cohort ID',
+    },
+    [NotebookNodeType.Dashboard]: {
+        id: 'Dashboard ID',
+    },
+    [NotebookNodeType.Action]: {
+        id: 'Action ID',
     },
     [NotebookNodeType.EarlyAccessFeature]: {
         id: 'Early access feature ID',
@@ -94,6 +131,21 @@ const MARKDOWN_NODE_ATTRIBUTE_LABELS: Partial<Record<NotebookNodeType, Record<st
         groupTypeIndex: 'Group type index',
         id: 'Group key',
     },
+    [NotebookNodeType.Recording]: {
+        id: 'Session recording ID',
+    },
+    [NotebookNodeType.RecordingPlaylist]: {
+        id: 'Recording playlist ID',
+    },
+    [NotebookNodeType.ErrorTrackingIssue]: {
+        id: 'Error tracking issue ID',
+    },
+    [NotebookNodeType.LLMTrace]: {
+        id: 'LLM trace ID',
+    },
+    [NotebookNodeType.Workflow]: {
+        id: 'Workflow ID',
+    },
     [NotebookNodeType.Person]: {
         distinctId: 'Distinct ID',
         id: 'Person UUID',
@@ -109,6 +161,10 @@ const MARKDOWN_NODE_ATTRIBUTE_LABELS: Partial<Record<NotebookNodeType, Record<st
 
 export const MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE: Partial<Record<string, NotebookNodeType>> = {
     Query: NotebookNodeType.Query,
+    Insight: NotebookNodeType.Query,
+    Dashboard: NotebookNodeType.Dashboard,
+    Action: NotebookNodeType.Action,
+    Workflow: NotebookNodeType.Workflow,
     Python: NotebookNodeType.Python,
     PythonV2: NotebookNodeType.PythonV2,
     DuckSQL: NotebookNodeType.DuckSQL,
@@ -136,6 +192,7 @@ export const MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE: Partial<Record<string, Notebook
     TaskCreate: NotebookNodeType.TaskCreate,
     LLMTrace: NotebookNodeType.LLMTrace,
     Issues: NotebookNodeType.Issues,
+    ErrorTrackingIssue: NotebookNodeType.ErrorTrackingIssue,
     UsageMetrics: NotebookNodeType.UsageMetrics,
     ZendeskTickets: NotebookNodeType.ZendeskTickets,
     RelatedGroups: NotebookNodeType.RelatedGroups,
@@ -143,15 +200,53 @@ export const MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE: Partial<Record<string, Notebook
     SupportTickets: NotebookNodeType.SupportTickets,
 }
 
+const INSIGHT_NOTEBOOK_NODE_OPTIONS: CreatePostHogWidgetNodeOptions<any> = {
+    ...KNOWN_NODES[NotebookNodeType.Query],
+    editableTitle: false,
+}
+const INLINE_QUERY_NOTEBOOK_NODE_OPTIONS: CreatePostHogWidgetNodeOptions<any> = {
+    ...KNOWN_NODES[NotebookNodeType.Query],
+    attributes: {
+        query: KNOWN_NODES[NotebookNodeType.Query].attributes.query,
+        isDefaultFilterApplied: KNOWN_NODES[NotebookNodeType.Query].attributes.isDefaultFilterApplied,
+        showSettings: KNOWN_NODES[NotebookNodeType.Query].attributes.showSettings,
+        outputTab: KNOWN_NODES[NotebookNodeType.Query].attributes.outputTab,
+    },
+    defaultView: undefined,
+    views: undefined,
+}
+
+function getMarkdownNodeOptions(tagName: string): CreatePostHogWidgetNodeOptions<any> | null {
+    const nodeType = MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE[tagName]
+
+    if (tagName === 'Insight') {
+        return INSIGHT_NOTEBOOK_NODE_OPTIONS
+    }
+    if (tagName === 'Query') {
+        return INLINE_QUERY_NOTEBOOK_NODE_OPTIONS
+    }
+    return nodeType ? KNOWN_NODES[nodeType] : null
+}
+
+// A code cell's `filters` panel is its code editor, and the shell leaves that panel closed
+// unless the node carries `showFilters`. A cell the user just inserted holds no code and no
+// result, so without this it renders as an empty box with nothing to type into.
+const CODE_CELL_EDITOR_OPEN_PROPS: NotebookComponentProps = { showFilters: true }
+
 export const MARKDOWN_NODE_DEFINITIONS: {
     tagName: string
     category: string
     label?: string
     EditComponent?: NotebookComponentDefinition['EditComponent']
+    ToolbarComponent?: NotebookComponentDefinition['ToolbarComponent']
     exclusiveEditPanel?: boolean
     insertCommand?: NotebookComponentDefinition['insertCommand']
 }[] = [
     { tagName: 'Query', category: 'Insight' },
+    { tagName: 'Insight', category: 'Insight', label: 'Insight' },
+    { tagName: 'Dashboard', category: 'Insight' },
+    { tagName: 'Action', category: 'Data' },
+    { tagName: 'Workflow', category: 'PostHog' },
     // Legacy in-browser-kernel Python cell: still renders where it exists, but new cells
     // are always the revamped PythonV2 below, so it has no insertCommand.
     { tagName: 'Python', category: 'Code' },
@@ -161,9 +256,14 @@ export const MARKDOWN_NODE_DEFINITIONS: {
         tagName: 'PythonV2',
         category: 'Code',
         label: 'Python',
+        ToolbarComponent: NotebookCodeCellRunButton,
         insertCommand: {
             aliases: ['python', 'py'],
-            defaultProps: () => ({ ...getDefaultPropsForNodeType(NotebookNodeType.PythonV2), nodeId: uuid() }),
+            defaultProps: () => ({
+                ...getDefaultPropsForNodeType(NotebookNodeType.PythonV2),
+                ...CODE_CELL_EDITOR_OPEN_PROPS,
+                nodeId: uuid(),
+            }),
         },
     },
     { tagName: 'DuckSQL', category: 'SQL', label: 'SQL (DuckDB)' },
@@ -176,12 +276,21 @@ export const MARKDOWN_NODE_DEFINITIONS: {
         // The single SQL node once the legacy SQL cells are deprecated (they render but
         // are not insertable), so it reads as plain "SQL" in the insert menu.
         label: 'SQL',
+        ToolbarComponent: NotebookCodeCellRunButton,
         insertCommand: {
+            // Sits in the menu's top group, where the built-in SQL command it replaces used to be,
+            // so SQL stays where people already reach for it. Only the menu grouping moves; the
+            // definition's category still drives the node's SQL styling in the editor.
+            category: COMMON_INSERT_COMMAND_CATEGORY,
             aliases: ['data', 'sql'],
             // New cells get a durable nodeId up front: parsed markdown block ids are content
             // fingerprints, so without a persisted id every prop change (running the cell
             // writes runId/result) would orphan the cell's run history and cross-cell refs.
-            defaultProps: () => ({ ...getDefaultPropsForNodeType(NotebookNodeType.SQLV2), nodeId: uuid() }),
+            defaultProps: () => ({
+                ...getDefaultPropsForNodeType(NotebookNodeType.SQLV2),
+                ...CODE_CELL_EDITOR_OPEN_PROPS,
+                nodeId: uuid(),
+            }),
         },
     },
     { tagName: 'RecordingPlaylist', category: 'Data', label: 'Session recordings' },
@@ -204,6 +313,7 @@ export const MARKDOWN_NODE_DEFINITIONS: {
     { tagName: 'TaskCreate', category: 'PostHog' },
     { tagName: 'LLMTrace', category: 'PostHog' },
     { tagName: 'Issues', category: 'PostHog' },
+    { tagName: 'ErrorTrackingIssue', category: 'PostHog', label: 'Error tracking issue' },
     { tagName: 'UsageMetrics', category: 'PostHog' },
     { tagName: 'ZendeskTickets', category: 'PostHog' },
     { tagName: 'RelatedGroups', category: 'PostHog' },
@@ -220,7 +330,7 @@ export const MARKDOWN_NODE_DEFINITIONS: {
 export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkdownNotebookRegistry([
     ...MARKDOWN_NODE_DEFINITIONS.map((definition) => {
         const nodeType = MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE[definition.tagName]
-        const options = nodeType ? KNOWN_NODES[nodeType] : null
+        const options = getMarkdownNodeOptions(definition.tagName)
         const label = definition.label ?? options?.titlePlaceholder ?? splitTagName(definition.tagName)
 
         return {
@@ -231,10 +341,16 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
             defaultProps: () => getDefaultPropsForNodeType(nodeType),
             ViewComponent: RealNotebookNodeView,
             EditComponent: definition.EditComponent ?? RealNotebookNodeEdit,
+            ToolbarComponent: definition.ToolbarComponent,
             exclusiveEditPanel: definition.exclusiveEditPanel,
+            editableTitle: options?.editableTitle,
+            // Nodes with a Settings panel keep their filters toggle on read-only canvases
+            // (customer profiles), where the panel is the only way to configure them.
+            viewModeFilters: !!options?.Settings,
             insertCommand: definition.insertCommand,
             getTitle: (node: NotebookComponentBlockNode) =>
                 getMarkdownNotebookNodeTitle(node, nodeType, options, label),
+            getHref: (node: NotebookComponentBlockNode) => getMarkdownNotebookNodeHref(node, nodeType, options),
         }
     }),
     {
@@ -285,6 +401,15 @@ export function getMarkdownRegistryForFeatureFlags(featureFlags: FeatureFlagsSet
     return { components }
 }
 
+// The editor's built-in insert commands live outside the registry, so hiding a node's tag is not
+// enough to keep it out of the menu: a built-in that inserts the same tag has to be dropped by key.
+export function getHiddenInsertCommandKeysForFeatureFlags(featureFlags: FeatureFlagsSet): string[] {
+    // The built-in SQL command inserts a legacy `<Query>` HogQL cell, which SQLV2 replaces: it runs
+    // through the sandbox, names a dataframe other cells can reference, and keeps run history.
+    // Offering both would put two entries labeled "SQL" in the menu.
+    return featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS] ? [QUERY_SQL_INSERT_COMMAND_KEY] : []
+}
+
 export function getMarkdownNotebookNodeTitle(
     node: NotebookComponentBlockNode,
     nodeType: NotebookNodeType | undefined,
@@ -294,11 +419,14 @@ export function getMarkdownNotebookNodeTitle(
     const attributes = getNodeAttributes(node.props, node.id, options, nodeType, false)
     const explicitTitle = getUnknownStringProp(attributes.title)
 
-    if (explicitTitle) {
+    if (explicitTitle && options?.editableTitle !== false) {
         return explicitTitle
     }
 
     if (nodeType === NotebookNodeType.Query) {
+        if (attributes.id) {
+            return fallback
+        }
         // No fallback label: an unnamed/SQL query stays empty so the title field reads as "Add a title"
         return getQueryTitle(attributes.query)
     }
@@ -316,6 +444,7 @@ export function getMarkdownNotebookNodeTitle(
     if (
         nodeType === NotebookNodeType.Python ||
         nodeType === NotebookNodeType.PythonV2 ||
+        nodeType === NotebookNodeType.SQLV2 ||
         nodeType === NotebookNodeType.DuckSQL ||
         nodeType === NotebookNodeType.HogQLSQL
     ) {
@@ -329,6 +458,21 @@ export function getMarkdownNotebookNodeTitle(
         getUnknownStringProp(attributes.id) ??
         fallback
     )
+}
+
+export function getMarkdownNotebookNodeHref(
+    node: NotebookComponentBlockNode,
+    nodeType: NotebookNodeType | undefined,
+    options: CreatePostHogWidgetNodeOptions<any> | null
+): string | null {
+    // Reuse the legacy node's `href` (e.g. Query → urls.insightView/urls.insightNew) so saved and
+    // ad-hoc insights, recordings, persons, etc. all expose a link to the underlying resource.
+    if (!options?.href) {
+        return null
+    }
+    const attributes = getNodeAttributes(node.props, node.id, options, nodeType, false)
+    const href = typeof options.href === 'function' ? options.href(attributes) : options.href
+    return href ?? null
 }
 
 export function getNotebookStringProp(value: NotebookPropValue | undefined): string | null {
@@ -407,7 +551,7 @@ export function RealNotebookNodeView(props: NotebookComponentRenderProps): JSX.E
 
 export function RealNotebookNodeEdit(props: NotebookComponentRenderProps): JSX.Element {
     const notebookNodeType = MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE[props.node.tagName]
-    const options = notebookNodeType ? KNOWN_NODES[notebookNodeType] : null
+    const options = getMarkdownNodeOptions(props.node.tagName)
 
     if (!options || !notebookNodeType) {
         return <div className="MarkdownNotebook__component-preview">Unsupported notebook node.</div>
@@ -417,7 +561,120 @@ export function RealNotebookNodeEdit(props: NotebookComponentRenderProps): JSX.E
         return <RealNotebookNodeAttributeEdit {...props} notebookNodeType={notebookNodeType} options={options} />
     }
 
-    return <RealNotebookNodeComponent {...props} forceEditing editOnly />
+    return (
+        <>
+            <RealNotebookNodeIdentityAndViewEdit {...props} notebookNodeType={notebookNodeType} options={options} />
+            <RealNotebookNodeComponent {...props} forceEditing editOnly />
+        </>
+    )
+}
+
+export function RealNotebookNodeIdentityAndViewEdit({
+    node,
+    updateProps,
+    notebookNodeType,
+    options,
+}: NotebookComponentRenderProps & {
+    notebookNodeType: NotebookNodeType
+    options: CreatePostHogWidgetNodeOptions<any>
+}): JSX.Element | null {
+    const hasId = 'id' in options.attributes
+    if (!hasId && !options.views) {
+        return null
+    }
+
+    const attributes = getNodeAttributes(node.props, node.id, options, notebookNodeType, true)
+
+    return (
+        <div className="MarkdownNotebook__component-form">
+            {hasId ? (
+                <RealNotebookNodeAttributeField
+                    node={node}
+                    updateProps={updateProps}
+                    notebookNodeType={notebookNodeType}
+                    attributeKey="id"
+                    value={attributes.id}
+                    autoFocus={wasNotebookNodeJustInserted(node.id)}
+                />
+            ) : null}
+            {options.views ? (
+                <RealNotebookNodeViewSelect node={node} updateProps={updateProps} options={options} />
+            ) : null}
+        </div>
+    )
+}
+
+function RealNotebookNodeViewSelect({
+    node,
+    updateProps,
+    options,
+}: Pick<NotebookComponentRenderProps, 'node' | 'updateProps'> & {
+    options: CreatePostHogWidgetNodeOptions<any>
+}): JSX.Element {
+    const defaultViewKey = options.defaultView?.key ?? ''
+    const widgetView =
+        typeof node.props.view === 'string' && (node.props.view === defaultViewKey || options.views?.[node.props.view])
+            ? node.props.view
+            : defaultViewKey
+
+    return (
+        <label className="flex flex-col gap-1">
+            <span className="text-xs font-semibold text-secondary">View</span>
+            <LemonSelect
+                aria-label="View"
+                fullWidth
+                value={widgetView}
+                onChange={(view) => updateProps({ view: view === defaultViewKey ? undefined : view })}
+                options={[
+                    {
+                        value: defaultViewKey,
+                        label: options.defaultView?.label ?? 'Default',
+                        tooltip: options.defaultView?.description,
+                    },
+                    ...Object.entries(options.views ?? {}).map(([value, view]) => ({
+                        value,
+                        label: view.label,
+                        tooltip: view.description,
+                    })),
+                ]}
+            />
+        </label>
+    )
+}
+
+function RealNotebookNodeAttributeField({
+    node,
+    updateProps,
+    notebookNodeType,
+    attributeKey,
+    value,
+    autoFocus,
+}: Pick<NotebookComponentRenderProps, 'node' | 'updateProps'> & {
+    notebookNodeType: NotebookNodeType
+    attributeKey: string
+    value: NotebookPropValue | undefined
+    autoFocus: boolean
+}): JSX.Element {
+    const label = getMarkdownNodeAttributeLabel(notebookNodeType, attributeKey)
+
+    return (
+        <label className="flex flex-col gap-1">
+            <span className="text-xs font-semibold text-secondary">{label}</span>
+            <MarkdownNotebookNodeAttributeInput
+                attributeKey={attributeKey}
+                label={label}
+                tagName={node.tagName}
+                value={getPrimitiveNotebookPropInputValue(value)}
+                onTextChange={(nextValue) =>
+                    updateProps({
+                        [attributeKey]: getSerializableAttributeInputValue(notebookNodeType, attributeKey, nextValue),
+                    })
+                }
+                onEntitySelect={(nextValue) => updateProps({ [attributeKey]: nextValue })}
+                autoFocus={autoFocus}
+            />
+        </label>
+    )
 }
 
 export function RealNotebookNodeAttributeEdit({
@@ -431,8 +688,11 @@ export function RealNotebookNodeAttributeEdit({
 }): JSX.Element {
     const attributes = getNodeAttributes(node.props, node.id, options, notebookNodeType, true)
     const attributeKeys = getEditableNodeAttributeKeys(options, attributes)
+    const idAttributeKey = attributeKeys.find((key) => key === 'id')
+    const remainingAttributeKeys = attributeKeys.filter((key) => key !== idAttributeKey)
+    const shouldAutoFocus = wasNotebookNodeJustInserted(node.id)
 
-    if (!attributeKeys.length) {
+    if (!attributeKeys.length && !options.views) {
         return (
             <div className="MarkdownNotebook__component-form text-secondary text-sm">
                 No editable filters for this block.
@@ -442,25 +702,30 @@ export function RealNotebookNodeAttributeEdit({
 
     return (
         <div className="MarkdownNotebook__component-form">
-            {attributeKeys.map((key, index) => {
-                const label = getMarkdownNodeAttributeLabel(notebookNodeType, key)
-                return (
-                    <label key={key} className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold text-secondary">{label}</span>
-                        <LemonInput
-                            aria-label={label}
-                            value={getPrimitiveNotebookPropInputValue(attributes[key])}
-                            onChange={(value) =>
-                                updateProps({
-                                    [key]: getSerializableAttributeInputValue(notebookNodeType, key, value),
-                                })
-                            }
-                            placeholder={label}
-                            autoFocus={index === 0 && wasNotebookNodeJustInserted(node.id)}
-                        />
-                    </label>
-                )
-            })}
+            {idAttributeKey ? (
+                <RealNotebookNodeAttributeField
+                    node={node}
+                    updateProps={updateProps}
+                    notebookNodeType={notebookNodeType}
+                    attributeKey={idAttributeKey}
+                    value={attributes[idAttributeKey]}
+                    autoFocus={shouldAutoFocus}
+                />
+            ) : null}
+            {options.views ? (
+                <RealNotebookNodeViewSelect node={node} updateProps={updateProps} options={options} />
+            ) : null}
+            {remainingAttributeKeys.map((key, index) => (
+                <RealNotebookNodeAttributeField
+                    key={key}
+                    node={node}
+                    updateProps={updateProps}
+                    notebookNodeType={notebookNodeType}
+                    attributeKey={key}
+                    value={attributes[key]}
+                    autoFocus={!idAttributeKey && index === 0 && shouldAutoFocus}
+                />
+            ))}
         </div>
     )
 }
@@ -475,7 +740,7 @@ export function RealNotebookNodeComponent({
     editOnly = false,
 }: NotebookComponentRenderProps & { forceEditing?: boolean; editOnly?: boolean }): JSX.Element {
     const notebookNodeType = MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE[node.tagName]
-    const options = notebookNodeType ? KNOWN_NODES[notebookNodeType] : null
+    const options = getMarkdownNodeOptions(node.tagName)
 
     if (!options || !notebookNodeType) {
         return <div className="MarkdownNotebook__component-preview">Unsupported notebook node.</div>
@@ -534,12 +799,47 @@ export function MountedRealNotebookNodeComponent({
             messageListeners: options.messageListeners,
             startExpanded: options.startExpanded,
             titlePlaceholder: options.titlePlaceholder,
+            editableTitle: options.editableTitle,
             settingsPlacement: options.settingsPlacement,
         }),
         [attributes, mountedNotebookLogic, notebookNodeType, options, updateAttributes]
     )
 
     const nodeLogic = useMountedLogic(notebookNodeLogic(logicProps))
+    const {
+        actions: nodeActions,
+        customMenuItems: nodeMenuItems,
+        settingsDisabledReason: nodeSettingsDisabledReason,
+        title: nodeTitle,
+        titleStatus: nodeTitleStatus,
+    } = useValues(nodeLogic)
+    const setToolbarExtras = useContext(NotebookComponentToolbarExtrasContext)
+    const viewMenuItem = useMemo(
+        () => getNotebookWidgetViewMenuItem(options, attributes, updateAttributes),
+        [attributes, options, updateAttributes]
+    )
+    const toolbarExtras = useMemo(
+        () => ({
+            actions: nodeActions,
+            menuItems: nodeMenuItems,
+            editMenuItems: viewMenuItem ? [viewMenuItem] : null,
+            filtersDisabledReason: nodeSettingsDisabledReason,
+            title: nodeTitle,
+            titleStatus: nodeTitleStatus,
+        }),
+        [nodeActions, nodeMenuItems, nodeSettingsDisabledReason, nodeTitle, nodeTitleStatus, viewMenuItem]
+    )
+
+    // The settings-panel instance (editOnly) shares the shell with the content instance;
+    // only the latter publishes, so a hidden panel doesn't clear the other's extras.
+    // No unmount cleanup on purpose: collapsing the node unmounts the component, and the
+    // toolbar menu must survive the collapse. The shell drops the state when IT unmounts.
+    useEffect(() => {
+        if (editOnly || !setToolbarExtras) {
+            return
+        }
+        setToolbarExtras(toolbarExtras)
+    }, [editOnly, setToolbarExtras, toolbarExtras])
 
     const Component = options.Component
     const Settings = options.Settings
@@ -616,7 +916,15 @@ export function MountedRealNotebookNodeComponent({
     return (
         <NotebookNodeContext.Provider value={nodeLogic}>
             <BindLogic logic={notebookNodeLogic} props={logicProps}>
-                <div className="MarkdownNotebook__real-node" style={nodeStyle}>
+                <div
+                    className={clsx(
+                        'MarkdownNotebook__real-node',
+                        // The settings-only (filters panel) instance sizes to its content — the
+                        // 8rem min-height is for node output, not a one-row filter bar.
+                        editOnly && 'MarkdownNotebook__real-node--settings-only'
+                    )}
+                    style={nodeStyle}
+                >
                     {showSettings ? (
                         <div className="MarkdownNotebook__real-node-settings">
                             <Settings attributes={attributes} updateAttributes={updateAttributes} />
@@ -745,6 +1053,7 @@ export function getNodeAttributes(
     const attributes = {
         ...getDefaultProps(options),
         ...attributeProps,
+        ...(nodeType === NotebookNodeType.SQLV2 ? getSqlV2PropsFromQueryProp(props) : null),
         nodeId: typeof props.nodeId === 'string' ? props.nodeId : fallbackNodeId,
     } as NotebookNodeAttributes<any>
 
@@ -757,7 +1066,14 @@ export function getNodeAttributes(
 
 export function getNodeAttributeProps(props: NotebookComponentProps): NotebookComponentProps {
     return Object.entries(props).reduce<NotebookComponentProps>((attributeProps, [key, value]) => {
-        if (key !== 'view' && key !== 'edit' && key !== 'hideFilters' && key !== 'hideResults') {
+        if (
+            (key !== 'view' || typeof value !== 'boolean') &&
+            key !== 'edit' &&
+            key !== 'hideFilters' &&
+            key !== 'hideResults' &&
+            key !== 'showFilters' &&
+            key !== 'showResults'
+        ) {
             attributeProps[key] = value
         }
         return attributeProps
@@ -821,20 +1137,6 @@ export function getSerializableAttributeInputValue(
     }
 
     return trimmedValue
-}
-
-export function getSerializableProps(attributes: Partial<NotebookNodeAttributes<any>>): NotebookComponentProps {
-    return Object.entries(attributes).reduce<NotebookComponentProps>((props, [key, value]) => {
-        // Normalize before validating, mirroring how the legacy notebook flow synced attributes.
-        // Otherwise isNotebookPropValue rejects an object with a single nested `undefined` property and—
-        // it gets ignored. e.g. a person-property filter's absent `label`/`group_type_index` inside
-        // `query.source.properties` — fails isNotebookPropValue and the whole `query` prop is dropped
-        const normalized = toSerializablePropValue(value)
-        if (normalized !== undefined && isNotebookPropValue(normalized)) {
-            props[key] = normalized
-        }
-        return props
-    }, {})
 }
 
 export function splitTagName(tagName: string): string {

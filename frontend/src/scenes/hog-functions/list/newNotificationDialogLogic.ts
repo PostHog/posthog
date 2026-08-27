@@ -219,6 +219,9 @@ export const newNotificationDialogLogic = kea<newNotificationDialogLogicType>([
                     inputs_schema: template.inputs_schema,
                     inputs,
                     filters: props.filtersOverride ?? commonProps.filters,
+                    // Without this a sub-template's masking is dropped on creation and the
+                    // destination fires on every matching event, however the template declared it.
+                    masking: subTemplate?.masking ?? commonProps.masking ?? null,
                     hog: template.code,
                     icon_url: template.icon_url,
                     enabled: true,

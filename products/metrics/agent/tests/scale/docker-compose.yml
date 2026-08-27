@@ -1,0 +1,56 @@
+services:
+    farm:
+        image: python:3.12-alpine
+        command: python /app/farm_server.py
+        environment:
+            FARM_BASE_PORT: '9500'
+            FARM_PORTS: '${FARM_PORTS:-40}'
+            FARM_SERIES_PER_TARGET: '${FARM_SERIES_PER_TARGET:-200}'
+        volumes:
+            - ./farm_server.py:/app/farm_server.py:ro
+
+    sink:
+        # Keep the collector version in sync with ../../Dockerfile.
+        image: otel/opentelemetry-collector-contrib:0.142.0
+        command: ['--config', '/etc/sink-config.yaml']
+        volumes:
+            - ./sink-config.yaml:/etc/sink-config.yaml:ro
+            - ./out:/out
+
+    shard0:
+        image: posthog-metrics-agent:test
+        environment: &shard-env
+            POSTHOG_API_KEY: phc_test
+            POSTHOG_HOST: http://sink:4318
+            POSTHOG_INGEST_PATH: /v1/metrics
+            SCRAPE_TARGETS: '${SCRAPE_TARGETS}'
+            SCRAPE_INTERVAL: 2s
+            SHARD_COUNT: '4'
+        # Hostname carries the shard ordinal, as a StatefulSet pod's would;
+        # SHARD_INDEX is intentionally not set so derivation is what's tested.
+        hostname: agent-0
+        depends_on: [farm, sink]
+
+    shard1:
+        image: posthog-metrics-agent:test
+        environment:
+            <<: *shard-env
+            POSTHOG_HOST: http://sink:4418
+        hostname: agent-1
+        depends_on: [farm, sink]
+
+    shard2:
+        image: posthog-metrics-agent:test
+        environment:
+            <<: *shard-env
+            POSTHOG_HOST: http://sink:4518
+        hostname: agent-2
+        depends_on: [farm, sink]
+
+    shard3:
+        image: posthog-metrics-agent:test
+        environment:
+            <<: *shard-env
+            POSTHOG_HOST: http://sink:4618
+        hostname: agent-3
+        depends_on: [farm, sink]

@@ -1,0 +1,167 @@
+import { describe, expect, it } from "vitest";
+import {
+  type ParsedGithubIssueUrl,
+  parseGithubIssueUrl,
+} from "./githubIssueUrl";
+
+describe("parseGithubIssueUrl", () => {
+  const accepts: Array<{
+    name: string;
+    input: string;
+    expected: ParsedGithubIssueUrl;
+  }> = [
+    {
+      name: "canonical issue URL",
+      input: "https://github.com/PostHog/code/issues/1808",
+      expected: {
+        kind: "issue",
+        owner: "PostHog",
+        repo: "code",
+        number: 1808,
+        normalizedUrl: "https://github.com/PostHog/code/issues/1808",
+        isReviewComment: false,
+      },
+    },
+    {
+      name: "pull request URL",
+      input: "https://github.com/PostHog/code/pull/1454",
+      expected: {
+        kind: "pr",
+        owner: "PostHog",
+        repo: "code",
+        number: 1454,
+        normalizedUrl: "https://github.com/PostHog/code/pull/1454",
+        isReviewComment: false,
+      },
+    },
+    {
+      name: "pull request URL with files tab suffix",
+      input: "https://github.com/PostHog/code/pull/1454/files",
+      expected: {
+        kind: "pr",
+        owner: "PostHog",
+        repo: "code",
+        number: 1454,
+        normalizedUrl: "https://github.com/PostHog/code/pull/1454",
+        isReviewComment: false,
+      },
+    },
+    {
+      name: "surrounding whitespace",
+      input: "  https://github.com/PostHog/code/issues/1808\n",
+      expected: {
+        kind: "issue",
+        owner: "PostHog",
+        repo: "code",
+        number: 1808,
+        normalizedUrl: "https://github.com/PostHog/code/issues/1808",
+        isReviewComment: false,
+      },
+    },
+    {
+      name: "issue comment fragment is preserved",
+      input: "https://github.com/PostHog/code/issues/1808#issuecomment-123",
+      expected: {
+        kind: "issue",
+        owner: "PostHog",
+        repo: "code",
+        number: 1808,
+        normalizedUrl:
+          "https://github.com/PostHog/code/issues/1808#issuecomment-123",
+        isReviewComment: false,
+      },
+    },
+    {
+      name: "PR review comment fragment is preserved",
+      input:
+        "https://github.com/PostHog/posthog/pull/72409#discussion_r3647131256",
+      expected: {
+        kind: "pr",
+        owner: "PostHog",
+        repo: "posthog",
+        number: 72409,
+        normalizedUrl:
+          "https://github.com/PostHog/posthog/pull/72409#discussion_r3647131256",
+        isReviewComment: true,
+      },
+    },
+    {
+      name: "files tab suffix is kept when a comment fragment needs it",
+      input: "https://github.com/PostHog/code/pull/1454/files#r3647131256",
+      expected: {
+        kind: "pr",
+        owner: "PostHog",
+        repo: "code",
+        number: 1454,
+        normalizedUrl:
+          "https://github.com/PostHog/code/pull/1454/files#r3647131256",
+        isReviewComment: true,
+      },
+    },
+    {
+      name: "empty fragment is stripped from normalized URL",
+      input: "https://github.com/PostHog/code/issues/1808#",
+      expected: {
+        kind: "issue",
+        owner: "PostHog",
+        repo: "code",
+        number: 1808,
+        normalizedUrl: "https://github.com/PostHog/code/issues/1808",
+        isReviewComment: false,
+      },
+    },
+    {
+      name: "query string is stripped from normalized URL",
+      input: "https://github.com/PostHog/code/issues/1808?foo=bar",
+      expected: {
+        kind: "issue",
+        owner: "PostHog",
+        repo: "code",
+        number: 1808,
+        normalizedUrl: "https://github.com/PostHog/code/issues/1808",
+        isReviewComment: false,
+      },
+    },
+    {
+      name: "http scheme",
+      input: "http://github.com/PostHog/code/issues/1",
+      expected: {
+        kind: "issue",
+        owner: "PostHog",
+        repo: "code",
+        number: 1,
+        normalizedUrl: "https://github.com/PostHog/code/issues/1",
+        isReviewComment: false,
+      },
+    },
+  ];
+
+  it.each(accepts)("accepts $name", ({ input, expected }) => {
+    expect(parseGithubIssueUrl(input)).toEqual(expected);
+  });
+
+  const rejects: Array<{ name: string; input: string }> = [
+    {
+      name: "non-github host",
+      input: "https://gitlab.com/PostHog/code/issues/1808",
+    },
+    { name: "non-URL text", input: "not a url" },
+    { name: "empty string", input: "" },
+    {
+      name: "missing issue number",
+      input: "https://github.com/PostHog/code/issues/",
+    },
+    {
+      name: "missing PR number",
+      input: "https://github.com/PostHog/code/pull/",
+    },
+    {
+      name: "unknown path segment",
+      input: "https://github.com/PostHog/code/blob/main/README.md",
+    },
+  ];
+
+  it.each(rejects)("rejects $name", ({ input }) => {
+    expect(parseGithubIssueUrl(input)).toBeNull();
+  });
+});

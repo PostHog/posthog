@@ -18,7 +18,6 @@ from posthog.schema import (
     CachedTraceSpansTreeQueryResponse,
     CompareFilter,
     DateRange,
-    HogQLFilters,
     HogQLQueryModifiers,
     IntervalType,
     PropertyGroupFilter,
@@ -398,7 +397,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
     paginator: HogQLHasMorePaginator
 
     def validate_query_runner_access(self, user: "User") -> bool:
-        from posthog.rbac.user_access_control import UserAccessControlError
+        from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
         raise UserAccessControlError("tracing", "viewer")
 
@@ -425,7 +424,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
             team=self.team,
             workload=Workload.LOGS,
             timings=self.timings,
-            filters=HogQLFilters(dateRange=self.query.dateRange),
+            filters=self.query_date_range.to_hogql_filters(),
             settings=self.settings,
         )
         results = []
@@ -793,7 +792,7 @@ def run_service_names_query(
         query=query,
         team=team,
         workload=Workload.LOGS,
-        filters=HogQLFilters(dateRange=date_range),
+        filters=query_date_range.to_hogql_filters(),
         modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         settings=HogQLGlobalSettings(
             allow_experimental_object_type=False,
@@ -877,7 +876,7 @@ def run_attribute_names_query(
         query=query,
         team=team,
         workload=Workload.LOGS,
-        filters=HogQLFilters(dateRange=date_range),
+        filters=query_date_range.to_hogql_filters(),
         modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         settings=HogQLGlobalSettings(
             read_overflow_mode="break",
@@ -977,7 +976,7 @@ def _run_attribute_names_value_search(
         query=query,
         team=team,
         workload=Workload.LOGS,
-        filters=HogQLFilters(dateRange=date_range),
+        filters=query_date_range.to_hogql_filters(),
         modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         settings=HogQLGlobalSettings(
             read_overflow_mode="break",
@@ -1058,7 +1057,7 @@ def run_attribute_values_query(
         query=query,
         team=team,
         workload=Workload.LOGS,
-        filters=HogQLFilters(dateRange=date_range),
+        filters=query_date_range.to_hogql_filters(),
         modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         settings=HogQLGlobalSettings(
             read_overflow_mode="break",

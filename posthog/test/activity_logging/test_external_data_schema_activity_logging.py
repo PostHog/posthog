@@ -18,7 +18,8 @@ class TestExternalDataSchemaActivityLogging(ActivityLogTestHelper):
         self.assertIn("latest_error", external_data_schema_exclusions)
         self.assertIn("last_synced_at", external_data_schema_exclusions)
         self.assertIn("status", external_data_schema_exclusions)
-        self.assertEqual(len(external_data_schema_exclusions), 4)
+        self.assertIn("table", external_data_schema_exclusions)
+        self.assertEqual(len(external_data_schema_exclusions), 5)
 
     def test_external_data_schema_scope_in_activity_log_types(self):
         self.assertIn("ExternalDataSchema", get_args(ActivityScope))

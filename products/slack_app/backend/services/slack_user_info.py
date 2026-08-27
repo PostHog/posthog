@@ -26,7 +26,7 @@ from django.utils import timezone
 import structlog
 from slack_sdk.errors import SlackApiError
 
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SLACK_INTEGRATION_KINDS, Integration, SlackIntegration
 
 from products.slack_app.backend.models import SlackUserProfileCache
 from products.slack_app.backend.services.slack_auth import (
@@ -208,6 +208,27 @@ def _purge_stale_email_rows(integration: Integration, normalized_email: str, kee
         ).exclude(slack_user_id=keep_slack_user_id).delete()
     except DatabaseError:
         logger.warning("slack_app_slack_user_cache_db_unavailable", integration_id=integration.id)
+
+
+def clear_workspace_profile_cache(slack_team_id: str) -> int:
+    """Delete every cached Slack profile for the workspace, returning the row count.
+
+    Called when the app is uninstalled, so a reinstall resolves users from fresh
+    ``users.info`` data instead of emails cached under the previous install.
+
+    A transient database failure is logged and swallowed (returning 0): raising would
+    500 the webhook, and since Slack retries are acked without reprocessing, the event
+    would be lost — along with the cross-region fan-out that follows the clear. Rows
+    that survive a failed clear age out via the cache TTL.
+    """
+    try:
+        deleted, _ = SlackUserProfileCache.objects.filter(
+            integration__kind__in=SLACK_INTEGRATION_KINDS, integration__integration_id=slack_team_id
+        ).delete()
+    except DatabaseError:
+        logger.warning("slack_app_uninstall_profile_cache_clear_failed", slack_team_id=slack_team_id, exc_info=True)
+        return 0
+    return deleted
 
 
 def get_cached_bot_user_id(slack: SlackIntegration, integration: Integration) -> str | None:

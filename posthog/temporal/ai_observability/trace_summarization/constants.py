@@ -17,11 +17,6 @@ DEFAULT_WINDOW_MINUTES = 60  # Process traces from last N minutes (matches sched
 DEFAULT_WINDOW_OFFSET_MINUTES = 30  # Offset window into the past so traces have time to fully complete
 DEFAULT_MODEL = OpenAIModel.GPT_4_1_NANO
 
-# Max text representation length (in characters)
-# GPT-4.1-nano has 1M token context. At typical 2.5:1 char/token ratio,
-# 2M chars = ~800K tokens, leaving room for system prompt and output.
-MAX_TEXT_REPR_LENGTH = 2_000_000
-
 # Max estimated raw trace size (in characters) before formatting.
 # Traces exceeding this are skipped — formatting huge traces is CPU-intensive
 # and can block the worker for 10+ minutes. Estimated cheaply from
@@ -106,8 +101,14 @@ WORKFLOW_EXECUTION_TIMEOUT_MINUTES = 30  # Max time for single team workflow —
 COORDINATOR_EXECUTION_TIMEOUT_MINUTES = 55  # Must finish before next hourly trigger to avoid silent skips
 
 # Retry policies
+# Do not make ClickHouse capacity errors non-retryable here. Each run samples a disjoint window
+# with no persisted cursor, so a run that gives up drops that window of traces for that team
+# permanently.
 SAMPLE_RETRY_POLICY = RetryPolicy(
-    maximum_attempts=2,
+    maximum_attempts=5,
+    initial_interval=timedelta(seconds=10),
+    backoff_coefficient=2.0,
+    maximum_interval=timedelta(seconds=120),
     non_retryable_error_types=["ValueError", "TypeError"],
 )
 COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY = RetryPolicy(maximum_attempts=1)

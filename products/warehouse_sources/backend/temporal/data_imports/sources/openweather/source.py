@@ -9,16 +9,13 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openweather import (
     OpenWeatherSourceConfig,
 )
@@ -27,17 +24,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openweathe
     validate_credentials as validate_openweather_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.openweather.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-    OPENWEATHER_ENDPOINTS,
+    API_VERSION_2_5,
+    API_VERSION_3_0,
+    endpoints_for_version,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class OpenWeatherSource(SimpleSource[OpenWeatherSourceConfig]):
-    supported_versions = ("2.5",)
-    default_version = "2.5"
+    supported_versions = (API_VERSION_2_5, API_VERSION_3_0)
+    default_version = API_VERSION_3_0
     api_docs_url = "https://openweathermap.org/api"
 
     @property
@@ -112,6 +109,7 @@ Each sync polls every location once. To accumulate a history of point-in-time sn
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
+        endpoints = endpoints_for_version(self.resolve_api_version(api_version))
         schemas = [
             SourceSchema(
                 name=endpoint,
@@ -120,11 +118,11 @@ Each sync polls every location once. To accumulate a history of point-in-time sn
                 # `[lat, lon, dt]`, accumulating a time series across runs.
                 supports_incremental=False,
                 supports_append=True,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                should_sync_default=OPENWEATHER_ENDPOINTS[endpoint].should_sync_default,
-                description=OPENWEATHER_ENDPOINTS[endpoint].description,
+                incremental_fields=config.incremental_fields,
+                should_sync_default=config.should_sync_default,
+                description=config.description,
             )
-            for endpoint in ENDPOINTS
+            for endpoint, config in endpoints.items()
         ]
         if names is not None:
             names_set = set(names)
@@ -138,7 +136,7 @@ Each sync polls every location once. To accumulate a history of point-in-time sn
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_openweather_credentials(config.api_key, config.locations)
+        return validate_openweather_credentials(config.api_key, config.locations, self.resolve_api_version(api_version))
 
     def source_for_pipeline(self, config: OpenWeatherSourceConfig, inputs: SourceInputs) -> SourceResponse:
         return openweather_source(
@@ -146,4 +144,5 @@ Each sync polls every location once. To accumulate a history of point-in-time sn
             endpoint=inputs.schema_name,
             locations_raw=config.locations,
             logger=inputs.logger,
+            api_version=self.resolve_api_version(inputs.api_version),
         )

@@ -24,16 +24,18 @@ use cohort_stream_processor::filters::{run_refresh_loop, CatalogHandle};
 use cohort_stream_processor::merge::gc::MergeGcSweeper;
 use cohort_stream_processor::merge::redrive::RedriveSweeper;
 use cohort_stream_processor::observability;
-use cohort_stream_processor::observability::store_stats::StoreStatsSweeper;
+use cohort_stream_processor::observability::disk::SharedDiskUtilization;
+use cohort_stream_processor::observability::store_stats::{DiskProbe, StoreStatsSweeper};
 use cohort_stream_processor::observability::tokio_monitor::TokioRuntimeMonitor;
 use cohort_stream_processor::partitions::{
     run_rebalance_worker, CohortConsumerContext, ConsumerPauser, Follower, FollowerSet,
     LiveWatermarks, OffsetTracker, PartitionPauser, PartitionRouter,
 };
 use cohort_stream_processor::producer::{
-    CascadeSink, KafkaCascadeSink, KafkaMembershipSink, KafkaSeedTileSink, KafkaStreamEventSink,
-    KafkaTransferSink, MembershipSink, NoopCascadeSink, NoopSeedTileSink, SeedTileSink,
-    StreamEventSink, TransferSink,
+    CascadeSink, KafkaCascadeSink, KafkaMembershipSink, KafkaReconcileMarkerSink,
+    KafkaSeedTileSink, KafkaStreamEventSink, KafkaTransferSink, MembershipSink, NoopCascadeSink,
+    NoopReconcileMarkerSink, NoopSeedTileSink, ReconcileMarkerSink, SeedTileSink, StreamEventSink,
+    TransferSink,
 };
 use cohort_stream_processor::store::durability::{
     run_boot_restore, upload_cadence, CheckpointExporter, CheckpointSweeper, OffsetManifest,
@@ -43,7 +45,9 @@ use cohort_stream_processor::store::{CohortStore, StoreHandle};
 use cohort_stream_processor::sweep::{
     run_sweep_loop, run_sweep_loop_delayed, DispatchSweeper, ReconcileDrainSweeper,
 };
-use cohort_stream_processor::workers::{MergeWorkerDeps, ReconcileBacklog, ReconcileDeps};
+use cohort_stream_processor::workers::{
+    MergeWorkerDeps, PersonSeedDeps, ReconcileBacklog, ReconcileDeps,
+};
 
 common_alloc::used!();
 
@@ -69,7 +73,7 @@ async fn async_main(config: Config) -> Result<()> {
     init_tracing();
     log_startup(&config);
 
-    config.validate_durability_startup()?;
+    config.validate_startup()?;
 
     let mut manager = Manager::builder(SERVICE_NAME)
         .with_global_shutdown_timeout(Duration::from_secs(90))
@@ -177,11 +181,12 @@ async fn async_main(config: Config) -> Result<()> {
         .context("creating shadow producer")?,
     );
 
-    // Only the transfer sink gets the shorter `message.timeout.ms`: its produce runs inline on a
-    // partition worker under a bounded retry loop, so a long per-attempt timeout would multiply into
-    // a worker hold past the 30 s graceful-shutdown window. The membership and re-key sinks keep the
-    // shared 20 s — membership drops on fail (at-most-once) and the re-key produce rides the
-    // events-path offset gate (held-then-redelivered), so neither blocks a worker for the full timeout.
+    // The transfer and marker sinks get the shorter `message.timeout.ms`: both produce inline on a
+    // partition worker and both are retried on a cadence — the transfer by a bounded inline loop, the
+    // marker by the drain sweeper — so a long per-attempt timeout repeats into a worker hold rather
+    // than costing it once. The membership and re-key sinks keep the shared 20 s: membership drops on
+    // fail (at-most-once) and the re-key produce rides the events-path offset gate
+    // (held-then-redelivered), so neither retries a black-holed produce on a timer.
     let transfer_kafka_config = config.build_transfer_kafka_config();
     let transfer_sink: Arc<dyn TransferSink> = Arc::new(
         KafkaTransferSink::new(
@@ -218,6 +223,18 @@ async fn async_main(config: Config) -> Result<()> {
     } else {
         Arc::new(NoopSeedTileSink)
     };
+    let marker_sink: Arc<dyn ReconcileMarkerSink> = if config.cohort_seed_reconcile_enabled {
+        Arc::new(
+            KafkaReconcileMarkerSink::new(
+                &config.build_marker_kafka_config(),
+                config.cohort_reconcile_markers_topic.clone(),
+            )
+            .await
+            .context("creating cohort_reconcile_markers producer")?,
+        )
+    } else {
+        Arc::new(NoopReconcileMarkerSink)
+    };
     let reconcile_backlog = Arc::new(ReconcileBacklog::default());
     let merge_deps = Arc::new(MergeWorkerDeps {
         transfer_sink,
@@ -240,6 +257,11 @@ async fn async_main(config: Config) -> Result<()> {
             enabled: config.cohort_seed_reconcile_enabled,
             scan_page: config.cohort_seed_reconcile_scan_page,
             backlog: reconcile_backlog.clone(),
+            marker_sink,
+        },
+        person_seed: PersonSeedDeps {
+            enabled: config.cohort_seed_person_apply_enabled,
+            live_margin_ms: config.cohort_seed_person_live_margin_ms,
         },
     });
 
@@ -379,6 +401,22 @@ async fn async_main(config: Config) -> Result<()> {
             config.cohort_stream_seed_events_topic,
             seed_partitions,
         );
+        // Nothing co-partitions with the marker topic, so only its existence matters. Failing here
+        // beats the alternative: a marker produce retrying forever while it holds the seed offset.
+        // Nested under the seed consumer on purpose: reconcile jobs are admitted only from seed
+        // tiles, so without it no marker can be produced and there is nothing to prove.
+        if config.cohort_seed_reconcile_enabled {
+            fetch_partition_count(seed_consumer, &config.cohort_reconcile_markers_topic).with_context(
+                || {
+                    format!(
+                        "{} must exist before a processor with COHORT_SEED_RECONCILE_ENABLED starts. \
+                         Provision the topic, or set COHORT_SEED_RECONCILE_ENABLED=false to start \
+                         without the reconcile path.",
+                        config.cohort_reconcile_markers_topic,
+                    )
+                },
+            )?;
+        }
     }
 
     if let Some(manifest) = restore.manifest.as_ref() {
@@ -498,10 +536,18 @@ async fn async_main(config: Config) -> Result<()> {
         ));
     }
 
-    // Publish store cache/size metrics via the sweep machinery, and Tokio runtime metrics via a
-    // separate monitor.
+    // Publish store cache/size metrics and the store filesystem's utilization via the sweep
+    // machinery, and Tokio runtime metrics via a separate monitor. The disk snapshot feeds the
+    // seed consumer's disk-backpressure gate; a sample surviving four sweep ticks unrefreshed
+    // means the sweep is wedged, so it expires rather than latching the gate.
+    let disk_state = Arc::new(SharedDiskUtilization::new(
+        config.stats_publish_interval() * 4,
+    ));
     tokio::spawn(run_sweep_loop(
-        StoreStatsSweeper::new(handle_for_stats),
+        StoreStatsSweeper::new(
+            handle_for_stats,
+            DiskProbe::new(PathBuf::from(&config.store_path), disk_state.clone()),
+        ),
         config.stats_publish_interval(),
         "store_stats",
         consumer_handle.shutdown_token(),
@@ -625,6 +671,8 @@ async fn async_main(config: Config) -> Result<()> {
             config.offset_commit_interval(),
             config.cohort_seed_fence_margin_ms,
             config.seed_idle_probe_interval(),
+            config.seed_pacing_config()?,
+            disk_state.clone(),
         );
         let seed_catalog = catalog.clone();
         tokio::spawn(async move {
@@ -767,6 +815,7 @@ fn log_startup(config: &Config) {
         kafka_hosts = %config.kafka_hosts,
         input_topic = %config.cohort_stream_events_topic,
         output_topic = %config.cohort_membership_changed_topic,
+        reconcile_markers_topic = %config.cohort_reconcile_markers_topic,
         consumer_group = %config.kafka_consumer_group,
         offset_reset = %config.kafka_consumer_offset_reset,
         merge_topic = %config.person_merge_events_topic,
@@ -790,6 +839,10 @@ fn log_startup(config: &Config) {
         seed_topic = %config.cohort_stream_seed_events_topic,
         seed_consumer_group = %config.kafka_seed_consumer_group,
         seed_fence_margin_ms = config.cohort_seed_fence_margin_ms,
+        cohort_seed_live_lag_pause_ms = config.cohort_seed_live_lag_pause_ms,
+        cohort_seed_live_lag_resume_ms = config.cohort_seed_live_lag_resume_ms,
+        cohort_seed_disk_pause_pct = config.cohort_seed_disk_pause_pct,
+        cohort_seed_disk_resume_pct = config.cohort_seed_disk_resume_pct,
         cohort_seed_reconcile_enabled = config.cohort_seed_reconcile_enabled,
         cohort_seed_reconcile_scan_page = config.cohort_seed_reconcile_scan_page,
         cohort_seed_reconcile_tick_interval_ms = config.cohort_seed_reconcile_tick_interval_ms,

@@ -1,4 +1,3 @@
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -15,13 +14,20 @@ export const manifest: ProductManifest = {
             iconType: 'data_warehouse',
             description: 'Review and manage governed metrics, certifications, and relationships for your data.',
         },
+        DataCatalogMetric: {
+            import: () => import('./frontend/DataCatalogMetricScene'),
+            projectBased: true,
+            name: 'Metric',
+        },
     },
     routes: {
         '/data-catalog': ['DataCatalog', 'dataCatalog'],
+        '/data-catalog/metrics/:name': ['DataCatalogMetric', 'dataCatalogMetric'],
     },
     redirects: {},
     urls: {
         dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
+        dataCatalogMetric: (name: string): string => `/data-catalog/metrics/${name}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],
@@ -32,7 +38,7 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.ANALYTICS,
             iconType: 'data_warehouse',
             href: urls.dataCatalog(),
-            flag: FEATURE_FLAGS.PRODUCT_DATA_CATALOG,
+            tags: ['beta'],
             sceneKey: 'DataCatalog',
         },
     ],

@@ -7,11 +7,13 @@ from django.db.models import Q
 from django.db.models.functions.comparison import Coalesce
 
 import re2
+import posthoganalytics
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     AccountCustomPropertyFilter,
+    BehavioralPropertyFilter,
     CohortPropertyFilter,
     DataWarehousePersonPropertyFilter,
     DataWarehousePropertyFilter,
@@ -54,12 +56,14 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
+from posthog.dataclasses import frozen
+from posthog.interval_specs import get_interval_func
 from posthog.models import Property, PropertyDefinition, Team
 from posthog.models.element import Element
 from posthog.models.event import Selector
-from posthog.models.property import PropertyGroup, ValueT
+from posthog.models.property import BehavioralPropertyType, PropertyGroup, ValueT
 from posthog.models.property.util import build_selector_regex
-from posthog.utils import get_from_dict_or_attr
+from posthog.utils import get_from_dict_or_attr, relative_date_parse
 
 from products.actions.backend.models.action import Action, ActionStepJSON
 from products.cohorts.backend.models.cohort import Cohort
@@ -76,14 +80,21 @@ from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by
 PERSON_METADATA_FIELDS = {"created_at"}
 
 
-def parse_semver(value: str) -> tuple[str, str, str]:
+@frozen
+class SemverParts:
+    major: str
+    minor: str
+    patch: str
+
+
+def parse_semver(value: str) -> SemverParts:
     """
-    Parse a semver string into (major, minor, patch) components.
+    Parse a semver string into major, minor and patch components.
 
     - Strips pre-release suffixes (e.g., -alpha.1)
     - Defaults missing components to "0" (e.g., 1.0 -> 1.0.0)
 
-    Returns tuple of strings for direct use in version string construction.
+    Components stay strings for direct use in version string construction.
     Raises ValueError if parsing fails.
     """
     # Strip pre-release suffix (everything after first hyphen)
@@ -100,7 +111,7 @@ def parse_semver(value: str) -> tuple[str, str, str]:
     # Validate they're actually integers
     int(major), int(minor), int(patch)
 
-    return (major, minor, patch)
+    return SemverParts(major=major, minor=minor, patch=patch)
 
 
 # Anchored, strict-semver validator used to gate semver comparisons. We can't rely on
@@ -172,12 +183,12 @@ def _tilde_bounds(value: str) -> tuple[str, str]:
     ~1.2.3 means >=1.2.3 <1.3.0 (allows patch-level changes)
     ~1 means >=1.0.0 <2.0.0 (bare major: allows minor+patch changes)
     """
-    major, minor, patch = parse_semver(value)
+    v = parse_semver(value)
     parts = value.split("-")[0].split(".")
     if len(parts) < 2:
-        return f"{major}.0.0", f"{int(major) + 1}.0.0"
-    next_minor = str(int(minor) + 1)
-    return f"{major}.{minor}.{patch}", f"{major}.{next_minor}.0"
+        return f"{v.major}.0.0", f"{int(v.major) + 1}.0.0"
+    next_minor = str(int(v.minor) + 1)
+    return f"{v.major}.{v.minor}.{v.patch}", f"{v.major}.{next_minor}.0"
 
 
 def _caret_bounds(value: str) -> tuple[str, str]:
@@ -188,15 +199,15 @@ def _caret_bounds(value: str) -> tuple[str, str]:
     ^0.0.3 means >=0.0.3 <0.0.4
     The leftmost non-zero component determines the upper bound.
     """
-    major, minor, patch = parse_semver(value)
-    lower_bound = f"{major}.{minor}.{patch}"
+    v = parse_semver(value)
+    lower_bound = f"{v.major}.{v.minor}.{v.patch}"
 
-    if int(major) > 0:
-        upper_bound = f"{int(major) + 1}.0.0"
-    elif int(minor) > 0:
-        upper_bound = f"0.{int(minor) + 1}.0"
+    if int(v.major) > 0:
+        upper_bound = f"{int(v.major) + 1}.0.0"
+    elif int(v.minor) > 0:
+        upper_bound = f"0.{int(v.minor) + 1}.0"
     else:
-        upper_bound = f"0.0.{int(patch) + 1}"
+        upper_bound = f"0.0.{int(v.patch) + 1}"
 
     return lower_bound, upper_bound
 
@@ -378,6 +389,77 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
     return value
 
 
+def _coerce_numeric_value_for_string_property(value: ValueT, property: Property, team: Team) -> ValueT:
+    """Person, event, and group properties are pulled out of JSON as strings, so a numeric
+    filter value against a string-typed one compiles to equals(<String>, <number>), which
+    ClickHouse rejects with NO_COMMON_TYPE. Stringify the numeric value in that case,
+    mirroring _stringify_group_key_value for group keys.
+
+    Numeric-, Boolean-, and DateTime-typed properties are cast to a Float / Bool / DateTime
+    LHS by PropertySwapper, so their comparisons already resolve to a common type — those are
+    left untouched (stringifying them would reintroduce the mismatch the other way around).
+    Only the narrow numeric-value-vs-string-property shape is coerced.
+
+    Accepts a scalar or a list of values; the type lookup runs at most once either way."""
+
+    # bool is a subclass of int — exclude it so booleans keep flowing through _handle_bool_values
+    def _is_numeric(v: object) -> bool:
+        return not isinstance(v, bool) and isinstance(v, (int, float))
+
+    values = value if isinstance(value, list) else [value]
+    if not any(_is_numeric(v) for v in values):
+        return value
+
+    # map_virtual_properties rewrites a $virt_ key to a typed column on the parent table instead
+    # of a JSON extract, so its LHS is already numeric and has no PropertyDefinition row to look
+    # up. Without this guard the lookup below misses and stringifies, which breaks numeric virtual
+    # properties such as $virt_revenue.
+    if property.key and property.key.startswith("$virt_"):
+        return value
+
+    if property.type == "person":
+        type_filters: dict[str, object] = {"type": PropertyDefinition.Type.PERSON}
+    elif property.type == "group":
+        type_filters = {"type": PropertyDefinition.Type.GROUP, "group_type_index": property.group_type_index}
+    elif property.type == "event":
+        # legacy definitions may carry a NULL type; load_property_metadata treats those as event
+        # properties (so the swapper casts their LHS) — mirror it, or the two sides disagree
+        type_filters = {"type__in": [None, PropertyDefinition.Type.EVENT]}
+    else:
+        # Other property types (session, data warehouse, logs, spans, …) resolve to properly
+        # typed columns, so a numeric comparison already has a common type — leave them alone.
+        return value
+
+    property_type = (
+        PropertyDefinition.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+        )
+        .filter(effective_project_id=team.project_id, name=property.key, **type_filters)
+        # load_property_metadata skips definitions without a property_type — match it so a
+        # typeless row can't shadow a typed one when both NULL-type and event-type rows exist
+        .exclude(property_type__isnull=True)
+        .exclude(property_type="")
+        .values_list("property_type", flat=True)
+        .first()
+    )
+
+    if property_type in (PropertyType.Numeric, PropertyType.Boolean, PropertyType.Datetime):
+        return value
+
+    # String-typed or as-yet-undefined property: the LHS stays a JSON-extracted String, so
+    # stringify to keep both sides comparable. An integer-valued float loses its '.0' (13.0 -> '13').
+    def _stringify(v: object) -> object:
+        if not _is_numeric(v):
+            return v
+        if isinstance(v, float) and v.is_integer():
+            return str(int(v))
+        return str(v)
+
+    if isinstance(value, list):
+        return cast(ValueT, [_stringify(v) for v in value])
+    return cast(ValueT, _stringify(value))
+
+
 def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
     """Resolve a date value for IS_DATE_* operators.
 
@@ -524,6 +606,24 @@ def _expr_to_compare_op(
                 left=ast.Call(name="toString", args=[expr]),
                 right=ast.Constant(value=f"%{single_value}%"),
             )
+    elif operator in (PropertyOperator.STARTS_WITH, PropertyOperator.NOT_STARTS_WITH):
+        single_value = value[0] if isinstance(value, list) and len(value) == 1 else value
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.ILike
+            if operator == PropertyOperator.STARTS_WITH
+            else ast.CompareOperationOp.NotILike,
+            left=ast.Call(name="toString", args=[expr]),
+            right=ast.Constant(value=f"{single_value}%"),
+        )
+    elif operator in (PropertyOperator.ENDS_WITH, PropertyOperator.NOT_ENDS_WITH):
+        single_value = value[0] if isinstance(value, list) and len(value) == 1 else value
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.ILike
+            if operator == PropertyOperator.ENDS_WITH
+            else ast.CompareOperationOp.NotILike,
+            left=ast.Call(name="toString", args=[expr]),
+            right=ast.Constant(value=f"%{single_value}"),
+        )
     elif operator == PropertyOperator.ICONTAINS_MULTI:
         # Always expect multiple values for multi-contains operator
         if isinstance(value, list):
@@ -565,7 +665,11 @@ def _expr_to_compare_op(
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
             left=expr,
-            right=ast.Constant(value=_handle_bool_values(value, expr, property, team)),
+            right=ast.Constant(
+                value=_coerce_numeric_value_for_string_property(
+                    _handle_bool_values(value, expr, property, team), property, team
+                )
+            ),
         )
     elif operator == PropertyOperator.IS_DATE_EXACT:
         assert isinstance(value, str)
@@ -578,7 +682,11 @@ def _expr_to_compare_op(
         return ast.CompareOperation(
             op=ast.CompareOperationOp.NotEq,
             left=expr,
-            right=ast.Constant(value=_handle_bool_values(value, expr, property, team)),
+            right=ast.Constant(
+                value=_coerce_numeric_value_for_string_property(
+                    _handle_bool_values(value, expr, property, team), property, team
+                )
+            ),
         )
     elif operator == PropertyOperator.LT:
         return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value))
@@ -630,7 +738,12 @@ def _expr_to_compare_op(
         if not isinstance(value, list):
             raise Exception("IN and NOT IN operators require a list of values")
         op = ast.CompareOperationOp.NotIn if operator == PropertyOperator.NOT_IN else ast.CompareOperationOp.In
-        return ast.CompareOperation(op=op, left=expr, right=ast.Array(exprs=[ast.Constant(value=v) for v in value]))
+        coerced = cast(list, _coerce_numeric_value_for_string_property(value, property, team))
+        return ast.CompareOperation(
+            op=op,
+            left=expr,
+            right=ast.Array(exprs=[ast.Constant(value=v) for v in coerced]),
+        )
     elif operator == PropertyOperator.SEMVER_EQ:
         return _gate_on_valid_semver(
             expr,
@@ -712,6 +825,157 @@ def apply_path_cleaning(path_expr: ast.Expr, team: Team) -> ast.Expr:
     return path_expr
 
 
+# get_interval_func also resolves minute/hour/quarter; behavioral windows are restricted to calendar intervals.
+_BEHAVIORAL_INTERVALS = frozenset({"day", "week", "month", "year"})
+
+_BEHAVIORAL_COUNT_OPERATORS = {
+    "gte": ast.CompareOperationOp.GtEq,
+    "lte": ast.CompareOperationOp.LtEq,
+    "gt": ast.CompareOperationOp.Gt,
+    "lt": ast.CompareOperationOp.Lt,
+    "eq": ast.CompareOperationOp.Eq,
+    "exact": ast.CompareOperationOp.Eq,
+}
+
+
+# Keep in sync with FEATURE_FLAGS.BEHAVIORAL_PROPERTY_FILTER in frontend/src/lib/constants.tsx.
+BEHAVIORAL_PROPERTY_FILTER_FLAG = "behavioral-property-filter"
+
+
+def _is_behavioral_property_filter_enabled(team: Team) -> bool:
+    # Fails closed: this runs on the query compile path, so an inconclusive local evaluation must
+    # mean "off" rather than an HTTP call, and a flag-service error must not open the gate.
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                BEHAVIORAL_PROPERTY_FILTER_FLAG,
+                str(team.uuid),
+                groups={"organization": str(team.organization_id), "project": str(team.id)},
+                group_properties={
+                    "organization": {"id": str(team.organization_id)},
+                    "project": {"id": str(team.id)},
+                },
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        return False
+
+
+def _behavioral_property_to_expr(property: Property, team: Team, scope: str, strict: bool = False) -> ast.Expr:
+    """Compile a behavioral ("performed event") filter into a `person_id IN (...)` subquery.
+
+    Unlike cohort-backed behavioral criteria this runs at query time, with no saved cohort and no
+    precalculated cohortpeople.
+    """
+    # Gates every entry point, not just the UI: /query, MCP query tools, and saved insights all land here.
+    if not _is_behavioral_property_filter_enabled(team):
+        raise QueryError(
+            "Behavioral (performed event) filters aren't available for this project. "
+            "Use a cohort to filter on past behavior."
+        )
+    # Person scope needs `id IN (SELECT person_id FROM events ...)`, which HogQL can't resolve under a `persons` FROM.
+    if scope != "event":
+        raise QueryError(f"The 'behavioral' property filter does not work in '{scope}' scope")
+    if property.value not in (
+        BehavioralPropertyType.PERFORMED_EVENT,
+        BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE,
+    ):
+        raise QueryError(f"The behavioral criterion '{property.value}' requires a cohort, it cannot be used inline")
+
+    if property.event_type == "actions":
+        try:
+            action = Action.objects.get(pk=int(property.key), team__project_id=team.project_id)
+        except (Action.DoesNotExist, ValueError, TypeError):
+            raise QueryError(f"Action '{property.key}' in behavioral filter not found")
+        conditions: list[ast.Expr] = [action_to_expr(action)]
+    else:
+        conditions = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["event"]),
+                right=ast.Constant(value=str(property.key)),
+            )
+        ]
+
+    if property.explicit_datetime:
+        date_from = relative_date_parse(property.explicit_datetime, team.timezone_info)
+        conditions.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Gt, left=ast.Field(chain=["timestamp"]), right=ast.Constant(value=date_from)
+            )
+        )
+    elif property.time_value is not None and property.time_interval is not None:
+        if property.time_interval not in _BEHAVIORAL_INTERVALS:
+            raise QueryError(f"Invalid behavioral filter time interval: {property.time_interval}")
+        interval_function = get_interval_func(property.time_interval)
+        try:
+            time_value = int(property.time_value)
+        except (ValueError, TypeError):
+            raise QueryError(f"Invalid behavioral filter time value: {property.time_value}")
+        if time_value <= 0:
+            raise QueryError(f"Invalid behavioral filter time value: {property.time_value}")
+        conditions.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Gt,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.ArithmeticOperation(
+                    op=ast.ArithmeticOperationOp.Sub,
+                    left=ast.Call(name="now", args=[]),
+                    right=ast.Call(name=interval_function, args=[ast.Constant(value=time_value)]),
+                ),
+            )
+        )
+    else:
+        # An unbounded "ever performed" filter would scan every partition of the events table.
+        raise QueryError("Behavioral filters require a time window (time_value/time_interval or explicit_datetime)")
+
+    if property.explicit_datetime_to:
+        date_to = relative_date_parse(property.explicit_datetime_to, team.timezone_info)
+        conditions.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=date_to),
+            )
+        )
+
+    if property.event_filters:
+        conditions.append(property_to_expr(list(property.event_filters), team, scope="event", strict=strict))
+
+    having: Optional[ast.Expr] = None
+    if property.value == BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE:
+        try:
+            count = int(property.operator_value)  # type: ignore[arg-type]
+        except (ValueError, TypeError):
+            raise QueryError(f"Invalid behavioral filter count: {property.operator_value}")
+        # count() = 0 can never match a grouped row, so a non-positive threshold silently matches nobody.
+        if count <= 0:
+            raise QueryError(f"Invalid behavioral filter count: {property.operator_value}")
+        count_op = _BEHAVIORAL_COUNT_OPERATORS.get(property.operator or "exact")
+        if count_op is None:
+            raise QueryError(f"Invalid behavioral filter count operator: {property.operator}")
+        having = ast.CompareOperation(
+            op=count_op,
+            left=ast.Call(name="count", args=[]),
+            right=ast.Constant(value=count),
+        )
+
+    subquery = ast.SelectQuery(
+        select=[ast.Field(chain=["person_id"])],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+        where=ast.And(exprs=conditions) if len(conditions) > 1 else conditions[0],
+        group_by=[ast.Field(chain=["person_id"])],
+        having=having,
+    )
+    return ast.CompareOperation(
+        left=ast.Field(chain=["person_id"]),
+        op=ast.CompareOperationOp.NotIn if property.negation else ast.CompareOperationOp.In,
+        right=subquery,
+    )
+
+
 def property_to_expr(
     property: (
         list
@@ -721,6 +985,7 @@ def property_to_expr(
         | PropertyGroupFilterValue
         | Property
         | ast.Expr
+        | BehavioralPropertyFilter
         | EventPropertyFilter
         | PersonPropertyFilter
         | ElementPropertyFilter
@@ -752,17 +1017,17 @@ def property_to_expr(
     strict: bool = False,
 ) -> ast.Expr:
     if isinstance(property, dict):
+        is_behavioral = property.get("type") == "behavioral"
         try:
             property = Property(**property)
         # The property was saved as an incomplete object. Instead of crashing the entire query, pretend it's not there.
         # TODO: revert this when removing legacy insights?
-        except ValueError:
+        except (ValueError, TypeError) as e:
             if strict:
                 raise
-            return ast.Constant(value=1)
-        except TypeError:
-            if strict:
-                raise
+            # Dropping a behavioral filter would widen the query to every person instead of narrowing it.
+            if is_behavioral:
+                raise QueryError(f"Invalid behavioral property filter: {e}")
             return ast.Constant(value=1)
     elif isinstance(property, list):
         properties = [property_to_expr(p, team, scope, strict=strict) for p in property]
@@ -814,9 +1079,12 @@ def property_to_expr(
     elif isinstance(property, BaseModel):
         try:
             property = Property(**property.dict())
-        except ValueError:
+        except ValueError as e:
             if strict:
                 raise
+            # Dropping a behavioral filter would widen the query to every person instead of narrowing it.
+            if isinstance(property, BehavioralPropertyFilter):
+                raise QueryError(f"Invalid behavioral property filter: {e}")
             # The property was saved as an incomplete object. Instead of crashing the entire query, pretend it's not there.
             return ast.Constant(value=1)
     else:
@@ -829,6 +1097,10 @@ def property_to_expr(
     elif property.type == "hogql":
         tag_contains_user_hogql()
         return parse_expr(property.key, cache_origin=CacheOrigin.USER)
+    elif property.type == "behavioral":
+        if not team:
+            raise Exception("Can not convert behavioral property to expression without team")
+        return _behavioral_property_to_expr(property, team, scope, strict=strict)
     elif property.type == "event_metadata" and scope == "group" and GROUP_KEY_PATTERN.match(property.key) is not None:
         group_type_index = property.key.split("_")[1]
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
@@ -865,7 +1137,6 @@ def property_to_expr(
         or property.type == "person"
         or property.type == "person_metadata"
         or property.type == "group"
-        or property.type == "behavioral"
         or property.type == "data_warehouse"
         or property.type == "data_warehouse_person_property"
         or property.type == "session"
@@ -947,6 +1218,8 @@ def property_to_expr(
                     operator == PropertyOperator.NOT_ICONTAINS
                     or operator == PropertyOperator.NOT_REGEX
                     or operator == PropertyOperator.IS_NOT
+                    or operator == PropertyOperator.NOT_STARTS_WITH
+                    or operator == PropertyOperator.NOT_ENDS_WITH
                 ):
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
@@ -1028,6 +1301,8 @@ def property_to_expr(
             PropertyOperator.NOT_BETWEEN,
             PropertyOperator.ICONTAINS,
             PropertyOperator.NOT_ICONTAINS,
+            # starts_with/ends_with intentionally excluded: no ClickHouse anchored multi-search
+            # primitive exists, so multi-value use falls through to per-value ILIKE scans below.
         ):
             if len(value) == 0:
                 return ast.Constant(value=1)
@@ -1051,8 +1326,11 @@ def property_to_expr(
                         if (is_exception_string_array_property or is_visited_page_property)
                         else expr
                     )
+                    coerced = cast(list, _coerce_numeric_value_for_string_property(value, property, team))
                     compare_op = ast.CompareOperation(
-                        op=op, left=left, right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value])
+                        op=op,
+                        left=left,
+                        right=ast.Tuple(exprs=[ast.Constant(value=v) for v in coerced]),
                     )
 
                     if is_exception_string_array_property:
@@ -1112,6 +1390,8 @@ def property_to_expr(
                     operator == PropertyOperator.NOT_ICONTAINS
                     or operator == PropertyOperator.NOT_REGEX
                     or operator == PropertyOperator.IS_NOT
+                    or operator == PropertyOperator.NOT_STARTS_WITH
+                    or operator == PropertyOperator.NOT_ENDS_WITH
                 ):
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
@@ -1179,6 +1459,8 @@ def property_to_expr(
                     operator == PropertyOperator.IS_NOT
                     or operator == PropertyOperator.NOT_ICONTAINS
                     or operator == PropertyOperator.NOT_REGEX
+                    or operator == PropertyOperator.NOT_STARTS_WITH
+                    or operator == PropertyOperator.NOT_ENDS_WITH
                 ):
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
@@ -1240,6 +1522,78 @@ def property_to_expr(
 
     raise NotImplementedError(
         f"property_to_expr not implemented for filter type {type(property).__name__} and {property.type}"
+    )
+
+
+def bound_property_to_expr(property: Property, expr: ast.Expr, team: Team) -> ast.Expr:
+    """Apply a property filter's operator and value to a caller-supplied expression, instead of
+    resolving the filter's key to a table field. Backs the column-bound `{filters(...)}` placeholder,
+    where the query author maps filter keys onto their own columns. Mirrors `property_to_expr`'s
+    multi-value handling, without the events-table special cases that don't apply to bound columns."""
+    operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
+    value = property.value
+
+    if property.key and GROUP_KEY_PATTERN.match(str(property.key)):
+        value = _stringify_group_key_value(value)
+
+    if isinstance(value, list) and operator not in (
+        PropertyOperator.BETWEEN,
+        PropertyOperator.NOT_BETWEEN,
+        PropertyOperator.ICONTAINS,
+        PropertyOperator.NOT_ICONTAINS,
+    ):
+        if len(value) == 0:
+            return ast.Constant(value=1)
+        if len(value) == 1:
+            value = value[0]
+        elif operator in (
+            PropertyOperator.EXACT,
+            PropertyOperator.IS_NOT,
+            PropertyOperator.IN_,
+            PropertyOperator.NOT_IN,
+        ):
+            op = (
+                ast.CompareOperationOp.In
+                if operator in (PropertyOperator.EXACT, PropertyOperator.IN_)
+                else ast.CompareOperationOp.NotIn
+            )
+            return ast.CompareOperation(
+                op=op,
+                left=clone_expr(expr),
+                right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value]),
+            )
+        else:
+            exprs = [
+                bound_property_to_expr(
+                    Property(
+                        type=property.type,
+                        key=property.key,
+                        operator=property.operator,
+                        group_type_index=property.group_type_index,
+                        value=v,
+                    ),
+                    expr,
+                    team,
+                )
+                for v in value
+            ]
+            if (
+                operator == PropertyOperator.IS_NOT
+                or operator == PropertyOperator.NOT_ICONTAINS
+                or operator == PropertyOperator.NOT_REGEX
+                or operator == PropertyOperator.NOT_STARTS_WITH
+                or operator == PropertyOperator.NOT_ENDS_WITH
+            ):
+                return ast.And(exprs=exprs)
+            return ast.Or(exprs=exprs)
+
+    return _expr_to_compare_op(
+        expr=clone_expr(expr),
+        value=value,
+        operator=operator,
+        property=property,
+        is_json_field=False,
+        team=team,
     )
 
 
@@ -1347,6 +1701,9 @@ def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optiona
             exprs.append(expr)
 
         if step.properties:
+            # An action referencing itself here would re-enter action_to_expr until Python's recursion limit.
+            if any(isinstance(prop, dict) and prop.get("type") == "behavioral" for prop in step.properties):
+                raise QueryError("Action steps can't filter on behavioral properties")
             exprs.append(property_to_expr(step.properties, team))
 
         if len(exprs) == 1:
@@ -1526,6 +1883,8 @@ def operator_is_negative(operator: PropertyOperator) -> bool:
         PropertyOperator.IS_NOT,
         PropertyOperator.NOT_ICONTAINS,
         PropertyOperator.NOT_ICONTAINS_MULTI,
+        PropertyOperator.NOT_STARTS_WITH,
+        PropertyOperator.NOT_ENDS_WITH,
         PropertyOperator.NOT_REGEX,
         PropertyOperator.IS_NOT_SET,
         PropertyOperator.NOT_BETWEEN,

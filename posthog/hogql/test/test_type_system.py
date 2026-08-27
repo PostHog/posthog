@@ -8,8 +8,11 @@ from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FloatArrayDatabaseField
+from posthog.hogql.errors import QueryError
+from posthog.hogql.functions.mapping import find_hogql_function
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_prepared_ast
+from posthog.hogql.property_metadata import PropertyMetadata
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.transforms.type_aware_simplification import simplify_redundant_type_operations
 from posthog.hogql.type_diagnostics import (
@@ -169,6 +172,43 @@ class TestHogQLTypeSystem:
             unanalyzable=True
         )
 
+    def test_resolver_raises_on_incompatible_branch_types(self) -> None:
+        for query, function_name in (
+            ("SELECT if(1, false, toDate('2024-01-01'))", "if"),
+            ("SELECT ifNull(false, toDate('2024-01-01'))", "ifNull"),
+            ("SELECT multiIf(1, false, 2, true, toDate('2024-01-01'))", "multiIf"),
+            ("SELECT coalesce(false, toDate('2024-01-01'))", "coalesce"),
+        ):
+            with pytest.raises(QueryError) as exc_info:
+                resolve_types(parse_select(query), self.context, dialect="clickhouse")
+            assert function_name in str(exc_info.value), query
+            assert "Boolean" in str(exc_info.value), query
+            assert "Date" in str(exc_info.value), query
+            # The error carries a source span so the editor can underline the offending branches.
+            assert exc_info.value.start is not None, query
+            assert exc_info.value.end is not None, query
+
+    def test_resolver_allows_boolean_branches_beside_property_accesses(self) -> None:
+        # A property access reads as the parent JSON column's type whenever no property-definition
+        # metadata is loaded, so treating that as a real conflict rejects queries ClickHouse runs.
+        for query in (
+            "SELECT coalesce(properties.blocked, false) FROM events",
+            "SELECT ifNull(properties.blocked, false) FROM events",
+            "SELECT if(1, false, properties.blocked) FROM events",
+            "SELECT multiIf(1, false, 2, true, properties.blocked) FROM events",
+            "SELECT coalesce(properties.blocked, properties.plan = 'paid') FROM events",
+            "SELECT coalesce(person.properties.blocked, false) FROM events",
+        ):
+            node = cast(ast.SelectQuery, resolve_types(self._select(query), self.context, dialect="clickhouse"))
+            column_type = node.select[0].type
+            assert column_type is not None
+            assert column_type.resolve_constant_type(self.context) == ast.UnknownType(), query
+
+        # A loaded property definition types the property confidently enough to conflict with the
+        # boolean branch, so only the property-access check keeps this query from being rejected.
+        self.context.property_metadata = PropertyMetadata(event_properties={"signup": {"type": "DateTime"}})
+        self._assert_first_column_type("SELECT coalesce(properties.signup, false) FROM events", ast.UnknownType())
+
     def test_resolver_poisons_only_unanalyzable_branches(self) -> None:
         # An unmapped function (throwIf) infers as unanalyzable, poisoning the unifying call's type...
         for query in ("SELECT ifNull(throwIf(0, 'x'), 1)", "SELECT if(1, throwIf(0, 'x'), 1)"):
@@ -216,19 +256,21 @@ class TestHogQLTypeSystem:
         self._assert_first_column_type("SELECT reinterpretAsUUID('1234567890123456')", ast.UUIDType(nullable=False))
 
     def test_resolver_infers_date_arithmetic_granularity(self) -> None:
-        # Sub-day arithmetic promotes a Date to DateTime, matching ClickHouse.
+        # Nullability below tracks the argument: parsing a string goes through `toDateOrNull` /
+        # `parseDateTime64BestEffortOrNull`, so it can be NULL and that propagates through the
+        # arithmetic. Only the granularity (Date vs DateTime) is what this test is really about.
         for sub_day in ("addHours", "addMinutes", "addSeconds", "subtractHours", "subtractMinutes"):
             self._assert_first_column_type(
-                f"SELECT {sub_day}(toDate('2020-01-01'), 1)", ast.DateTimeType(nullable=False)
+                f"SELECT {sub_day}(toDate('2020-01-01'), 1)", ast.DateTimeType(nullable=True)
             )
 
         # Day-and-above arithmetic keeps the Date.
         for day_plus in ("addDays", "addWeeks", "addMonths", "subtractDays", "subtractYears"):
-            self._assert_first_column_type(f"SELECT {day_plus}(toDate('2020-01-01'), 1)", ast.DateType(nullable=False))
+            self._assert_first_column_type(f"SELECT {day_plus}(toDate('2020-01-01'), 1)", ast.DateType(nullable=True))
 
         # A DateTime argument stays a DateTime under sub-day arithmetic.
         self._assert_first_column_type(
-            "SELECT addHours(toDateTime('2020-01-01 00:00:00'), 1)", ast.DateTimeType(nullable=False)
+            "SELECT addHours(toDateTime('2020-01-01 00:00:00'), 1)", ast.DateTimeType(nullable=True)
         )
 
     def test_resolver_infers_array_and_tuple_access_types(self) -> None:
@@ -770,6 +812,58 @@ class TestHogQLTypeSystem:
     ) -> None:
         assert infer_function_return_type(name, arg_types).return_type == expected
 
+    @pytest.mark.parametrize(
+        "name,arg_types,expected_nullable",
+        [
+            # Falls through to the `*OrNull` parser, so the result really can be NULL.
+            ("toDate", [ast.StringType(nullable=False)], True),
+            ("toDateTime", [ast.StringType(nullable=False)], True),
+            # toDate overloads only for Date/DateTime, so an integer still parses.
+            ("toDate", [ast.IntegerType(nullable=False)], True),
+            # toDateTimeUS declares no overloads at all — always the US best-effort parser.
+            ("toDateTimeUS", [ast.StringType(nullable=False)], True),
+            ("toDateTimeUS", [ast.DateTimeType(nullable=False)], True),
+            # An overload wins, printing the plain constructor, which cannot fail.
+            ("toDate", [ast.DateTimeType(nullable=False)], False),
+            ("toDateTime", [ast.DateTimeType(nullable=False)], False),
+            ("toDateTime", [ast.IntegerType(nullable=False)], False),
+            # `_toDate` is already the plain constructor, so it never parses.
+            ("_toDate", [ast.StringType(nullable=False)], False),
+            # A nullable argument stays nullable down either path.
+            ("toDateTime", [ast.DateTimeType(nullable=True)], True),
+            # `toDateTime64` maps straight through to ClickHouse's non-nullable constructor.
+            ("toDateTime64", [ast.DateTimeType(nullable=False)], False),
+        ],
+    )
+    def test_date_conversion_nullability_follows_the_printed_overload(
+        self, name: str, arg_types: list[ast.ConstantType], expected_nullable: bool
+    ) -> None:
+        # Reads the real catalog entry rather than a restated copy of it, so the expectations here
+        # track whatever the printer would actually emit for these arguments.
+        meta = find_hogql_function(name)
+        assert meta is not None
+        return_type = infer_function_return_type(name, arg_types, meta=meta).return_type
+        assert return_type.nullable is expected_nullable
+
+    def test_string_parsed_date_conversion_keeps_its_assume_not_null_wrapper(self) -> None:
+        # Wiring guard for the inference above. Callers wrap these parses in assumeNotNull precisely
+        # because they can return NULL (see QueryDateRange.date_from_as_hogql). If the return type is
+        # declared non-nullable, the simplifier proves the wrapper redundant and drops it, and every
+        # date-bounded query then feeds Nullable(DateTime64) into places ClickHouse requires a plain
+        # value — `numbers(dateDiff(...))` fails outright with "Illegal type Nullable(Int64)".
+        resolved = cast(
+            ast.SelectQuery,
+            resolve_types(
+                self._select("SELECT assumeNotNull(toDateTime('2020-01-01 00:00:00')) AS bound"),
+                self.context,
+                dialect="clickhouse",
+            ),
+        )
+        simplified = simplify_redundant_type_operations(resolved, self.context, dialect="clickhouse")
+        sql = print_prepared_ast(simplified, self.context, dialect="clickhouse")
+
+        assert "assumeNotNull(" in sql
+
     def test_aggregate_combinator_inference_is_conservative(self) -> None:
         # A name ending in a combinator suffix whose residual is not a known aggregate must stay
         # Unknown rather than be assigned a confidently-wrong type.
@@ -826,11 +920,12 @@ class TestHogQLTypeSystem:
 
     def test_resolver_infers_more_optimizer_relevant_function_types(self) -> None:
         self._assert_first_column_type("SELECT formatReadableSize(1024)", ast.StringType(nullable=False))
+        # Nullable because the inner string parse can fail, not because of the outer helper.
         self._assert_first_column_type(
             "SELECT formatDateTime(toDateTime('2024-01-01'), '%F')",
-            ast.StringType(nullable=False),
+            ast.StringType(nullable=True),
         )
-        self._assert_first_column_type("SELECT toYear(toDate('2024-01-01'))", ast.IntegerType(nullable=False))
+        self._assert_first_column_type("SELECT toYear(toDate('2024-01-01'))", ast.IntegerType(nullable=True))
         self._assert_first_column_type("SELECT row_number() OVER () FROM events", ast.IntegerType(nullable=False))
         self._assert_first_column_type("SELECT lag(event) OVER () FROM events", ast.StringType(nullable=True))
         self._assert_first_column_type("SELECT bitmapCardinality(bitmapBuild([1, 2]))", ast.IntegerType(nullable=False))
@@ -1043,6 +1138,30 @@ class TestHogQLTypeSystem:
         assert "1 AS c" in sql
         assert "1 AS d" in sql
         assert "1 AS e" in sql
+
+    def test_type_aware_simplification_records_removal_metrics(self) -> None:
+        # The pilot rollout relies on hogql_type_simplification_total to see whether the simplifier
+        # fires at all; catch the instrumentation silently going dark while removals still happen.
+        from posthog.hogql.observability import TYPE_SIMPLIFICATION_TOTAL
+
+        def counter_value(kind: str) -> float:
+            return TYPE_SIMPLIFICATION_TOTAL.labels(dialect="clickhouse", kind=kind)._value.get()
+
+        kinds = ["redundant_cast", "nullability_wrapper", "null_fallback", "constant_fold"]
+        before = {kind: counter_value(kind) for kind in kinds}
+
+        resolved = cast(
+            ast.SelectQuery,
+            resolve_types(
+                self._select("SELECT toString('y') AS a, assumeNotNull(1) AS b, ifNull(1, 2) AS c, 1 + 2 AS d"),
+                self.context,
+                dialect="clickhouse",
+            ),
+        )
+        simplify_redundant_type_operations(resolved, self.context, dialect="clickhouse")
+
+        for kind in kinds:
+            assert counter_value(kind) == before[kind] + 1, kind
 
     def test_type_aware_simplification_folds_safe_literal_arithmetic(self) -> None:
         resolved = cast(

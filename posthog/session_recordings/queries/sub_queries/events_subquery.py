@@ -1,8 +1,9 @@
 from collections.abc import Iterable
-from datetime import timedelta
-from typing import Optional, cast
+from datetime import datetime, timedelta
+from typing import Any, Optional, cast
 
 import posthoganalytics
+from prometheus_client import Counter
 
 from posthog.schema import (
     ActionsNode,
@@ -18,11 +19,13 @@ from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query, tracer
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import MathAvailability, legacy_entity_to_node
 from posthog.models import Entity, EventProperty, Team
 from posthog.ph_client import feature_enabled_or_false
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
+from posthog.session_recordings.queries.sub_queries.group_key_resolver import resolved_group_key_expr
 from posthog.session_recordings.queries.utils import (
     INVERSE_OPERATOR_FOR,
     NEGATIVE_OPERATORS,
@@ -35,6 +38,15 @@ from posthog.session_recordings.queries.utils import (
     is_person_property,
 )
 from posthog.types import AnyPropertyFilter
+
+# Cap on the negative blocklist subquery, kept for memory safety. Sessions past the cap
+# are silently not excluded, so hitting it is observed by check_negative_blocklist_truncation.
+NEGATIVE_BLOCKLIST_LIMIT = 1_000_000
+
+REPLAY_NEGATIVE_BLOCKLIST_TRUNCATED_COUNTER = Counter(
+    "replay_negative_blocklist_truncated",
+    "A replay exclusion blocklist hit its row cap, so some sessions were not excluded from the results",
+)
 
 # Person properties eligible for hybrid query optimization
 # These are high-selectivity identity properties where the three-stage query provides value
@@ -84,10 +96,28 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         query: RecordingsQuery,
         allow_event_property_expansion: bool = False,
         hogql_query_modifiers: Optional[HogQLQueryModifiers] = None,
+        sample_factor: Optional[float] = None,
+        events_timestamp_floor: Optional[datetime] = None,
+        resolve_group_properties: ClickHouseUser | None = None,
     ):
         super().__init__(team, query)
         self._hogql_query_modifiers = hogql_query_modifiers
         self._allow_event_property_expansion = allow_event_property_expansion
+        self._sample_factor = sample_factor
+        # Extra lower bound on positive events scans; only ever narrows the date-range bound. For
+        # callers that re-run often over a wide session window. Exclusion blocklists never apply it,
+        # since a truncated blocklist would under-exclude.
+        self._events_timestamp_floor = events_timestamp_floor
+        self._resolve_group_properties = resolve_group_properties
+        self.emitted_sampled_subquery = False
+
+    def _events_join(self, sample: bool = True) -> ast.JoinExpr:
+        join = ast.JoinExpr(table=ast.Field(chain=["events"]))
+        # Only positive session-selectors sample; a sampled exclusion blocklist would under-exclude.
+        if sample and self._sample_factor is not None:
+            join.sample = ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=self._sample_factor)))
+            self.emitted_sampled_subquery = True
+        return join
 
     @staticmethod
     def _event_predicates(
@@ -134,9 +164,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         return ast.SelectQuery(
             select=select_expr if isinstance(select_expr, list) else [select_expr],
-            select_from=ast.JoinExpr(
-                table=ast.Field(chain=["events"]),
-            ),
+            select_from=self._events_join(),
             where=self._where_predicates(where_expr),
             having=self._having_predicates(),
             group_by=group_by,
@@ -178,6 +206,8 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             PropertyOperator.IS_NOT,
             PropertyOperator.NOT_REGEX,
             PropertyOperator.NOT_ICONTAINS,
+            PropertyOperator.NOT_STARTS_WITH,
+            PropertyOperator.NOT_ENDS_WITH,
             PropertyOperator.NOT_IN,  # Cohort negation (e.g., user not in cohort X)
         ]
         for prop in person_properties:
@@ -263,12 +293,12 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         """
         # Calculate date range with ±1 day buffer to match events_subquery behavior
         # Events can arrive before session starts or after it ends
-        date_from_buffered = self.query_date_range.date_from() - timedelta(days=1)
+        date_from_buffered = self._events_date_from() or self.query_date_range.date_from() - timedelta(days=1)
         date_to_buffered = self.query_date_range.date_to() + timedelta(days=1)
 
         return ast.SelectQuery(
             select=[ast.Alias(alias="session_id", expr=_event_session_id_field())],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            select_from=self._events_join(),
             where=ast.And(
                 exprs=[
                     ast.CompareOperation(
@@ -333,6 +363,10 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             if hasattr(prop, "operator") and prop.operator in [
                 PropertyOperator.ICONTAINS,
                 PropertyOperator.NOT_ICONTAINS,
+                PropertyOperator.STARTS_WITH,
+                PropertyOperator.NOT_STARTS_WITH,
+                PropertyOperator.ENDS_WITH,
+                PropertyOperator.NOT_ENDS_WITH,
                 PropertyOperator.REGEX,
                 PropertyOperator.NOT_REGEX,
                 PropertyOperator.IS_SET,
@@ -400,18 +434,28 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         return sessions_query
 
-    def _get_queries_for_matching(self, select_expr: ast.Expr, group_by: list[ast.Expr]) -> list[ast.SelectQuery]:
+    def _get_queries_for_matching(
+        self, select_expr: ast.Expr, group_by: list[ast.Expr], union_entities: bool = False
+    ) -> list[ast.SelectQuery]:
         """
         takes each filter in the query that can be queried from the events table
         and makes a separate query for each
         this might be slower than the previous approach of having one huge event query
         but that approach is horribly complex, and we keep getting bug reports
         that are avoidable with a simpler approach
+
+        `union_entities` merges the event/action filters into a single subquery, for callers that
+        intersect the subqueries by event id rather than by session id (see
+        `get_query_for_event_id_matching`).
         """
         gathered_exprs: list[ast.Expr] = []
         event_where_exprs = self._event_predicates(self.entities, self._team)
         if event_where_exprs:
-            gathered_exprs += event_where_exprs
+            gathered_exprs += (
+                [ast.Or(exprs=event_where_exprs)]
+                if union_entities and len(event_where_exprs) > 1
+                else event_where_exprs
+            )
 
         # Skip event properties with negative operators since they're handled by _negative_guard_query
         skip_negative_properties = self._query.operand == "AND"
@@ -451,7 +495,12 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         for p in self.group_properties:
             if skip_negative_properties and is_negative_prop(p):
                 continue
-            gathered_exprs.append(property_to_expr(p, team=self._team))
+            resolved = (
+                resolved_group_key_expr(self._team, p, self._resolve_group_properties)
+                if self._resolve_group_properties is not None
+                else None
+            )
+            gathered_exprs.append(resolved if resolved is not None else property_to_expr(p, team=self._team))
 
         # Handle person properties with hybrid query mode if enabled and appropriate
         hybrid_query: Optional[ast.SelectQuery] = None
@@ -504,12 +553,78 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
     def get_negative_blocklist_query(self) -> ast.SelectQuery | None:
         return self._negative_blocklist_query()
 
+    def get_excluded_sessions_query(self, session_ids: list[str]) -> ast.SelectQuery | None:
+        """Which of `session_ids` carry an event that a negative filter excludes.
+
+        Same predicates as the in-query blocklist, asked the other way round. That form builds every
+        blocked session in the lookback so it can be anti-joined during selection; this one starts
+        from candidates the caller already holds, so naming them lets the scan prune on session id
+        instead of sweeping the window. It returns nothing when the query has no negative filters.
+
+        The `timestamp <= now()` bound is dropped here. Senders choose the timestamp, and a
+        future-dated event would otherwise let its session through.
+        """
+        if not session_ids:
+            return None
+        where_expr = self._inverted_negative_expr()
+        if where_expr is None:
+            return None
+
+        where = ast.And(
+            exprs=[
+                self._where_predicates(where_expr, apply_timestamp_floor=False, apply_future_bound=False),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=_event_session_id_field(),
+                    right=ast.Constant(value=session_ids),
+                ),
+            ]
+        )
+        return ast.SelectQuery(
+            select=[ast.Alias(alias="session_id", expr=_event_session_id_field())],
+            select_from=self._events_join(sample=False),
+            where=where,
+            group_by=[_event_session_id_field()],
+            # A session id can only be returned once, so the input bounds the output.
+            limit=ast.Constant(value=len(session_ids)),
+        )
+
+    def _inverted_negative_expr(self) -> ast.Expr | None:
+        """Everything that disqualifies a session, as a positive predicate over its events.
+
+        Shared by the in-query blocklist and the scoped exclusion so the two cannot cover different
+        filters. None when this query excludes nothing.
+        """
+        # a negated entity's predicate is already the positive form: sessions performing it get blocked
+        blocklist_exprs: list[ast.Expr] = self._event_predicates(self.negated_entities, self._team)
+
+        if self._query.operand != "OR":
+            for prop in self._collect_negative_properties():
+                operator = cast(PropertyOperator, prop.operator)  # type: ignore[union-attr]
+                inverted = prop.model_copy(update={"operator": INVERSE_OPERATOR_FOR[operator]})
+                blocklist_exprs.append(property_to_expr(inverted, team=self._team, scope="event"))
+
+        if not blocklist_exprs:
+            return None
+        # Any event matching any positive condition → session goes in blocklist
+        return ast.Or(exprs=blocklist_exprs) if len(blocklist_exprs) > 1 else blocklist_exprs[0]
+
     def get_query_for_event_id_matching(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        """
+        The ids of a session's events that matched ANY ONE of the query's event/action filters,
+        still combined with the query's property filters under its operand. Deliberately weaker
+        than the session-id matching path: it does not prove the session satisfied every filter
+        (that's a question about the session, which `get_queries_for_session_id_matching`
+        answers), it names the events that made the session relevant.
+        """
         # Subqueries only need to return uuid for the GlobalIn comparison
         select_queries: list[ast.SelectQuery] = self._get_queries_for_matching(
             select_expr=ast.Field(chain=["uuid"]),
             # when matching we want to select flag lists of event UUIds so we group by session_id, and then uuid
             group_by=[_event_session_id_field(), ast.Field(chain=["uuid"])],
+            # The subqueries are intersected by event id below, and an event has exactly one name,
+            # so keeping one subquery per entity would match nothing as soon as there are two.
+            union_entities=True,
         )
         select_exprs: list[ast.Expr] = []
         for q in select_queries:
@@ -523,9 +638,15 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                     right=q,
                 )
             )
+        # Exclusion-only filter sets (every entity negated) produce no positive predicates.
+        # Wrapping an empty list prints as `and()`, which ClickHouse rejects, so match nothing:
+        # there are no positive events to highlight in the player.
+        where_expr: ast.Expr = (
+            self.wrapped_with_query_operand(exprs=select_exprs) if select_exprs else ast.Constant(value=False)
+        )
         return self._select_from_events(
             select_expr=[ast.Field(chain=["uuid"]), ast.Call(name="any", args=[ast.Field(chain=["timestamp"])])],
-            where_expr=self.wrapped_with_query_operand(exprs=select_exprs),
+            where_expr=where_expr,
             # when matching we want to select flag lists of event UUIds so we group by session_id, and then uuid
             group_by=[_event_session_id_field(), ast.Field(chain=["uuid"])],
             limit_expr=ast.Constant(value=10000),
@@ -548,18 +669,39 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             timings=hogql_query_response.timings,
         )
 
-    def _where_predicates(self, where_expr: ast.Expr | list[ast.Expr] | None) -> ast.Expr:
+    def _events_date_from(self, apply_floor: bool = True) -> Optional[datetime]:
+        """Lower bound for an events scan, or None when nothing bounds it.
+
+        The recording date range is pushed a day earlier because events can arrive before the
+        recording starts. A floor tightens that bound, and can only ever narrow it.
+        """
+        bounds: list[datetime] = []
+        if self._query.date_from:
+            bounds.append(self.query_date_range.date_from() - timedelta(days=1))
+        if apply_floor and self._events_timestamp_floor is not None:
+            bounds.append(self._events_timestamp_floor)
+        return max(bounds) if bounds else None
+
+    def _where_predicates(
+        self,
+        where_expr: ast.Expr | list[ast.Expr] | None,
+        apply_timestamp_floor: bool = True,
+        apply_future_bound: bool = True,
+    ) -> ast.Expr:
         exprs: list[ast.Expr] = [
             ast.Call(
                 name="notEmpty",
                 args=[_event_session_id_field()],
             ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.LtEq,
-                left=ast.Field(chain=["timestamp"]),
-                right=ast.Call(name="now", args=[]),
-            ),
         ]
+        if apply_future_bound:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Call(name="now", args=[]),
+                )
+            )
 
         if isinstance(where_expr, ast.Expr):
             exprs.append(where_expr)
@@ -568,7 +710,8 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         # TRICKY: we're adding a buffer to the date range to ensure we get all the events
         # you can start sending us events before the session starts
-        if self._query.date_from:
+        events_date_from = self._events_date_from(apply_floor=apply_timestamp_floor)
+        if events_date_from is not None:
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
@@ -576,7 +719,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                     # TRICKY: technically you could start sending us events
                     # almost 24 hours before the session recording starts
                     # so we push the events date range a day earlier
-                    right=ast.Constant(value=self.query_date_range.date_from() - timedelta(days=1)),
+                    right=ast.Constant(value=events_date_from),
                 )
             )
 
@@ -618,20 +761,41 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         exprs = [countif_zero(p) for p in self._collect_negative_properties()]
         return self.wrapped_with_query_operand(exprs=exprs) if exprs else ast.Constant(value=True)
 
+    @staticmethod
+    def _is_negated_entity(raw_entity: dict[str, Any]) -> bool:
+        return bool(raw_entity.get("negation"))
+
     @property
     def action_entities(self):
         # TODO what do we send to the API instead to avoid needing to do this
-        return [legacy_entity_to_node(Entity(e), True, MathAvailability.Unavailable) for e in self._query.actions or []]
+        return [
+            legacy_entity_to_node(Entity(e), True, MathAvailability.Unavailable)
+            for e in self._query.actions or []
+            if not self._is_negated_entity(e)
+        ]
 
     @property
     def event_entities(self):
         # TODO what do we send to the API instead to avoid needing to do this
         # TODO is this overkill since it feels like we only need a few things off the entity
-        return [legacy_entity_to_node(Entity(e), True, MathAvailability.Unavailable) for e in self._query.events or []]
+        return [
+            legacy_entity_to_node(Entity(e), True, MathAvailability.Unavailable)
+            for e in self._query.events or []
+            if not self._is_negated_entity(e)
+        ]
 
     @property
     def entities(self):
         return self.action_entities + self.event_entities
+
+    @property
+    def negated_entities(self) -> list[EventsNode | ActionsNode | DataWarehouseNode | str]:
+        # the legacy Entity class drops unknown keys, so negation is read off the raw dicts
+        return [
+            legacy_entity_to_node(Entity(e), True, MathAvailability.Unavailable)
+            for e in (self._query.actions or []) + (self._query.events or [])
+            if self._is_negated_entity(e)
+        ]
 
     @property
     def event_properties(self):
@@ -675,7 +839,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
     def _negative_blocklist_query(self) -> ast.SelectQuery | None:
         """Returns session IDs that should be EXCLUDED because they contain events
-        matching at least one inverted negative condition.
+        matching at least one inverted negative condition or one negated entity.
 
         This is a blocklist approach: instead of scanning ALL events and keeping sessions
         where no events match (allowlist), we find the small set of sessions that DO match
@@ -684,31 +848,57 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         The blocklist is much smaller than the allowlist for typical negative filters
         (e.g. "host is not internal IP" → blocklist contains only internal IP sessions).
         This avoids hitting the LIMIT on high-traffic teams with millions of event-sessions.
+
+        Negated entities ("did not perform X") are global constraints and apply under both
+        operands. Negative property filters stay AND-only because inverting them under OR
+        would change existing semantics.
         """
-        if self._query.operand == "OR":
+        where_expr = self._inverted_negative_expr()
+        if where_expr is None:
             return None
-
-        negative_props = self._collect_negative_properties()
-        if not negative_props:
-            return None
-
-        # Build inverted (positive) expressions for each negative property
-        inverted_exprs: list[ast.Expr] = []
-        for prop in negative_props:
-            operator = cast(PropertyOperator, prop.operator)  # type: ignore[union-attr]
-            inverted = prop.model_copy(update={"operator": INVERSE_OPERATOR_FOR[operator]})
-            inverted_exprs.append(property_to_expr(inverted, team=self._team, scope="event"))
-
-        # Any event matching any positive condition → session goes in blocklist
-        where_expr = ast.Or(exprs=inverted_exprs) if len(inverted_exprs) > 1 else inverted_exprs[0]
 
         return ast.SelectQuery(
             select=[ast.Alias(alias="session_id", expr=_event_session_id_field())],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=self._where_predicates(where_expr),
+            select_from=self._events_join(sample=False),
+            where=self._where_predicates(where_expr, apply_timestamp_floor=False),
             group_by=[_event_session_id_field()],
-            limit=ast.Constant(value=1000000),
+            # Negating a very common event (e.g. $pageview) can push the blocklist past this cap on
+            # high-traffic teams, silently under-excluding sessions beyond it. Typical negatives (rare
+            # events, property filters) stay well under it, so the bound is kept for memory safety.
+            limit=ast.Constant(value=NEGATIVE_BLOCKLIST_LIMIT),
         )
+
+    def check_negative_blocklist_truncation(self) -> None:
+        """The blocklist is embedded as a NOT GlobalIn subquery, so the main query never sees
+        its row count. Probe it separately and record when it hit its cap, because past the cap
+        sessions that DID perform the excluded event come back in the results. Only runs when
+        negated entities are present, to bound the extra query cost to the exclusion feature."""
+        if not self.negated_entities:
+            return
+        blocklist = self._negative_blocklist_query()
+        if blocklist is None:
+            return
+        try:
+            with tracer.start_as_current_span(
+                "ReplayFiltersEventsSubQuery.check_negative_blocklist_truncation"
+            ) as span:
+                response = execute_hogql_query(
+                    query=ast.SelectQuery(
+                        select=[ast.Call(name="count", args=[])],
+                        select_from=ast.JoinExpr(table=blocklist),
+                    ),
+                    team=self._team,
+                    query_type="ReplayNegativeBlocklistTruncationProbe",
+                    modifiers=self._hogql_query_modifiers,
+                )
+                blocklist_size = response.results[0][0] if response.results else 0
+                truncated = blocklist_size >= NEGATIVE_BLOCKLIST_LIMIT
+                span.set_attribute("replay.negative_blocklist.size", blocklist_size)
+                span.set_attribute("replay.negative_blocklist.truncated", truncated)
+                if truncated:
+                    REPLAY_NEGATIVE_BLOCKLIST_TRUNCATED_COUNTER.inc()
+        except Exception as e:
+            posthoganalytics.capture_exception(e, properties={"replay_feature": "negative_blocklist_truncation_probe"})
 
     @staticmethod
     @tracer.start_as_current_span("ReplayFiltersEventsSubQuery.with_team_events_added")

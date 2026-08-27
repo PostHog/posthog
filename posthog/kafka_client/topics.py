@@ -38,6 +38,7 @@ KAFKA_MESSAGE_ASSETS = f"{KAFKA_PREFIX}clickhouse_message_assets{SUFFIX}"
 
 KAFKA_CLICKHOUSE_HEATMAP_EVENTS = f"{KAFKA_PREFIX}clickhouse_heatmap_events{SUFFIX}"
 KAFKA_CLICKHOUSE_AI_EVENTS_JSON = f"{KAFKA_PREFIX}clickhouse_ai_events_json{SUFFIX}"
+KAFKA_CLICKHOUSE_FLAG_EVALUATIONS = f"{KAFKA_PREFIX}clickhouse_flag_evaluations{SUFFIX}"
 
 # Legacy session recording topic — only retained because clickhouse migration 0063 still
 # DROPs the old materialized view by name. Producers/consumers live in the Node.js services.
@@ -60,10 +61,6 @@ KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC = f"{KAFKA_PREFIX}document_embeddings_inpu
 KAFKA_DOCUMENT_EMBEDDING_RESULTS_TOPIC = f"{KAFKA_PREFIX}document_embedding_results{SUFFIX}"
 
 KAFKA_CDP_INTERNAL_EVENTS = f"{KAFKA_PREFIX}cdp_internal_events{SUFFIX}"
-KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES = (
-    f"{KAFKA_PREFIX}clickhouse_precalculated_person_properties{SUFFIX}"
-)
-KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS = f"{KAFKA_PREFIX}clickhouse_prefiltered_events{SUFFIX}"
 KAFKA_CDP_BACKFILL_EVENTS = f"{KAFKA_PREFIX}cdp_backfill_events{SUFFIX}"
 KAFKA_COHORT_MEMBERSHIP_CHANGED = f"{KAFKA_PREFIX}cohort_membership_changed{SUFFIX}"
 
@@ -72,14 +69,13 @@ KAFKA_WAREHOUSE_SOURCE_WEBHOOKS = f"{KAFKA_PREFIX}data_warehouse_source_webhooks
 KAFKA_WAREHOUSE_SOURCE_WEBHOOKS_DLQ = f"{KAFKA_PREFIX}data_warehouse_source_webhooks_dlq{SUFFIX}"
 
 KAFKA_CLICKHOUSE_TOPHOG = f"{KAFKA_PREFIX}clickhouse_tophog{SUFFIX}"
+KAFKA_BILLING_USAGE_RECORDS = f"{KAFKA_PREFIX}clickhouse_billing_usage_records{SUFFIX}"
 
 # Distinct ID usage - pre-processed by WarpStream pipeline from clickhouse_events_json
 KAFKA_DISTINCT_ID_USAGE_EVENTS_JSON = f"{KAFKA_PREFIX}distinct_id_usage_events_json{SUFFIX}"
 
 # Property values - pre-processed by WarpStream pipeline from clickhouse_events_json
 KAFKA_CLICKHOUSE_PROPERTY_VALUES = f"{KAFKA_PREFIX}clickhouse_property_values{SUFFIX}"
-KAFKA_WAREHOUSE_SOURCES_JOBS = f"{KAFKA_PREFIX}data_warehouse_sources_jobs{SUFFIX}"
-KAFKA_WAREHOUSE_SOURCES_JOBS_DLQ = f"{KAFKA_PREFIX}data_warehouse_sources_jobs_dlq{SUFFIX}"
 
 KAFKA_NOTIFICATION_EVENTS = f"{KAFKA_PREFIX}notification_events{SUFFIX}"
 

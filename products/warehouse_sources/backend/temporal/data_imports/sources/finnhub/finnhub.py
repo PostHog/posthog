@@ -7,8 +7,9 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.settings import (
     FINNHUB_ENDPOINTS,
     FinnhubEndpointConfig,
@@ -116,14 +117,14 @@ def _extract_rows(data: Any, config: FinnhubEndpointConfig) -> list[dict[str, An
     return data if isinstance(data, list) else []
 
 
-def _window(config: FinnhubEndpointConfig, last_value: Any) -> tuple[str, str]:
+def _window(config: FinnhubEndpointConfig, last_value: Any) -> SyncWindow[str]:
     today = datetime.now(UTC).date()
     if last_value is not None:
         start = _to_date(last_value)
     else:
         start = today - timedelta(days=config.lookback_days)
     end = today + timedelta(days=config.forward_days)
-    return start.isoformat(), end.isoformat()
+    return SyncWindow(start=start.isoformat(), end=end.isoformat())
 
 
 def _request_params(
@@ -143,7 +144,9 @@ def _request_params(
         # Incremental endpoints advance `from` to the saved watermark; windowed full-refresh
         # endpoints (calendars) always sweep the full rolling window.
         last_value = db_incremental_field_last_value if should_use_incremental_field else None
-        params["from"], params["to"] = _window(config, last_value)
+        window = _window(config, last_value)
+        params["from"] = window.start
+        params["to"] = window.end
     return params
 
 

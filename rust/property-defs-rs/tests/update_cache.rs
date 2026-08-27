@@ -73,9 +73,6 @@ fn make_prop_def(name: &str) -> Update {
         property_type: Some(PropertyValueType::Numeric),
         event_type: PropertyParentType::Event,
         group_type_index: None,
-        property_type_format: None,
-        query_usage_30_day: None,
-        volume_30_day: None,
     })
 }
 
@@ -129,9 +126,6 @@ fn make_group_prop_def(group_type_index: Option<GroupType>) -> Update {
         property_type: Some(PropertyValueType::String),
         event_type: PropertyParentType::Group,
         group_type_index,
-        property_type_format: None,
-        query_usage_30_day: None,
-        volume_30_day: None,
     })
 }
 
@@ -171,9 +165,6 @@ fn test_uncache_batch_evicts_unresolved_entry_for_group_prop() {
         property_type: Some(PropertyValueType::String),
         event_type: PropertyParentType::Group,
         group_type_index: Some(GroupType::Resolved("company".into(), 2)),
-        property_type_format: None,
-        query_usage_30_day: None,
-        volume_30_day: None,
     };
     let mut batch = PropertyDefinitionsBatch::new(10);
     batch.append(resolved_pd);

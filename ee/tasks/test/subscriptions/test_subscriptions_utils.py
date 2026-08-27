@@ -2,12 +2,19 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
-from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT, generate_assets
+from ee.tasks.subscriptions.subscription_utils import (
+    ASSET_GENERATION_FAILED_MESSAGE,
+    MAX_INSIGHTS,
+    generate_assets,
+    subscription_asset_error_message,
+)
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 
@@ -44,8 +51,8 @@ class TestSubscriptionsTasksUtils(APIBaseTest):
             insights, assets = generate_assets(subscription)
 
         assert len(insights) == len(self.tiles)
-        assert len(assets) == DEFAULT_MAX_ASSET_COUNT
-        assert mock_export_task.si.call_count == DEFAULT_MAX_ASSET_COUNT
+        assert len(assets) == MAX_INSIGHTS
+        assert mock_export_task.si.call_count == MAX_INSIGHTS
 
     def test_raises_if_missing_resource(self, _mock_export_task: MagicMock, _mock_group: MagicMock) -> None:
         subscription = create_subscription(team=self.team, created_by=self.user)
@@ -91,3 +98,53 @@ class TestSubscriptionsTasksUtils(APIBaseTest):
 
         assert str(e.value) == "Timed out waiting for celery task to finish"
         running_export_task.revoke.assert_called()
+
+
+class TestSubscriptionAssetErrorMessage(APIBaseTest):
+    def _asset(self, exception: str | None, exception_type: str | None = None) -> ExportedAsset:
+        return ExportedAsset.objects.create(
+            team=self.team,
+            insight_id=self.insight.id,
+            export_format="image/png",
+            exception=exception,
+            exception_type=exception_type,
+        )
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")
+
+    @parameterized.expand(
+        [
+            (
+                "passes_through_non_oom_text",
+                "Unknown table 'nonexistent_table'",
+                None,
+                "Unknown table 'nonexistent_table'",
+            ),
+            (
+                "replaces_out_of_memory_text",
+                "This query ran out of memory before it could finish, usually because it's scanning too much data.",
+                None,
+                ASSET_GENERATION_FAILED_MESSAGE,
+            ),
+            (
+                "replaces_out_of_memory_regardless_of_casing",
+                "Query Ran Out Of Memory",
+                None,
+                ASSET_GENERATION_FAILED_MESSAGE,
+            ),
+            (
+                "replaces_memory_limit_exception_by_type",
+                "Memory limit (for query) exceeded",
+                "ClickHouseQueryMemoryLimitExceeded",
+                ASSET_GENERATION_FAILED_MESSAGE,
+            ),
+            ("falls_back_when_no_exception", None, None, ASSET_GENERATION_FAILED_MESSAGE),
+        ]
+    )
+    def test_subscription_asset_error_message(
+        self, _name: str, exception: str | None, exception_type: str | None, expected: str
+    ) -> None:
+        asset = self._asset(exception, exception_type)
+        assert subscription_asset_error_message(asset) == expected

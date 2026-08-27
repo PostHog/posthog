@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vapi import VapiSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.vapi.settings import (
     DEFAULT_VERSION,
@@ -91,6 +88,12 @@ You can find your private API key in the [Vapi dashboard](https://dashboard.vapi
         return {
             "401 Client Error: Unauthorized for url: https://api.vapi.ai": "Your Vapi API key is invalid or has been revoked. Create a new private API key in the Vapi dashboard, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.vapi.ai": "Your Vapi API key does not have permission to read this data. Check the key's permissions in the Vapi dashboard, then reconnect.",
+            # Vapi's v2 phone-number list endpoint rejects our request with a 400 for some
+            # accounts even though the query (limit/page/sortOrder/sortBy=createdAt) matches
+            # Vapi's own published spec byte for byte — every retry replays the identical,
+            # spec-compliant request and gets the same 400 back. Match the path, not the
+            # per-request query string, so this stays scoped to this one known-bad endpoint.
+            "400 Client Error: Bad Request for url: https://api.vapi.ai/v2/phone-number": "Vapi rejected the request to list phone numbers on API v2 for this account. This looks like an issue on Vapi's side rather than your credentials — contact Vapi support, or disable the phone_numbers table if you don't need it.",
         }
 
     def get_schemas(

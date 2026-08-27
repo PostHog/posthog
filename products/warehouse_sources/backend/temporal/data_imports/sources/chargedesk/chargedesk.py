@@ -6,7 +6,6 @@ from requests import Request, Response
 from requests.auth import HTTPBasicAuth
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.chargedesk.settings import (
     CHARGEDESK_ENDPOINTS,
     ChargedeskEndpointConfig,
@@ -19,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 CHARGEDESK_BASE_URL = "https://api.chargedesk.com/v1"
 

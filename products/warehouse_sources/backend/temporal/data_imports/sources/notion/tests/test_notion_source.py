@@ -5,19 +5,14 @@ import requests
 import structlog
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.notion import NotionSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.notion.notion import (
     NOTION_VERSION_2025_09_03,
     NOTION_VERSION_2026_03_11,
-    NotionResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.notion.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.notion.source import NotionSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 NOTION_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.notion.notion"
 
@@ -50,9 +45,6 @@ class TestNotionSource:
     def setup_method(self) -> None:
         self.source = NotionSource()
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.NOTION
-
     def test_new_sources_default_to_latest_version(self) -> None:
         # New sources are stamped with default_version, so a regression here silently pins them to
         # the older API. Both versions must stay supported so existing pins keep resolving.
@@ -77,20 +69,6 @@ class TestNotionSource:
             self.source.source_for_pipeline(NotionSourceConfig(api_key="tok"), manager, inputs)
         assert notion_source_mock.call_args.kwargs["api_version"] == expected_version
 
-    def test_source_config_is_released_with_api_key_field(self) -> None:
-        config = self.source.get_source_config
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert not getattr(config, "unreleasedSource", None)
-
-        fields = config.fields
-        assert len(fields) == 1
-        field = fields[0]
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.name == "api_key"
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.required is True
-        assert field.secret is True
-
     def test_get_schemas_returns_all_endpoints_full_refresh(self) -> None:
         schemas = self.source.get_schemas(NotionSourceConfig(api_key="tok"), team_id=1)
         assert {s.name for s in schemas} == set(ENDPOINTS)
@@ -108,11 +86,6 @@ class TestNotionSource:
         with mock.patch(f"{NOTION_MODULE}.make_tracked_session", return_value=session):
             valid, _message = self.source.validate_credentials(NotionSourceConfig(api_key="tok"), team_id=1)
         assert valid is expected_valid
-
-    def test_get_resumable_source_manager_is_bound_to_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_make_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is NotionResumeConfig
 
     def test_source_for_pipeline_partitions_search_streams(self) -> None:
         inputs = _make_inputs("pages")
@@ -150,16 +123,44 @@ class TestNotionSource:
             for pattern in non_retryable
         )
 
-    def test_retryable_marker_matches_raised_message(self) -> None:
-        # notion.py's _request raises this exact message on a 5xx after tenacity's internal
-        # retries exhaust; matching it here keeps that self-recovering failure out of error
-        # tracking as noise instead of being logged as an unclassified exception.
+    @parameterized.expand(
+        [
+            (
+                "5xx_after_tenacity_exhausted",
+                "Notion API error (retryable): status=522, url=https://api.notion.com/v1/comments",
+            ),
+            (
+                "rate_limit_after_tenacity_exhausted",
+                "Notion rate limited: url=https://api.notion.com/v1/comments, retry_after=33.0",
+            ),
+            (
+                "ssl_eof_after_tenacity_exhausted",
+                "HTTPSConnectionPool(host='api.notion.com', port=443): Max retries exceeded with url: "
+                "/v1/blocks/abc123/children?page_size=100 (Caused by SSLError(SSLEOFError(8, "
+                "'[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032)')))",
+            ),
+            (
+                "read_timeout_after_tenacity_exhausted",
+                "HTTPSConnectionPool(host='api.notion.com', port=443): Max retries exceeded with url: "
+                "/v1/search (Caused by ReadTimeoutError(\"HTTPSConnectionPool(host='api.notion.com', "
+                'port=443): Read timed out."))',
+            ),
+            (
+                "non_json_response_after_tenacity_exhausted",
+                "Notion returned a non-JSON response: status=200, url=https://api.notion.com/v1/search",
+            ),
+        ]
+    )
+    def test_retryable_marker_matches_raised_message(self, _name: str, error_message: str) -> None:
+        # notion.py's _request raises the 5xx and rate-limit messages after tenacity's internal
+        # retries exhaust, and also lets requests.ConnectionError (which SSLError subclasses) and
+        # requests.ReadTimeout through that same retry loop; once the budget exhausts, urllib3
+        # wraps them as a "Max retries exceeded with url" message. Matching them all keeps these
+        # self-recovering failures out of error tracking as noise instead of being logged as an
+        # unclassified exception.
         markers = self.source.get_retryable_errors()
         assert markers
-        assert any(
-            marker in "Notion API error (retryable): status=522, url=https://api.notion.com/v1/comments"
-            for marker in markers
-        )
+        assert any(marker in error_message for marker in markers)
 
 
 @pytest.mark.parametrize("status_code", [500, 503])

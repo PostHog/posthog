@@ -37,6 +37,7 @@ use crate::producer::{
 use crate::stage1::transition::LeafTransition;
 use crate::store::{BehavioralKey, PendingTransferKey, ReadLane, StoreHandle};
 use crate::sweep::EvictionQueue;
+use crate::workers::person_seed_path::PersonSeedDeps;
 use crate::workers::stage2_path::compose_stage2;
 use crate::workers::worker::{
     affected_leaves, first_cascades, produce_cascades, produce_membership, transition_metric_label,
@@ -136,6 +137,8 @@ pub struct MergeWorkerDeps {
     pub register_transfer_enabled: bool,
     /// Reconcile admission and the pod-wide scheduler wake-up count.
     pub reconcile: ReconcileDeps,
+    /// Person-property seed admission and its live-priority margin.
+    pub person_seed: PersonSeedDeps,
 }
 
 impl MergeWorkerDeps {
@@ -157,6 +160,7 @@ impl MergeWorkerDeps {
             live_watermarks: Arc::new(LiveWatermarks::new()),
             register_transfer_enabled: false,
             reconcile: ReconcileDeps::default(),
+            person_seed: PersonSeedDeps::default(),
         })
     }
 }
@@ -909,6 +913,7 @@ mod tests {
             live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
             register_transfer_enabled: false,
             reconcile: ReconcileDeps::default(),
+            person_seed: PersonSeedDeps::default(),
         }
     }
 

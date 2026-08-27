@@ -134,9 +134,11 @@ const TICKET_COLUMNS: Record<TicketColumnKey, TicketColumnDefinition> = {
                         {ticket.status === 'on_hold' ? 'On hold' : ticket.status}
                     </LemonTag>
                     {ticket.snoozed_until && (
-                        <span title={`Snoozed until ${new Date(ticket.snoozed_until).toLocaleString()}`}>
-                            <IconClock className="text-muted-alt text-base" />
-                        </span>
+                        <TZLabel time={ticket.snoozed_until} title="Snoozed until" showSeconds>
+                            <span className="flex items-center">
+                                <IconClock className="text-muted-alt text-base" />
+                            </span>
+                        </TZLabel>
                     )}
                 </span>
             ),
@@ -243,6 +245,7 @@ const TICKET_COLUMNS: Record<TicketColumnKey, TicketColumnDefinition> = {
                     channel={ticket.channel_source}
                     detail={ticket.channel_detail}
                     to={getChannelThreadUrl(ticket)}
+                    emailTo={ticket.email_to}
                 />
             ),
         },

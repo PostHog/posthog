@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use common_types::CapturedEvent;
+use limiters::redis::QuotaResource;
 use serde_json::json;
 use tracing::error;
 use uuid::Uuid;
@@ -24,9 +25,22 @@ pub async fn check_quota(
     limiter: &CaptureQuotaLimiter,
     token: &str,
     span_events: &[SpanEvent],
+    gateway_verified: bool,
 ) -> Result<(), QuotaOutcome> {
+    let count = span_events.len();
+
+    if gateway_verified {
+        if limiter
+            .is_quota_limited_v1(token, &QuotaResource::Events)
+            .await
+        {
+            report_dropped_events("otel_quota_drop", count as u64);
+            return Err(QuotaOutcome::Dropped);
+        }
+        return Ok(());
+    }
+
     let refs: Vec<&SpanEvent> = span_events.iter().collect();
-    let count = refs.len();
 
     match limiter.check_and_filter(token, refs).await {
         Ok(filtered) if filtered.len() == count => Ok(()),
@@ -116,7 +130,7 @@ pub fn build_events(
         };
 
         let metadata = ProcessedEventMetadata {
-            data_type: DataType::AnalyticsMain,
+            data_type: DataType::AiEvents,
             session_id: None,
             computed_timestamp: Some(timestamp),
             event_name: span_event.event_name,
@@ -126,6 +140,7 @@ pub fn build_events(
             redirect_to_topic: restrictions.redirect_to_topic().map(|s| s.to_string()),
             skip_heatmap_processing: false,
             overflow_reason: None,
+            distinct_id_truncated_from: None,
         };
 
         processed.push(ProcessedEvent {

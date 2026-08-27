@@ -1,0 +1,9 @@
+{
+  "extends": "@posthog/tsconfig/react-package.json",
+  "compilerOptions": {
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["src/**/*.stories.tsx"]
+}

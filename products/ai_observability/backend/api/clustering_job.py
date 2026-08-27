@@ -11,8 +11,8 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.permissions import AccessControlPermission
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.cohorts.backend.models.cohort import Cohort
 
 from ..models.clustering_job import ClusteringJob
@@ -138,6 +138,7 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 "defaults_disabled": disabled_count,
             },
             team=self.team,
+            request=self.request,
         )
 
     @llma_track_latency("llma_clustering_job_update")
@@ -158,6 +159,7 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             "llma clustering job updated",
             {"job_id": instance.id, "name": instance.name},
             team=self.team,
+            request=self.request,
         )
 
     @llma_track_latency("llma_clustering_job_destroy")
@@ -169,5 +171,6 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             "llma clustering job deleted",
             {"job_id": instance.id, "name": instance.name},
             team=self.team,
+            request=request,
         )
         return super().destroy(request, *args, **kwargs)

@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING
 from posthog.schema import (
     CachedTraceSpansQueryResponse,
     DateRange,
-    HogQLFilters,
     PropertyGroupFilter,
     TraceSpansQuery,
     TraceSpansQueryResponse,
@@ -52,7 +51,7 @@ class TraceSpansCountQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunne
             team=self.team,
             workload=Workload.LOGS,
             timings=self.timings,
-            filters=HogQLFilters(dateRange=self.query.dateRange),
+            filters=self.query_date_range.to_hogql_filters(),
             settings=self.settings,
         )
         count = response.results[0][0] if response.results else 0

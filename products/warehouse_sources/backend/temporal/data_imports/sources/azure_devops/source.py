@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops import (
     AZURE_DEVOPS_VERSION_7_2,
     AZURE_DEVOPS_VERSION_LEGACY,
@@ -34,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.azuredevops import (
     AzureDevOpsSourceConfig,
 )
@@ -129,12 +126,9 @@ Your organization is the first path segment of your Azure DevOps URL — for `de
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # Pre-creation calls pass no pin and resolve to default_version — the version new rows start on.
-        if validate_azure_devops_credentials(
+        return validate_azure_devops_credentials(
             config.organization, config.personal_access_token, self.resolve_api_version(api_version)
-        ):
-            return True, None
-
-        return False, "Invalid Azure DevOps credentials"
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AzureDevOpsResumeConfig]:
         return ResumableSourceManager[AzureDevOpsResumeConfig](inputs, AzureDevOpsResumeConfig)

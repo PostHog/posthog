@@ -128,7 +128,7 @@
                         },
                         "deviceTypesMatchType": {
                             "description": "URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain).\n\n* `regex` - regex\n* `not_regex` - not_regex\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains",
-                            "enum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
+                            "enum": ["regex", "not_regex", "exact", "is_not", "icontains", "not_icontains"],
                             "type": "string"
                         },
                         "events": {
@@ -171,7 +171,7 @@
                         },
                         "urlMatchType": {
                             "description": "URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain).\n\n* `regex` - regex\n* `not_regex` - not_regex\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains",
-                            "enum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
+                            "enum": ["regex", "not_regex", "exact", "is_not", "icontains", "not_icontains"],
                             "type": "string"
                         }
                     },
@@ -181,10 +181,10 @@
                     "type": "null"
                 }
             ],
-            "description": "Display and targeting conditions for in-app surveys, such as URL matching, event triggers, device filters, or linked flag variants. Do not use URL, selector, event, device, or linkedFlagVariant conditions for external_survey forms."
+            "description": "Display conditions for in-app surveys, such as URL matching, event triggers, device filters, or linked flag variants. To target people, groups, or cohorts by properties, use targeting_flag_filters instead. Do not use URL, selector, event, device, or linkedFlagVariant conditions for external_survey forms."
         },
         "description": {
-            "description": "Survey description.",
+            "description": "Survey description. Internal only: unlike the name and questions, it is never delivered to visitors.",
             "type": "string"
         },
         "enable_iframe_embedding": {
@@ -250,7 +250,7 @@
             "description": "Feature flag ID linked to this survey. Use only when the user explicitly wants the survey linked to a feature flag. Resolve the flag ID first, preferably with SQL in v2."
         },
         "name": {
-            "description": "Survey name.",
+            "description": "Survey name. Anyone can read it. In-app surveys send it to every visitor's browser alongside the questions and appearance text, and a hosted survey shows it on its public page. Keep customer names and other private details out of it.",
             "maxLength": 400,
             "minLength": 1,
             "type": "string"
@@ -780,12 +780,16 @@
                                                             "type": "string"
                                                         },
                                                         "operator": {
-                                                            "description": "Operator used to compare the property value.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `gte` - gte\n* `lt` - lt\n* `lte` - lte",
+                                                            "description": "Operator used to compare the property value.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `starts_with` - starts_with\n* `not_starts_with` - not_starts_with\n* `ends_with` - ends_with\n* `not_ends_with` - not_ends_with\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `gte` - gte\n* `lt` - lt\n* `lte` - lte",
                                                             "enum": [
                                                                 "exact",
                                                                 "is_not",
                                                                 "icontains",
                                                                 "not_icontains",
+                                                                "starts_with",
+                                                                "not_starts_with",
+                                                                "ends_with",
+                                                                "not_ends_with",
                                                                 "regex",
                                                                 "not_regex",
                                                                 "gt",
@@ -1174,7 +1178,7 @@
                     "type": "null"
                 }
             ],
-            "description": "User targeting rules for in-app surveys. Use only when the user wants the survey shown to a subset of users. Do not use this for external_survey forms."
+            "description": "Target an in-app survey to a subset of users by person, group, or cohort properties. Pass one or more rules in groups[].properties[], each with key, value, operator, and an optional type. Use this instead of conditions for property targeting. Do not use this for external_survey forms."
         },
         "translations": {
             "description": "Optional survey-level translations keyed by language code. Use for translated survey name, description, and thank-you message fields. Question text translations belong inside each question's translations object."

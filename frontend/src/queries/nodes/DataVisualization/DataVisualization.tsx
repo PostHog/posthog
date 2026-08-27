@@ -34,8 +34,10 @@ import { DateRange } from '../DataNode/DateRange'
 import { ElapsedTime } from '../DataNode/ElapsedTime'
 import { Reload } from '../DataNode/Reload'
 import { QueryFeature } from '../DataTable/queryFeatures'
-import { LineGraph } from './Components/Charts/LineGraph'
 import { PieChart } from './Components/Charts/PieChart'
+import { SqlBoxPlot } from './Components/Charts/SqlBoxPlot'
+import { SqlChart } from './Components/Charts/SqlChart'
+import { SqlScatterGraph } from './Components/Charts/SqlScatterGraph'
 import { TwoDimensionalHeatmap } from './Components/Heatmap/TwoDimensionalHeatmap'
 import { seriesBreakdownLogic } from './Components/seriesBreakdownLogic'
 import { SideBar } from './Components/SideBar'
@@ -180,6 +182,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         isChartSettingsPanelOpen,
         xData,
         yData,
+        columns,
         chartSettings,
         dashboardId,
         dataVisualizationProps,
@@ -260,7 +263,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
         const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
         component = (
-            <LineGraph
+            <SqlChart
                 className="p-3"
                 xData={_xData}
                 yData={_yData}
@@ -280,10 +283,32 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         component = (
             <PieChart
                 className="p-3"
-                uniqueKey={props.uniqueKey?.toString() ?? dataVisualizationProps.key}
                 xData={_xData}
                 yData={_yData}
                 chartSettings={chartSettings}
+                presetChartHeight={presetChartHeight}
+            />
+        )
+    } else if (effectiveVisualizationType === ChartDisplayType.ScatterPlot) {
+        // Both axes are continuous, so a scatter reads the x column's own values rather than the
+        // breakdown path's categorical labels (which dedupe x — fatal for a point cloud).
+        component = (
+            <SqlScatterGraph
+                className="p-3"
+                xData={xData}
+                yData={yData}
+                chartSettings={chartSettings}
+                presetChartHeight={presetChartHeight}
+            />
+        )
+    } else if (effectiveVisualizationType === ChartDisplayType.BoxPlot) {
+        const rows = ('results' in response ? response.results : 'result' in response ? response.result : []) ?? []
+        component = (
+            <SqlBoxPlot
+                rows={Array.isArray(rows) ? rows : []}
+                columns={columns}
+                chartSettings={chartSettings}
+                analyticsKey={dataVisualizationProps.key}
                 presetChartHeight={presetChartHeight}
             />
         )

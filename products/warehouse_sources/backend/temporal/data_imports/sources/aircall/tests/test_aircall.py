@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aircall.ai
     AircallResumeConfig,
     _build_params,
     _build_url,
+    _reaches_record_cap,
     _to_epoch,
     aircall_source,
     validate_credentials,
@@ -114,6 +115,24 @@ class TestBuildUrl:
         assert url == "https://api.aircall.io/v1/calls?per_page=50&order=asc"
 
 
+class TestReachesRecordCap:
+    @pytest.mark.parametrize(
+        "url, expected",
+        [
+            # Page 201 starts at record 10,000, which is the first offset Aircall rejects.
+            ("https://api.aircall.io/v1/contacts?order=asc&per_page=50&page=201", True),
+            ("https://api.aircall.io/v1/contacts?order=asc&per_page=50&page=200", False),
+            ("https://api.aircall.io/v1/contacts?per_page=100&page=101", True),
+            ("https://api.aircall.io/v1/contacts?per_page=100&page=100", False),
+            # No page number to range-check, so the record counter has to catch it instead.
+            ("https://api.aircall.io/v1/contacts?per_page=50", False),
+            ("https://api.aircall.io/v1/contacts?per_page=50&page=abc", False),
+        ],
+    )
+    def test_cap_boundary(self, url, expected):
+        assert _reaches_record_cap(url) is expected
+
+
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected",
@@ -201,7 +220,7 @@ class TestPagination:
         assert requests_seen[0]["params"] == {}
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_reanchors_from_cursor_to_page_around_cap(self, MockSession):
+    def test_reanchors_from_cursor_when_page_chain_ends(self, MockSession):
         # First window ends without a next link; the latest started_at is used to issue a
         # fresh `from`-anchored request, then that window ends with no new advancement.
         session = MockSession.return_value
@@ -224,6 +243,69 @@ class TestPagination:
         assert "from=200" in manager.save_state.call_args.args[0].next_url
         # Boundary row re-emitted; merge on primary key dedupes downstream.
         assert [row["id"] for row in rows] == [1, 2, 2]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_reanchors_instead_of_following_a_next_link_past_the_cap(self, MockSession):
+        # Aircall keeps advertising a next page past its 10k-record cap and answers that page
+        # with a 400, so the link must be dropped in favor of a fresh `from`-anchored window.
+        session = MockSession.return_value
+        over_cap_link = "https://api.aircall.io/v1/contacts?order=asc&order_by=created_at&per_page=50&page=201"
+        requests_seen = _wire(
+            session,
+            [
+                _response("contacts", [{"id": 1, "created_at": 100}, {"id": 2, "created_at": 200}], over_cap_link),
+                _response("contacts", [{"id": 2, "created_at": 200}], None),
+            ],
+        )
+
+        rows = _rows(_source("contacts", _make_manager()))
+
+        assert len(requests_seen) == 2
+        assert "page=201" not in requests_seen[1]["url"]
+        assert "from=200" in requests_seen[1]["url"]
+        assert [row["id"] for row in rows] == [1, 2, 2]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_reanchors_after_cap_records_when_next_link_has_no_page(self, MockSession):
+        # A next link the range check can't read (no page number) falls back to counting the
+        # records consumed since the window opened.
+        session = MockSession.return_value
+        pages = [
+            _response(
+                "contacts",
+                [{"id": page * 50 + index, "created_at": page * 50 + index} for index in range(1, 51)],
+                "https://api.aircall.io/v1/contacts?cursor=opaque",
+            )
+            for page in range(200)
+        ]
+        requests_seen = _wire(session, [*pages, _response("contacts", [{"id": 10000, "created_at": 10000}], None)])
+
+        _rows(_source("contacts", _make_manager()))
+
+        assert len(requests_seen) == 201
+        assert "from=10000" in requests_seen[200]["url"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_stops_when_a_capped_window_cursor_cannot_advance(self, MockSession):
+        # Every record in the capped window shares the boundary timestamp, so a re-anchored
+        # window would repeat the same query forever. Truncate instead of looping.
+        session = MockSession.return_value
+        over_cap_link = "https://api.aircall.io/v1/contacts?order=asc&per_page=50&page=201"
+        requests_seen = _wire(session, [_response("contacts", [{"id": 1, "created_at": 200}], over_cap_link)])
+
+        manager = _make_manager()
+        _rows(
+            _source(
+                "contacts",
+                manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=200,
+                incremental_field="created_at",
+            )
+        )
+
+        assert len(requests_seen) == 1
+        manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_no_reanchor_for_full_refresh_endpoint(self, MockSession):

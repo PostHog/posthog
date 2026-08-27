@@ -50,6 +50,7 @@ from posthog.utils import relative_date_parse, str_to_bool
 from products.batch_exports.backend.api.destination_tests import get_destination_test
 from products.batch_exports.backend.models.batch_export import (
     BATCH_EXPORT_INTERVALS,
+    S3_CREATABLE_TYPES,
     S3_FAMILY_TYPES,
     TIMEZONES,
     BatchExport,
@@ -79,6 +80,7 @@ from products.batch_exports.backend.temporal.destinations.constants import (
     AZURE_BLOB_SUPPORTED_COMPRESSIONS,
     S3_SUPPORTED_COMPRESSIONS,
 )
+from products.batch_exports.backend.temporal.sql.events import EXPORTABLE_EVENTS_MODEL_FIELDS
 
 logger = structlog.get_logger(__name__)
 
@@ -160,11 +162,58 @@ class BatchExportRunSerializer(serializers.ModelSerializer):
         read_only_fields = ["batch_export"]
 
 
+class BatchExportRunListQuerySerializer(serializers.Serializer):
+    """Query parameters accepted when listing the runs of a batch export."""
+
+    status = serializers.ListField(
+        required=False,
+        child=serializers.ChoiceField(choices=BatchExportRun.Status.choices),
+        help_text="Only return runs in these statuses. Repeat the parameter to pass more than one status.",
+    )
+    after = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Only return runs created at or after this point. "
+            "Accepts an ISO-8601 datetime or a relative value like `-7d`. Defaults to `-7d`. "
+            "Ignored when ordering by `data_interval_start`."
+        ),
+    )
+    before = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Only return runs created at or before this point. "
+            "Accepts an ISO-8601 datetime or a relative value like `-1d`. Defaults to now. "
+            "Ignored when ordering by `data_interval_start`."
+        ),
+    )
+    start = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Only return runs whose data interval starts at or after this point. "
+            "Accepts an ISO-8601 datetime or a relative value like `-7d`. Defaults to `-7d`. "
+            "Only applies when ordering by `data_interval_start`."
+        ),
+    )
+    end = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Only return runs whose data interval ends at or before this point. "
+            "Accepts an ISO-8601 datetime or a relative value like `-1d`. Defaults to now. "
+            "Only applies when ordering by `data_interval_start`."
+        ),
+    )
+
+
 class RunsCursorPagination(CursorPagination):
     page_size = 100
 
 
 @extend_schema(tags=["batch_exports"])
+@extend_schema_view(list=extend_schema(parameters=[BatchExportRunListQuerySerializer]))
 class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "batch_export"
     queryset = BatchExportRun.objects.select_related("batch_export__destination").all()
@@ -180,12 +229,17 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
         return cast(str, self.parents_query_dict["run_id"])
 
     def safely_get_queryset(self, queryset):
-        after = self.request.GET.get("after", None)
-        before = self.request.GET.get("before", None)
-        start = self.request.GET.get("start", None)
-        end = self.request.GET.get("end", None)
-        ordering = self.request.GET.get("ordering", None)
+        query = BatchExportRunListQuerySerializer(data=self.request.GET)
+        query.is_valid(raise_exception=True)
+        params = query.validated_data
 
+        after = params.get("after")
+        before = params.get("before")
+        start = params.get("start")
+        end = params.get("end")
+
+        # OrderingFilter applies the sort and declares this parameter, so it is not on the serializer.
+        ordering = self.request.GET.get("ordering", None)
         # If we're ordering by data_interval_start, we need to filter by that otherwise we're ordering by created_at
         if ordering == "data_interval_start" or ordering == "-data_interval_start":
             start_timestamp = relative_date_parse(start if start else "-7d", self.team.timezone_info)
@@ -196,6 +250,9 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
             before_datetime = relative_date_parse(before, self.team.timezone_info) if before else now()
             date_range = (after_datetime, before_datetime)
             queryset = queryset.filter(created_at__range=date_range)
+
+        if statuses := params.get("status"):
+            queryset = queryset.filter(status__in=statuses)
 
         queryset = queryset.filter(batch_export_id=self.kwargs["parent_lookup_batch_export_id"])
         return queryset
@@ -525,9 +582,8 @@ class AwsS3DestinationRequestSerializer(serializers.Serializer):
 
     type = serializers.ChoiceField(choices=["AwsS3"])
     integration_id = serializers.IntegerField(
-        required=False,
         help_text=(
-            "ID of an aws-s3-kind Integration providing AWS credentials. Preferred over inline credentials. "
+            "ID of an aws-s3-kind Integration providing AWS credentials. Required when creating a batch export. "
             "Use the integrations-list MCP tool to find one."
         ),
     )
@@ -539,10 +595,9 @@ class S3CompatibleDestinationRequestSerializer(serializers.Serializer):
 
     type = serializers.ChoiceField(choices=["S3Compatible"])
     integration_id = serializers.IntegerField(
-        required=False,
         help_text=(
             "ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. "
-            "Preferred over inline credentials. Use the integrations-list MCP tool to find one."
+            "Required when creating a batch export. Use the integrations-list MCP tool to find one."
         ),
     )
     config = S3CompatibleDestinationConfigSerializer()
@@ -582,11 +637,10 @@ class BatchExportDestinationRequestField(serializers.JSONField):
     """JSONField annotated with a polymorphic OpenAPI request schema.
 
     Only integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3,
-    S3Compatible, Snowflake) are exposed in the schema. integration_id is required for Databricks,
-    AzureBlob and BigQuery, and optional for the S3 family and Snowflake (inline credentials remain
-    supported for the time being). Existing Postgres, S3 and Snowflake exports created before
-    integrations keep their inline credentials. Runtime validation remains
-    `BatchExportDestinationSerializer.validate_destination`.
+    S3Compatible, Snowflake) are exposed in the schema. integration_id is required for every one of
+    those except Snowflake, where inline credentials remain supported for the time being. Existing
+    Postgres and Snowflake exports created before integrations keep their inline credentials.
+    Runtime validation remains `BatchExportDestinationSerializer.validate_destination`.
     """
 
     pass
@@ -688,8 +742,8 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text=(
             "ID of a team-scoped Integration providing credentials. Required when creating Databricks, "
-            "AzureBlob, and BigQuery destinations; optional for AwsS3, S3Compatible and Snowflake (inline "
-            "credentials remain supported); unused for other types."
+            "AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake "
+            "(inline credentials remain supported); unused for other types."
         ),
     )
 
@@ -729,7 +783,9 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
 
         # Some credential/connection fields are optional on the dataclass (integration-backed exports
         # resolve them at run time), so they must be required here only when no Integration is linked.
-        # TODO: remove this code once integrations for S3 and Snowflake are enforced
+        # For the S3 family this is only possible when updating an export that predates integrations:
+        # creating one without an Integration is rejected in `validate_destination`.
+        # TODO: remove this code once inline credentials are gone for S3 and integrations are enforced for Snowflake
         conditionally_required: set[str] = set()
         if attrs.get("integration") is None:
             if export_type in S3_FAMILY_TYPES:
@@ -863,7 +919,7 @@ class BatchExportsField(TypedDict):
 
 class BatchExportsSchema(TypedDict):
     fields: list[BatchExportsField]
-    values: dict[str, str]
+    values: dict[str, Any]
     hogql_query: str
 
 
@@ -879,6 +935,24 @@ class _SubqueryFinder(TraversingVisitor):
 
     def visit_select_set_query(self, node: ast.SelectSetQuery):
         self.found = True
+
+
+class _DatabaseFieldFinder(TraversingVisitor):
+    """Walk an AST subtree and collect the names of the database fields it reads."""
+
+    def __init__(self, context: HogQLContext):
+        super().__init__()
+        self.context = context
+        self.names: set[str] = set()
+
+    def visit_field(self, node: ast.Field):
+        resolve = getattr(node.type, "resolve_database_field", None)
+        if resolve is not None:
+            database_field = resolve(self.context)
+            name = getattr(database_field, "name", None)
+            if name is not None:
+                self.names.add(name)
+        super().visit_field(node)
 
 
 INTERNAL_NETWORKS = (
@@ -1169,6 +1243,26 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 )
         return filters
 
+    def validate_model(self, model) -> str:
+        if model == "hogql":
+            team_id = self.context["team_id"]
+            team = Team.objects.get(id=team_id)
+            if not posthoganalytics.feature_enabled(
+                "hogql-batch-exports",
+                str(team.uuid),
+                groups={"organization": str(team.organization.id)},
+                group_properties={
+                    "organization": {
+                        "id": str(team.organization.id),
+                        "created_at": team.organization.created_at,
+                    }
+                },
+                send_feature_flag_events=False,
+            ):
+                raise PermissionDenied("HogQL batch exports are not enabled for this team.")
+
+        return model
+
     # TODO: could this be moved inside BatchExportDestinationSerializer::validate?
     def validate_destination(self, destination_attrs: dict):
         destination_type = destination_attrs["type"]
@@ -1239,6 +1333,12 @@ class BatchExportSerializer(serializers.ModelSerializer):
                     "Cannot remove the integration from an S3 batch export that uses one. "
                     "Re-send its `integration` to keep it (or a different one to swap)."
                 )
+
+            # New S3 exports must use an Integration for credentials. Exports created before
+            # integrations existed keep their inline credentials, so only require it on create
+            # (`instance is None`); existing inline-credential exports stay valid when edited.
+            if integration is None and instance is None and destination_type in S3_CREATABLE_TYPES:
+                raise serializers.ValidationError(f"Integration is required for {destination_type} batch exports")
 
             # we already validate the required inputs in BatchExportDestinationSerializer::validate
             # so here we just ensure that the inputs are not empty
@@ -1498,13 +1598,14 @@ class BatchExportSerializer(serializers.ModelSerializer):
         return batch_export_schema
 
     def validate_hogql_query(self, hogql_query: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery:
-        """Validate a HogQLQuery being used for batch exports.
+        """Validate a HogQL query being used for events batch exports.
 
         This method essentially checks that a query is supported by batch exports:
         1. UNION ALL is not supported.
         2. Any JOINs are not supported.
         3. Query must SELECT FROM events, and only from events.
         4. Subqueries in SELECT expressions are not supported.
+        5. Query must select only from those fields we expose from the events table.
         """
 
         if isinstance(hogql_query, ast.SelectSetQuery):
@@ -1535,6 +1636,18 @@ class BatchExportSerializer(serializers.ModelSerializer):
             subquery_finder.visit(field)
             if subquery_finder.found:
                 raise serializers.ValidationError("Subqueries in SELECT expressions are not supported")
+
+        # Check that the query only selects from those fields we expose from the events table.
+        field_finder = _DatabaseFieldFinder(HogQLContext(team_id=self.context["team_id"], enable_select_queries=True))
+        for field in parsed.select:
+            field_finder.visit(field)
+
+        unsupported = sorted(field_finder.names - EXPORTABLE_EVENTS_MODEL_FIELDS)
+        if unsupported:
+            raise serializers.ValidationError(
+                f"Batch exports cannot read these fields: {', '.join(unsupported)}. "
+                f"Supported fields are: {', '.join(sorted(EXPORTABLE_EVENTS_MODEL_FIELDS))}."
+            )
 
         return hogql_query
 

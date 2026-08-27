@@ -5,6 +5,8 @@ description: Use when editing, reviewing, or auditing DRF viewsets and serialize
 
 # Improving DRF Endpoints
 
+Before you propose a contract test against the generated OpenAPI schema, check [things already tried](../../../docs/internal/ci-things-already-tried.md). Six PRs took that idea, and none merged.
+
 ## Overview
 
 Serializer fields are the source of truth for PostHog's entire type pipeline:
@@ -167,9 +169,9 @@ See [common-anti-patterns.md](references/common-anti-patterns.md) for before/aft
 
 ## Canonical examples in the codebase
 
-- **JSONField + @extend_schema_field:** `posthog/api/alert.py`
-- **@validated_request:** `products/tasks/backend/api.py`
-- **help_text + typed responses:** `products/llm_analytics/backend/api/evaluation_summary.py`
+- **JSONField + @extend_schema_field:** `products/alerts/backend/api/alert.py`
+- **@validated_request:** `products/tasks/backend/presentation/views/api.py`
+- **help_text + typed responses:** `products/ai_observability/backend/api/summarization.py`
 - **Facade product:** `products/visual_review/backend/presentation/views.py`
 
 ## Related

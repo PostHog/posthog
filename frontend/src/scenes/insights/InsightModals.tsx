@@ -17,6 +17,7 @@ import { InsightLogicProps, InsightShortId, ItemMode } from '~/types'
 import { areAlertsSupportedForInsight } from 'products/alerts/frontend/logic/insightAlertsLogic'
 import { EditAlertModal } from 'products/alerts/frontend/views/EditAlertModal'
 import { ManageAlertsModal } from 'products/alerts/frontend/views/ManageAlertsModal'
+import { MetricFromInsightModal } from 'products/data_catalog/frontend/components/MetricFromInsightModal'
 import { EndpointFromInsightModal } from 'products/endpoints/frontend/EndpointFromInsightModal'
 import { SubscriptionsModal } from 'products/subscriptions/frontend/components/Subscriptions/SubscriptionsModal'
 
@@ -35,6 +36,7 @@ export function InsightModals({ insightLogicProps }: { insightLogicProps: Insigh
                     <InsightAlertsModals insightLogicProps={insightLogicProps} />
                     <NewDashboardModal />
                     <InsightEndpointModalWrapper insightLogicProps={insightLogicProps} />
+                    <InsightMetricModalWrapper insightLogicProps={insightLogicProps} />
                 </>
             )}
 
@@ -48,7 +50,7 @@ function InsightSubscriptionsModalWrapper({
 }: {
     insightLogicProps: InsightLogicProps
 }): JSX.Element {
-    const { insightMode, itemId } = useValues(insightSceneLogic)
+    const { insightMode, itemId, isNewSubscription } = useValues(insightSceneLogic)
     const { insight } = useValues(insightLogic(insightLogicProps))
     const { push } = useActions(router)
 
@@ -58,7 +60,9 @@ function InsightSubscriptionsModalWrapper({
             isOpen={insightMode === ItemMode.Subscriptions}
             closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
             insightShortId={insight.short_id}
-            subscriptionId={typeof itemId === 'number' || itemId === 'new' ? itemId : null}
+            insightName={insight.name || insight.derived_name || 'Untitled insight'}
+            isCreating={isNewSubscription}
+            subscriptionId={itemId}
         />
     )
 }
@@ -172,6 +176,21 @@ function InsightEndpointModalWrapper({ insightLogicProps }: { insightLogicProps:
         <EndpointFromInsightModal
             insightQuery={insightQuery as unknown as HogQLQuery | EndpointQueryNode}
             insightShortId={insight.short_id}
+        />
+    )
+}
+
+function InsightMetricModalWrapper({
+    insightLogicProps,
+}: {
+    insightLogicProps: InsightLogicProps
+}): JSX.Element | null {
+    const { insight } = useValues(insightLogic(insightLogicProps))
+
+    return (
+        <MetricFromInsightModal
+            insightShortId={insight.short_id}
+            insightName={insight.name || insight.derived_name || undefined}
         />
     )
 }

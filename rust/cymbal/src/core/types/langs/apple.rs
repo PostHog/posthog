@@ -10,7 +10,7 @@ use crate::{
     error::{AppleError, FrameError, ResolveError, UnhandledError},
     frames::{record_frame_resolution_failure, Frame},
     langs::native::{self, DebugImage},
-    langs::utils::{add_raw_to_junk, get_context_lines},
+    langs::utils::{add_raw_to_junk, get_context_lines, is_kotlin_compose_source},
     langs::CommonFrameMetadata,
     symbolication::symbol_store::{
         apple::AppleRef,
@@ -68,6 +68,16 @@ fn is_system_module(module: &Option<String>) -> bool {
     })
 }
 
+fn resolved_in_app(
+    module: &Option<String>,
+    source_path: Option<&str>,
+    client_in_app: bool,
+) -> bool {
+    let generated_or_dependency = source_path
+        .is_some_and(|path| path == "<compiler-generated>" || is_kotlin_compose_source(path));
+    client_in_app && !is_system_module(module) && !generated_or_dependency
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RawAppleFrame {
     pub instruction_addr: Option<String>,
@@ -94,43 +104,24 @@ impl RawAppleFrame {
     where
         C: SymbolCatalog<OrChunkId<AppleRef>, ParsedNativeSymbols>,
     {
-        tracing::debug!(
-            "[apple-debug] resolve() called: instruction_addr={:?}, module={:?}, function={:?}, debug_images_count={}",
-            self.instruction_addr, self.module, self.function, debug_images.len()
-        );
-
         match self
             .resolve_impl(team_id, catalog, debug_images, context_lines)
             .await
         {
-            Ok(frames) => {
-                tracing::debug!(
-                    "[apple-debug] resolve() SUCCESS: {} frame(s), first resolved_name={:?}",
-                    frames.len(),
-                    frames.first().and_then(|f| f.resolved_name.as_deref())
-                );
-                Ok(frames)
-            }
+            Ok(frames) => Ok(frames),
             Err(ResolveError::ResolutionError(FrameError::Apple(e))) => {
-                tracing::debug!("[apple-debug] resolve() Apple error: {:?}", e);
                 Ok(vec![self.handle_resolution_error(e)])
             }
-            Err(ResolveError::ResolutionError(FrameError::MissingChunkIdData(chunk_id))) => {
-                tracing::debug!("[apple-debug] resolve() MissingChunkIdData: {}", chunk_id);
-                Ok(vec![self.handle_resolution_error(AppleError::MissingDsym(
-                    chunk_id,
-                ))])
-            }
+            Err(ResolveError::ResolutionError(FrameError::MissingChunkIdData(chunk_id))) => Ok(
+                vec![self.handle_resolution_error(AppleError::MissingDsym(chunk_id))],
+            ),
             Err(ResolveError::ResolutionError(e)) => {
-                tracing::warn!("Unexpected Apple symbol resolution error: {:?}", e);
+                tracing::warn!(team_id, "Unexpected Apple symbol resolution error: {:?}", e);
                 Ok(vec![self.handle_resolution_error(AppleError::ParseError(
                     e.to_string(),
                 ))])
             }
-            Err(ResolveError::UnhandledError(e)) => {
-                tracing::error!("[apple-debug] resolve() unhandled error: {:?}", e);
-                Err(e)
-            }
+            Err(ResolveError::UnhandledError(e)) => Err(e),
         }
     }
 
@@ -153,19 +144,10 @@ impl RawAppleFrame {
 
         let instruction_addr =
             native::parse_hex_address(instruction_addr).map_err(AppleError::from)?;
-        tracing::debug!(
-            "[apple-debug] resolve_impl: parsed instruction_addr=0x{:x}",
-            instruction_addr
-        );
 
         let debug_image =
             native::find_debug_image(instruction_addr, self.image_addr.as_deref(), debug_images)
                 .map_err(AppleError::from)?;
-        tracing::debug!(
-            "[apple-debug] resolve_impl: matched debug_image debug_id={}, image_addr={}",
-            debug_image.debug_id,
-            debug_image.image_addr
-        );
 
         let relative_addr = native::calculate_relative_addr(instruction_addr, debug_image)
             .map_err(AppleError::from)?;
@@ -175,29 +157,15 @@ impl RawAppleFrame {
         // This is safe for top (crash-site) frames too: addr-1 still falls within the
         // same function body, so the function and line resolve correctly.
         let lookup_addr = relative_addr.saturating_sub(1);
-        tracing::debug!(
-            "[apple-debug] resolve_impl: relative_addr=0x{:x}, lookup_addr=0x{:x}",
-            relative_addr,
-            lookup_addr
-        );
 
-        tracing::debug!(
-            "[apple-debug] resolve_impl: looking up symbols for chunk_id={}",
-            debug_image.debug_id
-        );
         let symbols: Arc<ParsedNativeSymbols> = catalog
             .lookup(team_id, OrChunkId::chunk_id(debug_image.debug_id.clone()))
             .await?;
-        tracing::debug!("[apple-debug] resolve_impl: symbols loaded successfully");
 
         let symbol_infos = symbols.lookup(lookup_addr).map_err(AppleError::from)?;
         if symbol_infos.is_empty() {
             return Err(AppleError::SymbolNotFound(lookup_addr).into());
         }
-        tracing::debug!(
-            "[apple-debug] resolve_impl: found {} logical frame(s) (including inlined)",
-            symbol_infos.len()
-        );
 
         // Build one resolved Frame per logical layer.
         //
@@ -238,16 +206,13 @@ impl RawAppleFrame {
     }
 
     fn build_resolved_frame(&self, symbol_info: &SymbolInfo, _debug_image: &DebugImage) -> Frame {
-        // Override in_app to false for system frameworks or compiler-generated code
-        let is_compiler_generated = symbol_info
-            .filename
-            .as_ref()
-            .is_some_and(|f| f == "<compiler-generated>");
-        let in_app = if is_system_module(&self.module) || is_compiler_generated {
-            false
-        } else {
-            self.meta.in_app
-        };
+        // Kotlin/Native links Compose into the application binary.
+        // Only the resolved source path identifies those frames as dependency code.
+        let source_path = symbol_info
+            .full_path
+            .as_deref()
+            .or(symbol_info.filename.as_deref());
+        let in_app = resolved_in_app(&self.module, source_path, self.meta.in_app);
 
         let mut f = Frame {
             frame_id: FrameId::placeholder(),
@@ -266,7 +231,6 @@ impl RawAppleFrame {
             resolve_failure: None,
 
             junk_drawer: None,
-            release: None,
             synthetic: self.meta.synthetic,
             context: None,
             suspicious: false,
@@ -293,16 +257,7 @@ impl RawAppleFrame {
             None
         };
 
-        // Override in_app to false for system frameworks or compiler-generated code
-        let is_compiler_generated = self
-            .filename
-            .as_ref()
-            .is_some_and(|f| f == "<compiler-generated>");
-        let in_app = if is_system_module(&self.module) || is_compiler_generated {
-            false
-        } else {
-            self.meta.in_app
-        };
+        let in_app = resolved_in_app(&self.module, self.filename.as_deref(), self.meta.in_app);
 
         // For unresolved frames without a filename, show "Module +image_addr" as source.
         // This is typically for Apple system frameworks (CoreFoundation, UIKitCore, etc.)
@@ -334,7 +289,6 @@ impl RawAppleFrame {
             resolved: false,
             resolve_failure: Some(err.to_string()),
             junk_drawer: None,
-            release: None,
             synthetic: self.meta.synthetic,
             context: None,
             suspicious: false,
@@ -402,6 +356,7 @@ impl RawAppleFrame {
 fn lang_from_filename(filename: Option<&str>) -> &'static str {
     match filename.and_then(|f| f.rsplit('.').next()) {
         Some("swift") => "swift",
+        Some("kt" | "kts") => "kotlin",
         Some("m") => "objectivec",
         Some("mm") => "objectivecpp",
         Some("c") => "c",
@@ -426,7 +381,6 @@ impl From<&RawAppleFrame> for Frame {
             resolve_failure: None,
 
             junk_drawer: None,
-            release: None,
             synthetic: raw.meta.synthetic,
             context: None,
             suspicious: false,
@@ -444,6 +398,32 @@ impl From<&RawAppleFrame> for Frame {
 mod test {
     use super::*;
     use crate::core::symbolication::resolve::Resolve;
+
+    #[test]
+    fn resolved_kotlin_frame_classification() {
+        let module = Some("ExampleApp".to_string());
+        assert!(resolved_in_app(
+            &module,
+            Some("/project/src/commonMain/kotlin/com/example/App.kt"),
+            true
+        ));
+        assert!(!resolved_in_app(
+            &module,
+            Some("/dependencies/compose/ui/src/commonMain/kotlin/androidx/compose/ui/Button.kt"),
+            true
+        ));
+        assert!(!resolved_in_app(
+            &module,
+            Some("/project/src/commonMain/kotlin/com/example/App.kt"),
+            false
+        ));
+    }
+
+    #[test]
+    fn identifies_kotlin_source_language() {
+        assert_eq!(lang_from_filename(Some("App.kt")), "kotlin");
+        assert_eq!(lang_from_filename(Some("Build.kts")), "kotlin");
+    }
 
     #[sqlx::test(migrations = "./tests/test_migrations")]
     async fn test_apple_symbolication(db: sqlx::PgPool) {

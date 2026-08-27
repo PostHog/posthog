@@ -49,6 +49,10 @@ export const PropertyOperatorApi = {
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
+    StartsWith: 'starts_with',
+    NotStartsWith: 'not_starts_with',
+    EndsWith: 'ends_with',
+    NotEndsWith: 'not_ends_with',
     Regex: 'regex',
     NotRegex: 'not_regex',
     Gt: 'gt',
@@ -308,6 +312,61 @@ export interface WorkflowVariablePropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export type BehavioralEventSourceApi = (typeof BehavioralEventSourceApi)[keyof typeof BehavioralEventSourceApi]
+
+export const BehavioralEventSourceApi = {
+    Events: 'events',
+    Actions: 'actions',
+} as const
+
+export type TimeUnitTypeApi = (typeof TimeUnitTypeApi)[keyof typeof TimeUnitTypeApi]
+
+export const TimeUnitTypeApi = {
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+    Year: 'year',
+} as const
+
+export type InlineBehavioralTypeApi = (typeof InlineBehavioralTypeApi)[keyof typeof InlineBehavioralTypeApi]
+
+export const InlineBehavioralTypeApi = {
+    PerformedEvent: 'performed_event',
+    PerformedEventMultiple: 'performed_event_multiple',
+} as const
+
+export interface BehavioralPropertyFilterApi {
+    /** Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups */
+    event_filters?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | ElementPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | HogQLPropertyFilterApi
+          )[]
+        | null
+    event_type: BehavioralEventSourceApi
+    /** Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval */
+    explicit_datetime?: string | null
+    explicit_datetime_to?: string | null
+    /** Event name, or action id when event_type is 'actions' */
+    key: string
+    label?: string | null
+    /** Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators */
+    negation?: boolean | null
+    /** Count comparison for performed_event_multiple, defaults to exact */
+    operator?: PropertyOperatorApi | null
+    /** Count threshold for performed_event_multiple */
+    operator_value?: number | null
+    time_interval?: TimeUnitTypeApi | null
+    /** Relative time window size, paired with time_interval */
+    time_value?: number | null
+    /** Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP */
+    type?: 'behavioral'
+    value: InlineBehavioralTypeApi
+}
+
 export interface PropertyGroupFilterValueApi {
     type: FilterLogicalOperatorApi
     values: (
@@ -335,6 +394,7 @@ export interface PropertyGroupFilterValueApi {
         | RevenueAnalyticsPropertyFilterApi
         | AccountCustomPropertyFilterApi
         | WorkflowVariablePropertyFilterApi
+        | BehavioralPropertyFilterApi
     )[]
 }
 
@@ -465,21 +525,13 @@ export interface ErrorTrackingExternalReferenceIntegrationResultApi {
 }
 
 /**
- * Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}.
+ * Read-only shape of an external reference, shared by every response.
  */
-export type ErrorTrackingExternalReferenceResultApiConfig = { [key: string]: string }
-
 export interface ErrorTrackingExternalReferenceResultApi {
     /** Unique ID of the external reference. */
     readonly id: string
     /** The connected integration this reference was created through. */
     readonly integration: ErrorTrackingExternalReferenceIntegrationResultApi
-    /** ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira'). */
-    integration_id: number
-    /** Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. */
-    config: ErrorTrackingExternalReferenceResultApiConfig
-    /** ID of the error tracking issue to link the reference to. */
-    issue: string
     /** URL of the linked external issue in the provider's system. */
     readonly external_url: string
 }
@@ -491,6 +543,64 @@ export interface PaginatedErrorTrackingExternalReferenceResultListApi {
     /** @nullable */
     previous?: string | null
     results: ErrorTrackingExternalReferenceResultApi[]
+}
+
+/**
+ * Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}.
+ */
+export type ErrorTrackingExternalReferenceCreateApiConfig = { [key: string]: string }
+
+/**
+ * Payload for creating a new provider issue and linking it to an error tracking issue.
+ */
+export interface ErrorTrackingExternalReferenceCreateApi {
+    /** Unique ID of the external reference. */
+    readonly id: string
+    /** The connected integration this reference was created through. */
+    readonly integration: ErrorTrackingExternalReferenceIntegrationResultApi
+    /** URL of the linked external issue in the provider's system. */
+    readonly external_url: string
+    /** ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira'). */
+    integration_id: number
+    /** Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. */
+    config: ErrorTrackingExternalReferenceCreateApiConfig
+    /** ID of the error tracking issue to link the reference to. */
+    issue: string
+}
+
+/**
+ * Identifier of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.
+ */
+export type ErrorTrackingExternalReferenceLinkApiExternalContext = { [key: string]: unknown }
+
+export interface ErrorTrackingExternalReferenceLinkApi {
+    /** ID of the connected integration the existing issue lives in (one of 'github', 'gitlab', 'linear', 'jira'). */
+    integration_id: number
+    /** ID of the error tracking issue to link the reference to. */
+    issue: string
+    /** Identifier of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. */
+    external_context: ErrorTrackingExternalReferenceLinkApiExternalContext
+}
+
+/**
+ * Payload to send back as external_context when creating a reference to this issue.
+ */
+export type ErrorTrackingExternalIssueResultApiExternalContext = { [key: string]: unknown }
+
+export interface ErrorTrackingExternalIssueResultApi {
+    /** Provider-native identifier of the issue (e.g. issue key or number). */
+    id: string
+    /** Human-readable issue title, for display in the picker. */
+    title: string
+    /** Link to the issue in the provider's system. */
+    url: string
+    /** Payload to send back as external_context when creating a reference to this issue. */
+    external_context: ErrorTrackingExternalIssueResultApiExternalContext
+}
+
+export interface ErrorTrackingExternalIssueSearchResultApi {
+    /** Matching existing issues. */
+    issues: ErrorTrackingExternalIssueResultApi[]
 }
 
 export interface ErrorTrackingFingerprintApi {
@@ -622,6 +732,16 @@ export interface PatchedErrorTrackingGroupingRuleApi {
     readonly updated_at?: string
 }
 
+export type ErrorTrackingIssueSeverityApi =
+    (typeof ErrorTrackingIssueSeverityApi)[keyof typeof ErrorTrackingIssueSeverityApi]
+
+export const ErrorTrackingIssueSeverityApi = {
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Critical: 'critical',
+} as const
+
 export interface ErrorTrackingIssueAssigneeReadApi {
     readonly id: number | string | null
     type: string
@@ -638,6 +758,8 @@ export interface ErrorTrackingIssueCohortReadApi {
 export interface ErrorTrackingIssueReadApi {
     id: string
     status: string
+    /** Issue severity, or null when no severity is assigned. */
+    severity: ErrorTrackingIssueSeverityApi | null
     /** @nullable */
     name: string | null
     /** @nullable */
@@ -679,6 +801,8 @@ export interface ErrorTrackingIssueWriteApi {
      * * `resolved` - resolved
      * * `suppressed` - suppressed */
     status?: ErrorTrackingIssueWriteStatusEnumApi
+    /** Issue severity to set, or null to remove the assigned severity. */
+    severity?: ErrorTrackingIssueSeverityApi | null
     /**
      * Optional issue display name.
      * @nullable
@@ -698,6 +822,8 @@ export interface PatchedErrorTrackingIssueWriteApi {
      * * `resolved` - resolved
      * * `suppressed` - suppressed */
     status?: ErrorTrackingIssueWriteStatusEnumApi
+    /** Issue severity to set, or null to remove the assigned severity. */
+    severity?: ErrorTrackingIssueSeverityApi | null
     /**
      * Optional issue display name.
      * @nullable
@@ -716,6 +842,8 @@ export interface PatchedErrorTrackingIssueWriteApi {
 export interface PatchedErrorTrackingIssueReadApi {
     id?: string
     status?: string
+    /** Issue severity, or null when no severity is assigned. */
+    severity?: ErrorTrackingIssueSeverityApi | null
     /** @nullable */
     name?: string | null
     /** @nullable */
@@ -870,6 +998,8 @@ export interface ErrorTrackingIssueDetailApi {
     description?: string | null
     /** Issue status. */
     status?: string
+    /** Issue severity, or null when no severity is assigned. */
+    severity?: ErrorTrackingIssueSeverityApi | null
     /**
      * First seen timestamp.
      * @nullable
@@ -914,6 +1044,10 @@ export interface ErrorTrackingIssueDetailApi {
  * * `is_not` - is_not
  * * `icontains` - icontains
  * * `not_icontains` - not_icontains
+ * * `starts_with` - starts_with
+ * * `not_starts_with` - not_starts_with
+ * * `ends_with` - ends_with
+ * * `not_ends_with` - not_ends_with
  * * `regex` - regex
  * * `not_regex` - not_regex
  * * `gt` - gt
@@ -935,6 +1069,10 @@ export const PropertyItemOperatorEnumApi = {
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
+    StartsWith: 'starts_with',
+    NotStartsWith: 'not_starts_with',
+    EndsWith: 'ends_with',
+    NotEndsWith: 'not_ends_with',
     Regex: 'regex',
     NotRegex: 'not_regex',
     Gt: 'gt',
@@ -1276,6 +1414,8 @@ export interface ErrorTrackingIssueListItemApi {
     description?: string | null
     /** Issue status. */
     status?: string
+    /** Issue severity, or null when no severity is assigned. */
+    severity?: ErrorTrackingIssueSeverityApi | null
     /**
      * First seen timestamp.
      * @nullable
@@ -1512,6 +1652,110 @@ export interface PatchedErrorTrackingSettingsApi {
      * @nullable
      */
     per_issue_rate_limit_bucket_size_minutes?: number | null
+}
+
+/**
+ * * `low` - low
+ * * `medium` - medium
+ * * `high` - high
+ * * `critical` - critical
+ */
+export type ErrorTrackingIssueSeverityRuleEnumApi =
+    (typeof ErrorTrackingIssueSeverityRuleEnumApi)[keyof typeof ErrorTrackingIssueSeverityRuleEnumApi]
+
+export const ErrorTrackingIssueSeverityRuleEnumApi = {
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Critical: 'critical',
+} as const
+
+/**
+ * Diagnostic details when ingestion automatically disables the rule, otherwise null.
+ * @nullable
+ */
+export type ErrorTrackingSeverityRuleApiDisabledData = {
+    message?: string
+    issue?: { [key: string]: unknown }
+    properties?: { [key: string]: unknown }
+} | null
+
+export interface ErrorTrackingSeverityRuleApi {
+    /** Unique identifier of the severity rule. */
+    readonly id: string
+    /** Property-group filters evaluated against the event that creates an issue. */
+    filters: PropertyGroupFilterValueApi
+    /** Severity assigned to a newly created issue when this rule is the first match.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `critical` - critical */
+    severity: ErrorTrackingIssueSeverityRuleEnumApi
+    /** Evaluation priority. Lower values run first, and the first matching rule wins. */
+    order_key: number
+    /**
+     * Diagnostic details when ingestion automatically disables the rule, otherwise null.
+     * @nullable
+     */
+    disabled_data: ErrorTrackingSeverityRuleApiDisabledData
+    /** When the rule was created. */
+    readonly created_at: string
+    /** When the rule was last updated. */
+    readonly updated_at: string
+}
+
+export interface ErrorTrackingSeverityRuleListResponseApi {
+    /** Severity rules in ascending evaluation order. */
+    results: ErrorTrackingSeverityRuleApi[]
+}
+
+export interface ErrorTrackingSeverityRuleCreateRequestApi {
+    /** Property-group filters evaluated against the event that creates an issue. */
+    filters: PropertyGroupFilterValueApi
+    /** Severity assigned when this rule is the first match.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `critical` - critical */
+    severity: ErrorTrackingIssueSeverityRuleEnumApi
+    /** Evaluation priority. Lower values run first. Defaults to 0. */
+    order_key?: number
+}
+
+export interface ErrorTrackingSeverityRuleUpdateRequestApi {
+    /** Replacement property-group filters. Omit to preserve the existing filters. */
+    filters?: PropertyGroupFilterValueApi
+    /** Replacement severity. Omit to preserve the existing severity.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `critical` - critical */
+    severity?: ErrorTrackingIssueSeverityRuleEnumApi
+}
+
+export interface PatchedErrorTrackingSeverityRuleUpdateRequestApi {
+    /** Replacement property-group filters. Omit to preserve the existing filters. */
+    filters?: PropertyGroupFilterValueApi
+    /** Replacement severity. Omit to preserve the existing severity.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `critical` - critical */
+    severity?: ErrorTrackingIssueSeverityRuleEnumApi
+}
+
+/**
+ * Mapping from severity rule UUID to its new evaluation order.
+ */
+export type PatchedErrorTrackingSeverityRuleReorderRequestApiOrders = { [key: string]: number }
+
+export interface PatchedErrorTrackingSeverityRuleReorderRequestApi {
+    /** Mapping from severity rule UUID to its new evaluation order. */
+    orders?: PatchedErrorTrackingSeverityRuleReorderRequestApiOrders
 }
 
 export interface ErrorTrackingSpikeDetectionConfigApi {
@@ -1759,6 +2003,39 @@ export interface ErrorTrackingSymbolSetBulkStartUploadApi {
     skip_on_conflict?: boolean
 }
 
+/**
+ * Form fields to include in the multipart POST, before the file part.
+ */
+export type ErrorTrackingSymbolSetPresignedPostApiFields = { [key: string]: string }
+
+export interface ErrorTrackingSymbolSetPresignedPostApi {
+    /** S3 endpoint URL to send the multipart POST to. */
+    url: string
+    /** Form fields to include in the multipart POST, before the file part. */
+    fields: ErrorTrackingSymbolSetPresignedPostApiFields
+}
+
+export interface ErrorTrackingSymbolSetBulkStartUploadEntryApi {
+    /** ID of the symbol set the upload belongs to. */
+    symbol_set_id: string
+    /** Presigned POST for the upload. Uses the S3 transfer-acceleration endpoint when configured. */
+    presigned_url: ErrorTrackingSymbolSetPresignedPostApi
+    /** Presigned POST against the standard S3 endpoint, present only when the primary URL uses transfer acceleration. For clients whose network blocks the accelerated endpoint. */
+    fallback_presigned_url?: ErrorTrackingSymbolSetPresignedPostApi
+}
+
+/**
+ * Map of chunk ID to upload details. Chunks skipped because their content is unchanged are omitted.
+ */
+export type ErrorTrackingSymbolSetBulkStartUploadResponseApiIdMap = {
+    [key: string]: ErrorTrackingSymbolSetBulkStartUploadEntryApi
+}
+
+export interface ErrorTrackingSymbolSetBulkStartUploadResponseApi {
+    /** Map of chunk ID to upload details. Chunks skipped because their content is unchanged are omitted. */
+    id_map: ErrorTrackingSymbolSetBulkStartUploadResponseApiIdMap
+}
+
 export type ErrorTrackingAssignmentRulesListParams = {
     /**
      * Number of results to return per page.
@@ -1790,6 +2067,21 @@ export type ErrorTrackingExternalReferencesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type ErrorTrackingExternalReferencesSearchIssuesRetrieveParams = {
+    /**
+     * ID of the connected integration to search issues in.
+     */
+    integration_id: number
+    /**
+     * Repository to search within. Required for GitHub, ignored by other providers.
+     */
+    repository?: string
+    /**
+     * Text to match against existing issue titles / keys in the provider. GitHub matches it as an exact phrase. Leave blank for recent issues.
+     */
+    search?: string
 }
 
 export type ErrorTrackingFingerprintsListParams = {

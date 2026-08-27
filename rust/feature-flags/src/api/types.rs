@@ -575,6 +575,9 @@ impl FromFeatureAndMatch for FlagDetails {
             FeatureFlagMatchReason::NoConditionMatchGroupsNotEvaluated => {
                 Some("No matching condition set (group conditions were not evaluated because no group type was provided)".to_string())
             }
+            FeatureFlagMatchReason::NoConditionMatchCohortNotEvaluated => {
+                Some("This condition targets a behavioral or realtime cohort. Its membership is not fully evaluated here, so this result can differ from the cohort's member list.".to_string())
+            }
             FeatureFlagMatchReason::OutOfRolloutBound => Some("Out of rollout bound".to_string()),
             FeatureFlagMatchReason::NoGroupType => Some("No group type".to_string()),
             FeatureFlagMatchReason::SuperConditionValue => {
@@ -690,6 +693,10 @@ impl FlagDetails {
                         Some(OperatorType::IsNot) => ("does not equal", "equals"),
                         Some(OperatorType::Icontains) => ("contains", "does not contain"),
                         Some(OperatorType::NotIcontains) => ("does not contain", "contains"),
+                        Some(OperatorType::StartsWith) => ("starts with", "does not start with"),
+                        Some(OperatorType::NotStartsWith) => ("does not start with", "starts with"),
+                        Some(OperatorType::EndsWith) => ("ends with", "does not end with"),
+                        Some(OperatorType::NotEndsWith) => ("does not end with", "ends with"),
                         Some(OperatorType::Gt) => (">", "<="),
                         Some(OperatorType::Lt) => ("<", ">="),
                         Some(OperatorType::Gte) => (">=", "<"),

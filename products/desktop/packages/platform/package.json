@@ -1,0 +1,118 @@
+{
+  "name": "@posthog/platform",
+  "version": "1.0.0",
+  "description": "Host-agnostic platform port interfaces. Zero runtime deps; implemented by per-host adapters (Electron, Node server, React Native, web).",
+  "type": "module",
+  "exports": {
+    "./host-capabilities": {
+      "types": "./dist/host-capabilities.d.ts",
+      "import": "./dist/host-capabilities.js"
+    },
+    "./url-launcher": {
+      "types": "./dist/url-launcher.d.ts",
+      "import": "./dist/url-launcher.js"
+    },
+    "./storage-paths": {
+      "types": "./dist/storage-paths.d.ts",
+      "import": "./dist/storage-paths.js"
+    },
+    "./app-meta": {
+      "types": "./dist/app-meta.d.ts",
+      "import": "./dist/app-meta.js"
+    },
+    "./dialog": {
+      "types": "./dist/dialog.d.ts",
+      "import": "./dist/dialog.js"
+    },
+    "./clipboard": {
+      "types": "./dist/clipboard.d.ts",
+      "import": "./dist/clipboard.js"
+    },
+    "./crypto": {
+      "types": "./dist/crypto.d.ts",
+      "import": "./dist/crypto.js"
+    },
+    "./file-icon": {
+      "types": "./dist/file-icon.d.ts",
+      "import": "./dist/file-icon.js"
+    },
+    "./secure-storage": {
+      "types": "./dist/secure-storage.d.ts",
+      "import": "./dist/secure-storage.js"
+    },
+    "./main-window": {
+      "types": "./dist/main-window.d.ts",
+      "import": "./dist/main-window.js"
+    },
+    "./app-lifecycle": {
+      "types": "./dist/app-lifecycle.d.ts",
+      "import": "./dist/app-lifecycle.js"
+    },
+    "./power-manager": {
+      "types": "./dist/power-manager.d.ts",
+      "import": "./dist/power-manager.js"
+    },
+    "./updater": {
+      "types": "./dist/updater.d.ts",
+      "import": "./dist/updater.js"
+    },
+    "./notifier": {
+      "types": "./dist/notifier.d.ts",
+      "import": "./dist/notifier.js"
+    },
+    "./speech": {
+      "types": "./dist/speech.d.ts",
+      "import": "./dist/speech.js"
+    },
+    "./notifications": {
+      "types": "./dist/notifications.d.ts",
+      "import": "./dist/notifications.js"
+    },
+    "./context-menu": {
+      "types": "./dist/context-menu.d.ts",
+      "import": "./dist/context-menu.js"
+    },
+    "./bundled-resources": {
+      "types": "./dist/bundled-resources.d.ts",
+      "import": "./dist/bundled-resources.js"
+    },
+    "./image-processor": {
+      "types": "./dist/image-processor.d.ts",
+      "import": "./dist/image-processor.js"
+    },
+    "./workspace-settings": {
+      "types": "./dist/workspace-settings.d.ts",
+      "import": "./dist/workspace-settings.js"
+    },
+    "./analytics": {
+      "types": "./dist/analytics.d.ts",
+      "import": "./dist/analytics.js"
+    },
+    "./deep-link": {
+      "types": "./dist/deep-link.d.ts",
+      "import": "./dist/deep-link.js"
+    },
+    "./app-metrics": {
+      "types": "./dist/app-metrics.d.ts",
+      "import": "./dist/app-metrics.js"
+    },
+    "./dev-host-actions": {
+      "types": "./dist/dev-host-actions.d.ts",
+      "import": "./dist/dev-host-actions.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "node ../../scripts/rimraf.mjs dist .turbo"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.1",
+    "typescript": "^5.5.0"
+  },
+  "files": [
+    "dist/**/*",
+    "src/**/*"
+  ]
+}

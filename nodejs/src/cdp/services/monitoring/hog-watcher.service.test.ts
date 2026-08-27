@@ -1,3 +1,5 @@
+import { randomUUID } from 'crypto'
+
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -39,7 +41,7 @@ describe('HogWatcher', () => {
     let watcherConfig: HogWatcherConfig
     let onStateChangeSpy: jest.SpyInstance
     let redis: RedisV2
-    const hogFunctionId: string = 'hog-function-id'
+    const hogFunctionId = randomUUID()
     let hogFunction: HogFunctionType
 
     let team: Team
@@ -68,7 +70,11 @@ describe('HogWatcher', () => {
     beforeEach(async () => {
         now = 1720000000000
         mockNow.mockReturnValue(now)
-        await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
+        await Promise.all([
+            deleteKeysWithPrefix(redis, `${BASE_REDIS_KEY}/tokens/${hogFunctionId}`),
+            deleteKeysWithPrefix(redis, `${BASE_REDIS_KEY}/state/${hogFunctionId}`),
+            deleteKeysWithPrefix(redis, `${BASE_REDIS_KEY}/state-lock/${hogFunctionId}`),
+        ])
         watcherConfig = { ...DEFAULT_WATCHER_CONFIG }
 
         watcher = new HogWatcherService(hub.teamManager, watcherConfig, redis)
@@ -582,16 +588,13 @@ describe('HogWatcher', () => {
         })
 
         it('should fall back to the writer when the reader throws on getPersistedStates', async () => {
+            await watcher.observeResults([createResult({ duration: 1000, kind: 'hog' })])
+
             const failingReader = makeFailingReader(new Error('reader unavailable'))
             const watcherWithFailingReader = new HogWatcherService(hub.teamManager, watcherConfig, redis, failingReader)
 
-            // Seed state on the writer so a successful fallback returns real data
-            await watcherWithFailingReader.observeResults([createResult({ duration: 1000, kind: 'hog' })])
-
             const state = await watcherWithFailingReader.getPersistedState(hogFunctionId)
 
-            // observeResults uses useClient (mget), getPersistedState uses usePipeline
-            expect(failingReader.useClient).toHaveBeenCalledTimes(1)
             expect(failingReader.usePipeline).toHaveBeenCalledTimes(1)
             expect(state.tokens).toBeLessThan(watcherConfig.bucketSize)
             expect(loggerWarnSpy).toHaveBeenCalledWith(
@@ -630,6 +633,55 @@ describe('HogWatcher', () => {
                 expect.stringContaining('reader getStates failed'),
                 expect.any(Object)
             )
+        })
+    })
+
+    describe('observeAggregatedResults', () => {
+        // Cost curve with the default config: lower=50ms, upper=550ms, cost=100.
+        it('charges no cost when the aggregate duration is below the lower bound', async () => {
+            await watcher.observeAggregatedResults([{ hogFunction, totalDurationMs: 50 }])
+            const state = await watcher.getPersistedState(hogFunctionId)
+            expect(watcherConfig.bucketSize - state.tokens).toEqual(0)
+        })
+
+        it('charges the full cost at the upper bound', async () => {
+            await watcher.observeAggregatedResults([{ hogFunction, totalDurationMs: 550 }])
+            const state = await watcher.getPersistedState(hogFunctionId)
+            expect(watcherConfig.bucketSize - state.tokens).toEqual(100)
+        })
+
+        it('scales cost with total VM time past the upper bound', async () => {
+            // (1050 - 50) / (550 - 50) = 2 → twice the max single-message cost
+            await watcher.observeAggregatedResults([{ hogFunction, totalDurationMs: 1050 }])
+            const state = await watcher.getPersistedState(hogFunctionId)
+            expect(watcherConfig.bucketSize - state.tokens).toEqual(200)
+        })
+
+        it('accumulates cost across observations for the same function', async () => {
+            await watcher.observeAggregatedResults([
+                { hogFunction, totalDurationMs: 300 },
+                { hogFunction, totalDurationMs: 300 },
+            ])
+            const state = await watcher.getPersistedState(hogFunctionId)
+            expect(watcherConfig.bucketSize - state.tokens).toEqual(100) // 50 + 50
+        })
+
+        it('marks a function degraded once its bucket drops to the threshold', async () => {
+            // cost 2000 leaves tokens at 8000 = 80% of the bucket → degraded
+            await watcher.observeAggregatedResults([{ hogFunction, totalDurationMs: 10050 }])
+            const state = await watcher.getPersistedState(hogFunctionId)
+            expect(state.tokens).toEqual(8000)
+            expect(state.state).toEqual(HogWatcherState.degraded)
+        })
+
+        it('charges each function independently', async () => {
+            const other = createHogFunction({ id: `${hogFunctionId}-other`, team_id: 2 })
+            await watcher.observeAggregatedResults([
+                { hogFunction, totalDurationMs: 550 },
+                { hogFunction: other, totalDurationMs: 50 },
+            ])
+            expect(watcherConfig.bucketSize - (await watcher.getPersistedState(hogFunctionId)).tokens).toEqual(100)
+            expect(watcherConfig.bucketSize - (await watcher.getPersistedState('other-fn')).tokens).toEqual(0)
         })
     })
 })

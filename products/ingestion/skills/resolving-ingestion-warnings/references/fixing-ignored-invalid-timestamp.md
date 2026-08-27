@@ -16,7 +16,7 @@ The timestamp string isn't a format PostHog can parse. Common sources:
 
 ## Diagnose
 
-1. `posthog:ingestion-warnings-list` with `type: ignored_invalid_timestamp`. The sample details carry the offending `value` and a `reason` from the parser — usually self-explanatory.
+1. Query the warnings with `posthog:execute-sql`: `SELECT timestamp, details FROM system.ingestion_warnings WHERE type = 'ignored_invalid_timestamp' AND timestamp > now() - INTERVAL 7 DAY ORDER BY timestamp DESC LIMIT 20`. The `details` JSON carries the offending `value` and a `reason` from the parser — usually self-explanatory.
 2. Grep the app for where `timestamp` is set on capture calls (custom timestamps are most common in backend SDKs and migration/import scripts).
 
 ## Fix
@@ -35,7 +35,7 @@ If you don't need a custom time, omit `timestamp` entirely — the SDK stamps it
 
 ## Verify
 
-Re-run the flow or a sample of the import, re-query `posthog:ingestion-warnings-list` with a post-fix `since` — no new occurrences — and confirm new events carry the intended times.
+Re-run the flow or a sample of the import, re-query `system.ingestion_warnings` with `posthog:execute-sql` (filter `type = 'ignored_invalid_timestamp'`, `timestamp` after your fix) — no new occurrences — and confirm new events carry the intended times.
 
 ## Related
 

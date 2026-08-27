@@ -1,10 +1,10 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, isBreakpoint, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
 
 import { mcpAnalyticsSessionsActivityOverview, mcpAnalyticsSessionsIntentDigest } from '../generated/api'
-import type { MCPActivityOverviewApi } from '../generated/api.schemas'
+import type { MCPActivityOverviewApi, MCPIntentThemeApi } from '../generated/api.schemas'
 import { mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
 import type { MCPOnboardingSignals } from '../mcpAnalyticsOnboardingLogic'
 import { buildActivitySummary } from './activitySummary'
@@ -23,7 +23,8 @@ export interface EarlyRecentCall {
     clientName: string | null
 }
 
-export interface IntentTheme {
+// Frequency-grouped verbatim intents, the fallback shown when no AI digest is available.
+export interface IntentFrequency {
     intent: string
     count: number
 }
@@ -31,6 +32,7 @@ export interface IntentTheme {
 export interface IntentDigest {
     digest: string | null
     intentCount: number
+    themes: readonly MCPIntentThemeApi[]
 }
 
 export interface EarlyToolRow {
@@ -67,7 +69,7 @@ export interface mcpEarlyDataLogicValues {
     clients: EarlyClientRow[]
     intentDigest: IntentDigest | null
     intentDigestLoading: boolean
-    intentThemes: IntentTheme[]
+    intentFrequencies: IntentFrequency[]
     isRefreshing: boolean
     overview: MCPActivityOverviewApi | null
     overviewLoading: boolean
@@ -125,7 +127,7 @@ export interface mcpEarlyDataLogicMeta {
         recentCalls: (overview: MCPActivityOverviewApi | null) => EarlyRecentCall[]
         totalCalls: (signals: MCPOnboardingSignals | null, stats: EarlyStats) => number
         summary: (totalCalls: number, stats: EarlyStats, topTools: EarlyToolRow[]) => string
-        intentThemes: (recentCalls: EarlyRecentCall[]) => IntentTheme[]
+        intentFrequencies: (recentCalls: EarlyRecentCall[]) => IntentFrequency[]
         checklist: (stats: EarlyStats) => ChecklistItem[]
         isRefreshing: (overviewLoading: boolean, intentDigestLoading: boolean) => boolean
     }
@@ -159,9 +161,18 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
                 try {
                     const response = await mcpAnalyticsSessionsIntentDigest(String(values.currentProjectId))
                     breakpoint()
-                    return { digest: response.digest, intentCount: response.intent_count }
-                } catch {
-                    // LLM unconfigured (503) or transient failure — the card falls back
+                    return {
+                        digest: response.digest,
+                        intentCount: response.intent_count,
+                        themes: response.themes ?? [],
+                    }
+                } catch (error: unknown) {
+                    // A newer load superseded this one; let kea-loaders skip the stale success
+                    // rather than reporting it as a failed digest.
+                    if (isBreakpoint(error as Error)) {
+                        throw error
+                    }
+                    // LLM unconfigured (503) or transient failure: the card falls back
                     // to the verbatim intent list.
                     return null
                 }
@@ -203,7 +214,7 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
         clients: [
             (s) => [s.overview],
             (overview: MCPActivityOverviewApi | null): EarlyClientRow[] =>
-                (overview?.clients ?? []).map((row) => ({ client: row.client || 'Unknown client', calls: row.calls })),
+                (overview?.clients ?? []).map((row) => ({ client: row.client, calls: row.calls })),
         ],
         recentCalls: [
             (s) => [s.overview],
@@ -241,9 +252,9 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
         // Verbatim agent intents grouped by frequency — the fallback when no AI
         // digest is available. At low volume, reading what agents actually tried
         // beats any lossy aggregation of it.
-        intentThemes: [
+        intentFrequencies: [
             (s) => [s.recentCalls],
-            (recentCalls: EarlyRecentCall[]): IntentTheme[] => {
+            (recentCalls: EarlyRecentCall[]): IntentFrequency[] => {
                 const counts = new Map<string, number>()
                 for (const call of recentCalls) {
                     if (call.intent) {

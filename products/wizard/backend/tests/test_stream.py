@@ -27,6 +27,7 @@ def _input(team_id: int, **overrides) -> UpsertWizardSessionInput:
         "tasks": (WizardTaskDTO(id="1", title="Install SDK", status=TaskStatus.IN_PROGRESS),),
         "event_plan": None,
         "error": None,
+        "pending_input": None,
     }
     params.update(overrides)
     return UpsertWizardSessionInput(**params)
