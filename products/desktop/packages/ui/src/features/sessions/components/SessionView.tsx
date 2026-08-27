@@ -77,7 +77,6 @@ import {
   useShowRawLogs,
 } from "@posthog/ui/features/sessions/sessionViewStore";
 import type { Plan } from "@posthog/ui/features/sessions/types";
-import { useSessionHandoffInProgress } from "@posthog/ui/features/sessions/useSession";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useIsWorkspaceCloudRun } from "@posthog/ui/features/workspace/useWorkspace";
 import { useConnectivity } from "@posthog/ui/hooks/useConnectivity";
@@ -196,7 +195,6 @@ export function SessionView({
   const spendStop = useSpendStop();
   const { isOnline } = useConnectivity();
   const currentModeId = modeOption?.currentValue;
-  const handoffInProgress = useSessionHandoffInProgress(taskId);
   const showInlineBanner = hasError && errorRetryable && events.length > 0;
   const olderHistoryCursor = useSessionSelector(taskId, (session) =>
     isCloud ? (session?.transcriptWindowStart ?? 0) : 0,
@@ -806,9 +804,8 @@ export function SessionView({
                           ref={editorRef}
                           sessionId={sessionId}
                           placeholder="Type a message... ! for bash mode, / for skills"
-                          disabled={!isRunning && !handoffInProgress}
+                          disabled={!isRunning}
                           submitDisabledExternal={
-                            handoffInProgress ||
                             !isOnline ||
                             attachmentsUploading ||
                             attachmentUploadFailed ||
