@@ -43,13 +43,17 @@ def _remote_flag_enabled(flag: str, *, team: Team, user: User | None = None) -> 
     if flag in _FORCE_ENABLED_FLAGS:
         return True
 
+    internal_project_api_key = posthoganalytics.api_key
+    if not internal_project_api_key:
+        return False
+
     distinct_id = (user.distinct_id or str(user.uuid)) if user is not None else str(team.uuid)
     organization_id = str(team.organization_id)
     project_id = str(team.id)
 
     try:
         result = get_flags_from_service(
-            team.api_token,
+            internal_project_api_key,
             distinct_id,
             groups={"organization": organization_id, "project": project_id},
             flag_keys=[flag],
