@@ -52,6 +52,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
         <>
             <div className="FunnelsQuerySteps">
                 <ActionFilter
+                    allowBehavioralPropertyFilter
                     bordered={false}
                     filters={actionFilters}
                     setFilters={setActionFilters}
