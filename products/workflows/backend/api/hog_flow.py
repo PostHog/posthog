@@ -4,7 +4,7 @@ import uuid as uuid_mod
 import hashlib
 import dataclasses
 from copy import deepcopy
-from datetime import timedelta
+from datetime import datetime, timedelta
 from time import monotonic
 from typing import Any, NamedTuple, Optional, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -37,7 +37,11 @@ from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr
 
-from posthog.api.app_metrics2 import AppMetricsMixin, fetch_app_metric_totals_by_source
+from posthog.api.app_metrics2 import (
+    AppMetricsMixin,
+    fetch_app_metric_totals_by_source,
+    fetch_app_metric_totals_by_team_and_source,
+)
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.hog_invocation_cancel import (
     HogInvocationCancelRequestSerializer,
@@ -150,6 +154,7 @@ from products.workflows.backend.services.timing_reschedule import (
 from products.workflows.backend.services.wait_clock_conditions import find_clock_function
 from products.workflows.backend.tasks.hog_flows import reschedule_hog_flow_timing
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
+from products.workflows.backend.utils.email_sending_tiers import max_email_sending_tier, resolve_team_email_sending_tier
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
 logger = structlog.get_logger(__name__)
@@ -1923,6 +1928,45 @@ def _email_sending_rates(sent: int, bounced: int, complained: int) -> dict[str, 
     }
 
 
+SENDING_ALLOWANCE_CACHE_SECONDS = 60
+
+
+def _team_email_sending_allowance(team_id: int) -> dict[str, Any]:
+    """
+    The project's sending tier, what it allows, and how much of it has been used.
+
+    Usage comes from the send metrics rather than the worker's token buckets, so the numbers match
+    what the rest of this page reports. Cached briefly because the endpoint reloads on every search
+    keystroke while these two aggregations do not depend on the search.
+    """
+    cache_key = f"workflows_email_sending_allowance_{team_id}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    resolved = resolve_team_email_sending_tier(team_id)
+    now = timezone.now()
+    allowance = {
+        "tier": resolved.tier,
+        "max_tier": max_email_sending_tier(),
+        "emails_per_hour": resolved.limits.per_hour,
+        "emails_per_day": resolved.limits.per_day,
+        "max_batch_audience": resolved.limits.max_batch_audience,
+        "emails_sent_last_hour": _team_email_sends_since(team_id, now - timedelta(hours=1)),
+        "emails_sent_last_day": _team_email_sends_since(team_id, now - timedelta(days=1)),
+        "enforced": resolved.enforced,
+    }
+    cache.set(cache_key, allowance, SENDING_ALLOWANCE_CACHE_SECONDS)
+    return allowance
+
+
+def _team_email_sends_since(team_id: int, after: datetime) -> int:
+    totals = fetch_app_metric_totals_by_team_and_source(
+        app_source="hog_flow", name=["email_sent"], after=after, team_ids=[team_id]
+    )
+    return sum(counts.get("email_sent", 0) for counts in totals.get(team_id, {}).values())
+
+
 AWS_TENANT_REPUTATION_CACHE_SECONDS = 5 * 60
 # Failures cache too, but far shorter than successes: long enough that an unreachable SES isn't
 # re-dialled on every request, short enough that a just-fixed config recovers within a minute.
@@ -2058,6 +2102,33 @@ class AwsTenantReputationSerializer(serializers.Serializer):
     )
 
 
+class EmailSendingAllowanceSerializer(serializers.Serializer):
+    """How much workflow email this project may send, and how much of that it has used."""
+
+    tier = serializers.IntegerField(
+        read_only=True,
+        help_text="The project's current sending tier. Projects start at 0 and move up as they build a clean sending history.",
+    )
+    max_tier = serializers.IntegerField(
+        read_only=True, help_text="The highest tier there is, so the current tier can be shown as progress."
+    )
+    emails_per_hour = serializers.IntegerField(read_only=True, help_text="How many emails this tier allows per hour.")
+    emails_per_day = serializers.IntegerField(read_only=True, help_text="How many emails this tier allows per day.")
+    max_batch_audience = serializers.IntegerField(
+        read_only=True, help_text="The largest audience this tier allows for a single batch send."
+    )
+    emails_sent_last_hour = serializers.IntegerField(
+        read_only=True, help_text="Emails sent by this project's workflows in the last hour."
+    )
+    emails_sent_last_day = serializers.IntegerField(
+        read_only=True, help_text="Emails sent by this project's workflows in the last 24 hours."
+    )
+    enforced = serializers.BooleanField(
+        read_only=True,
+        help_text="True when these allowances are applied to sends. False while they are only being measured.",
+    )
+
+
 class TeamEmailReputationResponseSerializer(serializers.Serializer):
     aws = AwsTenantReputationSerializer(
         allow_null=True,
@@ -2094,6 +2165,14 @@ class TeamEmailReputationResponseSerializer(serializers.Serializer):
         read_only=True,
         allow_blank=True,
         help_text="Staff-authored reason shown to customers alongside the suspension notice; empty when not suspended.",
+    )
+    sending_allowance = EmailSendingAllowanceSerializer(
+        allow_null=True,
+        read_only=True,
+        help_text=(
+            "The project's sending tier, what it allows, and how much of it has been used; null when the "
+            "caller lacks project-wide workflow access."
+        ),
     )
 
 
@@ -4636,6 +4715,11 @@ class HogFlowViewSet(
                     "email_sending_suspended": suspended_at is not None,
                     "email_sending_suspended_at": suspended_at,
                     "email_sending_suspension_reason": suspension_reason if suspended_at is not None else "",
+                    # Same gate again: the allowance is project-wide, so an object-level grant is
+                    # not enough to read it.
+                    "sending_allowance": _team_email_sending_allowance(self.team_id)
+                    if can_read_all_workflows
+                    else None,
                 }
             ).data
         )

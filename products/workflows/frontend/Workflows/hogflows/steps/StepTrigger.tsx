@@ -561,9 +561,9 @@ function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; fil
                 </div>
                 {exceeded && limit != null && (
                     <div className="text-danger text-xs">
-                        Batch size exceeds the limit of {humanFriendlyNumber(limit)}{' '}
-                        {isAccountAudience ? 'accounts' : 'users'}. Add filters to narrow your audience. This limit will
-                        be loosened in the future.
+                        Your audience is above this project's batch limit of {humanFriendlyNumber(limit)}{' '}
+                        {isAccountAudience ? 'accounts' : 'users'}. Add filters to narrow it. The limit rises as the
+                        project builds a clean sending history.
                     </div>
                 )}
             </div>

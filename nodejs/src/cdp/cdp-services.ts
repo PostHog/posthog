@@ -33,7 +33,7 @@ import { RecipientsManagerService } from './services/managers/recipients-manager
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
 import { EmailValidationService } from './services/messaging/email-validation.service'
-import { EmailService } from './services/messaging/email.service'
+import { EmailService, parseTeamEmailCapMode, parseTierCaps } from './services/messaging/email.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { MessageAssetsService } from './services/messaging/message-assets.service'
 import { PushNotificationService } from './services/messaging/push-notification.service'
@@ -420,6 +420,11 @@ export function createCdpCoreServices(
     const workflowEmailRateLimiter = deps.emailValidationValkey
         ? new RateLimiterService(deps.emailValidationValkey, { name: 'workflow-email' })
         : null
+    // Separate limiter instance from the per-workflow one so the two show up under different
+    // `limiter` labels on the shared claim metrics. Same Valkey pool, different bucket keys.
+    const teamEmailRateLimiter = deps.emailValidationValkey
+        ? new RateLimiterService(deps.emailValidationValkey, { name: 'team-email' })
+        : null
     const emailService = new EmailService(
         {
             sesAccessKeyId: config.SES_ACCESS_KEY_ID,
@@ -428,6 +433,11 @@ export function createCdpCoreServices(
             sesEndpoint: config.SES_ENDPOINT,
             sesTrackedConfigurationSet: config.SES_TRACKED_CONFIGURATION_SET,
             sesUntrackedConfigurationSet: config.SES_UNTRACKED_CONFIGURATION_SET,
+            sesTenantAttributionEnabled: config.EMAIL_SES_TENANT_ATTRIBUTION_ENABLED,
+            teamEmailCapMode: parseTeamEmailCapMode(config.EMAIL_TEAM_SENDING_CAP_MODE),
+            teamEmailTierHourlyCaps: parseTierCaps(config.EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER),
+            teamEmailTierDailyCaps: parseTierCaps(config.EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER),
+            teamEmailCapTeamsCreatedAfter: config.EMAIL_TEAM_SENDING_CAP_TEAMS_CREATED_AFTER,
         },
         deps.integrationManager,
         teamWorkflowsConfigService,
@@ -437,7 +447,8 @@ export function createCdpCoreServices(
         emailSuppressionService,
         recipientsManager,
         messageAssetsService,
-        workflowEmailRateLimiter
+        workflowEmailRateLimiter,
+        teamEmailRateLimiter
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const hogInputsService = new HogInputsService(deps.integrationManager, recipientTokensService, deps.encryptedFields)
