@@ -93,7 +93,7 @@ export function ExperimentsSettingsScene(): JSX.Element {
                 </SettingsItem>
                 <SettingsItem
                     label="Conversion window"
-                    description="When enabled, new experiments exclude participants whose conversion or retention window hasn't elapsed yet."
+                    description="A default for new experiments. It applies per metric, and only to metrics that have a conversion or retention window. For those metrics, it excludes participants whose window has not elapsed. Metrics without a window are not affected."
                 >
                     <DefaultOnlyCountMaturedUsers />
                 </SettingsItem>
