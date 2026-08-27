@@ -25,6 +25,8 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.common.base import PostHogWorkflow
 
 with workflow.unsafe.imports_passed_through():
+    from products.tasks.backend.temporal.slack_relay.object_tags import split_incomplete_tag_suffix
+
     from .activities.slack_agent_design import (
         AppendSlackAgentDesignStepsInput,
         StartSlackAgentDesignStreamInput,
@@ -180,10 +182,14 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
 
                 if not self._has_seen_tool_call:
                     # Phase 1: stream narrative as markdown_text.
-                    to_stream = self._current_narrative
-                    if not to_stream:
+                    if not self._current_narrative:
                         continue
-                    self._current_narrative = ""
+                    # An object tag cut by the flush boundary would post as raw XML; keep its
+                    # start for the next flush. The dispatch decision above is unchanged, so
+                    # in-flight replays see the same command sequence.
+                    split = split_incomplete_tag_suffix(self._current_narrative)
+                    to_stream = split.sendable
+                    self._current_narrative = split.held
                     self._last_dispatched_at = workflow.now().timestamp()
 
                     if self._stream_ts is None:

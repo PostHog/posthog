@@ -406,6 +406,42 @@ describe("AuthService", () => {
     expect(oauthFlow.refreshToken).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { name: "a 401", status: 401, body: null, refreshes: true },
+    {
+      name: "a 403 that reports an authentication failure",
+      status: 403,
+      body: { type: "authentication_error", code: "authentication_failed" },
+      refreshes: true,
+    },
+    {
+      name: "a 403 permission denial",
+      status: 403,
+      body: { type: "permission_denied", detail: "Not allowed." },
+      refreshes: false,
+    },
+  ])(
+    "refreshes the token and retries on $name only when the token was rejected",
+    async ({ status, body, refreshes }) => {
+      seedStoredSession({ selectedProjectId: 42 });
+      stubAuthFetch();
+      oauthFlow.refreshToken.mockResolvedValue(mockTokenResponse());
+      await service.initialize();
+      oauthFlow.refreshToken.mockClear();
+      vi.mocked(fetch).mockResolvedValueOnce(
+        new Response(body === null ? null : JSON.stringify(body), { status }),
+      );
+
+      const response = await service.authenticatedFetch(
+        fetch,
+        "https://us.posthog.com/api/restricted/",
+      );
+
+      expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(refreshes ? 1 : 0);
+      expect(response.ok).toBe(refreshes);
+    },
+  );
+
   it("requires scope reauthentication when the stored scope version is stale", async () => {
     seedStoredSession({
       refreshToken: "refresh-token",
@@ -2296,6 +2332,43 @@ describe("AuthService", () => {
         status: "allowed",
         reason: null,
       });
+    });
+
+    it.each([
+      {
+        name: "keeps the current result on screen while a refresh for the same account rechecks it",
+        refreshedAccountKey: "user-1",
+        statusDuringRecheck: "allowed",
+      },
+      {
+        name: "shows checking while a refresh that lands on another account rechecks",
+        refreshedAccountKey: "user-2",
+        statusDuringRecheck: "checking",
+      },
+    ])("$name", async ({ refreshedAccountKey, statusDuringRecheck }) => {
+      let release!: () => void;
+      const pending = new Promise<Response>((resolve) => {
+        release = () => resolve(okBody({ allowed: true, reason: null }));
+      });
+      stubAuthFetch();
+      await service.initialize();
+      expect(service.getState().desktopAccess.status).toBe("allowed");
+
+      let checks = 0;
+      stubAuthFetch({
+        accountKey: refreshedAccountKey,
+        desktopAccessResponse: () => {
+          checks += 1;
+          return pending as unknown as Response;
+        },
+      });
+      const refresh = service.refreshAccessToken();
+      await vi.waitFor(() => expect(checks).toBe(1));
+      expect(service.getState().desktopAccess.status).toBe(statusDuringRecheck);
+
+      release();
+      await refresh;
+      expect(service.getState().desktopAccess.status).toBe("allowed");
     });
 
     it("rechecks access after selecting an eligible project", async () => {
