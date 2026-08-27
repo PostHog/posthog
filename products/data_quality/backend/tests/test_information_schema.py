@@ -14,6 +14,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.team import Team
 
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade.enums import CheckRunStatus, CheckSeverity, CheckType, SubjectType
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 
@@ -169,6 +170,112 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
 
         assert ("orders",) not in rows
         assert ("customers",) in rows
+
+    @parameterized.expand(
+        [
+            ("checks", "SELECT subject_name FROM system.information_schema.data_quality_checks"),
+            ("check_runs", "SELECT subject_name FROM system.information_schema.data_quality_check_runs"),
+            ("health", "SELECT subject_name FROM system.information_schema.data_quality_health"),
+        ]
+    )
+    def test_a_denied_subject_renamed_since_its_last_run_stays_hidden(self, _name: str, sql: str) -> None:
+        # The name on the check is only rewritten when the check runs, so matching denial against it
+        # serves the subject's rows for the whole window between a rename and the next run.
+        renamed = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="orders", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+        )
+        stale = self._check(subject_name="orders_legacy", saved_query_id=renamed.id)
+        self._run_for(stale)
+
+        rows = self._query(sql, context=self._context(denied_tables={"orders"}))
+
+        assert rows == []
+
+    @parameterized.expand(
+        [
+            ("checks", "SELECT subject_name FROM system.information_schema.data_quality_checks"),
+            ("check_runs", "SELECT subject_name FROM system.information_schema.data_quality_check_runs"),
+            ("health", "SELECT subject_name FROM system.information_schema.data_quality_health"),
+        ]
+    )
+    def test_a_check_reading_a_denied_subject_is_hidden_from_every_table(self, _name: str, sql: str) -> None:
+        # A check on an allowed parent still names the denied subject in its config, and its status
+        # answers questions about the rows behind it.
+        reader = self._check(
+            subject_name="customers",
+            saved_query_id=uuid4(),
+            check_type=CheckType.CUSTOM_SQL,
+            column_name="",
+            config={"query": "SELECT 1 FROM orders"},
+        )
+        self._run_for(reader, check_config=reader.config)
+
+        rows = self._query(sql, context=self._context(denied_tables={"orders"}))
+
+        assert rows == []
+
+    @parameterized.expand(
+        [
+            ("checks", "SELECT subject_name FROM system.information_schema.data_quality_checks"),
+            ("health", "SELECT subject_name FROM system.information_schema.data_quality_health"),
+        ]
+    )
+    def test_a_check_whose_last_run_read_a_recreated_subject_stays_hidden(self, _name: str, sql: str) -> None:
+        # A check row is not only a definition: last_status is the verdict of its last run, over
+        # whatever that run read. Once the subject it read is deleted and its name taken by something
+        # the caller may read, the definition stops naming anything denied while the verdict remains.
+        original = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="orders_original", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+        )
+        original_id = original.id
+        original.delete()
+        reader = self._check(
+            subject_name="customers",
+            saved_query_id=self.subject_uuid,
+            check_type=CheckType.CUSTOM_SQL,
+            column_name="",
+            config={"query": "SELECT 1 FROM orders"},
+            last_status=CheckRunStatus.FAILED,
+        )
+        self._run_for(
+            reader,
+            check_config=reader.config,
+            referenced_subjects=[{"subject_type": str(SubjectType.VIEW), "subject_uuid": str(original_id)}],
+        )
+
+        rows = self._query(sql, context=self._context(denied_tables={"secrets"}))
+
+        assert rows == []
+
+    def test_a_run_whose_subject_was_recreated_under_the_same_name_stays_hidden(self) -> None:
+        # Deleting a warehouse object frees its name for anyone to take. Matched by the names in its
+        # definition, the run that read the original would be served here the moment something the
+        # caller can read answers to that name -- with its failed-row count over the original's rows.
+        original = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="orders_original", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+        )
+        original_id = original.id
+        original.delete()
+        reader = self._check(
+            subject_name="customers",
+            saved_query_id=uuid4(),
+            check_type=CheckType.CUSTOM_SQL,
+            column_name="",
+            config={"query": "SELECT 1 FROM orders"},
+        )
+        self._run_for(
+            reader,
+            check_config=reader.config,
+            referenced_subjects=[{"subject_type": str(SubjectType.VIEW), "subject_uuid": str(original_id)}],
+        )
+
+        # A denial the caller still has, so the gate engages: an empty denied set skips it entirely.
+        rows = self._query(
+            "SELECT subject_name FROM system.information_schema.data_quality_check_runs",
+            context=self._context(denied_tables={"secrets"}),
+        )
+
+        assert rows == []
 
     def test_the_tables_are_absent_when_the_catalog_flag_is_off(self) -> None:
         with patch("products.data_quality.backend.facade.flags.is_data_quality_checks_enabled", return_value=False):

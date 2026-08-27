@@ -533,9 +533,9 @@ def _build_environment_variables(
     run_state = parse_run_state(ctx.state)
     if run_state.resume_from_run_id:
         environment_variables["POSTHOG_RESUME_RUN_ID"] = run_state.resume_from_run_id
-    elif run_state.handoff_resumed:
+    elif run_state.same_run_resume:
         environment_variables["POSTHOG_RESUME_RUN_ID"] = str(ctx.run_id)
-        if run_state.handoff_resume_idle:
+        if run_state.same_run_resume_idle:
             environment_variables["POSTHOG_RESUME_IDLE"] = "1"
 
     # Cloud wizard runs get a SEPARATE token, minted under the wizard's own OAuth app with the
@@ -668,9 +668,9 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                 snapshot_kind = run_state.resume_snapshot_kind()
                 snapshot_mount_path = run_state.resume_snapshot_mount_path()
 
-        is_resume = bool(run_state.handoff_resumed or run_state.resume_from_run_id)
+        is_resume = bool(run_state.same_run_resume or run_state.resume_from_run_id)
         resume_mode = resume_mode_label(
-            handoff_resumed=run_state.handoff_resumed,
+            same_run_resume=run_state.same_run_resume,
             using_modal_snapshot=resume_snapshot_external_id is not None,
         )
         resume_decision_log = (
@@ -686,8 +686,8 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                 "effective_snapshot_external_id": resume_snapshot_external_id,
                 "effective_snapshot_kind": snapshot_kind,
                 "effective_snapshot_mount_path": snapshot_mount_path,
-                "handoff_resumed": run_state.handoff_resumed,
-                "handoff_resume_idle": run_state.handoff_resume_idle,
+                "same_run_resume": run_state.same_run_resume,
+                "same_run_resume_idle": run_state.same_run_resume_idle,
                 "resume_from_run_id": run_state.resume_from_run_id,
                 "posthog_resume_run_id_set": "POSTHOG_RESUME_RUN_ID" in environment_variables,
                 "used_snapshot": used_snapshot,
@@ -697,8 +697,8 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
             emit_agent_log(
                 ctx.run_id,
                 "debug",
-                f"Resume mode: handoff_resumed={run_state.handoff_resumed}, "
-                f"resume_idle={run_state.handoff_resume_idle}, "
+                f"Resume mode: same_run_resume={run_state.same_run_resume}, "
+                f"resume_idle={run_state.same_run_resume_idle}, "
                 f"resume_from_run_id={run_state.resume_from_run_id}, "
                 f"using_modal_snapshot={resume_snapshot_external_id is not None}",
             )
@@ -1006,8 +1006,8 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
         emit_agent_log(ctx.run_id, "debug", f"Cloning {input.repository} into sandbox")
         sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
 
-        state = ctx.state or {}
-        is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
+        state = parse_run_state(ctx.state)
+        is_resume = bool(state.resume_from_run_id or state.same_run_resume)
 
         with StepTimer(
             "repository_clone",
@@ -1027,7 +1027,7 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                 emit_agent_log(
                     ctx.run_id,
                     "debug",
-                    f"Resume branch {ctx.branch} is unavailable; cloning the repository default branch so the agent can restore its git checkpoint",
+                    f"Resume branch {ctx.branch} is unavailable; cloning the repository default branch so the agent can continue from its preserved conversation",
                 )
                 clone_result = sandbox.clone_repository(
                     input.repository,
