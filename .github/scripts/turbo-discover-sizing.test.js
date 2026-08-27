@@ -110,6 +110,17 @@ test('buildMatrix leaves a small product packed', () => {
     assert.deepEqual(matrix[0].legs, [{ filters: '--filter=@posthog/products-small-one', pytest_args: '' }])
 })
 
+test('a single-invocation entry keeps the pre-legs keys for unrebased branches', () => {
+    // A workflow edit lands on an open PR before this script does, so an old
+    // workflow reading matrix.filters must still find something to run.
+    const union = { 'products/small_one/backend/test_c.py::test_c': 100 }
+
+    const matrix = buildMatrix(['small-one'], union, true)
+
+    assert.equal(matrix[0].filters, '--filter=@posthog/products-small-one')
+    assert.equal(matrix[0].pytest_args, '')
+})
+
 test('productSplitShards sizes the worst chunk, so a heavy test buys shards', () => {
     const budget = TARGET_WALL_SECONDS - PRODUCT_JOB_OVERHEAD_SECONDS
     // Same total work; the coarser grain cannot be cut as finely, so it needs more

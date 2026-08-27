@@ -1070,6 +1070,19 @@ function buildDjangoShards(durations, ranNodeIds = {}) {
     return result
 }
 
+// A workflow edit reaches an open PR before this script does, so an entry a
+// single turbo invocation can express keeps the pre-legs {filters, pytest_args}
+// keys beside its leg. An entry with several legs has no such expression and
+// carries legs alone, by which point the workflow reading it is the new one.
+function matrixEntry(group, legs) {
+    const entry = { group, legs }
+    if (legs.length === 1) {
+        entry.filters = legs[0].filters
+        entry.pytest_args = legs[0].pytest_args
+    }
+    return entry
+}
+
 function buildMatrix(products, durations, productsScaled = false) {
     const matrix = []
     const packable = []
@@ -1123,15 +1136,12 @@ function buildMatrix(products, durations, productsScaled = false) {
                         baseOverhead: PRODUCT_JOB_OVERHEAD_SECONDS,
                     })
                 } else {
-                    matrix.push({ group: `${product} (${i}/${shards})`, legs: [leg] })
+                    matrix.push(matrixEntry(`${product} (${i}/${shards})`, [leg]))
                 }
             }
         } else if (DEDICATED_BUCKET_PRODUCTS.has(product)) {
             console.error(`  ${product}: ${(work / 60).toFixed(1)} min work → dedicated job (never shared)`)
-            matrix.push({
-                group: product,
-                legs: [{ filters: `--filter=@posthog/products-${product}`, pytest_args: '' }],
-            })
+            matrix.push(matrixEntry(product, [{ filters: `--filter=@posthog/products-${product}`, pytest_args: '' }]))
         } else {
             packable.push(product)
         }
@@ -1147,7 +1157,7 @@ function buildMatrix(products, durations, productsScaled = false) {
                 pytest_args: '',
             })
         }
-        matrix.push({ group, legs })
+        matrix.push(matrixEntry(group, legs))
     }
 
     return matrix

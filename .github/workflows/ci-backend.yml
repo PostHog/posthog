@@ -971,6 +971,9 @@ jobs:
               # pytest-split flags must not leak from that shard onto its job-mates.
               env:
                   PRODUCT_LEGS: ${{ toJSON(matrix.legs) }}
+                  # Read only when an unrebased branch planned the pre-legs shape.
+                  LEGACY_FILTERS: ${{ matrix.filters }}
+                  LEGACY_PYTEST_ARGS: ${{ matrix.pytest_args }}
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
                   # products/tasks/backend/temporal moved here from the Django Temporal
                   # segment, and its conftest and workflows talk to Modal. Injected only
@@ -1001,10 +1004,17 @@ jobs:
               run: |
                   set +e
                   overall=0
+                  # A workflow edit reaches an open PR before the script edit does, so a
+                  # branch that has not rebased still plans the flat {filters, pytest_args}
+                  # shape. Normalize that into one leg rather than requiring the new key.
+                  if [ -z "$PRODUCT_LEGS" ] || [ "$PRODUCT_LEGS" = "null" ]; then
+                      PRODUCT_LEGS=$(jq -cn --arg f "$LEGACY_FILTERS" --arg a "$LEGACY_PYTEST_ARGS" \
+                          '[{filters: $f, pytest_args: $a}]')
+                      echo "Matrix entry carries no legs; running the legacy single invocation"
+                  fi
                   leg_count=$(jq 'length' <<< "$PRODUCT_LEGS")
-                  # An unset or malformed matrix entry would leave the loop unentered and
-                  # the job green having run no tests, which the single-command form could
-                  # not do. The rollup gate only reads this step, so fail loudly instead.
+                  # Neither shape present means the job would pass having run no tests, and
+                  # the rollup gate only reads this step's outcome. Fail loudly instead.
                   if [ -z "$leg_count" ] || [ "$leg_count" -lt 1 ]; then
                       echo "::error::No test legs in this matrix entry; refusing to pass without running tests"
                       exit 1
