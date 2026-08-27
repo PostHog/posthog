@@ -1,8 +1,8 @@
+import {execFile} from 'child_process'
 import * as os from 'os'
 import * as path from 'path'
 
 import * as core from '@actions/core'
-import {getExecOutput} from '@actions/exec'
 import {PullRequest} from '@octokit/webhooks-types'
 
 import {File} from './file'
@@ -32,6 +32,11 @@ const BUDGET_MS = 20000
 const CAPTURE_TIMEOUT_MS = 5000
 const LIST_CAP = 50
 
+// A queue branch carries the cumulative batch diff, so the path list can be far larger
+// than a human pull request's. execFile's 1 MB default would fail those as `diff failed`,
+// which drops the population the comparison most needs to measure.
+const MAX_GIT_OUTPUT_BYTES = 64 * 1024 * 1024
+
 // The API caps pulls/{n}/files at this many entries and says nothing when it truncates.
 const API_FILE_CAP = 3000
 
@@ -52,21 +57,25 @@ interface ShadowResult {
 // ci-dagster and ci-e2e-playwright resolve `git merge-base HEAD^2 origin/<base>`
 // after this action returns, and an empty merge base there silently drops their
 // schema cache.
-async function git(gitDir: string, args: string[]): Promise<{code: number; out: string}> {
-  const res = await getExecOutput('git', ['--git-dir', gitDir, ...args], {
-    ignoreReturnCode: true,
-    silent: true
-  })
-  return {code: res.exitCode, out: res.stdout.trim()}
+async function git(gitDir: string, args: string[], signal: AbortSignal): Promise<{code: number; out: string}> {
+  return run(['--git-dir', gitDir, ...args], signal)
 }
 
-async function scratchRepo(): Promise<string> {
-  const gitDir = path.join(process.env.RUNNER_TEMP || os.tmpdir(), 'paths-filter-shadow.git')
-  const init = await getExecOutput('git', ['init', '--bare', '--quiet', gitDir], {
-    ignoreReturnCode: true,
-    silent: true
+// The signal is what makes the wall-clock budget real. `@actions/exec` gives no handle
+// on the child process, so a fetch the budget gave up on keeps running and holds the
+// action's process open until it finishes, past the budget it was supposed to obey.
+async function run(args: string[], signal: AbortSignal): Promise<{code: number; out: string}> {
+  return new Promise(resolve => {
+    execFile('git', args, {signal, maxBuffer: MAX_GIT_OUTPUT_BYTES}, (error, stdout) => {
+      resolve({code: error ? 1 : 0, out: stdout.trim()})
+    })
   })
-  if (init.exitCode !== 0) {
+}
+
+async function scratchRepo(signal: AbortSignal): Promise<string> {
+  const gitDir = path.join(process.env.RUNNER_TEMP || os.tmpdir(), 'paths-filter-shadow.git')
+  const init = await run(['init', '--bare', '--quiet', gitDir], signal)
+  if (init.code !== 0) {
     throw new Error('cannot create scratch repository')
   }
   return gitDir
@@ -87,26 +96,30 @@ function originUrl(): string {
 // The merge ref is not guaranteed to be present or current: GitHub recomputes it
 // asynchronously after a push. Requiring the second parent to equal the head SHA
 // rejects a stale ref rather than reading it as this pull request's changes.
-async function localChangedFiles(pr: PullRequest): Promise<string[]> {
-  const gitDir = await scratchRepo()
+async function localChangedFiles(pr: PullRequest, signal: AbortSignal): Promise<string[]> {
+  const gitDir = await scratchRepo(signal)
 
-  const fetched = await git(gitDir, [
-    '-c',
-    'http.lowSpeedLimit=1000',
-    '-c',
-    'http.lowSpeedTime=10',
-    'fetch',
-    '--no-tags',
-    '--filter=blob:none',
-    `--depth=${MERGE_REF_FETCH_DEPTH}`,
-    originUrl(),
-    `refs/pull/${pr.number}/merge`
-  ])
+  const fetched = await git(
+    gitDir,
+    [
+      '-c',
+      'http.lowSpeedLimit=1000',
+      '-c',
+      'http.lowSpeedTime=10',
+      'fetch',
+      '--no-tags',
+      '--filter=blob:none',
+      `--depth=${MERGE_REF_FETCH_DEPTH}`,
+      originUrl(),
+      `refs/pull/${pr.number}/merge`
+    ],
+    signal
+  )
   if (fetched.code !== 0) {
     throw new Error('no merge ref')
   }
 
-  const head = await git(gitDir, ['rev-parse', 'FETCH_HEAD^2'])
+  const head = await git(gitDir, ['rev-parse', 'FETCH_HEAD^2'], signal)
   if (head.code !== 0) {
     throw new Error('merge ref has no second parent')
   }
@@ -117,7 +130,7 @@ async function localChangedFiles(pr: PullRequest): Promise<string[]> {
   // --no-renames so a rename arrives as a delete plus an add, which is the shape
   // the API path builds by hand from `previous_filename`. -z because git quotes a
   // path holding a newline or a non-ASCII byte in the default format.
-  const diff = await git(gitDir, ['diff', '--no-renames', '--name-only', '-z', 'FETCH_HEAD^1', 'FETCH_HEAD'])
+  const diff = await git(gitDir, ['diff', '--no-renames', '--name-only', '-z', 'FETCH_HEAD^1', 'FETCH_HEAD'], signal)
   if (diff.code !== 0) {
     throw new Error('diff failed')
   }
@@ -138,17 +151,21 @@ function compare(apiFiles: File[], gitFiles: string[]): ShadowResult {
   }
 }
 
-function budgeted<T>(work: Promise<T>, ms: number): Promise<T> {
+async function budgeted<T>(work: (signal: AbortSignal) => Promise<T>, ms: number): Promise<T> {
+  const controller = new AbortController()
   let timer: NodeJS.Timeout
   const expiry = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`exceeded ${ms}ms budget`)), ms)
+    timer = setTimeout(() => {
+      controller.abort()
+      reject(new Error(`exceeded ${ms}ms budget`))
+    }, ms)
   })
-  return Promise.race([work, expiry]).finally(() => clearTimeout(timer)) as Promise<T>
+  return Promise.race([work(controller.signal), expiry]).finally(() => clearTimeout(timer))
 }
 
 export async function compareWithMergeCommit(apiFiles: File[], pr: PullRequest): Promise<ShadowResult> {
   try {
-    return compare(apiFiles, await budgeted(localChangedFiles(pr), BUDGET_MS))
+    return compare(apiFiles, await budgeted(async signal => localChangedFiles(pr, signal), BUDGET_MS))
   } catch (error) {
     return {
       verdict: 'unavailable',
