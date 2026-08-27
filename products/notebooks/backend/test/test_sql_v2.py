@@ -453,8 +453,10 @@ class TestSQLV2Run(APIBaseTest):
         first = self.client.post(self.run_url, data={"node_id": "n1", "code": "select 1"}, format="json")
         self.assertEqual(first.status_code, 200)
 
+        # 409, not 429: the MCP client retries every 429 with backoff and then replaces the
+        # body with its own rate-limit message, so a 429 would hide this detail from an agent.
         second = self.client.post(self.run_url, data={"node_id": "n2", "code": "select 2"}, format="json")
-        self.assertEqual(second.status_code, 429, second.content)
+        self.assertEqual(second.status_code, 409, second.content)
         self.assertIn("already has a cell running", second.json()["detail"])
         # A refused dispatch must write nothing: an agent retrying into a full ceiling would
         # otherwise leave a row per attempt on the table that grows fastest.
@@ -467,6 +469,25 @@ class TestSQLV2Run(APIBaseTest):
 
         third = self.client.post(self.run_url, data={"node_id": "n2", "code": "select 2"}, format="json")
         self.assertEqual(third.status_code, 200, third.content)
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_a_slot_left_behind_by_an_abandoned_run_does_not_block_the_notebook(
+        self, _mock_enabled, _mock_enqueue, _mock_start
+    ):
+        # Both release sites need a client still watching, so an agent that dispatches a cell
+        # and walks away leaves the slot held. Without recovery the notebook would refuse every
+        # later cell until the slot's TTL, which is hours. The run rows are the truth.
+        first = self.client.post(self.run_url, data={"node_id": "n1", "code": "select 1"}, format="json")
+        self.assertEqual(first.status_code, 200)
+        # The run ends without anything releasing the slot, exactly as a lost client leaves it.
+        NotebookNodeRun.objects.for_team(self.team.id).filter(id=first.json()["run_id"]).update(
+            status=NotebookNodeRun.Status.DONE
+        )
+
+        second = self.client.post(self.run_url, data={"node_id": "n2", "code": "select 2"}, format="json")
+        self.assertEqual(second.status_code, 200, second.content)
 
     @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")

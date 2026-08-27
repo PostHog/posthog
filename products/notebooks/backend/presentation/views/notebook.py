@@ -76,7 +76,12 @@ from products.notebooks.backend.sql_v2 import (
     is_sql_v2_enabled,
     sql_v2_page_lock_key,
 )
-from products.notebooks.backend.sql_v2_concurrency import NotebookRunBusy, acquire_run_slots
+from products.notebooks.backend.sql_v2_concurrency import (
+    NotebookRunBusy,
+    TeamRunCapacityFull,
+    acquire_run_slots,
+    release_run_slots,
+)
 from products.notebooks.backend.sql_v2_direct import cancel_direct_run, enqueue_direct_run, sync_direct_run
 from products.notebooks.backend.sql_v2_references import (
     SQLV2Ref,
@@ -1273,22 +1278,34 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         try:
             acquire_run_slots(self.team_id, notebook.short_id, str(run_id))
         except NotebookRunBusy as e:
+            # 409, not 429: a conflict with the notebook's state rather than a rate. The MCP
+            # client retries every 429 with backoff and then replaces the body with its own
+            # rate-limit message, so a 429 here would cost an agent seconds of pointless waiting
+            # and hide the sentence telling it to wait for the running cell.
+            return Response({"detail": str(e)}, status=409)
+        except TeamRunCapacityFull as e:
             return Response({"detail": str(e)}, status=429)
 
-        run = NotebookNodeRun.objects.create(
-            id=run_id,
-            team_id=self.team_id,
-            notebook=notebook,
-            # The same user the run's kernel is resolved for, so the callback can scope the
-            # frame snapshot to that kernel. A token user has no kernel of its own, hence None.
-            user=user if isinstance(user, User) else None,
-            node_id=serializer.validated_data["node_id"],
-            code=run_code,
-            node_type=node_type,
-            connection_id=connection_id,
-            send_raw_query=send_raw_query,
-            status=NotebookNodeRun.Status.RUNNING,
-        )
+        try:
+            run = NotebookNodeRun.objects.create(
+                id=run_id,
+                team_id=self.team_id,
+                notebook=notebook,
+                # The same user the run's kernel is resolved for, so the callback can scope the
+                # frame snapshot to that kernel. A token user has no kernel of its own, hence None.
+                user=user if isinstance(user, User) else None,
+                node_id=serializer.validated_data["node_id"],
+                code=run_code,
+                node_type=node_type,
+                connection_id=connection_id,
+                send_raw_query=send_raw_query,
+                status=NotebookNodeRun.Status.RUNNING,
+            )
+        except Exception:
+            # No row means no release site will ever learn this run id, so hand the slots back
+            # here or the notebook stays blocked with nothing running in it.
+            release_run_slots(self.team_id, notebook.short_id, str(run_id))
+            raise
 
         try:
             if node_type == NotebookNodeRun.NodeType.HOGQL:
