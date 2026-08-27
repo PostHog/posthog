@@ -422,6 +422,10 @@ export const teamLogic = kea<teamLogicType>([
                         message = payload.require_evaluation_contexts
                             ? 'Require evaluation contexts enabled'
                             : 'Require evaluation contexts disabled'
+                    } else if (updatedAttribute === 'session_recording_opt_in') {
+                        message = payload.session_recording_opt_in
+                            ? 'Session recording enabled'
+                            : 'Session recording disabled'
                     } else if (
                         updatedAttribute === 'completed_snippet_onboarding' ||
                         updatedAttribute === 'has_completed_onboarding_for'

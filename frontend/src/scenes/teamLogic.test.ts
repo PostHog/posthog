@@ -2,6 +2,8 @@ import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.m
 
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
 import { useMocks } from '~/mocks/jest'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -157,6 +159,36 @@ describe('teamLogic', () => {
                 product_type: ProductKey.ERROR_TRACKING,
                 intent_context: ProductIntentContext.ONBOARDING_PRODUCT_SELECTED_PRIMARY,
             })
+        })
+    })
+
+    describe('update success toast', () => {
+        beforeEach(() => {
+            initKeaTests()
+            useMocks({
+                patch: {
+                    '/api/environments/:id': async ({ request }) => [
+                        200,
+                        { ...MOCK_DEFAULT_TEAM, ...((await request.json()) as Record<string, any>) },
+                    ],
+                },
+            })
+            logic = teamLogic()
+            logic.mount()
+        })
+
+        it.each([
+            [true, 'Session recording enabled'],
+            [false, 'Session recording disabled'],
+        ])('reports session_recording_opt_in=%s as "%s"', async (optIn, message) => {
+            await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
+            const success = jest.spyOn(lemonToast, 'success').mockReturnValue('' as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.updateCurrentTeam({ session_recording_opt_in: optIn })
+            }).toDispatchActions(['updateCurrentTeamSuccess'])
+
+            expect(success).toHaveBeenCalledWith(message)
         })
     })
 

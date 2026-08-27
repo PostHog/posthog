@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { IconCalendar, IconCheck, IconClock, IconHourglass, IconInfinity, IconInfo } from '@posthog/icons'
 import {
@@ -441,6 +441,7 @@ export function ReplayGeneral(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const [showSurvey, setShowSurvey] = useState<boolean>(false)
+    const [pendingOptOutSurvey, setPendingOptOutSurvey] = useState<boolean>(false)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -450,11 +451,20 @@ export function ReplayGeneral(): JSX.Element {
         updateCurrentTeam({
             session_recording_opt_in: checked,
         })
-        setShowSurvey(!checked)
+        setShowSurvey(false)
+        // Wait for the server to confirm the opt-out before asking the user why they left.
+        setPendingOptOutSurvey(!checked)
     }
 
+    useEffect(() => {
+        if (pendingOptOutSurvey && !currentTeamLoading && currentTeam && !currentTeam.session_recording_opt_in) {
+            setShowSurvey(true)
+            setPendingOptOutSurvey(false)
+        }
+    }, [pendingOptOutSurvey, currentTeamLoading, currentTeam])
+
     return (
-        <div>
+        <div className="flex flex-col gap-2">
             <LemonSwitch
                 data-attr="opt-in-session-recording-switch"
                 onChange={(checked) => {
@@ -466,6 +476,8 @@ export function ReplayGeneral(): JSX.Element {
                 loading={currentTeamLoading}
                 disabledReason={restrictedReason}
             />
+
+            {restrictedReason && <p className="text-secondary mb-0">{restrictedReason}</p>}
 
             {showSurvey && <InternalMultipleChoiceSurvey surveyId={SESSION_RECORDING_OPT_OUT_SURVEY_ID} />}
         </div>

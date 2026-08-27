@@ -9,8 +9,10 @@ import { PostHogCaptureOnViewed } from '@posthog/react'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { WarningHog } from 'lib/components/hedgehogs'
 import { LiveRecordingsCount } from 'lib/components/LiveUserCount'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { TeamMembershipLevel } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
@@ -155,6 +157,10 @@ function ReplayVisionPromoBanner(): JSX.Element | null {
 function Warnings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     return (
         <>
@@ -191,15 +197,23 @@ function Warnings(): JSX.Element {
                                 Enable session recordings to unlock these benefits and create better experiences for
                                 your users.
                             </p>
+                            {restrictedReason && (
+                                <p className="font-normal">
+                                    Only project admins can enable session recordings. Ask a project admin to turn it
+                                    on.
+                                </p>
+                            )}
                             <div className="flex items-center gap-x-4 gap-y-2 flex-wrap">
-                                <LemonButton
-                                    className="hidden @md:flex"
-                                    type="primary"
-                                    icon={<IconGear />}
-                                    to={urls.replaySettings()}
-                                >
-                                    Configure
-                                </LemonButton>
+                                {!restrictedReason && (
+                                    <LemonButton
+                                        className="hidden @md:flex"
+                                        type="primary"
+                                        icon={<IconGear />}
+                                        to={urls.replaySettings()}
+                                    >
+                                        Configure
+                                    </LemonButton>
+                                )}
                                 <LemonButton
                                     type="tertiary"
                                     sideIcon={<IconOpenSidebar className="w-4 h-4" />}
