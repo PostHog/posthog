@@ -66,9 +66,9 @@ export function SidebarNavSection({
 }: SidebarNavSectionProps = {}) {
   const view = useAppView();
   const openBrowserTab = useOpenBrowserTab();
-  // Loops stays behind the loops flag; default on in dev so local builds
-  // keep the nav item. Also gates the per-channel Loops tab (see ChannelTabs).
-  const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
+  // Loops stays behind the loops flag. Also gates the per-channel Loops tab
+  // (see ChannelTabs).
+  const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
   // Channels stay behind project-bluebird, including channel-only nav items.
   const bluebirdEnabled = useFeatureFlag(
     PROJECT_BLUEBIRD_FLAG,

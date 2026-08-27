@@ -46,7 +46,7 @@ function sameOrder(
 }
 
 export function CustomizeSidebarSettings() {
-  const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
+  const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
   const bluebirdEnabled = useFeatureFlag(
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
