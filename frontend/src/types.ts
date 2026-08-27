@@ -1217,6 +1217,11 @@ export interface RevenueAnalyticsPropertyFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export interface AccountPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.Account
+    operator: PropertyOperator
+}
+
 export interface AccountCustomPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.AccountCustomProperty
     operator: PropertyOperator
@@ -1398,6 +1403,7 @@ export type AnyPropertyFilter =
     | MetricPropertyFilter
     | SpanPropertyFilter
     | RevenueAnalyticsPropertyFilter
+    | AccountPropertyFilter
     | AccountCustomPropertyFilter
     | WorkflowVariablePropertyFilter
     | BehavioralPropertyFilter
