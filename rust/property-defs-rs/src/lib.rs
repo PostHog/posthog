@@ -8,7 +8,7 @@ use metrics_consts::{
     BATCH_ACQUIRE_TIME, CACHE_FILL_RATIO, CACHE_LEN, COMPACTED_UPDATES, DUPLICATES_IN_BATCH,
     EMPTY_EVENTS, EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, OFFSET_STORE_FAILURES,
     RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT,
-    UPDATES_SEEN, WORKER_BLOCKED,
+    UPDATES_SEEN, UPDATES_SKIPPED, WORKER_BLOCKED,
 };
 use types::{Event, Update};
 
@@ -32,6 +32,21 @@ pub mod metrics_buckets;
 pub mod metrics_consts;
 pub mod types;
 pub mod update_cache;
+
+/// Remove `Update::EventProperty` entries in place, counting each as a skipped update. Used when
+/// `SKIP_EVENTPROPERTY_WRITES` is set, before the updates reach the dedup cache.
+pub fn drop_eventproperty_updates(updates: &mut Vec<Update>) {
+    let before = updates.len();
+    updates.retain(|update| !matches!(update, Update::EventProperty(_)));
+    let dropped = (before - updates.len()) as u64;
+    if dropped > 0 {
+        metrics::counter!(
+            UPDATES_SKIPPED,
+            &[("reason", "eventproperty_writes_disabled")]
+        )
+        .increment(dropped);
+    }
+}
 
 pub async fn update_consumer_loop(
     config: Config,
@@ -213,10 +228,13 @@ pub async fn update_producer_loop(
                 continue;
             }
 
-            let updates = event.into_updates_with(
+            let mut updates = event.into_updates_with(
                 config.update_count_skip_threshold,
                 config.eventdef_last_seen_floor_secs,
             );
+            if config.skip_eventproperty_writes {
+                drop_eventproperty_updates(&mut updates);
+            }
 
             metrics::counter!(EVENTS_RECEIVED).increment(1);
             metrics::counter!(UPDATES_SEEN).increment(updates.len() as u64);

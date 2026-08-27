@@ -1,4 +1,5 @@
 use chrono::Utc;
+use property_defs_rs::drop_eventproperty_updates;
 use property_defs_rs::types::{
     detect_property_type, floor_last_seen, last_seen_jitter_seed, Event, PropertyValueType, Update,
     DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS, MAX_EVENTDEF_LAST_SEEN_FLOOR_SECS,
@@ -914,4 +915,46 @@ fn test_feature_flag_properties_skip_event_property_but_keep_property_definition
         prop_def_names.contains(&flagged_key),
         "expected PropertyDefinition for '{flagged_key}': {prop_def_names:?}"
     );
+}
+
+// The kill switch must remove every posthog_eventproperty write and nothing else, so the taxonomy
+// keeps receiving event and property definitions while the table stays untouched.
+#[test]
+fn test_drop_eventproperty_updates_keeps_definitions() {
+    let mut props_map = Map::new();
+    props_map.insert("page".to_string(), json!("/home"));
+    props_map.insert("$browser".to_string(), json!("Chrome"));
+    props_map.insert("$set".to_string(), json!({"plan": "free"}));
+
+    let event = Event {
+        team_id: 1,
+        project_id: 1,
+        event: "$pageview".to_string(),
+        properties: Some(Value::Object(props_map).to_string()),
+    };
+
+    let mut updates = event.into_updates(1000);
+    let event_properties_before = updates
+        .iter()
+        .filter(|u| matches!(u, Update::EventProperty(_)))
+        .count();
+    let definitions_before: Vec<Update> = updates
+        .iter()
+        .filter(|u| !matches!(u, Update::EventProperty(_)))
+        .cloned()
+        .collect();
+    assert_eq!(
+        event_properties_before, 2,
+        "page and $browser are event properties"
+    );
+
+    drop_eventproperty_updates(&mut updates);
+
+    assert!(
+        !updates
+            .iter()
+            .any(|u| matches!(u, Update::EventProperty(_))),
+        "event property updates survived the kill switch: {updates:?}"
+    );
+    assert_eq!(updates, definitions_before);
 }

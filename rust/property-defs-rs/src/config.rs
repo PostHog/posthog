@@ -125,6 +125,12 @@ pub struct Config {
     #[envconfig(default = "opt_out")]
     pub filter_mode: TeamFilterMode,
 
+    // Emergency lever: drop posthog_eventproperty updates before they reach the dedup cache or
+    // Postgres. Event and property definitions are still written, so the taxonomy stays complete
+    // except for the per-event property association this table provides.
+    #[envconfig(from = "SKIP_EVENTPROPERTY_WRITES", default = "false")]
+    pub skip_eventproperty_writes: bool,
+
     #[envconfig(default = "100")]
     pub write_batch_size: usize,
 
