@@ -18,6 +18,8 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery, SubscriptionDeliveryContext
 from products.exports.backend.temporal.subscriptions.ai_subscription.anchor_context import AnchorContextAccessDenied
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
@@ -50,16 +52,26 @@ from products.exports.backend.temporal.subscriptions.types import (
     GenerateAIReportResult,
     RecipientResult,
 )
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.billing.quota_limiting import is_team_over_ai_credit_budget
 from ee.tasks.subscriptions import _capture_delivery_failed_event
-from ee.tasks.subscriptions.auto_disable import AI_CONSENT_REVOKED_DISABLE_REASON, AI_PROMPT_INVALID_DISABLE_REASON
+from ee.tasks.subscriptions.auto_disable import (
+    AI_CONSENT_REVOKED_DISABLE_REASON,
+    AI_PROMPT_INVALID_DISABLE_REASON,
+    DisableReason,
+)
 
 LOGGER = get_logger(__name__)
 
 # If the org's AI-credit balance isn't synced yet, reschedule roughly a billing cycle out so a
 # skipped sub still moves forward instead of re-firing every tick.
 _CREDIT_RESET_FALLBACK_DAYS = 31
+_AI_CONTEXT_ACCESS_REVOKED_DISABLE_REASON = DisableReason(
+    key="ai_context_access_revoked",
+    description="A report context is no longer accessible",
+    user_message="Cannot re-enable AI subscription: remove inaccessible report context first.",
+)
 
 
 async def _load_snapshot(delivery_id: uuid.UUID) -> dict | None:
@@ -74,6 +86,39 @@ async def _load_snapshot(delivery_id: uuid.UUID) -> dict | None:
         return snapshot if isinstance(snapshot, dict) else None
 
     return await _read()
+
+
+def _delivery_context_is_accessible(subscription: Subscription, delivery_id: uuid.UUID) -> bool:
+    contexts = SubscriptionDeliveryContext.objects.for_team(subscription.team_id).filter(delivery_id=delivery_id)
+    if not contexts.filter(
+        kind=AI_REPORT_DELIVERY_CONTEXT_MARKER_KIND,
+        identifier=AI_REPORT_DELIVERY_CONTEXT_MARKER_IDENTIFIER,
+    ).exists():
+        # A generated report without provenance may be a mixed-deploy or failed-resolution retry.
+        # We cannot prove which resources shaped it, so do not send it after the generation phase.
+        return False
+
+    creator = subscription.created_by
+    if creator is None:
+        return False
+    user_access_control = UserAccessControl(creator, subscription.team)
+    references = list(contexts.exclude(kind=AI_REPORT_DELIVERY_CONTEXT_MARKER_KIND).values_list("kind", "identifier"))
+    dashboard_ids = [int(identifier) for kind, identifier in references if kind == "dashboard" and identifier.isdigit()]
+    insight_ids = [
+        int(identifier)
+        for kind, identifier in references
+        if kind in {"insight", "dashboard_tile_insight"} and identifier.isdigit()
+    ]
+    if len(dashboard_ids) + len(insight_ids) != len(references):
+        return False
+    dashboards = Dashboard.objects.filter(team_id=subscription.team_id, deleted=False, id__in=dashboard_ids)
+    insights = Insight.objects.filter(team_id=subscription.team_id, deleted=False, id__in=insight_ids)
+    return (
+        dashboards.count() == len(set(dashboard_ids))
+        and insights.count() == len(set(insight_ids))
+        and all(user_access_control.check_access_level_for_object(dashboard, "viewer") for dashboard in dashboards)
+        and all(user_access_control.check_access_level_for_object(insight, "viewer") for insight in insights)
+    )
 
 
 def _snapshot_report(snapshot: dict | None) -> str | None:
@@ -417,6 +462,12 @@ async def _deliver_ai_subscription(
             f"AI report missing for subscription {subscription.id} (delivery {inputs.delivery_id})",
             non_retryable=True,
         )
+
+    context_is_accessible = await database_sync_to_async(_delivery_context_is_accessible, thread_sensitive=False)(
+        subscription, delivery_id
+    )
+    if not context_is_accessible:
+        return await auto_disable_and_return(subscription, _AI_CONTEXT_ACCESS_REVOKED_DISABLE_REASON, recipient_results)
 
     chart_images = await database_sync_to_async(build_chart_image_urls, thread_sensitive=False)(
         (snapshot or {}).get(AI_REPORT_CHARTS_KEY) or [], team_id=subscription.team_id
