@@ -2880,7 +2880,49 @@ describe("AgentServer HTTP Mode", () => {
 
       expect(response.status).toBe(200);
       await expect(response.json()).resolves.toMatchObject({
-        result: { stopReason: "steer_declined", steered: false },
+        result: {
+          stopReason: "steer_declined",
+          steered: false,
+          reason: "startup_turn",
+        },
+      });
+      expect(prompt).not.toHaveBeenCalled();
+    }, 20000);
+
+    it("declines steering when the sandbox has no turn to fold it into", async () => {
+      const s = createServer();
+      await s.start();
+      const prompt = vi.fn();
+      const serverInternals = s as unknown as {
+        session: { clientConnection: { prompt: typeof prompt } };
+      };
+      serverInternals.session.clientConnection.prompt = prompt;
+
+      const response = await fetch(`http://localhost:${port}/command`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${createToken()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "steer-while-idle",
+          method: "user_message",
+          params: {
+            content: "status?",
+            messageId: "steer-while-idle",
+            steer: true,
+          },
+        }),
+      });
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        result: {
+          stopReason: "steer_declined",
+          steered: false,
+          reason: "no_active_turn",
+        },
       });
       expect(prompt).not.toHaveBeenCalled();
     }, 20000);
@@ -2923,7 +2965,11 @@ describe("AgentServer HTTP Mode", () => {
 
       const steerResponse = await send("steer-during-first-turn", true);
       await expect(steerResponse.json()).resolves.toMatchObject({
-        result: { stopReason: "steer_declined", steered: false },
+        result: {
+          stopReason: "steer_declined",
+          steered: false,
+          reason: "startup_turn",
+        },
       });
       expect(prompt).toHaveBeenCalledOnce();
 
@@ -3023,7 +3069,11 @@ describe("AgentServer HTTP Mode", () => {
 
       expect(response.status).toBe(200);
       await expect(response.json()).resolves.toMatchObject({
-        result: { stopReason: "steer_declined", steered: false },
+        result: {
+          stopReason: "steer_declined",
+          steered: false,
+          reason: "adapter_rejected",
+        },
       });
       expect(prompt).toHaveBeenCalledTimes(1);
       expect(prompt.mock.calls[0]?.[0]).toEqual(
