@@ -189,6 +189,7 @@ layer = "modules"
 path = "products.autoresearch"
 depends_on = [
     "posthog",
+    "products.actions",
     "products.feature_flags",
 ]
 layer = "modules"
