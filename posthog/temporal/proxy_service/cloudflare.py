@@ -17,6 +17,7 @@ from django.conf import settings
 import requests
 
 CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4"
+CLOUDFLARE_MIN_TLS_VERSION = "1.2"
 
 # Must stay under the tightest calling activity's 10s start_to_close, or Temporal kills the
 # activity before the request times out and a slow Cloudflare looks like an opaque timeout.
@@ -254,6 +255,9 @@ def create_custom_hostname(domain: str) -> CustomHostname:
         "ssl": {
             "method": "http",
             "type": "dv",
+            "settings": {
+                "min_tls_version": CLOUDFLARE_MIN_TLS_VERSION,
+            },
         },
     }
 

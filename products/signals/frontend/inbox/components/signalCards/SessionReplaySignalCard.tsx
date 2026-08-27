@@ -8,6 +8,7 @@ import type { LemonTagType } from '@posthog/lemon-ui'
 import { sessionRecordingInfoLogic } from 'lib/components/ViewRecordingButton/sessionRecordingInfoLogic'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { humanFriendlyDuration, reverseColonDelimitedDuration } from 'lib/utils/durations'
 
@@ -16,6 +17,7 @@ import type {
     SessionProblemSignalExtraApi,
 } from 'products/signals/frontend/generated/api.schemas'
 
+import { RecordingPreview } from './RecordingPreview'
 import { SignalCardShell } from './SignalCardShell'
 import type { SignalCardEntry, SignalCardProps } from './types'
 
@@ -104,6 +106,7 @@ function TimelineRow({
 
 /** Live card for a session-replay problem segment: a replay link-out and an event timeline. */
 export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Element {
+    const redesign = useFeatureFlag('INBOX_REDESIGN')
     const [showAllEvents, setShowAllEvents] = useState(false)
 
     const extra = signal.extra as Record<string, unknown> & SessionProblemSignalExtraApi
@@ -127,8 +130,10 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
         <SignalCardShell
             signal={signal}
             label={extra.segment_title}
+            // Under the redesign the evidence card header carries only the segment title, to match
+            // the chip-free report header above it.
             rightSlot={
-                problemTag ? (
+                !redesign && problemTag ? (
                     <LemonTag type={problemTag.type} size="small" className="shrink-0">
                         {problemTag.label}
                     </LemonTag>
@@ -141,20 +146,33 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
                 </LemonMarkdown>
             )}
 
-            {/* Opens the recording at the segment in the player modal; disables when it wasn't captured. */}
-            <ViewRecordingButton
-                sessionId={extra.session_id}
-                timestamp={segmentSeekTime}
-                openPlayerIn={RecordingPlayerType.Modal}
-                checkRecordingExists
-                label="View replay"
-                type="secondary"
-                size="small"
-                className="mb-2"
-                loading={recordingExistsLoading}
-            />
-            {recordingExists === false && (
-                <p className="text-xs text-tertiary mb-2">This recording is no longer available.</p>
+            {/* Both open the recording at the segment in the player modal and disable when it wasn't
+                captured. Under the redesign the screenshot frame is used when the emitter exported
+                one, since it shows what the user saw without opening the player. */}
+            {redesign && typeof extra.exported_asset_id === 'number' ? (
+                <RecordingPreview
+                    sessionId={extra.session_id}
+                    seekTime={segmentSeekTime}
+                    exportedAssetId={extra.exported_asset_id}
+                    alt={`Recording preview for ${extra.segment_title}`}
+                />
+            ) : (
+                <>
+                    <ViewRecordingButton
+                        sessionId={extra.session_id}
+                        timestamp={segmentSeekTime}
+                        openPlayerIn={RecordingPlayerType.Modal}
+                        checkRecordingExists
+                        label="View replay"
+                        type="secondary"
+                        size="small"
+                        className="mb-2"
+                        loading={recordingExistsLoading}
+                    />
+                    {recordingExists === false && (
+                        <p className="text-xs text-tertiary mb-2">This recording is no longer available.</p>
+                    )}
+                </>
             )}
 
             {/* Dot-separated meta line: affected user, segment window, active/total duration. */}

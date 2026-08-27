@@ -10,6 +10,10 @@ if TYPE_CHECKING:
 
 
 TaskWorkflowStartOutcome = Literal["attempted", "blocked", "failed", "started"]
+# Why a warm Run died unused. `released` is a deliberate hand-back (the composer cancels the run when
+# the draft is abandoned) and is the cheap, expected miss; `idle_timeout` means nobody released it and
+# it sat until the workflow reclaimed it, which is the wasteful one to drive down.
+PrewarmedUnusedReason = Literal["released", "idle_timeout", "other"]
 CustomImageBuildOutcome = Literal["started", "succeeded", "failed", "scan_rejected"]
 DevStackImageBakeOutcome = Literal["succeeded", "bake_failed", "failed", "dispatch_failed"]
 # Outcome of an SSE task-run stream connection when it closes.
@@ -126,6 +130,15 @@ PREWARMED_ACTIVATED_TOTAL = Counter(
     "posthog_tasks_prewarmed_activated_total",
     "Pre-warmed Runs that received their first user message (the warm sandbox got used, not reaped)",
     labelnames=["origin_product"],
+)
+
+PREWARMED_UNUSED_TOTAL = Counter(
+    "posthog_tasks_prewarmed_unused_total",
+    "Pre-warmed Runs that reached terminal without ever receiving a first user message — a sandbox was "
+    "booted and paid for, then thrown away. The miss counterpart to posthog_tasks_prewarmed_activated_total: "
+    "activated / (activated + unused) is the warm hit rate, and `reason` says where the misses go "
+    "(a user who abandoned the composer looks different from a warm nobody released).",
+    labelnames=["origin_product", "reason"],
 )
 
 TASK_RUN_FAILED_TOTAL = Counter(
@@ -471,6 +484,38 @@ def observe_task_run_workflow_start(
 
 def observe_prewarmed_activated(task_run: "TaskRun") -> None:
     PREWARMED_ACTIVATED_TOTAL.labels(origin_product=origin_product_label(task_run)).inc()
+
+
+def observe_prewarmed_unused(task_run: "TaskRun", *, reason: PrewarmedUnusedReason) -> None:
+    """Count a warm Run that terminalized still awaiting its first message.
+
+    Callers must check `state.prewarmed` and `state.await_user_message` first — activation clears the
+    latter, so a run that still carries it never got used. Never raises: a metric must not fail a
+    terminal status transition.
+    """
+    try:
+        PREWARMED_UNUSED_TOTAL.labels(origin_product=origin_product_label(task_run), reason=reason).inc()
+    except Exception:
+        logger.exception("prewarmed_unused_metric_failed", run_id=str(task_run.id))
+
+
+def observe_prewarmed_unused_if_never_activated(task_run: "TaskRun", *, reason: PrewarmedUnusedReason) -> None:
+    """Count a terminal Run as an unused warm, if that is what it is.
+
+    Owns the "never used" test so every path that terminalizes a Run books the miss the same way —
+    the workflow's status activity and the direct status write the cancel fallback uses when the
+    workflow is already gone.
+
+    `warm_activated` is what separates a real miss from a race: activation sets that marker before it
+    signals the first message and clears `await_user_message` only after, so a Run that terminalizes
+    between the two still carries both of the older markers while already being counted as activated.
+    """
+    run_state = task_run.state if isinstance(task_run.state, dict) else {}
+    if not run_state.get("prewarmed") or not run_state.get("await_user_message"):
+        return
+    if run_state.get("warm_activated"):
+        return
+    observe_prewarmed_unused(task_run, reason=reason)
 
 
 def observe_custom_image_build(outcome: CustomImageBuildOutcome) -> None:
