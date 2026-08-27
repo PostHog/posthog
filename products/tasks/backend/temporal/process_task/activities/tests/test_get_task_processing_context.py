@@ -53,7 +53,7 @@ VM_FLAG_PAYLOAD_TARGET = "products.tasks.backend.constants.posthoganalytics.get_
     [
         ({}, False),
         ({"resume_from_run_id": "previous-run"}, False),
-        ({"handoff_resumed": True}, False),
+        ({"same_run_resume": True}, False),
         ({"snapshot_external_id": "snapshot-id"}, False),
         (
             {
@@ -64,7 +64,7 @@ VM_FLAG_PAYLOAD_TARGET = "products.tasks.backend.constants.posthoganalytics.get_
         ),
         (
             {
-                "handoff_resumed": True,
+                "same_run_resume": True,
                 "snapshot_external_id": "snapshot-id",
             },
             True,
@@ -1421,7 +1421,7 @@ class TestResolveSandboxBackend:
 
     @override_settings(**_HOGLAND_SETTINGS, CLOUD_DEPLOYMENT="EU")
     def test_hogland_override_cannot_defeat_the_eu_guard(self):
-        # A stale/forged hogland override (e.g. surviving a cloud handoff) must not run an
+        # A stale or forged hogland override surviving a cloud resume must not run an
         # EU run on hogland — the capability gates sit ahead of the override.
         assert self._resolve_with_flag(True, state={"sandbox_backend": "hogland"}) == "modal"
 

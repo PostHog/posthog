@@ -198,6 +198,30 @@ export const MembersPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Create a new managed reverse proxy. Provide the domain you want to proxy through. The response includes the CNAME target you need to add as a DNS record. Once the CNAME is configured, the proxy will be automatically verified and provisioned.
+ */
+export const ProxyRecordsCreateBody = /* @__PURE__ */ zod.object({
+    domain: zod
+        .string()
+        .describe("The custom domain to proxy through, e.g. 'e.example.com'. Must be a valid subdomain you control."),
+})
+
+/**
+ * Set or clear the HTTPS redirect for requests to the managed proxy domain root.
+ */
+export const proxyRecordsPartialUpdateBodyRootRedirectUrlMax = 1024
+
+export const ProxyRecordsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    root_redirect_url: zod
+        .url()
+        .max(proxyRecordsPartialUpdateBodyRootRedirectUrlMax)
+        .nullish()
+        .describe(
+            'HTTPS URL that requests to the proxy domain root redirect to, or null to disable the redirect. The URL must use the same registrable domain as the managed proxy.'
+        ),
+})
+
+/**
  * Role endpoints disclose member records, so they scope them the same way the members list
  * does when the org restricts member list visibility.
  */
