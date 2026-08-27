@@ -13,15 +13,15 @@ Defaults are tuned for the simplest case, not the chart you are building.
 
 ## Pick one chart type
 
-| The result is...                       | Use                                                |
-| -------------------------------------- | -------------------------------------------------- |
-| A measure over time                    | `ActionsLineGraph` (the trends default)            |
-| A measure over time, part-of-whole     | `ActionsAreaGraph` or `ActionsStackedBar`          |
-| Categories compared against each other | `ActionsBar` (SQL) / `ActionsBarValue` (trends)    |
-| Proportions of one total, few slices   | `ActionsPie`                                       |
-| One number                             | `BoldNumber`, or trends `Metric` for a change pill |
-| Two measures, one point per row        | `ScatterPlot`                                      |
-| Rows to scan or copy                   | `ActionsTable`                                     |
+| The result is...                       | Use                                                                                |
+| -------------------------------------- | ---------------------------------------------------------------------------------- |
+| A measure over time                    | `ActionsLineGraph` (the trends default)                                            |
+| A measure over time, part-of-whole     | `ActionsStackedBar` (area stacks only on trends with `showPercentStackView: true`) |
+| Categories compared against each other | `ActionsBar` (SQL) / `ActionsBarValue` (trends)                                    |
+| Proportions of one total, few slices   | `ActionsPie`                                                                       |
+| One number                             | `BoldNumber`, or trends `Metric` for a change pill                                 |
+| Two measures, one point per row        | `ScatterPlot`                                                                      |
+| Rows to scan or copy                   | `ActionsTable`                                                                     |
 
 Two traps:
 
@@ -44,7 +44,7 @@ Unrelated measures sharing one axis read better as separate insights.
 ## Turn the legend on for more than one series
 
 SQL charts default to `showLegend: false`, leaving a multi-series chart readable only by hovering.
-Set `showLegend: true` whenever several `yAxis` columns or a `seriesBreakdownColumn` render.
+Set `showLegend: true` for `ActionsPie` (slices show values, names only on hover) and whenever several `yAxis` columns or a `seriesBreakdownColumn` render.
 This is the most common miss, because nothing about writing the query prompts it.
 
 ## Cap the series count
@@ -56,17 +56,17 @@ Keep a top N with an `Other` row, split into several insights, or switch to `Act
 
 - `showValuesOnSeries`: fine on a few bars, unreadable on a dense time series.
 - `trendLine`: only when the trend is the point.
-- Log scale (`leftYAxisSettings.scale`, `trendsFilter.yAxisScaleType`): only for series spanning orders of magnitude.
+- Log scale (`leftYAxisSettings.scale` / `rightYAxisSettings.scale`, `trendsFilter.yAxisScaleType`): only for series spanning orders of magnitude.
 - `stackBars100`: hides absolute movement, so pair it with a volume chart.
 - Bar charts need `leftYAxisSettings.startAtZero`; a truncated bar axis misstates the ratio between bars.
 
 ## Field locations
 
-| Decision        | Trends (`trendsFilter`)           | SQL (`chartSettings`)                    |
-| --------------- | --------------------------------- | ---------------------------------------- |
-| Chart type      | `display`                         | `display` (on the node)                  |
-| Legend          | `showLegend`                      | `showLegend`                             |
-| Second y-axis   | `showMultipleYAxes`               | `yAxis[].settings.display.yAxisPosition` |
-| Per-series type | not available, one type per chart | `yAxis[].settings.display.displayType`   |
-| Log scale       | `yAxisScaleType`                  | `leftYAxisSettings.scale`                |
-| Axis label      | `xAxisLabel` / `yAxisLabel`       | `xAxisLabel` / `leftYAxisSettings.label` |
+| Decision        | Trends (`trendsFilter`)           | SQL (`chartSettings`)                                  |
+| --------------- | --------------------------------- | ------------------------------------------------------ |
+| Chart type      | `display`                         | `display` (on the node)                                |
+| Legend          | `showLegend`                      | `showLegend`                                           |
+| Second y-axis   | `showMultipleYAxes`               | `yAxis[].settings.display.yAxisPosition`               |
+| Per-series type | not available, one type per chart | `yAxis[].settings.display.displayType`                 |
+| Log scale       | `yAxisScaleType`                  | `leftYAxisSettings.scale` / `rightYAxisSettings.scale` |
+| Axis label      | `xAxisLabel` / `yAxisLabel`       | `xAxisLabel` / `leftYAxisSettings.label`               |
