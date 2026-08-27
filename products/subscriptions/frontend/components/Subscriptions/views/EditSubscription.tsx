@@ -18,6 +18,7 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
@@ -294,6 +295,7 @@ function EditSubscriptionForm({
     const { slackIntegrations, integrations } = useValues(integrationsLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
+    const aiSubscriptionContextsEnabled = useFeatureFlag(FEATURE_FLAGS.SUBSCRIPTION_AI_CONTEXT)
 
     const emailDisabled = !preflight?.email_service_available
     const isAiPrompt = subscription?.resource_type === SubscriptionResourceTypes.AiPrompt
@@ -415,8 +417,8 @@ function EditSubscriptionForm({
                         {subscription.context_recovery && (
                             <LemonBanner type="warning">
                                 <p>
-                                    This subscription is paused from normal editing because you no longer have access to
-                                    one or more report contexts.
+                                    Editing is disabled because you no longer have access to one or more report
+                                    contexts. Pause deliveries or remove the inaccessible context to continue.
                                 </p>
                                 <div className="flex gap-2 mt-2">
                                     <LemonButton
@@ -432,7 +434,19 @@ function EditSubscriptionForm({
                                         size="small"
                                         type="secondary"
                                         status="danger"
-                                        onClick={() => recoverContextAccess('clear')}
+                                        onClick={() =>
+                                            LemonDialog.open({
+                                                title: 'Remove inaccessible context?',
+                                                description:
+                                                    'This permanently removes every report context you no longer have access to. Reports will continue without those contexts.',
+                                                primaryButton: {
+                                                    children: 'Remove context',
+                                                    status: 'danger',
+                                                    onClick: () => recoverContextAccess('clear'),
+                                                },
+                                                secondaryButton: { children: 'Cancel' },
+                                            })
+                                        }
                                         loading={recoveryActionLoading}
                                         disabled={recoveryActionLoading}
                                     >
@@ -501,6 +515,12 @@ function EditSubscriptionForm({
                                 <>
                                     <AiPromptSubscriptionIntroduction />
                                     <AiPromptFields
+                                        contextCount={
+                                            (subscription.context_dashboards?.length ?? 0) +
+                                            (subscription.context_insights?.length ?? 0) +
+                                            (subscription.context_items?.length ?? 0)
+                                        }
+                                        contextEnabled={Boolean(aiSubscriptionContextsEnabled)}
                                         contexts={subscription.contexts ?? []}
                                         contextItems={subscription.context_items ?? []}
                                         prompt={subscription.prompt}

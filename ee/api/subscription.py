@@ -34,6 +34,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.cloud_utils import is_cloud
 from posthog.constants import (
+    SUBSCRIPTION_AI_CONTEXT_FEATURE_FLAG_KEY,
     SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY,
     SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY,
 )
@@ -484,13 +485,13 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "context_dashboards": {
                 "help_text": (
                     f"AI report subscriptions only: dashboard IDs whose insights ground the generated report. "
-                    f"Combined with context_insights, at most {MAX_AI_REPORT_CONTEXTS} context items are allowed."
+                    f"Combined with context_insights and event context items, at most {MAX_AI_REPORT_CONTEXTS} items are allowed."
                 ),
             },
             "context_insights": {
                 "help_text": (
                     f"AI report subscriptions only: insight IDs that ground the generated report. "
-                    f"Combined with context_dashboards, at most {MAX_AI_REPORT_CONTEXTS} context items are allowed."
+                    f"Combined with context_dashboards and event context items, at most {MAX_AI_REPORT_CONTEXTS} items are allowed."
                 ),
             },
             "insight": {"help_text": "Insight ID to subscribe to (mutually exclusive with dashboard on create)."},
@@ -641,6 +642,33 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             gate_reason = _ai_create_gate_reason(self.context["get_organization"](), self._caller_distinct_id())
             if gate_reason is not None:
                 raise ValidationError(gate_reason)
+        if self._adds_context(attrs, existing) and not posthoganalytics.feature_enabled(
+            SUBSCRIPTION_AI_CONTEXT_FEATURE_FLAG_KEY,
+            self._caller_distinct_id(),
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        ):
+            raise ValidationError("Report context is not enabled for your account.")
+
+    @staticmethod
+    def _adds_context(attrs: dict, existing: Optional[Subscription]) -> bool:
+        for field in ("context_dashboards", "context_insights"):
+            if field not in attrs:
+                continue
+            existing_ids = set(getattr(existing, field).values_list("id", flat=True)) if existing else set()
+            if any(context.id not in existing_ids for context in attrs[field]):
+                return True
+
+        if "context_items" not in attrs:
+            return False
+        existing_item_counts = Counter(
+            json.dumps(item, separators=(",", ":"), sort_keys=True)
+            for item in (existing.context_items if existing else [])
+        )
+        requested_item_counts = Counter(
+            json.dumps(item, separators=(",", ":"), sort_keys=True) for item in attrs["context_items"]
+        )
+        return requested_item_counts > existing_item_counts
 
     def validate(self, attrs):
         request = self.context.get("request")
@@ -1705,6 +1733,10 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
 
         if "context_items" in data:
             requested_items = data["context_items"]
+            if not isinstance(requested_items, list):
+                raise exceptions.PermissionDenied(
+                    "You can only remove inaccessible context, pause, or delete this subscription."
+                )
             try:
                 requested_item_counts = Counter(json.dumps(item, sort_keys=True) for item in requested_items)
                 existing_item_counts = Counter(json.dumps(item, sort_keys=True) for item in subscription.context_items)
@@ -1712,7 +1744,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                 raise exceptions.PermissionDenied(
                     "You can only remove inaccessible context, pause, or delete this subscription."
                 ) from None
-            if not isinstance(requested_items, list) or requested_item_counts > existing_item_counts:
+            if requested_item_counts > existing_item_counts:
                 raise exceptions.PermissionDenied(
                     "You can only remove inaccessible context, pause, or delete this subscription."
                 )

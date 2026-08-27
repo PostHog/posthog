@@ -16,7 +16,11 @@ from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from posthog.constants import SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY, AvailableFeature
+from posthog.constants import (
+    SUBSCRIPTION_AI_CONTEXT_FEATURE_FLAG_KEY,
+    SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY,
+    AvailableFeature,
+)
 from posthog.models import Team
 from posthog.models.filters.filter import Filter
 from posthog.models.integration import Integration
@@ -3091,6 +3095,20 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "not enabled for your account" in str(response.json())
 
+    def test_rejects_context_when_context_flag_off(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, name="Context")
+        mock_flag.side_effect = lambda flag_key, *_args, **_kwargs: flag_key != SUBSCRIPTION_AI_CONTEXT_FEATURE_FLAG_KEY
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(context_dashboards=[dashboard.id]),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Report context is not enabled" in str(response.json())
+
     @parameterized.expand(
         [
             # blank prompt → no derivable target → non-field "must target" error
@@ -3497,6 +3515,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
             {"prompt": "Send this report elsewhere"},
             {"target_value": "attacker@example.com"},
             {"send_test_now": True},
+            {"context_items": 1},
         ):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", forbidden_update

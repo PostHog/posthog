@@ -211,7 +211,7 @@ def build_anchor_context(subscription: Subscription) -> AnchorContext | None:
     """The anchor's schema as planner context: names, descriptions, and query definitions only.
 
     Deliberately does not execute anything; the report pipeline runs its own HogQL. Returns None
-    when the subscription has no live anchor, which degrades the report to project-wide.
+    when the subscription has no configured anchor, which degrades the report to project-wide.
     """
     try:
         return _build_anchor_context(subscription)
@@ -219,6 +219,10 @@ def build_anchor_context(subscription: Subscription) -> AnchorContext | None:
         # This is a deliberate authorization signal, not a transient grounding failure. The
         # delivery activity must catch it and disable the subscription rather than report on
         # the whole project without the configured context.
+        raise
+    except AnchorContextUnavailable:
+        # A configured resource was deleted after the subscription was saved. This is a valid
+        # state, not an operational error, but sending an unanchored report would broaden scope.
         raise
     except Exception as exc:
         # Grounding is an enhancement; losing it must not fail the delivery. But a build failure
@@ -264,8 +268,19 @@ def _build_anchor_context(subscription: Subscription) -> AnchorContext | None:
         allowed_ids = user_access_control.allowlisted_resource_ids_by_scope.get("insight", frozenset())
         return viewable.filter(Q(id__in=allowed_ids) | Q(created_by=user_access_control.user))
 
-    dashboards = list(subscription.context_dashboards.filter(deleted=False).order_by("id"))
-    insights = subscription.context_insights.filter(deleted=False).order_by("id")
+    configured_dashboard_ids = list(subscription.context_dashboards.values_list("id", flat=True))
+    configured_insight_ids = list(subscription.context_insights.values_list("id", flat=True))
+    dashboards = list(
+        Dashboard.objects.filter(team_id=subscription.team_id, id__in=configured_dashboard_ids, deleted=False).order_by(
+            "id"
+        )
+    )
+    insights = Insight.objects.filter(
+        team_id=subscription.team_id, id__in=configured_insight_ids, deleted=False
+    ).order_by("id")
+
+    if len(dashboards) != len(configured_dashboard_ids) or insights.count() != len(configured_insight_ids):
+        raise AnchorContextUnavailable
 
     if any(not can_view(dashboard) for dashboard in dashboards):
         raise AnchorContextAccessDenied

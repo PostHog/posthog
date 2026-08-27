@@ -11,6 +11,7 @@ import { NextScheduledRun, ProjectTimezoneNotice } from 'lib/components/Schedule
 import { TZLabel } from 'lib/components/TZLabel'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { WizardReview } from 'lib/components/WizardReview'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -121,6 +122,7 @@ export function SubscriptionWizard({
     const { preflight } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
+    const aiSubscriptionContextsEnabled = useFeatureFlag(FEATURE_FLAGS.SUBSCRIPTION_AI_CONTEXT)
 
     if (subscriptionLoading || !subscriptionInitialized) {
         return <SubscriptionFormSkeleton />
@@ -191,6 +193,7 @@ export function SubscriptionWizard({
                     insightName={insightName}
                     subscription={subscription}
                     aiSubscriptionBlocked={aiGate.submitBlocked}
+                    aiSubscriptionContextsEnabled={Boolean(aiSubscriptionContextsEnabled)}
                 />
             )
             break
@@ -439,12 +442,14 @@ function SubscriptionContentStep({
     insightName,
     subscription,
     aiSubscriptionBlocked,
+    aiSubscriptionContextsEnabled,
 }: {
     logicProps: SubscriptionLogicProps
     dashboard?: DashboardType<any> | null
     insightName?: string
     subscription: SubscriptionType
     aiSubscriptionBlocked: boolean
+    aiSubscriptionContextsEnabled: boolean
 }): JSX.Element {
     const {
         addContext,
@@ -480,6 +485,12 @@ function SubscriptionContentStep({
             {isAiPrompt ? (
                 <AiPromptFields
                     compactAnalysisWindow
+                    contextCount={
+                        (subscription.context_dashboards?.length ?? 0) +
+                        (subscription.context_insights?.length ?? 0) +
+                        (subscription.context_items?.length ?? 0)
+                    }
+                    contextEnabled={aiSubscriptionContextsEnabled}
                     contexts={subscription.contexts ?? []}
                     contextItems={subscription.context_items ?? []}
                     prompt={subscription.prompt}

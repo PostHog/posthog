@@ -475,11 +475,11 @@ async def _deliver_ai_subscription(
         subscription, delivery_id
     )
     if context_is_accessible is None:
-        # A rolling deploy can pair an old generator with this newer delivery activity. Retrying
-        # gives the fleet time to converge; after retries Temporal records a failed run but leaves
-        # the subscription enabled rather than permanently disabling a valid configuration.
+        # An older generator cannot add provenance to its existing snapshot. Fail this delivery
+        # without sending it rather than wasting retries or permanently disabling a valid subscription.
         raise ApplicationError(
-            f"AI report context provenance is unavailable for subscription {subscription.id} (delivery {delivery_id})"
+            "AI report context provenance is unavailable. No report was sent.",
+            non_retryable=True,
         )
     if context_is_accessible is False:
         return await auto_disable_and_return(subscription, _AI_CONTEXT_ACCESS_REVOKED_DISABLE_REASON, recipient_results)

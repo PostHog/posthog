@@ -89,6 +89,8 @@ const AI_WINDOW_MODE_OPTIONS = [
 
 interface AiPromptFieldsProps {
     compactAnalysisWindow?: boolean
+    contextCount: number
+    contextEnabled: boolean
     contexts: SubscriptionContextApi[]
     contextItems: SubscriptionContextItemApi[]
     prompt?: string | null
@@ -108,6 +110,8 @@ function shouldShowAiPromptExamples(prompt?: string | null): boolean {
 
 export function AiPromptFields({
     compactAnalysisWindow = false,
+    contextCount,
+    contextEnabled,
     contexts,
     contextItems,
     prompt,
@@ -137,6 +141,8 @@ export function AiPromptFields({
                 <SubscriptionContextPicker
                     contexts={contexts}
                     contextItems={contextItems}
+                    contextCount={contextCount}
+                    contextEnabled={contextEnabled}
                     onAdd={onAddContext}
                     onAddEvent={onAddEvent}
                     onRemove={onRemoveContext}

@@ -725,9 +725,9 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                           ? 'Subscription deleted.'
                           : 'Inaccessible context removed.'
                 )
-            } catch {
+            } catch (error) {
                 actions.recoverContextAccessFailure()
-                lemonToast.error('Could not update this subscription. Please try again.')
+                lemonToast.error(subscriptionSaveErrorMessage(error))
             }
         },
         sendTestDeliverySuccess: async (_, breakpoint) => {
@@ -779,11 +779,16 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         addContextEvent: ({ eventName }) => {
             const contexts = values.subscription.contexts ?? []
             const contextItems = values.subscription.context_items ?? []
+            const selectedContextIds = new Set([
+                ...(values.subscription.context_dashboards ?? []).map((id) => `dashboard:${id}`),
+                ...(values.subscription.context_insights ?? []).map((id) => `insight:${id}`),
+                ...contexts.map(({ kind, id }) => `${kind}:${id}`),
+            ])
             if (contextItems.some((item) => item.kind === 'event' && item.event_name === eventName)) {
                 return
             }
             // The picker stays open after a pick, so the disabled trigger alone cannot hold the cap.
-            if (contexts.length + contextItems.length >= MAX_CONTEXTS) {
+            if (selectedContextIds.size + contextItems.length >= MAX_CONTEXTS) {
                 return
             }
             actions.setSubscriptionValue('context_items', [...contextItems, { kind: 'event', event_name: eventName }])

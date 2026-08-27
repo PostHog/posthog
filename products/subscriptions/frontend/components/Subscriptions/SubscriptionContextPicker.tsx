@@ -22,6 +22,8 @@ interface PickableContextItem {
 }
 
 interface SubscriptionContextPickerProps {
+    contextCount: number
+    contextEnabled: boolean
     contexts: SubscriptionContextApi[]
     contextItems: SubscriptionContextItemApi[]
     onAdd: (context: SubscriptionContextApi) => void
@@ -31,6 +33,8 @@ interface SubscriptionContextPickerProps {
 }
 
 export function SubscriptionContextPicker({
+    contextCount,
+    contextEnabled,
     contexts,
     contextItems,
     onAdd,
@@ -89,9 +93,11 @@ export function SubscriptionContextPicker({
                 width={450}
                 data-attr="ai-subscription-context-picker"
                 disabledReason={
-                    contexts.length + contextItems.length >= MAX_CONTEXTS
-                        ? `You can add up to ${MAX_CONTEXTS} context items`
-                        : undefined
+                    !contextEnabled
+                        ? 'Report context is not enabled for your account.'
+                        : contextCount >= MAX_CONTEXTS
+                          ? `You can add up to ${MAX_CONTEXTS} context items`
+                          : undefined
                 }
             />
             {eventNames.map((eventName) => (

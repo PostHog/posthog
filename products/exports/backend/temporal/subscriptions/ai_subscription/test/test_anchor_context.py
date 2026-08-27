@@ -191,9 +191,10 @@ class TestBuildAnchorContext(APIBaseTest):
         assert a.event_names != b.event_names
         assert a.content_hash != b.content_hash
 
-    def test_soft_deleted_anchor_degrades_to_none(self) -> None:
+    def test_soft_deleted_anchor_is_unavailable(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Gone", deleted=True)
-        assert build_anchor_context(self._subscription(context_dashboards=[dashboard])) is None
+        with pytest.raises(AnchorContextUnavailable):
+            build_anchor_context(self._subscription(context_dashboards=[dashboard]))
 
     def test_build_failure_raises_unavailable_not_none(self) -> None:
         # None means "no anchor configured" and would invalidate a frozen plan through the hash

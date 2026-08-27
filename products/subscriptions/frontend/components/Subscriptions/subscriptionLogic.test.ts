@@ -794,13 +794,37 @@ describe('subscriptionLogic', () => {
             name: `Insight ${index + 1}`,
             url: `/insights/${index + 1}`,
         }))
-        capLogic.actions.setSubscriptionValue('contexts', seededContexts)
+        capLogic.actions.setSubscriptionValues({
+            contexts: seededContexts,
+            context_insights: seededContexts.map(({ id }) => id),
+        })
         // 24 contexts + this event reaches the cap, so the following add must be dropped.
         capLogic.actions.addContextEvent('signed up')
         capLogic.actions.addContext({ kind: 'insight', id: 999, name: 'Overflow', url: '/insights/999' })
         await expectLogic(capLogic).toFinishListeners()
         expect(capLogic.values.subscription.contexts).toHaveLength(24)
         expect(capLogic.values.subscription.context_items).toEqual([{ kind: 'event', event_name: 'signed up' }])
+        capLogic.unmount()
+    })
+
+    it('counts inaccessible persisted context when adding an event', async () => {
+        const capLogic = subscriptionLogic({ id: 'new' })
+        capLogic.mount()
+        router.actions.push('/subscriptions/new')
+        await expectLogic(capLogic).toFinishListeners()
+        const contextIds = Array.from({ length: 25 }, (_, index) => index + 1)
+        capLogic.actions.setSubscriptionValues({
+            context_insights: contextIds,
+            contexts: contextIds.slice(0, 24).map((id) => ({
+                kind: 'insight' as const,
+                id,
+                name: `Insight ${id}`,
+                url: `/insights/${id}`,
+            })),
+        })
+        capLogic.actions.addContextEvent('signed up')
+        await expectLogic(capLogic).toFinishListeners()
+        expect(capLogic.values.subscription.context_items).toEqual([])
         capLogic.unmount()
     })
 

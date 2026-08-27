@@ -25,6 +25,7 @@ from products.exports.backend.temporal.subscriptions.activities import (
     validate_subscription_for_delivery,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import (
+    _deliver_ai_subscription,
     _replace_delivery_context_references,
     generate_ai_subscription_report,
 )
@@ -32,6 +33,7 @@ from products.exports.backend.temporal.subscriptions.snapshot_activities import 
 from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_DELIVERY_CONTEXT_MARKER_IDENTIFIER,
     AI_REPORT_DELIVERY_CONTEXT_MARKER_KIND,
+    AI_REPORT_SNAPSHOT_KEY,
     CreateExportAssetsResult,
     DeliverSubscriptionInputs,
     DeliverSubscriptionResult,
@@ -75,6 +77,33 @@ async def test_ai_report_delivery_context_references_are_replaced_per_generation
         (AI_REPORT_DELIVERY_CONTEXT_MARKER_KIND, AI_REPORT_DELIVERY_CONTEXT_MARKER_IDENTIFIER),
         ("insight", "3"),
     ]
+
+
+async def test_existing_ai_report_without_provenance_fails_without_retry(team, user) -> None:
+    delivery = await sync_to_async(_create_ai_delivery_with_report)(team, user)
+    subscription = await sync_to_async(
+        SubscriptionDelivery.objects.select_related("subscription", "subscription__team").get
+    )(pk=delivery.id)
+    inputs = DeliverSubscriptionInputs(subscription_id=subscription.subscription_id, delivery_id=delivery.id)
+
+    with pytest.raises(ApplicationError) as error:
+        await ActivityEnvironment().run(_deliver_ai_subscription, subscription.subscription, inputs, [])
+
+    assert error.value.non_retryable is True
+
+
+def _create_ai_delivery_with_report(team, user) -> SubscriptionDelivery:
+    subscription = create_subscription(team=team, created_by=user, prompt="Weekly report")
+    return SubscriptionDelivery.objects.create(
+        subscription=subscription,
+        team=team,
+        temporal_workflow_id="legacy-ai-report-without-provenance",
+        idempotency_key="legacy-ai-report-without-provenance",
+        trigger_type="manual",
+        target_type="email",
+        target_value="test@example.com",
+        content_snapshot={AI_REPORT_SNAPSHOT_KEY: "# Weekly report"},
+    )
 
 
 async def test_ai_report_skips_when_anchor_is_unavailable(team, user) -> None:
