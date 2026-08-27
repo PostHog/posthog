@@ -24,7 +24,9 @@ logger = structlog.get_logger(__name__)
 ISSUE_RESOLVED_EVENT = "$error_tracking_issue_resolved"
 ISSUE_SUPPRESSED_EVENT = "$error_tracking_issue_suppressed"
 ISSUE_ASSIGNED_EVENT = "$error_tracking_issue_assigned"
+ISSUE_UNASSIGNED_EVENT = "$error_tracking_issue_unassigned"
 ISSUE_MERGED_EVENT = "$error_tracking_issue_merged"
+ISSUE_SPLIT_EVENT = "$error_tracking_issue_split"
 # Cymbal emits this same event when an ingested exception reopens an issue; manual
 # reopens reuse it so reopened alerts cover both paths.
 ISSUE_REOPENED_EVENT = "$error_tracking_issue_reopened"
@@ -53,12 +55,25 @@ def assignee_property(assignee: dict[str, Any]) -> str:
     return json.dumps({"type": assignee["type"], "id": assignee_id}, separators=(",", ":"))
 
 
+def issue_fingerprint_for_links(issue: ErrorTrackingIssue) -> Optional[str]:
+    # Deterministic: always the issue's longest-held fingerprint, so persisted
+    # links keep resolving to this issue as long as possible. Callers whose
+    # mutation moves fingerprints (merge) must snapshot this before mutating.
+    return (
+        ErrorTrackingIssueFingerprintV2.objects.filter(team_id=issue.team_id, issue_id=issue.id)
+        .order_by("first_seen", "id")
+        .values_list("fingerprint", flat=True)
+        .first()
+    )
+
+
 def produce_issue_lifecycle_event_on_commit(
     *,
     event: str,
     issue: ErrorTrackingIssue,
     user: Optional[User],
     status: Optional[str] = None,
+    fingerprint: Optional[str] = None,
     extra_properties: Optional[dict[str, Any]] = None,
 ) -> None:
     # Snapshot everything now: the issue row may be mutated again (or deleted, for
@@ -66,14 +81,11 @@ def produce_issue_lifecycle_event_on_commit(
     team_id = issue.team_id
     # Destination message templates deep-link issues via `fingerprint` (see the
     # error tracking sub-templates). Manual transitions have no triggering
-    # exception, so any of the issue's fingerprints keeps those links working;
+    # exception, so one of the issue's own fingerprints keeps those links working;
     # `exception_timestamp` stays absent so the issue scene falls back to the
     # issue's latest exception instead of an empty window around the mutation.
-    fingerprint = (
-        ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, issue_id=issue.id)
-        .values_list("fingerprint", flat=True)
-        .first()
-    )
+    if fingerprint is None:
+        fingerprint = issue_fingerprint_for_links(issue)
     properties: dict[str, Any] = {
         "name": issue.name,
         "description": issue.description,

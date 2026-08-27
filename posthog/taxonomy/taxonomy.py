@@ -481,9 +481,17 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Error tracking issue assigned",
             "description": "Fires when an error tracking issue is assigned to a user or role.",
         },
+        "$error_tracking_issue_unassigned": {
+            "label": "Error tracking issue unassigned",
+            "description": "Fires when an error tracking issue's assignee is removed.",
+        },
         "$error_tracking_issue_merged": {
             "label": "Error tracking issue merged",
             "description": "Fires when error tracking issues are merged into another issue.",
+        },
+        "$error_tracking_issue_split": {
+            "label": "Error tracking issue split",
+            "description": "Fires when fingerprints are split out of an error tracking issue into new issues.",
         },
         "$conversation_message_sent": {
             "label": "Conversation message sent",

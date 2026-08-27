@@ -588,9 +588,39 @@ class TestErrorTracking(APIBaseTest):
         assert event.properties["assignee"] == f'{{"type":"user","id":{self.user.id}}}'
         assert json.loads(event.properties["assignee"]) == {"type": "user", "id": self.user.id}
 
+    def test_issue_unassign_produces_lifecycle_internal_event(self):
+        issue = self.create_issue()
+        self.client.patch(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
+            data={"assignee": {"id": self.user.id, "type": "user"}},
+        )
+
+        with (
+            patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
+                data={"assignee": None},
+                format="json",
+            )
+
+        assert response.status_code == 200, response.json()
+        mock_produce.assert_called_once()
+        event = mock_produce.call_args.kwargs["event"]
+        assert event.event == "$error_tracking_issue_unassigned"
+        assert event.distinct_id == str(issue.id)
+        assert event.properties["previous_assignee"] == f'{{"type":"user","id":{self.user.id}}}'
+
     def test_issue_merge_produces_lifecycle_event_and_activity_log(self):
         issue_one = self.create_issue(fingerprints=["fingerprint_one"])
         issue_two = self.create_issue(fingerprints=["fingerprint_two"])
+        # The source's fingerprint is older, so after the merge it would sort first;
+        # the event must still carry one of the target's own pre-merge fingerprints,
+        # or a later split of the merged-in fingerprint retargets persisted links.
+        ErrorTrackingIssueFingerprintV2.objects.filter(issue=issue_two).update(
+            first_seen=timezone.now() - timedelta(days=1)
+        )
 
         with (
             patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
@@ -607,9 +637,11 @@ class TestErrorTracking(APIBaseTest):
         assert event.event == "$error_tracking_issue_merged"
         assert event.distinct_id == str(issue_one.id)
         assert event.properties["merged_issue_ids"] == [str(issue_two.id)]
+        assert event.properties["fingerprint"] == "fingerprint_one"
 
         activity = ActivityLog.objects.get(scope="ErrorTrackingIssue", activity="merged")
         assert activity.item_id == str(issue_one.id)
+        assert activity.detail is not None
         assert activity.detail["changes"][0]["after"] == [str(issue_two.id)]
 
     def test_issue_merge_without_effect_logs_no_activity(self):
@@ -628,18 +660,31 @@ class TestErrorTracking(APIBaseTest):
         mock_produce.assert_not_called()
         assert not ActivityLog.objects.filter(scope="ErrorTrackingIssue", activity="merged").exists()
 
-    def test_issue_split_logs_activity(self):
+    def test_issue_split_produces_lifecycle_event_and_activity_log(self):
         issue = self.create_issue(fingerprints=["fingerprint_one", "fingerprint_two"])
 
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/split",
-            data={"fingerprints": [{"fingerprint": "fingerprint_two", "name": "Split issue"}]},
-            format="json",
-        )
+        with (
+            patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/split",
+                data={"fingerprints": [{"fingerprint": "fingerprint_two", "name": "Split issue"}]},
+                format="json",
+            )
 
         assert response.status_code == 200, response.json()
+        mock_produce.assert_called_once()
+        event = mock_produce.call_args.kwargs["event"]
+        assert event.event == "$error_tracking_issue_split"
+        assert event.distinct_id == str(issue.id)
+        assert event.properties["split_issue_ids"] == response.json()["new_issue_ids"]
+        # The remaining fingerprint stays the link anchor for the source issue.
+        assert event.properties["fingerprint"] == "fingerprint_one"
+
         activity = ActivityLog.objects.get(scope="ErrorTrackingIssue", activity="split")
         assert activity.item_id == str(issue.id)
+        assert activity.detail is not None
         assert activity.detail["changes"][0]["after"] == response.json()["new_issue_ids"]
 
     def test_can_start_symbol_set_upload(self) -> None:

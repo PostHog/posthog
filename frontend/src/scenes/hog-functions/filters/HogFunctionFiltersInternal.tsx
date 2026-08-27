@@ -53,8 +53,16 @@ export const getProductEventFilterOptions = (contextId: HogFunctionConfiguration
                     value: '$error_tracking_issue_assigned',
                 },
                 {
+                    label: 'Error tracking issue unassigned',
+                    value: '$error_tracking_issue_unassigned',
+                },
+                {
                     label: 'Error tracking issue merged',
                     value: '$error_tracking_issue_merged',
+                },
+                {
+                    label: 'Error tracking issue split',
+                    value: '$error_tracking_issue_split',
                 },
             ]
         case 'insight-alerts':

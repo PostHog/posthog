@@ -22,8 +22,11 @@ from products.error_tracking.backend.logic import ErrorTrackingIssueNotFoundErro
 from products.error_tracking.backend.logic.lifecycle_events import (
     ISSUE_ASSIGNED_EVENT,
     ISSUE_MERGED_EVENT,
+    ISSUE_SPLIT_EVENT,
+    ISSUE_UNASSIGNED_EVENT,
     STATUS_CHANGE_EVENTS,
     assignee_property,
+    issue_fingerprint_for_links,
     produce_issue_lifecycle_event_on_commit,
     status_label,
 )
@@ -168,6 +171,10 @@ def merge_issues(
     issue = _get_issue(team_id, issue_id, select_related=("team__organization",))
     # Make sure we don't delete the issue being merged into (defensive of frontend bugs)
     ids = [x for x in source_ids if x != str(issue.id)]
+    # Snapshot before the merge moves source fingerprints onto this issue: a link
+    # built from a merged-in fingerprint would retarget if that fingerprint is
+    # later split back out.
+    fingerprint_before_merge = issue_fingerprint_for_links(issue)
     result = issue.merge(issue_ids=ids)
 
     if result == ErrorTrackingIssueMergeResult.MERGED:
@@ -192,6 +199,7 @@ def merge_issues(
             event=ISSUE_MERGED_EVENT,
             issue=issue,
             user=user,
+            fingerprint=fingerprint_before_merge,
             extra_properties={"merged_issue_ids": ids},
         )
 
@@ -225,6 +233,12 @@ def split_issue(
                     ),
                 ],
             ),
+        )
+        produce_issue_lifecycle_event_on_commit(
+            event=ISSUE_SPLIT_EVENT,
+            issue=issue,
+            user=user,
+            extra_properties={"split_issue_ids": [str(new_issue_id) for new_issue_id in new_issue_ids]},
         )
 
     return new_issue_ids
@@ -383,6 +397,16 @@ def _assign_one(
             return False
         assignment_before.delete()
         serialized_assignment_after = None
+
+        extra_properties = None
+        if serialized_assignment_before and serialized_assignment_before.get("id") is not None:
+            extra_properties = {"previous_assignee": assignee_property(serialized_assignment_before)}
+        produce_issue_lifecycle_event_on_commit(
+            event=ISSUE_UNASSIGNED_EVENT,
+            issue=issue,
+            user=user,
+            extra_properties=extra_properties,
+        )
 
     log_activity(
         organization_id=organization.id,
