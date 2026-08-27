@@ -54,11 +54,33 @@ export function rebaseNotebookAIResponseRange(
         previousDocument.nodes.length,
         previousRange.insertionIndex + previousRange.deleteCount
     )
-    const nextStartIndex = getRebasedNotebookAIResponseStartIndex(
+    const nextStartBoundaryIndex = getRebasedNotebookAIResponseStartIndex(
         previousDocument.nodes,
         nextDocument.nodes,
         previousStartIndex
     )
+    const nextEndBoundaryIndex = getRebasedNotebookAIResponseEndIndex(
+        previousDocument.nodes,
+        nextDocument.nodes,
+        previousEndIndex,
+        nextStartBoundaryIndex
+    )
+    const latestPossibleResponseStartIndex = Math.max(
+        nextStartBoundaryIndex,
+        nextEndBoundaryIndex - previousRange.deleteCount
+    )
+    const previousResponseStartNode = previousDocument.nodes[previousStartIndex]
+    let nextResponseStartIndex: number | null = null
+    if (previousResponseStartNode) {
+        nextResponseStartIndex =
+            getLastMatchingNodeFingerprintIndex(
+                previousResponseStartNode,
+                nextDocument.nodes,
+                nextStartBoundaryIndex,
+                latestPossibleResponseStartIndex
+            ) ?? getMatchingNodeFingerprintIndex(previousResponseStartNode, nextDocument.nodes, nextStartBoundaryIndex)
+    }
+    const nextStartIndex = nextResponseStartIndex ?? nextStartBoundaryIndex
     const nextEndIndex = getRebasedNotebookAIResponseEndIndex(
         previousDocument.nodes,
         nextDocument.nodes,
@@ -270,6 +292,22 @@ function getMatchingNodeFingerprintIndex(
 ): number | null {
     const nodeFingerprint = getNodeFingerprint(node)
     for (let index = Math.max(0, startIndex); index < candidateNodes.length; index++) {
+        if (getNodeFingerprint(candidateNodes[index]) === nodeFingerprint) {
+            return index
+        }
+    }
+
+    return null
+}
+
+function getLastMatchingNodeFingerprintIndex(
+    node: NotebookBlockNode,
+    candidateNodes: NotebookBlockNode[],
+    startIndex: number,
+    endIndex: number
+): number | null {
+    const nodeFingerprint = getNodeFingerprint(node)
+    for (let index = Math.min(endIndex, candidateNodes.length - 1); index >= Math.max(0, startIndex); index--) {
         if (getNodeFingerprint(candidateNodes[index]) === nodeFingerprint) {
             return index
         }
