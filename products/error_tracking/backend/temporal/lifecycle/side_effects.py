@@ -160,11 +160,13 @@ async def emit_issue_lifecycle_signal(
     origin = parse_origin(event_properties)
     header = f"{preamble}:\n{issue_name}: {issue_description}\n{render_origin(origin)}"
     encoding = get_tiktoken_encoding_for_model(TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL)
-    stacktrace_tokens = max(SIGNAL_MAX_TOKENS - len(encoding.encode(header)), 0)
+    # header and description carry untrusted event text (exception message, origin host, lib).
+    # Count special-token strings like "<|endoftext|>" as text, or encode() raises and aborts the signal.
+    stacktrace_tokens = max(SIGNAL_MAX_TOKENS - len(encoding.encode(header, allowed_special="all")), 0)
     stacktrace = render_stacktrace(event_properties, stacktrace_tokens)
     description = f"{header}\n```\n{stacktrace}\n```"
     signal_encoding = get_tiktoken_encoding_for_model(LLM_TOKEN_COUNT_PROXY_MODEL)
-    signal_tokens = signal_encoding.encode(description)
+    signal_tokens = signal_encoding.encode(description, allowed_special="all")
     if len(signal_tokens) > SIGNAL_MAX_TOKENS:
         description = decode_token_prefix(signal_encoding, signal_tokens, SIGNAL_MAX_TOKENS)
 

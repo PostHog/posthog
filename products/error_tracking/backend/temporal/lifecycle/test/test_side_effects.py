@@ -277,3 +277,38 @@ async def test_signal_carries_dev_host_origin_in_description_and_extra() -> None
     call = emit_signal.await_args.kwargs
     assert "Origin: host localhost:3000 (local development host), lib posthog-js\n" in call["description"]
     assert call["extra"] == {"fingerprint": inputs.fingerprint, "host": "localhost:3000", "is_dev_host": True}
+
+
+@pytest.mark.asyncio
+async def test_signal_survives_special_token_in_origin_text() -> None:
+    inputs = _inputs()
+    team = MagicMock()
+    event_properties = {
+        "$exception_list": [{"type": "TypeError", "value": "boom"}],
+        "$host": "example.com",
+        "$lib": "<|endoftext|>",
+    }
+
+    with (
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.Team.objects.aget",
+            new=AsyncMock(return_value=team),
+        ),
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.fetch_event_properties",
+            return_value=event_properties,
+        ),
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.emit_signal",
+            new=AsyncMock(),
+        ) as emit_signal,
+    ):
+        await emit_issue_lifecycle_signal(
+            inputs,
+            source_type="issue_reopened",
+            preamble="Previously resolved issue reappeared",
+        )
+
+    emit_signal.assert_awaited_once()
+    assert emit_signal.await_args is not None
+    assert "lib <|endoftext|>" in emit_signal.await_args.kwargs["description"]
