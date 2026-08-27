@@ -1744,8 +1744,13 @@ def _enqueue_custom_property_sync(team_id: int, saved_query_id: str) -> None:
 
 def _enqueue_sync_if_enabled(source: CustomPropertySource) -> None:
     """Run an initial sync after the source is saved so its values populate immediately rather than
-    waiting for the next materialization. Skips disabled sources and ones whose view was deleted."""
-    if not source.is_enabled or source.saved_query_id is None:
+    waiting for the next materialization. This Celery path owns account sources only; person/group
+    sources use their warehouse binding workflow even when that binding is a saved query."""
+    if (
+        not source.is_enabled
+        or source.saved_query_id is None
+        or source.definition.target_type in _WAREHOUSE_PROFILE_TARGETS
+    ):
         return
     team_id, saved_query_id = source.team_id, str(source.saved_query_id)
     transaction.on_commit(lambda: _enqueue_custom_property_sync(team_id, saved_query_id))

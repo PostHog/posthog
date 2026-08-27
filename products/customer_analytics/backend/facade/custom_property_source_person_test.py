@@ -624,6 +624,24 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         with self.assertRaises(api.ResourceForbiddenError):
             self._create_view_source(user_access_control=self._uac(allowed=False))
 
+    @patch("products.customer_analytics.backend.facade.api._start_person_backfill_if_enabled")
+    @patch("products.customer_analytics.backend.facade.api._enqueue_custom_property_sync")
+    def test_view_backed_person_source_never_queues_account_sync(self, enqueue_account_sync, _start_backfill):
+        with self.captureOnCommitCallbacks(execute=True):
+            source = self._create_view_source(user_access_control=self._uac(allowed=True))
+
+        enqueue_account_sync.assert_not_called()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            api.update_custom_property_source(
+                team_id=self.team.id,
+                source_id=source.id,
+                fields={"column_property_map": {"plan": "plan_tier", "seats": "seat_count"}},
+                user_access_control=self._uac(allowed=True),
+            )
+
+        enqueue_account_sync.assert_not_called()
+
     @patch("products.customer_analytics.backend.facade.api.person_properties_flag_enabled", return_value=True)
     def test_sync_now_materializes_the_view_and_opens_a_running_run(self, _flag):
         source = self._create_view_source(user_access_control=self._uac(allowed=True))
