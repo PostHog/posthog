@@ -513,14 +513,18 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     schema_id=inputs.external_data_schema_id,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=1),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+                retry_policy=RetryPolicy(maximum_attempts=3),
             )
             is_v3 = version_result.is_v3
         except Exception:
-            workflow.logger.warning(
-                "Failed to check pipeline version, defaulting to V2",
+            # Guessing the version is not safe: a buffered CDC schema consumed on v2 records no
+            # load position, so the buffer re-merges in full and nothing is ever deleted. Skip
+            # the run and let the schedule fire again, matching the lock-not-acquired path.
+            workflow.logger.error(
+                "Failed to check pipeline version, skipping run",
                 extra={"schema_id": str(inputs.external_data_schema_id)},
             )
+            return
 
         # Only acquire lock for V3 pipelines (V2 never enters this block)
         if is_v3:

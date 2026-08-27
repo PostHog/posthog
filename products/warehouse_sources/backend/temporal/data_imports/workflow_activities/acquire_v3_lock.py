@@ -51,7 +51,7 @@ TAKEOVER_MAX_HOLD_SECONDS = 24 * 60 * 60
 NO_JOB_ROW_TAKEOVER_GRACE_SECONDS = 900
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class CheckPipelineVersionActivityInputs:
     team_id: int
     source_id: uuid.UUID

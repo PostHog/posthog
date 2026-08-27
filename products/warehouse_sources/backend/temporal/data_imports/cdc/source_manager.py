@@ -93,7 +93,8 @@ def scheduled_sync_consumes_buffer(schema: ExternalDataSchema) -> bool:
     neither see individual sources nor be trusted to stay wide after a flip), so the version
     check consults this predicate before the flag.
     """
-    ingest_mode = str((schema.source.job_inputs or {}).get("cdc_ingest_mode") or "legacy")
+    # Mirrors PostgresCDCConfig.from_dict: anything but the exact marker reads as legacy.
+    ingest_mode = "buffered" if (schema.source.job_inputs or {}).get("cdc_ingest_mode") == "buffered" else "legacy"
     return is_buffered_consolidated(schema, ingest_mode=ingest_mode)
 
 
