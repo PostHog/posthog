@@ -183,8 +183,9 @@ function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element 
     const hasTags = (config?.tags ?? []).length > 0
     // The draft already filled these in, so the offer is more of them, not a first set.
     const categoriesWereDrafted = isNew && !!goalDraft && !!config?.tags?.length
-    // The param only survives on a new scanner whose config a valid template prefilled; the
-    // logic strips it when a goal draft outranks the template or the key is unknown.
+    // The param only survives on a new scanner whose config a valid template prefilled: the picker
+    // drops it when the blank card is chosen, and loadScanner strips it on load when a goal draft
+    // outranks the template or the key is unknown.
     const startedFromTemplate = isNew && typeof searchParams.template === 'string'
 
     return (
