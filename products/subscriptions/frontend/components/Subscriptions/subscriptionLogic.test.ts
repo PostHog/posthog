@@ -840,6 +840,42 @@ describe('subscriptionLogic', () => {
         editLogic.unmount()
     })
 
+    it('removes only inaccessible context during recovery', async () => {
+        let capturedBody: Record<string, unknown> | undefined
+        const visibleDashboard = { kind: 'dashboard' as const, id: 9, name: 'Growth', url: '/dashboard/9' }
+        useMocks({
+            get: {
+                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                    resource_type: 'ai_prompt',
+                    prompt: 'Weekly gains',
+                    context_recovery: true,
+                    context_dashboards: [],
+                    context_insights: [],
+                    context_items: [{ kind: 'event', event_name: 'signed up' }],
+                    contexts: [visibleDashboard],
+                }),
+            },
+            patch: {
+                '/api/environments/:team/subscriptions/1': async ({ request }) => {
+                    capturedBody = (await request.json()) as Record<string, unknown>
+                    return [200, { id: 1, ...capturedBody } as SubscriptionType]
+                },
+            },
+        })
+        const recoveryLogic = subscriptionLogic({ dashboardId: 9, id: 1 })
+        recoveryLogic.mount()
+        router.actions.push('/dashboard/9/subscriptions/1')
+        await expectLogic(recoveryLogic).toFinishListeners().toDispatchActions(['loadSubscriptionSuccess'])
+        recoveryLogic.actions.recoverContextAccess('clear')
+        await expectLogic(recoveryLogic).toFinishListeners().toDispatchActions(['recoverContextAccessSuccess'])
+        expect(capturedBody).toEqual({
+            context_dashboards: [9],
+            context_insights: [],
+            context_items: [{ kind: 'event', event_name: 'signed up' }],
+        })
+        recoveryLogic.unmount()
+    })
+
     it('drops a stale prompt when saving a non-AI subscription', async () => {
         // Toggling resource_type back to insight after typing a prompt leaves it in form state;
         // it must not be sent, else the backend rejects a non-AI sub that carries a prompt.

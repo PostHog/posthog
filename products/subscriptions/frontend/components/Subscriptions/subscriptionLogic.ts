@@ -687,12 +687,21 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 actions.recoverContextAccessFailure()
                 return
             }
+            const visibleContexts = values.subscription.contexts ?? []
             try {
                 const updated = await api.subscriptions.update(
                     props.id,
                     action === 'pause'
                         ? { enabled: false }
-                        : { context_dashboards: [], context_insights: [], context_items: [] }
+                        : {
+                              context_dashboards: visibleContexts
+                                  .filter((context) => context.kind === 'dashboard')
+                                  .map((context) => context.id),
+                              context_insights: visibleContexts
+                                  .filter((context) => context.kind === 'insight')
+                                  .map((context) => context.id),
+                              context_items: values.subscription.context_items ?? [],
+                          }
                 )
                 actions.resetSubscription(updated)
                 actions.recoverContextAccessSuccess()
