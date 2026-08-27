@@ -42,14 +42,16 @@ def format_property_values(
     return yaml.dump(data, default_flow_style=False, sort_keys=False)
 
 
-def format_properties_xml(children: list[tuple[str, str | None, str | None]]):
+def format_properties_xml(children: list[tuple[str, str | None, str | None]], include_untyped: bool = False):
     root = ET.Element("properties")
     property_type_to_tag = {}
 
     for name, property_type, description in children:
-        # Do not include properties that are ambiguous.
         if property_type is None:
-            continue
+            if not include_untyped:
+                continue
+            # Group untyped properties under a shared tag so the model still sees them.
+            property_type = "Unknown"
         if property_type not in property_type_to_tag:
             property_type_to_tag[property_type] = ET.SubElement(root, property_type)
 
