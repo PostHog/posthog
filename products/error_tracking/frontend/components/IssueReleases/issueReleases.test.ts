@@ -1,9 +1,34 @@
-import { PropertyOperator } from '~/types'
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import { PreviewPropertyFilter } from '../IssueFilterPreview/issueFilterPreviewLogic'
-import { IssueReleaseStrip, IssueReleaseStripKind, releasePropertyFilters } from './issueReleases'
+import { IssueReleaseStrip, IssueReleaseStripKind, releasePropertyFilters, selectedAppNamespace } from './issueReleases'
 
-describe('releasePropertyFilters', () => {
+describe('issueReleases', () => {
+    const group = (...filters: object[]): UniversalFiltersGroup => ({
+        type: FilterLogicalOperator.And,
+        values: [{ type: FilterLogicalOperator.And, values: filters as UniversalFiltersGroup['values'] }],
+    })
+    const namespaceChip = (operator: PropertyOperator, value: string[]): object => ({
+        key: '$app_namespace',
+        type: PropertyFilterType.Event,
+        operator,
+        value,
+    })
+
+    it.each<[string, UniversalFiltersGroup, string | null]>([
+        [
+            'reads a single exact namespace',
+            group(namespaceChip(PropertyOperator.Exact, ['com.example.ios'])),
+            'com.example.ios',
+        ],
+        ['ignores other chips', group({ key: '$browser', type: PropertyFilterType.Event, value: ['Chrome'] }), null],
+        ['ignores a multi-value chip', group(namespaceChip(PropertyOperator.Exact, ['a', 'b'])), null],
+        ['ignores a non-exact operator', group(namespaceChip(PropertyOperator.IsNot, ['com.example.ios'])), null],
+        ['handles an empty group', group(), null],
+    ])('selectedAppNamespace %s', (_name, filterGroup, expected) => {
+        expect(selectedAppNamespace(filterGroup)).toBe(expected)
+    })
+
     const emptySeries = { counts: [], total: 0, first_seen: null, last_seen: null }
 
     const strip = (
@@ -42,7 +67,7 @@ describe('releasePropertyFilters', () => {
             [notSet('$app_version'), notSet('$app_build')],
         ],
         ['cannot filter the folded "other" strip', strip('other', null), []],
-    ])('%s', (_name, input, expected) => {
+    ])('releasePropertyFilters %s', (_name, input, expected) => {
         expect(releasePropertyFilters(input)).toEqual(expected)
     })
 })
