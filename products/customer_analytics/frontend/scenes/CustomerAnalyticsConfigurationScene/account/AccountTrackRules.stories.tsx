@@ -34,9 +34,9 @@ const config = {
         {
             conditions: [
                 {
-                    field: { kind: 'account_field', field: 'name' },
-                    operator: 'icontains',
-                    values: ['internal'],
+                    field: { kind: 'account_field', field: 'created_at' },
+                    operator: 'is_date_after',
+                    values: ['-30d'],
                 },
             ],
         },
@@ -51,6 +51,7 @@ function previewSample(id: string, name: string, externalId: string, mrr: number
         rule_values: {
             'custom_property:01980d7c-0000-7000-8000-000000000001': mrr,
             'account_field:name': name,
+            'account_field:created_at': '2026-08-10T12:00:00Z',
         },
     }
 }
