@@ -96,7 +96,7 @@ test('buildMatrix splits a product to the shared wall target', () => {
     const matrix = buildMatrix(['big-one'], union, true)
 
     // 2000s of work, with the imbalance margin, over a (target - overhead) budget.
-    assert.equal(matrix.length, productSplitShards(2000, 50))
+    assert.equal(matrix.length, productSplitShards({ work: 2000, heavyCount: 0, lightWork: 2000, maxLight: 50 }))
     assert.match(matrix[0].group, /^big-one \(1\/\d+\)$/)
 })
 
@@ -121,21 +121,27 @@ test('a single-invocation entry keeps the pre-legs keys for unrebased branches',
     assert.equal(matrix[0].pytest_args, '')
 })
 
-test('productSplitShards sizes the worst chunk, so a heavy test buys shards', () => {
+test('productSplitShards sizes the worst chunk, not the mean', () => {
     const budget = TARGET_WALL_SECONDS - PRODUCT_JOB_OVERHEAD_SECONDS
+    const evenly = { work: 1000, heavyCount: 0, lightWork: 1000, maxLight: 10 }
+    const coarse = { work: 1000, heavyCount: 0, lightWork: 1000, maxLight: 150 }
+
     // Same total work; the coarser grain cannot be cut as finely, so it needs more
     // shards to keep its worst chunk inside the budget.
-    const fine = productSplitShards(1000, 10)
-    const coarse = productSplitShards(1000, 200)
-    assert.ok(coarse > fine, `expected ${coarse} > ${fine}`)
-    assert.ok(1000 / fine + 10 <= budget)
-    assert.ok(1000 / coarse + 200 <= budget)
-    // A test at or above the budget cannot be split out of, so no shard count
-    // meets the target; size by work alone rather than buying useless shards.
-    assert.equal(productSplitShards(1000, budget * 2), Math.ceil(1000 / budget))
-    // Just under the budget the bound goes uninformative and asks for a shard per
-    // few seconds of remainder. Stay near what the split actually needs.
-    assert.ok(productSplitShards(budget + 1, budget - 1) <= 3)
+    assert.ok(productSplitShards(coarse) > productSplitShards(evenly))
+    assert.ok(evenly.lightWork / productSplitShards(evenly) + evenly.maxLight <= budget)
+    assert.ok(coarse.lightWork / productSplitShards(coarse) + coarse.maxLight <= budget)
+})
+
+test('tests above half the budget each hold a shard of their own', () => {
+    const budget = TARGET_WALL_SECONDS - PRODUCT_JOB_OVERHEAD_SECONDS
+    const heavy = Math.ceil(budget * 0.8)
+
+    // Ten tests this size cannot pair, so no count below ten holds the budget,
+    // however the total work divides.
+    assert.equal(productSplitShards({ work: heavy * 10, heavyCount: 10, lightWork: 0, maxLight: 0 }), 10)
+    // One heavy test and a sliver takes two, not a shard per second of remainder.
+    assert.equal(productSplitShards({ work: budget + 1, heavyCount: 1, lightWork: 1, maxLight: 1 }), 2)
 })
 
 test('a product that fits one shard is packed, not split by its own margin', () => {
@@ -147,7 +153,7 @@ test('a product that fits one shard is packed, not split by its own margin', () 
     }
 
     assert.ok(300 <= TARGET_WALL_SECONDS - PRODUCT_JOB_OVERHEAD_SECONDS)
-    assert.equal(productSplitShards(300, 30), 1)
+    assert.equal(productSplitShards({ work: 300, heavyCount: 0, lightWork: 300, maxLight: 30 }), 1)
 
     const matrix = buildMatrix(['mid-one'], union, true)
 
@@ -162,7 +168,7 @@ test("a split product's last shard absorbs a small product without leaking split
     }
     union['products/small_one/backend/test_s.py::test_s'] = 40
 
-    assert.equal(productSplitShards(330, 30), 2)
+    assert.equal(productSplitShards({ work: 330, heavyCount: 0, lightWork: 330, maxLight: 30 }), 2)
 
     const matrix = buildMatrix(['big-one', 'small-one'], union, true)
 

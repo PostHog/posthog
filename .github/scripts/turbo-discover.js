@@ -708,19 +708,37 @@ function getProductDuration(product, durations) {
 // The longest single test in a product. pytest-split cuts between tests, never
 // inside one, so this is the irreducible grain of any split and it bounds how
 // far the worst chunk can run past the mean.
-function getProductMaxTest(product, durations) {
+// Budget of test work one product shard can hold, mirroring calculateShards.
+function productShardBudget() {
+    return Math.max(TARGET_WALL_SECONDS - PRODUCT_JOB_OVERHEAD_SECONDS, PRODUCT_JOB_OVERHEAD_SECONDS / 2, 1)
+}
+
+// The parts of a product's duration distribution that sizing needs. Two tests
+// longer than half a shard's budget can never share a shard, so those are counted
+// rather than summed; the rest are summed, with their own longest, because a
+// contiguous chunk of them runs at most one of them past the mean.
+function getProductShape(product, durations) {
+    const shape = { work: 0, maxTest: 0, heavyCount: 0, lightWork: 0, maxLight: 0 }
     if (!durations) {
-        return 0
+        return shape
     }
     const prefix = productPrefix(product)
     const excluded = PRODUCTS_RUNNING_TEMPORAL_IN_JOB.has(product) ? [] : EXCLUDED_PATH_SEGMENTS
-    let longest = 0
+    const heavyThreshold = productShardBudget() / 2
     for (const [test, dur] of Object.entries(durations)) {
-        if (test.startsWith(prefix) && !excluded.some((seg) => test.includes(seg)) && dur > longest) {
-            longest = dur
+        if (!test.startsWith(prefix) || excluded.some((seg) => test.includes(seg))) {
+            continue
+        }
+        shape.work += dur
+        shape.maxTest = Math.max(shape.maxTest, dur)
+        if (dur > heavyThreshold) {
+            shape.heavyCount += 1
+        } else {
+            shape.lightWork += dur
+            shape.maxLight = Math.max(shape.maxLight, dur)
         }
     }
-    return longest
+    return shape
 }
 
 // One definition of a product's work estimate, shared by the split decision
@@ -734,25 +752,27 @@ function getProductMaxTest(product, durations) {
 // under-sharding. `staleUnionWork` is non-null exactly when the guess replaced
 // the recorded sum, so the caller can log it once.
 function resolveProductSizing(product, durations, productsScaled = false) {
-    const unionWork = getProductDuration(product, durations)
-    const maxTest = getProductMaxTest(product, durations)
-    if (productsScaled && unionWork > 0) {
-        return { work: unionWork, maxTest, staleUnionWork: null, staleness: null }
+    const shape = getProductShape(product, durations)
+    if (productsScaled && shape.work > 0) {
+        return { ...shape, staleUnionWork: null, staleness: null }
     }
     const staleness = checkProductStaleness(product, durations)
     if (staleness.stale && staleness.fileCount > 0) {
         const fallbackWork = staleness.fileCount * STALENESS_FALLBACK_SECONDS_PER_FILE
-        if (fallbackWork > unionWork) {
-            // The guess has no per-test shape, so assume one file's worth is one test.
+        if (fallbackWork > shape.work) {
+            // The guess carries no distribution, so treat it as one file's worth per test.
             return {
                 work: fallbackWork,
-                maxTest: Math.max(maxTest, STALENESS_FALLBACK_SECONDS_PER_FILE),
-                staleUnionWork: unionWork,
+                maxTest: Math.max(shape.maxTest, STALENESS_FALLBACK_SECONDS_PER_FILE),
+                heavyCount: 0,
+                lightWork: fallbackWork,
+                maxLight: STALENESS_FALLBACK_SECONDS_PER_FILE,
+                staleUnionWork: shape.work,
                 staleness,
             }
         }
     }
-    return { work: unionWork, maxTest, staleUnionWork: null, staleness: null }
+    return { ...shape, staleUnionWork: null, staleness: null }
 }
 
 function productEffectiveCost(product, durations, productsScaled = false) {
@@ -877,44 +897,31 @@ function calculateShards(totalWorkSeconds, overheadSeconds, minShards = DJANGO_M
     return Math.max(minShards, Math.min(DJANGO_MAX_SHARDS, shards))
 }
 
-// Budget of test work one product shard can hold, mirroring calculateShards.
-function productShardBudget() {
-    return Math.max(TARGET_WALL_SECONDS - PRODUCT_JOB_OVERHEAD_SECONDS, PRODUCT_JOB_OVERHEAD_SECONDS / 2, 1)
-}
-
 // Shards for one product. Sizing a split by work/n sizes the MEAN shard, but the
-// run's wall is the MAX shard, and pytest-split cuts between tests: a contiguous
-// split's worst chunk runs at most one whole test past the mean. So size the
-// worst chunk directly -- work/n + maxTest <= budget -- which rearranges to
-// n = ceil(work / (budget - maxTest)).
+// run's wall is the MAX shard, and pytest-split cuts between tests rather than
+// inside one, so size the worst chunk instead.
 //
-// This replaces a fitted margin. A ratio measured off CI describes one map, and
-// a map that misreports test weights (a floor on tiny tests, say) bakes its own
-// error into the constant. Deriving from maxTest ties the sizing to the map: a
-// product carrying one heavy test gets the shards that test forces, an evenly
-// grained one gets none it does not need, and a fixed point is unnecessary.
+// Split the suite at half the budget. Two tests above that cannot share a shard
+// at all, so each takes one and they set a floor no packing goes below. What is
+// left is at most half a budget per test, so a contiguous chunk of it runs at
+// most one such test past its mean, giving lightWork/n + maxLight <= budget and
+// so n = ceil(lightWork / (budget - maxLight)). That denominator is at least
+// half the budget, so it cannot collapse.
 //
-// n = 1 is checked first because the bound does not apply to it -- an unsplit
-// product's chunk is its whole work, with no extra test on top.
-function productSplitShards(workSeconds, maxTestSeconds = 0) {
+// Reading the distribution rather than a fitted ratio ties the sizing to the
+// map: a suite of heavy tests gets the shards they force, an evenly grained one
+// gets none it does not need, and no constant carries a past map's error.
+//
+// A product whose whole suite fits one shard is not split, and the bound does
+// not apply to it -- an unsplit chunk is the work itself, with nothing on top.
+function productSplitShards(shape) {
     const budget = productShardBudget()
-    if (workSeconds <= budget) {
+    const { work = 0, heavyCount = 0, lightWork = 0, maxLight = 0 } = shape ?? {}
+    if (work <= budget) {
         return 1
     }
-    if (maxTestSeconds >= budget) {
-        // One test already overruns a shard's budget, so no split can hold the
-        // target. Size by work alone rather than buying shards that cannot help.
-        return Math.max(2, Math.min(DJANGO_MAX_SHARDS, Math.ceil(workSeconds / budget)))
-    }
-    const headroom = budget - maxTestSeconds
-    if (headroom < budget / 4) {
-        // The mean-plus-one-test bound stops being informative once a single test
-        // eats most of the budget: it asks for a shard per few seconds of the
-        // remainder. Size by work and add the one shard that carries the heavy
-        // test, which is what the split actually needs.
-        return Math.max(2, Math.min(DJANGO_MAX_SHARDS, Math.ceil(workSeconds / budget) + 1))
-    }
-    return Math.max(2, Math.min(DJANGO_MAX_SHARDS, Math.ceil(workSeconds / headroom)))
+    const lightShards = lightWork > 0 ? Math.ceil(lightWork / (budget - maxLight)) : 0
+    return Math.max(2, Math.min(DJANGO_MAX_SHARDS, heavyCount + lightShards))
 }
 
 // Selector segment key -> Django matrix segment name.
@@ -1096,7 +1103,8 @@ function buildMatrix(products, durations, productsScaled = false) {
     // PRODUCTS_SCALED_MARKER: call-only durations undercount a fixture-heavy
     // suite several-fold, and sizing an unscaled sum under-shards it.
     for (const product of products) {
-        const { work, maxTest, staleUnionWork, staleness } = resolveProductSizing(product, durations, productsScaled)
+        const sizing = resolveProductSizing(product, durations, productsScaled)
+        const { work, maxTest, staleUnionWork, staleness } = sizing
         if (staleUnionWork !== null) {
             console.error(
                 `  ${product}: .test_durations stale, ${staleness.coveredCount}/${staleness.fileCount} test files covered ` +
@@ -1108,7 +1116,7 @@ function buildMatrix(products, durations, productsScaled = false) {
             )
         }
 
-        const shards = productSplitShards(work, maxTest)
+        const shards = productSplitShards(sizing)
         if (shards > 1) {
             console.error(`  ${product}: ${(work / 60).toFixed(1)} min work → split across ${shards} shards`)
             const filters = `--filter=@posthog/products-${product}`
@@ -1177,7 +1185,7 @@ module.exports = {
     PRODUCT_JOB_OVERHEAD_SECONDS,
     PRODUCT_BUCKET_SAFETY_FACTOR,
     productSplitShards,
-    getProductMaxTest,
+    getProductShape,
     PRODUCTS_SCALED_MARKER,
     TARGET_WALL_SECONDS,
     DJANGO_OVERHEAD_SECONDS_BY_SEGMENT,
