@@ -8,6 +8,9 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from products.workflows.backend.management.commands.backfill_workflows_email_sending_tiers import (
+    Command as BackfillCommand,
+)
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.services.email_sending_tier import (
     SendingHistoryWindows,
@@ -383,3 +386,18 @@ class TestRecomputeEmailSendingTiers(BaseTest):
         self._run({self.team.id: history(team_id=self.team.id, sent=sum(used.values()), daily_sends=used)})
 
         assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == tier
+
+
+@override_settings(**TIER_SETTINGS)
+class TestBackfillEmailSendingTiers(BaseTest):
+    def test_suspended_team_is_not_promoted_despite_qualifying_history(self) -> None:
+        used = clean_days(5, TIER_DAILY_CAPS[3])
+        histories = {self.team.id: history(team_id=self.team.id, sent=sum(used.values()), daily_sends=used)}
+
+        # Control: the same history promotes when the team is not suspended.
+        TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults={"email_sending_tier": 0})
+        assert BackfillCommand()._decide(histories=histories, team_ids=[self.team.id]) != []
+
+        # A staff suspension keeps the backfill at tier 0, so reinstatement does not restore a high tier.
+        TeamWorkflowsConfig.objects.filter(team=self.team).update(email_sending_suspended_at=timezone.now())
+        assert BackfillCommand()._decide(histories=histories, team_ids=[self.team.id]) == []

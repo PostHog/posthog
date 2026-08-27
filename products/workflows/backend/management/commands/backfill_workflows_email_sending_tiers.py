@@ -84,6 +84,7 @@ class Command(BaseCommand):
                 "team_id",
                 "email_sending_tier",
                 "email_sending_tier_pinned",
+                "email_sending_suspended_at",
                 "ses_tenant_sending_status",
                 "ses_tenant_reputation_impact",
             )
@@ -103,7 +104,7 @@ class Command(BaseCommand):
                 history=history,
                 current_tier=state["email_sending_tier"] if state else MIN_EMAIL_SENDING_TIER,
                 tier_updated_at=None,
-                suspended=False,
+                suspended=state is not None and state["email_sending_suspended_at"] is not None,
                 tenant_state=SesTenantState(
                     sending_status=state["ses_tenant_sending_status"] if state else "",
                     reputation_impact=state["ses_tenant_reputation_impact"] if state else "",
