@@ -13,26 +13,27 @@ type SessionUsageInput = {
     parsedMessage: ParsedMessageData
 } & NewSessionFlag
 
-// The report bills mobile replay only from the SDKs it lists, and counts a web recording
-// and a mobile one under separate meters, so a mobile session is never both.
-const BILLABLE_MOBILE_LIBRARIES = new Set(['posthog-ios', 'posthog-android', 'posthog-react-native', 'posthog-flutter'])
+// The SDKs that record mobile replay. Only used to read the source of a session that did not
+// send one: an older SDK from this list sends no `snapshot_source`, and its recording is mobile.
+const MOBILE_LIBRARIES = new Set(['posthog-ios', 'posthog-android', 'posthog-react-native', 'posthog-flutter'])
 
 /**
- * The meter this session bills under, or null for neither.
+ * The meter this session bills under. Every session bills exactly one, so no combination of
+ * `snapshot_source` and `snapshot_library` buys a free recording.
  *
- * Web is the default rather than a third exact match on `snapshot_source`. Nothing between the SDK
- * and here validates that field, so matching `web` exactly would let any other string buy a free
- * recording. The report does match it exactly, which is a hole on its side, not a contract to copy.
+ * A session that sends a source is billed on it, and anything other than `mobile` is a web
+ * recording. Nothing between the SDK and here validates that field, so matching `web` exactly
+ * would let any other string bill nowhere. The report matches both values exactly, and bills a
+ * mobile recording only from the libraries above, which is why it bills neither meter for a
+ * session outside those values. Those are holes on its side rather than a contract to copy.
  *
- * Both meters read the first message processed for the session. The report instead reads the
+ * The meter reads the first message processed for the session. The report instead reads the
  * earliest snapshot's metadata, so the two disagree if one session's messages disagree with each
  * other about their source or library, which no single client does.
  */
-function billableMeter(snapshotSource: string | null, snapshotLibrary: string | null): string | null {
-    if (snapshotSource !== 'mobile') {
-        return 'session_replay_recordings'
-    }
-    return BILLABLE_MOBILE_LIBRARIES.has(snapshotLibrary || '') ? 'mobile_replay_recordings' : null
+function billableMeter(snapshotSource: string | null, snapshotLibrary: string | null): string {
+    const source = snapshotSource || (MOBILE_LIBRARIES.has(snapshotLibrary || '') ? 'mobile' : 'web')
+    return source === 'mobile' ? 'mobile_replay_recordings' : 'session_replay_recordings'
 }
 
 export function createRecordSessionUsageStep<T extends SessionUsageInput>(
@@ -41,9 +42,7 @@ export function createRecordSessionUsageStep<T extends SessionUsageInput>(
     return function recordSessionUsage(value): Promise<PipelineResult<Recordable<T>>> {
         if (value.isNewSession) {
             const meter = billableMeter(value.parsedMessage.snapshot_source, value.parsedMessage.snapshot_library)
-            if (meter) {
-                usageBatch?.add(value.team.teamId, meter, value.headers.session_id)
-            }
+            usageBatch?.add(value.team.teamId, meter, value.headers.session_id)
         }
         return Promise.resolve(ok(value))
     }
