@@ -35,7 +35,9 @@ export function requestErrorStatus(error: unknown): number | undefined {
   return error instanceof ApiRequestError ? error.status : undefined;
 }
 
-// A 403 without an auth-error body is a permission denial a new token cannot fix.
+// A 403 is a rejected token only when its body's `code` says so. A permission
+// denial shares `type: "authentication_error"` but carries
+// `code: "permission_denied"`, and a fresh token cannot fix it.
 export async function isAuthFailureResponse(
   response: Response,
 ): Promise<boolean> {
@@ -44,12 +46,8 @@ export async function isAuthFailureResponse(
   try {
     const body = (await response.clone().json()) as {
       code?: string;
-      type?: string;
     } | null;
-    return (
-      body?.code === "authentication_failed" ||
-      body?.type === "authentication_error"
-    );
+    return body?.code === "authentication_failed";
   } catch {
     return false;
   }

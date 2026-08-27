@@ -417,7 +417,11 @@ describe("AuthService", () => {
     {
       name: "a 403 permission denial",
       status: 403,
-      body: { type: "permission_denied", detail: "Not allowed." },
+      body: {
+        type: "authentication_error",
+        code: "permission_denied",
+        detail: "You do not have permission to perform this action.",
+      },
       refreshes: false,
     },
   ])(
