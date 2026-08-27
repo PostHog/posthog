@@ -8,10 +8,21 @@ BATCH_SIZE = 500
 
 
 def _variant_keys(filters: dict) -> set[str]:
+    """Variant keys a stored payload or override could legitimately point at.
+
+    Non-string keys are skipped: a payload key always arrives as a JSON string, so it could
+    never resolve to one anyway."""
     variants = (filters.get("multivariate") or {}).get("variants")
     if not isinstance(variants, list):
         return set()
-    return {variant.get("key") for variant in variants if isinstance(variant, dict)}
+    keys = set()
+    for variant in variants:
+        if not isinstance(variant, dict):
+            continue
+        key = variant.get("key")
+        if isinstance(key, str):
+            keys.add(key)
+    return keys
 
 
 def _clean_filters(filters: dict) -> tuple[dict, set[str]]:
