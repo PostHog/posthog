@@ -1380,6 +1380,16 @@ class TestIsTransientConnectionDropError:
     def test_matches_connection_is_lost(self):
         assert _is_transient_connection_drop_error(psycopg.OperationalError("the connection is lost")) is True
 
+    def test_matches_connect_time_server_closed(self):
+        # A drop during the connect handshake surfaces as a different message than an already-open
+        # connection dying, so the guard must match it too or it re-raises on the first attempt.
+        assert (
+            _is_transient_connection_drop_error(
+                psycopg.OperationalError("connection failed: server closed the connection unexpectedly")
+            )
+            is True
+        )
+
     def test_does_not_match_unrelated_operational_error(self):
         # A permanent, non-actionable failure that also raises OperationalError must not be
         # swept up by the narrow "the connection is lost" match and retried in-process.

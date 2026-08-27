@@ -398,14 +398,29 @@ _T = TypeVar("_T")
 _MAX_SETUP_CONNECTION_DROP_ATTEMPTS = 3
 
 
+# Substrings psycopg uses for a transient socket drop around sync setup. "the connection is lost"
+# is the message libpq gives when an already-open connection dies. "server closed the connection
+# unexpectedly" is the message when the socket dies during the connect handshake ("connection
+# failed: ... server closed the connection unexpectedly"). Both are the same transient class — a
+# network blip or a cluster pause/resize — and recover by reconnecting. Keep this narrow so a
+# permanent failure such as "password authentication failed" is never retried in-process.
+_TRANSIENT_CONNECTION_DROP_SUBSTRINGS = (
+    "the connection is lost",
+    "server closed the connection unexpectedly",
+)
+
+
 def _is_transient_connection_drop_error(error: BaseException) -> bool:
     """True if a freshly opened connection died before `build_pipeline`'s setup phase finished.
 
-    psycopg raises this exact OperationalError message when libpq finds the socket already gone
-    (a network blip or a cluster pause/resize) — the keepalives configured on connect only detect
-    a dead peer during a query, not this class of drop between connecting and the first query.
+    The keepalives configured on connect only detect a dead peer during a query, not a drop
+    between connecting and the first query, so this matches the messages psycopg raises for both
+    a mid-handshake drop and an already-open connection that dies.
     """
-    return isinstance(error, psycopg.OperationalError) and "the connection is lost" in str(error)
+    if not isinstance(error, psycopg.OperationalError):
+        return False
+    message = str(error)
+    return any(substring in message for substring in _TRANSIENT_CONNECTION_DROP_SUBSTRINGS)
 
 
 def _retry_on_transient_connection_drop(
