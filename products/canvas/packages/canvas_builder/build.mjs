@@ -538,6 +538,7 @@ async function buildCanvas(project) {
     const projectCsp = externalSources
         ? csp
               .replace("connect-src 'none'", `connect-src ${externalSources}`)
+              .replace("style-src 'self' 'unsafe-inline'", `style-src 'self' 'unsafe-inline' ${externalSources}`)
               .replace("img-src 'self' data: blob:", `img-src 'self' data: blob: ${externalSources}`)
               .replace("font-src 'self' data:", `font-src 'self' data: ${externalSources}`)
               .replace("media-src 'self' data: blob:", `media-src 'self' data: blob: ${externalSources}`)

@@ -112,6 +112,7 @@ def artifact_csp(network_origins: list[str] | None = None) -> str:
     sources = " ".join(safe_origins)
     replacements = {
         "connect-src 'none'": f"connect-src {sources}",
+        "style-src 'self' 'unsafe-inline'": f"style-src 'self' 'unsafe-inline' {sources}",
         "img-src 'self' data: blob:": f"img-src 'self' data: blob: {sources}",
         "font-src 'self' data:": f"font-src 'self' data: {sources}",
         "media-src 'self' data: blob:": f"media-src 'self' data: blob: {sources}",

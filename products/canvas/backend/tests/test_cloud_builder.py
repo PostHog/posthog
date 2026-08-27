@@ -440,12 +440,12 @@ bridge.port1.close();
         self.assertEqual(manifest["capabilities"], project["capabilities"])
         html = next(file["content"] for file in files if file["path"] == "index.html")
         self.assertIn("connect-src https://api.example.com", html)
+        self.assertIn("style-src 'self' 'unsafe-inline' https://api.example.com", html)
         self.assertIn("img-src 'self' data: blob: https://api.example.com", html)
         self.assertIn("font-src 'self' data: https://api.example.com", html)
         self.assertIn("media-src 'self' data: blob: https://api.example.com", html)
         self.assertIn("frame-src https://api.example.com", html)
         self.assertNotIn("script-src 'self' https://api.example.com", html)
-        self.assertNotIn("style-src 'self' 'unsafe-inline' https://api.example.com", html)
 
     def test_runtime_reports_csp_violations_without_blocked_urls(self) -> None:
         result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))

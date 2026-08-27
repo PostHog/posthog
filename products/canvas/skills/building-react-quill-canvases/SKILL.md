@@ -28,8 +28,8 @@ also admits ten optional libraries for specialized work. Read
 Other bare imports, dynamic `import()`, `require()`, `<script>` tags, and remote code fail
 validation. Direct network requests and external images, fonts, media, or frames require an exact
 HTTPS origin in `capabilities.network.origins`. They work only in the **published** canvas — the
-edit-mode preview blocks direct network access regardless of declaration. Remote scripts and styles
-remain blocked, so bundle those with the canvas.
+edit-mode preview blocks direct network access regardless of declaration. Stylesheets from declared
+origins are allowed; remote scripts remain blocked, so bundle code with the canvas.
 
 ## Quill component rules
 
