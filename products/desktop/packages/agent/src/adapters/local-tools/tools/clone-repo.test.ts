@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -183,6 +183,80 @@ describe("clone_repo", () => {
 
     expect(result.isError).toBe(true);
     expect(existsSync(keptCheckout)).toBe(true);
+  });
+
+  it("rejects an owner directory that escapes through a symlink", async () => {
+    const externalPath = path.join(cwd, "external");
+    await mkdir(path.join(cwd, "repos"), { recursive: true });
+    await mkdir(externalPath);
+    await symlink(externalPath, path.join(cwd, "repos", "PostHog"));
+
+    const result = await cloneRepoTool.handler(
+      { cwd, token: "test-token" },
+      { repo: "PostHog/posthog" },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(existsSync(path.join(externalPath, "posthog"))).toBe(false);
+  });
+
+  it("rejects a clone root symlink", async () => {
+    const externalPath = path.join(cwd, "external");
+    await mkdir(externalPath);
+    await symlink(externalPath, path.join(cwd, "repos"));
+
+    const result = await cloneRepoTool.handler(
+      { cwd, token: "test-token" },
+      { repo: "PostHog/posthog" },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(existsSync(path.join(externalPath, "PostHog"))).toBe(false);
+  });
+
+  it("rejects an existing target that escapes through a symlink", async () => {
+    const externalPath = path.join(cwd, "external");
+    await mkdir(path.join(cwd, "repos", "PostHog"), { recursive: true });
+    await mkdir(externalPath);
+    await symlink(externalPath, targetPath);
+
+    const result = await cloneRepoTool.handler(
+      { cwd, token: "test-token" },
+      { repo: "PostHog/posthog" },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(existsSync(path.join(externalPath, ".git"))).toBe(false);
+  });
+
+  it("does not follow an existing target symlink within the clone root", async () => {
+    const linkedPath = path.join(cwd, "repos", "Other", "keep");
+    const workPath = path.join(linkedPath, "work-in-progress.md");
+    await mkdir(linkedPath, { recursive: true });
+    await writeFile(workPath, "unsaved edits\n");
+    await mkdir(path.dirname(targetPath), { recursive: true });
+    await symlink(linkedPath, targetPath);
+
+    const result = await cloneRepoTool.handler(
+      { cwd, token: "test-token" },
+      { repo: "PostHog/posthog" },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(existsSync(workPath)).toBe(true);
+  });
+
+  it("reports filesystem setup failures separately", async () => {
+    await writeFile(path.join(cwd, "repos"), "not a directory\n");
+
+    const result = await cloneRepoTool.handler(
+      { cwd, token: "test-token" },
+      { repo: "PostHog/posthog" },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("couldn't prepare");
+    expect(result.content[0].text).not.toContain("escapes");
   });
 
   // Regression: a reuse-path failure used to fail every subsequent call for
