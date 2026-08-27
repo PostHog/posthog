@@ -4464,11 +4464,6 @@ export enum FeatureFlagStatus {
     UNKNOWN = 'unknown',
 }
 
-export interface FeatureFlagStatusResponse {
-    status: FeatureFlagStatus
-    reason: string
-}
-
 export interface CombinedFeatureFlagAndValueType {
     feature_flag: FeatureFlagType
     value: boolean | string

@@ -93,6 +93,12 @@ const MOCK_FEATURE_FLAG = {
 const MOCK_FEATURE_FLAG_STATUS = {
     status: 'active',
     reason: 'mock reason',
+    rollout: {
+        effectively_full_rollout: false,
+        has_targeting_conditions: false,
+        max_rollout_percentage: 50,
+        is_multivariate: false,
+    },
 }
 
 const MOCK_EXPERIMENT = {

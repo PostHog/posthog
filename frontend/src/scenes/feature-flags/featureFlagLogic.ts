@@ -65,7 +65,7 @@ import {
     FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
     FeatureFlagGroupType,
-    FeatureFlagStatusResponse,
+    FeatureFlagStatus,
     FeatureFlagType,
     FilterLogicalOperator,
     InsightModel,
@@ -92,8 +92,12 @@ import {
     featureFlagsCopyFlagsCreate,
     featureFlagsCopyFlagsDependencyRequirementsCreate,
     featureFlagsList,
+    featureFlagsStatusRetrieve,
 } from 'products/feature_flags/frontend/generated/api'
-import type { CopyFlagsDependencyRequirementsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
+import type {
+    CopyFlagsDependencyRequirementsResponseApi,
+    FeatureFlagStatusResponseApi,
+} from 'products/feature_flags/frontend/generated/api.schemas'
 
 import type { CopyFlagsResponseApi } from '../../../../products/feature_flags/frontend/generated/api.schemas'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
@@ -850,7 +854,7 @@ export interface featureFlagLogicValues {
         ValidationErrorType
     >
     flagIntent: FlagIntent | null
-    flagStatus: FeatureFlagStatusResponse | null
+    flagStatus: FeatureFlagStatusResponseApi | null
     flagStatusLoading: boolean
     flagType: 'boolean' | 'multivariate' | 'remote_config'
     flagTypeString:
@@ -906,6 +910,7 @@ export interface featureFlagLogicValues {
     selectedTab: FeatureFlagsTab
     showFeatureFlagErrors: boolean
     showImplementation: boolean
+    showStaleFlagBanner: boolean
     sidePanelContext: SidePanelSceneContext | null
     templateExpanded: boolean
     templates: Array<{
@@ -1144,10 +1149,10 @@ export interface featureFlagLogicActions {
         errorObject?: any
     }
     loadFeatureFlagStatusSuccess: (
-        flagStatus: Promise<FeatureFlagStatusResponse> | null,
+        flagStatus: Promise<FeatureFlagStatusResponseApi> | null,
         payload?: any
     ) => {
-        flagStatus: Promise<FeatureFlagStatusResponse> | null
+        flagStatus: Promise<FeatureFlagStatusResponseApi> | null
         payload?: any
     }
     loadFeatureFlagSuccess: (
@@ -1910,6 +1915,12 @@ export interface featureFlagLogicMeta {
         hasSurveys: (featureFlag: FeatureFlagType) => boolean | null
         hasEncryptedPayloadBeenSaved: (featureFlag: FeatureFlagType, props: any) => boolean | undefined
         hasExperiment: (featureFlag: FeatureFlagType) => boolean | null
+        showStaleFlagBanner: (
+            featureFlag: FeatureFlagType,
+            flagStatus: FeatureFlagStatusResponseApi | null,
+            flagStatusLoading: boolean,
+            props: FeatureFlagLogicProps
+        ) => boolean
         isDraftExperiment: (experiment: any) => boolean
         properties: (featureFlag: FeatureFlagType) => AnyPropertyFilter[]
         variantErrors: (variants: MultivariateFlagVariant[]) => VariantError[]
@@ -3191,12 +3202,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         },
         flagStatus: [
-            null as FeatureFlagStatusResponse | null,
+            null as FeatureFlagStatusResponseApi | null,
             {
                 loadFeatureFlagStatus: () => {
                     const { currentProjectId } = values
                     if (currentProjectId && props.id && props.id !== 'new' && props.id !== 'link') {
-                        return api.featureFlags.getStatus(currentProjectId, props.id)
+                        return featureFlagsStatusRetrieve(String(currentProjectId), props.id)
                     }
                     return null
                 },
@@ -4344,6 +4355,29 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             (s) => [s.featureFlag],
             (featureFlag: FeatureFlagType) => {
                 return featureFlag?.experiment_set && featureFlag.experiment_set.length > 0
+            },
+        ],
+        // The status endpoint serializes a StrEnum through a CharField, so it answers with the
+        // lowercase value 'stale'. The flag list serializer returns the enum member name 'STALE'
+        // instead. Both are typed as plain strings, so a wrong comparison here fails silently.
+        showStaleFlagBanner: [
+            (s) => [s.featureFlag, s.flagStatus, s.flagStatusLoading, s.props],
+            (
+                featureFlag: FeatureFlagType,
+                flagStatus: FeatureFlagStatusResponseApi | null,
+                flagStatusLoading: boolean,
+                props: FeatureFlagLogicProps
+            ): boolean => {
+                if (flagStatusLoading || flagStatus?.status !== FeatureFlagStatus.STALE) {
+                    return false
+                }
+                return Boolean(
+                    props.id !== 'new' &&
+                    featureFlag.id &&
+                    !featureFlag.deleted &&
+                    !featureFlag.archived &&
+                    !featureFlag.is_remote_configuration
+                )
             },
         ],
         isDraftExperiment: [
