@@ -9,7 +9,7 @@ import {
     KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M,
     KAFKA_SESSION_REPLAY_IMAGE_SCRUB,
 } from '~/common/config/kafka-topics'
-import { KafkaConsumerV2, KafkaConsumerV2Config } from '~/common/kafka/consumer/consumer-v2'
+import { KafkaConsumerV2, KafkaConsumerV2Config, RdKafkaConsumerOverrides } from '~/common/kafka/consumer/consumer-v2'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { logger } from '~/common/utils/logger'
@@ -50,6 +50,7 @@ import {
  * mid-batch to a pod that will be just as slow, so the lane sheds the rest of the batch instead.
  */
 const STORE_BATCH_BUDGET_MS = 50_000
+const IMAGE_FETCH_KAFKA_QUEUE_BUDGET_KBYTES = 102_400
 
 /** Matches MAX_URL_LEN in the crate, which is what the collector applied to the first candidate. */
 const MAX_REDIRECT_URL_LENGTH = 2048
@@ -160,6 +161,19 @@ export function buildImageFetchConsumerConfigs(
     }))
 }
 
+export function buildImageFetchConsumerOverrides(
+    config: IngestionSessionReplayMlMirrorServerConfig,
+    consumerCount: number
+): RdKafkaConsumerOverrides {
+    assertImageFetchBatchTarget(consumerCount)
+    const maximumRecordBytes = config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES + 64 * 1024
+    return {
+        'fetch.message.max.bytes': maximumRecordBytes,
+        'max.partition.fetch.bytes': maximumRecordBytes,
+        'queued.max.messages.kbytes': Math.floor(IMAGE_FETCH_KAFKA_QUEUE_BUDGET_KBYTES / consumerCount),
+    }
+}
+
 /**
  * The image fetch lane.
  *
@@ -250,13 +264,9 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
         const batchJoiner = new ImageFetchBatchJoiner(consumerConfigs.length, (messages) =>
             fetchConsumer.handleBatch(messages, Date.now())
         )
-        const maximumRecordBytes = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES + 64 * 1024
+        const consumerOverrides = buildImageFetchConsumerOverrides(this.config, consumerConfigs.length)
         const consumers = consumerConfigs.map(
-            (consumerConfig) =>
-                new KafkaConsumerV2(consumerConfig, {
-                    'fetch.message.max.bytes': maximumRecordBytes,
-                    'max.partition.fetch.bytes': maximumRecordBytes,
-                })
+            (consumerConfig) => new KafkaConsumerV2(consumerConfig, consumerOverrides)
         )
 
         this.lifecycle.services.push({

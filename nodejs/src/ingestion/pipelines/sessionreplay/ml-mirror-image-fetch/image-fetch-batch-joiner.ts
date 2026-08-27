@@ -28,7 +28,6 @@ export function assertImageFetchBatchTarget(targetBatchCount: number): void {
 
 export class ImageFetchBatchJoiner {
     private pendingGroup?: PendingBatchGroup
-    private processingTail: Promise<void> = Promise.resolve()
     private failed = false
     private failure: unknown
 
@@ -73,7 +72,7 @@ export class ImageFetchBatchJoiner {
             clearTimeout(group.timeout)
         }
 
-        const processing = this.processingTail.then(async () => {
+        const processing = (async () => {
             if (this.failed) {
                 throw this.failure
             }
@@ -83,8 +82,7 @@ export class ImageFetchBatchJoiner {
                 this.fail(error)
                 throw error
             }
-        })
-        this.processingTail = processing.catch(() => undefined)
+        })()
         void processing.then(
             () => group.waiters.forEach(({ resolve }) => resolve()),
             (error) => group.waiters.forEach(({ reject }) => reject(error))

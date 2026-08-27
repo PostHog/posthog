@@ -65,23 +65,25 @@ describe('ImageFetchBatchJoiner', () => {
         await expect(second).rejects.toBe(error)
     })
 
-    it('serializes a later partial batch behind active processing', async () => {
+    it('does not hold a later partial batch behind active processing', async () => {
         const firstPass = deferred()
+        const secondPass = deferred()
         const processBatch = jest
             .fn()
             .mockImplementationOnce(() => firstPass.promise)
-            .mockResolvedValue(undefined)
+            .mockImplementationOnce(() => secondPass.promise)
         const joiner = new ImageFetchBatchJoiner(2, processBatch)
 
         const first = joiner.handleBatch([message(0)])
         await jest.advanceTimersByTimeAsync(IMAGE_FETCH_BATCH_JOIN_TIMEOUT_MS)
         const second = joiner.handleBatch([message(1)])
         await jest.advanceTimersByTimeAsync(IMAGE_FETCH_BATCH_JOIN_TIMEOUT_MS)
-        expect(processBatch).toHaveBeenCalledTimes(1)
-
-        firstPass.resolve()
-        await Promise.all([first, second])
         expect(processBatch).toHaveBeenCalledTimes(2)
+
+        secondPass.resolve()
+        await second
+        firstPass.resolve()
+        await first
         expect(processBatch).toHaveBeenLastCalledWith([message(1)])
     })
 })
