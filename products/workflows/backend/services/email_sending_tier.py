@@ -405,9 +405,20 @@ def recompute_email_sending_tiers(team_ids: Optional[list[int]] = None) -> list[
     if not candidate_ids:
         return []
 
+    # select_related bypasses TeamManager's defer, so without only() the join pulls every wide Team
+    # column, including the deprecated taxonomy blobs, for every candidate. The decision reads only
+    # created_at from Team, so restrict the load to that plus the config fields it uses.
     configs = {
         config.team_id: config
-        for config in TeamWorkflowsConfig.objects.filter(team_id__in=candidate_ids).select_related("team")
+        for config in TeamWorkflowsConfig.objects.filter(team_id__in=candidate_ids)
+        .select_related("team")
+        .only(
+            "email_sending_tier",
+            "email_sending_tier_pinned",
+            "email_sending_tier_updated_at",
+            "email_sending_suspended_at",
+            "team__created_at",
+        )
     }
 
     decisions: list[TierDecision] = []
