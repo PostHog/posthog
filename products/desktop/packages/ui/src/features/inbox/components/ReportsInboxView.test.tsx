@@ -54,6 +54,20 @@ vi.mock("@posthog/ui/features/inbox/hooks/useTrackReportsInboxViewed", () => ({
   useTrackReportsInboxViewed: () => undefined,
 }));
 
+vi.mock(
+  "@posthog/ui/features/inbox/hooks/useInboxReportDetailPrefetch",
+  () => ({
+    useInboxReportDetailPrefetch: () => ({
+      prefetch: () => undefined,
+      pointerHandlers: {
+        onPointerEnter: () => undefined,
+        onFocus: () => undefined,
+        onPointerDown: () => undefined,
+      },
+    }),
+  }),
+);
+
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxReportDismissAction", () => ({
   useInboxReportDismissAction: () => ({
     actionButton: null,
