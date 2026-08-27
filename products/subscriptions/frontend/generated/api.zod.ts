@@ -88,6 +88,18 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .describe(
                 "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
             ),
+        anchor_dashboard: zod
+            .number()
+            .nullish()
+            .describe(
+                'AI report subscriptions only: dashboard whose insights ground the generated report (usually the dashboard the subscription was created from). The report may still draw on the whole project. Mutually exclusive with anchor_insight.'
+            ),
+        anchor_insight: zod
+            .number()
+            .nullish()
+            .describe(
+                'AI report subscriptions only: insight that grounds the generated report. The report may still draw on the whole project. Mutually exclusive with anchor_dashboard.'
+            ),
         target_type: zod
             .enum(['email', 'slack'])
             .describe('\* `email` - Email\n\* `slack` - Slack')
@@ -258,6 +270,18 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
             ),
+        anchor_dashboard: zod
+            .number()
+            .nullish()
+            .describe(
+                'AI report subscriptions only: dashboard whose insights ground the generated report (usually the dashboard the subscription was created from). The report may still draw on the whole project. Mutually exclusive with anchor_insight.'
+            ),
+        anchor_insight: zod
+            .number()
+            .nullish()
+            .describe(
+                'AI report subscriptions only: insight that grounds the generated report. The report may still draw on the whole project. Mutually exclusive with anchor_dashboard.'
+            ),
         target_type: zod
             .enum(['email', 'slack'])
             .describe('\* `email` - Email\n\* `slack` - Slack')
@@ -427,6 +451,18 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
+            ),
+        anchor_dashboard: zod
+            .number()
+            .nullish()
+            .describe(
+                'AI report subscriptions only: dashboard whose insights ground the generated report (usually the dashboard the subscription was created from). The report may still draw on the whole project. Mutually exclusive with anchor_insight.'
+            ),
+        anchor_insight: zod
+            .number()
+            .nullish()
+            .describe(
+                'AI report subscriptions only: insight that grounds the generated report. The report may still draw on the whole project. Mutually exclusive with anchor_dashboard.'
             ),
         target_type: zod
             .enum(['email', 'slack'])

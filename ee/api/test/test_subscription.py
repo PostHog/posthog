@@ -2603,6 +2603,74 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert created.status_code == status.HTTP_201_CREATED, created.json()
         return created.json()["id"]
 
+    def test_anchored_ai_subscription_persists_and_lists_under_its_dashboard(self, *mocks: MagicMock):
+        self._mock_temporal(mocks[-1])
+        self._enable_ai()
+        dashboard = Dashboard.objects.create(team=self.team, name="Growth", created_by=self.user)
+
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(anchor_dashboard=dashboard.id),
+        )
+
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        assert created.json()["anchor_dashboard"] == dashboard.id
+        # The anchored sub shows up on the dashboard's subscriptions list, like a snapshot sub would.
+        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions?dashboard={dashboard.id}")
+        assert [sub["id"] for sub in listed.json()["results"]] == [created.json()["id"]]
+
+    @parameterized.expand(
+        [
+            ("insight_sub_cannot_anchor", "insight", "anchor_dashboard", status.HTTP_400_BAD_REQUEST),
+            ("ai_sub_can_anchor_insight", "ai_prompt", "anchor_insight", status.HTTP_201_CREATED),
+        ]
+    )
+    def test_anchor_only_applies_to_ai_subscriptions(
+        self,
+        _mock_is_cloud: MagicMock,
+        _mock_flag: MagicMock,
+        mock_sync: MagicMock,
+        _name: str,
+        resource_kind: str,
+        anchor_field: str,
+        expected_status: int,
+    ):
+        self._mock_temporal(mock_sync)
+        self._enable_ai()
+        anchor_insight = Insight.objects.create(team=self.team, created_by=self.user)
+        dashboard = Dashboard.objects.create(team=self.team, name="Growth", created_by=self.user)
+        payload = self._make_ai_payload() if resource_kind == "ai_prompt" else self._insight_payload()
+        payload[anchor_field] = dashboard.id if anchor_field == "anchor_dashboard" else anchor_insight.id
+
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions", payload)
+
+        assert response.status_code == expected_status, response.json()
+
+    def test_cannot_anchor_to_both_a_dashboard_and_an_insight(self, *mocks: MagicMock):
+        self._enable_ai()
+        dashboard = Dashboard.objects.create(team=self.team, name="Growth", created_by=self.user)
+        insight = Insight.objects.create(team=self.team, created_by=self.user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(anchor_dashboard=dashboard.id, anchor_insight=insight.id),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not both" in response.json()["detail"]
+
+    def test_cannot_anchor_to_another_teams_dashboard(self, *mocks: MagicMock):
+        self._enable_ai()
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        other_dashboard = Dashboard.objects.create(team=other_team, name="Other", created_by=self.user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(anchor_dashboard=other_dashboard.id),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     @parameterized.expand(
         [
             # AI prompt subscriptions run HogQL, so a scoped key needs query:read on top of

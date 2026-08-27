@@ -203,6 +203,16 @@ export interface SubscriptionApi {
     prompt?: string | null
     /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
     ai_prompt_config?: AIPromptConfigApi
+    /**
+     * AI report subscriptions only: dashboard whose insights ground the generated report (usually the dashboard the subscription was created from). The report may still draw on the whole project. Mutually exclusive with anchor_insight.
+     * @nullable
+     */
+    anchor_dashboard?: number | null
+    /**
+     * AI report subscriptions only: insight that grounds the generated report. The report may still draw on the whole project. Mutually exclusive with anchor_dashboard.
+     * @nullable
+     */
+    anchor_insight?: number | null
     /** Delivery channel: email or slack.
      *
      * * `email` - Email
@@ -351,6 +361,16 @@ export interface PatchedSubscriptionApi {
     prompt?: string | null
     /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
     ai_prompt_config?: AIPromptConfigApi
+    /**
+     * AI report subscriptions only: dashboard whose insights ground the generated report (usually the dashboard the subscription was created from). The report may still draw on the whole project. Mutually exclusive with anchor_insight.
+     * @nullable
+     */
+    anchor_dashboard?: number | null
+    /**
+     * AI report subscriptions only: insight that grounds the generated report. The report may still draw on the whole project. Mutually exclusive with anchor_dashboard.
+     * @nullable
+     */
+    anchor_insight?: number | null
     /** Delivery channel: email or slack.
      *
      * * `email` - Email
@@ -567,7 +587,7 @@ export type SubscriptionsListParams = {
      */
     created_by?: string
     /**
-     * Filter by dashboard ID.
+     * Filter by dashboard ID. Includes AI report subscriptions anchored to the dashboard.
      */
     dashboard?: number
     /**
@@ -575,11 +595,11 @@ export type SubscriptionsListParams = {
      */
     dashboard_tiles?: number
     /**
-     * Filter by insight ID.
+     * Filter by insight ID. Includes AI report subscriptions anchored to the insight.
      */
     insight?: number
     /**
-     * Filter by a comma-separated list of insight IDs.
+     * Filter by a comma-separated list of insight IDs. Includes AI report subscriptions anchored to one of them.
      */
     insights?: string
     /**

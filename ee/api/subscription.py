@@ -105,6 +105,8 @@ def _invalidate_summary_quota_cache(organization_id) -> None:
 class _TargetLookups:
     insight: str
     dashboard: str
+    anchor_insight: str
+    anchor_dashboard: str
     exported_insights: str
     no_selection: str
     insights: Manager
@@ -115,6 +117,8 @@ class _TargetLookups:
 _SUBSCRIPTION_TARGETS = _TargetLookups(
     insight="insight_id__in",
     dashboard="dashboard_id__in",
+    anchor_insight="anchor_insight_id__in",
+    anchor_dashboard="anchor_dashboard_id__in",
     exported_insights="dashboard_export_insights__id__in",
     no_selection="dashboard_export_insights__isnull",
     insights=Insight.objects,
@@ -126,6 +130,8 @@ _SUBSCRIPTION_TARGETS = _TargetLookups(
 _DELIVERY_TARGETS = _TargetLookups(
     insight="subscription__insight_id__in",
     dashboard="subscription__dashboard_id__in",
+    anchor_insight="subscription__anchor_insight_id__in",
+    anchor_dashboard="subscription__anchor_dashboard_id__in",
     exported_insights="subscription__dashboard_export_insights__id__in",
     no_selection="subscription__dashboard_export_insights__isnull",
     insights=Insight.objects_including_soft_deleted,
@@ -136,8 +142,10 @@ _DELIVERY_TARGETS = _TargetLookups(
 
 def _require_viewer_access(user_access_control: UserAccessControl, obj: Insight | Dashboard, field: str) -> None:
     if not user_access_control.check_access_level_for_object(obj, "viewer"):
+        # The error keys on the API field, but the message names the resource (anchor_dashboard -> dashboard).
+        label = field.removeprefix("anchor_")
         raise ValidationError(
-            {field: [f"Viewer access to this {field} is required. Ask an admin to grant you access."]}
+            {field: [f"Viewer access to this {label} is required. Ask an admin to grant you access."]}
         )
 
 
@@ -325,6 +333,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "dashboard_export_insights",
             "prompt",
             "ai_prompt_config",
+            "anchor_dashboard",
+            "anchor_insight",
             "target_type",
             "target_value",
             "frequency",
@@ -364,6 +374,19 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 ),
             },
             "dashboard": {"help_text": "Dashboard ID to subscribe to (mutually exclusive with insight on create)."},
+            "anchor_dashboard": {
+                "help_text": (
+                    "AI report subscriptions only: dashboard whose insights ground the generated report "
+                    "(usually the dashboard the subscription was created from). The report may still draw "
+                    "on the whole project. Mutually exclusive with anchor_insight."
+                ),
+            },
+            "anchor_insight": {
+                "help_text": (
+                    "AI report subscriptions only: insight that grounds the generated report. The report "
+                    "may still draw on the whole project. Mutually exclusive with anchor_dashboard."
+                ),
+            },
             "insight": {"help_text": "Insight ID to subscribe to (mutually exclusive with dashboard on create)."},
             "target_type": {"help_text": "Delivery channel: email or slack."},
             "target_value": {
@@ -433,6 +456,19 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     def _validate_ai_content(self, attrs: dict, existing: Optional[Subscription]) -> None:
         if attrs.get("insight") or attrs.get("dashboard"):
             raise ValidationError({"prompt": ["AI subscriptions cannot also set insight or dashboard."]})
+        # Explicit-key checks so a PATCH can clear one anchor while setting the other.
+        anchor_dashboard = (
+            attrs["anchor_dashboard"]
+            if "anchor_dashboard" in attrs
+            else (existing.anchor_dashboard_id if existing else None)
+        )
+        anchor_insight = (
+            attrs["anchor_insight"] if "anchor_insight" in attrs else (existing.anchor_insight_id if existing else None)
+        )
+        if anchor_dashboard and anchor_insight:
+            raise ValidationError(
+                {"anchor_dashboard": ["A subscription can be anchored to a dashboard or an insight, not both."]}
+            )
         # Explicit-key check so a PATCH sending prompt="" doesn't fall through to the stale value.
         prompt = (attrs["prompt"] if "prompt" in attrs else (existing.prompt if existing else None)) or ""
         prompt = prompt.strip()
@@ -475,9 +511,17 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
+        if attrs.get("anchor_dashboard") and attrs["anchor_dashboard"].team.id != self.context["team_id"]:
+            raise ValidationError({"anchor_dashboard": ["This dashboard does not belong to your team."]})
+
+        if attrs.get("anchor_insight") and attrs["anchor_insight"].team.id != self.context["team_id"]:
+            raise ValidationError({"anchor_insight": ["This insight does not belong to your team."]})
+
         user_access_control = self.context["view"].user_access_control
         turning_off = attrs.get("deleted") is True or attrs.get("enabled") is False
-        for field in ("dashboard", "insight"):
+        # Anchors are included: an AI report anchored to a resource injects that resource's
+        # insight definitions into the report, so writing one needs viewer access too.
+        for field in ("dashboard", "insight", "anchor_dashboard", "anchor_insight"):
             target = attrs.get(field) or getattr(existing, field, None)
             if target is not None and not (target.deleted and turning_off):
                 _require_viewer_access(user_access_control, target, field)
@@ -511,6 +555,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             raise ValidationError({"resource_type": [f"Unsupported resource_type: {resource_type}."]})
         if resource_type != Subscription.ResourceType.AI_PROMPT and attrs.get("ai_prompt_config"):
             raise ValidationError({"ai_prompt_config": ["AI report settings only apply to AI subscriptions."]})
+        if resource_type != Subscription.ResourceType.AI_PROMPT and (
+            attrs.get("anchor_dashboard") or attrs.get("anchor_insight")
+        ):
+            raise ValidationError({"anchor_dashboard": ["Anchors only apply to AI subscriptions."]})
         validate_for_resource_type(attrs, existing)
 
         self._validate_dashboard_export_subscription(attrs)
@@ -1051,11 +1099,20 @@ def _target_filter(user_access_control: UserAccessControl, team_id: int, targets
 
     targets_a_blocked_insight = Q(**{targets.insight: blocked_insights})
     targets_a_blocked_dashboard = Q(**{targets.dashboard: blocked_dashboards})
+    # An AI report anchored to a blocked resource carries that resource's insight definitions,
+    # so anchored subs hide under the same rules as exported ones.
+    anchored_to_a_blocked_insight = Q(**{targets.anchor_insight: blocked_insights})
+    anchored_to_a_blocked_dashboard = Q(**{targets.anchor_dashboard: blocked_dashboards})
     exports_a_blocked_insight = Q(**{targets.exported_insights: blocked_insights})
     renders_a_blocked_tile = Q(**{targets.no_selection: True}) & Q(**{targets.dashboard: dashboards_with_blocked_tiles})
 
     return ~(
-        targets_a_blocked_insight | targets_a_blocked_dashboard | exports_a_blocked_insight | renders_a_blocked_tile
+        targets_a_blocked_insight
+        | targets_a_blocked_dashboard
+        | anchored_to_a_blocked_insight
+        | anchored_to_a_blocked_dashboard
+        | exports_a_blocked_insight
+        | renders_a_blocked_tile
     )
 
 
@@ -1121,21 +1178,21 @@ def _subscription_is_ai_prompt(subscription_id: str | int, team_id: int) -> bool
                 type=int,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Filter by insight ID.",
+                description="Filter by insight ID. Includes AI report subscriptions anchored to the insight.",
             ),
             OpenApiParameter(
                 name="insights",
                 type=str,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Filter by a comma-separated list of insight IDs.",
+                description="Filter by a comma-separated list of insight IDs. Includes AI report subscriptions anchored to one of them.",
             ),
             OpenApiParameter(
                 name="dashboard",
                 type=int,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Filter by dashboard ID.",
+                description="Filter by dashboard ID. Includes AI report subscriptions anchored to the dashboard.",
             ),
             OpenApiParameter(
                 name="dashboard_tiles",
@@ -1261,7 +1318,9 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
             if key in ("insight", "insights"):
                 # `insight` (single ID) and `insights` (comma-separated IDs) share one filter:
                 # both are parsed as an ID list so behavior and validation stay identical.
-                queryset = queryset.filter(insight_id__in=_parse_int_list_param(request_params[key], key))
+                # Anchored AI subs belong to their insight's page too, so the filter spans both FKs.
+                insight_ids = _parse_int_list_param(request_params[key], key)
+                queryset = queryset.filter(Q(insight_id__in=insight_ids) | Q(anchor_insight_id__in=insight_ids))
             elif key == "dashboard_tiles":
                 # Subscriptions on insights that are live tiles of the given dashboard, resolved server-side
                 # so the overview's "Insights" tab never depends on which tiles the client happens to have
@@ -1283,7 +1342,9 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                 ).values_list("insight_id", flat=True)
                 queryset = queryset.filter(insight_id__in=tile_insight_ids)
             elif key == "dashboard":
-                queryset = queryset.filter(dashboard_id=_parse_int_param(request_params["dashboard"], "dashboard"))
+                # Anchored AI subs belong to their dashboard's page too, so the filter spans both FKs.
+                dashboard_id = _parse_int_param(request_params["dashboard"], "dashboard")
+                queryset = queryset.filter(Q(dashboard_id=dashboard_id) | Q(anchor_dashboard_id=dashboard_id))
             elif key == "deleted":
                 queryset = queryset.filter(deleted=str_to_bool(request_params["deleted"]))
 

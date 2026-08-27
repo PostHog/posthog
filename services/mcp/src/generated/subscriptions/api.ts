@@ -18,13 +18,24 @@ export const SubscriptionsListParams = /* @__PURE__ */ zod.object({
 
 export const SubscriptionsListQueryParams = /* @__PURE__ */ zod.object({
     created_by: zod.string().optional().describe('Filter by creator user UUID.'),
-    dashboard: zod.number().optional().describe('Filter by dashboard ID.'),
+    dashboard: zod
+        .number()
+        .optional()
+        .describe('Filter by dashboard ID. Includes AI report subscriptions anchored to the dashboard.'),
     dashboard_tiles: zod
         .number()
         .optional()
         .describe('Filter to subscriptions on insights that are tiles of the given dashboard ID.'),
-    insight: zod.number().optional().describe('Filter by insight ID.'),
-    insights: zod.string().optional().describe('Filter by a comma-separated list of insight IDs.'),
+    insight: zod
+        .number()
+        .optional()
+        .describe('Filter by insight ID. Includes AI report subscriptions anchored to the insight.'),
+    insights: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter by a comma-separated list of insight IDs. Includes AI report subscriptions anchored to one of them.'
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod.string().optional().describe('Which field to use when ordering the results.'),
@@ -122,6 +133,18 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
+            ),
+        anchor_dashboard: zod
+            .number()
+            .nullish()
+            .describe(
+                'AI report subscriptions only: dashboard whose insights ground the generated report (usually the dashboard the subscription was created from). The report may still draw on the whole project. Mutually exclusive with anchor_insight.'
+            ),
+        anchor_insight: zod
+            .number()
+            .nullish()
+            .describe(
+                'AI report subscriptions only: insight that grounds the generated report. The report may still draw on the whole project. Mutually exclusive with anchor_dashboard.'
             ),
         target_type: zod
             .enum(['email', 'slack'])
@@ -305,6 +328,18 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
+            ),
+        anchor_dashboard: zod
+            .number()
+            .nullish()
+            .describe(
+                'AI report subscriptions only: dashboard whose insights ground the generated report (usually the dashboard the subscription was created from). The report may still draw on the whole project. Mutually exclusive with anchor_insight.'
+            ),
+        anchor_insight: zod
+            .number()
+            .nullish()
+            .describe(
+                'AI report subscriptions only: insight that grounds the generated report. The report may still draw on the whole project. Mutually exclusive with anchor_dashboard.'
             ),
         target_type: zod
             .enum(['email', 'slack'])
