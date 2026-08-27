@@ -81,7 +81,7 @@ export function SlackWorkspaceConnection({
   return (
     <div className="flex min-h-11 items-center justify-between gap-6 rounded-(--radius-3) border border-(--gray-5) bg-(--color-panel-solid) px-3.5 py-2">
       <div className="flex min-w-0 flex-col gap-0.5 py-0.5">
-        <span className="font-medium text-[13px] text-gray-12 leading-5">
+        <span className="font-medium text-[13px] text-gray-12 leading-snug">
           No Slack workspace connected yet
         </span>
         <span className="text-[12px] text-gray-10 leading-snug">
@@ -162,7 +162,7 @@ function SlackWorkspaceRow({ integration }: { integration: Integration }) {
             <SlackLogoIcon size={24} />
           </div>
           <div className="flex min-w-0 flex-col gap-0.5">
-            <span className="truncate font-medium text-[13px] text-gray-12 leading-5">
+            <span className="truncate font-medium text-[13px] text-gray-12 leading-snug">
               {workspaceName}
             </span>
             {createdAt ? (

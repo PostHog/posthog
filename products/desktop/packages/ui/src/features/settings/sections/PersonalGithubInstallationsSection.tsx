@@ -100,7 +100,7 @@ export function PersonalGithubInstallationsSection() {
               <GithubLogoIcon size={20} />
             </div>
             <div className="flex flex-col gap-0.5">
-              <span className="font-medium text-[13px] text-gray-12 leading-5">
+              <span className="font-medium text-[13px] text-gray-12 leading-snug">
                 No GitHub account linked yet
               </span>
               <span className="text-[12px] text-gray-10 leading-snug">

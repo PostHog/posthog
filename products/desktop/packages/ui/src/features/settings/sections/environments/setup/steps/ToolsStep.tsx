@@ -197,7 +197,7 @@ function ToolReason({ htmlFor, reason }: { htmlFor: string; reason: string }) {
         render={
           <label
             htmlFor={htmlFor}
-            className="block cursor-pointer truncate text-(--gray-11) text-[11.5px] leading-5"
+            className="block cursor-pointer truncate text-(--gray-11) text-[11.5px] leading-snug"
           >
             {reason}
           </label>

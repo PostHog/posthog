@@ -107,7 +107,7 @@ export function GithubRepoSummary({
           </div>
           <div className="flex min-w-0 flex-col gap-0.5">
             <div className="flex min-w-0 items-center gap-1.5">
-              <span className="truncate font-medium text-[13px] text-gray-12 leading-5">
+              <span className="truncate font-medium text-[13px] text-gray-12 leading-snug">
                 {accountLabel}
               </span>
               {isUnavailable ? (

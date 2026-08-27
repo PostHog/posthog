@@ -141,7 +141,7 @@ export function NotificationDeliveryCard({
       </div>
       <div className="flex w-full flex-1 items-start justify-between gap-2 px-2.5 py-2">
         <div className="flex min-w-0 flex-col gap-0.5">
-          <span className="font-medium text-[12px] text-gray-12 leading-4">
+          <span className="font-medium text-[12px] text-gray-12 leading-snug">
             {title}
           </span>
           <span className="text-[11px] text-gray-10 leading-snug">
