@@ -28,7 +28,7 @@ def create_placeholder_event_definitions(*, team_id: int, definitions: Sequence[
 
     project_id = Team.objects.values_list("project_id", flat=True).get(id=team_id)
     names = [definition.name for definition in definitions]
-    event_definitions_by_name = {
+    event_definitions_by_name: dict[str, EventDefinition] = {
         event_definition.name: event_definition
         for event_definition in EventDefinition.objects.alias(effective_project_id=effective_project_id_expr()).filter(
             effective_project_id=project_id, name__in=names
