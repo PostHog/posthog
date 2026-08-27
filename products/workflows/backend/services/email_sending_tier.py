@@ -7,6 +7,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.api.app_metrics2 import fetch_app_metric_daily_totals_by_team
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 
@@ -278,9 +279,10 @@ def build_sending_histories(
     after: datetime,
     before: Optional[datetime] = None,
     team_ids: Optional[list[int]] = None,
+    workload: Workload = Workload.DEFAULT,
 ) -> dict[int, TeamSendingHistory]:
     """Read every team's workflow email metrics for the window in one grouped query."""
-    daily_by_team = _fetch_daily_metrics(after=after, before=before, team_ids=team_ids)
+    daily_by_team = _fetch_daily_metrics(after=after, before=before, team_ids=team_ids, workload=workload)
     return {team_id: _history_from_daily(team_id, days) for team_id, days in daily_by_team.items()}
 
 
@@ -320,6 +322,7 @@ def _fetch_daily_metrics(
     after: datetime,
     before: Optional[datetime],
     team_ids: Optional[list[int]],
+    workload: Workload = Workload.DEFAULT,
 ) -> dict[int, dict[str, dict[str, int]]]:
     auto_pause_metrics = [name for name in settings.WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES if name]
     metric_names = [SENT_METRIC, HARD_BOUNCE_METRIC, COMPLAINT_METRIC, *auto_pause_metrics]
@@ -334,6 +337,7 @@ def _fetch_daily_metrics(
             after=after,
             before=before,
             team_ids=team_ids,
+            workload=workload,
         )
 
 

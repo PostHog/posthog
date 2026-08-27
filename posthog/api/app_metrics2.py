@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.utils import action
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models.team.team import Team
@@ -380,6 +381,7 @@ def fetch_app_metric_daily_totals_by_team(
     after: datetime,
     before: Optional[datetime] = None,
     team_ids: Optional[list[int]] = None,
+    workload: Workload = Workload.DEFAULT,
 ) -> dict[int, dict[str, dict[str, int]]]:
     """Daily metric totals per team, keyed `{team_id: {"YYYY-MM-DD": {metric_name: count}}}`.
 
@@ -415,7 +417,7 @@ def fetch_app_metric_daily_totals_by_team(
         GROUP BY team_id, day, metric_name
     """
 
-    results = sync_execute(clickhouse_query, clickhouse_kwargs)
+    results = sync_execute(clickhouse_query, clickhouse_kwargs, workload=workload)
 
     if not isinstance(results, list):
         raise ValueError("Unexpected results from ClickHouse")

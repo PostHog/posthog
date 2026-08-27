@@ -8,6 +8,7 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
 
@@ -66,7 +67,11 @@ class Command(BaseCommand):
         team_ids: Optional[list[int]] = options.get("team_ids")
 
         after = timezone.now() - timedelta(days=days)
-        histories = self._without_deleted_teams(build_sending_histories(after=after, team_ids=team_ids))
+        # A management command inherits the online workload, but this fleet-wide 90-day scan belongs
+        # on the offline pool, away from customer queries. The daily Celery sweep already runs offline.
+        histories = self._without_deleted_teams(
+            build_sending_histories(after=after, team_ids=team_ids, workload=Workload.OFFLINE)
+        )
         decisions = self._decide(histories=histories, team_ids=team_ids)
 
         written = self._apply(decisions) if apply_changes else 0
