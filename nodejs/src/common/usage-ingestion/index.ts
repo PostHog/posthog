@@ -13,13 +13,27 @@ export type UsageIngestionConfig = Pick<
     | 'USAGE_INGESTION_REPORT_TEAMS'
 >
 
-export type UsageReportSite = 'events' | 'ai_events' | 'exceptions' | 'cdp'
+export type UsageReportSite =
+    | 'events'
+    | 'ai_events'
+    | 'exceptions'
+    | 'cdp'
+    | 'surveys'
+    | 'logs'
+    | 'apm'
+    | 'session_replay'
+    | 'enhanced_persons'
 
 const PRODUCER_IDS = {
     events: 'ingestion',
     ai_events: 'ai-ingestion',
     exceptions: 'error-tracking',
     cdp: 'cdp',
+    surveys: 'ingestion',
+    logs: 'logs',
+    apm: 'apm',
+    session_replay: 'session-replay',
+    enhanced_persons: 'ingestion',
 } as const
 
 export function usageReportTeamMatcher(config: UsageIngestionConfig): ValueMatcher<number> {
