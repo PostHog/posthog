@@ -66,7 +66,12 @@ class TestBuildAnchorContext(APIBaseTest):
         bottom = Insight.objects.create(team=self.team, name="Signups", query=_TRENDS_QUERY)
         top = Insight.objects.create(team=self.team, name="Pageviews")
         standalone = Insight.objects.create(team=self.team, name="Retention")
-        DashboardTile.objects.create(dashboard=dashboard, insight=bottom, layouts={"sm": {"x": 0, "y": 5}})
+        bottom_tile = DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=bottom,
+            layouts={"sm": {"x": 0, "y": 5}},
+            filters_overrides={"properties": [{"key": "plan", "value": "pro"}]},
+        )
         DashboardTile.objects.create(dashboard=dashboard, insight=top, layouts={"sm": {"x": 0, "y": 0}})
 
         context = build_anchor_context(
@@ -78,11 +83,18 @@ class TestBuildAnchorContext(APIBaseTest):
         assert "Growth" in context.blob and "North star" in context.blob
         assert 'Dashboard filters (JSON): {"properties":[{"key":"region","value":"north"}]}' in context.blob
         assert 'Dashboard variables (JSON): {"minimum_count":{"value":10}}' in context.blob
+        assert 'Tile filters (JSON): {"properties":[{"key":"plan","value":"pro"}]}' in context.blob
         assert "Context insight" in context.blob and "Retention" in context.blob
         # Layout order, not creation order.
         assert context.blob.index("Pageviews") < context.blob.index("Signups")
         assert "export created" in context.blob
         assert context.event_names == ["export created"]
+
+        bottom_tile.filters_overrides = {"properties": [{"key": "plan", "value": "enterprise"}]}
+        bottom_tile.save(update_fields=["filters_overrides"])
+        changed = build_anchor_context(self._subscription(context_dashboards=[dashboard]))
+        assert changed is not None
+        assert changed.content_hash != context.content_hash
 
     def test_deleted_tiles_and_over_limit_tiles_are_excluded(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Big")

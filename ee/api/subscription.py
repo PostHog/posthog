@@ -1210,6 +1210,7 @@ def _target_filter(
             hidden
             | Q(**{targets.context_insights: blocked_insights})
             | Q(**{targets.context_dashboards: blocked_dashboards})
+            | Q(**{targets.context_dashboards: dashboards_with_blocked_tiles})
         )
 
     return ~hidden

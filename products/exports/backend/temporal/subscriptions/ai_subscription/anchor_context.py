@@ -159,7 +159,7 @@ def _build_anchor_context(subscription: Subscription) -> AnchorContext | None:
         tiles = DashboardTile.sort_tiles_by_layout(
             dashboard.tiles.filter(insight__isnull=False, insight__deleted=False)
             .order_by("id")
-            .only("id", "layouts", "insight_id")
+            .only("id", "layouts", "insight_id", "filters_overrides")
         )
         capped_tiles = tiles[:remaining_tiles]
         insights_by_id = {
@@ -179,6 +179,9 @@ def _build_anchor_context(subscription: Subscription) -> AnchorContext | None:
             tile_insight = insights_by_id.get(tile.insight_id)
             if tile_insight is not None:
                 lines.extend(_insight_lines(tile_insight, events))
+                tile_filters = _dashboard_metadata_line("Tile filters", tile.filters_overrides)
+                if tile_filters:
+                    lines.append(f"  {tile_filters}")
         remaining_tiles -= len(capped_tiles)
         if len(tiles) > len(capped_tiles):
             lines.append(f"  ({len(tiles) - len(capped_tiles)} more tiles not shown)")

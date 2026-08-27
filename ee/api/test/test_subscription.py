@@ -3343,6 +3343,12 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
     def _sub_rendering_every_tile(self) -> Subscription:
         return self._subscription_for(dashboard=self._dashboard_with_tiles(self.open_insight, self.restricted_insight))
 
+    def _sub_anchored_to_a_dashboard_with_a_restricted_tile(self) -> Subscription:
+        return self._subscription_for(
+            prompt="How did signups do last week?",
+            context_dashboards=[self._dashboard_with_tiles(self.open_insight, self.restricted_insight)],
+        )
+
     def _sub_selecting_only_the_open_tile(self) -> Subscription:
         subscription = self._subscription_for(
             dashboard=self._dashboard_with_tiles(self.open_insight, self.restricted_insight)
@@ -3447,6 +3453,17 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         )
         assert cleared.status_code == status.HTTP_200_OK, cleared.json()
         assert cleared.json()["context_dashboards"] == []
+
+    def test_dashboard_context_with_a_restricted_tile_is_hidden_from_lists_and_deliveries(self):
+        subscription = self._sub_anchored_to_a_dashboard_with_a_restricted_tile()
+        self._delivery_for(subscription)
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
+        assert subscription.id not in [row["id"] for row in listed.json()["results"]]
+
+        deliveries = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/")
+        assert deliveries.status_code == status.HTTP_200_OK
+        assert deliveries.json()["results"] == []
 
     def test_cannot_add_a_dashboard_the_caller_cannot_view_as_context(self):
         response = self.client.post(
