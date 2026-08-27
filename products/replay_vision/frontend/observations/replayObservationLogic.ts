@@ -12,6 +12,7 @@ import type { ReplayObservationApi, VisionObservationsRetrieveParams } from '../
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import { requestObservationRetry } from '../logics/observationRetry'
 import { OBSERVATION_LIST_FILTER_KEYS } from '../replay_scanners/types'
+import { scannerBreadcrumb } from '../utils/breadcrumbs'
 import { hasScannerPage, scannerLabel } from '../utils/observation'
 import { parseNumericParam } from '../utils/urlParams'
 import { observationProgressLogic } from './observationProgressLogic'
@@ -55,10 +56,15 @@ export function observationParentUrl(observation: ReplayObservationApi): string 
 
 /** The crumb the observation page's back button returns to. */
 export function observationParentBreadcrumb(observation: ReplayObservationApi): Breadcrumb {
-    const path = observationParentUrl(observation)
-    return hasScannerPage(observation)
-        ? { key: `scanner-${observation.scanner_id}`, name: scannerLabel(observation), path }
-        : { key: `recording-${observation.session_id}`, name: 'Recording', path, iconType: 'session_replay' }
+    if (hasScannerPage(observation)) {
+        return scannerBreadcrumb(observation.scanner_id, scannerLabel(observation))
+    }
+    return {
+        key: `recording-${observation.session_id}`,
+        name: 'Recording',
+        path: observationParentUrl(observation),
+        iconType: 'session_replay',
+    }
 }
 
 /** Canonical link to an observation's detail page, carrying list filters so prev/next honors them. */
