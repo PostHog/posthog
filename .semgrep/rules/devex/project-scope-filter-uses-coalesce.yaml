@@ -1,0 +1,37 @@
+rules:
+    - id: project-scope-filter-uses-coalesce
+      message: |
+          Scope a taxonomy query by `COALESCE(project_id, team_id)`, not by
+          `Q(project_id=X) | Q(project_id__isnull=True, team_id=X)`.
+
+          Replace the OR with the shared expression:
+
+              from products.event_definitions.backend.models import effective_project_id_expr
+
+              Model.objects.alias(effective_project_id=effective_project_id_expr()).filter(
+                  effective_project_id=project_id, name__in=names
+              )
+
+          Why: the two forms select the same rows, but the OR form matches no index.
+          `posthog_eventdefinition` and `posthog_propertydefinition` are indexed on
+          `(COALESCE(project_id, team_id), name)` — `event_definition_proj_uniq` and
+          `posthog_propdef_proj_uniq`. Postgres cannot serve an OR from a single index, so it
+          bitmap-ORs the two branches instead, and the `project_id IS NULL` branch reads every
+          legacy row in the table on every call. The COALESCE form seeks the index and uses
+          `name` as a second scan key.
+
+          Suppress a legitimate exception with
+          `# nosemgrep: project-scope-filter-uses-coalesce -- <reason>`.
+      languages: [python]
+      severity: ERROR
+      pattern-either:
+          - pattern: Q(project_id=$P) | Q(project_id__isnull=True, team_id=$T)
+          - pattern: Q(project_id__isnull=True, team_id=$T) | Q(project_id=$P)
+          - pattern: models.Q(project_id=$P) | models.Q(project_id__isnull=True, team_id=$T)
+          - pattern: models.Q(project_id__isnull=True, team_id=$T) | models.Q(project_id=$P)
+      paths:
+          include:
+              - common/**/*.py
+              - ee/**/*.py
+              - posthog/**/*.py
+              - products/**/*.py

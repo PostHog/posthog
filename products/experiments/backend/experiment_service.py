@@ -1200,19 +1200,18 @@ class ExperimentService:
         if not event_names:
             return
 
-        from products.event_definitions.backend.models.event_definition import EventDefinition
+        from products.event_definitions.backend.models import EventDefinition, effective_project_id_expr
 
         project_id = self.team.project_id
-        # Uses `team_id = project_id` (not team_id = self.team.id)
+        # `COALESCE(project_id, team_id)` falls back to `team_id` (not self.team.id)
         # on purpose: legacy EventDefinitions (project_id IS NULL) belong to the
         # *primary* team, and primary_team.id == project.id by convention. This
         # mirrors the picker SQL in posthog/api/event_definition.py so sibling
         # teams can validate against legacy primary-team events the picker shows.
         existing = set(
-            EventDefinition.objects.filter(
-                Q(project_id=project_id) | Q(project_id__isnull=True, team_id=project_id),
-                name__in=event_names,
-            ).values_list("name", flat=True)
+            EventDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+            .filter(effective_project_id=project_id, name__in=event_names)
+            .values_list("name", flat=True)
         )
         unknown = event_names - existing
         if unknown:
