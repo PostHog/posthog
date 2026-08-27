@@ -494,6 +494,50 @@ class TestFacadeReadsAndMappers(TestCase):
 
         self.assertEqual(facade.get_latest_pr_url_by_task([]), {})
 
+    # Signals research is handed this list as "work already in flight". A merged or closed PR
+    # leaking through tells the agent a shipped fix is still open, and losing the latest-run rule
+    # would surface a retry's stale PR instead of the one the task actually has open.
+    def test_get_open_pr_runs_for_team_keeps_only_the_latest_still_open_run_per_task(self):
+        open_task = self._make_task(title="Open PR")
+        superseded = TaskRun.objects.create(
+            task=open_task, team=self.team, output={"pr_url": "https://x/pull/1", "pr_state": "closed"}
+        )
+        latest_open = TaskRun.objects.create(
+            task=open_task, team=self.team, branch="posthog/fix", output={"pr_url": "https://x/pull/2"}
+        )
+        merged_task = self._make_task(title="Merged PR")
+        TaskRun.objects.create(
+            task=merged_task, team=self.team, output={"pr_url": "https://x/pull/3", "pr_merged": True}
+        )
+        no_pr_task = self._make_task(title="No PR")
+        TaskRun.objects.create(task=no_pr_task, team=self.team, output={})
+
+        open_runs = facade.get_open_pr_runs_for_team(self.team.id)
+
+        self.assertEqual([run.run_id for run in open_runs], [latest_open.id])
+        self.assertEqual(open_runs[0].pr_url, "https://x/pull/2")
+        self.assertEqual(open_runs[0].branch, "posthog/fix")
+        self.assertNotEqual(open_runs[0].run_id, superseded.id)
+
+    def test_get_open_pr_runs_for_team_orders_newest_first_and_honors_since_and_limit(self):
+        now = django_timezone.now()
+        for age_days in (1, 5, 40):
+            task = self._make_task(title=f"PR {age_days}d old")
+            TaskRun.objects.create(
+                task=task,
+                team=self.team,
+                output={"pr_url": f"https://x/pull/{age_days}"},
+                created_at=now - timedelta(days=age_days),
+            )
+
+        recent = facade.get_open_pr_runs_for_team(self.team.id, since=now - timedelta(days=30))
+        self.assertEqual([run.pr_url for run in recent], ["https://x/pull/1", "https://x/pull/5"])
+
+        self.assertEqual(
+            [run.pr_url for run in facade.get_open_pr_runs_for_team(self.team.id, limit=1)],
+            ["https://x/pull/1"],
+        )
+
     def test_get_conversation_task_dtos_carries_latest_run_id_not_nested_run(self):
         task = self._make_task(title="Conversation task")
         TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
