@@ -21,7 +21,7 @@ import hashlib
 import logging
 from collections.abc import Collection, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Literal
 from urllib.parse import urlparse
@@ -71,6 +71,8 @@ from products.tasks.backend.constants import (
     ANALYSIS_TARGET_RUN_ID_STATE_KEY,
     ANALYSIS_TARGET_TASK_ID_STATE_KEY,
     CI_STATUSES as CI_STATUSES,  # re-exported for presentation
+    DEV_STACK_PREVIEW_PORT,
+    DEV_STACK_PREVIEW_STATE_KEY,
     MAX_CUSTOM_IMAGES_PER_TEAM,
     MAX_CUSTOM_IMAGES_PER_USER,
     PI_CLOUD_RUNTIME_FEATURE_FLAG,
@@ -108,8 +110,6 @@ from products.tasks.backend.models import (
     ChannelFeedMessage,
     ChannelInstructions,
     ChannelStar,
-    CodeInvite,
-    CodeInviteRedemption,
     DesktopBetaTermsAcceptance,
     InvalidTaskOriginError,
     MCPBuiltInAgentKey,
@@ -156,14 +156,6 @@ TaskRuntime = Task.Runtime
 SandboxNetworkAccessLevel = SandboxEnvironment.NetworkAccessLevel
 SandboxSnapshotStatus = SandboxSnapshot.Status
 
-# --- Code-invite redeem outcomes ---
-# Returned on ``CodeInviteRedeemResult.outcome``; the presentation layer maps each to an
-# HTTP response. ``REDEEMED`` covers both a fresh redemption and the idempotent no-op when
-# the user already redeemed this code (both surface as success).
-CODE_INVITE_REDEEMED = "redeemed"
-CODE_INVITE_INVALID_CODE = "invalid_code"
-CODE_INVITE_NOT_REDEEMABLE = "not_redeemable"
-
 WIZARD_PR_READY_EMAIL_FEATURE_FLAG = "wizard-cloud-run-pr-ready-email-enabled"
 
 # Runtime posture for a setup-wizard cloud run, applied in create_wizard_cloud_run. The model is
@@ -174,9 +166,6 @@ WIZARD_CLOUD_RUN_MODEL = "claude-sonnet-5"
 WIZARD_CLOUD_RUN_AI_STAGE = "wizard_pr_agent"
 
 __all__ = [
-    "CODE_INVITE_INVALID_CODE",
-    "CODE_INVITE_NOT_REDEEMABLE",
-    "CODE_INVITE_REDEEMED",
     "SandboxNetworkAccessLevel",
     "SandboxSnapshotStatus",
     "TaskOriginProduct",
@@ -238,6 +227,8 @@ __all__ = [
     "sync_task_run_session",
     "get_task_run_detail",
     "get_task_run_sandbox_connection",
+    "resolve_task_run_preview_redirect",
+    "task_run_preview_ready",
     "get_task_run_living_artifact",
     "capture_relay_command_telemetry",
     "get_task_run_stream_info",
@@ -266,7 +257,6 @@ __all__ = [
     "read_task_run_logs",
     "record_comment_activity",
     "signal_task_run_client_activity",
-    "redeem_code_invite",
     "redispatch_task_run",
     "relay_task_run_message",
     "resolve_slack_thread_context",
@@ -498,6 +488,7 @@ def _task_run_detail_to_dto(run: TaskRun, *, include_agent_state: bool = False) 
         created_at=run.created_at,
         updated_at=run.updated_at,
         completed_at=run.completed_at,
+        preview_available=task_run_preview_ready(run.state),
     )
 
 
@@ -1680,9 +1671,6 @@ def create_completed_sandbox_snapshot(external_id: str) -> UUID:
     return snapshot.id
 
 
-# --- Desktop invites ---
-
-
 def get_desktop_beta_terms_acceptance(organization_id: UUID) -> contracts.DesktopBetaTermsAcceptanceDTO:
     return contracts.DesktopBetaTermsAcceptanceDTO(
         is_desktop_beta_terms_accepted=DesktopBetaTermsAcceptance.objects.filter(
@@ -1697,51 +1685,6 @@ def accept_desktop_beta_terms(organization_id: UUID, user_id: int) -> contracts.
         defaults={"accepted_by_user_id": user_id},
     )
     return contracts.DesktopBetaTermsAcceptanceDTO(is_desktop_beta_terms_accepted=True)
-
-
-def redeem_code_invite(code: str, user_id: int) -> contracts.CodeInviteRedeemResult:
-    """Redeem a PostHog Desktop invite for a user.
-
-    Idempotent: a user who already redeemed this code gets ``REDEEMED`` without a second
-    redemption row. A fresh redemption takes a row lock on the invite, re-checks
-    redeemability under the lock, records the redemption, bumps ``redemption_count``, and
-    captures the activation analytics — all in one transaction, mirroring the original view.
-    """
-    code_str = code.strip()
-
-    try:
-        invite_code = CodeInvite.objects.get(code__iexact=code_str)
-    except CodeInvite.DoesNotExist:
-        return contracts.CodeInviteRedeemResult(outcome=CODE_INVITE_INVALID_CODE)
-
-    user = User.objects.get(pk=user_id)
-
-    if CodeInviteRedemption.objects.filter(invite_code=invite_code, user=user).exists():
-        return contracts.CodeInviteRedeemResult(outcome=CODE_INVITE_REDEEMED)
-
-    with transaction.atomic():
-        invite_code = CodeInvite.objects.select_for_update().get(id=invite_code.id)
-
-        if not invite_code.is_redeemable:
-            return contracts.CodeInviteRedeemResult(outcome=CODE_INVITE_NOT_REDEEMABLE)
-
-        organization = user.organization if hasattr(user, "organization") else None
-
-        CodeInviteRedemption.objects.create(
-            invite_code=invite_code,
-            user=user,
-            organization=organization,
-        )
-
-        CodeInvite.objects.filter(id=invite_code.id).update(redemption_count=F("redemption_count") + 1)
-
-        posthoganalytics.capture(
-            distinct_id=str(user.distinct_id),
-            event="code_invite_redeemed",
-            groups=groups(organization=organization),
-        )
-
-    return contracts.CodeInviteRedeemResult(outcome=CODE_INVITE_REDEEMED)
 
 
 # --- Sandbox environments (presentation CRUD) ---
@@ -2132,6 +2075,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "sandbox_url",
         "sandbox_connect_token",
         "sandbox_jwt_kid",
+        DEV_STACK_PREVIEW_STATE_KEY,
         "sandbox_cpu_cores",
         "sandbox_memory_gb",
         "sandbox_ttl_seconds",
@@ -4181,6 +4125,96 @@ def get_task_run_sandbox_connection(
         sandbox_connect_token=transport_token,
         connection_token=connection_token,
         sandbox_token_param=token_param,
+    )
+
+
+TaskRunPreviewOutcome = Literal["ready", "not_ready", "ended", "unavailable"]
+
+
+@frozen
+class TaskRunPreviewRedirect:
+    outcome: TaskRunPreviewOutcome
+    redirect_url: str | None = field(default=None, repr=False)
+
+
+_PREVIEW_NOT_READY = TaskRunPreviewRedirect(outcome="not_ready")
+_PREVIEW_ENDED = TaskRunPreviewRedirect(outcome="ended")
+_PREVIEW_UNAVAILABLE = TaskRunPreviewRedirect(outcome="unavailable")
+_PREVIEW_HEALTH_PROBE = (
+    "curl -sf --max-time 5 http://localhost:8010/_health >/dev/null"
+    f" && curl -sf --max-time 5 http://127.0.0.1:{DEV_STACK_PREVIEW_PORT}/@vite/client >/dev/null"
+)
+_PREVIEW_HEALTH_PROBE_TIMEOUT_SECONDS = 20
+
+
+def task_run_preview_ready(state: dict | None) -> bool:
+    run_state = state or {}
+    preview = run_state.get(DEV_STACK_PREVIEW_STATE_KEY)
+    if not isinstance(preview, dict):
+        return False
+    port = preview.get("port")
+    if isinstance(port, bool) or port != DEV_STACK_PREVIEW_PORT:
+        return False
+    sandbox_id = run_state.get("sandbox_id")
+    return bool(sandbox_id) and preview.get("sandbox_id") == sandbox_id
+
+
+def resolve_task_run_preview_redirect(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, user_id: int
+) -> TaskRunPreviewRedirect | None:
+    from products.tasks.backend.exceptions import (
+        SandboxNotFoundError,  # noqa: PLC0415 — keep temporalio off the api import path
+    )
+    from products.tasks.backend.logic.services.sandbox import (  # noqa: PLC0415 — keeps the sandbox providers off the api import path
+        get_sandbox_class,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+
+    state = run.state if isinstance(run.state, dict) else {}
+    if not task_run_preview_ready(state):
+        return _PREVIEW_NOT_READY
+    sandbox_id = state["sandbox_id"]
+
+    try:
+        sandbox = get_sandbox_class().get_by_id(str(sandbox_id))
+        running = sandbox.is_running()
+    except SandboxNotFoundError:
+        return _PREVIEW_ENDED
+    except Exception:
+        logger.exception("task_run_preview_sandbox_lookup_failed", extra={"run_id": str(run.id)})
+        return _PREVIEW_UNAVAILABLE
+
+    if not running:
+        return _PREVIEW_ENDED
+
+    try:
+        probe = sandbox.execute(_PREVIEW_HEALTH_PROBE, timeout_seconds=_PREVIEW_HEALTH_PROBE_TIMEOUT_SECONDS)
+    except SandboxNotFoundError:
+        return _PREVIEW_ENDED
+    except Exception:
+        logger.exception("task_run_preview_health_probe_failed", extra={"run_id": str(run.id)})
+        return _PREVIEW_UNAVAILABLE
+    if probe.exit_code != 0:
+        return _PREVIEW_UNAVAILABLE
+
+    try:
+        credentials = sandbox.create_preview_connect_credentials(
+            port=DEV_STACK_PREVIEW_PORT, user_metadata={"user_id": user_id, "team_id": team_id}
+        )
+    except SandboxNotFoundError:
+        return _PREVIEW_ENDED
+    except Exception:
+        logger.exception("task_run_preview_token_mint_failed", extra={"run_id": str(run.id)})
+        return _PREVIEW_UNAVAILABLE
+
+    if not credentials.token:
+        return _PREVIEW_UNAVAILABLE
+    return TaskRunPreviewRedirect(
+        outcome="ready",
+        redirect_url=f"{credentials.url.rstrip('/')}/?_modal_connect_token={credentials.token}",
     )
 
 
@@ -8264,18 +8298,33 @@ def project_completed_activity(task_run: "TaskRun") -> None:
     )
 
 
+# A scout runs headless on a schedule, under an acting user resolved from the scout skill's
+# author rather than from whoever asked for the run. Its task therefore carries a real person
+# as `created_by`, so every projected row lands in a feed that person never asked for. Scout
+# output belongs in the Signals inbox instead.
+ACTIVITY_FEED_EXCLUDED_ORIGIN_PRODUCTS = (Task.OriginProduct.SIGNALS_SCOUT,)
+
+
+def _activity_visible_task_qs(team_id: int, user_id: int) -> QuerySet[Task]:
+    return (
+        _visible_task_qs(team_id, user_id)
+        .filter(internal=False, archived=False)
+        .exclude(origin_product__in=ACTIVITY_FEED_EXCLUDED_ORIGIN_PRODUCTS)
+    )
+
+
 def _task_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskActivity]:
     """The requester's feed rows, gated to tasks they can still see.
 
     Rows outlive visibility changes (a task moving to a private channel, say), so the
     visibility gate belongs on read rather than being enforced when projecting.
     """
-    visible_tasks = _visible_task_qs(team_id, user_id).filter(internal=False, archived=False)
+    visible_tasks = _activity_visible_task_qs(team_id, user_id)
     return TaskActivity.objects.for_team(team_id).filter(user_id=user_id, task__in=visible_tasks)
 
 
 def _comment_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskCommentActivity]:
-    visible_tasks = _visible_task_qs(team_id, user_id).filter(internal=False, archived=False)
+    visible_tasks = _activity_visible_task_qs(team_id, user_id)
     return TaskCommentActivity.objects.for_team(team_id).filter(
         user_id=user_id, task__in=visible_tasks, comment__deleted=False
     )

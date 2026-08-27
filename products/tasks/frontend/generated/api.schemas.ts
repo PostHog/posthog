@@ -8,15 +8,10 @@
  * OpenAPI spec version: 1.0.0
  */
 export interface LegacyDesktopAccessResponseApi {
-    /** Whether the user has legacy PostHog Desktop access. */
+    /** Whether the current project can use PostHog Desktop. */
     has_access: boolean
     /** Whether the independent Loops feature is enabled. */
     has_loops_access: boolean
-}
-
-export interface CodeInviteRedeemRequestApi {
-    /** @maxLength 50 */
-    code: string
 }
 
 /**
@@ -1662,6 +1657,8 @@ export interface TaskRunDetailDTOApi {
     updated_at?: string | null
     /** @nullable */
     completed_at?: string | null
+    /** True when this run's sandbox serves a dev stack preview, so clients can offer the preview link. Open it through the run's `preview/` endpoint, which mints a fresh access token on every request. */
+    preview_available?: boolean
 }
 
 export interface SlackThreadReferenceDTOApi {
