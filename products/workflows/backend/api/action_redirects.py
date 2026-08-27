@@ -18,6 +18,63 @@
 MAX_ACTION_REDIRECTS = 512
 
 
+def _index_continue_targets(old_edges: list[dict]) -> dict[str, str]:
+    # First continue edge per node, matching the worker's findNextAction (first match wins).
+    continue_targets: dict[str, str] = {}
+    for edge in old_edges:
+        source, target = edge.get("from"), edge.get("to")
+        if edge.get("type") == "continue" and source and target and source not in continue_targets:
+            continue_targets[source] = target
+    return continue_targets
+
+
+def _resolve_deleted_successors(
+    deleted_ids: set[str], new_ids: set[str], continue_targets: dict[str, str]
+) -> dict[str, str]:
+    # Walk each deleted node's continue edges to the first id that survives in the new graph.
+    # Each old node's survivor is resolved at most once and shared across walks — deleting a long
+    # chain would otherwise re-walk the same tail once per deleted node (O(n²)).
+    resolved: dict[str, str | None] = {}
+    fresh: dict[str, str] = {}
+    for deleted_id in deleted_ids:
+        path = [deleted_id]
+        on_path = {deleted_id}
+        survivor: str | None = None
+        cursor = continue_targets.get(deleted_id)
+        while cursor is not None:
+            if cursor in new_ids:
+                survivor = cursor
+                break
+            if cursor in resolved:
+                survivor = resolved[cursor]
+                break
+            if cursor in on_path:  # cycle of deleted nodes: dead end
+                break
+            path.append(cursor)
+            on_path.add(cursor)
+            cursor = continue_targets.get(cursor)
+        for node in path:
+            resolved[node] = survivor
+        if survivor is not None:
+            fresh[deleted_id] = survivor
+    return fresh
+
+
+def _normalize_existing(existing: dict[str, str] | None, new_ids: set[str], fresh: dict[str, str]) -> dict[str, str]:
+    # Fold prior-edit entries into the new graph: prune re-added keys, rewrite entries whose target
+    # this edit deleted through this edit's redirects, and drop targets with no survivor.
+    merged: dict[str, str] = {}
+    for key, target in (existing or {}).items():
+        if key in new_ids:
+            continue  # Step re-added: runs standing on it execute it normally again.
+        if target in new_ids:
+            merged[key] = target
+        elif target in fresh:
+            merged[key] = fresh[target]
+        # else: target deleted with no survivor — drop the entry; those runs exit gracefully.
+    return merged
+
+
 def compute_action_redirects(
     old_actions: list[dict],
     old_edges: list[dict],
@@ -40,52 +97,15 @@ def compute_action_redirects(
     old_ids = {action["id"] for action in old_actions if action.get("id")}
     new_ids = {action["id"] for action in new_actions if action.get("id")}
 
-    # First continue edge per node, matching the worker's findNextAction (first match wins).
-    continue_targets: dict[str, str] = {}
-    for edge in old_edges:
-        source, target = edge.get("from"), edge.get("to")
-        if edge.get("type") == "continue" and source and target and source not in continue_targets:
-            continue_targets[source] = target
+    continue_targets = _index_continue_targets(old_edges)
+    fresh = _resolve_deleted_successors(old_ids - new_ids, new_ids, continue_targets)
 
-    # Each old node's surviving successor is resolved at most once and shared across walks —
-    # deleting a long chain would otherwise re-walk the same tail once per deleted node (O(n²)).
-    resolved: dict[str, str | None] = {}
-    fresh: dict[str, str] = {}
-    for deleted_id in old_ids - new_ids:
-        path = [deleted_id]
-        on_path = {deleted_id}
-        survivor: str | None = None
-        cursor = continue_targets.get(deleted_id)
-        while cursor is not None:
-            if cursor in new_ids:
-                survivor = cursor
-                break
-            if cursor in resolved:
-                survivor = resolved[cursor]
-                break
-            if cursor in on_path:  # cycle of deleted nodes: dead end
-                break
-            path.append(cursor)
-            on_path.add(cursor)
-            cursor = continue_targets.get(cursor)
-        for node in path:
-            resolved[node] = survivor
-        if survivor is not None:
-            fresh[deleted_id] = survivor
-
-    merged: dict[str, str] = {}
-    for key, target in (existing or {}).items():
-        if key in new_ids:
-            continue  # Step re-added: runs standing on it execute it normally again.
-        if target in new_ids:
-            merged[key] = target
-        elif target in fresh:
-            merged[key] = fresh[target]
-        # else: target deleted with no survivor — drop the entry; those runs exit gracefully.
+    merged = _normalize_existing(existing, new_ids, fresh)
     # Fresh entries win over stale ones: they're computed from the graph as it is right now.
     merged.update(fresh)
 
     if len(merged) > MAX_ACTION_REDIRECTS:
+        # On overflow keep the newest entries (dict order: prior-edit entries first, this edit's last).
         merged = dict(list(merged.items())[-MAX_ACTION_REDIRECTS:])
 
     return merged or None
