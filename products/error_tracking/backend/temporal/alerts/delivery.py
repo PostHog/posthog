@@ -57,13 +57,17 @@ def plan_alert_deliveries(inputs: AlertDeliveryWorkflowInputs) -> list[PlannedDe
 
     planned: list[PlannedDelivery] = []
     for alert in alerts:
-        is_opener = trigger is not None and trigger in alert.triggers
+        trigger_matched = trigger is not None and trigger in alert.triggers
         for destination in destinations_by_alert.get(alert.id, []):
             thread = threads_by_destination.get(destination.id)
-            if thread is None and not is_opener:
+            if thread is None and not trigger_matched:
                 # Replies never open threads: an update with no rooted thread stays
                 # unclaimed so a later opener can still start the conversation cleanly.
                 continue
+            # Only the first matching transition opens; once a destination has a
+            # thread, every later transition is a reply into it, even a repeated
+            # opener event (e.g. spiking again, or reopen after resolve).
+            is_opener = trigger_matched and thread is None
             planned.append(PlannedDelivery(alert=alert, destination=destination, is_opener=is_opener, thread=thread))
     return planned
 

@@ -115,6 +115,22 @@ class TestAlertDeliveryPlanning(AlertTestMixin):
         assert planned[0].thread is not None
         assert planned[0].thread.id == thread.id
 
+    def test_repeated_opener_event_with_thread_is_a_reply(self):
+        alert = self._create_alert(triggers=["issue_created", "issue_reopened"])
+        with team_scope(self.team.id):
+            ErrorTrackingAlertThread.objects.create(
+                team=self.team,
+                alert=alert,
+                issue=self.issue,
+                destination=alert.destinations.first(),
+            )
+
+        planned = plan_alert_deliveries(self._inputs("$error_tracking_issue_reopened"))
+
+        assert len(planned) == 1
+        assert planned[0].is_opener is False
+        assert planned[0].thread is not None
+
     def test_multi_destination_alert_plans_per_destination(self):
         alert = self._create_alert(triggers=["issue_created"])
         with team_scope(self.team.id):
