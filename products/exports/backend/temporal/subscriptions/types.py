@@ -106,6 +106,11 @@ AI_REPORT_DIAGNOSTICS_KEY = "ai_report_diagnostics"
 # (exactly gap-free); rows written before this key existed fall back to finished_at.
 AI_REPORT_WINDOW_END_KEY = "ai_report_window_end"
 AI_REPORT_CHARTS_KEY = "ai_report_charts"
+# The resources that grounded an AI report at delivery time. Kept with the delivery rather than
+# inferred from the current subscription so removing an inaccessible context cannot expose an
+# earlier report. The nested maps use resource IDs as keys, which supports efficient JSON key
+# membership checks in the delivery-history access filter.
+AI_REPORT_CONTEXT_SNAPSHOT_KEY = "ai_report_context"
 
 
 class SubscriptionTriggerType:

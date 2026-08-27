@@ -34,6 +34,7 @@ from products.exports.backend.models.subscription import (
 )
 from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_CHARTS_KEY,
+    AI_REPORT_CONTEXT_SNAPSHOT_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_SNAPSHOT_KEY,
@@ -3441,6 +3442,15 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         subscription = self._subscription_for(
             prompt="How did signups do last week?", context_dashboards=[self.restricted_dashboard]
         )
+        self._delivery_for(
+            subscription,
+            content_snapshot={
+                AI_REPORT_CONTEXT_SNAPSHOT_KEY: {
+                    "version": 1,
+                    "resources": {"dashboard": {str(self.restricted_dashboard.id): True}},
+                }
+            },
+        )
 
         listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
         assert subscription.id not in [row["id"] for row in listed.json()["results"]]
@@ -3448,11 +3458,62 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}")
         assert retrieved.status_code == status.HTTP_200_OK, retrieved.json()
 
+        for forbidden_update in (
+            {"prompt": "Send this report elsewhere"},
+            {"target_value": "attacker@example.com"},
+            {"send_test_now": True},
+        ):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", forbidden_update
+            )
+            assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+        test_delivery = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/test-delivery")
+        assert test_delivery.status_code == status.HTTP_403_FORBIDDEN, test_delivery.json()
+
+        paused = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", {"enabled": False})
+        assert paused.status_code == status.HTTP_200_OK, paused.json()
+
+        reenabled = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", {"enabled": True}
+        )
+        assert reenabled.status_code == status.HTTP_403_FORBIDDEN, reenabled.json()
+
         cleared = self.client.patch(
             f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", {"context_dashboards": []}
         )
         assert cleared.status_code == status.HTTP_200_OK, cleared.json()
         assert cleared.json()["context_dashboards"] == []
+
+        deliveries = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/")
+        assert deliveries.status_code == status.HTTP_200_OK
+        assert deliveries.json()["results"] == []
+
+    def test_non_creator_cannot_recover_a_context_blocked_subscription(self):
+        subscription = self._subscription_for(
+            prompt="How did signups do last week?", context_dashboards=[self.restricted_dashboard]
+        )
+        other_user = self._create_user("other@posthog.com")
+        other_membership = OrganizationMembership.objects.get(organization=self.organization, user=other_user)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id=str(self.restricted_dashboard.id),
+            organization_member=other_membership,
+            access_level="none",
+        )
+        cache.clear()
+        self.client.force_login(other_user)
+
+        for method, suffix, body in (
+            ("get", "", None),
+            ("patch", "", {"context_dashboards": []}),
+            ("post", "/test-delivery", None),
+        ):
+            response = getattr(self.client, method)(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription.id}{suffix}", body
+            )
+            assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
     def test_dashboard_context_with_a_restricted_tile_is_hidden_from_lists_and_deliveries(self):
         subscription = self._sub_anchored_to_a_dashboard_with_a_restricted_tile()

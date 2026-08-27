@@ -1,5 +1,7 @@
+import json
 import uuid
 import asyncio
+from collections import Counter
 from collections.abc import Callable
 from typing import Any, ClassVar, Optional
 
@@ -63,6 +65,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
 )
 from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_CHARTS_KEY,
+    AI_REPORT_CONTEXT_SNAPSHOT_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_SNAPSHOT_KEY,
@@ -1172,7 +1175,45 @@ def _viewable_subscription_filter(
 
 
 def _viewable_delivery_filter(user_access_control: UserAccessControl, team_id: int) -> Q:
-    return _target_filter(user_access_control, team_id, _DELIVERY_TARGETS)
+    target_filter = _target_filter(user_access_control, team_id, _DELIVERY_TARGETS)
+    if not user_access_control.access_controls_supported or user_access_control.is_organization_admin:
+        return target_filter
+
+    rules = (user_access_control.blocked_resource_ids_by_scope, user_access_control.allowlisted_resource_ids_by_scope)
+    has_object_rules = any(scope.get("insight") or scope.get("dashboard") for scope in rules)
+    denies_a_target_resource = not user_access_control.has_resource_access(
+        "insight"
+    ) or not user_access_control.has_resource_access("dashboard")
+    if not has_object_rules and not denies_a_target_resource:
+        return target_filter
+
+    blocked_insight_ids = list(
+        _blocked_target_ids(
+            user_access_control, _DELIVERY_TARGETS.insights.filter(team_id=team_id), "insight"
+        ).values_list("id", flat=True)
+    )
+    blocked_dashboard_ids = list(
+        _blocked_target_ids(
+            user_access_control, _DELIVERY_TARGETS.dashboards.filter(team_id=team_id), "dashboard"
+        ).values_list("id", flat=True)
+    )
+
+    hidden_historical_context = Q(pk__in=[])
+    for resource_name, resource_ids in (
+        ("dashboard", blocked_dashboard_ids),
+        ("insight", blocked_insight_ids),
+        ("dashboard_tile_insight", blocked_insight_ids),
+    ):
+        if resource_ids:
+            hidden_historical_context |= Q(
+                **{
+                    f"content_snapshot__{AI_REPORT_CONTEXT_SNAPSHOT_KEY}__resources__{resource_name}__has_any_keys": [
+                        str(resource_id) for resource_id in resource_ids
+                    ]
+                }
+            )
+
+    return target_filter & ~hidden_historical_context
 
 
 def _target_filter(
@@ -1335,6 +1376,10 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
     ]
     ordering = ["-created_at"]
 
+    _RECOVERY_UPDATE_FIELDS = frozenset(
+        {"context_dashboards", "context_insights", "context_items", "enabled", "deleted"}
+    )
+
     # Writing an AI prompt subscription also requires query-read access: it runs LLM-generated
     # HogQL and delivers the results, so subscription:write alone could exfiltrate analytics.
     # Two layers gate this off _write_touches_ai_subscription: a required query:read scope keeps a
@@ -1460,16 +1505,87 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
 
     def safely_get_object(self, queryset: QuerySet) -> Subscription:
         subscription = get_object_or_404(queryset, pk=self.kwargs[self.lookup_field])
-        can_view_subscription = (
+        if self._can_view_subscription(subscription, include_anchors=True):
+            return subscription
+        if self._can_recover_context_access(subscription):
+            return subscription
+        raise exceptions.PermissionDenied(
+            "You do not have viewer access to this subscription. Ask an organization admin to update your access."
+        )
+
+    def _can_view_subscription(self, subscription: Subscription, *, include_anchors: bool) -> bool:
+        return (
             Subscription.objects.filter(pk=subscription.pk, team_id=self.team_id)
-            .filter(_viewable_subscription_filter(self.user_access_control, self.team_id, include_anchors=False))
+            .filter(
+                _viewable_subscription_filter(self.user_access_control, self.team_id, include_anchors=include_anchors)
+            )
             .exists()
         )
-        if not can_view_subscription:
+
+    def _can_recover_context_access(self, subscription: Subscription) -> bool:
+        return subscription.created_by_id == self.request.user.id and self._can_view_subscription(
+            subscription, include_anchors=False
+        )
+
+    def _validate_context_recovery_update(self, subscription: Subscription, data) -> None:
+        if not isinstance(data, dict) or not set(data).issubset(self._RECOVERY_UPDATE_FIELDS):
             raise exceptions.PermissionDenied(
-                "You do not have viewer access to this subscription. Ask an organization admin to update your access."
+                "You can only remove inaccessible context, pause, or delete this subscription."
             )
-        return subscription
+
+        for field in ("context_dashboards", "context_insights"):
+            if field not in data:
+                continue
+            requested_ids = data[field]
+            if not isinstance(requested_ids, list) or not all(
+                type(resource_id) is int for resource_id in requested_ids
+            ):
+                raise exceptions.PermissionDenied(
+                    "You can only remove inaccessible context, pause, or delete this subscription."
+                )
+            existing_ids = set(getattr(subscription, field).values_list("id", flat=True))
+            if len(requested_ids) != len(set(requested_ids)) or not set(requested_ids).issubset(existing_ids):
+                raise exceptions.PermissionDenied(
+                    "You can only remove inaccessible context, pause, or delete this subscription."
+                )
+
+        if "context_items" in data:
+            requested_items = data["context_items"]
+            try:
+                requested_item_counts = Counter(json.dumps(item, sort_keys=True) for item in requested_items)
+                existing_item_counts = Counter(json.dumps(item, sort_keys=True) for item in subscription.context_items)
+            except (TypeError, ValueError):
+                raise exceptions.PermissionDenied(
+                    "You can only remove inaccessible context, pause, or delete this subscription."
+                ) from None
+            if not isinstance(requested_items, list) or requested_item_counts > existing_item_counts:
+                raise exceptions.PermissionDenied(
+                    "You can only remove inaccessible context, pause, or delete this subscription."
+                )
+
+        if "enabled" in data and data["enabled"] is not False:
+            raise exceptions.PermissionDenied(
+                "You can only remove inaccessible context, pause, or delete this subscription."
+            )
+        if "deleted" in data and data["deleted"] is not True:
+            raise exceptions.PermissionDenied(
+                "You can only remove inaccessible context, pause, or delete this subscription."
+            )
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        if self._can_recover_context_access(instance):
+            self._validate_context_recovery_update(instance, request.data)
+
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+
+        if getattr(instance, "_prefetched_objects_cache", None):
+            instance._prefetched_objects_cache = {}
+
+        return Response(serializer.data)
 
     @extend_schema(
         extensions={"x-product": "subscriptions"},
@@ -1534,6 +1650,10 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
     )
     def test_delivery(self, request, **kwargs):
         subscription = self.get_object()
+        if self._can_recover_context_access(subscription):
+            raise exceptions.PermissionDenied(
+                "You can only remove inaccessible context, pause, or delete this subscription."
+            )
         if subscription.deleted:
             return Response(status=status.HTTP_404_NOT_FOUND)
         if not subscription.enabled:
