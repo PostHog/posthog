@@ -17,7 +17,7 @@ import {
     WebStatsBreakdown,
 } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import { InsightLogicProps, PropertyFilterType, PropertyMathType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, InsightLogicProps, PropertyFilterType, PropertyMathType, PropertyOperator } from '~/types'
 
 /** Matches BREAKDOWN_NULL_DISPLAY in posthog/hogql_queries/web_analytics/stats_table.py */
 export const BREAKDOWN_NULL_DISPLAY = '(none)'
@@ -588,6 +588,35 @@ export const exactMatchOperatorFor = (
               : eventPropertiesToPathClean
 
     return cleanableProperties.has(key) ? PropertyOperator.IsCleanedPathExact : PropertyOperator.Exact
+}
+
+/**
+ * Build a property filter for a breakdown value. When the value is the
+ * BREAKDOWN_NULL_DISPLAY placeholder ("(none)"), the property isn't literally
+ * set to "(none)" — it just isn't set — so use IsNotSet instead of an exact
+ * match. Otherwise `exactMatchOperatorFor` decides which exact match handles a
+ * path-cleaned value.
+ */
+export const buildBreakdownPropertyFilter = (
+    key: string,
+    type: PropertyFilterType.Event | PropertyFilterType.Session | PropertyFilterType.Person,
+    value: string,
+    doPathCleaning?: boolean
+): AnyPropertyFilter => {
+    if (value === BREAKDOWN_NULL_DISPLAY) {
+        return {
+            key,
+            type,
+            value: null,
+            operator: PropertyOperator.IsNotSet,
+        } as AnyPropertyFilter
+    }
+    return {
+        key,
+        type,
+        value: [value],
+        operator: exactMatchOperatorFor(key, type, doPathCleaning),
+    } as AnyPropertyFilter
 }
 
 // Utility function to map SQL/internal column names to UI-friendly display names

@@ -3,7 +3,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
-import { exactMatchOperatorFor } from 'scenes/web-analytics/common'
+import { buildBreakdownPropertyFilter } from 'scenes/web-analytics/common'
 
 import { ProductIntentContext, ProductKey, WebStatsBreakdown } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, PropertyFilterType } from '~/types'
@@ -36,16 +36,12 @@ export const ErrorTrackingButton = ({ breakdownBy, value, doPathCleaning }: Erro
                         {
                             type: FilterLogicalOperator.And,
                             values: [
-                                {
-                                    key: '$pathname',
-                                    value: [value],
-                                    operator: exactMatchOperatorFor(
-                                        '$pathname',
-                                        PropertyFilterType.Event,
-                                        doPathCleaning
-                                    ),
-                                    type: PropertyFilterType.Event,
-                                },
+                                buildBreakdownPropertyFilter(
+                                    '$pathname',
+                                    PropertyFilterType.Event,
+                                    value,
+                                    doPathCleaning
+                                ),
                             ],
                         },
                     ],
