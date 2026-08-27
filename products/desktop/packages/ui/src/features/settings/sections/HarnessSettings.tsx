@@ -225,7 +225,7 @@ export function HarnessSettings() {
         <SettingsCard>
           <SettingsCardRow
             label="Claude permission rules"
-            description="Tool permissions from your Claude settings; allowed tools run without prompting; denied tools are always blocked; Codex keeps its own rules in config.toml"
+            description="Tool permissions from your Claude settings. Allowed tools run without prompting. Denied tools are always blocked. Codex keeps its own rules in config.toml"
           >
             <CopyableCommand command="claude config" />
           </SettingsCardRow>
@@ -234,7 +234,7 @@ export function HarnessSettings() {
 
           <SettingsCardRow
             label="Allow bypass permissions mode"
-            description="Adds bypass permissions to the mode menu so you can pick it per session; sessions keep asking for approval until you pick it; this also unlocks Full access in Codex"
+            description="Adds bypass permissions to the mode menu so you can pick it per session. Sessions keep asking for approval until you pick it. This also unlocks Full access in Codex"
           >
             <Switch
               checked={allowBypassPermissions}
