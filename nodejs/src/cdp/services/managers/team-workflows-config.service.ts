@@ -1,6 +1,7 @@
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { LazyLoader } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
+import { PubSub } from '~/common/utils/pubsub'
 
 // Mirrors EmailTrackingConsentMode in products/workflows/backend/models/team_workflows_config.py
 export type EmailTrackingConsentMode = 'off' | 'opt_out' | 'opt_in'
@@ -33,12 +34,21 @@ const DEFAULT_CONFIG: TeamWorkflowsConfig = {
 export class TeamWorkflowsConfigService {
     private lazyLoader: LazyLoader<TeamWorkflowsConfig>
 
-    constructor(private postgres: PostgresRouter) {
+    constructor(
+        private postgres: PostgresRouter,
+        pubSub: PubSub
+    ) {
         this.lazyLoader = new LazyLoader({
             name: 'team_workflows_config',
             refreshAgeMs: 2 * 60 * 1000,
             refreshJitterMs: 30 * 1000,
             loader: async (teamIds) => await this.fetchConfigs(teamIds),
+        })
+        // The refresh age alone would leave a team the provider paused still sending, and a
+        // reinstated team still blocked, until its entry expired. The provider state sync announces
+        // each change so the next send reads it. Staff kill-switch flips still wait out the age.
+        pubSub.on<{ teamId: number }>('reload-team-workflows-config', ({ teamId }) => {
+            this.lazyLoader.markForRefresh(String(teamId))
         })
     }
 

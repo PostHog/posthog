@@ -76,6 +76,11 @@ def reload_integrations_on_workers(team_id: int, integration_ids: list[int]):
     publish_message("reload-integrations", {"teamId": team_id, "integrationIds": integration_ids})
 
 
+def reload_team_workflows_config_on_workers(team_id: int):
+    logger.info(f"Reloading team workflows config for team {team_id} on workers")
+    publish_message("reload-team-workflows-config", {"teamId": team_id})
+
+
 def populate_plugin_capabilities_on_workers(plugin_id: str):
     logger.info(f"Populating plugin capabilities for plugin {plugin_id} on workers")
     publish_message("populate-plugin-capabilities", {"pluginId": plugin_id})

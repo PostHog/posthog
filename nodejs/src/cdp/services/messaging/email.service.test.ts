@@ -107,7 +107,7 @@ describe('EmailService', () => {
                 sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
             },
             hub.integrationManager,
-            new TeamWorkflowsConfigService(hub.postgres),
+            new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
             hub.ENCRYPTION_SALT_KEYS,
             hub.SITE_URL,
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
@@ -131,7 +131,7 @@ describe('EmailService', () => {
                     sesUntrackedConfigurationSet: '',
                 },
                 hub.integrationManager,
-                new TeamWorkflowsConfigService(hub.postgres),
+                new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
                 hub.ENCRYPTION_SALT_KEYS,
                 hub.SITE_URL,
                 new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
@@ -486,7 +486,7 @@ describe('EmailService', () => {
                         sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
                     },
                     hub.integrationManager,
-                    new TeamWorkflowsConfigService(hub.postgres),
+                    new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
                     hub.ENCRYPTION_SALT_KEYS,
                     hub.SITE_URL,
                     new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
@@ -817,6 +817,24 @@ describe('EmailService', () => {
 
                 expect(sendEmailSpy).toHaveBeenCalledTimes(sesCalls as number)
                 expect(result.metrics.map((m) => m.metric_name)).toContain(metricName)
+            })
+
+            // The send path caches this row for minutes, so a pause that lands after the first read
+            // would keep sending — and a reinstatement would keep blocking — until the entry aged
+            // out. The provider state sync announces each change to close that window.
+            it('picks up a provider status change announced while the config is cached', async () => {
+                const configService = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
+                await setProviderTenantStatus('ENABLED')
+                expect(await configService.getEmailSendingSuspension(team.id)).toBeNull()
+
+                await setProviderTenantStatus('DISABLED')
+
+                await waitForExpect(async () => {
+                    // Republished every poll: subscribing is asynchronous, so the first publish can
+                    // land before this subscriber is listening. Marking for refresh is idempotent.
+                    await hub.pubSub.publish('reload-team-workflows-config', JSON.stringify({ teamId: team.id }))
+                    expect(await configService.getEmailSendingSuspension(team.id)).toEqual('provider')
+                }, 3000)
             })
 
             it('fails open when the suspension lookup errors', async () => {
