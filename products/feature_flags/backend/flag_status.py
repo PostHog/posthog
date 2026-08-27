@@ -75,13 +75,17 @@ def filter_stale_flags(queryset: QuerySet) -> QuerySet:
     `properties: []`, so only unedited legacy rows hold the second shape.
     `test_stale_filter_agrees_with_status_checker` covers the shapes where the two do agree.
 
-    The caller supplies the scope, so a batched caller can compose this with its own team
-    filter.
+    The caller supplies the scope, so pass a queryset already narrowed to the team.
+
+    The config branch's raw SQL rides on `.extra(where=...)`, and that clause stays on that
+    branch when the two querysets are OR-combined below. Applied to the combined query, it
+    would narrow the usage-based branch too and drop flags that are stale only by usage.
+    `test_filters_stale` covers that case.
 
     Compose it by chaining `.filter()`, and keep the result a top-level queryset. The raw
-    `.extra(where=...)` predicate hard-codes the `posthog_featureflag` table name, so wrapping the
-    result in `Exists()`, `Subquery()`, or `pk__in=<queryset>` aliases the table and Postgres
-    rejects the query, because the raw text still reads `posthog_featureflag.filters`.
+    predicate hard-codes the `posthog_featureflag` table name, so wrapping the result in
+    `Exists()`, `Subquery()`, or `pk__in=<queryset>` aliases the table and Postgres rejects the
+    query, because the raw text still reads `posthog_featureflag.filters`.
     """
     # Get stale flags using the best available signal:
     # 1. If last_called_at exists: flag hasn't been called in 30+ days
