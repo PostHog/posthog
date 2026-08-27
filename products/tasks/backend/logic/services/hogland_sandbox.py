@@ -30,7 +30,7 @@ from typing import Any
 from django.conf import settings
 
 import httpx
-from hogland import APIError, ExecEvent, Hogbox, Hogland, NotFoundError
+from hogland import APIError, ExecEvent, Hogbox, Hogland, NotFoundError, RateLimitError, ServerError
 
 from products.tasks.backend.exceptions import (
     SandboxCleanupError,
@@ -56,12 +56,13 @@ from .sandbox import AgentServerResult, ExecutionResult, ExecutionStream, Sandbo
 
 logger = logging.getLogger(__name__)
 
-# Server-side and transport faults that delete() surfaces during teardown. destroy() is
-# best-effort — every caller swallows it because the box's idle TTL reaps it anyway — so a
-# hogland-side blip must not mint a fresh error-tracking issue. APIError covers a server-side
-# response (including NotFoundError, which means the box is already gone); TransportError covers
-# a network drop.
-TRANSIENT_TERMINATE_ERRORS: tuple[type[BaseException], ...] = (APIError, httpx.TransportError)
+# Retryable hogland-side faults that delete() surfaces during teardown. destroy() is best-effort —
+# every caller swallows it because the box's idle TTL reaps it anyway — so a transient blip must not
+# mint a fresh error-tracking issue. ServerError (5xx) and RateLimitError (429) are the retryable
+# responses; TransportError covers a network drop. Permanent API faults (auth, permission,
+# validation, conflict) fall through to the captured branch because they signal a real problem to
+# investigate. A 404 never reaches here — delete() treats an already-gone box as success.
+TRANSIENT_TERMINATE_ERRORS: tuple[type[BaseException], ...] = (ServerError, RateLimitError, httpx.TransportError)
 
 # "agent" is a registered hogland kind (1h idle-TTL default) for API-driven
 # LLM sandbox runs — exactly this workload. Using it rather than an unregistered

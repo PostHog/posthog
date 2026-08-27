@@ -3,7 +3,16 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
-from hogland import APIError, ExecEvent, ExecResult, NotFoundError
+from hogland import (
+    AuthenticationError,
+    ExecEvent,
+    ExecResult,
+    NotFoundError,
+    PermissionDeniedError,
+    RateLimitError,
+    ServerError,
+    ValidationError,
+)
 from parameterized import parameterized
 
 from products.tasks.backend.exceptions import (
@@ -222,7 +231,11 @@ class TestHoglandSandboxLifecycle:
 
     @parameterized.expand(
         [
-            ("transient_api_error", APIError(status_code=500, body=None, request_id=None, message="boom"), False),
+            ("transient_server_error", ServerError("boom", status_code=500), False),
+            ("transient_rate_limit", RateLimitError("boom", status_code=429), False),
+            ("permanent_auth_error", AuthenticationError("boom", status_code=401), True),
+            ("permanent_permission_error", PermissionDeniedError("boom", status_code=403), True),
+            ("permanent_validation_error", ValidationError("boom", status_code=422), True),
             ("unexpected_error", RuntimeError("boom"), True),
         ]
     )
