@@ -32,7 +32,7 @@ from .health import CheckStatusRow, roll_up_health
 from .registry import get_spec
 from .serialization import compute_fingerprint
 from .spec import CheckConfig
-from .subjects import resolve_subject
+from .subjects import resolve_subject, subject_column_type
 
 _UPSERTABLE_FIELDS = (
     "name",
@@ -73,10 +73,14 @@ def validate_check(
     Returns the parsed config so callers do not validate twice, and so the fingerprint hashes the
     normalized form rather than whatever representation the request happened to use.
     """
-    parsed = get_spec(check_type).validate(config, column_name)
+    spec = get_spec(check_type)
+    parsed = spec.validate(config, column_name)
 
     if not resolve_subject(team.id, subject_type, subject_uuid).exists:
         raise SubjectUnresolvableError(f"No {subject_type} with id {subject_uuid} in this project.")
+
+    # After the subject resolves, so the column type is only looked up for a check that could run.
+    parsed = spec.coerce_to_column(parsed, subject_column_type(team.id, subject_type, subject_uuid, column_name))
 
     related = related_subject_ref(check_type, config)
     if related and not resolve_subject(team.id, *related).exists:

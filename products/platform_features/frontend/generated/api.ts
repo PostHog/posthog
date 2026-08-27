@@ -46,6 +46,7 @@ import type {
     PatchedOrganizationMemberApi,
     PatchedPinnedSceneTabsApi,
     PatchedRoleApi,
+    PatchedUserFacetSettingsApi,
     PersonalApiKeysListParams,
     PinnedSceneTabsApi,
     RoleApi,
@@ -53,6 +54,9 @@ import type {
     RolesListParams,
     RolesRoleMembershipsListParams,
     SendCommentToSlackApi,
+    UserFacetSettingsApi,
+    UserFacetSettingsPartialUpdateParams,
+    UserFacetSettingsRetrieveParams,
     WelcomeResponseApi,
 } from './api.schemas'
 
@@ -1087,6 +1091,69 @@ export const commentsCountRetrieve = async (projectId: string, options?: Request
     return apiMutator<void>(getCommentsCountRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getUserFacetSettingsRetrieveUrl = (uuid: string, params: UserFacetSettingsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/user_facet_settings/${uuid}/?${stringifiedParams}`
+        : `/api/user_facet_settings/${uuid}/`
+}
+
+/**
+ * Get the authenticated user's custom facets for a product, within the current team. Pass `@me` as the UUID.
+ */
+export const userFacetSettingsRetrieve = async (
+    uuid: string,
+    params: UserFacetSettingsRetrieveParams,
+    options?: RequestInit
+): Promise<UserFacetSettingsApi> => {
+    return apiMutator<UserFacetSettingsApi>(getUserFacetSettingsRetrieveUrl(uuid, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUserFacetSettingsPartialUpdateUrl = (uuid: string, params: UserFacetSettingsPartialUpdateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/user_facet_settings/${uuid}/?${stringifiedParams}`
+        : `/api/user_facet_settings/${uuid}/`
+}
+
+/**
+ * Replace the authenticated user's custom facets for a product, within the current team. Pass `@me` as the UUID.
+ */
+export const userFacetSettingsPartialUpdate = async (
+    uuid: string,
+    params: UserFacetSettingsPartialUpdateParams,
+    patchedUserFacetSettingsApi?: PatchedUserFacetSettingsApi,
+    options?: RequestInit
+): Promise<UserFacetSettingsApi> => {
+    return apiMutator<UserFacetSettingsApi>(getUserFacetSettingsPartialUpdateUrl(uuid, params), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedUserFacetSettingsApi),
     })
 }
 

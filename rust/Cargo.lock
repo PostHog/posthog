@@ -6009,11 +6009,13 @@ dependencies = [
  "envconfig",
  "flate2",
  "futures",
+ "ingestion-worker-proto",
  "k8s-awareness",
  "kube",
  "lifecycle",
  "metrics",
  "metrics-exporter-prometheus",
+ "prost 0.13.5",
  "rand 0.8.5",
  "rdkafka",
  "reqwest 0.12.28",
@@ -6022,7 +6024,9 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-stream",
  "tokio-util",
+ "tonic 0.12.3",
  "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
@@ -8979,7 +8983,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-replay-anonymizer"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",

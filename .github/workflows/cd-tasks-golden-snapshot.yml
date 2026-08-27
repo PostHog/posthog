@@ -1,0 +1,599 @@
+# Bake the PostHog *tasks* golden snapshot and promote it into the alias that
+# HoglandSandbox.create restores every task sandbox from.
+#
+# HoglandSandbox.create (products/tasks/backend/logic/services/hogland_sandbox.py)
+# restores every task sandbox from the alias this workflow promotes. Instead of an
+# engineer running the bake from a laptop, a runner renders the agent skills,
+# joins the hogland tailnet, builds the seed box from box primitives + a delivered
+# payload, smoke-tests the candidate, and only then re-points the live alias —
+# with a dated archive alias for rollback.
+#
+# Skills delivery (the crux): the golden must ship the SAME merged, rendered skills
+# the Modal image ships, but WITHOUT depending on the sandbox-base image. So a
+# `render_skills` job renders them itself with a database — the same
+# `hogli build:skills` mechanism the image build uses — and merges in the
+# context-mill skills, exactly as cd-sandbox-base-image.yml's build_skills job does.
+# The bake job streams that rendered set into the seed box over the box's own SSH
+# (see bake-golden.sh). No GHCR image, no public artifact host.
+#
+# Modal / Dockerfile.sandbox-base is deliberately untouched: this bakes the same
+# contents into a hogland snapshot, it does not change the container image path.
+#
+# Reachability + auth (mirrors hogbox-preview-env.yml, which already reaches
+# hogland from this repo):
+#   * both hogland APIs are tailnet-only, served by tag:hogplane devices. We join
+#     as tag:hogland-ci — the tag the ACL grants reach to those devices, and the
+#     same join hogbox-preview-env.yml uses. One join covers dev and prod-us.
+#   * hogplane authenticates the caller by bearer: GitHub OIDC end-to-end, no
+#     stored token. It verifies the Actions OIDC token and resolves the
+#     (repo, workflow) claim to a service-account Principal via a github_oidc
+#     TrustMapping. Those tokens live ~5 min while a bake runs ~90, so the CLI
+#     re-mints on any mid-bake 401 via HOG_TOKEN_COMMAND — a single mint-at-start
+#     bearer would die mid-bake.
+#
+# Gating: this stays a deliberate no-op until an operator provisions the per-
+# cluster svc-ci principal + github_oidc TrustMapping + tailnet admittance and
+# flips the arming vars (see GOLDEN_CI_RUNBOOK.md). workflow_dispatch is the only
+# real trigger; the nightly schedule fires but the job's `if` keeps it a no-op
+# until armed, so merging this PR cannot attempt a bake before the principal
+# exists.
+
+name: Tasks Golden Snapshot CD
+
+on:
+    workflow_dispatch:
+        inputs:
+            cluster:
+                description: 'Only bake this cluster (blank = all armed clusters)'
+                required: false
+                default: ''
+            ref:
+                description: "PostHog ref/SHA to render the skills from (blank = this workflow's checkout ref, i.e. master on schedule)"
+                required: false
+                default: ''
+    schedule:
+        # Daily, minute offset off :00 — GitHub's scheduler is contended at the
+        # top of the hour and may drop those runs. No-op until armed (job `if`).
+        - cron: '17 8 * * *' # ~08:17 UTC, low-traffic window
+
+permissions:
+    contents: read
+    id-token: write # mint OIDC for the tailnet join AND the hogplane bearer
+
+# Never two bakes racing the same alias. Per-cluster group keys would need
+# ${{ matrix.cluster }}, unavailable at workflow level, so serialise the whole
+# workflow and rely on fail-fast=false to keep one cluster's flake from killing
+# the other within a run.
+concurrency:
+    group: cd-tasks-golden-snapshot
+    cancel-in-progress: false
+
+jobs:
+    # Resolve and validate the workflow_dispatch `ref` input in an UNPRIVILEGED
+    # job, before any credentialed job checks that tree out. A blank ref resolves
+    # to the literal `master` branch. A non-blank value must be a full 40-char
+    # commit SHA that GitHub's compare API confirms is already an ancestor of
+    # master — anything else fails here. This stops a collaborator pointing `ref`
+    # at a branch that carries a modified bake-golden.sh / setup-golden.sh and
+    # having it run in the credentialed bake job (hogland CLI App key, tailnet
+    # join, hogland/prod OIDC). render_skills and bake check out
+    # needs.validate_ref.outputs.ref, never the raw input. The
+    # `github.ref == 'refs/heads/master'` gate on every privileged job below is
+    # defense in depth (a branch copy can strip it); the durable fix is hogland
+    # pinning `ref` in the github_oidc TrustMapping — see GOLDEN_CI_RUNBOOK.md.
+    validate_ref:
+        if: github.ref == 'refs/heads/master'
+        name: Validate the requested ref
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        permissions:
+            contents: read
+        outputs:
+            ref: ${{ steps.resolve.outputs.ref }}
+        steps:
+            - name: Resolve and validate ref
+              id: resolve
+              env:
+                  REQUESTED_REF: ${{ github.event.inputs.ref }}
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  set -euo pipefail
+                  if [[ -z "$REQUESTED_REF" ]]; then
+                      echo "ref=master" >> "$GITHUB_OUTPUT"
+                      echo "::notice::No ref supplied; baking from the master branch"
+                      exit 0
+                  fi
+                  if [[ ! "$REQUESTED_REF" =~ ^[0-9a-f]{40}$ ]]; then
+                      echo "::error::ref must be a full 40-character commit SHA (got '$REQUESTED_REF')"
+                      exit 1
+                  fi
+                  # compare master...<ref>: ahead_by counts commits in <ref> that
+                  # master does not contain. Zero => <ref> is an ancestor of (or
+                  # identical to) master. A non-existent SHA 404s and fails here.
+                  ahead_by=$(gh api "repos/${GITHUB_REPOSITORY}/compare/master...${REQUESTED_REF}" --jq '.ahead_by')
+                  if [[ "$ahead_by" != "0" ]]; then
+                      echo "::error::ref ${REQUESTED_REF} is not an ancestor of master (ahead_by=${ahead_by}); only merged commits may be baked"
+                      exit 1
+                  fi
+                  echo "ref=${REQUESTED_REF}" >> "$GITHUB_OUTPUT"
+                  echo "::notice::ref ${REQUESTED_REF} confirmed an ancestor of master"
+
+    # Render the agent skills the golden ships, the same way the sandbox-base image
+    # build does (cd-sandbox-base-image.yml's build_skills job): stand up a DB,
+    # uv sync, migrate, `hogli build:skills` to render the .md.j2 templates, then
+    # merge in the context-mill skills. Upload the merged set as an artifact the
+    # bake job delivers into the box. Rendered once here, reused by every cluster.
+    #
+    # Shares the master arm gate so an unarmed nightly does not pay for a full DB
+    # render; when it skips, the bake job (needs) skips too, keeping the no-op.
+    render_skills:
+        needs: validate_ref
+        if: vars.HOG_TASKS_GOLDEN_ENABLED == 'true' && github.ref == 'refs/heads/master'
+        name: Render agent skills from source
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+        permissions:
+            contents: read
+
+        steps:
+            - name: Check out posthog
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ needs.validate_ref.outputs.ref }}
+
+            - name: Start Docker services
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+              run: bin/ci-wait-for-docker launch
+
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version-file: 'pyproject.toml'
+                  token: ${{ github.token }}
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.28'
+                  enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+
+            - name: Install python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: stable
+                  components: cargo
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+              with:
+                  shared-key: 'v2-rust-skills'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
+
+            - name: Install sqlx-cli
+              uses: ./.github/actions/setup-sqlx-cli
+
+            - name: Wait for Docker services
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+              run: bin/ci-wait-for-docker wait
+
+            - name: Run migrations
+              env:
+                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+                  REDIS_URL: 'redis://localhost'
+                  OBJECT_STORAGE_ENABLED: 'False'
+                  TEST: 1
+                  DEBUG: 1
+              run: |
+                  DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
+                    sqlx database create
+                  DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
+                    sqlx migrate run --source rust/persons_migrations/
+                  python manage.py migrate --noinput
+                  python manage.py setup_dev --no-data
+
+            - name: Build skills
+              env:
+                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+                  REDIS_URL: 'redis://localhost'
+                  OBJECT_STORAGE_ENABLED: 'False'
+                  TEST: 1
+                  DEBUG: 1
+              run: ./bin/hogli build:skills
+
+            - name: Download context-mill skills
+              run: |
+                  CONTEXT_MILL_ZIP_URL="https://github.com/PostHog/context-mill/releases/latest/download/skills-mcp-resources.zip"
+                  TARGET_DIR="products/posthog_ai/dist/skills"
+                  tmp_dir=$(mktemp -d)
+                  trap 'rm -rf "$tmp_dir"' EXIT
+                  echo "Downloading context-mill skills from ${CONTEXT_MILL_ZIP_URL}..."
+                  curl -fsSL --retry 2 --retry-delay 3 -o "$tmp_dir/cm.zip" "$CONTEXT_MILL_ZIP_URL"
+                  unzip -q -o "$tmp_dir/cm.zip" -d "$tmp_dir/outer"
+                  mkdir -p "$TARGET_DIR"
+                  count=0
+                  while read -r inner_zip; do
+                      skill_name="$(basename "$inner_zip" .zip)"
+                      skill_name="${skill_name#omnibus-}"
+                      skill_dir="$TARGET_DIR/$skill_name"
+                      mkdir -p "$skill_dir"
+                      unzip -q -o "$inner_zip" -d "$skill_dir"
+                      find "$skill_dir" -name 'SKILL.md' -type f -exec sed -i 's/^\(name: *\)omnibus-/\1/' {} +
+                      count=$((count + 1))
+                  done < <(find "$tmp_dir/outer" -name 'omnibus-*.zip' -type f)
+                  echo "Installed ${count} context-mill skills into ${TARGET_DIR}"
+
+            - name: Upload rendered skills
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: tasks-golden-skills
+                  path: products/posthog_ai/dist/skills/
+                  retention-days: 1
+
+    bake:
+        # Arming gate: stay a deliberate no-op until the operator provisions the
+        # service-account principal + github_oidc TrustMapping + tailnet reach
+        # and sets HOG_TASKS_GOLDEN_ENABLED=true. Mirrors golden-snapshots.yml's
+        # HOG_GOLDEN_ENABLED gate. `needs: render_skills` — when render skips
+        # (unarmed), this skips too. `needs: validate_ref` to check out its
+        # validated ref, never the raw workflow_dispatch input.
+        needs: [validate_ref, render_skills]
+        if: vars.HOG_TASKS_GOLDEN_ENABLED == 'true' && github.ref == 'refs/heads/master'
+        name: Bake and promote the tasks golden snapshot
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 240 # worst case: 30m quiet-window guard + 30m cold create + ~90m setup + snapshot push + 30m smoke cold restore + buffer
+        # Job-level permissions replace the workflow defaults, so re-declare the
+        # contents/id-token the bake needs and add actions:read for the
+        # quiet-deploy-window guard's Actions API query.
+        permissions:
+            contents: read
+            id-token: write # mint OIDC for the tailnet join AND the hogplane bearer
+            actions: read # read hogland rollout runs for the quiet-window guard
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - cluster: dev
+                      hog_host: https://hogland-dev.hedgehog-kitefin.ts.net
+                      hog_oidc_audience: hogland.dev.posthog.dev
+                      rollout_workflow: deploy.yml
+                    - cluster: prod-us
+                      hog_host: https://hogland.hedgehog-kitefin.ts.net
+                      hog_oidc_audience: hogland.prod-us.posthog.dev
+                      rollout_workflow: promote-to-prod.yml
+                    # prod-eu is deferred to the EU rollout. To add it, append a
+                    # matrix entry (host https://hogland-eu... + audience
+                    # hogland.prod-eu.posthog.dev + the EU rollout workflow file)
+                    # once its svc-ci principal + TrustMapping exist, and extend
+                    # the prod arming gate below.
+
+        env:
+            HOG_HOST: ${{ matrix.hog_host }}
+            HOG_OIDC_AUDIENCE: ${{ matrix.hog_oidc_audience }}
+            # No stored bearer. The CLI mints one on demand — and re-mints on any
+            # mid-bake 401 — by hitting the Actions OIDC endpoint and jq-ing the
+            # token out. ACTIONS_ID_TOKEN_REQUEST_{URL,TOKEN} are ambient for the
+            # whole job under permissions.id-token: write.
+            HOG_TOKEN_COMMAND: 'curl -sf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$HOG_OIDC_AUDIENCE" | jq -re .value'
+
+        steps:
+            - name: Check out posthog
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ needs.validate_ref.outputs.ref }}
+
+            # Skip clusters not requested when running manually with the input set.
+            - name: Filter cluster
+              if: ${{ github.event.inputs.cluster != '' && github.event.inputs.cluster != matrix.cluster }}
+              run: echo "skip=true" >> "$GITHUB_ENV"
+
+            # Second arming gate, for prod-targeting clusters. HOG_TASKS_GOLDEN_ENABLED
+            # covers dev provisioning; a prod cluster additionally needs its own
+            # svc-ci principal + TrustMapping in that cluster (see the runbook).
+            # Stay a no-op until an operator flips HOG_TASKS_GOLDEN_PROD_ENABLED.
+            - name: Gate prod-targeting clusters
+              if: ${{ env.skip != 'true' && matrix.cluster != 'dev' && vars.HOG_TASKS_GOLDEN_PROD_ENABLED != 'true' }}
+              run: |
+                  echo "::notice::${{ matrix.cluster }} tasks golden bake skipped — set HOG_TASKS_GOLDEN_PROD_ENABLED=true once the ${{ matrix.cluster }} principal + TrustMapping exist"
+                  echo "skip=true" >> "$GITHUB_ENV"
+
+            # The rendered skills the golden ships, produced by render_skills. Land
+            # them where build_skills / install-skills.sh expect, then tar the set
+            # for bake-golden.sh to stream into the box.
+            - name: Download rendered skills
+              if: env.skip != 'true'
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: tasks-golden-skills
+                  path: products/posthog_ai/dist/skills/
+
+            - name: Tar rendered skills
+              if: env.skip != 'true'
+              run: |
+                  set -euo pipefail
+                  SRC=products/posthog_ai/dist/skills
+                  if [ -z "$(find "$SRC" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)" ]; then
+                    echo "no rendered skills found under $SRC" >&2
+                    exit 1
+                  fi
+                  tar -czf "$RUNNER_TEMP/golden-skills.tar.gz" -C "$SRC" .
+                  echo "SKILLS_TARBALL=$RUNNER_TEMP/golden-skills.tar.gz" >> "$GITHUB_ENV"
+
+            # The hogland CLI lives in the private PostHog/hogland repo. Check it
+            # out with a scoped App token and build it, mirroring
+            # golden-snapshots.yml's `go build ./cmd/hogland`.
+            - name: Mint hogland-repo token
+              if: env.skip != 'true'
+              id: hogland-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  app-id: ${{ secrets.GH_APP_HOGLAND_CLI_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_HOGLAND_CLI_PRIVATE_KEY }}
+                  owner: PostHog
+                  repositories: hogland
+
+            # Build the CLI from a released, immutable tag, never a moving branch
+            # like main — a rebuilt CLI must be reproducible across bakes. Require
+            # at least v1.5.0-cli: every flag and JSON field the bake/smoke scripts
+            # use (notably --kind) exists from that tag; older tags predate them.
+            - name: Require a pinned hogland CLI tag
+              if: env.skip != 'true'
+              env:
+                  CLI_REF: ${{ vars.HOGLAND_CLI_REF }}
+              run: |
+                  set -euo pipefail
+                  MIN_CLI_VERSION=1.5.0
+                  if [[ ! "$CLI_REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-cli$ ]]; then
+                      echo "::error::HOGLAND_CLI_REF must be a released vX.Y.Z-cli tag (got '${CLI_REF:-<unset>}'); a moving branch like main is not allowed"
+                      exit 1
+                  fi
+                  cli_version="${CLI_REF#v}"
+                  cli_version="${cli_version%-cli}"
+                  lowest=$(printf '%s\n%s\n' "$MIN_CLI_VERSION" "$cli_version" | sort -V | head -1)
+                  if [[ "$cli_version" != "$MIN_CLI_VERSION" && "$lowest" != "$MIN_CLI_VERSION" ]]; then
+                      echo "::error::HOGLAND_CLI_REF ${CLI_REF} is below the minimum v${MIN_CLI_VERSION}-cli; the bake relies on flags/fields introduced there"
+                      exit 1
+                  fi
+
+            - name: Check out hogland CLI source
+              if: env.skip != 'true'
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  repository: PostHog/hogland
+                  ref: ${{ vars.HOGLAND_CLI_REF }}
+                  token: ${{ steps.hogland-token.outputs.token }}
+                  path: hogland-src
+
+            - name: Set up Go
+              if: env.skip != 'true'
+              uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+              with:
+                  go-version-file: hogland-src/go.mod
+
+            - name: Build hogland CLI
+              if: env.skip != 'true'
+              run: |
+                  set -euo pipefail
+                  mkdir -p "$RUNNER_TEMP/bin"
+                  (cd hogland-src && go build -o "$RUNNER_TEMP/bin/hogland" ./cmd/hogland)
+                  echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+            # Join the tailnet as tag:hogland-ci — the tag whose ACL reaches the
+            # tag:hogplane device serving the API. WIF, no stored secret; the
+            # client-id + audience are shared with hogbox-preview-env.yml.
+            - name: Connect to Tailscale (tag:hogland-ci)
+              if: env.skip != 'true'
+              uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4.1.2
+              with:
+                  oauth-client-id: ${{ vars.TS_HOGLAND_CI_CLIENT_ID }}
+                  audience: ${{ vars.TS_HOGLAND_CI_AUDIENCE }}
+                  tags: tag:hogland-ci
+
+            # Ephemeral keypair for this run. bake-golden.sh bakes the PUBLIC half
+            # into the seed box on create and reaches it with the PRIVATE half; the
+            # smoke box is reached with the same key.
+            - name: Generate ephemeral ssh key
+              if: env.skip != 'true'
+              run: |
+                  set -euo pipefail
+                  ssh-keygen -t ed25519 -f "$RUNNER_TEMP/tasks_golden_key" -N "" -C tasks-golden-ci
+                  echo "GOLDEN_SSH_KEY=$RUNNER_TEMP/tasks_golden_key" >> "$GITHUB_ENV"
+
+            # Resolve the published @posthog/agent version so the golden pins an
+            # exact, reproducible agent-server — decoupled from any image. Mirrors
+            # cd-sandbox-base-image.yml's agent-version resolve.
+            - name: Resolve published agent version
+              if: env.skip != 'true'
+              id: agent-version
+              run: |
+                  set -euo pipefail
+                  version=$(curl -fsSL --retry 3 https://registry.npmjs.org/@posthog%2fagent/latest | jq -r '.version')
+                  if [[ -z "$version" || "$version" == "null" ]]; then
+                    echo "Could not resolve the latest @posthog/agent version" >&2
+                    exit 1
+                  fi
+                  echo "version=$version" >> "$GITHUB_OUTPUT"
+
+            # Quiet-deploy-window guard (mirrors hogland golden-snapshots.yml):
+            # do not bake while a hogd rollout is queued or in flight, or within
+            # 900s of the last one — a rollout racing the bake orphans the seed box
+            # and wastes the run. The rollout workflow differs per cluster
+            # (dev: deploy.yml, prod-us: promote-to-prod.yml), so it comes from the
+            # matrix, not a single shared var. Reads PostHog/hogland's Actions with
+            # the hogland App token (actions:read); an API error fails OPEN (a
+            # racing rollout only wastes a run, it cannot corrupt the alias).
+            - name: Wait for a quiet hogd rollout window
+              if: env.skip != 'true'
+              env:
+                  GH_TOKEN: ${{ steps.hogland-token.outputs.token }}
+                  ROLLOUT_WORKFLOW: ${{ matrix.rollout_workflow }}
+              run: |
+                  set -euo pipefail
+                  if [[ -z "$ROLLOUT_WORKFLOW" ]]; then
+                      echo "::notice::no rollout workflow for this cluster; skipping the quiet-window guard"
+                      exit 0
+                  fi
+                  deadline=$(( $(date +%s) + 1800 )) # wait at most 30m for the window
+                  runs_api="repos/PostHog/hogland/actions/workflows/${ROLLOUT_WORKFLOW}/runs"
+                  while :; do
+                      in_progress=$(gh api "${runs_api}?status=in_progress&per_page=1" --jq '.total_count' 2>/dev/null || echo "error")
+                      queued=$(gh api "${runs_api}?status=queued&per_page=1" --jq '.total_count' 2>/dev/null || echo "error")
+                      if [[ "$in_progress" == "error" || "$queued" == "error" ]]; then
+                          echo "::notice::could not read hogland rollout runs (App token may lack actions:read); proceeding"
+                          exit 0
+                      fi
+                      active=$(( in_progress + queued ))
+                      last_completed=$(gh api "${runs_api}?status=completed&per_page=1" --jq '.workflow_runs[0].updated_at // empty' 2>/dev/null || echo "")
+                      since=999999
+                      if [[ -n "$last_completed" ]]; then
+                          since=$(( $(date +%s) - $(date -u -d "$last_completed" +%s 2>/dev/null || echo 0) ))
+                      fi
+                      if [[ "$active" == "0" && "$since" -ge 900 ]]; then
+                          echo "::notice::quiet window: no queued/in-progress rollout, ${since}s since the last"
+                          break
+                      fi
+                      if [[ "$(date +%s)" -ge "$deadline" ]]; then
+                          echo "::error::hogd rollout window did not go quiet within 30m (active=${active}, since=${since}s); not baking"
+                          exit 1
+                      fi
+                      echo "rollout active (in_progress=${in_progress}, queued=${queued}, ${since}s since last); waiting 30s"
+                      sleep 30
+                  done
+
+            # Build into the CANDIDATE alias — no live consumer points at this
+            # name, so a bad build can't poison task runs. bake-golden.sh boots a
+            # bare seed box from box primitives, streams the payload (guards + cpu
+            # sampler + the rendered-skills tarball + install-skills.sh +
+            # setup-golden.sh) in over the box's SSH, runs setup-golden.sh, then
+            # snapshots and points the candidate alias at it. Golden shape is the
+            # task sandbox shape: 4 CPU / 16 GiB / 64 GiB.
+            - name: Bake candidate snapshot (box primitives)
+              if: env.skip != 'true'
+              env:
+                  ALIAS: posthog-tasks-candidate
+                  SSH_KEY: ${{ env.GOLDEN_SSH_KEY }}
+                  IMAGES_DIR: products/tasks/backend/sandbox/images
+                  SKILLS_TARBALL: ${{ env.SKILLS_TARBALL }}
+                  AGENT_VERSION: ${{ steps.agent-version.outputs.version }}
+                  BOX_CPUS: '4'
+                  BOX_MEM_MIB: '16384'
+                  BOX_DISK_GIB: '64'
+              run: |
+                  set -euo pipefail
+                  bash products/tasks/backend/sandbox/images/hogland/bake-golden.sh
+
+            # Boot a smoke box from the candidate, run the tasks readiness
+            # contract, delete. Non-zero => DO NOT promote, so the live alias
+            # keeps pointing at the previous known-good snapshot.
+            - name: Smoke-test candidate
+              id: smoke
+              if: env.skip != 'true'
+              env:
+                  ALIAS: posthog-tasks-candidate
+                  SSH_KEY: ${{ env.GOLDEN_SSH_KEY }}
+              run: |
+                  set -euo pipefail
+                  bash products/tasks/backend/sandbox/images/hogland/smoke-golden.sh | tee "$RUNNER_TEMP/smoke.out"
+                  secs=$(sed -n 's/^SMOKE_HEALTHY_SECONDS=//p' "$RUNNER_TEMP/smoke.out")
+                  echo "healthy_seconds=${secs:-unknown}" >> "$GITHUB_OUTPUT"
+
+            # Promote: re-point the live alias at the candidate's snapshot id. A
+            # single alias PUT — atomic from any restoring caller's perspective.
+            - name: Promote candidate to default
+              id: promote
+              if: env.skip != 'true'
+              env:
+                  CLUSTER: ${{ matrix.cluster }}
+              run: |
+                  set -euo pipefail
+                  SNAP_ID=$(hogland snapshot resolve posthog-tasks-candidate | jq -r .snapshot_id)
+                  # Retry the alias PUT: a concurrent repoint returns 500 (not a
+                  # clean 409), so a transient collision must not fail the promote.
+                  promoted=0
+                  for attempt in 1 2 3 4 5; do
+                      if hogland snapshot alias "$SNAP_ID" posthog-tasks-default; then
+                          promoted=1
+                          break
+                      fi
+                      echo "alias PUT attempt ${attempt} failed; retrying in $((attempt * 5))s" >&2
+                      sleep $((attempt * 5))
+                  done
+                  if [[ "$promoted" != "1" ]]; then
+                      echo "::error::failed to repoint posthog-tasks-default after 5 attempts"
+                      exit 1
+                  fi
+                  # Confirm the live alias now resolves to our snapshot. This
+                  # resolve targets the same HOG_HOST the PUT wrote to, so it
+                  # catches a lost or overwritten alias write on THIS cluster — it
+                  # does not prove the bake ran against the intended cluster (both
+                  # the PUT and this read use the same matrix HOG_HOST).
+                  resolved=$(hogland snapshot resolve posthog-tasks-default | jq -r .snapshot_id)
+                  if [[ "$resolved" != "$SNAP_ID" ]]; then
+                      echo "::error::posthog-tasks-default in cluster ${CLUSTER} resolves to ${resolved}, expected ${SNAP_ID}"
+                      exit 1
+                  fi
+                  echo "snapshot_id=$SNAP_ID" >> "$GITHUB_OUTPUT"
+
+            # Dated archive alias for rollback. Reuse the snapshot id the promote
+            # step already resolved (via env, not ${{ }} into run:) rather than
+            # resolving the candidate alias again — a second resolve could race a
+            # concurrent rebuild and archive a different snapshot than was
+            # promoted. Retention prune is intentionally not wired here — a
+            # separate cleanup cron handles it once we've watched the alias count
+            # for a couple of weeks.
+            - name: Archive dated alias
+              if: env.skip != 'true'
+              env:
+                  SNAP_ID: ${{ steps.promote.outputs.snapshot_id }}
+              run: |
+                  set -euo pipefail
+                  DATE=$(date -u +%Y%m%d)
+                  hogland snapshot alias "$SNAP_ID" posthog-tasks-default-"$DATE"
+
+            # Delete the seed + smoke boxes by name, always. The seed and smoke
+            # boxes use an unregistered kind (no server-side TTL), so a killed
+            # runner cannot reap them — and their in-script EXIT traps do not fire
+            # on a job cancel. This always()-guarded step is the backstop that
+            # prevents a leaked 64 GiB box on cancel/timeout. Best-effort: the
+            # names are fixed in bake-golden.sh / smoke-golden.sh, and a delete of
+            # an absent box is a no-op. Runs only after the CLI + tailnet came up
+            # (env.skip guards the cluster-filtered legs, which create no box).
+            - name: Tear down seed + smoke boxes
+              if: ${{ always() && env.skip != 'true' }}
+              run: |
+                  set -uo pipefail
+                  for box_name in golden-seed-tasks golden-smoke-tasks; do
+                      id=$(hogland box list 2>/dev/null \
+                          | jq -r --arg n "$box_name" 'map(select(.spec.name == $n)) | .[0].id // empty' 2>/dev/null || true)
+                      if [[ -n "$id" ]]; then
+                          echo "deleting leaked box $box_name ($id)"
+                          hogland box delete "$id" >/dev/null 2>&1 || true
+                      fi
+                  done
+
+            # Step outputs go through env vars, not direct ${{ }} interpolation
+            # into run: — semgrep's shell-injection rule treats step output as
+            # untrusted, and env indirection is the standard fix.
+            - name: Step summary
+              if: env.skip != 'true'
+              env:
+                  CLUSTER: ${{ matrix.cluster }}
+                  HOG_HOST: ${{ matrix.hog_host }}
+                  SNAPSHOT_ID: ${{ steps.promote.outputs.snapshot_id }}
+                  HEALTHY_SECONDS: ${{ steps.smoke.outputs.healthy_seconds }}
+              run: |
+                  {
+                    echo "### tasks golden snapshot: $CLUSTER"
+                    echo ""
+                    echo "- cluster: \`$CLUSTER\` ($HOG_HOST)"
+                    echo "- promoted snapshot \`$SNAPSHOT_ID\` -> alias \`posthog-tasks-default\`"
+                    echo "- smoke create->contract: ${HEALTHY_SECONDS}s"
+                  } >> "$GITHUB_STEP_SUMMARY"
