@@ -691,6 +691,15 @@ class TestTeamAdminEmailSendingSuspension(BaseTest):
         assert config.email_sending_tier == 0
         assert config.email_sending_tier_updated_at is not None
 
+    def test_tier_actions_render_without_a_nested_form(self) -> None:
+        # The field renders inside the admin's team change form. A nested <form> would break the page,
+        # so the actions must submit the surrounding form through formaction instead.
+        html = self.admin.email_sending_tier_actions(self.team)
+        assert "<form" not in html
+        assert html.count('formmethod="post"') == 2
+        assert "Save tier" in html
+        assert "Recompute now" in html
+
     def test_suspend_is_idempotent(self) -> None:
         self.admin.suspend_email_sending_view(self._post({"reason": "first"}), str(self.team.pk))
         response = self.admin.suspend_email_sending_view(self._post({"reason": "second"}), str(self.team.pk))
