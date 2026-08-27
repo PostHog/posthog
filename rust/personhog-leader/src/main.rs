@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
+use common_grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetricsLayer};
 use common_kafka::kafka_producer::create_kafka_producer;
 use common_metrics::{setup_metrics_routes_with_overrides, Matcher};
 use dashmap::DashMap;
@@ -11,7 +12,6 @@ use k8s_awareness::{K8sAwareness, PodInfo};
 use kube::Client;
 use lifecycle::{ComponentOptions, Manager};
 use personhog_common::async_gzip::{AsyncGzipConfig, AsyncGzipLayer};
-use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetricsLayer};
 use personhog_common::metrics::{WARM_LATENCY_BUCKETS_MS, WRITE_PATH_LATENCY_BUCKETS_MS};
 use personhog_coordination::authority::AuthorityClock;
 use personhog_coordination::pod::{PodConfig, PodHandle};

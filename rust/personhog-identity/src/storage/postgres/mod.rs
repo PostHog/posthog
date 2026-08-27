@@ -13,7 +13,7 @@ use async_trait::async_trait;
 use sqlx::postgres::{PgPool, PgRow};
 use sqlx::Row;
 
-use personhog_common::grpc::{current_client_name, current_method_name};
+use common_grpc::{current_client_name, current_method_name};
 
 use crate::config::IdentityTables;
 use crate::storage::error::StorageResult;

@@ -10,6 +10,7 @@ personhog-common = { path = "../personhog-common" }
 personhog-proto = { path = "../personhog-proto" }
 common-database = { path = "../common/database" }
 common-alloc = { path = "../common/alloc" }
+common-grpc = { path = "../common/grpc" }
 common-metrics = { path = "../common/metrics" }
 metrics-exporter-prometheus = { workspace = true }
 lifecycle = { path = "../common/lifecycle" }

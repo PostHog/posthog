@@ -33,7 +33,11 @@ use tonic::Status;
 use tower::{Layer, Service};
 use tracing::warn;
 
-use crate::grpc::GZIP_OVERHEAD_HEADER;
+/// Response header set by [`AsyncGzipLayer`] with the total gzip layer
+/// overhead in milliseconds (body collection + compression). The router
+/// subtracts this alongside `common_grpc::PROCESSING_TIME_HEADER` to
+/// isolate true network RTT.
+pub const GZIP_OVERHEAD_HEADER: &str = "x-gzip-overhead-ms";
 
 /// gRPC frame header: 1 byte compression flag + 4 byte payload length.
 const GRPC_HEADER_SIZE: usize = 5;

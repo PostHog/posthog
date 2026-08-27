@@ -11,6 +11,7 @@ personhog-coordination = { path = "../personhog-coordination" }
 assignment-coordination = { path = "../common/assignment-coordination" }
 common-kafka = { path = "../common/kafka" }
 common-ingestion-warnings = { path = "../common/ingestion_warnings" }
+common-grpc = { path = "../common/grpc" }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
 k8s-awareness = { path = "../common/k8s-awareness" }

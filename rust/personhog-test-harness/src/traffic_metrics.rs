@@ -14,8 +14,8 @@ use std::time::Duration;
 use anyhow::Result;
 use axum::routing::get;
 use axum::Router;
+use common_grpc::{code_as_str, NON_STATUS};
 use metrics::{counter, histogram};
-use personhog_common::grpc::{code_as_str, NON_STATUS};
 use personhog_common::metrics::WRITE_PATH_LATENCY_BUCKETS_MS;
 
 use crate::report::ConsistencyViolation;

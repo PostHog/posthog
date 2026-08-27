@@ -3,11 +3,11 @@ use std::time::Duration;
 
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
+use common_grpc::{tracked_tcp_incoming, GrpcMetricsLayer};
 use envconfig::Envconfig;
 use k8s_awareness::K8sAwareness;
 use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
-use personhog_common::grpc::{tracked_tcp_incoming, GrpcMetricsLayer};
 use personhog_common::metrics::WRITE_PATH_LATENCY_BUCKETS_MS;
 use personhog_coordination::coordinator::{Coordinator, CoordinatorConfig};
 use personhog_coordination::routing_table::{RoutingTable, RoutingTableConfig, StashHandler};

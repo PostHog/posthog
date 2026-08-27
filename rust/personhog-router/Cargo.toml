@@ -6,6 +6,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
+common-grpc = { path = "../common/grpc" }
 personhog-common = { path = "../personhog-common" }
 personhog-coordination = { path = "../personhog-coordination" }
 personhog-proto = { path = "../personhog-proto" }

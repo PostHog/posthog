@@ -1,4 +1,4 @@
-use personhog_common::grpc::current_client_name;
+use common_grpc::current_client_name;
 use tonic::Status;
 use tracing::error;
 

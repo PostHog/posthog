@@ -11,8 +11,8 @@ use std::sync::{
 use std::time::Duration;
 
 use axum::{http::StatusCode, routing::get, Router};
+use common_grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetricsLayer};
 use cymbal_proto::cymbal::resolution::v1::cymbal_resolution_server::CymbalResolutionServer;
-use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetricsLayer};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tonic::transport::Server;

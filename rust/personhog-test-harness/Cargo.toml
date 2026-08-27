@@ -7,6 +7,7 @@ publish = false
 [dependencies]
 personhog-common = { path = "../personhog-common" }
 personhog-proto = { path = "../personhog-proto" }
+common-grpc = { path = "../common/grpc" }
 common-metrics = { path = "../common/metrics" }
 personhog-coordination = { path = "../personhog-coordination" }
 assignment-coordination = { path = "../common/assignment-coordination" }

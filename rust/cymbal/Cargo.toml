@@ -13,6 +13,7 @@ health = { path = "../common/health" }
 async-trait = { workspace = true }
 axum = { workspace = true }
 metrics = { workspace = true }
+common-grpc = { path = "../common/grpc" }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
 common-continuous-profiling = { path = "../common/continuous_profiling" }
@@ -52,7 +53,6 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 tiktoken-rs.workspace = true
 tonic = { workspace = true }
 tokio-stream = "0.1"
-personhog-common = { path = "../personhog-common" }
 async-stream = { workspace = true }
 subtle = "2.6"
 common-temporal = { path = "../common/temporal" }

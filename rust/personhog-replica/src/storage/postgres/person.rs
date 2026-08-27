@@ -6,7 +6,7 @@ use futures::stream::{self, StreamExt, TryStreamExt};
 use sqlx::postgres::PgPool;
 use uuid::Uuid;
 
-use personhog_common::grpc::{current_client_name, current_method_name};
+use common_grpc::{current_client_name, current_method_name};
 
 use super::{PostgresStorage, DB_BULK_CHUNKS, DB_QUERY_DURATION, DB_ROWS_RETURNED};
 use crate::storage::error::{StorageError, StorageResult};

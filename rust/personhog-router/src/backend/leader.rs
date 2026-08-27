@@ -13,7 +13,8 @@ use tonic::transport::Channel;
 use tonic::{Code, Status};
 use tower::{Service, ServiceExt};
 
-use personhog_common::grpc::{current_client_name, SEMANTIC_REFUSAL_METADATA_KEY};
+use common_grpc::current_client_name;
+use personhog_common::grpc::SEMANTIC_REFUSAL_METADATA_KEY;
 use personhog_common::partitioning::partition_for_person;
 
 use super::stash::{StashDecision, StashTable};

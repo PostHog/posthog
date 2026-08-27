@@ -2810,6 +2810,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-grpc"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "http 1.4.0",
+ "metrics",
+ "pin-project",
+ "tokio",
+ "tonic 0.12.3",
+ "tower 0.4.13",
+ "tracing",
+]
+
+[[package]]
 name = "common-hypercache"
 version = "0.1.0"
 dependencies = [
@@ -3360,6 +3374,7 @@ dependencies = [
  "common-continuous-profiling",
  "common-database",
  "common-dns",
+ "common-grpc",
  "common-kafka",
  "common-metrics",
  "common-posthog",
@@ -3376,7 +3391,6 @@ dependencies = [
  "metrics",
  "mockall",
  "moka",
- "personhog-common",
  "posthog-rs",
  "posthog-symbol-data",
  "proguard",
@@ -8436,6 +8450,7 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "chrono",
+ "common-grpc",
  "flate2",
  "futures",
  "http 1.4.0",
@@ -8443,7 +8458,6 @@ dependencies = [
  "http-body-util",
  "metrics",
  "personhog-proto",
- "pin-project",
  "rstest",
  "serde_json",
  "sqlx",
@@ -8491,6 +8505,7 @@ dependencies = [
  "chrono",
  "common-alloc",
  "common-database",
+ "common-grpc",
  "common-metrics",
  "envconfig",
  "futures",
@@ -8520,6 +8535,7 @@ dependencies = [
  "chrono",
  "common-alloc",
  "common-database",
+ "common-grpc",
  "common-ingestion-warnings",
  "common-kafka",
  "common-metrics",
@@ -8568,6 +8584,7 @@ dependencies = [
  "chrono",
  "common-alloc",
  "common-database",
+ "common-grpc",
  "common-metrics",
  "envconfig",
  "futures",
@@ -8596,6 +8613,7 @@ dependencies = [
  "axum 0.7.9",
  "bytes",
  "common-alloc",
+ "common-grpc",
  "common-metrics",
  "dashmap 6.1.0",
  "envconfig",
@@ -8644,6 +8662,7 @@ dependencies = [
  "axum 0.7.9",
  "chrono",
  "clap",
+ "common-grpc",
  "common-metrics",
  "futures",
  "hdrhistogram",

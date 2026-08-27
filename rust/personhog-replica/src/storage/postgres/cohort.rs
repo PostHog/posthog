@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt, TryStreamExt};
 
-use personhog_common::grpc::{current_client_name, current_method_name};
+use common_grpc::{current_client_name, current_method_name};
 
 use super::{
     ConsistencyLevel, PostgresStorage, DB_BULK_CHUNKS, DB_QUERY_DURATION, DB_ROWS_RETURNED,

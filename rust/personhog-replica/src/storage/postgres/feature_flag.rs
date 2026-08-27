@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use sqlx::FromRow;
 
-use personhog_common::grpc::{current_client_name, current_method_name};
+use common_grpc::{current_client_name, current_method_name};
 
 use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION, DB_ROWS_RETURNED};
 use crate::storage::error::StorageResult;

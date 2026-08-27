@@ -5,13 +5,12 @@ use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
+use common_grpc::{current_caller_tag, current_client_name, PROCESSING_TIME_HEADER};
 use http_body::Frame;
 use http_body_util::{BodyExt, Full};
 use metrics::{counter, histogram};
-use personhog_common::grpc::{
-    current_caller_tag, current_client_name, ClientInFlightGuard, GZIP_OVERHEAD_HEADER,
-    PROCESSING_TIME_HEADER,
-};
+use personhog_common::async_gzip::GZIP_OVERHEAD_HEADER;
+use personhog_common::grpc::ClientInFlightGuard;
 use rand::Rng;
 use tonic::body::BoxBody;
 use tonic::Code;
