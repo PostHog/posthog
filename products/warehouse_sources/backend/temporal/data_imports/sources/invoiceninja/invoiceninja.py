@@ -177,27 +177,26 @@ def _is_invalid_token(response: requests.Response) -> bool:
     return "invalid token" in message.lower()
 
 
-def _resolve_probe_url(base_url: Optional[str], team_id: Optional[int]) -> tuple[str | None, str | None]:
-    """Resolve and vet the target URL. Returns ``(resolved_base_url, error)`` with one side set."""
-    resolved_base_url = normalize_base_url(base_url)
+def _probe_url_error(resolved_base_url: str, team_id: Optional[int]) -> str | None:
+    """Return a rejection message if the resolved URL must not be probed, else None."""
     host = _host_of(resolved_base_url)
 
     if not host:
-        return None, "Invalid Invoice Ninja API URL"
+        return "Invalid Invoice Ninja API URL"
 
     # The host is fully customer-controlled for self-hosted deployments, so block hosts that resolve to
     # private/internal addresses (SSRF). Only enforced on cloud — see _is_host_safe.
     if team_id is not None:
         host_ok, host_err = _is_host_safe(host, team_id)
         if not host_ok:
-            return None, host_err or HOST_NOT_ALLOWED_ERROR
+            return host_err or HOST_NOT_ALLOWED_ERROR
 
     # Refuse plaintext HTTP before the token-bearing request goes out, so a self-hosted URL can't
     # expose the API token on the network.
     if not _is_https(resolved_base_url):
-        return None, HTTP_NOT_ALLOWED_ERROR
+        return HTTP_NOT_ALLOWED_ERROR
 
-    return resolved_base_url, None
+    return None
 
 
 def _classify_probe_response(response: requests.Response, schema_name: Optional[str]) -> tuple[bool, str | None]:
@@ -236,7 +235,8 @@ def validate_credentials(
     base_url: Optional[str], api_token: str, schema_name: Optional[str] = None, team_id: Optional[int] = None
 ) -> tuple[bool, str | None]:
     """Probe a cheap list endpoint to confirm the API token is genuine."""
-    resolved_base_url, url_error = _resolve_probe_url(base_url, team_id)
+    resolved_base_url = normalize_base_url(base_url)
+    url_error = _probe_url_error(resolved_base_url, team_id)
     if url_error is not None:
         return False, url_error
 
