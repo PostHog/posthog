@@ -3,6 +3,7 @@ from typing import Literal
 
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -19,6 +20,7 @@ from posthog.hogql.database.models import (
     TableNode,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.database.schema.activity_log_visibility import activity_log_visibility_policy_version
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -207,25 +209,28 @@ class TestActivityLogsCacheKey(BaseTest):
     def _payload(self, **feature) -> dict:
         self.organization.available_product_features = [{"key": "audit_logs", "name": "Audit logs", **feature}]
         self.organization.save()
-        runner = get_query_runner(HogQLQuery(query="SELECT 1"), team=self.team, user=self.user)
+        runner = get_query_runner(
+            HogQLQuery(query="SELECT id FROM system.activity_logs"), team=self.team, user=self.user
+        )
         return runner.get_cache_payload()
 
     def test_cache_key_varies_with_the_retention_window(self):
         # A cache hit returns before the printer applies the floor, so without this a result cached
         # on a longer plan keeps serving rows the organization is no longer entitled to read.
-        wide = self._payload(limit=365, unit="days")
-        narrow = self._payload(limit=30, unit="days")
+        with freeze_time("2026-08-14T10:30:00Z"):
+            wide = self._payload(limit=365, unit="days")
+            narrow = self._payload(limit=30, unit="days")
 
-        self.assertEqual(wide["activity_log_retention_window_days"], 365)
-        self.assertEqual(narrow["activity_log_retention_window_days"], 30)
-        self.assertNotEqual(wide, narrow)
+        self.assertNotEqual(wide["activity_log_retention_floor_hour"], narrow["activity_log_retention_floor_hour"])
 
-    def test_cache_key_omits_the_window_without_the_entitlement(self):
+    def test_cache_key_omits_the_floor_without_the_entitlement(self):
         self.organization.available_product_features = []
         self.organization.save()
-        runner = get_query_runner(HogQLQuery(query="SELECT 1"), team=self.team, user=self.user)
+        runner = get_query_runner(
+            HogQLQuery(query="SELECT id FROM system.activity_logs"), team=self.team, user=self.user
+        )
 
-        self.assertNotIn("activity_log_retention_window_days", runner.get_cache_payload())
+        self.assertNotIn("activity_log_retention_floor_hour", runner.get_cache_payload())
 
     @parameterized.expand(
         [
@@ -235,18 +240,33 @@ class TestActivityLogsCacheKey(BaseTest):
     )
     def test_cache_key_carries_the_visibility_policy_version(self, _name: str, query: str, expected: bool):
         # The visibility rules are printed guards, so nothing else in the key tracks them: without this, a
-        # result stored under the previous rules keeps serving the rows the current ones hide. Bumping the
-        # version retires those results, so it has to reach the key of every query reading the table.
+        # result stored under the previous rules keeps serving the rows the current ones hide. Changing the
+        # rules retires those results, so the fingerprint has to reach every query reading the table.
         runner = get_query_runner(HogQLQuery(query=query), team=self.team, user=self.user)
 
         payload = runner.get_cache_payload()
 
         self.assertEqual("activity_log_visibility_policy" in payload, expected)
 
+    def test_the_visibility_policy_version_tracks_the_rule_list(self):
+        # The fingerprint exists so that editing the shared rule list is enough to retire the results the
+        # previous rules produced. One that ignored the list would keep serving rows the new rules hide.
+        self.addCleanup(activity_log_visibility_policy_version.cache_clear)
+        before = activity_log_visibility_policy_version()
+
+        activity_log_visibility_policy_version.cache_clear()
+        with patch(
+            "posthog.models.activity_logging.activity_log.activity_visibility_restrictions",
+            [*activity_visibility_restrictions, {"scope": "Insight", "activities": ["deleted"]}],
+        ):
+            after = activity_log_visibility_policy_version()
+
+        self.assertNotEqual(before, after)
+
     def test_cache_key_follows_the_floor_as_it_moves(self):
         # A cache-only request returns a stored result however stale it is, so a result stored inside the
-        # window would keep serving its rows after they fall outside it. The window alone cannot catch that,
-        # because it does not change as the clock moves.
+        # window would keep serving its rows after they fall outside it. Keying on the window rather than
+        # on the floor would miss that, because the window does not change as the clock moves.
         self.organization.available_product_features = [
             {"key": "audit_logs", "name": "Audit logs", "limit": 30, "unit": "days"}
         ]

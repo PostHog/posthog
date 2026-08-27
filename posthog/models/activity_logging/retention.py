@@ -14,13 +14,8 @@ ADVANCED_ACTIVITY_LOGS_LOOKBACK_FALLBACK_LIMIT = 2
 ADVANCED_ACTIVITY_LOGS_LOOKBACK_FALLBACK_UNIT = "months"
 
 
-def get_activity_log_lookback_window(organization: "Organization") -> Optional[timedelta]:
-    """How far back the organization may read activity logs, or None when unrestricted.
-
-    Split out from `get_activity_log_lookback_restriction` so callers that must not move with the
-    clock — notably the query cache key, which has to change on a downgrade but not on every
-    request — can vary on the window itself rather than on a timestamp.
-    """
+def _lookback_window(organization: "Organization") -> Optional[timedelta]:
+    """How far back the organization may read activity logs, or None when unrestricted."""
     audit_log_feature = organization.get_available_feature(AvailableFeature.AUDIT_LOGS)
 
     if not audit_log_feature:
@@ -46,7 +41,7 @@ def get_activity_log_lookback_window(organization: "Organization") -> Optional[t
 
 def get_activity_log_lookback_restriction(organization: "Organization") -> Optional[datetime]:
     """Get the lookback restriction date based on the AUDIT_LOGS feature."""
-    window = get_activity_log_lookback_window(organization)
+    window = _lookback_window(organization)
     return None if window is None else timezone.now() - window
 
 

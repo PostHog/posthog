@@ -1,3 +1,5 @@
+import json
+import hashlib
 from functools import lru_cache
 
 from posthog.hogql import ast
@@ -21,11 +23,33 @@ _CANVAS_ROWS_LIMITED_TO_READABLE_CANVASES = (
     f"NOT (scope = 'Canvas' AND item_id NOT IN (SELECT id FROM {CANVASES_TABLE}))"
 )
 
-# Bump whenever the rules below change, including the shared rule list they compile. Nothing else in the
-# query cache key tracks them, and a cache hit returns before they print, so a result stored under the
-# previous rules would keep serving the rows the current ones hide. `HogQLQueryRunner.get_cache_payload`
-# folds this into the key of every query reading the table, so bumping it retires those results.
-ACTIVITY_LOG_VISIBILITY_POLICY_VERSION = 1
+# Bumped whenever the compilation shape changes in a way the hashed inputs below cannot see, e.g. a rule
+# key starting to matter, or a predicate gaining a clause that reads a new column.
+_POLICY_SHAPE = 1
+
+
+@lru_cache(maxsize=1)
+def activity_log_visibility_policy_version() -> str:
+    """Fingerprint of the rules this module compiles, for the query cache key.
+
+    Nothing else in the key tracks them, and a cache hit returns before they print, so a result stored
+    under the previous rules would keep serving the rows the current ones hide.
+    `HogQLQueryRunner.get_cache_payload` folds this into the key of every query reading the table, so a
+    rule change retires those results. Hashing the inputs rather than hand-bumping a version means
+    editing the shared rule list is enough; nobody has to remember the second step.
+    """
+    # Deferred to keep the ORM off this module's import path, as elsewhere in the schema layer.
+    from posthog.models.activity_logging.activity_log import activity_visibility_restrictions  # noqa: PLC0415
+
+    material = json.dumps(
+        {
+            "shape": _POLICY_SHAPE,
+            "rules": [[rule["scope"], sorted(rule["activities"])] for rule in activity_visibility_restrictions],
+            "scope_predicates": [_LOOP_ROWS_HIDDEN, _CANVAS_ROWS_HIDDEN, _CANVAS_ROWS_LIMITED_TO_READABLE_CANVASES],
+        },
+        sort_keys=True,
+    )
+    return hashlib.sha256(material.encode()).hexdigest()[:16]
 
 
 @lru_cache(maxsize=2)

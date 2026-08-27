@@ -16,7 +16,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.database.schema.activity_log_visibility import ACTIVITY_LOG_VISIBILITY_POLICY_VERSION
+from posthog.hogql.database.schema.activity_log_visibility import activity_log_visibility_policy_version
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
@@ -142,14 +142,14 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         # calculate. CACHE_ONLY_NEVER_CALCULATE is the mode it cannot reach: that one returns a stored
         # result however stale it is, so the key carries what the guards depend on.
         if _ACTIVITY_LOGS_TABLE in self._queried_table_names:
-            # Nothing else in the key tracks the visibility rules. Varying on the rule set means a result
-            # stored under the previous rules stops being served once the version bumps.
-            payload["activity_log_visibility_policy"] = ACTIVITY_LOG_VISIBILITY_POLICY_VERSION
+            # Nothing else in the key tracks the visibility rules. Varying on their fingerprint means a
+            # result stored under the previous rules stops being served once they change.
+            payload["activity_log_visibility_policy"] = activity_log_visibility_policy_version()
 
             # The retention floor moves with the clock, so a result stored inside the window would outlive
             # it. Bucketing by the hour bounds a cache-only read to rows at most an hour past the floor,
-            # rather than for as long as the entry lives. The window itself is in the key already, from
-            # `QueryRunner.get_cache_payload`, which covers a read that reaches the table through a view.
+            # rather than for as long as the entry lives, and a downgrade moves the floor by days, so this
+            # covers a plan change too.
             floor = get_activity_log_lookback_restriction(self.team.organization)
             if floor is not None:
                 payload["activity_log_retention_floor_hour"] = floor.strftime("%Y-%m-%dT%H")
