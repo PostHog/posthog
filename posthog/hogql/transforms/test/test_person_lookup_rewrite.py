@@ -231,15 +231,16 @@ class TestPersonLookupRewrite(BaseTest):
 
     @parameterized.expand(
         [
-            ("limit_percent", "limit_percent"),
-            ("limit_with_ties", "limit_with_ties"),
+            ("limit_percent", "limit_percent", True),
+            ("limit_with_ties", "limit_with_ties", True),
+            ("interpolate", "interpolate", [ast.InterpolateExpr(expr=ast.Field(chain=["timestamp"]))]),
         ]
     )
-    def test_limit_flags_disqualify(self, _name, attribute):
+    def test_unhandled_select_fields_disqualify(self, _name, attribute, value):
         node = parse_select(
             "select any(person.properties) from events where person.id = '019cf684-0000-0000-0000-000000000000' limit 10"
         )
-        setattr(node, attribute, True)
+        setattr(node, attribute, value)
         self._assert_untouched_events_source(node)
 
     def test_filter_expr_on_any_disqualifies(self):

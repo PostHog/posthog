@@ -18,6 +18,7 @@ Exports:
 * rewrite_person_lookups
 """
 
+import dataclasses
 from typing import Optional, TypeVar
 
 from posthog.hogql import ast
@@ -31,15 +32,25 @@ _T_AST = TypeVar("_T_AST", bound=AST)
 # Person-sourced fields that exist on the persons table under the same name.
 _PERSON_FIELDS = {"properties", "id", "created_at"}
 
+# Position and type metadata carry no query semantics.
+_METADATA_FIELDS = frozenset({"start", "end", "type"})
+
+_HANDLED_SELECT_FIELDS = _METADATA_FIELDS | {"select", "select_from", "where", "limit", "offset", "settings"}
+_HANDLED_FROM_FIELDS = _METADATA_FIELDS | {"table", "alias"}
+_HANDLED_ANY_CALL_FIELDS = _METADATA_FIELDS | {"name", "args"}
+
+
+def _unhandled_fields_empty(node: AST, handled: frozenset[str]) -> bool:
+    """Default deny: every field the rewrite does not explicitly copy or check must be
+    empty — including fields the AST grows after this pass was written. An enumerated
+    disqualifier list silently admits new clauses; this admits nothing by omission."""
+    return all(not getattr(node, f.name) for f in dataclasses.fields(node) if f.name not in handled)
+
 
 def _events_alias(join: ast.JoinExpr) -> Optional[str]:
     """The alias the query can prefix fields with, when FROM is the bare events table."""
     if (
-        join.next_join is not None
-        or join.sample is not None
-        or join.table_final
-        or join.table_args is not None
-        or join.column_aliases
+        not _unhandled_fields_empty(join, _HANDLED_FROM_FIELDS)
         or not isinstance(join.table, ast.Field)
         or join.table.chain != ["events"]
     ):
@@ -89,8 +100,8 @@ def _rewrite_select_expr(expr: ast.Expr, alias: str) -> Optional[ast.Expr]:
     per matching event, so retargeting it would change cardinality, and `argMax(...,
     timestamp)` deterministically returns the latest event-time snapshot, which the
     current-person row does not preserve. Call decorations (DISTINCT, FILTER, ORDER
-    BY, parametric parameters) all change what `any` returns, so their presence
-    disqualifies rather than being silently dropped.
+    BY, parametric parameters) all change what `any` returns, so any field beyond
+    the name and its single argument disqualifies rather than being silently dropped.
     """
     if isinstance(expr, ast.Alias):
         inner = _rewrite_select_expr(expr.expr, alias)
@@ -100,12 +111,8 @@ def _rewrite_select_expr(expr: ast.Expr, alias: str) -> Optional[ast.Expr]:
     if (
         isinstance(expr, ast.Call)
         and expr.name == "any"
-        and not expr.distinct
         and len(expr.args) == 1
-        and not expr.params
-        and not expr.within_group
-        and not expr.order_by
-        and expr.filter_expr is None
+        and _unhandled_fields_empty(expr, _HANDLED_ANY_CALL_FIELDS)
     ):
         first = expr.args[0]
         if not isinstance(first, ast.Field):
@@ -147,23 +154,7 @@ def _rewrite_predicate(expr: ast.Expr, alias: str) -> Optional[ast.Expr]:
 
 
 def _try_rewrite(node: ast.SelectQuery) -> Optional[ast.SelectQuery]:
-    if (
-        node.ctes
-        or node.distinct
-        or node.array_join_op
-        or node.window_exprs
-        or node.prewhere
-        or node.having
-        or node.qualify
-        or node.group_by
-        or node.group_by_mode
-        or node.order_by
-        or node.limit_by
-        or node.limit_percent
-        or node.limit_with_ties
-        or node.view_name
-        or node.select_from is None
-    ):
+    if not _unhandled_fields_empty(node, _HANDLED_SELECT_FIELDS) or node.select_from is None:
         return None
 
     alias = _events_alias(node.select_from)
