@@ -90,6 +90,28 @@ describe('HogTransformer', () => {
         await transformer.stop()
     })
 
+    it('prefetchHogFunctionsForTeams leaves the transformation caches warm for the event path', async () => {
+        const fn = createHogFunction({
+            type: 'transformation',
+            name: defaultTemplate.name,
+            team_id: teamId,
+            enabled: true,
+            bytecode: await compileHog(defaultTemplate.code),
+        })
+        await insertHogFunction(hub.postgres, teamId, fn)
+
+        await hogTransformer.prefetchHogFunctionsForTeams([teamId])
+
+        const querySpy = jest.spyOn(hub.postgres, 'query')
+        const result = await hogTransformer.transformEventAndProduceMessages(createPluginEvent({}, teamId))
+
+        expect(result.invocationResults).toHaveLength(1)
+        const hogFunctionQueries = querySpy.mock.calls
+            .map((call) => call[3])
+            .filter((tag) => tag === 'fetchAllTeamHogFunctions' || tag === 'fetchHogFunctions')
+        expect(hogFunctionQueries).toEqual([])
+    })
+
     describe('transformEvent', () => {
         it('handles geoip lookup transformation', async () => {
             // Setup the hog function

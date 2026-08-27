@@ -157,6 +157,8 @@ export type IngestionConsumerConfig = {
     /** Concurrent RPC fan-out in the personhog store (batch fetches and flush). */
     PERSONHOG_STORE_MAX_CONCURRENT_UPDATES: number
     PERSONS_PREFETCH_ENABLED: boolean
+    /** Batched warm-up of team, event-schema, and hog-function caches per chunk. */
+    TEAM_CACHES_PREFETCH_ENABLED: boolean
 
     // Person properties config
     PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE: number
@@ -343,6 +345,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         PERSONHOG_STORE_MAX_CONCURRENT_UPDATES: 10,
         PERSONS_PREFETCH_ENABLED: false,
+        TEAM_CACHES_PREFETCH_ENABLED: false,
 
         // Person properties config
         PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE: 0,

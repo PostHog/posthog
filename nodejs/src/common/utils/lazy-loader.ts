@@ -216,7 +216,7 @@ export class LazyLoader<T> {
      * If the value is older than the refreshAge, it is loaded from the database.
      */
     private async loadViaCache(keys: string[]): Promise<Record<string, T | null>> {
-        return await instrumentFn(`lazyLoader.loadViaCache`, async () => {
+        return await instrumentFn({ key: `lazyLoader.loadViaCache`, tag: this.options.name }, async () => {
             // No prototype, for the same reason as the cache: keys are caller-supplied, and this
             // object is handed back to callers who may iterate or spread it.
             const results: Record<string, T | null> = Object.create(null)

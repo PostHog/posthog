@@ -102,6 +102,10 @@ export class HogTransformerService implements HogTransformer {
         await this.hogFunctionMonitoringService.flush()
     }
 
+    public async prefetchHogFunctionsForTeams(teamIds: number[]): Promise<void> {
+        await this.hogFunctionManager.getHogFunctionsForTeams(teamIds, ['transformation'])
+    }
+
     private async getTransformationFunctions() {
         if (!this.cachedTransformationFunctions) {
             this.cachedGeoIp = await this.geoipService.get()
