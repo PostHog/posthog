@@ -20,6 +20,7 @@ import structlog
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 
@@ -69,6 +70,11 @@ def reports_due_for_scoring(now, limit: int) -> QuerySet[SignalReport]:  # noqa:
     )
 
 
+def _canonical_team_ids(team_ids: set[int]) -> dict[int, int]:
+    rows = Team.objects.using("default").filter(id__in=team_ids).values_list("id", "parent_team_id")
+    return {team_id: parent_team_id or team_id for team_id, parent_team_id in rows}
+
+
 def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
     if not settings.SIGNALS_RANKING_SCORING_ENABLED:
         return ScoreInboxReportsResult(scored=0, model_version=None, skipped_reason="disabled")
@@ -84,10 +90,13 @@ def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
         return ScoreInboxReportsResult(scored=0, model_version=model.model_version, skipped_reason=None)
     judgments = latest_judgments([str(report.id) for report in reports], now)
     scored = score_reports(model, reports, judgments, now)
+    # bulk_create skips TeamScopedRootMixin.save(), so a child environment's team id has to be
+    # canonicalized here or `for_team(child)` can never read the row back.
+    canonical = _canonical_team_ids({item.team_id for item in scored})
     SignalReportScore.all_teams.bulk_create(
         [
             SignalReportScore(
-                team_id=item.team_id,
+                team_id=canonical[item.team_id],
                 report_id=item.report_id,
                 model_version=model.model_version,
                 feature_schema_version=model.feature_schema_version,
@@ -117,7 +126,10 @@ class InboxRankingScoringWorkflow:
             score_inbox_reports_activity,
             inputs,
             start_to_close_timeout=timedelta(minutes=10),
-            retry_policy=RetryPolicy(maximum_attempts=2),
+            # No retry: a timed-out attempt keeps running in its thread, so a second attempt would
+            # select the same due reports and append duplicate rows. The next tick picks up what
+            # this one left.
+            retry_policy=RetryPolicy(maximum_attempts=1),
         )
         workflow.logger.info(
             "inbox ranking sweep finished",

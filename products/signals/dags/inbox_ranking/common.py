@@ -18,7 +18,7 @@ from botocore.exceptions import ClientError
 from posthog import settings
 from posthog.dags.common import JobOwners
 
-DATASET_VERSION = "v1"
+from products.signals.backend.ranking.model_store import DATASET_VERSION
 
 S3_BUCKET_ENV = "INBOX_RANKING_DATASET_S3_BUCKET"
 

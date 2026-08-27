@@ -7,13 +7,17 @@ contract: a booster trained under a different feature schema or with different f
 refused rather than scored, because a silent mismatch produces confident garbage.
 """
 
+from __future__ import annotations
+
 import json
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import boto3
-import xgboost as xgb
 from botocore.exceptions import ClientError
+
+if TYPE_CHECKING:
+    import xgboost as xgb
 
 from posthog import settings
 from posthog.dataclasses import frozen
@@ -77,6 +81,8 @@ def _read_object(client, bucket: str, key: str) -> bytes | None:
 
 
 def booster_from_bytes(raw: bytes) -> xgb.Booster:
+    import xgboost as xgb  # noqa: PLC0415 (keeps xgboost's native OpenMP runtime off the Temporal worker import path)
+
     booster = xgb.Booster()
     booster.load_model(bytearray(raw))
     return booster

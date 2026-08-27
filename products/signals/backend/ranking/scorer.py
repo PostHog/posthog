@@ -4,7 +4,6 @@ from collections.abc import Iterable, Mapping
 from datetime import datetime
 
 import numpy as np
-import xgboost as xgb
 
 from posthog.dataclasses import frozen
 
@@ -42,6 +41,8 @@ def score_reports(
     judgments: Mapping[str, Judgment],
     now: datetime,
 ) -> list[ScoredReport]:
+    import xgboost as xgb  # noqa: PLC0415 (keeps xgboost's native OpenMP runtime off the Temporal worker import path)
+
     reports = list(reports)
     if not reports:
         return []

@@ -51,14 +51,13 @@ class Migration(migrations.Migration):
                 ),
             ],
             options={
+                "default_manager_name": "all_teams",
                 "indexes": [
                     models.Index(
                         fields=["report", "-scored_at"],
                         name="signals_rpt_score_latest_idx",
                     ),
-                    models.Index(
-                        fields=["team", "scored_at"], name="signals_rpt_score_team_idx"
-                    ),
+                    models.Index(fields=["team", "scored_at"], name="signals_rpt_score_team_idx"),
                 ],
             },
             managers=[

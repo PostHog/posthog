@@ -38,8 +38,6 @@ def _booster(feature_names: list[str] | None = None) -> bytes:
 
 
 class FakeS3:
-    """Just enough of the boto3 S3 client for load_champion."""
-
     def __init__(self, objects: dict[str, bytes]) -> None:
         self.objects = objects
 
