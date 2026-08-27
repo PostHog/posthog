@@ -113,6 +113,8 @@ class TestScopedServiceJWTAuthentication(APIBaseTest):
         super().setUp()
         self.factory = RequestFactory()
         self.authentication = TeamScopedAuthentication()
+        # A real second team, so a cross-team test fails on the team check and not on a missing row.
+        self.other_team = self.create_team_with_organization(self.organization)
 
     def _request(self, token: str | None, url_team_id: int | str | None = None, endpoint: str = "query") -> Request:
         path = f"/api/projects/{url_team_id}/{endpoint}/" if url_team_id is not None else "/internal/endpoint"
@@ -149,7 +151,7 @@ class TestScopedServiceJWTAuthentication(APIBaseTest):
         ]
     )
     def test_token_for_another_team_cannot_reach_the_url_team(self, _name, endpoint):
-        token = TEST_PURPOSE.mint({"team_id": self.team.id + 1})
+        token = TEST_PURPOSE.mint({"team_id": self.other_team.id})
         with pytest.raises(AuthenticationFailed):
             self.authentication.authenticate(self._request(token, url_team_id=self.team.id, endpoint=endpoint))
 
@@ -203,4 +205,4 @@ class TestScopedServiceJWTAuthentication(APIBaseTest):
         token = TEST_PURPOSE.mint({"team_id": self.team.id})
 
         with pytest.raises(AuthenticationFailed):
-            FleetScopedAuthentication().authenticate(self._request(token, url_team_id=self.team.id + 1))
+            FleetScopedAuthentication().authenticate(self._request(token, url_team_id=self.other_team.id))
