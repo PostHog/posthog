@@ -109,6 +109,8 @@ const GENERIC_SUMMARY_ERROR = "Couldn't generate a summary. Try again, and if it
 
 const NETWORK_SUMMARY_ERROR = 'Lost the connection while generating this summary. Check your connection and try again.'
 
+const TIMEOUT_SUMMARY_ERROR = 'Generating this summary took too long. Try again in a moment.'
+
 /** Aborting with an `AbortError` keeps the cancellation out of toasts and error tracking. */
 const SUPERSEDED_SUMMARY_REQUEST = 'a newer summary request started'
 
@@ -117,7 +119,7 @@ function bodylessStatusMessage(error: ApiError): string {
         return 'This trace is too large to summarize. Open a single generation and summarize that instead.'
     }
     if (error.status === 504) {
-        return 'Generating this summary took too long. Try again in a moment.'
+        return TIMEOUT_SUMMARY_ERROR
     }
     if (isTransientServerError(error)) {
         return 'The summary service is busy right now. Try again in a moment.'
@@ -134,7 +136,9 @@ function bodylessStatusMessage(error: ApiError): string {
  */
 function summaryErrorMessage(errorObject: unknown, fallback: string | null): string {
     if (errorObject instanceof NetworkError) {
-        return NETWORK_SUMMARY_ERROR
+        // A request the gateway drops after running long is a timeout, not a lost connection, so this
+        // must not send the user to check a connection that works.
+        return errorObject.reason === 'timeout' ? TIMEOUT_SUMMARY_ERROR : NETWORK_SUMMARY_ERROR
     }
     // `ApiError` falls back to `API request failed with status: 413` when the response carries no
     // body. A response that does carry a `detail` says more than any status-keyed guess.

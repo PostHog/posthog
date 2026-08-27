@@ -133,6 +133,11 @@ describe('summaryViewLogic', () => {
             () => new NetworkError('offline'),
             'Lost the connection while generating this summary. Check your connection and try again.',
         ],
+        [
+            'a request that ran long and then dropped',
+            () => new NetworkError('timeout'),
+            'Generating this summary took too long. Try again in a moment.',
+        ],
     ])('shows a readable message for %s', async (_label, buildError, expected) => {
         mockSummarization(Promise.reject(buildError()))
 
