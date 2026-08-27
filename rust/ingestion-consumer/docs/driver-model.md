@@ -753,6 +753,9 @@ The consumer's vocabulary has to survive three audiences at once: this crate, th
 | `parked` | a ready key the pool cannot take; its groups simply stay queued (§4.5) | a separate buffer |
 | `drain` | revocation: drop queued work, settle in-flight, final-commit, unassign (§4.5) | the worker-drain sense — that stays "draining worker" |
 | `advance` | one frontier movement: partition, new frontier, retired events+bytes | — |
+| `charge` | a message's events+bytes, as debited from `B` at poll | cost, weight |
+| `retired` | the charge of work an advance made committable; refunded from `B` at issue | — |
+| `dropped` | the charge a drain abandons (never completed); refunded at `finish_revoke` | — |
 
 ### 8.2 Why these words are reserved
 
@@ -762,6 +765,7 @@ The consumer's vocabulary has to survive three audiences at once: this crate, th
 - **`cohort` → `affinity`**: cohort is a core product noun (user cohorts, the cohorts API, five `rust/cohort-*` crates). The hint is the partition id used as a packing preference; affinity says exactly that.
 - **`fence`** stays only because the merged worker-stream code uses it in the same sense personhog does — a barrier that stops the old flow before new work may start. Partition→pod placement (§7.3) is *isolation*, not fencing.
 - **`frontier` vs `watermark`**: watermark is claimed twice already — this crate uses it for the per-key ACK point (order sentinel), and Kafka itself uses low/high watermark for broker-side log bounds (log start, replicated-up-to), neither of which is consumer bookkeeping. The highest *contiguous completed* offset has no standard Kafka name at all, because the in-order consumer never needs it; the word comes from dataflow systems, where the frontier is precisely "everything below this is complete". Earlier drafts used frontier and watermark interchangeably.
+- **`charge`, `retired`, `dropped`** — one unit (events+bytes), three moments: charged into `B` at poll; retired out of it when the commit covering the work issues; dropped out of it when a drain abandons it. Every charge leaves exactly once — that is the whole `B` accounting, and why `B = polled minus committed` stays exact.
 - **`worker batcher` and `accumulator`**: earlier drafts split the transport into a loop-owned "sender" behind a sink trait; the accumulator hand-off (§4.1) retired both names — the batcher is whole again, and the domain's outbound face is data, not an interface. A channel's ends are `Tx`/`Rx` ("send side"/"receive side") in code and prose, so "sender" stays free of meaning. The `bin` (the batcher's per-stream buffer) and the `accumulator` (the domain's per-cascade buffer) are deliberately distinct words for distinct waiting rooms.
 
 ### 8.3 Cleanups this implies in today's code
