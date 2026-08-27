@@ -1070,10 +1070,12 @@ function buildMatrix(products, durations, productsScaled = false) {
     const fillableJobs = []
 
     // Split a product across multiple shards with the same rule Django uses:
-    // enough shards that each lands at the shared wall target. The safety
-    // factor applies here as it does to packing: the products that split are
-    // the fixture-heavy suites whose recorded durations undercount the most,
-    // and a split sized on the bare sum lands its shards well past the target.
+    // enough shards that each lands at the shared wall target. Unlike packing,
+    // the split carries no safety factor -- productSplitShards derives its own
+    // headroom from the product's longest test instead. That leaves it trusting
+    // the recorded sum, which holds only while the map carries
+    // PRODUCTS_SCALED_MARKER: call-only durations undercount a fixture-heavy
+    // suite several-fold, and sizing an unscaled sum under-shards it.
     for (const product of products) {
         const { work, maxTest, staleUnionWork, staleness } = resolveProductSizing(product, durations, productsScaled)
         if (staleUnionWork !== null) {
@@ -1102,9 +1104,10 @@ function buildMatrix(products, durations, productsScaled = false) {
                     filters,
                     pytest_args: `-- --splits ${shards} --group ${i} --splitting-algorithm optimal_chunks`,
                 }
-                // ceil() rounds the split short and optimal_chunks cuts in order, so
-                // the last shard is reliably the lightest. Offer its leftover budget
-                // to the packer rather than starting another runner for that work.
+                // work/shards + maxTest bounds every shard, whichever one
+                // optimal_chunks leaves lightest, so one shard can be offered to the
+                // packer without knowing which. Do not tighten this to work/shards:
+                // the bound is what keeps a filled shard inside the job budget.
                 if (i === shards && !DEDICATED_BUCKET_PRODUCTS.has(product)) {
                     fillableJobs.push({
                         label: `${product} (${i}/${shards})`,

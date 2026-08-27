@@ -973,6 +973,13 @@ jobs:
                   set +e
                   overall=0
                   leg_count=$(jq 'length' <<< "$PRODUCT_LEGS")
+                  # An unset or malformed matrix entry would leave the loop unentered and
+                  # the job green having run no tests, which the single-command form could
+                  # not do. The rollup gate only reads this step, so fail loudly instead.
+                  if [ -z "$leg_count" ] || [ "$leg_count" -lt 1 ]; then
+                      echo "::error::No test legs in this matrix entry; refusing to pass without running tests"
+                      exit 1
+                  fi
                   for ((leg_index = 0; leg_index < leg_count; leg_index++)); do
                       leg_filters=$(jq -r ".[$leg_index].filters" <<< "$PRODUCT_LEGS")
                       leg_args=$(jq -r ".[$leg_index].pytest_args" <<< "$PRODUCT_LEGS")
