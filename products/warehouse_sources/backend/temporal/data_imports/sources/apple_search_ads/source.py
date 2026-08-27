@@ -63,6 +63,13 @@ class AppleSearchAdsSource(ResumableSource[AppleSearchAdsSourceConfig, AppleSear
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.APPLESEARCHADS
 
+    @property
+    def connection_host_fields(self) -> list[str]:
+        # The stored private key is sent against whichever ad account (Platform API) or
+        # organization (v5) is configured, so changing either retargets the saved credential at a
+        # different Apple account — force secret re-entry on a change to either.
+        return ["ad_account_id", "org_id"]
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "400 Client Error: Bad Request for url: https://appleid.apple.com/auth/oauth2/token": "Apple rejected the signed client secret. Check your client ID, team ID, key ID and private key.",

@@ -311,9 +311,9 @@ def validate_credentials(
     # The campaign list is the cheapest account-scoped read: it exercises the access token
     # *and* the `X-AP-Context` id, which the ACL endpoint would not.
     config = endpoints_for_version(api_version)["campaigns"]
-    method, path, params, body = page_request(config, api_version, RequestScope(), offset=0, page_size=1)
+    request = page_request(config, api_version, RequestScope(), offset=0, page_size=1)
     try:
-        status = client.probe_status(method, path, params=params, body=body)
+        status = client.probe_status(request.method, request.path, params=request.params, body=request.body)
     except requests.RequestException as e:
         return False, f"Could not reach the Apple Ads API: {e}"
 
@@ -341,9 +341,11 @@ def _readable_ad_accounts(client: AppleSearchAdsClient, api_version: str) -> str
         return ""
 
     config = endpoints_for_version(api_version)["acls"]
-    method, path, params, body = page_request(config, api_version, RequestScope(), offset=0)
+    request = page_request(config, api_version, RequestScope(), offset=0)
     try:
-        payload = client.request_json(method, path, params=params, body=body, requires_context=False)
+        payload = client.request_json(
+            request.method, request.path, params=request.params, body=request.body, requires_context=False
+        )
     except (requests.RequestException, ValueError):
         return ""
 
@@ -492,13 +494,23 @@ def _platform_query_body(scope: RequestScope, offset: int, page_size: int) -> di
     return body
 
 
+@frozen
+class PageRequest:
+    """HTTP method, path, query params and JSON body for one page of a request."""
+
+    method: str
+    path: str
+    params: Optional[dict[str, Any]] = None
+    body: Optional[dict[str, Any]] = None
+
+
 def page_request(
     config: AppleSearchAdsEndpointConfig,
     api_version: str,
     scope: RequestScope,
     offset: int,
     page_size: int = PAGE_SIZE,
-) -> tuple[str, str, Optional[dict[str, Any]], Optional[dict[str, Any]]]:
+) -> PageRequest:
     """HTTP method, path, query params and JSON body for one page of ``config``."""
     path = config.path
     if scope.campaign_id is not None and "{campaign_id}" in path:
@@ -508,15 +520,21 @@ def page_request(
         if scope.window is None:
             raise ValueError(f"Apple Ads: a {config.name} request needs a reporting window")
         if api_version == APPLE_ADS_API_VERSION_V1:
-            return "POST", path, None, _platform_report_body(scope.window, scope.campaign_id, offset, page_size)
-        return "POST", path, None, _v5_report_body(scope.window, offset, page_size)
+            body = _platform_report_body(scope.window, scope.campaign_id, offset, page_size)
+        else:
+            body = _v5_report_body(scope.window, offset, page_size)
+        return PageRequest(method="POST", path=path, body=body)
     if config.kind == "query":
-        return "POST", path, None, _platform_query_body(scope, offset, page_size)
+        return PageRequest(method="POST", path=path, body=_platform_query_body(scope, offset, page_size))
     if config.kind == "find":
-        return "POST", path, None, {"conditions": [], "pagination": {"offset": offset, "limit": page_size}}
+        return PageRequest(
+            method="POST",
+            path=path,
+            body={"conditions": [], "pagination": {"offset": offset, "limit": page_size}},
+        )
     if config.kind == "query_page":
-        return "GET", path, {"limit": page_size, "offset": offset}, None
-    return "GET", path, None, None
+        return PageRequest(method="GET", path=path, params={"limit": page_size, "offset": offset})
+    return PageRequest(method="GET", path=path)
 
 
 def page_rows(payload: dict[str, Any], config: AppleSearchAdsEndpointConfig, api_version: str) -> list[dict[str, Any]]:
@@ -610,8 +628,14 @@ def _list_campaign_ids(client: AppleSearchAdsClient, api_version: str) -> list[i
     ids: set[int] = set()
     offset = 0
     while True:
-        method, path, params, body = page_request(config, api_version, RequestScope(), offset)
-        payload = client.request_json(method, path, params=params, body=body, requires_context=config.requires_context)
+        request = page_request(config, api_version, RequestScope(), offset)
+        payload = client.request_json(
+            request.method,
+            request.path,
+            params=request.params,
+            body=request.body,
+            requires_context=config.requires_context,
+        )
         rows = page_rows(payload, config, api_version)
         for row in rows:
             campaign_id = row.get("id")
@@ -692,9 +716,13 @@ def _iter_rows(
         resume_offset = 0
 
         while True:
-            method, path, params, body = page_request(config, api_version, current, offset)
+            request = page_request(config, api_version, current, offset)
             payload = client.request_json(
-                method, path, params=params, body=body, requires_context=config.requires_context
+                request.method,
+                request.path,
+                params=request.params,
+                body=request.body,
+                requires_context=config.requires_context,
             )
             page = page_rows(payload, config, api_version)
             rows = _project_rows(page, config, api_version, current.campaign_id)

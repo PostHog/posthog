@@ -61,6 +61,13 @@ class TestAppleSearchAdsSource:
         # `get_schemas` walks a static catalog, so the public docs can render the table list.
         assert self.source.lists_tables_without_credentials is True
 
+    def test_connection_host_fields_force_secret_reentry_on_account_or_org_change(self) -> None:
+        # The stored private key is sent against whichever ad account (Platform API) or
+        # organization (v5) is configured, so changing either must force the editor to re-enter
+        # the key — otherwise a retarget silently reuses the credential against a different Apple
+        # account.
+        assert self.source.connection_host_fields == ["ad_account_id", "org_id"]
+
     @parameterized.expand([(APPLE_SEARCH_ADS_API_VERSION_V5,), (APPLE_ADS_API_VERSION_V1,)])
     def test_get_schemas_covers_the_same_endpoint_catalog_on_every_version(self, api_version: str) -> None:
         # A repinned source must keep every table it had, so the table set cannot vary.
