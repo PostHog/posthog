@@ -28711,7 +28711,7 @@ export namespace Schemas {
       merge_to_deploy_series: MergeToDeployBucket[];
       /** False when the deployments/deployment_statuses tables aren't synced for the selected repo; every other field is then empty or null, never a fake zero. */
       deploy_data_available: boolean;
-      /** What the environment filter resolved to: 'production' (deployments GitHub marks production_environment), 'persistent' (nothing was marked production, so every non-transient environment counts), or the exact environment name passed. Transient environments (ephemeral per-PR previews) never join a default scope. */
+      /** What the environment filter resolved to: 'production' (deployments GitHub marks production_environment), an exact environment name (the one passed, or the busiest persistent environment when nothing is marked production), or 'persistent' (no persistent environment deployed in the window, so every non-transient one counts). Transient environments (ephemeral per-PR previews) never join a default scope. */
       environment_scope: string;
       /** Distinct persistent environments deployed to in the scan window, most-deployed first — the environment picker's options. Transient environments are omitted but stay reachable by exact name. */
       environments: string[];
@@ -28734,7 +28734,7 @@ export namespace Schemas {
          */
       deployments_per_day_prev: number | null;
       /**
-         * Median seconds from a PR's merge to the first successful deployment at or after it (bots/drafts excluded; narrowed by github_team when given). Keyed on deploy time. Deploy ordering stands in for commit ancestry, so this is merge-to-deploy, not full commit-to-deploy DORA lead time. Null when nothing deployed in the window.
+         * Median seconds from a PR's merge to the first successful deployment containing it (bots/drafts excluded; narrowed by github_team when given). Containment is resolved through the deploy's head commit, not the deploy's success time. Keyed on deploy time. This is merge-to-deploy, not full commit-to-deploy DORA lead time. Null when nothing deployed in the window.
          * @nullable
          */
       median_merge_to_deploy_seconds: number | null;
@@ -28771,6 +28771,18 @@ export namespace Schemas {
          * @nullable
          */
       median_failed_deploy_to_next_success_seconds_prev: number | null;
+      /** PRs merged in the window (bots and drafts excluded; narrowed by github_team when given) — the denominator behind unattributed_merged_pr_share. */
+      merged_pr_count: number;
+      /**
+         * Share of merged_pr_count no successful in-scope deployment attributed: recent merges still waiting for their deploy, plus merges whose deploy the scope or scan bounds miss. Null when nothing merged in the window.
+         * @nullable
+         */
+      unattributed_merged_pr_share: number | null;
+      /**
+         * The newest deployment status row synced, any environment — how fresh the deploy data is. Windows ending after this instant undercount. Null when the deploy tables are empty.
+         * @nullable
+         */
+      latest_deploy_status_at: string | null;
       /** Bucket width of both series, chosen to fit the window: 'hour', 'day', or 'week'. */
       series_granularity: string;
     }

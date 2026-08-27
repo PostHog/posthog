@@ -252,7 +252,7 @@ export interface DoraOverviewApi {
     merge_to_deploy_series: MergeToDeployBucketApi[]
     /** False when the deployments/deployment_statuses tables aren't synced for the selected repo; every other field is then empty or null, never a fake zero. */
     deploy_data_available: boolean
-    /** What the environment filter resolved to: 'production' (deployments GitHub marks production_environment), 'persistent' (nothing was marked production, so every non-transient environment counts), or the exact environment name passed. Transient environments (ephemeral per-PR previews) never join a default scope. */
+    /** What the environment filter resolved to: 'production' (deployments GitHub marks production_environment), an exact environment name (the one passed, or the busiest persistent environment when nothing is marked production), or 'persistent' (no persistent environment deployed in the window, so every non-transient one counts). Transient environments (ephemeral per-PR previews) never join a default scope. */
     environment_scope: string
     /** Distinct persistent environments deployed to in the scan window, most-deployed first — the environment picker's options. Transient environments are omitted but stay reachable by exact name. */
     environments: string[]
@@ -275,7 +275,7 @@ export interface DoraOverviewApi {
      */
     deployments_per_day_prev: number | null
     /**
-     * Median seconds from a PR's merge to the first successful deployment at or after it (bots/drafts excluded; narrowed by github_team when given). Keyed on deploy time. Deploy ordering stands in for commit ancestry, so this is merge-to-deploy, not full commit-to-deploy DORA lead time. Null when nothing deployed in the window.
+     * Median seconds from a PR's merge to the first successful deployment containing it (bots/drafts excluded; narrowed by github_team when given). Containment is resolved through the deploy's head commit, not the deploy's success time. Keyed on deploy time. This is merge-to-deploy, not full commit-to-deploy DORA lead time. Null when nothing deployed in the window.
      * @nullable
      */
     median_merge_to_deploy_seconds: number | null
