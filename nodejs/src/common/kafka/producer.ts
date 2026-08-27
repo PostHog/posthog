@@ -23,6 +23,20 @@ import { ProducerStatsTracker } from './kafka-producer-metrics'
 // node-rdkafka exposes no typed constant for these, so the numbers are inlined the same way the
 // MessageSizeTooLarge check below inlines 10.
 const UNKNOWN_TOPIC_ERROR_CODES = new Set([3, -188])
+// A delivery report for an absent topic does not always carry one of those codes — a broker that
+// answers the metadata request slowly enough surfaces the failure through the produce callback with
+// code -1 and only the librdkafka text. Matching the text as well keeps the classification working
+// there, which is where the crash loop was observed.
+const UNKNOWN_TOPIC_MESSAGE = /unknown topic or (partition|part)/i
+
+function isUnknownTopicError(error: unknown): boolean {
+    const code = (error as LibrdKafkaError)?.code
+    if (typeof code === 'number' && UNKNOWN_TOPIC_ERROR_CODES.has(code)) {
+        return true
+    }
+    const message = (error as Error)?.message
+    return typeof message === 'string' && UNKNOWN_TOPIC_MESSAGE.test(message)
+}
 
 /** This class is a wrapper around the rdkafka producer, and does very little.
  *
@@ -204,7 +218,7 @@ export class KafkaProducerWrapper {
                 error_code: errorCode,
             })
 
-            if (typeof errorCode === 'number' && UNKNOWN_TOPIC_ERROR_CODES.has(errorCode)) {
+            if (isUnknownTopicError(error)) {
                 // Classified before isRetriable on purpose. The topic is absent from this cluster,
                 // so the produce cannot succeed however many times it is retried, and librdkafka
                 // only populates isRetriable when the underlying error happens to carry it.
