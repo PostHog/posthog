@@ -20,6 +20,7 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
+from posthog.cloud_utils import is_cloud
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.ai.checkpoint_compaction.schedule import (
     create_checkpoint_compaction_schedule,
@@ -695,13 +696,15 @@ async def cleanup_cohort_calculation_schedules(client: Client):
 async def cleanup_non_cloud_ai_observability_schedules(client: Client):
     """Reap the AI observability clustering and summarization schedules on non-cloud deployments.
 
-    These coordinators need the AI gateway, which only exists in cloud, so they register only under
-    CLOUD_DEPLOYMENT. Temporal keeps a schedule until code deletes it, so dropping them from the
-    registration list does not remove rows an earlier release already created. A non-cloud instance
-    that deployed such a release keeps firing them every tick. Reap them so those instances converge.
-    On cloud this is a no-op: the creators above own these IDs.
+    These coordinators reach the cloud-only guard in
+    ``posthog.temporal.ai_observability.llm_endpoint``, so they register only where that guard lets
+    them run: on cloud, or on a local DEBUG install. Temporal keeps a schedule until code deletes it,
+    so dropping them from the registration list does not remove rows an earlier release already
+    created. A self-hosted instance that deployed such a release keeps firing them every tick. Reap
+    them so those instances converge. Where the coordinators do register this is a no-op, because
+    the creators own these IDs.
     """
-    if settings.CLOUD_DEPLOYMENT:
+    if settings.DEBUG or is_cloud():
         return
     schedule_ids = [
         trace_summarization_constants.COORDINATOR_SCHEDULE_ID,
@@ -932,14 +935,17 @@ schedules = [
     create_cleanup_data_quality_check_runs_schedule,
 ]
 
-if settings.CLOUD_DEPLOYMENT:
-    # AI observability summarization and clustering need the AI gateway, which only exists in
-    # cloud. On a self-hosted or DEBUG=0 install these coordinators discover teams, spawn the
-    # labeling activity, and fail on the cloud-only guard in llm_endpoint.py every run.
+# AI observability summarization and clustering call the cloud-only guard in
+# posthog/temporal/ai_observability/llm_endpoint.py, which permits cloud and local DEBUG installs.
+# Anywhere else these coordinators discover teams, spawn the labeling activity, and fail on that
+# guard every run, so gate registration on the condition the guard itself uses.
+if settings.DEBUG or is_cloud():
     schedules.append(create_batch_trace_summarization_schedule)
     schedules.append(create_batch_generation_summarization_schedule)
     schedules.append(create_trace_clustering_coordinator_schedule)
     schedules.append(create_generation_clustering_coordinator_schedule)
+
+if settings.CLOUD_DEPLOYMENT:
     # Gemini uploads only happen in cloud; each sweep reaps only the files tracked in this
     # deployment's own Redis index, so per-deployment scoping is inherent.
     schedules.append(create_replay_vision_gemini_cleanup_sweep_schedule)

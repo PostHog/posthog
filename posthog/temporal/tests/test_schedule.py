@@ -44,15 +44,16 @@ async def test_wa_digest_schedules_target_the_weekly_digest_queue() -> None:
     assert task_queues == [settings.WEEKLY_DIGEST_TASK_QUEUE] * 2
 
 
-# The reaper converges non-cloud instances that still hold clustering/summarization schedule rows a
-# prior release created. Off cloud it must delete all four; on cloud the guard must stop it deleting
-# schedules the coordinators still run, so it deletes nothing.
+# The reaper converges self-hosted instances that still hold clustering/summarization schedule rows a
+# prior release created. It must delete all four there, and nothing where the coordinators still
+# register, which is cloud and a local DEBUG install.
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "cloud_deployment,expected_deleted",
+    "cloud_deployment,debug,expected_deleted",
     [
         (
             None,
+            False,
             [
                 trace_summarization_constants.COORDINATOR_SCHEDULE_ID,
                 trace_summarization_constants.GENERATION_COORDINATOR_SCHEDULE_ID,
@@ -60,14 +61,15 @@ async def test_wa_digest_schedules_target_the_weekly_digest_queue() -> None:
                 trace_clustering_constants.GENERATION_COORDINATOR_SCHEDULE_ID,
             ],
         ),
-        ("US", []),
+        ("US", False, []),
+        (None, True, []),
     ],
 )
-async def test_cleanup_non_cloud_ai_observability_schedules(cloud_deployment, expected_deleted) -> None:
+async def test_cleanup_non_cloud_ai_observability_schedules(cloud_deployment, debug, expected_deleted) -> None:
     deleted: list[str] = []
 
     with (
-        override_settings(CLOUD_DEPLOYMENT=cloud_deployment),
+        override_settings(CLOUD_DEPLOYMENT=cloud_deployment, DEBUG=debug),
         mock.patch("posthog.temporal.schedule.a_schedule_exists", new=mock.AsyncMock(return_value=True)),
         mock.patch(
             "posthog.temporal.schedule.a_delete_schedule",
