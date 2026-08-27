@@ -191,7 +191,7 @@ function RecentSectionHeader({
               <TabsTrigger
                 key={value}
                 value={value}
-                className="shrink-0 rounded-sm px-1 py-0.5 text-[13px]"
+                className="shrink-0 rounded-sm px-2 py-0.5 text-[13px]"
               >
                 <span className="whitespace-nowrap">{label}</span>
               </TabsTrigger>
@@ -333,7 +333,7 @@ function listStateOf({
 export function ChannelSidebar({ channelId }: { channelId: string }) {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
+  const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
 
   const { items, actions, me, isLoading, channelMissing } =
     useChannelItems(channelId);
