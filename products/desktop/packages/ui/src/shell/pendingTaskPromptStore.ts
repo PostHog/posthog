@@ -19,6 +19,11 @@ export interface PendingTaskPrompt {
    * only by delivery (success) or the user discarding the prompt.
    */
   interruptReason?: PendingPromptInterruptReason;
+  /**
+   * Space the prompt was submitted in, so recovery reopens it there instead of
+   * whatever space is current. Absent means it was submitted unscoped.
+   */
+  channelId?: string;
   createdAt: number;
 }
 

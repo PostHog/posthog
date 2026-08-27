@@ -16,6 +16,10 @@ export function recoverPendingPrompt(key: string): boolean {
   openTaskInput({
     initialContent: pendingPromptToContent(record),
     recoveredFromKey: key,
+    // Reopen in the space the prompt was submitted in, not whatever is current.
+    ...(record.channelId
+      ? { channelId: record.channelId }
+      : { unscoped: true }),
   });
   return true;
 }

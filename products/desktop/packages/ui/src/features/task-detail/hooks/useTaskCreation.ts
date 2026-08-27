@@ -365,6 +365,8 @@ export function useTaskCreation({
             // recovery, so an interrupted prompt comes back whole, not as bare
             // text.
             contentXml: serializedContent,
+            // Reopen recovery in the space the prompt was submitted in.
+            channelId: channelId ?? undefined,
           });
           // Fade the composer out before the chat fades in, so the phases
           // hand over instead of cutting.
