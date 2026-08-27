@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from django.db import close_old_connections, transaction
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -178,7 +179,7 @@ _REUSE_WINDOW_TRIGGERS = frozenset({ExperimentMetricsRecalculation.Trigger.METRI
 
 
 def _resolve_query_to(experiment: Experiment, trigger: str | None) -> datetime:
-    """Window end for a starting run: reuse the latest completed run's for metric-scoped changes, else advance.
+    """Window end for a starting run: reuse the latest terminal run's for metric-scoped changes, else advance.
 
     A stopped experiment has a fixed window (experiment_window_end always returns end_date), so reuse is moot
     and we skip the lookup. archived is orthogonal: it never affects the window, which reads only end_date.
@@ -187,17 +188,27 @@ def _resolve_query_to(experiment: Experiment, trigger: str | None) -> datetime:
     if experiment.is_stopped or trigger not in _REUSE_WINDOW_TRIGGERS:
         return experiment_window_end(experiment, now)
 
+    # Any terminal run is a valid anchor, not only COMPLETED: a partial-failure run is marked FAILED yet its
+    # succeeded metrics hold result rows at that (newer) query_to. Mirror get_latest_recalculation so reuse
+    # picks the newest real window instead of falling back to an older one and moving results backward.
     latest_query_to = (
-        ExperimentMetricsRecalculation.objects.filter(
-            experiment=experiment,
-            status=ExperimentMetricsRecalculation.Status.COMPLETED,
-            query_to__isnull=False,
+        ExperimentMetricsRecalculation.objects.filter(experiment=experiment, query_to__isnull=False)
+        .filter(
+            Q(status=ExperimentMetricsRecalculation.Status.COMPLETED)
+            | (Q(status=ExperimentMetricsRecalculation.Status.FAILED) & Q(completed_at__isnull=False))
         )
         .order_by("-query_to")
         .values_list("query_to", flat=True)
         .first()
     )
-    return experiment_window_end(experiment, latest_query_to if latest_query_to is not None else now)
+    if latest_query_to is None:
+        return experiment_window_end(experiment, now)
+
+    # A reset+relaunch leaves the prior run's rows behind with a query_to from before the new start_date.
+    # Never reuse a cutoff below start_date, or the window would begin before the experiment exists.
+    if experiment.start_date is not None and latest_query_to < experiment.start_date:
+        return experiment_window_end(experiment, now)
+    return experiment_window_end(experiment, latest_query_to)
 
 
 @database_sync_to_async_pool

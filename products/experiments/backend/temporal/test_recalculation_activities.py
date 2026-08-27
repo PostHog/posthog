@@ -376,6 +376,74 @@ class TestRecalculationActivities(BaseTest):
         assert recalc.query_to == (prior_window if expect_reuse else now)
 
     @freeze_time("2026-06-23T05:00:00Z")
+    def test_mark_started_reuses_partial_failure_window(self):
+        # A run where one metric failed is marked FAILED but stamps completed_at and holds result rows for the
+        # metrics that succeeded. Reuse must anchor on that newest terminal window, not fall back to an older
+        # fully-completed one — otherwise the good metrics' displayed results move backward.
+        now = timezone.now()
+        older_completed = now - timedelta(hours=12)
+        newer_partial = now - timedelta(hours=2)
+        exp = self._experiment(flag_key="reuse-partial-failure")
+        ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status=ExperimentMetricsRecalculation.Status.COMPLETED,
+            query_to=older_completed,
+            completed_at=older_completed,
+        )
+        ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status=ExperimentMetricsRecalculation.Status.FAILED,
+            query_to=newer_partial,
+            completed_at=newer_partial,
+        )
+        recalc = self._recalc(exp, trigger=ExperimentMetricsRecalculation.Trigger.METRIC_CONFIG_CHANGE)
+
+        _update(
+            RecalculationProgressUpdate(
+                recalculation_id=str(recalc.id),
+                status="in_progress",
+                total_metrics=1,
+                metric_uuids=["m1"],
+                mark_started=True,
+            )
+        )
+
+        recalc.refresh_from_db()
+        assert recalc.query_to == newer_partial
+
+    @freeze_time("2026-06-23T05:00:00Z")
+    def test_mark_started_does_not_reuse_window_before_start_date(self):
+        # After a reset and relaunch the prior run's rows survive with a query_to from before the new start_date.
+        # Reusing that cutoff would begin the window before the experiment exists, so advance to now instead.
+        now = timezone.now()
+        exp = self._experiment(flag_key="reuse-before-start")
+        exp.start_date = now - timedelta(hours=1)
+        exp.save(update_fields=["start_date"])
+        ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status=ExperimentMetricsRecalculation.Status.COMPLETED,
+            query_to=now - timedelta(days=3),
+            completed_at=now - timedelta(days=3),
+        )
+        recalc = self._recalc(exp, trigger=ExperimentMetricsRecalculation.Trigger.METRIC_CONFIG_CHANGE)
+
+        _update(
+            RecalculationProgressUpdate(
+                recalculation_id=str(recalc.id),
+                status="in_progress",
+                total_metrics=1,
+                metric_uuids=["m1"],
+                mark_started=True,
+            )
+        )
+
+        recalc.refresh_from_db()
+        assert recalc.query_to == now
+
+    @freeze_time("2026-06-23T05:00:00Z")
     def test_mark_started_metric_config_change_clamps_to_end_date_when_stopped(self):
         # A stopped experiment has a fixed window: even metric_config_change resolves to end_date, so a stale
         # prior window (recorded before the stop) can never push the recompute window past end_date.
