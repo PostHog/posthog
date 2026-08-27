@@ -27,6 +27,7 @@ from posthog.models.integration import (
     OauthIntegration,
     google_ads_hierarchy_level,
 )
+from posthog.models.integration.google_ads import GoogleAdsTemporarilyUnavailable
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
@@ -374,6 +375,10 @@ class GoogleAdsSource(
                 "Google rejected the credentials for this integration. Please reconnect your Google Ads "
                 "integration and make sure the connected account can access your Google Ads accounts."
             ) from e
+        except GoogleAdsTemporarilyUnavailable as e:
+            # A transient 429/5xx that outlived the walk's internal retries. Retryable on its own, so
+            # surface a try-again message rather than the reconnect prompt a real credential failure gets.
+            raise IntegrationAccountListingError(str(e)) from e
         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
             # The walk retries a transient blip internally; this means every attempt on some request
             # timed out or failed to connect. Actionable and retryable from the user's side, so surface
