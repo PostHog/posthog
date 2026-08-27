@@ -190,6 +190,7 @@ export interface proxyLogicActions {
             domain: string
             id: string
             message: string | null
+            root_redirect_supported: boolean
             root_redirect_url: string | null
             status: ProxyRecordStatusEnumApi
             target_cname: string
@@ -203,6 +204,7 @@ export interface proxyLogicActions {
             domain: string
             id: string
             message: string | null
+            root_redirect_supported: boolean
             root_redirect_url: string | null
             status: ProxyRecordStatusEnumApi
             target_cname: string
