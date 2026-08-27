@@ -219,7 +219,7 @@ export function ProjectSwitcher({
           ) : (
             <Item
               size="xs"
-              className="border-transparent bg-fill-hover py-1.5 hover:bg-fill-selected aria-expanded:bg-fill-active"
+              className="border-transparent bg-transparent py-1.5 hover:bg-fill-hover aria-expanded:bg-fill-selected"
             >
               <ItemContent className="select-none gap-0">
                 <ItemTitle>{projectName}</ItemTitle>
