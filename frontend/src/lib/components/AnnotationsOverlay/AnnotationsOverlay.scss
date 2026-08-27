@@ -35,9 +35,9 @@
 
         color: inherit;
         background: none;
-        border-color: transparent;
         filter: drop-shadow(0 0 1px var(--color-bg-surface-primary))
             drop-shadow(0 0 2px var(--color-bg-surface-primary)) drop-shadow(0 0 3px var(--color-bg-surface-primary));
+        border-color: transparent;
     }
 }
 
