@@ -40,6 +40,22 @@ export const getProductEventFilterOptions = (contextId: HogFunctionConfiguration
                     label: 'Error tracking issue spiking',
                     value: '$error_tracking_issue_spiking',
                 },
+                {
+                    label: 'Error tracking issue resolved',
+                    value: '$error_tracking_issue_resolved',
+                },
+                {
+                    label: 'Error tracking issue suppressed',
+                    value: '$error_tracking_issue_suppressed',
+                },
+                {
+                    label: 'Error tracking issue assigned',
+                    value: '$error_tracking_issue_assigned',
+                },
+                {
+                    label: 'Error tracking issue merged',
+                    value: '$error_tracking_issue_merged',
+                },
             ]
         case 'insight-alerts':
             return [

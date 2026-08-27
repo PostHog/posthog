@@ -469,6 +469,22 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Error tracking issue spiking",
             "description": "Fires when an error tracking issue's volume spikes above its expected rate.",
         },
+        "$error_tracking_issue_resolved": {
+            "label": "Error tracking issue resolved",
+            "description": "Fires when an error tracking issue is marked as resolved.",
+        },
+        "$error_tracking_issue_suppressed": {
+            "label": "Error tracking issue suppressed",
+            "description": "Fires when an error tracking issue is marked as suppressed.",
+        },
+        "$error_tracking_issue_assigned": {
+            "label": "Error tracking issue assigned",
+            "description": "Fires when an error tracking issue is assigned to a user or role.",
+        },
+        "$error_tracking_issue_merged": {
+            "label": "Error tracking issue merged",
+            "description": "Fires when error tracking issues are merged into another issue.",
+        },
         "$conversation_message_sent": {
             "label": "Conversation message sent",
             "description": "Fires when a message is sent in a support conversation.",
