@@ -33,31 +33,32 @@ describe("reportInboxSections", () => {
       },
       "decision",
     ],
-    // ...and anything not ready is monitoring, even mid-run with an open PR.
-    [{ status: "pending_input" }, "monitoring"],
-    [{ status: "failed" }, "monitoring"],
-    [{ status: "in_progress" }, "monitoring"],
+    [{ status: "pending_input" }, "attention"],
+    [{ status: "failed" }, "attention"],
+    [{ status: "in_progress" }, "inProgress"],
     [
       { status: "in_progress", implementation_pr_url: "https://gh/pr/1" },
-      "monitoring",
+      "inProgress",
     ],
-    [{ status: "candidate" }, "monitoring"],
+    [{ status: "candidate" }, "inProgress"],
   ] as const)("%j lands in %s", (overrides, section) => {
     const sections = partitionInboxReports([
       report(overrides as Partial<SignalReport>),
     ]);
     expect(sections.decision.length).toBe(section === "decision" ? 1 : 0);
-    expect(sections.monitoring.length).toBe(section === "monitoring" ? 1 : 0);
+    expect(sections.attention.length).toBe(section === "attention" ? 1 : 0);
+    expect(sections.inProgress.length).toBe(section === "inProgress" ? 1 : 0);
   });
 
   it("partition preserves the list's own order within each section", () => {
     const sections = partitionInboxReports([
       report({ id: "d1" }),
-      report({ id: "m1", status: "in_progress" }),
+      report({ id: "a1", status: "pending_input" }),
       report({ id: "d2" }),
-      report({ id: "m2", status: "candidate" }),
+      report({ id: "p1", status: "candidate" }),
     ]);
     expect(sections.decision.map((r) => r.id)).toEqual(["d1", "d2"]);
-    expect(sections.monitoring.map((r) => r.id)).toEqual(["m1", "m2"]);
+    expect(sections.attention.map((r) => r.id)).toEqual(["a1"]);
+    expect(sections.inProgress.map((r) => r.id)).toEqual(["p1"]);
   });
 });

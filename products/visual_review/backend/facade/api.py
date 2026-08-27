@@ -42,7 +42,7 @@ from ..logic import (
     toleration,
 )
 from . import contracts
-from .enums import FlakinessState, RunPurpose
+from .enums import RunPurpose
 
 User = get_user_model()
 
@@ -360,12 +360,20 @@ def get_flakiness_overview(repo_id: UUID) -> contracts.FlakinessOverview:
                 width=artifact.width if artifact is not None else None,
                 height=artifact.height if artifact is not None else None,
                 variant_count=row.variant_count,
+                hard_count=row.hard_count,
+                soft_count=row.soft_count,
+                window_runs=row.window_runs,
+                hard_rate=row.hard_rate,
+                soft_rate=row.soft_rate,
                 last_flaked_at=row.last_flaked_at,
                 avg_diff_percentage=row.avg_diff_percentage,
+                worst_soft_diff_percentage=row.worst_soft_diff_percentage,
+                headroom=row.headroom,
                 baseline_age_days=_days_since(row.baseline_moved_at, raw.generated_at),
-                daily_variant_counts=row.daily_counts,
+                daily_hard_counts=row.daily_hard_counts,
+                daily_soft_counts=row.daily_soft_counts,
                 baseline_moved_day_index=_baseline_moved_day_index(row.baseline_moved_at, raw.generated_at),
-                flakiness_state=_flakiness_state(row.is_unstable, row.variant_count),
+                flakiness_state=row.state,
                 is_quarantined=row.quarantine is not None,
                 needs_decision=row.needs_decision,
                 quarantine=(
@@ -379,8 +387,11 @@ def get_flakiness_overview(repo_id: UUID) -> contracts.FlakinessOverview:
     totals = contracts.FlakinessTotals(
         listed=len(entries),
         tracked=raw.tracked_total,
+        broken=raw.totals_broken,
         unstable=raw.totals_unstable,
-        settled=raw.totals_settled,
+        at_risk=raw.totals_at_risk,
+        noisy=raw.totals_noisy,
+        clean=raw.totals_clean,
         quarantined=raw.totals_quarantined,
         needs_decision=raw.totals_needs_decision,
         by_run_type=raw.by_run_type,
@@ -394,12 +405,6 @@ def get_flakiness_overview(repo_id: UUID) -> contracts.FlakinessOverview:
     )
 
 
-def _flakiness_state(is_unstable: bool, variant_count: int) -> str:
-    if is_unstable:
-        return FlakinessState.UNSTABLE
-    return FlakinessState.SETTLED if variant_count > 0 else FlakinessState.CLEAN
-
-
 def _days_since(moment: datetime | None, now: datetime) -> int | None:
     return None if moment is None else max((now - moment).days, 0)
 
@@ -411,9 +416,9 @@ def _baseline_moved_day_index(moved_at: datetime | None, now: datetime) -> int |
     common case, so the frontend draws no divider.
     """
     days_ago = _days_since(moved_at, now)
-    if days_ago is None or days_ago >= contracts.FLAKINESS_STRIP_DAYS:
+    if days_ago is None or days_ago >= contracts.FLAKINESS_WINDOW_DAYS:
         return None
-    return contracts.FLAKINESS_STRIP_DAYS - 1 - days_ago
+    return contracts.FLAKINESS_WINDOW_DAYS - 1 - days_ago
 
 
 # --- Run API ---

@@ -5055,8 +5055,14 @@ describe("AgentServer HTTP Mode", () => {
           "Closes #<n>",
           "Generated-By: PostHog Desktop",
           "Task-Id: test-task-id",
+          "canonical `posthog:exec` tool",
+          "`posthog:read-data-schema`",
         ],
-        shouldNotContain: ["gh repo clone"],
+        shouldNotContain: [
+          "gh repo clone",
+          "query-run",
+          "event-definitions-list",
+        ],
       },
       {
         label: "createPr false",
@@ -5066,11 +5072,14 @@ describe("AgentServer HTTP Mode", () => {
           "Call `clone_repo`",
           "You may make local edits in a repository cloned with `clone_repo`",
           "Do NOT create branches, commits, push changes, or open pull requests in this run",
+          "canonical `posthog:exec` tool",
         ],
         shouldNotContain: [
           "open a draft pull request",
           "gh pr create --draft",
           "gh repo clone",
+          "query-run",
+          "event-definitions-list",
         ],
       },
     ])(

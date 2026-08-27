@@ -85,6 +85,44 @@ describe('accountRelatedUsersLogic', () => {
         expect(listForOrg).toHaveBeenLastCalledWith('org-uuid', { limit: 20, offset: 20 })
     })
 
+    it('resets to the first page and sends the user search to the API', async () => {
+        const listForOrg = jest
+            .spyOn(api.organizationMembers, 'listForOrg')
+            .mockResolvedValue(buildResponse([buildMember()], PAGE_SIZE + 1))
+
+        logic = accountRelatedUsersLogic({ externalId: 'org-uuid' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setPage(2)
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setSearchTerm('Ada')
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ page: 1, searchTerm: 'Ada' })
+        expect(listForOrg).toHaveBeenLastCalledWith('org-uuid', { limit: PAGE_SIZE, offset: 0, search: 'Ada' })
+    })
+
+    it('does not load EU members when a US user search has no matches', async () => {
+        const listForOrg = jest
+            .spyOn(api.organizationMembers, 'listForOrg')
+            .mockResolvedValueOnce(buildResponse([buildMember()]))
+            .mockResolvedValueOnce(buildResponse([]))
+        const query = jest.spyOn(api, 'query')
+
+        logic = accountRelatedUsersLogic({ externalId: 'org-uuid' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setSearchTerm('Nobody')
+
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ membersResponse: buildResponse([]) })
+        expect(listForOrg).toHaveBeenLastCalledWith('org-uuid', { limit: PAGE_SIZE, offset: 0, search: 'Nobody' })
+        expect(query).not.toHaveBeenCalled()
+    })
+
     const buildEuRow = (
         n: number,
         level: OrganizationMembershipLevel = OrganizationMembershipLevel.Member
@@ -139,6 +177,22 @@ describe('accountRelatedUsersLogic', () => {
             count: PAGE_SIZE + 2,
             results: [{ id: `eu-m-${PAGE_SIZE + 1}` }, { id: `eu-m-${PAGE_SIZE + 2}` }],
         })
+    })
+
+    it('filters cached EU members by name without loading them again', async () => {
+        const listForOrg = jest.spyOn(api.organizationMembers, 'listForOrg').mockResolvedValue(buildResponse([], 0))
+        const query = jest.spyOn(api, 'query').mockResolvedValue({ results: [buildEuRow(1), buildEuRow(2)] } as any)
+
+        logic = accountRelatedUsersLogic({ externalId: 'org-uuid' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setSearchTerm('First2')
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(listForOrg).toHaveBeenCalledTimes(1)
+        expect(query).toHaveBeenCalledTimes(1)
+        expect(logic.values.membersResponse).toMatchObject({ count: 1, results: [{ id: 'eu-m-2' }] })
     })
 
     it('degrades to the empty response when the EU view does not exist', async () => {
