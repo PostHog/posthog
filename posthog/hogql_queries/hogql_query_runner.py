@@ -89,6 +89,24 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         payload = super().get_cache_payload()
         if self._managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN:
             payload["managed_warehouse_sql_mode"] = self._managed_warehouse_sql_mode.value
+
+        # Both activity-log guards print into the query, so a cache lookup returns before either runs.
+        # `requires_fresh_calculation` below keeps a stored result from being served in every mode that may
+        # calculate. CACHE_ONLY_NEVER_CALCULATE is the mode it cannot reach: that one returns a stored
+        # result however stale it is, so the key carries what the guards depend on.
+        if _ACTIVITY_LOGS_TABLE in self._queried_table_names:
+            # Nothing else in the key tracks the visibility rules. Varying on their fingerprint means a
+            # result stored under the previous rules stops being served once they change.
+            payload["activity_log_visibility_policy"] = activity_log_visibility_policy_version()
+
+            # The retention floor moves with the clock, so a result stored inside the window would outlive
+            # it. Bucketing by the hour bounds a cache-only read to rows at most an hour past the floor,
+            # rather than for as long as the entry lives, and a downgrade moves the floor by days, so this
+            # covers a plan change too.
+            floor = get_activity_log_lookback_restriction(self.team.organization)
+            if floor is not None:
+                payload["activity_log_retention_floor_hour"] = floor.strftime("%Y-%m-%dT%H")
+
         return payload
 
     def query_status_labels(self) -> list[str] | None:
@@ -133,28 +151,6 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         return any(name.lower().startswith(_INFORMATION_SCHEMA_PREFIX) for name in table_names) or (
             _ACTIVITY_LOGS_TABLE in table_names
         )
-
-    def get_cache_payload(self) -> dict:
-        payload = super().get_cache_payload()
-
-        # Both activity-log guards print into the query, so a cache lookup returns before either runs.
-        # `requires_fresh_calculation` above keeps a stored result from being served in every mode that may
-        # calculate. CACHE_ONLY_NEVER_CALCULATE is the mode it cannot reach: that one returns a stored
-        # result however stale it is, so the key carries what the guards depend on.
-        if _ACTIVITY_LOGS_TABLE in self._queried_table_names:
-            # Nothing else in the key tracks the visibility rules. Varying on their fingerprint means a
-            # result stored under the previous rules stops being served once they change.
-            payload["activity_log_visibility_policy"] = activity_log_visibility_policy_version()
-
-            # The retention floor moves with the clock, so a result stored inside the window would outlive
-            # it. Bucketing by the hour bounds a cache-only read to rows at most an hour past the floor,
-            # rather than for as long as the entry lives, and a downgrade moves the floor by days, so this
-            # covers a plan change too.
-            floor = get_activity_log_lookback_restriction(self.team.organization)
-            if floor is not None:
-                payload["activity_log_retention_floor_hour"] = floor.strftime("%Y-%m-%dT%H")
-
-        return payload
 
     @cached_property
     def _queried_table_names(self) -> set[str]:
