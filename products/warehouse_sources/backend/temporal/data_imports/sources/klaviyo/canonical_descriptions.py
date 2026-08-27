@@ -435,6 +435,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updated_at": "Time at which the object type was last updated.",
         },
     },
+    "custom_object_records": {
+        "description": "A single record of a custom object type, holding structured data synced into Klaviyo and linked to profiles.",
+        "docs_url": "https://developers.klaviyo.com/en/reference/get_records_for_object_type",
+        "columns": {
+            "id": "Unique identifier for the record, in the form object_type_id:::record_id.",
+            "object_type_id": "ID of the object type this record belongs to.",
+            "record_properties": "The record's properties, as defined by the object type's schema.",
+        },
+    },
     "push_tokens": {
         "description": "A push notification token registered against a profile's device.",
         "docs_url": "https://developers.klaviyo.com/en/reference/get_push_tokens",

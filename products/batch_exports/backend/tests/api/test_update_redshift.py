@@ -4,6 +4,8 @@ from django.test.client import Client as HttpClient
 
 from rest_framework import status
 
+from posthog.models.integration import Integration
+
 from products.batch_exports.backend.tests.api.operations import (
     create_batch_export_ok,
     get_batch_export_ok,
@@ -14,6 +16,29 @@ pytestmark = [
     pytest.mark.django_db,
     pytest.mark.usefixtures("temporal_worker", "cleanup"),
 ]
+
+
+def create_copy_batch_export(client: HttpClient, team, user, copy_inputs: dict) -> dict:
+    destination_data = {
+        "type": "Redshift",
+        "config": {
+            "user": "user",
+            "password": "my-password",
+            "database": "my-db",
+            "host": "localhost",
+            "schema": "public",
+            "table_name": "my_events",
+            "mode": "COPY",
+            "copy_inputs": copy_inputs,
+        },
+    }
+    batch_export_data = {
+        "name": "my-production-redshift-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+    client.force_login(user)
+    return create_batch_export_ok(client, team.pk, batch_export_data)
 
 
 def test_can_patch_redshift_batch_export(client: HttpClient, temporal, organization, team, user):
@@ -73,3 +98,120 @@ def test_can_patch_redshift_batch_export(client: HttpClient, temporal, organizat
     batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
     assert batch_export["destination"]["type"] == "Redshift"
     assert batch_export["destination"]["config"]["copy_inputs"]["s3_bucket"] == "my-new-production-s3-bucket"
+
+
+def test_can_patch_redshift_batch_export_switching_authorization_to_credentials(
+    client: HttpClient, temporal, organization, team, user
+):
+    """Test an update can switch 'authorization' from an IAM role to inline credentials.
+
+    The config merge used to raise a TypeError on this transition and return a 500.
+    """
+    batch_export = create_copy_batch_export(
+        client,
+        team,
+        user,
+        {
+            "s3_bucket": "my-production-s3-bucket",
+            "region_name": "us-east-1",
+            "s3_key_prefix": "posthog-events/",
+            "bucket_credentials": {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
+            "authorization": "arn:aws:iam::123456789012:role/my-role",
+        },
+    )
+
+    new_batch_export_data = {
+        "destination": {
+            "type": "Redshift",
+            "config": {
+                "copy_inputs": {
+                    "authorization": {"aws_access_key_id": "new-key", "aws_secret_access_key": "new-secret"},
+                },
+            },
+        },
+    }
+
+    response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
+    assert response.status_code == status.HTTP_200_OK, response.json()
+
+    batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
+    assert batch_export["destination"]["config"]["copy_inputs"]["s3_bucket"] == "my-production-s3-bucket"
+
+
+@pytest.mark.parametrize("field_name", ["authorization", "bucket_credentials"])
+def test_patching_redshift_batch_export_rejects_switching_copy_integration_to_inline(
+    client: HttpClient, temporal, organization, team, user, aws_s3_integration, field_name
+):
+    """Test COPY credentials backed by an integration cannot switch back to inline values."""
+    batch_export = create_copy_batch_export(
+        client,
+        team,
+        user,
+        {
+            "s3_bucket": "my-production-s3-bucket",
+            "region_name": "us-east-1",
+            "s3_key_prefix": "posthog-events/",
+            "bucket_credentials": aws_s3_integration.pk,
+            "authorization": aws_s3_integration.pk,
+        },
+    )
+
+    new_batch_export_data = {
+        "destination": {
+            "type": "Redshift",
+            "config": {
+                "copy_inputs": {
+                    field_name: {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
+                },
+            },
+        },
+    }
+
+    response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert f"Cannot switch '{field_name}' from an integration to inline credentials" in response.json()["detail"]
+
+
+def test_can_patch_redshift_batch_export_swapping_copy_integration(
+    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+):
+    """Test COPY credentials backed by an integration can swap to a different integration."""
+    other_integration = Integration.objects.create(
+        team=team,
+        kind=Integration.IntegrationKind.AWS_S3,
+        integration_id="prod-aws-2",
+        config={"name": "prod-aws-2", "aws_account_id": "123456789012"},
+        sensitive_config={"aws_access_key_id": "key-2", "aws_secret_access_key": "secret-2"},
+        created_by=user,
+    )
+    batch_export = create_copy_batch_export(
+        client,
+        team,
+        user,
+        {
+            "s3_bucket": "my-production-s3-bucket",
+            "region_name": "us-east-1",
+            "s3_key_prefix": "posthog-events/",
+            "bucket_credentials": aws_s3_integration.pk,
+            "authorization": aws_s3_integration.pk,
+        },
+    )
+
+    new_batch_export_data = {
+        "destination": {
+            "type": "Redshift",
+            "config": {
+                "copy_inputs": {
+                    "bucket_credentials": other_integration.pk,
+                    "authorization": other_integration.pk,
+                },
+            },
+        },
+    }
+
+    response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
+    assert response.status_code == status.HTTP_200_OK, response.json()
+
+    batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
+    assert batch_export["destination"]["config"]["copy_inputs"]["bucket_credentials"] == other_integration.pk
+    assert batch_export["destination"]["config"]["copy_inputs"]["authorization"] == other_integration.pk
