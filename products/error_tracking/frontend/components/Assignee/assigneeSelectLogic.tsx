@@ -34,6 +34,7 @@ export interface assigneeSelectLogicValues {
     roles: RoleType[] // rolesLogic
     rolesLoading: boolean // rolesLogic
     filteredRoles: RoleType[]
+    myRoles: RoleType[]
     loading: boolean
     myRoles: RoleType[]
     resolveAssignee: (assignee: ErrorTrackingIssue['assignee']) => Assignee
