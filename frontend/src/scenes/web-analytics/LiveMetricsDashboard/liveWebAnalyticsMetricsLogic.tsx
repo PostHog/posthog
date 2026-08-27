@@ -142,6 +142,7 @@ export interface liveWebAnalyticsMetricsLogicValues {
     eventsVersion: number
     geoVersion: number
     hasActiveFilters: boolean
+    isBotLoading: boolean
     isLoading: boolean
     isRefreshing: boolean
     liveFilters: WebAnalyticsPropertyFilter[]
@@ -150,6 +151,7 @@ export interface liveWebAnalyticsMetricsLogicValues {
     recentEvents: LiveEvent[]
     recentUsersByLastSeen: Map<string, number>
     selectedHost: string | null
+    shouldLoadBots: boolean
     slidingWindow: LiveMetricsSlidingWindow
     streamFilters: AnyPropertyFilter[]
     testAccountFilters: AnyPropertyFilter[]
@@ -197,6 +199,17 @@ export interface liveWebAnalyticsMetricsLogicActions {
     scheduleReload: () => {
         value: true
     }
+    setBotData: (
+        buckets: {
+            bucket: SlidingWindowBucket
+            timestamp: number
+        }[]
+    ) => {
+        buckets: {
+            bucket: SlidingWindowBucket
+            timestamp: number
+        }[]
+    }
     setInitialData: (
         buckets: {
             bucket: SlidingWindowBucket
@@ -209,6 +222,9 @@ export interface liveWebAnalyticsMetricsLogicActions {
             timestamp: number
         }[]
         recentUsersByLastSeen: [string, number][]
+    }
+    setIsBotLoading: (loading: boolean) => {
+        loading: boolean
     }
     setIsLoading: (loading: boolean) => {
         loading: boolean
@@ -265,6 +281,7 @@ export interface liveWebAnalyticsMetricsLogicMeta {
         ) => AnyPropertyFilter[]
         unstreamableTestAccountFilterCount: (testAccountFilters: AnyPropertyFilter[]) => number
         hasActiveFilters: (liveFilters: WebAnalyticsPropertyFilter[], shouldFilterTestAccounts: boolean) => boolean
+        shouldLoadBots: (featureFlags: FeatureFlagsSet) => boolean
     }
 }
 
@@ -304,8 +321,10 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             buckets: { timestamp: number; bucket: SlidingWindowBucket }[],
             recentUsersByLastSeen: [string, number][]
         ) => ({ buckets, recentUsersByLastSeen }),
+        setBotData: (buckets: { timestamp: number; bucket: SlidingWindowBucket }[]) => ({ buckets }),
         setIsLoading: (loading: boolean) => ({ loading }),
         setIsRefreshing: (refreshing: boolean) => ({ refreshing }),
+        setIsBotLoading: (loading: boolean) => ({ loading }),
         loadInitialData: (isBackground: boolean = false) => ({ isBackground }),
         scheduleReload: true,
         updateConnection: true,
@@ -328,6 +347,13 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     }
                     freshWindow.prune()
                     return freshWindow
+                },
+                setBotData: (window, { buckets }) => {
+                    for (const { timestamp, bucket } of buckets) {
+                        window.extendBucketData(timestamp / 1000, bucket)
+                    }
+                    window.prune()
+                    return window
                 },
                 addEvents: (window, { events, newerThan, pathCleaningFilters }) => {
                     for (const event of events) {
@@ -424,6 +450,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             0,
             {
                 setInitialData: (v) => v + 1,
+                setBotData: (v) => v + 1,
                 addEvents: (v) => v + 1,
                 tickCurrentMinute: (v) => v + 1,
             },
@@ -455,6 +482,12 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             false,
             {
                 setIsRefreshing: (_, { refreshing }) => refreshing,
+            },
+        ],
+        isBotLoading: [
+            false,
+            {
+                setIsBotLoading: (_, { loading }) => loading,
             },
         ],
         recentEvents: [
@@ -628,6 +661,10 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             (liveFilters: WebAnalyticsPropertyFilter[], shouldFilterTestAccounts: boolean): boolean =>
                 liveFilters.length > 0 || shouldFilterTestAccounts,
         ],
+        shouldLoadBots: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS],
+        ],
     }),
     listeners(({ actions, values, cache }) => ({
         pauseStream: () => {
@@ -667,7 +704,8 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             cache.loadAbortController = abortController
             const { signal } = abortController
 
-            if (!cache.hasLoadedData || !isBackground) {
+            const isColdLoad = !cache.hasLoadedData || !isBackground
+            if (isColdLoad) {
                 actions.setIsLoading(true)
             } else {
                 actions.setIsRefreshing(true)
@@ -714,7 +752,6 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 addReferrerDataToBuckets(data.referrer, bucketMap)
                 addGeoDataToBuckets(data.geo, bucketMap)
                 addCityDataToBuckets(data.city, bucketMap)
-                addBotDataToBuckets(data.bot, bucketMap)
 
                 actions.setInitialData(
                     [...bucketMap.entries()].map(([timestamp, bucket]) => ({ timestamp, bucket })),
@@ -722,10 +759,40 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 )
                 cache.hasLoadedData = true
 
+                actions.setIsLoading(false)
+                actions.setIsRefreshing(false)
+
                 if (data.failedQueries.length > 0) {
                     lemonToast.warning(`Some live metrics failed to load: ${data.failedQueries.join(', ')}`, {
                         toastId: PARTIAL_FAILURE_TOAST_ID,
                     })
+                }
+
+                if (values.shouldLoadBots) {
+                    if (isColdLoad) {
+                        actions.setIsBotLoading(true)
+                    }
+                    try {
+                        const botResponse = await loadBotQueryData({
+                            dateFrom,
+                            dateTo: handoff,
+                            filters: values.liveFilters,
+                            filterTestAccounts: values.shouldFilterTestAccounts,
+                            filtersEnabled: true,
+                            abortController,
+                        })
+                        if (!signal.aborted && botResponse) {
+                            const botBucketMap = new Map<number, SlidingWindowBucket>()
+                            addBotDataToBuckets(botResponse, botBucketMap)
+                            actions.setBotData(
+                                [...botBucketMap.entries()].map(([timestamp, bucket]) => ({ timestamp, bucket }))
+                            )
+                        }
+                    } finally {
+                        if (!signal.aborted) {
+                            actions.setIsBotLoading(false)
+                        }
+                    }
                 }
             } catch (error) {
                 if (!isAbortedRequest(error)) {
@@ -990,7 +1057,6 @@ interface LiveQueryData {
     referrer: HogQLQueryResponse | null
     geo: HogQLQueryResponse | null
     recentUsers: HogQLQueryResponse | null
-    bot: HogQLQueryResponse | null
     city: HogQLQueryResponse | null
     allFailed: boolean
     failedQueries: string[]
@@ -1006,8 +1072,42 @@ const LIVE_QUERY_LABELS: Record<LiveQueryKey, string> = {
     referrer: 'referrers',
     geo: 'locations',
     recentUsers: 'recent visitors',
-    bot: 'bot traffic',
     city: 'cities',
+}
+
+interface LiveQueryContextParams {
+    dateFrom: Date
+    dateTo: Date
+    filters: WebAnalyticsPropertyFilter[]
+    filterTestAccounts: boolean
+    filtersEnabled: boolean
+}
+
+const buildLiveQueryContext = ({
+    dateFrom,
+    dateTo,
+    filters,
+    filterTestAccounts,
+    filtersEnabled,
+}: LiveQueryContextParams): {
+    whereClause: string
+    queryParams: Pick<HogQLQuery, 'values' | 'filters'>
+    botEligibleEventsTuple: string
+} => {
+    const whereClause = filtersEnabled
+        ? '{filters}'
+        : 'timestamp >= toDateTime({dateFrom}) AND timestamp <= toDateTime({dateTo})'
+    const queryParams: Pick<HogQLQuery, 'values' | 'filters'> = filtersEnabled
+        ? {
+              filters: {
+                  properties: filters,
+                  dateRange: { date_from: dateFrom.toISOString(), date_to: dateTo.toISOString() },
+                  filterTestAccounts,
+              },
+          }
+        : { values: { dateFrom: dateFrom.toISOString(), dateTo: dateTo.toISOString() } }
+    const botEligibleEventsTuple = `(${BOT_ELIGIBLE_EVENTS.map((e) => `'${e}'`).join(', ')})`
+    return { whereClause, queryParams, botEligibleEventsTuple }
 }
 
 const loadQueryData = async ({
@@ -1030,20 +1130,13 @@ const loadQueryData = async ({
     abortController: AbortController
 }): Promise<LiveQueryData> => {
     const { signal } = abortController
-    const whereClause = filtersEnabled
-        ? '{filters}'
-        : 'timestamp >= toDateTime({dateFrom}) AND timestamp <= toDateTime({dateTo})'
-    const queryParams: Pick<HogQLQuery, 'values' | 'filters'> = filtersEnabled
-        ? {
-              filters: {
-                  properties: filters,
-                  dateRange: { date_from: dateFrom.toISOString(), date_to: dateTo.toISOString() },
-                  filterTestAccounts,
-              },
-          }
-        : { values: { dateFrom: dateFrom.toISOString(), dateTo: dateTo.toISOString() } }
-
-    const botEligibleEventsTuple = `(${BOT_ELIGIBLE_EVENTS.map((e) => `'${e}'`).join(', ')})`
+    const { whereClause, queryParams, botEligibleEventsTuple } = buildLiveQueryContext({
+        dateFrom,
+        dateTo,
+        filters,
+        filterTestAccounts,
+        filtersEnabled,
+    })
 
     const usersPageviewsQuery: HogQLQuery = {
         kind: NodeKind.HogQLQuery,
@@ -1169,42 +1262,6 @@ const loadQueryData = async ({
         ...queryParams,
     }
 
-    // Aggregate per-minute first then re-group so the response is bounded by the
-    // number of minutes in the window (not by the bot-name cardinality). Without this
-    // the default HogQL row cap (100) silently truncates high-traffic projects.
-    const botQuery: HogQLQuery = {
-        kind: NodeKind.HogQLQuery,
-        query: `SELECT
-                    minute_bucket,
-                    mapFromArrays(
-                        groupArray(bot_key),
-                        groupArray(event_count)
-                    ) AS counts_by_bot
-                FROM
-                (
-                    SELECT
-                        toStartOfMinute(timestamp) AS minute_bucket,
-                        concat(
-                            \`$virt_bot_name\`,
-                            '${BOT_KEY_SEPARATOR}',
-                            ifNull(\`$virt_traffic_category\`, '')
-                        ) AS bot_key,
-                        count() AS event_count
-                    FROM events
-                    WHERE ${whereClause}
-                        AND \`$virt_is_bot\` = true
-                        AND \`$virt_bot_name\` != ''
-                        AND event IN ${botEligibleEventsTuple}
-                    GROUP BY
-                        minute_bucket,
-                        bot_key
-                )
-                GROUP BY minute_bucket
-                ORDER BY minute_bucket ASC`,
-        tags: liveQueryTags('live_bots'),
-        ...queryParams,
-    }
-
     const cityQuery: HogQLQuery | null = includeCity
         ? {
               kind: NodeKind.HogQLQuery,
@@ -1270,7 +1327,6 @@ const loadQueryData = async ({
         { key: 'paths', query: pathsQuery },
         { key: 'referrer', query: referrerQuery },
         { key: 'geo', query: geoQuery },
-        { key: 'bot', query: botQuery },
     ]
     if (recentUsersQuery) {
         jobs.push({ key: 'recentUsers', query: recentUsersQuery })
@@ -1297,7 +1353,6 @@ const loadQueryData = async ({
         referrer: null,
         geo: null,
         recentUsers: null,
-        bot: null,
         city: null,
         allFailed: false,
         failedQueries: [],
@@ -1319,6 +1374,73 @@ const loadQueryData = async ({
 
     data.allFailed = jobs.length > 0 && data.failedQueries.length === jobs.length
     return data
+}
+
+const loadBotQueryData = async ({
+    dateFrom,
+    dateTo,
+    filters,
+    filterTestAccounts,
+    filtersEnabled,
+    abortController,
+}: LiveQueryContextParams & { abortController: AbortController }): Promise<HogQLQueryResponse | null> => {
+    const { signal } = abortController
+    const { whereClause, queryParams, botEligibleEventsTuple } = buildLiveQueryContext({
+        dateFrom,
+        dateTo,
+        filters,
+        filterTestAccounts,
+        filtersEnabled,
+    })
+
+    // Aggregate per-minute first then re-group so the response is bounded by the
+    // number of minutes in the window (not by the bot-name cardinality). Without this
+    // the default HogQL row cap (100) silently truncates high-traffic projects.
+    const botQuery: HogQLQuery = {
+        kind: NodeKind.HogQLQuery,
+        query: `SELECT
+                    minute_bucket,
+                    mapFromArrays(
+                        groupArray(bot_key),
+                        groupArray(event_count)
+                    ) AS counts_by_bot
+                FROM
+                (
+                    SELECT
+                        toStartOfMinute(timestamp) AS minute_bucket,
+                        concat(
+                            \`$virt_bot_name\`,
+                            '${BOT_KEY_SEPARATOR}',
+                            ifNull(\`$virt_traffic_category\`, '')
+                        ) AS bot_key,
+                        count() AS event_count
+                    FROM events
+                    WHERE ${whereClause}
+                        AND \`$virt_is_bot\` = true
+                        AND \`$virt_bot_name\` != ''
+                        AND event IN ${botEligibleEventsTuple}
+                    GROUP BY
+                        minute_bucket,
+                        bot_key
+                )
+                GROUP BY minute_bucket
+                ORDER BY minute_bucket ASC`,
+        tags: liveQueryTags('live_bots'),
+        ...queryParams,
+    }
+
+    try {
+        return await liveQueryConcurrency.run({
+            fn: () => performLiveQuery(botQuery, signal),
+            abortController,
+            debugTag: 'bot',
+        })
+    } catch (error) {
+        if (!isAbortedRequest(error)) {
+            console.error('Live query "live_bots" failed:', error)
+        }
+        return null
+    }
 }
 
 const getRecentUsersByLastSeenEntries = (response: HogQLQueryResponse): [string, number][] => {

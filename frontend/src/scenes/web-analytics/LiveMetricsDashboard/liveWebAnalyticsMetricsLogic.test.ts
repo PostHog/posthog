@@ -4,6 +4,8 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -85,5 +87,27 @@ describe('liveWebAnalyticsMetricsLogic', () => {
         openGate()
 
         await expectLogic(logic).toDispatchActions(['scheduleReload', 'loadInitialData'])
+    })
+
+    it('does not run the expensive bot query while bot analysis is disabled', async () => {
+        await expectLogic(logic).toDispatchActions(['setInitialData'])
+
+        const queries = JSON.stringify((api.query as jest.Mock).mock.calls)
+        expect(queries).not.toContain('counts_by_bot')
+        expect(queries).toContain('bot_eligible_events')
+    })
+
+    it('runs the bot query after the core tiles when bot analysis is enabled', async () => {
+        logic.unmount()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]: true,
+        })
+        logic = liveWebAnalyticsMetricsLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['setInitialData', 'setBotData'])
+
+        expect(JSON.stringify((api.query as jest.Mock).mock.calls)).toContain('counts_by_bot')
     })
 })

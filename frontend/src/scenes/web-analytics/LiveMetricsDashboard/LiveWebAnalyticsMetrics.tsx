@@ -288,6 +288,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
         liveUserCount,
         hasActiveFilters,
         isLoading,
+        isBotLoading,
         recentEvents,
         unstreamableTestAccountFilterCount,
     } = useValues(liveWebAnalyticsMetricsLogic)
@@ -488,7 +489,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         title="Bot requests per minute"
                         subtitle={timezone}
                         subtitleTooltip="Metrics are shown in your local timezone"
-                        isLoading={isLoading}
+                        isLoading={isLoading || isBotLoading}
                         contentClassName="h-64 md:h-80"
                     >
                         <BotEventsPerMinuteChart data={chartData} timezone={timezone} />
@@ -503,7 +504,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         data={botBreakdown}
                         totalBotEvents={totalBotEvents}
                         totalEvents={totalBotEligibleEvents}
-                        isLoading={isLoading}
+                        isLoading={isLoading || isBotLoading}
                     />
                 )
             case 'countries':
