@@ -1,4 +1,4 @@
-import { getCurrentTeamId, getCurrentUserId } from 'lib/utils/getAppContext'
+import { getCurrentTeamId, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
 
 import {
     buildTeamScopedPersistenceConfig,
@@ -9,12 +9,12 @@ import {
 jest.mock('lib/utils/getAppContext')
 
 const mockGetCurrentTeamId = getCurrentTeamId as jest.MockedFunction<typeof getCurrentTeamId>
-const mockGetCurrentUserId = getCurrentUserId as jest.MockedFunction<typeof getCurrentUserId>
+const mockGetCurrentUserIdOrNone = getCurrentUserIdOrNone as jest.MockedFunction<typeof getCurrentUserIdOrNone>
 
 describe('persistence scoping', () => {
     beforeEach(() => {
         mockGetCurrentTeamId.mockReset()
-        mockGetCurrentUserId.mockReset()
+        mockGetCurrentUserIdOrNone.mockReset()
     })
 
     it.each([
@@ -30,7 +30,7 @@ describe('persistence scoping', () => {
     })
 
     it('scopes persisted values to the current user and project', () => {
-        mockGetCurrentUserId.mockReturnValue('user-1')
+        mockGetCurrentUserIdOrNone.mockReturnValue('user-1')
         mockGetCurrentTeamId.mockReturnValue(2)
 
         expect(buildUserScopedPersistenceConfig('filters__')).toEqual({
@@ -46,11 +46,13 @@ describe('persistence scoping', () => {
         })
     })
 
-    it('fails closed without a user ID', () => {
-        mockGetCurrentUserId.mockImplementation(() => {
-            throw new Error('User ID is not known.')
-        })
+    it('uses an anonymous key when no user ID is available', () => {
+        mockGetCurrentUserIdOrNone.mockReturnValue(null)
+        mockGetCurrentTeamId.mockReturnValue(2)
 
-        expect(() => buildUserScopedPersistenceConfig('filters__')).toThrow('User ID is not known.')
+        expect(buildUserScopedPersistenceConfig('filters__')).toEqual({
+            persist: true,
+            prefix: 'anonymous__2__filters__',
+        })
     })
 })
