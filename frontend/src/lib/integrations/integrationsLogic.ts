@@ -57,6 +57,7 @@ export interface integrationsLogicValues {
     getIntegrationsByKind: (
         kinds: (
             | 'apns'
+            | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
             | 'bing-ads'
@@ -142,6 +143,7 @@ export interface integrationsLogicActions {
     ) => {
         kind:
             | 'apns'
+            | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
             | 'bing-ads'
@@ -260,6 +262,7 @@ export interface integrationsLogicActions {
             installation_status?: InstallationStatusEnumApi | null | undefined
             kind:
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
@@ -316,6 +319,7 @@ export interface integrationsLogicActions {
             installation_status?: InstallationStatusEnumApi | null | undefined
             kind:
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
@@ -389,6 +393,7 @@ export interface integrationsLogicActions {
             installation_status?: InstallationStatusEnumApi | null | undefined
             kind:
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
@@ -449,6 +454,7 @@ export interface integrationsLogicActions {
             installation_status?: InstallationStatusEnumApi | null | undefined
             kind:
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
@@ -500,6 +506,7 @@ export interface integrationsLogicActions {
     openNewIntegrationModal: (kind: IntegrationKind) => {
         kind:
             | 'apns'
+            | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
             | 'bing-ads'
@@ -562,6 +569,7 @@ export interface integrationsLogicActions {
     requestIntegrationAccessSuccess: (
         accessRequest:
             | 'apns'
+            | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
             | 'bing-ads'
@@ -609,6 +617,7 @@ export interface integrationsLogicActions {
     ) => {
         accessRequest:
             | 'apns'
+            | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
             | 'bing-ads'
@@ -681,6 +690,7 @@ export interface integrationsLogicMeta {
         ) => (
             kinds: (
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'

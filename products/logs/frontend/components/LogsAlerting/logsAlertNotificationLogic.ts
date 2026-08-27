@@ -77,6 +77,7 @@ export interface logsAlertNotificationLogicActions {
                 | undefined
             kind:
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
@@ -136,6 +137,7 @@ export interface logsAlertNotificationLogicActions {
                 | undefined
             kind:
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
