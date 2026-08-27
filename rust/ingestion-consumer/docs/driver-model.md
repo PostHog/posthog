@@ -280,8 +280,10 @@ loop {
 
         ev = kafka.rebalance() => {          // rare, must be prompt; serialized with
             match ev {                       //   every other arm: no teardown race
-                Assigned(p) => partitions.assign(p, epoch),
-                Revoked(p)  => {             // begin the drain (§4.5): the driver stays —
+                Assigned(p) => {
+                    partitions.assign(p, epoch)
+                }
+                Revoked(p) => {              // begin the drain (§4.5): the driver stays —
                     partitions.revoking(p);  //   its ledger must absorb the completions
                     commits.begin_revoke(p); //   still in flight; the in-band marker
                     accumulators.revoked(p)  //   drops the batcher's queued work for p
@@ -321,7 +323,9 @@ struct AccumulatorFactory {
     spare: Option<Accumulator>,              // an empty buffer kept back for reuse
 }
 
-fn obtain() -> Accumulator { spare.take().unwrap_or_default() }
+fn obtain() -> Accumulator {
+    spare.take().unwrap_or_default()
+}
 
 fn release(acc) {                            // the one coordination point with the
     if !acc.is_empty() {                     //   transport: the full buffer moves by
@@ -345,10 +349,13 @@ struct PartitionManager {
     partitions: Map<Partition, PartitionDriver>,
 }
 
-fn assign(p, epoch) { partitions.insert(p, PartitionDriver::new(epoch)) }
+fn assign(p, epoch) {
+    partitions.insert(p, PartitionDriver::new(epoch))
+}
 
-fn revoking(p) { partitions[p].revoking = true }  // drain begun (§4.5): the ledger stays
-                                                  //   to absorb in-flight completions
+fn revoking(p) {                             // drain begun (§4.5): the ledger stays to
+    partitions[p].revoking = true            //   absorb in-flight completions
+}
 
 fn drained(p) -> DrainHarvest {              // the drain's end (§4.5): remove the driver,
     let (frontier, dropped) = partitions.remove(p).drained();    //   take its last word
@@ -368,7 +375,9 @@ fn complete(completed) -> Vec<Advance> {     // one ACKed request's groups, dist
 }                                                                //   completions land
 
 fn check_stalls() {                          // driven by the loop's housekeeping tick;
-    for p in partitions { p.check_stall() }  //   produces no releases, so no accumulator
+    for p in partitions {                    //   produces no releases, so no accumulator
+        p.check_stall()
+    }
 }
 ```
 
@@ -445,9 +454,13 @@ fn complete(offsets) -> Option<(Offset, Charge)> {
 }                                            //   completion sits done above the gap until
                                              //   the earlier work lands
 
-fn frontier() -> Offset { base - 1 }         // highest contiguous completed offset (§8)
+fn frontier() -> Offset {                    // highest contiguous completed offset (§8)
+    base - 1
+}
 
-fn has_pending() -> bool { !slots.is_empty() }       // the stall watchdog's predicate
+fn has_pending() -> bool {                   // the stall watchdog's predicate
+    !slots.is_empty()
+}
 
 fn pending_charge() -> Charge {              // the drain's dropped (§4.5): everything the
     slots.map(|s| s.charge).sum()            //   frontier never walked over — including
@@ -466,8 +479,13 @@ struct Budget {
     cap: Charge,                             // B: CONSUMER_UNCOMMITTED_BUDGET_EVENTS / _BYTES
 }
 
-fn charge(c: Charge) { used += c }           // the whole interface: add in, subtract out;
-fn refund(c: Charge) { used -= c }           //   only under_cap() reads the axes
+fn charge(c: Charge) {                       // the whole interface: add in, subtract
+    used += c                                //   out; only under_cap() reads the axes
+}
+
+fn refund(c: Charge) {
+    used -= c
+}
 fn under_cap() -> bool {
     used.events < cap.events && used.bytes < cap.bytes
 }
@@ -487,14 +505,19 @@ struct CommitManager {
 }
 
 fn progress(kafka, advances) -> Refund {     // called on every completion that moved a
-    for a in advances { pending.merge(a) }   //   frontier; whether to issue now is this
-    maybe_issue(kafka)                       //   component's decision, nobody else's
+    for a in advances {                      //   frontier; whether to issue now is this
+        pending.merge(a)                     //   component's decision, nobody else's
+    }
+    maybe_issue(kafka)
 }
 
-fn tick(kafka) -> Refund { maybe_issue(kafka) }      // the clock: issue if the delay is up
+fn tick(kafka) -> Refund {                   // the clock: issue if the delay is up
+    maybe_issue(kafka)
+}
 
-fn begin_revoke(p) { revoking.insert(p) }    // drain begun (§4.5): p's next issue is its
-                                             //   final one, via finish_revoke below
+fn begin_revoke(p) {                         // drain begun (§4.5): p's next issue is its
+    revoking.insert(p)                       //   final one, via finish_revoke below
+}
 
 fn finish_revoke(kafka, harvest) -> Refund { // the drain's end: issue p's final frontier
     let held = pending.remove(harvest.p);    //   NOW — the rebalance is waiting. Every
@@ -504,7 +527,9 @@ fn finish_revoke(kafka, harvest) -> Refund { // the drain's end: issue p's final
 }                                            //   charge — nothing counts twice
 
 fn maybe_issue(kafka) -> Refund {            // the algorithm — today: at most one batched
-    if last_issue.elapsed() < COMMIT_INTERVAL { return 0 }   //   issue per interval
+    if last_issue.elapsed() < COMMIT_INTERVAL {      //   issue per interval
+        return 0
+    }
     issue(kafka, pending.drain())
 }
 
@@ -556,9 +581,16 @@ task worker_batcher {
     loop {
         select! {
             feed = accumulators.recv() => match feed {
-                Batch(acc) => { for group in acc { keys.admit(group) }; dispatch() }
-                Revoked(p) => if keys.begin_drain(p) {   // nothing of p in flight at
-                    completions.send(Drained(p))         //   all: drained already (§4.5)
+                Batch(acc) => {
+                    for group in acc {
+                        keys.admit(group)
+                    }
+                    dispatch()
+                }
+                Revoked(p) => {
+                    if keys.begin_drain(p) {         // nothing of p in flight at all:
+                        completions.send(Drained(p)) //   drained already (§4.5)
+                    }
                 }
             }
 
@@ -569,36 +601,52 @@ task worker_batcher {
                 dispatch()                   // the freed capacity refills at once
             }
 
-            _ = sleep_until(retry_at) => dispatch()  // parked keys re-try: the transport's
-        }                                            //   one clock, armed only while some
-    }                                                //   key is parked (§4.5)
+            _ = sleep_until(retry_at) => {   // parked keys re-try: the transport's one
+                dispatch()                   //   clock, armed only while some key is
+            }                                //   parked (§4.5)
+        }
+    }
 }
 
 fn settle(w, outcome, groups) {              // one resolved request — every per-key
     for (key, run) in groups.by_key() {      //   transition is the table's business
-        if let Some(p) = keys.settled(key, w, outcome, run) { drained.push(p) }
+        if let Some(p) = keys.settled(key, w, outcome, run) {
+            drained.push(p)
+        }
     }
-    if outcome == Ack { completions.send(Completed(groups)) }      // the ledgers' feed;
-    for p in drained {                       //   failures stay here. Drained rides
-        completions.send(Drained(p))         //   *behind* the final completion it
-    }                                        //   waited for (§4.5)
+    if outcome == Ack {                      // the ledgers' feed; failures stay here
+        completions.send(Completed(groups))
+    }
+    for p in drained {                       // Drained rides *behind* the final
+        completions.send(Drained(p))         //   completion it waited for (§4.5)
+    }
 }
 
 fn dispatch() {                              // the batcher's own algorithm (§4.3): one
     keys.revive();                           //   pass — parked keys get another attempt,
     while let Some((key, pin)) = keys.pop_ready() {      //   and parking removes a key
         match router.place(pin, &bins) {                 //   from the pass, so it ends
-            None    => keys.park(key),
+            None => {
+                keys.park(key)
+            }
             Some(w) => {
                 bins[w].push_run(keys.send(key, up_to: T));  // a contiguous, in-order
                 armed.insert(w);                             //   run — a hot key may fill
-                if bins[w].size >= T { try_fire(w) }         //   the whole request
+                if bins[w].size >= T {                       //   the whole request
+                    try_fire(w)
+                }
             }
         }
     }
-    if keys.any_parked() { retry_at.arm_if_unarmed(PARK_RETRY) } else { retry_at = None }
-    for w in armed { try_fire(w) }           // every armed stream, every wake — including
-}                                            //   fires refused last wake; zero added latency
+    if keys.any_parked() {
+        retry_at.arm_if_unarmed(PARK_RETRY)
+    } else {
+        retry_at = None
+    }
+    for w in armed {                         // every armed stream, every wake — including
+        try_fire(w)                          //   fires refused last wake; zero added latency
+    }
+}
 
 fn on_worker_discovered(w) {                 // from registry discovery; a reaped worker's
     let (tx, rx) = channel(DEPTH_MAX);       //   runner and channel are torn down with it
@@ -607,13 +655,18 @@ fn on_worker_discovered(w) {                 // from registry discovery; a reape
 }
 
 fn try_fire(w) {                             // the single send-origination site
-    if in_flight[w] >= DEPTH_MAX || bins[w].is_empty() { return }
-    if !governor.permit() { return }         // permit-starved — noted; w stays armed, so
-                                             //   this fire is retried at the next wake
+    if in_flight[w] >= DEPTH_MAX || bins[w].is_empty() {
+        return
+    }
+    if !governor.permit() {                  // permit-starved — noted; w stays armed, so
+        return                               //   this fire is retried at the next wake
+    }
     let request = pack(bins[w]);             // §4.3: take ≤ T in whole key-runs — a run
                                              //   never splits across requests, so a key
                                              //   settles exactly once; remainder stays
-    if bins[w].is_empty() { armed.remove(w) }        //   binned and w stays armed
+    if bins[w].is_empty() {                  //   binned and w stays armed
+        armed.remove(w)
+    }
     requests[w].try_send(request).unwrap();  // non-blocking; capacity DEPTH_MAX, provably
     in_flight[w] += 1;                       //   never full: sends only below the depth
 }                                            //   bound, decremented only at settlement
@@ -644,7 +697,9 @@ fn admit(group) {                            // scenario: a demuxed group arrive
     make_ready(group.key)                    // no-op if listed or outstanding — the
 }                                            //   guard decides
 
-fn revive() { ready.append(take(parked)) }   // scenario: a new wake — parked keys retry
+fn revive() {                                // scenario: a new wake — parked keys retry
+    ready.append(take(parked))
+}
 
 fn pop_ready() -> Option<(RoutingKey, Option<WorkerId>)> {   // scenario: dispatch wants
     loop {                                   //   the next runnable key, with its pin;
@@ -666,7 +721,9 @@ fn park(key) {                               // scenario: pool-wide unroutable (
     parked.push(key)                         //   only the id waits on the parked list
 }
 
-fn any_parked() -> bool { !parked.is_empty() }
+fn any_parked() -> bool {
+    !parked.is_empty()
+}
 
 fn settled(key, w, outcome, run) -> Option<Partition> {  // scenario: one key of a
     let k = keys[key];                       //   resolved request
@@ -678,10 +735,19 @@ fn settled(key, w, outcome, run) -> Option<Partition> {  // scenario: one key of
             .is_zero().then(|| key.partition)        //   Some(p): p just drained
     }
     match outcome {
-        Ack     => k.pin = Some(w),          // locality for the next placement
-        Failure => { k.queue.push_front(run); k.pin = None }   // order intact
+        Ack => {
+            k.pin = Some(w)                  // locality for the next placement
+        }
+        Failure => {
+            k.queue.push_front(run);         // order intact
+            k.pin = None
+        }
     }
-    if k.queue.is_empty() { keys.evict(key) } else { make_ready(key) }
+    if k.queue.is_empty() {
+        keys.evict(key)
+    } else {
+        make_ready(key)
+    }
     None
 }
 
@@ -711,8 +777,12 @@ struct Governor {
 }
 
 fn permit() -> bool {                        // taken at fire, returned at settlement
-    if in_flight == permits { starved = true; return false }
-    in_flight += 1; true
+    if in_flight == permits {
+        starved = true;
+        return false
+    }
+    in_flight += 1;
+    true
 }
 
 fn observe(rtt_sample) {                     // at every settlement — the law:
@@ -734,7 +804,9 @@ fn place(sticky, bins) -> Option<WorkerId> {
     let health = registry.snapshot();        // published by the probe task; the model's
                                              //   only cross-task shared read — no lock
     if let Some(w) = sticky {
-        if healthy(w) && !overloaded_beyond_slack(w, T) { return Some(w) }
+        if healthy(w) && !overloaded_beyond_slack(w, T) {
+            return Some(w)
+        }
     }                                        // else fall through: pin abandonment — safe,
                                              //   nothing of that key is in flight (§4.3)
     let slice = aperture.slice(health);      // in-slice candidates
@@ -759,13 +831,14 @@ task stream_runner(w, requests: Rx<Request>, resolutions: Tx<Resolution>) {
                                              //   backoff, then reconnect
         while connected {                    // pipelined to the stream's depth: encode and
             select! {                        //   transmit request n+1 while n awaits its ACK
-                request = requests.recv() =>         // per-request CPU (serialize, compress)
-                    encode_and_transmit(request).await,      //   runs here, off the batcher
-                outcome = next_ack() =>              //   task — one task per worker, so
-                    resolutions.send(w, classify(outcome),   //   encodes run concurrently
-                        groups, rtt),                //   across the pool (§4.6); ACKs
-            }                                //   resolve in send order (ordered stream)
-        }
+                request = requests.recv() => {
+                    encode_and_transmit(request).await   // per-request CPU (serialize,
+                }                                        //   compress) runs here, off the
+                outcome = next_ack() => {                //   batcher task — one task per
+                    resolutions.send(w, classify(outcome), groups, rtt)  //   worker, so
+                }                            //   encodes run concurrently across the pool
+            }                                //   (§4.6); ACKs resolve in send order
+        }                                    //   (ordered stream)
         // stream break: every un-ACKed request fails and comes home whole; their keys
         // are disjoint (one outstanding request per key), so no fence is needed
     }
