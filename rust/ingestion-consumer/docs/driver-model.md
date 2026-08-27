@@ -152,9 +152,9 @@ Below the consumer loop the tree has exactly two sides — the **domain side** (
 - **Consumer loop** — polls rdkafka, applies backpressure (§4.4), drains the result stream, watches assignment events, and hands each of them to the partition manager; a producing tick is three steps — obtain an accumulator, run the cascade, release what accumulated. Deliberately not a *driver* — it owns no unit's state (§8). With the transport behind the accumulator hand-off and every firing trigger event-driven inside the batcher (§4.3), it is a pure event pump: it owns nothing partition- or worker-shaped, and its one clock is an anonymous housekeeping tick for the two jobs that must run when no events arrive (commits, stall checks).
 - **Partition manager** — the domain side's root. Owns the partition drivers and their lifecycle: partition assigned ⇒ create a driver; revoked ⇒ tear it down wholesale, with its key drivers and pending state (the rebalance unit and the component unit coincide). Owns nothing transport-shaped and no clock of its own — the loop's housekeeping tick drives its stall checks, and it lends the accumulator on down (a test just reads the buffer back). Distributes work: demuxes each poll to its partition drivers, routes each request result's groups back to the partition driver that owns them, and discards results whose assignment epoch is dead; the key drivers push what they release straight into the lent buffer. Everything it passes down is a value.
 - **Partition driver** — splits its messages by routing key into groups and hands them to key drivers; owns the **offset ledger**: the set of pending offsets and the highest contiguous completed offset (the **frontier**), which is what gets committed, on a cadence. Contiguity becomes *constructive* — the ledger computes exactly the committable frontier — instead of a property to verify after the fact.
-- **Key driver** — a passive state machine (a struct in a map, not a task; key cardinality is unbounded): a FIFO of groups, **at most one group released at a time** (binned, parked, or in flight), the rest queued behind it. On ACK: report offsets to the partition ledger, remember which worker served it (the sticky pin), push the key's next group into the lent accumulator. On failure: take the group back at queue head and release it again in the same cascade — re-placement, not waiting, is the response, because retry pacing lives in the transport (§2.9, §4.5). It names a *preference*, never a worker — placement is the batcher's. Created on first group, evicted when idle and empty.
+- **Key driver** — a passive state machine (a struct in a map, not a task; key cardinality is unbounded), and nothing but the per-key order invariant: a FIFO of groups and one `outstanding` bit — **at most one group released at a time** (in the accumulator, binned, parked, or on the wire), the rest queued behind it. On ACK: the ledger completes the acked group's offsets, the driver clears `outstanding` and pushes the key's next group into the lent accumulator. On failure: take the group back at queue head and release it again in the same cascade — re-placement, not waiting, is the response, because retry pacing lives in the transport (§2.9, §4.5). It knows no worker: the sticky pin lives in the batcher (§4.3). Created on first group, evicted when idle and empty.
 - **Accumulator factory** — the loop's supply of per-tick buffers, and the holder of the batcher's send side. `obtain()` hands the loop a buffer at the start of a producing tick; `release(acc)` sends a non-empty one to the batcher whole, by value — the hand-off's only coordination — and recycles an empty one. The domain never sees the factory: it is lent the buffer, never the machinery.
-- **Worker batcher** — the transport side, whole, as one background task. Each received accumulator is placed (router + pins-as-preferences, §4.3), binned per worker, and fired as target-sized requests down the ordered streams; each runner resolution frees its stream, is forwarded to the result stream, and refills the stream from its bin at once. A release no worker can take is **parked** inside the batcher and re-placed on its next wake (§4.5) — nothing is ever handed back. It never calls a driver. The packer and the §2.10 size defense sit below it, as do the stream runners: one task per worker — connect, greet with the assignment epoch, transmit, await ACKs, depth 1 — and the transport classifier, §2.9 unchanged (backpressure vs fault vs non-retriable, backpressure excluded from passive health).
+- **Worker batcher** — the transport side, whole, as one background task. Each received accumulator is placed (router + pins-as-preferences, §4.3), binned per worker, and fired as target-sized requests down the ordered streams; each runner resolution frees its stream, updates the sticky pins (ACK ⇒ pin each key to the worker, failure ⇒ unpin), is forwarded to the result stream, and refills the stream from its bin at once. A release no worker can take is **parked** inside the batcher and re-placed on its next wake (§4.5) — nothing is ever handed back. It never calls a driver. The packer and the §2.10 size defense sit below it, as do the stream runners: one task per worker — connect, greet with the assignment epoch, transmit, await ACKs, depth 1 — and the transport classifier, §2.9 unchanged (backpressure vs fault vs non-retriable, backpressure excluded from passive health).
 - **Result stream** — the transport's outlet, and nothing more than a channel: one **request result** at a time — every group a resolved request carried, with its outcome — and nothing else escapes. The batcher forwards each resolution the moment it arrives; the loop drains it and feeds the partition manager.
 - **Commit manager** — the commit bookkeeping. On the housekeeping tick the loop harvests the advanced frontiers from the partition manager, refunds the budget for the retired work, and hands the batch here for one batched manual commit. The §2.3 verification rides unchanged: the commit sentinel as a cheap assert, the commit monitor because librdkafka still drops async commit results.
 - **Budget** — the `B` accounting (charged at poll, refunded at commit and at revoke teardown). The design has exactly two clocks: the loop's single housekeeping tick — driving the commit cadence and the stall checks, the two jobs that must run even when no events arrive — and the batcher's park-retry, armed only while an unroutable pool leaves releases parked (§4.5). Key drivers own no deadlines at all: retry pacing is transport-level, so unbounded key cardinality meets no per-key timer anywhere.
@@ -185,7 +185,7 @@ The spawned tasks are the batcher and, below it, one worker stream runner per wo
 
 A linger timer is unnecessary: every release arrives inside an accumulator whose arrival is itself the flush, so no bin ever waits on a clock — the undersized-bin case fires on arrival with zero added latency, and only a busy stream holds a bin back, paced by its own resolution.
 
-**Placement** (which worker a group's key uses): pins are placement *preferences* carried on each release — honored unless the pinned worker is draining, dead, or drastically overloaded (`slack(T)` — pin abandonment). A preference, not a constraint, is safe here because a key releases only while nothing of its own is in flight (§4.7), so re-picking cannot reorder; the pinned group's volume still counts toward that bin's fill. Fresh keys fill open, in-slice, below-target bins first (load-checked), then rotating P2C opens further slice workers. A release *no* worker can take — pool-wide unroutability only — parks in the batcher and is re-placed at its next wake (§4.5); nothing is ever handed back. Fan-out is **emergent**: demand ÷ target, clamped below by the aperture coverage floor, with slice coverage achieved over seconds by rotation rather than within every batch. The elastic-dispatch fan-out formula stops being a formula.
+**Placement** (which worker a group's key uses): the sticky pins live in the batcher — key → worker, learned from each ACK, cleared on failure, bounded — because in this model a pin is pure *locality*: with one release out per key and ordered streams, order never depends on it, so dropping one is always safe. A pin is honored unless the pinned worker is draining, dead, or drastically overloaded (`slack(T)` — pin abandonment); re-picking cannot reorder, since a key releases only while nothing of its own is outstanding (§4.7). The pinned group's volume still counts toward that bin's fill. Fresh keys fill open, in-slice, below-target bins first (load-checked), then rotating P2C opens further slice workers. A group *no* worker can take — pool-wide unroutability only — parks in the batcher and is re-placed at its next wake (§4.5); nothing is ever handed back. Fan-out is **emergent**: demand ÷ target, clamped below by the aperture coverage floor, with slice coverage achieved over seconds by rotation rather than within every batch. The elastic-dispatch fan-out formula stops being a formula.
 
 **Composition** (which groups ride together): each group carries an opaque **affinity** hint — stamped by the partition driver with the partition id, but the batcher knows only the preference rule: *minimize distinct affinities per request, choosing affinities oldest-head-first*. A stream's bin holds at most one group per key (key drivers release one at a time), and cross-key order is unconstrained, so composition is free to pack. Affinity-pure requests mean a failed request wounds one partition's frontier, not eight (blast radius), and a slow request delays few frontiers (frontier coupling). Oldest-first keeps the packing strictly latency-safe. The affinity hint also acts as a placement *tie-break* among otherwise-equivalent bins — never overriding load or fill, so a hot partition cannot become a hot worker.
 
@@ -203,7 +203,7 @@ Concurrency then self-clocks. Fast workers: ACKs return quickly, frontiers advan
 ### 4.5 Failure handling in the new shape
 
 - **503 / stream busy**: unchanged — the transport's jittered backoff absorbs deliberate backpressure below the model, excluded from passive health.
-- **Send failure (fault)**: the request result returns the request's groups whole; the partition manager hands each back to its key driver, which puts it back at queue head and re-releases it in the same cascade — placement re-picks against current health. No domain backoff: the transport already retried transient faults with its own backoff below the model (§2.9), and passive health has already marked the failing worker, so waiting again in the key driver would be double pacing. This replaces `defer_failed` + re-stash + both flush paths' retry pacing with one local rule. The order argument is trivial: the key's queue *is* the order, and nothing for that key was in flight behind the failure (depth-1 streams, one-release key drivers).
+- **Send failure (fault)**: the request result returns the request's groups whole; the partition manager hands each back to its key driver, which puts it back at queue head and re-releases it in the same cascade — placement re-picks against current health (the batcher unpinned the key when it saw the failure). No domain backoff: the transport already retried transient faults with its own backoff below the model (§2.9), and passive health has already marked the failing worker, so waiting again in the key driver would be double pacing. This replaces `defer_failed` + re-stash + both flush paths' retry pacing with one local rule. The order argument is trivial: the key's queue *is* the order, and nothing for that key was in flight behind the failure (depth-1 streams, one-release key drivers).
 - **Draining/dead worker**: the registry is unchanged; the *consequence* becomes local. A key whose sticky worker is draining simply gets re-placed at its next release — nothing of the key's is in flight at that moment, so re-routing cannot reorder. The cascade rule is the queue: newer groups are behind older ones by construction. No stash, no batch-sequence bookkeeping, no outstanding-count subtlety.
 - **Unroutable pool**: placement finds no healthy worker — the release **parks** in the batcher, which re-tries placement on every wake: each arriving accumulator, each resolution's refill, and a park-retry deadline armed only while something is parked (the backstop when both go quiet). Waiting for a routable pool is transport state, so both the parking and its pacing live in the transport — the domain never arms a timer for it, and nothing is handed back. Unlike the stash, parked carries no ordering: at most one release per key (a parked release is still that key's one-out), cross-key order free. The partition frontiers stall; the watchdog below bounds it.
 - **Stall watchdog**: per-partition — a frontier stuck for the timeout while work is pending fails the process, replaying that exposure (≤ B). Today's `deferred_flush_timeout` semantics, at the granularity where a wedge actually lives; the check runs on the loop's housekeeping tick — a watchdog cannot be event-driven, since what it detects is the absence of events. A wedged key stalls *its partition's* frontier while healthy partitions keep committing — today it stalls every partition on the pod.
@@ -229,21 +229,17 @@ health        snapshot (ArcSwap-style)  probes → router     the only cross-tas
 The `accumulators` channel is unbounded in count but self-limiting in content: every queued release is uncommitted work under the `B` gate, and a lagging batcher starves the domain of ACKs, which closes polling. The domain's outbound face is not an interface at all — it is the accumulator, plain data the loop's factory obtains each tick and the cascade fills under `&mut`; the loop's inbound face is the result stream's receive side, a bare channel end. The values crossing the seam are:
 
 ```rust
-struct Accumulator(Vec<Release>);            // one tick's releases, in cascade order —
-                                             //   obtained from the factory, lent down the
-                                             //   cascade under &mut (no locking), released
-                                             //   by the loop whole, by value: one send
-
-struct Release {                             // one group, ready to send
-    group: Group,                            // carries partition (affinity), epoch, offsets
-    sticky: Option<WorkerId>,                // the key's last worker: a placement preference,
-}                                            //   honored unless draining/dead/overloaded (§4.3)
+struct Accumulator(Vec<Group>);              // one tick's released groups, in cascade
+                                             //   order — obtained from the factory, lent
+                                             //   down the cascade under &mut (no locking),
+                                             //   released by the loop whole, by value; a
+                                             //   group carries partition (affinity), epoch,
+                                             //   offsets — no worker appears anywhere here
 
 struct RequestResult {                       // one resolved request, whole
-    worker: WorkerId,
     outcome: Ack | Failure,                  // transport-classified (§2.9); backpressure,
     groups: Vec<Group>,                      //   retries, and 413 splits are absorbed below
-}
+}                                            // no worker either: pins are the batcher's
 ```
 
 There is no `Mutex`, no `Arc`'d mutable state, and no atomic in the model: every struct below is owned by exactly one task and mutated under plain `&mut`, so lock ordering stops being a concept. The loop and the batcher each have exactly one await point (their `select!`s); the runners block only on their own channel and their own socket. The accumulator is exclusively borrowed for the length of a cascade and lent all the way to the key drivers — the decision point pushes releases straight into it, so nothing is returned up any level — and the only coordination between the two sides is the release itself: one channel send, after which the loop never touches that buffer again.
@@ -377,11 +373,11 @@ fn accept(msgs, acc) {                       // one poll's messages for this par
 fn apply(group, result, acc) {               // one group of one resolved request
     match result.outcome {
         Ack => {
-            ledger.complete(group.offsets);
-            if ledger.advance_frontier() {   // highest contiguous completed offset
+            ledger.complete(group.offsets);  // the acked group is the record of what
+            if ledger.advance_frontier() {   //   landed; highest contiguous completed
                 stall_deadline = now + STALL_TIMEOUT;
             }
-            keys[group.key].acked(result.worker, acc)  // learn the pin, release the next
+            keys[group.key].acked(acc)       // clear the one-out, release the next
         }
         Failure => keys[group.key].failed(group, acc)  // back to queue head, re-released
     }                                                  //   into the same buffer (§4.5)
@@ -415,16 +411,17 @@ task commit_monitor {
 }
 ```
 
-**Key driver — a passive state machine.** The deferral cascade and the pin are this struct — a plain entry in its partition driver's map: no task, no lock, no ref-count, no timer. It pushes its releases into the lent accumulator; it calls nothing.
+**Key driver — a passive state machine.** The deferral cascade is this struct — a plain entry in its partition driver's map: no task, no lock, no ref-count, no timer, and no worker id. It pushes its releases into the lent accumulator; it calls nothing. What is left after the pin moved to the batcher is exactly the per-key order invariant, and nothing else.
 
 ```rust
-// A plain entry in its partition driver's map. No task, no lock, no ref-count — and
-// no clock: retry pacing lives in the transport (§2.9, §4.5).
+// A plain entry in its partition driver's map. No task, no lock, no ref-count, no
+// clock (retry pacing is the transport's, §2.9/§4.5), no worker id (pins are the
+// batcher's, §4.3).
 struct KeyDriver {
     queue: FifoQueue<Group>,
-    in_flight: bool,                         // at most one release out at a time
-    worker: Option<WorkerId>,                // the sticky pin — learned from ACK results
-}
+    outstanding: bool,                       // the key's one release, anywhere between the
+}                                            //   accumulator and its resolution (§2.5's
+                                             //   sense: does this key have unlanded work)
 
 fn enqueue(group, acc) {
     queue.push_back(group);
@@ -432,22 +429,19 @@ fn enqueue(group, acc) {
 }
 
 fn try_release(acc) {                        // on enqueue, after ACK, after a failure —
-    if in_flight || queue.is_empty() { return }      //   the decision point: whether to
-    in_flight = true;                                //   release, and what
-    acc.push(Release { group: queue.pop_front(), sticky: worker })
-}                                            // placement is the batcher's — the pin is a
-                                             //   preference; safe: nothing of ours in flight
+    if outstanding || queue.is_empty() { return }    //   the decision point: whether to
+    outstanding = true;                              //   release, and what
+    acc.push(queue.pop_front())
+}
 
-fn acked(worker, acc) {
-    self.worker = worker;                    // stickiness for the next release
-    in_flight = false;
-    try_release(acc)                         // then maybe_evict when idle and empty —
-}                                            //   the pin dies with the driver
+fn acked(acc) {                              // the acked group already told the ledger
+    outstanding = false;                     //   what landed; nothing to report from here
+    try_release(acc)                         // then maybe_evict when idle and empty
+}
 
 fn failed(group, acc) {
     queue.push_front(group);                 // back to head — the key's queue *is* the order
-    in_flight = false;
-    worker = None;                           // let placement re-pick against current health
+    outstanding = false;
     try_release(acc)                         // re-place now: transient faults were already
 }                                            //   backed off below the model (§2.9), and an
                                              //   unroutable pool parks in the batcher (§4.5)
@@ -462,7 +456,10 @@ struct WorkerBatcher {
     bins: Map<WorkerId, Bin>,                // bin: ordered groups, events/bytes, affinities
     busy: Map<WorkerId, bool>,               // stream state — set on fire, cleared on the
     touched: Set<WorkerId>,                  //   resolution; streams this wake binned into
-    parked: Vec<Release>,                    // pool-wide unroutable (§4.5); re-placed on
+    pins: Map<RoutingKey, WorkerId>,         // the sticky pins (§4.3) — learned from ACKs,
+                                             //   cleared on failure, bounded: a dropped pin
+                                             //   costs locality, never order
+    parked: Vec<Group>,                      // pool-wide unroutable (§4.5); re-placed on
     retry_at: Option<Deadline>,              //   every wake — this deadline is the backstop
     router: Router,                          // aperture + P2C over the health snapshot (§4.3)
     accumulators: Rx<Accumulator>,           // from the loop's factory: one per tick
@@ -477,13 +474,14 @@ task worker_batcher {
         select! {
             acc = accumulators.recv() => {   // one cascade's releases, whole
                 revive_parked();             // health may have changed since they parked
-                for release in acc { place(release) }
+                for group in acc { place(group) }
                 fire_touched()
             }
 
             (w, outcome, groups) = resolutions.recv() => {
                 busy[w] = false;             // the depth-1 slot is free again
-                results.send(RequestResult { worker: w, outcome, groups });
+                pins.learn(w, outcome, &groups);     // ACK ⇒ pin each key to w; failure
+                results.send(RequestResult { outcome, groups });     //   ⇒ unpin
                 try_fire(w)                  // refill from the bin at once — this result's
             }                                //   successors ride a later accumulator
 
@@ -495,22 +493,22 @@ task worker_batcher {
     }
 }
 
-fn place(release) {
-    match router.place(release.sticky, &bins) {      // §4.3: sticky honored unless
-        None    => park(release),                    //   draining/dead/overloaded
+fn place(group) {
+    match router.place(pins.get(group.key), &bins) {     // §4.3: the pin honored unless
+        None    => park(group),                          //   draining/dead/overloaded
         Some(w) => {
-            bins[w].push(release.group);     // ≤1 group per key per bin: key drivers
+            bins[w].push(group);             // ≤1 group per key per bin: key drivers
             touched.insert(w);               //   release one at a time
             if bins[w].size >= T { try_fire(w) }     // target cap: fire mid-batch
         }
     }
 }
 
-fn park(release) { parked.push(release); retry_at.arm_if_unarmed(PARK_RETRY) }
+fn park(group) { parked.push(group); retry_at.arm_if_unarmed(PARK_RETRY) }
 
 fn revive_parked() {                         // re-place against current health; the
     retry_at = None;                         //   still-unplaceable simply park again
-    for release in parked.take() { place(release) }
+    for group in parked.take() { place(group) }
 }
 
 fn fire_touched() {
@@ -532,7 +530,7 @@ fn try_fire(w) {                             // the single send-origination site
 }                                            //   clears only on this request's resolution
 ```
 
-**Router placement** (§4.3) — inside the batcher; `sticky` is the release's preference, not a constraint:
+**Router placement** (§4.3) — inside the batcher; `sticky` is the batcher's pin for the key — a preference, not a constraint:
 
 ```rust
 fn place(sticky, bins) -> Option<WorkerId> {
@@ -586,7 +584,7 @@ fn classify(outcome) {                       // the transport classifier, §2.9 
 }
 ```
 
-What is *not* here is the point: no stash, no batch-sequence bookkeeping, no fences or `FenceGuard`, no eager reconciliation, no completion serialization, no per-key timers (the clocks: the loop's one housekeeping tick and the batcher's park-retry while anything is parked) — and no locks: today's `PinTable` mutex and its lock-ordering discipline have no successor, because nothing is shared to lock. The order argument is visible as four structural facts — one origination site (`try_fire`), at most one released group per key anywhere in the system, capacity-1 request channels, and two tasks that each finish one cascade before taking the next event. And the coupling argument is a fifth: the sides exchange only accumulators down and request results up, plain values on FIFO channels — so neither side can observe, or corrupt, the other mid-transition, and the transport has no path to a driver even to misuse.
+What is *not* here is the point: no stash, no batch-sequence bookkeeping, no fences or `FenceGuard`, no eager reconciliation, no completion serialization, no per-key timers (the clocks: the loop's one housekeeping tick and the batcher's park-retry while anything is parked) — and no locks: today's `PinTable` mutex and its lock-ordering discipline have no successor, because nothing is shared to lock. The order argument is visible as four structural facts — one origination site (`try_fire`), at most one released group per key anywhere in the system, capacity-1 request channels, and two tasks that each finish one cascade before taking the next event. And the coupling argument is a fifth: the sides exchange only accumulators down and request results up, plain values on FIFO channels — so neither side can observe, or corrupt, the other mid-transition, and the transport has no path to a driver even to misuse. The vocabulary split is total: the domain never names a worker, the transport never queues a key.
 
 ## 5. Construct-by-construct disposition
 
@@ -597,7 +595,7 @@ What is *not* here is the point: no stash, no batch-sequence bookkeeping, no fen
 | Oldest-first completion (2.2) | Retired; per-partition offset ledger commits the contiguous frontier |
 | Commit sentinel (2.3) | Kept as a cheap assert; contiguity is now constructed, not emergent |
 | Commit monitor (2.3) | Kept as-is (librdkafka async-commit blindness is unchanged) |
-| Sticky pins (2.4) | The key driver's current-worker field; eviction = driver eviction |
+| Sticky pins (2.4) | The batcher's bounded pin map, learned from ACKs; demoted to pure locality — one release per key makes order pin-free |
 | Stash + cascade rule (2.5) | The key driver's FIFO; the cascade is the queue |
 | Completion-time flush (2.6) | Retired; commit gate → ledger, retry pacing → transport backoff + parked releases, watchdog → per-partition stall deadline |
 | Eager flush + its accounting (2.7) | Becomes the *only* drain mechanism (resolution cascade + stream refill); `eager_pending`/`eager_accepted`/`take_eager_accepted` deleted |
@@ -663,8 +661,8 @@ The consumer's vocabulary has to survive three audiences at once: this crate, th
 | `driver` | the single owner of one unit's state, advanced only by events | — |
 | `consumer loop` | the event pump at the top: results, polls, deadlines, rebalance | consumer *driver* — it owns no unit's state |
 | `partition manager` | the domain side's root: assignment lifecycle + work distribution | — |
-| `release` | one group handed to the batcher, with its placement preference | the ship-a-version sense |
-| `request result` | one resolved request, whole: groups + outcome + worker | resolution, outside the transport side |
+| `release` | the hand-off of a key's next group to the batcher (at most one out per key) | the ship-a-version sense |
+| `request result` | one resolved request, whole: groups + outcome | resolution, outside the transport side |
 | `worker batcher` | the transport-side task: placement, bins, parked, streams | — |
 | `accumulator` | one tick's releases: obtained from the factory, lent down the cascade | — |
 | `accumulator factory` | the loop's buffer supply + the batcher's send side: obtain / release | — |
