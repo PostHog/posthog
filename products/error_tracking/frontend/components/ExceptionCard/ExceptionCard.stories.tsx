@@ -287,6 +287,7 @@ type StoryCombinedEventRow = [
     exceptionList: Array<{ type?: string; value?: string }> | null,
     exceptionFingerprint: string | null,
     exceptionIssueId: string | null,
+    screenName: string | null,
 ]
 
 type StoryEventDetailsRow = [uuid: string, eventName: string, timestamp: string, properties: Record<string, unknown>]
@@ -329,9 +330,9 @@ function sessionTimelineParameters(event: ErrorEventType): Record<string, unknow
         ['custom-2', 'button_clicked', at(-3000), 'web'],
     ]
     const combinedEventRows: StoryCombinedEventRow[] = [
-        ['page-1', '$pageview', at(-15000), 'web', 'https://app.example.com/home', null, null, null],
-        ['custom-1', 'form_opened', at(-11000), 'web', null, null, null, null],
-        ['page-2', '$pageview', at(-7000), 'web', 'https://app.example.com/demo', null, null, null],
+        ['page-1', '$pageview', at(-15000), 'web', 'https://app.example.com/home', null, null, null, null],
+        ['custom-1', 'form_opened', at(-11000), 'web', null, null, null, null, null],
+        ['page-2', '$pageview', at(-7000), 'web', 'https://app.example.com/demo', null, null, null, null],
         [
             'previous-exception',
             '$exception',
@@ -341,8 +342,9 @@ function sessionTimelineParameters(event: ErrorEventType): Record<string, unknow
             [{ type: 'ReferenceError', value: 'window.appConfig is undefined' }],
             'prev-fingerprint',
             'issue-id',
+            null,
         ],
-        ['custom-2', 'button_clicked', at(-3000), 'web', null, null, null, null],
+        ['custom-2', 'button_clicked', at(-3000), 'web', null, null, null, null, null],
         [
             event.uuid,
             '$exception',
@@ -352,19 +354,30 @@ function sessionTimelineParameters(event: ErrorEventType): Record<string, unknow
             exceptionList,
             event.properties?.$exception_fingerprint ?? 'current-fingerprint',
             event.properties?.$exception_issue_id ?? 'issue-id',
+            null,
         ],
     ]
 
     const eventDetailsRowsEntries: Array<[string, StoryEventDetailsRow]> = combinedEventRows.map(
         (row): [string, StoryEventDetailsRow] => {
-            const [uuid, eventName, ts, lib, currentUrl, exceptionListForRow, exceptionFingerprint, exceptionIssueId] =
-                row
+            const [
+                uuid,
+                eventName,
+                ts,
+                lib,
+                currentUrl,
+                exceptionListForRow,
+                exceptionFingerprint,
+                exceptionIssueId,
+                screenName,
+            ] = row
             const baseProperties = {
                 ...(lib ? { $lib: lib } : {}),
                 ...(currentUrl ? { $current_url: currentUrl } : {}),
                 ...(exceptionListForRow ? { $exception_list: exceptionListForRow } : {}),
                 ...(exceptionFingerprint ? { $exception_fingerprint: exceptionFingerprint } : {}),
                 ...(exceptionIssueId ? { $exception_issue_id: exceptionIssueId } : {}),
+                ...(screenName ? { $screen_name: screenName } : {}),
             }
 
             const properties = uuid === event.uuid ? event.properties : baseProperties
