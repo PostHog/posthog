@@ -30,9 +30,10 @@ tools:
             idempotent: true
         title: Visual review flakiness overview
         description: >
-            Snapshots in a repo whose rendering cannot be trusted: those that failed the gate or were absorbed by a
-            toleration on a recent default-branch run, and those under an active quarantine. Recency changes an entry's
-            state rather than excluding it, so a snapshot that has gone quiet is still listed. This is the triage view,
+            Snapshots in a repo whose rendering cannot be trusted: those carrying a live tolerated variant against their
+            current baseline, those that failed the gate on a recent default-branch run, and those under an active
+            quarantine. Recency changes an entry's state rather than excluding it, so a snapshot that has gone quiet is
+            still listed. This is the triage view,
             and it is far smaller than the baselines universe, so start here when asked why a suite is unreliable, which
             snapshots to quarantine, or which quarantines to lift. Each entry carries `hard_rate`, the share of recent
             default-branch runs that failed the gate, and `soft_rate`, the share a toleration absorbed, plus `headroom`,
