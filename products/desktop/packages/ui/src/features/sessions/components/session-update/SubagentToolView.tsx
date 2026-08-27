@@ -11,7 +11,7 @@ import {
   useToolCallStatus,
 } from "@posthog/ui/features/sessions/components/session-update/toolCallUtils";
 import { Box, Flex, IconButton, Text } from "@radix-ui/themes";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import type { ConversationItem, TurnContext } from "../buildConversationItems";
 import { useChatThreadChrome } from "../chat-thread/chatThreadChrome";
 import { SessionUpdateView } from "./SessionUpdateView";
@@ -21,6 +21,12 @@ interface SubagentToolViewProps extends ToolViewProps {
   childItems: ConversationItem[];
   turnContext: TurnContext;
   defaultExpanded?: boolean;
+  /** Replaces the "Subagent · title" header, for callers with their own name for the row. */
+  header?: ReactNode;
+  /** What the subagent says now, shown beside the title while it runs. */
+  status?: ReactNode;
+  /** Extra body content, below the child tool calls and hidden with them. */
+  footer?: ReactNode;
 }
 
 /**
@@ -35,6 +41,9 @@ export function SubagentToolView({
   childItems,
   turnContext,
   defaultExpanded = false,
+  header,
+  status,
+  footer,
 }: SubagentToolViewProps) {
   const { title } = toolCall;
   const { isLoading, isFailed, wasCancelled } = useToolCallStatus(
@@ -60,6 +69,13 @@ export function SubagentToolView({
         ) : null,
       )
     : undefined;
+  const body =
+    childContent || footer ? (
+      <>
+        {childContent}
+        {footer}
+      </>
+    ) : undefined;
 
   // Legacy thread: bespoke bordered box with an expand toggle.
   if (!chatChrome) {
@@ -87,13 +103,15 @@ export function SubagentToolView({
                 Delegated to a subagent
               </TooltipContent>
             </Tooltip>
-            <Text className="text-[13px] text-gray-10">
-              <span className="font-medium text-gray-12">Subagent</span>
-              {title && title !== "Subagent" ? ` · ${title}` : ""}
-            </Text>
+            {header ?? (
+              <Text className="text-[13px] text-gray-10">
+                <span className="font-medium text-gray-12">Subagent</span>
+                {title && title !== "Subagent" ? ` · ${title}` : ""}
+              </Text>
+            )}
             <StatusIndicators isFailed={isFailed} wasCancelled={wasCancelled} />
           </Flex>
-          {hasChildren && (
+          {body && (
             <IconButton asChild size="1" variant="ghost" color="gray">
               <span>
                 {isExpanded ? (
@@ -106,10 +124,10 @@ export function SubagentToolView({
           )}
         </button>
 
-        {isExpanded && hasChildren && (
+        {isExpanded && body && (
           // [&_.tool-row-collapsible]:pl-1 so that inner ToolRow triggers have some more spacing on left
           <Box className="space-y-1 border-gray-6 border-t px-2 py-2 [&_.tool-row-collapsible]:pl-1">
-            {childContent}
+            {body}
           </Box>
         )}
       </Box>
@@ -137,12 +155,15 @@ export function SubagentToolView({
         isFailed={isFailed}
         wasCancelled={wasCancelled}
         defaultOpen={defaultExpanded}
-        content={childContent}
+        content={body}
+        trailing={status}
       >
-        <span>
-          <span className="font-medium text-gray-12">Subagent</span>
-          {title && title !== "Subagent" ? ` · ${title}` : ""}
-        </span>
+        {header ?? (
+          <span>
+            <span className="font-medium text-gray-12">Subagent</span>
+            {title && title !== "Subagent" ? ` · ${title}` : ""}
+          </span>
+        )}
       </ToolRow>
     </div>
   );

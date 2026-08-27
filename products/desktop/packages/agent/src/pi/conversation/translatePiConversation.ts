@@ -279,6 +279,9 @@ function agentFlowEvents(
   }
 
   if (details.event === "step_started" && details.stepIndex !== undefined) {
+    const title = [details.stepName, details.stepModel]
+      .filter(Boolean)
+      .join(" · ");
     const cardId = agentFlowStepCardId(details.flowId, details.stepIndex);
     flowSteps.set(details.flowId, cardId);
     const cardEvents: AgentConversationEvent[] = [
@@ -287,7 +290,7 @@ function agentFlowEvents(
         timestamp,
         toolCall: {
           id: cardId,
-          title: text.replaceAll("**", "").trim(),
+          title: title || text.replaceAll("**", "").trim(),
           kind: "other",
           status: "in_progress",
         },

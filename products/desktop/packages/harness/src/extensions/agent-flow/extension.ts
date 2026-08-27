@@ -189,6 +189,7 @@ async function executeStep(options: {
     stepIndex,
     stepCount: flow.steps.length,
     stepName: step.name,
+    stepModel: step.model.name,
   };
   const guidance = active.pendingGuidance.splice(0);
   const stepPrompt = stepTask(

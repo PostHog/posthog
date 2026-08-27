@@ -25,20 +25,25 @@ export function FlowStepView(props: FlowStepViewProps) {
     .trim();
   const handoff = readFlowHandoff(props.toolCall.rawInput);
   const running = props.toolCall.status === "in_progress";
-  return (
-    <div className="flex flex-col gap-1">
-      <SubagentToolView {...props} defaultExpanded />
-      {handoff ? (
-        <div className="ml-6">
-          <FlowHandoffCard handoff={handoff} />
-        </div>
-      ) : running && text ? (
-        <p className="ml-6 truncate text-[12px] text-gray-10">{text}</p>
-      ) : text ? (
-        <div className="chat-markdown ml-6 max-w-3xl rounded-md border border-gray-4 bg-gray-1 px-3 py-2 text-[13px] text-gray-12">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
-        </div>
-      ) : null}
+  const outcome = handoff ? (
+    <FlowHandoffCard handoff={handoff} />
+  ) : !running && text ? (
+    <div className="chat-markdown max-w-3xl rounded-md border border-gray-4 bg-gray-1 px-3 py-2 text-[13px] text-gray-12">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
     </div>
+  ) : undefined;
+
+  return (
+    <SubagentToolView
+      {...props}
+      defaultExpanded
+      header={<span className="whitespace-nowrap">{props.toolCall.title}</span>}
+      status={
+        running && text ? (
+          <span className="min-w-0 shrink truncate">{text}</span>
+        ) : undefined
+      }
+      footer={outcome}
+    />
   );
 }

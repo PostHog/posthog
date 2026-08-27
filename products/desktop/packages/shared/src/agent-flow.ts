@@ -153,6 +153,7 @@ export const agentFlowMessageDetailsSchema = z.object({
   stepIndex: z.number().int().nonnegative().optional(),
   stepCount: z.number().int().positive().optional(),
   stepName: z.string().optional(),
+  stepModel: z.string().optional(),
   approvalId: z.string().optional(),
   approvalOutcome: z.enum(["approved", "rejected"]).optional(),
   stepPrompt: z.string().optional(),

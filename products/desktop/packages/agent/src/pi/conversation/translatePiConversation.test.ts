@@ -772,6 +772,7 @@ describe("createPiConversationTranslator", () => {
         stepIndex: 0,
         stepCount: 2,
         stepName: "Plan",
+        stepModel: "Sol",
       }),
     );
     expect(started).toEqual([
@@ -780,7 +781,7 @@ describe("createPiConversationTranslator", () => {
         timestamp: 10,
         toolCall: {
           id: "agent-flow:flow-1:0",
-          title: "Step 1 of 2: Plan (Sol, high effort)",
+          title: "Plan · Sol",
           kind: "other",
           status: "in_progress",
         },
