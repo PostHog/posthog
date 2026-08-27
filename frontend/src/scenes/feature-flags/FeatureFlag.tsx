@@ -79,6 +79,7 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
+import { FeatureFlagStaleBanner } from 'products/feature_flags/frontend/FeatureFlagStaleBanner'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { featureFlagContextItems } from './featureFlagAiContext'
@@ -92,7 +93,6 @@ import { FeatureFlagOverview } from './FeatureFlagOverview'
 import FeatureFlagProjects from './FeatureFlagProjects'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
-import { FeatureFlagStaleBanner } from './FeatureFlagStaleBanner'
 import { FeatureFlagTestingTab } from './FeatureFlagTestingTab'
 import { FeatureFlagUsageMetrics } from './FeatureFlagUsageMetrics'
 

@@ -7,13 +7,14 @@ import { BindLogic, Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { NEW_FLAG, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { FeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
+
 import { useMocks } from '~/mocks/jest'
 import type { Mocks } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 import { FeatureFlagType } from '~/types'
 
-import { NEW_FLAG, featureFlagLogic } from './featureFlagLogic'
-import { FeatureFlagsTab } from './featureFlagsLogic'
 import { FeatureFlagStaleBanner } from './FeatureFlagStaleBanner'
 
 jest.mock('posthog-js')

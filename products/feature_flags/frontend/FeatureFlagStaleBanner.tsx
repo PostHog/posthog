@@ -2,11 +2,10 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { FeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
 
-import type { FeatureFlagRolloutSummaryApi } from 'products/feature_flags/frontend/generated/api.schemas'
-
-import { featureFlagLogic } from './featureFlagLogic'
-import { FeatureFlagsTab } from './featureFlagsLogic'
+import type { FeatureFlagRolloutSummaryApi } from './generated/api.schemas'
 
 // The status endpoint returns reasons without terminating punctuation, and the banner reads them
 // next to sentences written here.
