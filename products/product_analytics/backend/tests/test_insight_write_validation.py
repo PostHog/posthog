@@ -4,7 +4,7 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from products.product_analytics.backend.insight_write_validation import (
+from products.product_analytics.backend.presentation.insight_write_validation import (
     InsightWriteRejection,
     find_insight_write_rejection,
 )

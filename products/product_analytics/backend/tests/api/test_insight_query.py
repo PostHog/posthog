@@ -187,10 +187,10 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             expected_status=status.HTTP_201_CREATED,
         )
 
-    @patch("products.product_analytics.backend.insight_write_validation.report_user_action")
+    @patch("products.product_analytics.backend.presentation.insight_write_validation.report_user_action")
     def test_saves_a_query_the_rules_reject_while_enforcement_is_off(self, mock_report: Any) -> None:
         insight_id, _ = self.dashboard_api.create_insight(
-            {"name": "Empty series", "query": {"kind": "TrendsQuery", "series": []}},
+            {"name": "Empty series", "query": {"kind": "StickinessQuery", "series": []}},
             expected_status=status.HTTP_201_CREATED,
         )
 
@@ -200,13 +200,16 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         assert reported[0][0][2]["rule_code"] == "insight_requires_at_least_one_series"
         assert reported[0][0][2]["mode"] == "shadow"
 
-    @patch("products.product_analytics.backend.insight_write_validation.feature_enabled_or_false", return_value=True)
+    @patch(
+        "products.product_analytics.backend.presentation.insight_write_validation.feature_enabled_or_false",
+        return_value=True,
+    )
     def test_rejects_a_query_the_rules_reject_once_enforced(self, _flag: Any) -> None:
         insight_count_before = Insight.objects.count()
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/",
-            {"name": "Empty series", "query": {"kind": "TrendsQuery", "series": []}},
+            {"name": "Empty series", "query": {"kind": "StickinessQuery", "series": []}},
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -214,12 +217,15 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         assert response.json()["attr"] == "query"
         assert Insight.objects.count() == insight_count_before
 
-    @patch("products.product_analytics.backend.insight_write_validation.feature_enabled_or_false", return_value=True)
+    @patch(
+        "products.product_analytics.backend.presentation.insight_write_validation.feature_enabled_or_false",
+        return_value=True,
+    )
     def test_accepts_filters_the_rules_reject_when_the_stored_query_still_renders(self, _flag: Any) -> None:
         insight_id, _ = self.dashboard_api.create_insight(
             {
                 "name": "Insight with a query",
-                "query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                "query": {"kind": "StickinessQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
             }
         )
 
