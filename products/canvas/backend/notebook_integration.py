@@ -229,7 +229,7 @@ def publish_prepared_notebook_canvas_source(
     if canvas is None or user is None:
         raise NotebookCanvasNotFoundError
     try:
-        _, version, build, _ = build_service.commit_source_project_publish(
+        result = build_service.commit_source_project_publish(
             canvas,
             prepared=prepared.prepared,
             prompt=prepared.prompt,
@@ -247,7 +247,7 @@ def publish_prepared_notebook_canvas_source(
         raise NotebookCanvasBuildCapacityError from error
     except ObjectStorageError as error:
         raise NotebookCanvasError from error
-    return NotebookCanvasPublication(source_version_id=version.id, build_id=build.id)
+    return NotebookCanvasPublication(source_version_id=result.version.id, build_id=result.build.id)
 
 
 def publish_notebook_canvas_source(

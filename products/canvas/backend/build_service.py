@@ -85,6 +85,14 @@ class PreparedSourceProjectPublish:
     legacy_upload: SourceProjectUpload | None
 
 
+@frozen
+class SourceProjectPublishResult:
+    canvas: Canvas
+    version: CanvasSourceVersion
+    build: CanvasBuild
+    first_publish: bool
+
+
 CANVAS_BUILD_OUTCOMES = Counter(
     "posthog_canvas_build_outcomes_total", "Canvas build terminal outcomes", ["outcome", "code"]
 )
@@ -479,7 +487,7 @@ def commit_source_project_publish(
     task_id: UUID | None,
     created_by: User | None,
     was_impersonated: bool = False,
-) -> tuple[Canvas, CanvasSourceVersion, CanvasBuild, bool]:
+) -> SourceProjectPublishResult:
     """Commit a prepared source project and advance the canvas head."""
 
     with transaction.atomic(), team_scope(canvas.team_id):
@@ -538,7 +546,12 @@ def commit_source_project_publish(
         detail=Detail(name=canvas.name, changes=changes),
     )
 
-    return canvas, version, build, first_publish
+    return SourceProjectPublishResult(
+        canvas=canvas,
+        version=version,
+        build=build,
+        first_publish=first_publish,
+    )
 
 
 def publish_source_project(
@@ -552,7 +565,7 @@ def publish_source_project(
     task_id: UUID | None,
     created_by: User | None,
     was_impersonated: bool = False,
-) -> tuple[Canvas, CanvasSourceVersion, CanvasBuild, bool]:
+) -> SourceProjectPublishResult:
     """Upload and publish a validated project as the canvas's new head version."""
     prepared = prepare_source_project_publish(
         canvas,

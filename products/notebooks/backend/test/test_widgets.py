@@ -16,11 +16,11 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.canvas.backend.models import Canvas
 from products.canvas.backend.notebook_integration import (
     CanvasGenerationState,
     NotebookCanvasVersion,
     _source_project,
+    update_notebook_canvas,
     validate_notebook_canvas_source,
 )
 from products.notebooks.backend.models import (
@@ -784,9 +784,11 @@ class TestWidgetData(APIBaseTest):
             )
 
         widget = GeneratedWidget.objects.for_team(self.team.id).get(generation_jobs__id=generation_id)
-        canvas = Canvas.objects.unscoped().get(id=widget.canvas_id)
-        assert canvas.deleted is True
-        assert canvas.source_policy == Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET
+        assert update_notebook_canvas(
+            team_id=self.team.id,
+            canvas_id=widget.canvas_id,
+            context="Updated through the notebook-only Canvas boundary",
+        )
 
     def test_dispatch_failure_marks_the_job_failed(self) -> None:
         generation_id = uuid4()
