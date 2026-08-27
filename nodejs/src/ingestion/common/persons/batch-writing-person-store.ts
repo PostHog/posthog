@@ -29,6 +29,7 @@ import {
     PersonRepository,
 } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
+import { withTracingSpan } from '~/common/tracing/tracing-utils'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
 import { MessageSizeTooLarge } from '~/common/utils/db/error'
 import { logger } from '~/common/utils/logger'
@@ -1109,8 +1110,27 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         } else {
             personFetchForCheckingCacheOperationsCounter.inc({ operation: 'hit' })
             cache.getCheckCachedPerson(teamId, distinctId)
+            return this.awaitPendingFetch(teamId, distinctId, 'checking', fetchPromise)
         }
         return fetchPromise
+    }
+
+    /**
+     * Waiting on another caller's in-flight fetch has no query span of its own, so without this
+     * the wait is invisible in a trace and reads as time spent inside the step.
+     */
+    private awaitPendingFetch<T>(
+        teamId: Team['id'],
+        distinctId: string,
+        pending: 'checking' | 'update' | 'prefetch',
+        promise: Promise<T>
+    ): Promise<T> {
+        return withTracingSpan(
+            'persons-store',
+            'personsStore.awaitPendingFetch',
+            { team_id: teamId, distinct_id: distinctId, 'persons.pending_fetch': pending },
+            () => promise
+        )
     }
 
     /**
@@ -1247,7 +1267,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         // and then return from cache (prefetch populates both caches)
         const prefetchPromise = this.fetchPromisesForChecking.get(cacheKey)
         if (prefetchPromise) {
-            await prefetchPromise
+            await this.awaitPendingFetch(teamId, distinctId, 'prefetch', prefetchPromise)
             const prefetchedPerson = cache.getCachedPersonForUpdateByDistinctId(teamId, distinctId)
             if (prefetchedPerson !== undefined) {
                 return prefetchedPerson === null ? null : toInternalPerson(prefetchedPerson)
@@ -1294,6 +1314,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         } else {
             personFetchForUpdateCacheOperationsCounter.inc({ operation: 'hit' })
             cache.getCachedPersonForUpdateByDistinctId(teamId, distinctId)
+            return this.awaitPendingFetch(teamId, distinctId, 'update', fetchPromise)
         }
         return fetchPromise
     }
