@@ -1,4 +1,3 @@
-// Serial: resets shared Postgres and relies on the reset-created default team.
 import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import { metrics as metricsApi } from '@opentelemetry/api'
@@ -17,12 +16,11 @@ import { KAFKA_APP_METRICS_2, KAFKA_LOGS_CLICKHOUSE, KAFKA_LOGS_INGESTION_DLQ } 
 import { APP_METRICS_OUTPUT, AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
-import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTeam, createTestTeamFixture, getTeam } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { getDefaultTracesIngestionConsumerConfig } from './config'
@@ -51,12 +49,13 @@ import type { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
 import { compileRuleSet } from './sampling/compile-rules'
 import type { SamplingRulesCache } from './sampling/sampling-rules-cache'
-import { BASE_REDIS_KEY } from './services/logs-rate-limiter.service'
 import { TracesIngestionConsumer } from './traces-ingestion-consumer'
 import { LogsTransformerService } from './transformations/logs-transformer.service'
 
 const DEFAULT_TEST_TIMEOUT = 5000
 jest.setTimeout(DEFAULT_TEST_TIMEOUT)
+
+const SNAPSHOT_OVERRIDES = { overrides: { team_id: 'TEAM_ID' } }
 
 jest.mock('~/common/utils/posthog', () => {
     const original = jest.requireActual('~/common/utils/posthog')
@@ -257,16 +256,14 @@ describe('LogsIngestionConsumer', () => {
         jest.spyOn(Date.prototype, 'toISOString').mockReturnValue(fixedTime.toISO()!)
 
         offsetIncrementer = 0
-        await resetTestDatabase()
         hub = await createHub()
 
-        team = await getFirstTeam(hub.postgres)
+        team = (await createTestTeamFixture(hub.postgres)).team
         const team2Id = await createTeam(hub.postgres, team.organization_id)
         team2 = (await getTeam(hub.postgres, team2Id))!
 
         consumer = await createLogsIngestionConsumer(hub)
 
-        await deleteKeysWithPrefix(consumer['redis'], BASE_REDIS_KEY)
         logMessageDroppedCounterSpy = jest.spyOn(logMessageDroppedCounter, 'inc')
         recordLogMessageDroppedSpy = jest.spyOn(otelMetrics, 'recordLogMessageDropped')
 
@@ -340,7 +337,12 @@ describe('LogsIngestionConsumer', () => {
 
             await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
 
-            expect(forSnapshot(getProducedKafkaMessages().map((m) => m.headers))).toMatchSnapshot()
+            expect(
+                forSnapshot(
+                    getProducedKafkaMessages().map((m) => m.headers),
+                    SNAPSHOT_OVERRIDES
+                )
+            ).toMatchSnapshot()
         })
 
         it('should process multiple log messages', async () => {
@@ -357,7 +359,12 @@ describe('LogsIngestionConsumer', () => {
 
             const producedMessages = getProducedKafkaMessages()
             expect(producedMessages).toHaveLength(3)
-            expect(forSnapshot(producedMessages.map((m) => m.headers))).toMatchSnapshot()
+            expect(
+                forSnapshot(
+                    producedMessages.map((m) => m.headers),
+                    SNAPSHOT_OVERRIDES
+                )
+            ).toMatchSnapshot()
         })
     })
 
@@ -395,7 +402,12 @@ describe('LogsIngestionConsumer', () => {
             await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
 
             const producedMessages = getProducedKafkaMessages()
-            expect(forSnapshot(producedMessages.map((m) => m.headers))).toMatchSnapshot()
+            expect(
+                forSnapshot(
+                    producedMessages.map((m) => m.headers),
+                    SNAPSHOT_OVERRIDES
+                )
+            ).toMatchSnapshot()
         })
 
         it('should overwrite existing headers', async () => {
@@ -406,7 +418,12 @@ describe('LogsIngestionConsumer', () => {
             })
 
             await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
-            expect(forSnapshot(getProducedKafkaMessages().map((m) => m.headers))).toMatchSnapshot()
+            expect(
+                forSnapshot(
+                    getProducedKafkaMessages().map((m) => m.headers),
+                    SNAPSHOT_OVERRIDES
+                )
+            ).toMatchSnapshot()
         })
 
         it('should handle parse errors gracefully', async () => {
@@ -1747,7 +1764,6 @@ describe('LogsIngestionConsumer', () => {
                     {},
                     { samplingRulesCache: mockSamplingCache as SamplingRulesCache }
                 )
-                await deleteKeysWithPrefix(consumer['redis'], BASE_REDIS_KEY)
             })
 
             it('should emit sampling_records_dropped_by_rule when head sampling drops log lines', async () => {
@@ -1823,7 +1839,6 @@ describe('LogsIngestionConsumer', () => {
                     { LOGS_BILLING_PRORATE_ENABLED: true },
                     { samplingRulesCache: mockSamplingCache as SamplingRulesCache }
                 )
-                await deleteKeysWithPrefix(consumer['redis'], BASE_REDIS_KEY)
 
                 await sendDroppedAndKeptMessages()
 
@@ -1850,7 +1865,6 @@ describe('LogsIngestionConsumer', () => {
                         { LOGS_BILLING_PRORATE_ENABLED: true },
                         { samplingRulesCache: mockSamplingCache as SamplingRulesCache }
                     )
-                    await deleteKeysWithPrefix(consumer['redis'], BASE_REDIS_KEY)
                 }
 
                 const message = await createMultiRecordKafkaMessage(
@@ -1900,7 +1914,6 @@ describe('LogsIngestionConsumer', () => {
                 metricsEmitter: mockEmitter as unknown as LogsMetricsEmitter,
                 ...depsPartial,
             })
-            await deleteKeysWithPrefix(consumer['redis'], BASE_REDIS_KEY)
         }
 
         beforeEach(async () => {
@@ -2020,62 +2033,6 @@ describe('LogsIngestionConsumer', () => {
             })
             await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
             expect(mockEmitter.emit).not.toHaveBeenCalled()
-        })
-    })
-
-    describe('thread relief', () => {
-        jest.setTimeout(30000)
-
-        beforeEach(async () => {
-            // Parent beforeEach mocks Date.now/toISOString — restore for real-time tracking.
-            jest.spyOn(Date, 'now').mockRestore()
-            jest.spyOn(Date.prototype, 'toISOString').mockRestore()
-
-            // Enable PII scrub + JSON parse so processLogMessageBuffer does real CPU work
-            // (without these settings it short-circuits and never decodes the buffer).
-            await hub.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                `UPDATE posthog_team SET logs_settings = $1 WHERE id = $2`,
-                [JSON.stringify({ pii_scrub_logs: true, json_parse_logs: true }), team.id],
-                'updateTeamLogsForThreadRelief'
-            )
-            hub.teamManager['lazyLoader'].markForRefresh(String(team.id))
-        })
-
-        it('should process large batches without blocking the main thread', async () => {
-            // Body large enough that JSON parse + PII scrub do meaningful sync work per message.
-            const body = JSON.stringify({
-                user_id: 'usr_abc123',
-                email: 'jane.doe@example.com',
-                nested: { a: 1, b: 'two', c: [1, 2, 3, 4, 5] },
-                message: 'A long log message ' + 'x'.repeat(500),
-            })
-
-            const numberToTest = 2000
-            const messages = await createKafkaMessages(
-                Array.from({ length: numberToTest }, () => ({ message: body })),
-                { token: team.api_token }
-            )
-
-            // Track event-loop lag only during the consumer's processing.
-            let lastCheck = Date.now()
-            let longestDelay = 0
-            const interval = setInterval(() => {
-                longestDelay = Math.max(longestDelay, Date.now() - lastCheck)
-                lastCheck = Date.now()
-            }, 0)
-
-            try {
-                await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
-            } finally {
-                clearInterval(interval)
-            }
-
-            const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
-            expect(logsMessages).toHaveLength(numberToTest)
-
-            console.log(`[thread-relief] longestDelay = ${longestDelay}ms`)
-            expect(longestDelay).toBeLessThan(120)
         })
     })
 

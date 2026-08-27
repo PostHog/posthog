@@ -5,7 +5,7 @@ import { DateTime } from 'luxon'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { createTestTeamFixture } from '~/tests/helpers/sql'
+import { createTestTeamFixture, uniqueTestId } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
@@ -54,8 +54,7 @@ describe('LegacyPluginExecutorService', () => {
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
 
-        // Generate a unique plugin ID to avoid conflicts
-        uniquePluginId = 50000 + Math.floor(Math.random() * 100000)
+        uniquePluginId = uniqueTestId()
 
         // Create a plugin in the database
         await hub.postgres.query(
