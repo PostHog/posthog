@@ -577,10 +577,26 @@ export function useTaskCreation({
               // Never drop the prompt on failure. Keep the record and flag it
               // interrupted so the pending view offers to recover or discard it,
               // instead of navigating back to a composer that may not have it.
+              const interruptedKey = createdTaskId ?? pendingTaskKey;
               pendingTaskPromptStoreApi.markInterrupted(
-                createdTaskId ?? pendingTaskKey,
+                interruptedKey,
                 isOnline ? "failed" : "offline",
               );
+              // If onTaskReady already navigated the origin tab to
+              // /tasks/$taskId (the worktree path notifies ready before later
+              // steps), a rolled-back task leaves it on a dead detail view.
+              // Return it to the pending route for the moved record so the
+              // Recover/Discard actions actually show.
+              if (createdTaskId) {
+                navigateBrowserTab(
+                  originTabId,
+                  {
+                    href: `/tasks/pending/${interruptedKey}`,
+                    title: "New task",
+                  },
+                  () => navigateToTaskPending(interruptedKey),
+                );
+              }
             }
           }
           return result.success;
@@ -592,10 +608,21 @@ export function useTaskCreation({
           log.error("Unexpected error during task creation", { error });
           if (pendingTaskKey) {
             // Keep the prompt recoverable from the pending view.
+            const interruptedKey = createdTaskId ?? pendingTaskKey;
             pendingTaskPromptStoreApi.markInterrupted(
-              createdTaskId ?? pendingTaskKey,
+              interruptedKey,
               isOnline ? "failed" : "offline",
             );
+            // A throw after onTaskReady leaves the origin tab on the
+            // rolled-back task's detail view; return it to the pending route so
+            // recovery stays reachable.
+            if (createdTaskId) {
+              navigateBrowserTab(
+                originTabId,
+                { href: `/tasks/pending/${interruptedKey}`, title: "New task" },
+                () => navigateToTaskPending(interruptedKey),
+              );
+            }
           }
           return false;
         }
