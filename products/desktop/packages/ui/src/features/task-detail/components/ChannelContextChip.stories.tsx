@@ -13,3 +13,11 @@ type Story = StoryObj<typeof meta>;
 export const ContextLayerConnected: Story = {
   args: { source: "context-layer" },
 };
+
+export const LegacyContextFile: Story = {
+  args: {
+    source: "legacy",
+    channelName: "engineering",
+    onRemove: () => {},
+  },
+};
