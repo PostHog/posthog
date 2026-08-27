@@ -399,11 +399,11 @@ body:has(.rt-DialogOverlay[data-state="open"]) [data-quill-portal] {
   animation: zen-float 3.5s ease-in-out infinite;
 }
 
-/* Loading logo: one 2.4s timeline. The spines hop in a wave (LoadingLogo.tsx
+/* Animated logo: one 2.4s timeline. The spines hop in a wave (AnimatedLogo.tsx
    staggers their delays), and the eyelid (a head-colored disc over the eye
    hole) closes as the wave lands on the head, so the blink keyframes sit just
    after the last spine's delay. */
-@keyframes loading-logo-hop {
+@keyframes animated-logo-hop {
   0%,
   18%,
   100% {
@@ -416,11 +416,11 @@ body:has(.rt-DialogOverlay[data-state="open"]) [data-quill-portal] {
   }
 }
 
-.loading-logo-spine {
-  animation: loading-logo-hop 2.4s infinite;
+.animated-logo-spine {
+  animation: animated-logo-hop 2.4s infinite;
 }
 
-@keyframes loading-logo-blink {
+@keyframes animated-logo-blink {
   0%,
   22%,
   29%,
@@ -433,16 +433,21 @@ body:has(.rt-DialogOverlay[data-state="open"]) [data-quill-portal] {
   }
 }
 
-.loading-logo-eyelid {
+.animated-logo-eyelid {
   transform: scaleY(0);
   transform-box: fill-box;
   transform-origin: center;
-  animation: loading-logo-blink 2.4s linear infinite;
+  animation: animated-logo-blink 2.4s linear infinite;
+}
+
+.animated-logo-hover:not(:hover) .animated-logo-spine,
+.animated-logo-hover:not(:hover) .animated-logo-eyelid {
+  animation: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .loading-logo-spine,
-  .loading-logo-eyelid {
+  .animated-logo-spine,
+  .animated-logo-eyelid {
     animation: none;
   }
 }

@@ -156,32 +156,40 @@ const EYE = { cx: 39.2, cy: 21.76, r: 1.85 };
 
 const MARK_WIDTH = 52;
 const MARK_HEIGHT = 28;
-const CANVAS = 72;
-const MARK_X = (CANVAS - MARK_WIDTH) / 2;
-const MARK_Y = (CANVAS - MARK_HEIGHT) / 2;
 
 const COLOR_SPINE_STAGGER_MS = 130;
 const MONO_SPINE_STAGGER_MS = 80;
 
 function gradientId(spine: ColorSpine, index: number): string {
-  return `loading-logo-${spine.name}-${index + 1}`;
+  return `animated-logo-${spine.name}-${index + 1}`;
 }
 
-interface LoadingLogoProps {
+interface AnimatedLogoProps {
   size?: number;
+  animate?: "always" | "hover";
   className?: string;
+  "data-testid"?: string;
 }
 
-export function LoadingLogo({ size = 96, className }: LoadingLogoProps) {
+export function AnimatedLogo({
+  size = 72,
+  animate = "always",
+  className,
+  "data-testid": testId,
+}: AnimatedLogoProps) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
-      viewBox={`0 0 ${CANVAS} ${CANVAS}`}
+      viewBox={`0 0 ${MARK_WIDTH} ${MARK_HEIGHT}`}
       width={size}
-      height={size}
+      height={(size * MARK_HEIGHT) / MARK_WIDTH}
       aria-hidden="true"
-      data-testid="app-loading-logo"
-      className={cn("pointer-events-none select-none", className)}
+      data-testid={testId}
+      className={cn(
+        "select-none overflow-visible",
+        animate === "hover" ? "animated-logo-hover" : "pointer-events-none",
+        className,
+      )}
     >
       <defs>
         {COLOR_SPINES.flatMap((spine) =>
@@ -204,41 +212,39 @@ export function LoadingLogo({ size = 96, className }: LoadingLogoProps) {
           )),
         )}
       </defs>
-      <g transform={`translate(${MARK_X} ${MARK_Y})`}>
-        {COLOR_SPINES.map((spine, spineIndex) => (
-          <g
-            key={spine.name}
-            className="loading-logo-spine dark:hidden"
-            style={{
-              animationDelay: `${spineIndex * COLOR_SPINE_STAGGER_MS}ms`,
-            }}
-          >
-            {spine.pieces.map((piece, index) => (
-              <path
-                key={gradientId(spine, index)}
-                d={piece.d}
-                fill={`url(#${gradientId(spine, index)})`}
-              />
-            ))}
-          </g>
-        ))}
-        {MONO_SPINES.map((d, index) => (
-          <path
-            key={d}
-            className="loading-logo-spine hidden fill-[#FAFAFA] dark:block"
-            style={{ animationDelay: `${index * MONO_SPINE_STAGGER_MS}ms` }}
-            d={d}
-          />
-        ))}
-        <path className="dark:hidden" d={HEAD_COLOR} fill="#111111" />
-        <path className="hidden fill-[#FAFAFA] dark:block" d={HEAD_MONO} />
-        <circle
-          className="loading-logo-eyelid fill-[#111111] dark:fill-[#FAFAFA]"
-          cx={EYE.cx}
-          cy={EYE.cy}
-          r={EYE.r}
+      {COLOR_SPINES.map((spine, spineIndex) => (
+        <g
+          key={spine.name}
+          className="animated-logo-spine dark:hidden"
+          style={{
+            animationDelay: `${spineIndex * COLOR_SPINE_STAGGER_MS}ms`,
+          }}
+        >
+          {spine.pieces.map((piece, index) => (
+            <path
+              key={gradientId(spine, index)}
+              d={piece.d}
+              fill={`url(#${gradientId(spine, index)})`}
+            />
+          ))}
+        </g>
+      ))}
+      {MONO_SPINES.map((d, index) => (
+        <path
+          key={d}
+          className="animated-logo-spine hidden fill-[#FAFAFA] dark:block"
+          style={{ animationDelay: `${index * MONO_SPINE_STAGGER_MS}ms` }}
+          d={d}
         />
-      </g>
+      ))}
+      <path className="dark:hidden" d={HEAD_COLOR} fill="#111111" />
+      <path className="hidden fill-[#FAFAFA] dark:block" d={HEAD_MONO} />
+      <circle
+        className="animated-logo-eyelid fill-[#111111] dark:fill-[#FAFAFA]"
+        cx={EYE.cx}
+        cy={EYE.cy}
+        r={EYE.r}
+      />
     </svg>
   );
 }
