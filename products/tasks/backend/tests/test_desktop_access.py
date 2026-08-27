@@ -1,4 +1,4 @@
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
@@ -13,6 +13,7 @@ from products.tasks.backend.access import (
     DesktopAccessReason,
     DesktopAccessResolutionError,
     get_desktop_access_decision,
+    has_tasks_access,
 )
 from products.tasks.backend.logic.services.code_usage_gate import code_access_required_response
 from products.tasks.backend.models import CodeInvite, CodeInviteRedemption
@@ -242,3 +243,19 @@ class TestDesktopAccessPolicy(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertEqual(response.json()["code"], "desktop_access_unavailable")
+
+
+class TestTasksAccessFlags(BaseTest):
+    @parameterized.expand(
+        [
+            ("desktop_waitlist", {"tasks"}, True),
+            ("posthog_ai_composer", {"phai-sandbox-mode"}, True),
+            ("neither", set(), False),
+        ]
+    )
+    def test_either_access_flag_grants_access(self, _name: str, enabled_flags: set[str], expected: bool) -> None:
+        with patch(
+            "products.tasks.backend.access.feature_enabled_or_false",
+            side_effect=lambda flag_key, *_args, **_kwargs: flag_key in enabled_flags,
+        ):
+            assert has_tasks_access(self.user) is expected

@@ -24,6 +24,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.slo.context import slo_operation
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import (
@@ -32,6 +33,7 @@ from products.exports.backend.models.subscription import (
     SubscriptionDelivery,
 )
 from products.exports.backend.temporal.subscriptions.types import (
+    AI_REPORT_CHARTS_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_SNAPSHOT_KEY,
@@ -41,7 +43,6 @@ from products.exports.backend.temporal.subscriptions.types import (
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.api.test.base import APILicensedTest
-from ee.models.rbac.access_control import AccessControl
 from ee.tasks.subscriptions.slack_subscriptions import get_slack_integration_for_team
 from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
 from ee.tasks.subscriptions.teams_subscriptions import TEAMS_WEBHOOK_URL_ERROR, TEAMS_WEBHOOK_URL_MASKED_ERROR
@@ -764,6 +765,15 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "target_value"
         assert response.json()["detail"] == TEAMS_WEBHOOK_URL_MASKED_ERROR
+        assert Subscription.objects.get(id=sub_id).target_value == VALID_TEAMS_WEBHOOK_URL
+
+    def test_cannot_change_a_teams_subscription_to_another_target_without_replacing_its_webhook_url(self):
+        sub_id = self._create_subscription(target_type="teams", target_value=VALID_TEAMS_WEBHOOK_URL).json()["id"]
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"target_type": "email"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert Subscription.objects.get(id=sub_id).target_type == Subscription.SubscriptionTarget.TEAMS
         assert Subscription.objects.get(id=sub_id).target_value == VALID_TEAMS_WEBHOOK_URL
 
     def test_cannot_create_teams_subscription_with_a_lookalike_url(self):
@@ -1687,7 +1697,8 @@ class TestSubscriptionTemporal(APILicensedTest):
         # subscriptions. Denying object access must 403, not leak the tile set.
         self._create_subscription(title="On tile", insight=self._insight().id)
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object", return_value=False
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
+            return_value=False,
         ):
             res = self.client.get(
                 f"/api/projects/{self.team.id}/subscriptions/", {"dashboard_tiles": self.dashboard.id}
@@ -2254,6 +2265,9 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
                 },
             ]
             content_snapshot[AI_REPORT_PROMPT_SNAPSHOT_KEY] = "Weekly growth recap"
+            content_snapshot[AI_REPORT_CHARTS_KEY] = [
+                {"export_asset_id": 4321, "title": "weekly signups", "step_index": 0}
+            ]
         delivery = SubscriptionDelivery.objects.create(
             subscription=subscription,
             team=self.team,
@@ -2282,6 +2296,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             # must not appear at all (defence-in-depth across content_snapshot and the typed fields).
             assert data[AI_REPORT_SNAPSHOT_KEY] is None
             assert data[AI_REPORT_DIAGNOSTICS_KEY] is None
+            assert data[AI_REPORT_CHARTS_KEY] is None
             assert generated_hogql not in str(data)
             assert scrubbed_error_message not in str(data)
             # The prompt is user-authored (not query-derived) and already readable on the parent
@@ -2297,6 +2312,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             assert row["change_summary"] is None
             assert row[AI_REPORT_SNAPSHOT_KEY] is None
             assert row[AI_REPORT_DIAGNOSTICS_KEY] is None
+            assert row[AI_REPORT_CHARTS_KEY] is None
             assert row[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Weekly growth recap"
             assert generated_hogql not in str(row)
             assert scrubbed_error_message not in str(row)
@@ -2313,9 +2329,13 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
                 assert data[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Weekly growth recap"
                 # The typed fields are the contract: the report must not be shipped twice, so the
                 # AI keys are stripped from content_snapshot (the non-AI scaffold stays intact).
+                assert data[AI_REPORT_CHARTS_KEY] == [
+                    {"export_asset_id": 4321, "title": "weekly signups", "step_index": 0}
+                ]
                 assert AI_REPORT_SNAPSHOT_KEY not in data["content_snapshot"]
                 assert AI_REPORT_DIAGNOSTICS_KEY not in data["content_snapshot"]
                 assert AI_REPORT_PROMPT_SNAPSHOT_KEY not in data["content_snapshot"]
+                assert AI_REPORT_CHARTS_KEY not in data["content_snapshot"]
         # Delivery metadata stays visible regardless — only the query-derived report is scrubbed.
         assert data["status"] == "completed"
         assert data["recipient_results"] == [{"recipient": "ai@posthog.com", "status": "success"}]

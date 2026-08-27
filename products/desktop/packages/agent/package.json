@@ -36,6 +36,10 @@
       "types": "./dist/pi/rpc-client.d.ts",
       "import": "./dist/pi/rpc-client.js"
     },
+    "./pi/task-system-prompt": {
+      "types": "./dist/pi/task-system-prompt.d.ts",
+      "import": "./dist/pi/task-system-prompt.js"
+    },
     "./pi/rpc-transport": {
       "types": "./dist/pi/rpc-transport.d.ts",
       "import": "./dist/pi/rpc-transport.js"
@@ -158,7 +162,7 @@
     "@posthog/git": "workspace:*",
     "@posthog/enricher": "workspace:*",
     "@posthog/harness": "workspace:*",
-    "@types/bun": "latest",
+    "@types/bun": "1.3.14",
     "@types/tar": "^6.1.13",
     "msw": "^2.12.7",
     "tsup": "^8.5.1",

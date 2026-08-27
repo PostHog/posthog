@@ -23,7 +23,7 @@ from products.exports.backend.temporal.subscriptions.delivery_common import (
     deliver_email,
     deliver_slack,
 )
-from products.exports.backend.temporal.subscriptions.delivery_webhook import deliver_webhook
+from products.exports.backend.temporal.subscriptions.delivery_webhook import deliver_teams_webhook
 from products.exports.backend.temporal.subscriptions.insight_snapshot import (
     build_initial_content_snapshot,
     build_insight_delivery_snapshot,
@@ -539,7 +539,7 @@ async def _deliver_insight_dashboard_subscription(
             change_summary=inputs.change_summary,
             summary_skipped_over_budget=inputs.summary_skipped_over_budget,
         )
-        result = await deliver_webhook(subscription, recipient_results, body=card)
+        result = await deliver_teams_webhook(subscription, recipient_results, body=card)
     else:
         raise ApplicationError(
             f"Subscription delivery reached an unsupported target {subscription.target_type!r}",

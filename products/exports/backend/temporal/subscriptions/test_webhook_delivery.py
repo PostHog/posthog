@@ -1,6 +1,8 @@
+import asyncio
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
+from threading import Event
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -15,7 +17,10 @@ from temporalio.exceptions import ApplicationError
 from posthog.security.url_validation import PinnedUrlVerdict
 
 from products.exports.backend.models.subscription import Subscription
-from products.exports.backend.temporal.subscriptions.delivery_webhook import _WEBHOOK_SEND_CAPACITY, deliver_webhook
+from products.exports.backend.temporal.subscriptions.delivery_webhook import (
+    _WEBHOOK_SEND_CAPACITY,
+    deliver_teams_webhook,
+)
 from products.exports.backend.temporal.subscriptions.types import RecipientResult
 
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
@@ -69,7 +74,7 @@ async def test_a_url_that_stops_resolving_stays_retryable() -> None:
 
     with patch(_VALIDATE_URL, return_value=unresolvable), patch("requests.Session.request") as mock_request:
         with patch(_CAPTURE_FAILED), pytest.raises(ApplicationError) as error:
-            await deliver_webhook(subscription, recipient_results, body=CARD)
+            await deliver_teams_webhook(subscription, recipient_results, body=CARD)
 
     # A Microsoft host that fails to resolve now may resolve on the next run, so the delivery must
     # not be written off as permanently broken.
@@ -86,7 +91,7 @@ async def test_a_stored_url_outside_the_microsoft_hosts_is_never_posted_to() -> 
 
     with patch(_PINNED_SESSION) as pinned_session, patch(_CAPTURE_FAILED):
         with pytest.raises(ApplicationError) as error:
-            await deliver_webhook(subscription, recipient_results, body=CARD)
+            await deliver_teams_webhook(subscription, recipient_results, body=CARD)
 
     assert pinned_session.call_count == 0
     assert error.value.non_retryable is False
@@ -106,7 +111,7 @@ async def test_a_worker_out_of_send_slots_refuses_the_send_instead_of_queueing_i
     try:
         with patch(_PINNED_SESSION) as pinned_session, patch(_CAPTURE_FAILED):
             with pytest.raises(ApplicationError) as error:
-                await deliver_webhook(subscription, recipient_results, body=CARD)
+                await deliver_teams_webhook(subscription, recipient_results, body=CARD)
     finally:
         for _ in range(held):
             _WEBHOOK_SEND_CAPACITY.release()
@@ -115,6 +120,45 @@ async def test_a_worker_out_of_send_slots_refuses_the_send_instead_of_queueing_i
     assert error.value.non_retryable is False
     assert recipient_results[0].error is not None
     assert recipient_results[0].error["type"] == "webhook_send_capacity_exhausted"
+
+
+async def test_cancelling_a_delivery_keeps_its_send_slot_until_the_thread_stops() -> None:
+    subscription = _unsaved_teams_subscription()
+    recipient_results: list[RecipientResult] = []
+    send_started = Event()
+    release_send = Event()
+    send_stopped = Event()
+
+    def blocked_post(*_args, **_kwargs) -> int:
+        send_started.set()
+        release_send.wait()
+        send_stopped.set()
+        return 202
+
+    held = 0
+    while _WEBHOOK_SEND_CAPACITY.acquire(blocking=False):
+        held += 1
+    _WEBHOOK_SEND_CAPACITY.release()
+    try:
+        with patch(
+            "products.exports.backend.temporal.subscriptions.delivery_webhook._post_webhook", side_effect=blocked_post
+        ):
+            delivery = asyncio.create_task(deliver_teams_webhook(subscription, recipient_results, body=CARD))
+            await asyncio.wait_for(asyncio.to_thread(send_started.wait), timeout=1)
+            delivery.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await delivery
+
+            assert not _WEBHOOK_SEND_CAPACITY.acquire(blocking=False)
+
+            release_send.set()
+            await asyncio.wait_for(asyncio.to_thread(send_stopped.wait), timeout=1)
+            assert _WEBHOOK_SEND_CAPACITY.acquire(blocking=False)
+            _WEBHOOK_SEND_CAPACITY.release()
+    finally:
+        release_send.set()
+        for _ in range(held - 1):
+            _WEBHOOK_SEND_CAPACITY.release()
 
 
 async def test_a_destination_that_stops_answering_stays_retryable() -> None:
@@ -126,7 +170,7 @@ async def test_a_destination_that_stops_answering_stays_retryable() -> None:
             f"Read timed out for {WEBHOOK_URL}"
         )
         with pytest.raises(ApplicationError) as error:
-            await deliver_webhook(subscription, recipient_results, body=CARD)
+            await deliver_teams_webhook(subscription, recipient_results, body=CARD)
 
     assert error.value.non_retryable is False
     assert recipient_results[0].error is not None
@@ -142,7 +186,7 @@ async def test_any_2xx_is_a_successful_delivery(status) -> None:
     recipient_results: list[RecipientResult] = []
 
     with _destination_responds(status) as request:
-        result = await deliver_webhook(subscription, recipient_results, body=CARD)
+        result = await deliver_teams_webhook(subscription, recipient_results, body=CARD)
 
     assert request.call_args.kwargs["json"] == CARD
     # A destination can answer with a body of any size, and only the status is ever read.
@@ -157,7 +201,7 @@ async def test_error_status_raises_with_the_right_retry_semantics(status, expect
 
     with _destination_responds(status), patch(_CAPTURE_FAILED):
         with pytest.raises(ApplicationError) as error:
-            await deliver_webhook(subscription, recipient_results, body=CARD)
+            await deliver_teams_webhook(subscription, recipient_results, body=CARD)
 
     assert error.value.non_retryable is expected_non_retryable
     assert subscription.enabled is True
@@ -170,7 +214,7 @@ async def test_delivery_receipt_never_holds_the_webhook_url(status) -> None:
 
     with _destination_responds(status), patch(_CAPTURE_FAILED):
         try:
-            await deliver_webhook(subscription, recipient_results, body=CARD)
+            await deliver_teams_webhook(subscription, recipient_results, body=CARD)
         except ApplicationError as error:
             assert "supersecret" not in str(error)
             assert "supersecret" not in str(error.details)
@@ -191,7 +235,7 @@ async def test_permanent_status_auto_disables_the_subscription(team, user, statu
     recipient_results: list[RecipientResult] = []
 
     with _destination_responds(status), patch(_DISABLED_EMAIL), patch(_CAPTURE_FAILED):
-        result = await deliver_webhook(subscription, recipient_results, body=CARD)
+        result = await deliver_teams_webhook(subscription, recipient_results, body=CARD)
 
     await sync_to_async(subscription.refresh_from_db)()
     assert subscription.enabled is False

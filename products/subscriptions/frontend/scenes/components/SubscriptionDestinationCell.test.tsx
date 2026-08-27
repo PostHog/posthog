@@ -17,6 +17,7 @@ describe('SubscriptionDestinationCell', () => {
         // The canonical Azure form carries :443. Keeping it here would label the same destination
         // differently from the delivery history, which shows the bare host.
         ['a webhook URL with an explicit port', `https://${TEAMS_WEBHOOK_HOST}:443${TEAMS_WEBHOOK_PATH}`],
+        ['the host returned by the subscription API', TEAMS_WEBHOOK_HOST],
     ])('shows %s by host and nothing that authorizes a post', (_label, targetValue) => {
         const { container } = render(
             <SubscriptionDestinationCell sub={{ target_type: 'teams', target_value: targetValue } as SubscriptionApi} />

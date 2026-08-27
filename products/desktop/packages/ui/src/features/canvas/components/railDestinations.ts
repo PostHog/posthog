@@ -66,6 +66,7 @@ export interface RailDestination {
   countTone?: CountBadgeTone;
   enabled?: (flags: {
     home: boolean;
+    inbox: boolean;
     loops: boolean;
     context: boolean;
   }) => boolean;
@@ -83,7 +84,7 @@ export function showSpaces(): void {
     navigateToSpaces();
     return;
   }
-  showChannelList(channelId);
+  showChannelList({ keepForRoute: channelId });
   navigateToChannel(channelId);
 }
 
@@ -173,13 +174,14 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
   {
     pane: "inbox",
     customizableId: "inbox",
-    label: "Inbox",
+    label: "Self-driving",
     analyticsId: "inbox",
     Icon: EnvelopeSimple,
     href: "/inbox",
     onPick: navigateToInbox,
     shortcut: formatHotkey(SHORTCUTS.INBOX),
     count: (counts) => counts.inbox,
+    enabled: (flags) => flags.inbox,
   },
   {
     pane: "command-center",
@@ -220,18 +222,20 @@ export function visibleRailDestinations({
   overrides,
   order,
   home,
+  inbox,
   loops,
   context,
 }: {
   overrides: NavItemOverrides;
   order: readonly CustomizableNavItemId[];
   home: boolean;
+  inbox: boolean;
   loops: boolean;
   context: boolean;
 }): readonly RailDestination[] {
   const shown = RAIL_DESTINATIONS.filter(
     ({ customizableId, enabled }) =>
-      (enabled?.({ home, loops, context }) ?? true) &&
+      (enabled?.({ home, inbox, loops, context }) ?? true) &&
       (!customizableId || isNavItemVisible(overrides, customizableId)),
   );
   if (order.length === 0) return shown;

@@ -10,6 +10,7 @@ import {
   planImageInput,
   setupSteps,
   setupStepsComplete,
+  splitPastedEnvVars,
   stepError,
   validateDomains,
   withEnvironmentName,
@@ -180,6 +181,27 @@ describe("environmentSetup", () => {
     ]);
   });
 
+  it("keeps a pasted .env usable by leaving out the keys the sandbox manages", () => {
+    const { entries, skipped } = splitPastedEnvVars(
+      [
+        "OPENAI_API_KEY=sk-example",
+        "GITHUB_TOKEN=ghp-example",
+        "GIT_AUTHOR_NAME=Jane",
+        "NODE_OPTIONS=--max-old-space-size=4096",
+        "DATABASE_URL=postgres://example.com/app",
+      ].join("\n"),
+    );
+    expect(entries).toEqual([
+      { key: "OPENAI_API_KEY", value: "sk-example" },
+      { key: "DATABASE_URL", value: "postgres://example.com/app" },
+    ]);
+    expect(skipped).toEqual([
+      "GITHUB_TOKEN",
+      "GIT_AUTHOR_NAME",
+      "NODE_OPTIONS",
+    ]);
+  });
+
   it("rejects a malformed or repeated variable name", () => {
     const rows = [
       { id: "a", key: "GOOD", value: "1" },
@@ -192,13 +214,15 @@ describe("environmentSetup", () => {
     expect(envVarError(rows[3], rows)).toBe("Name this variable.");
   });
 
-  it.each(["GITHUB_TOKEN", "GH_TOKEN", "POSTHOG_PERSONAL_API_KEY"])(
-    "rejects the reserved key %s before submit",
-    (key) => {
-      const rows = [{ id: "a", key, value: "x" }];
-      expect(envVarError(rows[0], rows)).toContain("reserved by PostHog");
-    },
-  );
+  it.each([
+    "GITHUB_TOKEN",
+    "GH_TOKEN",
+    "POSTHOG_PERSONAL_API_KEY",
+    "POSTHOG_IMAGE_TOOLS",
+  ])("rejects the reserved key %s before submit", (key) => {
+    const rows = [{ id: "a", key, value: "x" }];
+    expect(envVarError(rows[0], rows)).toContain("reserved by PostHog");
+  });
 
   it.each([
     "NODE_OPTIONS",

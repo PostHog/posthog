@@ -557,6 +557,17 @@ WORKFLOWS_RESCHEDULE_JWT_SECRETS = get_list(
     get_from_env("WORKFLOWS_RESCHEDULE_JWT_SECRET", "local-dev-workflows-reschedule-jwt" if DEBUG or TEST else "")
 )
 
+# Scoped JWT keys for the workflows cancel routes (invocations/cancel and batch_jobs/:id/cancel).
+# Web mints, the plugin server's cancel routes verify. A dedicated key per the scoped-JWT rule
+# (one key per caller/callee surface), so cancel from the web tier never carries the reschedule
+# sweep's key, and a leak of one can't forge the other. Comma-separated, newest first: the first
+# key signs, the plugin server verifies against all. Empty outside dev/test, so the cancel routes
+# fail closed until provisioned. The dev/test value must match the plugin server's default
+# (nodejs/src/cdp/config.ts).
+WORKFLOWS_CANCEL_JWT_SECRETS = get_list(
+    get_from_env("WORKFLOWS_CANCEL_JWT_SECRET", "local-dev-workflows-cancel-jwt" if DEBUG or TEST else "")
+)
+
 # Signs the tokens a workflow's "Create AI task" action calls back with. The dev/test value
 # must match the plugin server's minting default so local workflows work with no setup.
 TASKS_CREATE_JWT_SECRETS = get_list(

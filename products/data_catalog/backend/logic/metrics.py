@@ -22,8 +22,8 @@ from rest_framework.exceptions import ValidationError
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.models.scoping import team_scope
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend.facade.models import Insight
 
 from ..facade.enums import CreatedSource, MetricStatus

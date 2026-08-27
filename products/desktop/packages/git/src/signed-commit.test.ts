@@ -2,7 +2,15 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import {
   assertNotBehindRemote,
   behindRemoteError,
@@ -13,6 +21,7 @@ import {
   operationInProgressError,
   parseRawDiffZ,
   type RawDiffEntry,
+  resolveWriteBase,
   splitCommitMessage,
 } from "./signed-commit";
 
@@ -496,5 +505,175 @@ describe("assertNotBehindRemote", () => {
     await expect(
       assertNotBehindRemote({ cwd: agent, token: "x" }, "main", tip),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("resolveWriteBase", () => {
+  const dirs: string[] = [];
+  const run = (cwd: string, ...args: string[]) =>
+    execFileSync("git", args, { cwd, encoding: "utf8" });
+
+  function tmp(label: string): string {
+    const dir = mkdtempSync(path.join(tmpdir(), `posthog-${label}-`));
+    dirs.push(dir);
+    return dir;
+  }
+
+  // A clone whose origin/HEAD resolves, so the default-branch refusal is live.
+  function repoWithDefaultBranch(): string {
+    const remote = tmp("wb-remote");
+    execFileSync("git", ["init", "--bare", "--initial-branch", "main", remote]);
+    const clone = tmp("wb-clone");
+    run(clone, "init", "--initial-branch", "main");
+    run(clone, "config", "user.email", "e2e@posthog.com");
+    run(clone, "config", "user.name", "e2e");
+    writeFileSync(path.join(clone, "a.txt"), "a\n");
+    run(clone, "add", "a.txt");
+    run(clone, "commit", "-m", "init");
+    run(clone, "remote", "add", "origin", remote);
+    run(clone, "push", "origin", "main");
+    run(clone, "remote", "set-head", "origin", "main");
+    return clone;
+  }
+
+  let cwd: string;
+  beforeAll(() => {
+    cwd = repoWithDefaultBranch();
+  });
+  afterAll(() => {
+    for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+  });
+
+  const ctx = (baseBranch: string, dir?: string) => ({
+    cwd: dir ?? cwd,
+    token: "token",
+    baseBranch,
+  });
+  const gh = (stdout: string, exitCode = 0, stderr = "") =>
+    vi.fn().mockResolvedValue({ stdout, stderr, exitCode });
+  const pr = (baseRefName: string, isCrossRepository = false) => ({
+    baseRefName,
+    isCrossRepository,
+  });
+
+  it("replaces a pin that heads an open PR with the PR's own base", async () => {
+    await expect(
+      resolveWriteBase(
+        ctx("posthog/feature"),
+        "posthog/feature",
+        gh(JSON.stringify([pr("main")])),
+      ),
+    ).resolves.toBe("main");
+  });
+
+  it("keeps a pin that heads an open PR against a non-default base", async () => {
+    await expect(
+      resolveWriteBase(
+        ctx("posthog/feature"),
+        "posthog/feature",
+        gh(JSON.stringify([pr("release/1")])),
+      ),
+    ).resolves.toBe("release/1");
+  });
+
+  it("ignores fork pull requests that share the head branch name", async () => {
+    await expect(
+      resolveWriteBase(
+        ctx("posthog/feature"),
+        "posthog/feature",
+        gh(JSON.stringify([pr("release/1", true)])),
+      ),
+    ).rejects.toThrow("no open pull request heads it");
+  });
+
+  it("refuses when the branch heads open PRs with different bases", async () => {
+    await expect(
+      resolveWriteBase(
+        ctx("posthog/feature"),
+        "posthog/feature",
+        gh(JSON.stringify([pr("main"), pr("release/1")])),
+      ),
+    ).rejects.toThrow("open pull requests with different bases");
+  });
+
+  it("allows several open PRs that agree on the base", async () => {
+    await expect(
+      resolveWriteBase(
+        ctx("posthog/feature"),
+        "posthog/feature",
+        gh(JSON.stringify([pr("main"), pr("main")])),
+      ),
+    ).resolves.toBe("main");
+  });
+
+  it("refuses when no open PR heads the pinned branch", async () => {
+    await expect(
+      resolveWriteBase(ctx("posthog/feature"), "posthog/feature", gh("[]")),
+    ).rejects.toThrow("no open pull request heads it");
+  });
+
+  it("names the lookup failure instead of blaming the branch", async () => {
+    await expect(
+      resolveWriteBase(
+        ctx("posthog/feature"),
+        "posthog/feature",
+        gh("", 1, "gh: not authenticated"),
+      ),
+    ).rejects.toThrow(
+      "its open pull requests could not be looked up: gh: not authenticated",
+    );
+  });
+
+  it("retries a transient lookup failure", async () => {
+    const exec = vi
+      .fn()
+      .mockResolvedValueOnce({ stdout: "", stderr: "HTTP 502", exitCode: 1 })
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify([pr("main")]),
+        stderr: "",
+        exitCode: 0,
+      });
+    await expect(
+      resolveWriteBase(ctx("posthog/feature"), "posthog/feature", exec),
+    ).resolves.toBe("main");
+    expect(exec).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the pin and skips the lookup when the branch differs", async () => {
+    const exec = gh("[]");
+    await expect(
+      resolveWriteBase(ctx("main"), "posthog/feature", exec),
+    ).resolves.toBe("main");
+    expect(exec).not.toHaveBeenCalled();
+  });
+
+  it("refuses the remote default branch even when a PR heads it", async () => {
+    const exec = gh(JSON.stringify([pr("release/1")]));
+    await expect(resolveWriteBase(ctx("main"), "main", exec)).rejects.toThrow(
+      "it is the repository's default branch",
+    );
+    expect(exec).not.toHaveBeenCalled();
+  });
+
+  it("refuses the default branch when the pin names another branch", async () => {
+    const exec = gh(JSON.stringify([pr("release/1")]));
+    await expect(
+      resolveWriteBase(ctx("develop"), "main", exec),
+    ).rejects.toThrow("it is the repository's default branch");
+    expect(exec).not.toHaveBeenCalled();
+  });
+
+  it("refuses when origin/HEAD cannot name the default branch", async () => {
+    const headless = tmp("wb-headless");
+    run(headless, "init", "--initial-branch", "main");
+    const exec = gh(JSON.stringify([pr("release/1")]));
+    await expect(
+      resolveWriteBase(
+        ctx("posthog/feature", headless),
+        "posthog/feature",
+        exec,
+      ),
+    ).rejects.toThrow("default branch could not be determined");
+    expect(exec).not.toHaveBeenCalled();
   });
 });

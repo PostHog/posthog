@@ -34,7 +34,6 @@ import { mcpCallbackRouter } from "./routers/mcp-callback.router";
 import { mcpRelayRouter } from "./routers/mcp-relay.router";
 import { notificationRouter } from "./routers/notification.router";
 import { oauthRouter } from "./routers/oauth.router";
-import { onboardingImportRouter } from "./routers/onboarding-import.router";
 import { osRouter } from "./routers/os.router";
 import { piSessionRouter } from "./routers/pi-session.router";
 import { processTrackingRouter } from "./routers/process-tracking.router";
@@ -89,7 +88,6 @@ export const hostRouter = router({
   mcpRelay: mcpRelayRouter,
   notification: notificationRouter,
   oauth: oauthRouter,
-  onboardingImport: onboardingImportRouter,
   os: osRouter,
   piSession: piSessionRouter,
   processTracking: processTrackingRouter,

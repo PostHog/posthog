@@ -48,7 +48,7 @@ function webhookHost(url: string): string {
     }
 }
 
-/** Reads `Subscription.target_value`, which holds the webhook URL itself. */
+/** Reads `Subscription.target_value`, which is a host for Teams and a URL for legacy webhooks. */
 export function subscriptionDestination(targetType: string, targetValue: string): SubscriptionDestination {
     switch (targetType) {
         case TargetTypeEnumApi.Email:
@@ -56,6 +56,7 @@ export function subscriptionDestination(targetType: string, targetValue: string)
         case TargetTypeEnumApi.Slack:
             return slackDestination(targetValue)
         case TargetTypeEnumApi.Teams:
+            return webhookDestination(targetValue.includes('://') ? webhookHost(targetValue) : targetValue)
         default:
             return webhookDestination(webhookHost(targetValue))
     }

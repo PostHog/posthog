@@ -7,6 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils/objects'
+import { isLaunched } from 'scenes/experiments/experimentStatus'
 
 import { experimentsConfigLogic } from '~/scenes/settings/environment/experimentsConfigLogic'
 import { ConversionRateInputType, Experiment } from '~/types'
@@ -21,7 +22,6 @@ import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { CachedNewExperimentQueryResponse, ExperimentMetricUnion } from '../../../queries/schema/schema-general'
 import { experimentLogic } from '../experimentLogic'
 import { experimentMetricsLogic } from '../experimentMetricsLogic'
-import { isLaunched } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import {
     getFlagVariants,

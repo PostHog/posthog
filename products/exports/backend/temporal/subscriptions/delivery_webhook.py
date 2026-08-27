@@ -1,10 +1,8 @@
+import os
 import asyncio
-import functools
 from concurrent.futures import ThreadPoolExecutor
 from threading import BoundedSemaphore
 from typing import Any, NoReturn
-
-from django.conf import settings
 
 import requests
 from structlog import get_logger
@@ -12,6 +10,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.security.pinned_requests import SSRFBlockedError, pinned_session
 from posthog.security.url_validation import is_microsoft_teams_webhook_url
+from posthog.settings.utils import get_from_env
 
 from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.temporal.subscriptions.delivery_common import (
@@ -36,18 +35,17 @@ WEBHOOK_READ_TIMEOUT_SECONDS = SUBSCRIPTION_DELIVER_ATTEMPT_TIMEOUT.total_second
 _PERMANENT_WEBHOOK_STATUSES = frozenset({403, 404, 410})
 _WEBHOOK_UNREACHABLE_MESSAGE = "We couldn't reach your Teams channel. PostHog will try again on the next scheduled run."
 
-# Webhook sends get their own pool rather than the event loop's default executor, which also serves
-# every database_sync_to_async call and every async log line in this worker. `requests` applies its
-# read timeout per socket read, so a destination that trickles bytes holds its thread for as long as
-# it likes, and Temporal's activity timeout cancels the await rather than the thread.
-_WEBHOOK_SEND_EXECUTOR = ThreadPoolExecutor(
-    max_workers=settings.SUBSCRIPTION_WEBHOOK_SEND_MAX_WORKERS, thread_name_prefix="subscription-webhook"
+_WEBHOOK_SEND_MAX_WORKERS: int = get_from_env(
+    "SUBSCRIPTION_WEBHOOK_SEND_MAX_WORKERS", min(32, 4 * (os.cpu_count() or 1)), type_cast=int
 )
-# The executor's own queue is unbounded, so a worker whose destinations all stall would keep taking
-# sends and hold each one until Temporal abandons the activity. Refusing the send instead gives
-# Temporal a retryable failure it can reschedule once the pool drains. One queued send per thread
-# absorbs a burst without letting the backlog outlive the activity that produced it.
-_WEBHOOK_SEND_CAPACITY = BoundedSemaphore(2 * settings.SUBSCRIPTION_WEBHOOK_SEND_MAX_WORKERS)
+_WEBHOOK_SEND_EXECUTOR = ThreadPoolExecutor(
+    max_workers=_WEBHOOK_SEND_MAX_WORKERS, thread_name_prefix="subscription-webhook"
+)
+_WEBHOOK_SEND_CAPACITY = BoundedSemaphore(2 * _WEBHOOK_SEND_MAX_WORKERS)
+
+
+class WebhookSendCapacityExhaustedError(Exception):
+    """Raised when all webhook send slots on this worker are busy."""
 
 
 def _fail_webhook_delivery(
@@ -99,13 +97,27 @@ def _post_webhook(url: str, body: dict[str, Any]) -> int:
             response.close()
 
 
-async def deliver_webhook(
+async def _send_webhook(url: str, body: dict[str, Any]) -> int:
+    if not _WEBHOOK_SEND_CAPACITY.acquire(blocking=False):
+        raise WebhookSendCapacityExhaustedError
+
+    try:
+        send = _WEBHOOK_SEND_EXECUTOR.submit(_post_webhook, url, body)
+    except Exception:
+        _WEBHOOK_SEND_CAPACITY.release()
+        raise
+
+    send.add_done_callback(lambda _send: _WEBHOOK_SEND_CAPACITY.release())
+    return await asyncio.wrap_future(send)
+
+
+async def deliver_teams_webhook(
     subscription: Subscription,
     recipient_results: list[RecipientResult],
     *,
     body: dict[str, Any],
 ) -> DeliverSubscriptionResult:
-    """POST an already-built payload to the subscription's user-supplied webhook URL."""
+    """Deliver a Teams card to the subscription's configured webhook."""
     url = subscription.target_value
     recipient = subscription.recipient_label
     LOGGER.info("deliver_subscription.sending_webhook", subscription_id=subscription.id, recipient=recipient)
@@ -125,7 +137,9 @@ async def deliver_webhook(
             non_retryable=False,
         )
 
-    if not _WEBHOOK_SEND_CAPACITY.acquire(blocking=False):
+    try:
+        status = await _send_webhook(url, body)
+    except WebhookSendCapacityExhaustedError:
         LOGGER.warning(
             "deliver_subscription.webhook_send_capacity_exhausted",
             subscription_id=subscription.id,
@@ -140,21 +154,6 @@ async def deliver_webhook(
             human_readable_error=_WEBHOOK_UNREACHABLE_MESSAGE,
             non_retryable=False,
         )
-
-    try:
-        # The send is synchronous and resolves DNS, so it cannot run on the event loop.
-        send = asyncio.get_running_loop().run_in_executor(
-            _WEBHOOK_SEND_EXECUTOR, functools.partial(_post_webhook, url, body)
-        )
-    except Exception:
-        _WEBHOOK_SEND_CAPACITY.release()
-        raise
-    # Released from the callback rather than a `finally`, so the slot is held for as long as the
-    # thread runs. Cancelling the await does not stop the thread.
-    send.add_done_callback(lambda _send: _WEBHOOK_SEND_CAPACITY.release())
-
-    try:
-        status = await send
     except (SSRFBlockedError, requests.RequestException) as exc:
         # Retryable rather than permanent even when the URL was blocked, because the likely cause is
         # a failed name resolution. Callers validate the host on save, so a URL that can never work

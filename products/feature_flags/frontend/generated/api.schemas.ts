@@ -1249,6 +1249,11 @@ export interface FeatureFlagTestEvaluationResponseApi {
     /** The reason for the evaluation result */
     reason: string
     /**
+     * Human-readable explanation of the evaluation result. Set when the reason code is coarse, for example a non-match decided by a behavioral or realtime cohort whose membership is not fully evaluated here, which can disagree with the cohort's member list.
+     * @nullable
+     */
+    reason_description?: string | null
+    /**
      * The index of the condition that matched, if applicable
      * @nullable
      */
@@ -1611,6 +1616,44 @@ export const ScheduledChangeRecurrenceIntervalEnumApi = {
     Yearly: 'yearly',
 } as const
 
+/**
+ * * `pending` - Pending
+ * * `approved` - Approved (awaiting application)
+ * * `applied` - Applied
+ * * `rejected` - Rejected
+ * * `expired` - Expired
+ * * `failed` - Failed to apply
+ */
+export type ChangeRequestStateEnumApi = (typeof ChangeRequestStateEnumApi)[keyof typeof ChangeRequestStateEnumApi]
+
+export const ChangeRequestStateEnumApi = {
+    Pending: 'pending',
+    Approved: 'approved',
+    Applied: 'applied',
+    Rejected: 'rejected',
+    Expired: 'expired',
+    Failed: 'failed',
+} as const
+
+/**
+ * Minimal read-only ChangeRequest shape for embedding on resources gated by an approval,
+ * e.g. the scheduled change that carries it. Exposes just enough to show the approval state
+ * and link to the change request.
+ */
+export interface ChangeRequestSummaryApi {
+    /** ID of the approval change request. Use it to link to the change request in the UI. */
+    readonly id: string
+    /** Current approval state: 'pending' (awaiting approval), 'approved' (awaiting application), 'applied', 'rejected', 'expired', or 'failed'.
+     *
+     * * `pending` - Pending
+     * * `approved` - Approved (awaiting application)
+     * * `applied` - Applied
+     * * `rejected` - Rejected
+     * * `expired` - Expired
+     * * `failed` - Failed to apply */
+    readonly state: ChangeRequestStateEnumApi
+}
+
 export interface ScheduledChangeApi {
     readonly id: number
     readonly team_id: number
@@ -1660,6 +1703,8 @@ export interface ScheduledChangeApi {
     end_date?: string | null
     /** @nullable */
     readonly timezone: string | null
+    /** Summary of the approval change request gating this scheduled change. Null when no approval policy applies. The change only applies at its scheduled time if the request is approved by then. */
+    readonly change_request: ChangeRequestSummaryApi | null
 }
 
 export interface PaginatedScheduledChangeListApi {
@@ -1720,6 +1765,8 @@ export interface PatchedScheduledChangeApi {
     end_date?: string | null
     /** @nullable */
     readonly timezone?: string | null
+    /** Summary of the approval change request gating this scheduled change. Null when no approval policy applies. The change only applies at its scheduled time if the request is approved by then. */
+    readonly change_request?: ChangeRequestSummaryApi | null
 }
 
 export type FeatureFlagsStaffCacheListParams = {

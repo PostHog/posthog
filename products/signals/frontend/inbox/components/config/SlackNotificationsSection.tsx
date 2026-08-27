@@ -4,6 +4,7 @@ import { ReactNode, useState } from 'react'
 import { IconChevronRight } from '@posthog/icons'
 import { LemonSelect, LemonSkeleton, LemonSwitch, Link } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
 import { IconSlack } from 'lib/lemon-ui/icons'
@@ -36,11 +37,23 @@ function SlackCardHeader({ title, description }: { title: string; description: R
 }
 
 /** Shown when there's no Slack workspace connected – links out to integration settings. */
+/** The Settings tab separates these cards with rules inside its own card; the legacy rail frames each one. */
+function slackCardClassName(redesign: boolean): string {
+    return redesign
+        ? 'flex flex-col gap-3 border-b border-primary py-2.5 first:pt-0 last:border-b-0 last:pb-0'
+        : 'flex flex-col gap-3 rounded border bg-bg-light px-3 py-2.5'
+}
+
 function ConnectSlackPrompt(): JSX.Element {
+    const redesign = useFeatureFlag('INBOX_REDESIGN')
     return (
         <Link
             to={urls.settings('environment-integrations', 'integration-slack')}
-            className="group flex items-center justify-between gap-3 rounded border bg-bg-light px-3 py-2.5 no-underline transition-colors hover:border-primary-3000 hover:bg-bg-3000"
+            className={
+                redesign
+                    ? 'group -mx-2 flex items-center justify-between gap-3 rounded px-2 py-2.5 no-underline transition-colors hover:bg-surface-secondary'
+                    : 'group flex items-center justify-between gap-3 rounded border bg-bg-light px-3 py-2.5 no-underline transition-colors hover:border-primary-3000 hover:bg-bg-3000'
+            }
         >
             <SlackCardHeader
                 title="Connect a Slack workspace"
@@ -59,6 +72,7 @@ function ConnectSlackPrompt(): JSX.Element {
  * here too.
  */
 function TeamChannelCard({ integration }: { integration: IntegrationType }): JSX.Element {
+    const redesign = useFeatureFlag('INBOX_REDESIGN')
     const { teamConfig, teamConfigLoading } = useValues(signalTeamConfigLogic)
     const { patchTeamConfig } = useActions(signalTeamConfigLogic)
     // Local view state: the toggle is on but no channel has been picked yet. A saved
@@ -76,7 +90,7 @@ function TeamChannelCard({ integration }: { integration: IntegrationType }): JSX
     }
 
     return (
-        <div className="flex flex-col gap-3 rounded border bg-bg-light px-3 py-2.5">
+        <div className={slackCardClassName(redesign)}>
             <div className="flex items-start justify-between gap-4">
                 <SlackCardHeader
                     title="Notify the whole team"
@@ -117,6 +131,7 @@ function TeamChannelCard({ integration }: { integration: IntegrationType }): JSX
  * Backed by the `slack_notification_*` fields on `userAutonomyLogic`.
  */
 function PerUserChannelCard({ integrations }: { integrations: IntegrationType[] }): JSX.Element {
+    const redesign = useFeatureFlag('INBOX_REDESIGN')
     const { autonomyConfig, autonomyConfigLoading, slackPickersExpanded } = useValues(userAutonomyLogic)
     const { updateSlackNotifications, setSlackPickersExpanded } = useActions(userAutonomyLogic)
 
@@ -172,7 +187,7 @@ function PerUserChannelCard({ integrations }: { integrations: IntegrationType[] 
     const showPickers = slackPickersExpanded || selectedIntegrationId !== null || !!channel
 
     return (
-        <div className="flex flex-col gap-3 rounded border bg-bg-light px-3 py-2.5">
+        <div className={slackCardClassName(redesign)}>
             <div className="flex items-start justify-between gap-4">
                 <SlackCardHeader
                     title="Notify me directly"

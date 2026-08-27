@@ -106,6 +106,8 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
     );
   }
 
+  const resultCount = tasks.length;
+
   const queryBar = (
     <div className="mb-2 flex w-full items-center gap-2 rounded-xl border border-(--gray-4) bg-(--gray-2) px-4 py-3">
       <MagnifyingGlassIcon size={14} className="shrink-0 text-(--gray-9)" />
@@ -129,7 +131,7 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
           ) : (
             <span className="shrink-0 text-muted-foreground text-xs">
               {isComplete
-                ? `${tasks.length} ${tasks.length === 1 ? "task" : "tasks"}`
+                ? `${resultCount} ${resultCount === 1 ? "task" : "tasks"}`
                 : "Partial results"}
             </span>
           )}
@@ -181,7 +183,7 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
   const intro = (
     <div>
       {queryBar}
-      {!isLoading && !error && isComplete && tasks.length === 0 && (
+      {!isLoading && !error && isComplete && resultCount === 0 && (
         <div className="flex flex-col items-center gap-1 px-4 py-16 text-center">
           <Text className="font-medium">No tasks match this saved search</Text>
           <Text className="text-muted-foreground text-sm">

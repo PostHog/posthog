@@ -10,7 +10,7 @@ from posthog.schema import (
     RetentionEntity,
 )
 
-from posthog.rbac.user_access_control import RESOURCE_FALLBACK_MAP
+from products.access_control.backend.facade.user_access_control import RESOURCE_FALLBACK_MAP
 
 if TYPE_CHECKING:
     from posthog.models import Team

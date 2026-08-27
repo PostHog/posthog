@@ -386,9 +386,6 @@ class TestCertificationInputValidation(SimpleTestCase):
 class TestSerializedSchemaCertification(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        flag_patch = patch("products.data_catalog.backend.facade.flags.is_data_catalog_enabled", return_value=True)
-        flag_patch.start()
-        self.addCleanup(flag_patch.stop)
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
         self.warehouse_table = DataWarehouseTable.objects.create(
             name="stripe_customers",
@@ -440,9 +437,3 @@ class TestSerializedSchemaCertification(APIBaseTest):
 
         assert tables["stripe_customers"].certification is None
         assert tables["revenue_view"].certification is None
-
-    def test_certification_absent_when_flag_off(self) -> None:
-        certify(propose_certification(team=self.team, user=self.user, table_id=str(self.warehouse_table.id)), self.user)
-
-        with patch("products.data_catalog.backend.facade.flags.is_data_catalog_enabled", return_value=False):
-            assert self._serialized_tables()["stripe_customers"].certification is None
