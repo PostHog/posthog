@@ -1,5 +1,12 @@
 import { BlueprintIcon } from "@phosphor-icons/react";
+import {
+  type CanvasListService,
+  type CanvasListSettings,
+  DEFAULT_CANVAS_LIST_SETTINGS,
+} from "@posthog/core/canvas/canvasListService";
 import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
+import { CANVAS_LIST_SERVICE } from "@posthog/core/canvas/identifiers";
+import { useService } from "@posthog/di/react";
 import {
   Autocomplete,
   AutocompleteItem,
@@ -17,16 +24,6 @@ import { formatAbsoluteDateTime, formatRelativeAge } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useMeQuery } from "@posthog/ui/features/auth/useMeQuery";
 import { CanvasFilterMenu } from "@posthog/ui/features/canvas/components/CanvasFilterMenu";
-import { buildCanvasCreatorOptions } from "@posthog/ui/features/canvas/components/canvasCreatorOptions";
-import {
-  type CanvasListSettings,
-  constrainCanvasSettingsToPersonalSpace,
-  DEFAULT_CANVAS_LIST_SETTINGS,
-  DEFAULT_CANVAS_LIST_SORT,
-  filterCanvasList,
-  groupCanvasList,
-  sortCanvasList,
-} from "@posthog/ui/features/canvas/components/canvasList";
 import { buildCanvasSpaceOptions } from "@posthog/ui/features/canvas/components/canvasSpaceOptions";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import { SidebarSearchHeader } from "@posthog/ui/features/canvas/components/SidebarSearchHeader";
@@ -53,6 +50,7 @@ export function CanvasesPane({
   const { dashboards, isLoading } = useAllCanvases();
   const { channels } = useChannels();
   const { data: currentUser } = useMeQuery();
+  const canvasListService = useService<CanvasListService>(CANVAS_LIST_SERVICE);
   const navigate = useNavigate();
   const selectedId = useSelectedCanvasId();
   const [query, setQuery] = useState("");
@@ -65,12 +63,6 @@ export function CanvasesPane({
   const lastViewedAtByCanvasId = useCanvasViewedStore(
     (state) => state.lastViewedAtByCanvasId,
   );
-  const markCanvasViewed = useCanvasViewedStore(
-    (state) => state.markCanvasViewed,
-  );
-  useEffect(() => {
-    if (selectedId) markCanvasViewed(selectedId, Date.now());
-  }, [markCanvasViewed, selectedId]);
   useEffect(() => {
     if (useCanvasViewedStore.persist.hasHydrated()) {
       setRecentlyViewedSortSnapshot({
@@ -82,100 +74,52 @@ export function CanvasesPane({
       setRecentlyViewedSortSnapshot({ ...state.lastViewedAtByCanvasId });
     });
   }, []);
-  const channelNames = useMemo(
-    () =>
-      new Map(
-        channels.map((channel) => [
-          channel.id,
-          channel.channelType === "personal" ? "personal" : channel.name,
-        ]),
-      ),
-    [channels],
-  );
   const spaceOptions = useMemo(
     () => buildCanvasSpaceOptions(channels),
     [channels],
   );
-  const personalSpaceId = useMemo(
-    () => channels.find((channel) => channel.channelType === "personal")?.id,
-    [channels],
-  );
-  const personalSpaceSelected = personalSpaceId
-    ? settings.spaceIds.includes(personalSpaceId)
-    : false;
-  const effectiveSettings = useMemo(
+  const canvasListUser = useMemo(
     () =>
-      constrainCanvasSettingsToPersonalSpace(
+      currentUser
+        ? { uuid: currentUser.uuid, name: userDisplayName(currentUser) }
+        : undefined,
+    [currentUser],
+  );
+  const viewModel = useMemo(
+    () =>
+      canvasListService.buildViewModel({
+        canvases: dashboards,
+        spaces: channels,
+        currentUser: canvasListUser,
         settings,
-        personalSpaceId,
-        currentUser?.uuid,
-      ),
-    [currentUser?.uuid, personalSpaceId, settings],
+        query,
+        lastViewedAtByCanvasId: recentlyViewedSortSnapshot,
+      }),
+    [
+      canvasListService,
+      canvasListUser,
+      channels,
+      dashboards,
+      query,
+      recentlyViewedSortSnapshot,
+      settings,
+    ],
   );
-  const creatorOptions = useMemo(
-    () =>
-      buildCanvasCreatorOptions(
-        dashboards,
-        currentUser
-          ? { uuid: currentUser.uuid, name: userDisplayName(currentUser) }
-          : undefined,
-        effectiveSettings.spaceIds,
-      ),
-    [currentUser, dashboards, effectiveSettings.spaceIds],
-  );
-  const shown = useMemo(
-    () =>
-      sortCanvasList(
-        filterCanvasList(dashboards, {
-          spaceIds: effectiveSettings.spaceIds,
-          creatorUuids: effectiveSettings.creatorUuids,
-          query,
-        }),
-        effectiveSettings.sort,
-        recentlyViewedSortSnapshot,
-      ),
-    [dashboards, effectiveSettings, query, recentlyViewedSortSnapshot],
-  );
-  const sections = useMemo(
-    () => groupCanvasList(shown, effectiveSettings.grouping, channelNames),
-    [channelNames, effectiveSettings.grouping, shown],
-  );
-  const optionValues = shown.map((canvas) => canvas.id);
+  const optionValues = viewModel.canvases.map((canvas) => canvas.id);
   const changeSettings = (nextSettings: CanvasListSettings): void => {
-    const constrainedSettings = constrainCanvasSettingsToPersonalSpace(
+    const update = canvasListService.updateSettings({
+      canvases: dashboards,
+      spaces: channels,
+      currentUser: canvasListUser,
+      currentSettings: viewModel.settings,
       nextSettings,
-      personalSpaceId,
-      currentUser?.uuid,
-    );
-    const nextPersonalSpaceSelected = personalSpaceId
-      ? constrainedSettings.spaceIds.includes(personalSpaceId)
-      : false;
-    const availableCreatorUuids = new Set(
-      buildCanvasCreatorOptions(
-        dashboards,
-        currentUser
-          ? { uuid: currentUser.uuid, name: userDisplayName(currentUser) }
-          : undefined,
-        constrainedSettings.spaceIds,
-      ).flatMap((option) => (option.value !== null ? [option.value] : [])),
-    );
-    const normalizedSettings = nextPersonalSpaceSelected
-      ? constrainedSettings
-      : {
-          ...constrainedSettings,
-          creatorUuids: constrainedSettings.creatorUuids.filter((uuid) =>
-            availableCreatorUuids.has(uuid),
-          ),
-        };
-    if (
-      effectiveSettings.sort !== DEFAULT_CANVAS_LIST_SORT &&
-      normalizedSettings.sort === DEFAULT_CANVAS_LIST_SORT
-    ) {
+    });
+    if (update.refreshRecentlyViewedSnapshot) {
       setRecentlyViewedSortSnapshot({
         ...useCanvasViewedStore.getState().lastViewedAtByCanvasId,
       });
     }
-    setSettings(normalizedSettings);
+    setSettings(update.settings);
   };
   const open = (canvas: DashboardRecord): void => {
     track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
@@ -213,9 +157,9 @@ export function CanvasesPane({
           actions={
             <CanvasFilterMenu
               spaceOptions={spaceOptions}
-              creatorOptions={creatorOptions}
-              createdByDisabled={personalSpaceSelected}
-              settings={effectiveSettings}
+              creatorOptions={viewModel.creatorOptions}
+              createdByDisabled={viewModel.personalSpaceSelected}
+              settings={viewModel.settings}
               onChange={changeSettings}
             />
           }
@@ -225,7 +169,7 @@ export function CanvasesPane({
             <div className="flex justify-center py-10">
               <Spinner />
             </div>
-          ) : shown.length === 0 ? (
+          ) : viewModel.canvases.length === 0 ? (
             <Empty className="border-0 py-8">
               <EmptyHeader>
                 <EmptyMedia variant="icon">
@@ -239,7 +183,7 @@ export function CanvasesPane({
             </Empty>
           ) : (
             <div className="flex flex-col gap-px">
-              {sections.map((section) => (
+              {viewModel.sections.map((section) => (
                 <Fragment key={section.key}>
                   {section.label ? (
                     <MenuLabel>{section.label}</MenuLabel>

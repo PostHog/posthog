@@ -16,6 +16,12 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@posthog/ui/features/auth/useMeQuery", () => ({
   useMeQuery: () => ({ data: null }),
 }));
+vi.mock("@posthog/di/react", async () => {
+  const { CanvasListService } = await import(
+    "@posthog/core/canvas/canvasListService"
+  );
+  return { useService: () => new CanvasListService() };
+});
 vi.mock("@posthog/ui/features/canvas/components/CanvasFilterMenu", () => ({
   CanvasFilterMenu: () => <button type="button">Filter canvases</button>,
 }));

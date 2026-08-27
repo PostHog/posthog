@@ -1,5 +1,12 @@
 import { FunnelSimple as FunnelSimpleIcon } from "@phosphor-icons/react";
 import {
+  type CanvasListSettings,
+  DEFAULT_CANVAS_LIST_GROUPING,
+  DEFAULT_CANVAS_LIST_SETTINGS,
+  DEFAULT_CANVAS_LIST_SORT,
+  hasCustomizedCanvasList,
+} from "@posthog/core/canvas/canvasListService";
+import {
   Button,
   cn,
   DropdownMenu,
@@ -20,13 +27,6 @@ import {
   summarizeCreatorSelection,
   summarizeSpaceSelection,
 } from "@posthog/ui/features/canvas/components/canvasFilterSelection";
-import {
-  type CanvasListSettings,
-  DEFAULT_CANVAS_LIST_GROUPING,
-  DEFAULT_CANVAS_LIST_SETTINGS,
-  DEFAULT_CANVAS_LIST_SORT,
-  hasCustomizedCanvasList,
-} from "@posthog/ui/features/canvas/components/canvasList";
 import type { ReactElement } from "react";
 
 const SORT_OPTIONS: readonly CanvasFilterOption<CanvasListSettings["sort"]>[] =

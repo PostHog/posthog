@@ -8,9 +8,18 @@ import {
 } from "@posthog/quill";
 import { WebsiteDashboard } from "@posthog/ui/features/canvas/components/WebsiteDashboard";
 import { useSelectedCanvasId } from "@posthog/ui/features/canvas/hooks/useSelectedCanvasId";
+import { useCanvasViewedStore } from "@posthog/ui/features/canvas/stores/canvasViewedStore";
+import { useEffect } from "react";
 
 export function CanvasesRoute() {
   const canvasId = useSelectedCanvasId();
+  const markCanvasViewed = useCanvasViewedStore(
+    (state) => state.markCanvasViewed,
+  );
+  useEffect(() => {
+    if (canvasId) markCanvasViewed(canvasId, Date.now());
+  }, [canvasId, markCanvasViewed]);
+
   if (canvasId) return <WebsiteDashboard dashboardId={canvasId} />;
   return (
     <div className="flex h-full items-center justify-center p-6">

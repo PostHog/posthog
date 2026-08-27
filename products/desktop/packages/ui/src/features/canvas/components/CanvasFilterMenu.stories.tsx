@@ -3,7 +3,7 @@ import type {
   CanvasListGrouping,
   CanvasListSettings,
   CanvasListSort,
-} from "@posthog/ui/features/canvas/components/canvasList";
+} from "@posthog/core/canvas/canvasListService";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { type ReactElement, useState } from "react";
 import { within } from "storybook/test";
