@@ -2,7 +2,9 @@ import json
 import hashlib
 from collections.abc import Iterator
 
-from django.db.models import Q, QuerySet
+from django.db.models import IntegerField, Q, QuerySet, Value
+from django.db.models.fields.json import KeyTextTransform, KeyTransform
+from django.db.models.functions import Cast, Coalesce
 
 import structlog
 from pydantic import BaseModel, Field
@@ -25,9 +27,6 @@ ANCHOR_TILES_LIMIT = 25
 ANCHOR_QUERY_JSON_MAX_CHARS = 2000
 ANCHOR_NAME_MAX_LENGTH = 120
 ANCHOR_DESCRIPTION_MAX_LENGTH = 300
-# Bounds candidate tile reads before applying layout order. A dashboard can contain many tiles, but
-# only the most useful bounded prefix belongs in a scheduled report's planner context.
-ANCHOR_TILE_CANDIDATES_LIMIT = 250
 # The planner receives this alongside the user's prompt, so cap the combined context rather than
 # relying only on independent limits for descriptions, query JSON, and dashboard metadata.
 ANCHOR_CONTEXT_MAX_CHARS = 12_000
@@ -122,16 +121,19 @@ def _capped_dashboard_tiles(
 ) -> tuple[list[DashboardTile], bool]:
     """Return only the layout-first tiles needed for one bounded report anchor.
 
-    Candidate reads are bounded before layout sorting so a large dashboard cannot turn a report
-    generation into an unbounded JSON-expression database sort. Missing coordinates retain the
-    UI's existing fallback of 100, with ID as a deterministic tie-break.
+    The query returns only the layout-first tiles that fit in the shared report budget. Missing
+    coordinates retain the UI's existing fallback of 100, with ID as a deterministic tie-break.
     """
     if not limit:
         return [], False
     tiles = dashboard.tiles.filter(insight_id__in=viewable_insights)
     selected_tiles = list(
         tiles.select_related("insight")
-        .order_by("id")
+        .annotate(
+            layout_y=Coalesce(Cast(KeyTextTransform("y", KeyTransform("sm", "layouts")), IntegerField()), Value(100)),
+            layout_x=Coalesce(Cast(KeyTextTransform("x", KeyTransform("sm", "layouts")), IntegerField()), Value(100)),
+        )
+        .order_by("layout_y", "layout_x", "id")
         .only(
             "id",
             "insight_id",
@@ -143,20 +145,8 @@ def _capped_dashboard_tiles(
             "insight__description",
             "insight__query",
             "insight__filters",
-        )[:ANCHOR_TILE_CANDIDATES_LIMIT]
+        )[: limit + 1]
     )
-
-    def layout_position(tile: DashboardTile) -> tuple[float, float, int]:
-        sm_layout = tile.layouts.get("sm", {}) if isinstance(tile.layouts, dict) else {}
-        x = sm_layout.get("x", 100) if isinstance(sm_layout, dict) else 100
-        y = sm_layout.get("y", 100) if isinstance(sm_layout, dict) else 100
-        return (
-            float(y) if isinstance(y, int | float) else 100,
-            float(x) if isinstance(x, int | float) else 100,
-            tile.id,
-        )
-
-    selected_tiles.sort(key=layout_position)
     return selected_tiles[:limit], len(selected_tiles) > limit
 
 
@@ -247,6 +237,9 @@ def _build_anchor_context(subscription: Subscription) -> AnchorContext | None:
             metadata_line = _dashboard_metadata_line(label, value)
             if metadata_line:
                 lines.append(metadata_line)
+        if not remaining_tiles:
+            lines.append("  (Tile details not shown because the report context limit was reached)")
+            continue
         capped_tiles, has_more_tiles = _capped_dashboard_tiles(dashboard, viewable_tile_insights, remaining_tiles)
         for tile in capped_tiles:
             tile_insight = tile.insight

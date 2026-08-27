@@ -104,12 +104,16 @@ class TestBuildAnchorContext(APIBaseTest):
             DashboardTile.objects.create(dashboard=dashboard, insight=insight, layouts={"sm": {"x": 0, "y": i}})
         deleted = Insight.objects.create(team=self.team, name="ghost", deleted=True)
         DashboardTile.objects.create(dashboard=dashboard, insight=deleted, layouts={"sm": {"x": 0, "y": 99}})
+        later_dashboard = Dashboard.objects.create(team=self.team, name="Later")
+        later_insight = Insight.objects.create(team=self.team, name="later-insight")
+        DashboardTile.objects.create(dashboard=later_dashboard, insight=later_insight, layouts={"sm": {"x": 0, "y": 0}})
 
-        context = build_anchor_context(self._subscription(context_dashboards=[dashboard]))
+        context = build_anchor_context(self._subscription(context_dashboards=[dashboard, later_dashboard]))
 
         assert context is not None
         assert "ghost" not in context.blob
         assert "Additional tiles not shown" in context.blob
+        assert "Tile details not shown because the report context limit was reached" in context.blob
         # Provenance follows the bounded tile set supplied to the planner, rather than every
         # tile on the dashboard. This keeps historical access checks bounded too.
         assert len([ref for ref in context.resource_references if ref[0] == "dashboard_tile_insight"]) == 25

@@ -3575,6 +3575,11 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert deliveries.status_code == status.HTTP_200_OK
         assert deliveries.json()["results"] == []
 
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}")
+        assert retrieved.status_code == status.HTTP_200_OK, retrieved.json()
+        assert retrieved.json()["context_recovery"] is True
+        assert retrieved.json()["contexts"] == []
+
     def test_cannot_add_a_dashboard_the_caller_cannot_view_as_context(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",

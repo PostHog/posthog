@@ -544,6 +544,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             for dashboard in obj.context_dashboards.all()
             if not dashboard.deleted
             and (user_access_control is None or user_access_control.check_access_level_for_object(dashboard, "viewer"))
+            and (
+                user_access_control is None
+                or _dashboard_has_only_viewable_live_tiles(user_access_control, dashboard, self.context["team_id"])
+            )
         ]
         insights = [
             {
@@ -993,12 +997,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         return self.instance is not None and self.instance.dashboard_export_insights.exists()
 
     def _require_viewer_access_to_every_live_tile(self, dashboard: Dashboard) -> None:
-        live_tile_insights = Insight.objects.filter(
-            team_id=self.context["team_id"],
-            id__in=dashboard.tiles.filter(insight__isnull=False, insight__deleted=False).values("insight_id"),
-        )
         user_access_control = self.context["view"].user_access_control
-        if _blocked_target_ids(user_access_control, live_tile_insights, "insight").exists():
+        if not _dashboard_has_only_viewable_live_tiles(user_access_control, dashboard, self.context["team_id"]):
             raise ValidationError(
                 {
                     "dashboard": [
@@ -1264,6 +1264,16 @@ def _blocked_target_ids(
     return queryset.exclude(id__in=_viewable_queryset(user_access_control, queryset, resource).values("id")).values(
         "id"
     )
+
+
+def _dashboard_has_only_viewable_live_tiles(
+    user_access_control: UserAccessControl, dashboard: Dashboard, team_id: int
+) -> bool:
+    live_tile_insights = Insight.objects.filter(
+        team_id=team_id,
+        id__in=dashboard.tiles.filter(insight__isnull=False, insight__deleted=False).values("insight_id"),
+    )
+    return not _blocked_target_ids(user_access_control, live_tile_insights, "insight").exists()
 
 
 def _viewable_subscription_filter(
