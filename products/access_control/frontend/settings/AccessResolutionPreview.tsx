@@ -140,21 +140,16 @@ export function AccessResolutionPreview(): JSX.Element {
             <div className="flex flex-col gap-4">
                 <WhyExplainer />
                 <LemonBanner type="success">
-                    No access rules resolve differently for your organization. Nothing changes when the new resolution
-                    takes effect.
+                    No access rules resolve differently in the projects you administer. Nothing changes when the new
+                    resolution takes effect.
                 </LemonBanner>
             </div>
         )
     }
 
-    const resourceChanges = preview.changes.filter((change) => change.scope === 'resource')
-    const objectChanges = preview.changes
-        .filter((change) => change.scope === 'object')
-        .sort(
-            (a, b) =>
-                a.resource.localeCompare(b.resource) ||
-                (a.object_name ?? a.object_id ?? '').localeCompare(b.object_name ?? b.object_id ?? '')
-        )
+    const projects = Array.from(
+        new Map(preview.changes.map((change) => [change.project_id, change.project_name])).entries()
+    ).sort((a, b) => a[1].localeCompare(b[1]))
 
     const resourceColumns: LemonTableColumns<ResolutionChange> = [
         {
@@ -238,32 +233,50 @@ export function AccessResolutionPreview(): JSX.Element {
                 )}
             </div>
 
-            {resourceChanges.length > 0 && (
-                <div>
-                    <h4 className="mb-2">Resource-level access</h4>
-                    <LemonTable
-                        id="access-resolution-resource"
-                        columns={resourceColumns}
-                        dataSource={resourceChanges}
-                        rowKey={(change) => `${change.resource}-${change.subject.type}-${change.subject.id}`}
-                        pagination={{ pageSize: 50, hideOnSinglePage: true }}
-                    />
-                </div>
-            )}
-            {objectChanges.length > 0 && (
-                <div>
-                    <h4 className="mb-2">Objects with their own access rules</h4>
-                    <LemonTable
-                        id="access-resolution-object"
-                        columns={objectColumns}
-                        dataSource={objectChanges}
-                        rowKey={(change) =>
-                            `${change.resource}-${change.object_id}-${change.subject.type}-${change.subject.id}`
-                        }
-                        pagination={{ pageSize: 20, hideOnSinglePage: true }}
-                    />
-                </div>
-            )}
+            {projects.map(([projectId, projectName]) => {
+                const projectChanges = preview.changes.filter((change) => change.project_id === projectId)
+                const resourceChanges = projectChanges.filter((change) => change.scope === 'resource')
+                const objectChanges = projectChanges
+                    .filter((change) => change.scope === 'object')
+                    .sort(
+                        (a, b) =>
+                            a.resource.localeCompare(b.resource) ||
+                            (a.object_name ?? a.object_id ?? '').localeCompare(b.object_name ?? b.object_id ?? '')
+                    )
+                return (
+                    <div key={projectId} className="flex flex-col gap-2">
+                        <h3 className="mb-0">{projectName}</h3>
+                        {resourceChanges.length > 0 && (
+                            <div>
+                                <h4 className="mb-2">Resource-level access</h4>
+                                <LemonTable
+                                    id={`access-resolution-resource-${projectId}`}
+                                    columns={resourceColumns}
+                                    dataSource={resourceChanges}
+                                    rowKey={(change) =>
+                                        `${change.resource}-${change.subject.type}-${change.subject.id}`
+                                    }
+                                    pagination={{ pageSize: 50, hideOnSinglePage: true }}
+                                />
+                            </div>
+                        )}
+                        {objectChanges.length > 0 && (
+                            <div>
+                                <h4 className="mb-2">Objects with their own access rules</h4>
+                                <LemonTable
+                                    id={`access-resolution-object-${projectId}`}
+                                    columns={objectColumns}
+                                    dataSource={objectChanges}
+                                    rowKey={(change) =>
+                                        `${change.resource}-${change.object_id}-${change.subject.type}-${change.subject.id}`
+                                    }
+                                    pagination={{ pageSize: 20, hideOnSinglePage: true }}
+                                />
+                            </div>
+                        )}
+                    </div>
+                )
+            })}
 
             <div className="flex items-center gap-2">
                 <LemonButton type="primary" disabledReason="Not available yet" data-attr="access-resolution-accept">

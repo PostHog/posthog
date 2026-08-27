@@ -3,7 +3,9 @@ import pytest
 from rest_framework import status
 
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team.team import Team
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.resolution_preview import build_resolution_preview
 from products.access_control.backend.tests.test_user_access_control import BaseUserAccessControlTest
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -194,6 +196,8 @@ class TestResolutionPreviewAPI(BaseUserAccessControlTest):
         change = data["changes"][0]
         assert change["subject"] == {"type": "everyone", "id": None, "name": "Everyone"}
         assert change["object_name"] == "Growth KPIs"
+        assert change["project_id"] == self.team.id
+        assert change["project_name"] == self.team.name
         assert change["current"] == {
             "level": "editor",
             "source": "resource",
@@ -206,3 +210,26 @@ class TestResolutionPreviewAPI(BaseUserAccessControlTest):
             "source_subject": "default",
             "subject_name": None,
         }
+
+    def test_covers_every_project_the_requester_administers(self):
+        other_team = Team.objects.create(organization=self.organization, name="Second project")
+        other_dashboard = Dashboard.objects.create(team=other_team, created_by=self.other_user, name="Other KPIs")
+        AccessControl.objects.create(
+            team=other_team, resource="dashboard", resource_id=str(other_dashboard.id), access_level="viewer"
+        )
+        AccessControl.objects.create(team=other_team, resource="dashboard", resource_id=None, access_level="editor")
+
+        # A project admin of the current team only sees this team's changes
+        self._create_access_control(resource="project", resource_id=str(self.team.id), access_level="admin")
+        response = self.client.get("/api/projects/@current/access_control_resolution_preview")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert {change["project_name"] for change in response.json()["changes"]} == {self.team.name}
+
+        # An org admin sees every project with rules
+        self.membership.level = OrganizationMembership.Level.ADMIN
+        self.membership.save()
+        response = self.client.get("/api/projects/@current/access_control_resolution_preview")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["summary"]["total"] == 2
+        assert {change["project_name"] for change in data["changes"]} == {self.team.name, "Second project"}

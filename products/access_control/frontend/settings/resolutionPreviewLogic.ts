@@ -21,6 +21,8 @@ export interface ResolutionChange {
     subject: ResolutionChangeSubject
     scope: 'object' | 'resource'
     resource: string
+    project_id: number
+    project_name: string
     object_id: string | null
     object_name: string | null
     object_short_id: string | null

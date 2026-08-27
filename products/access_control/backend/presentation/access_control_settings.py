@@ -289,7 +289,8 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
     @extend_schema(exclude=True)
     @action(methods=["GET"], detail=True, url_path="access_control_resolution_preview")
     def access_control_resolution_preview(self, request: Request, *args, **kwargs):
-        """Every access rule on this project that resolves differently under most-specific-wins.
+        """Every access rule in this organization that resolves differently under
+        most-specific-wins, across the projects the requester administers.
 
         Admin only: the records describe other subjects' access. When the organization hides
         its member list, only organization admins may read them — the records name members a
@@ -302,21 +303,48 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         if not team.organization.members_can_see_org_members and not user_access_control.is_organization_admin:
             raise exceptions.PermissionDenied("Only organization admins can view the resolution preview.")
 
-        fingerprint = AccessControl.objects.filter(team=team).aggregate(count=Count("id"), latest=Max("updated_at"))
-        cache_key = f"access_control_resolution_preview/{team.pk}/{fingerprint['count']}/{fingerprint['latest']}"
+        # Organization-wide: every project with rules that the requester administers. An org
+        # admin sees them all; a project admin sees only their own projects.
+        ruled_team_ids = AccessControl.objects.filter(team__organization_id=team.organization_id).values_list(
+            "team_id", flat=True
+        )
+        visible_teams: list[tuple[Team, UserAccessControl]] = []
+        for candidate in Team.objects.filter(organization_id=team.organization_id, id__in=set(ruled_team_ids)).order_by(
+            "id"
+        ):
+            candidate_access = (
+                user_access_control if candidate.id == team.id else UserAccessControl(request.user, candidate)
+            )
+            if candidate_access.check_can_modify_access_levels_for_object(candidate):
+                visible_teams.append((candidate, candidate_access))
+
+        fingerprint = AccessControl.objects.filter(team__organization_id=team.organization_id).aggregate(
+            count=Count("id"), latest=Max("updated_at")
+        )
+        visible_ids = ",".join(str(candidate.id) for candidate, _ in visible_teams)
+        cache_key = (
+            f"access_control_resolution_preview/{team.organization_id}"
+            f"/{visible_ids}/{fingerprint['count']}/{fingerprint['latest']}"
+        )
         cached = django_cache.get(cache_key)
         if cached is not None:
             return Response(cached)
 
-        changes = build_resolution_preview(team, user_access_control)
+        changes = [
+            {**asdict(change), "project_id": candidate.id, "project_name": candidate.name}
+            for candidate, candidate_access in visible_teams
+            for change in build_resolution_preview(candidate, candidate_access)
+        ]
         payload = {
-            "changes": [asdict(change) for change in changes],
+            "changes": changes,
             "summary": {
                 "total": len(changes),
-                "gains": sum(1 for change in changes if change.direction == "gains"),
-                "loses": sum(1 for change in changes if change.direction == "loses"),
-                "resources": len({change.resource for change in changes if change.scope == "resource"}),
-                "objects": len({(change.resource, change.object_id) for change in changes if change.scope == "object"}),
+                "gains": sum(1 for change in changes if change["direction"] == "gains"),
+                "loses": sum(1 for change in changes if change["direction"] == "loses"),
+                "resources": len({change["resource"] for change in changes if change["scope"] == "resource"}),
+                "objects": len(
+                    {(change["resource"], change["object_id"]) for change in changes if change["scope"] == "object"}
+                ),
             },
         }
         django_cache.set(cache_key, payload, timeout=300)
