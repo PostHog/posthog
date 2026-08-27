@@ -54,7 +54,7 @@ const AssistantDataVisualizationAxisDisplaySettings = z.object({
     displayType: z
         .enum(['auto', 'line', 'bar', 'area'])
         .describe(
-            'Override how this individual series is rendered, independent of the chart-level `display` type. Use this to mix series types — e.g. plot one series as `bar` and overlay another as `line`. `auto` follows the chart-level display type.'
+            'Override how this individual series is rendered, independent of the chart-level `display` type. `auto` (the default) follows the chart-level display type — prefer it, and omit this field entirely unless you have a specific reason to override. Only mix series types when a series is on a genuinely different scale or unit from the others AND you pin it to the secondary axis with `yAxisPosition: "right"` — e.g. counts as `bar` on the left axis with a conversion rate as `line` on the right. Series sharing a unit should share one type, and unrelated measures belong in separate insights: a mixed bar/line chart on a single shared axis is unreadable.'
         )
         .optional(),
     label: z
