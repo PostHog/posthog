@@ -32,7 +32,8 @@ _RE_ATTR = re.compile(r"([a-z][\w-]*)\s*=\s*\"([^\"]*)\"")
 # so ````x```` and ``x`` are one span each instead of two empty ones around a live tag.
 _RE_CODE_SEGMENT = re.compile(r"(?<!`)(`{3,}|~{3,})[\s\S]*?\1(?!`)|(?<!`)(`+)[^`\n]*?\2(?!`)")
 _RE_UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f-]{27,}$", re.IGNORECASE)
-_RE_LABEL_UNSAFE = re.compile(r"[\[\]<>|]")
+_RE_LABEL_UNSAFE = re.compile(r"[\[\]|]")
+_LABEL_ANGLE_ENTITIES = {"<": "&lt;", ">": "&gt;"}
 _RE_NUMERIC = re.compile(r"^\d+$")
 
 
@@ -174,9 +175,12 @@ def _scan_tags(text: str, skip_spans: list[_Span]) -> list[_Tag]:
 
 
 def _safe_label(label: str) -> str:
-    # The label ends up inside a Slack ``<url|label>`` link, where ``|``, ``<`` and ``>`` end the
-    # link early, and inside a markdown ``[label](url)`` on the way there, where brackets do.
-    return " ".join(_RE_LABEL_UNSAFE.sub(" ", label).split())
+    # The label ends up inside a Slack ``<url|label>`` link, where ``|`` and ``>`` end the link
+    # early, and inside a markdown ``[label](url)`` on the way there, where brackets do. Angle
+    # brackets are common in titles (``Error rate > 1%``), so they become the entities Slack
+    # renders back as the characters.
+    collapsed = " ".join(_RE_LABEL_UNSAFE.sub(" ", label).split())
+    return "".join(_LABEL_ANGLE_ENTITIES.get(char, char) for char in collapsed)
 
 
 def _link(label: str, url: str | None) -> str:

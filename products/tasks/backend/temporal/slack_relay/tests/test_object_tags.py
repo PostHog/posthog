@@ -106,8 +106,13 @@ class TestRewriteObjectTagsForSlack(unittest.TestCase):
             ),
             (
                 "label_characters_that_break_slack_links_are_dropped",
-                '<insight id="1">a | b <c> [d]</insight>',
-                f"[a b c d]({PROJECT}/insights/1?unfurl=false)",
+                '<insight id="1">a | b [d]</insight>',
+                f"[a b d]({PROJECT}/insights/1?unfurl=false)",
+            ),
+            (
+                "comparison_operators_in_labels_become_entities",
+                '<insight id="1" title="Error rate &gt; 1%"/> and <insight id="2">users < 30 days</insight>',
+                f"[Error rate &gt; 1%]({PROJECT}/insights/1?unfurl=false) and [users &lt; 30 days]({PROJECT}/insights/2?unfurl=false)",
             ),
             (
                 "xml_entities_in_attributes_are_unescaped",
@@ -184,3 +189,7 @@ class TestRewriteObjectTagsForSlack(unittest.TestCase):
         assert f"*<{PROJECT}/sql?open_query=SELECT%201&unfurl=false|DAU>*" in converted
         assert "```\nSELECT 1\n```" in converted
         assert "<hogql" not in converted
+
+    def test_entities_in_labels_survive_mrkdwn_conversion(self) -> None:
+        converted = _markdown_to_slack_mrkdwn(rewrite('<insight id="1" title="Error rate > 1%"/>'))
+        assert converted == f"<{PROJECT}/insights/1?unfurl=false|Error rate &gt; 1%>"
