@@ -31,7 +31,7 @@ Use Visual review as the concrete reference implementation:
 - [products/visual_review/backend/facade/api.py](../../../products/visual_review/backend/facade/api.py)
 - [products/visual_review/backend/presentation/views.py](../../../products/visual_review/backend/presentation/views.py)
 - [products/visual_review/backend/presentation/serializers.py](../../../products/visual_review/backend/presentation/serializers.py)
-- [products/visual_review/backend/logic.py](../../../products/visual_review/backend/logic.py)
+- [products/visual_review/backend/logic/](../../../products/visual_review/backend/logic/)
 - [products/visual_review/backend/tests/test_api.py](../../../products/visual_review/backend/tests/test_api.py)
 - [products/visual_review/backend/tests/test_presentation.py](../../../products/visual_review/backend/tests/test_presentation.py)
 
@@ -74,8 +74,12 @@ source of truth for the rest of the flow:
   slicing by owning team.
 - **Strict-lint preflight** — `product:lint` switches from lenient to strict the moment
   `facade/contracts.py` exists; the scan runs the structural checks in forced-strict
-  mode so those demands (root `tsconfig.json`, `tasks.py` at `tasks/tasks.py`, only
-  canonical `backend/` subdirectories) surface up front instead of mid-migration.
+  mode so those demands (root `tsconfig.json`, `tasks.py` at `tasks/tasks.py`, required
+  root files in place) surface up front instead of mid-migration. Strict lint checks
+  the required root files only. It does not restrict internal directory names: the
+  enforced shape is the import chain — `routes.py` imports only `presentation/`, and
+  `presentation/` imports only `facade/` — so a product may add other internal
+  packages (`services/`, `reviewer/`, …) as long as they stay behind the facade.
 - **Thin/thick signal per view module** — the future `ignore_imports` allowlist size.
 - **Blind spots** — the scan reads `backend.*` imports only. A coupling count of
   zero is necessary, not sufficient: it can't see product-root packages core
@@ -148,6 +152,19 @@ helpers, which no facade re-export naturally covers:
   it down into core and have both sides import it downward; if the core test is
   really exercising the **product's** behavior, relocate the test into the
   product. Either way the cross-boundary test import disappears.
+- _Fixtures that need product rows_ — a core test seeds a product model
+  (`InsightViewed`, `Account`) to set up its scenario. Seed through a
+  facade write function, with a normal import. If none exists yet, add
+  one; that is the same move a production caller makes. A helper that
+  only fixtures need goes in a `facade/testing.py` submodule: the tach
+  interface already exposes `backend.facade.*`, and any other exposed
+  module counts as a legacy leak and blocks the isolated tests. Never
+  `apps.get_model("<label>", "<Model>")` at module scope: it is the same
+  dependency with the import edge removed.
+  tach, mypy, and LSP stop seeing it, and snob (the PR test selector) does
+  not select the test when the model changes, so the break lands on master.
+  A `TYPE_CHECKING` import next to it does not restore the edge; tach
+  ignores type-only imports, and so does snob.
 
 **Surfaces outside `backend/`.** A product can expose non-Django surfaces at its
 root — Dagster assets under `products/<name>/dags/`, for instance — that core
@@ -184,9 +201,39 @@ base moved down to core, its timezone integration test moved into the product,
 its Dagster assets gained a `facade/dags.py`, and its filter-preset reads landed
 in `facade/api.py` with the viewset deferred.
 
+## Model classes a consumer already holds
+
+Some products still hand out model classes under the watched-models allowance
+(`MODEL_CROSSINGS`). That allowance only says the class may leave the product; it
+says nothing about what the consumer does with it. Two rules cover that:
+
+- **Default-deny.** A crossing class may appear in consumer code only in a shape
+  the check calls instance-free: an annotation, `X.DoesNotExist`, a nested class
+  attribute (`X.Status`), `X._meta`, a manager chain ending in
+  `values`/`values_list`/`count`/`exists`/`aggregate`, or a chain
+  embedded in `Exists(...)`/`Subquery(...)`. Anything else is disallowed.
+- **Move, don't permit.** Code that queries, serializes or writes a model belongs
+  in that model's product. The remedy for a disallowed use is a move; the facade
+  function is what the move leaves behind, and the consumer keeps orchestration
+  and ids.
+
+`apps.get_model('label', 'Class')` is counted too, and for **every** product model,
+not only the allowance ones. It leaves no import edge, so tach cannot refuse it.
+Test modules stay out of the scan, which is a blind spot, not permission: a core
+test fixture that reaches a model this way is uncounted and unselected (see
+"Test-infrastructure coupling" above). Migrations stay out too: the historical
+registry is the only way a migration can reach a model. Production code may not
+add a call.
+
+`hogli product:crossings <product>` lists a product's crossing classes with every
+consumer use bucketed by kind, disallowed first. Disallowed uses are frozen in
+`products/model_crossing_uses_baseline.txt` and guarded by a repo-invariant test;
+counts may only go down, and `hogli product:crossings --all --write-baseline`
+records the decrease. See `products/architecture.md` § Wiring couplings.
+
 ## Guardrails
 
-- Keep facades thin; put business rules in `logic.py`.
+- Keep facades thin; put business rules behind the facade, in `logic/` by default. Other internal packages (`services/`, `reviewer/`, …) are fine as long as they stay behind the facade.
 - Transaction boundaries belong in the facade (or logic), not in views.
 - Never return ORM models across product boundaries.
 - Keep contracts pure (no Django/DRF imports).
@@ -227,9 +274,9 @@ in `facade/api.py` with the viewset deferred.
    - The rewrite is mechanical (import swap + call mapping) and fully checked by the
      verification chain; batching it only stretches the window in which master drifts
      under the branch.
-   - Core test fixtures that need product models: use `apps.get_model("<app_label>",
-"Model")` at runtime plus a `TYPE_CHECKING` import for annotations — tach ignores
-     type-only imports.
+   - Core test fixtures that need product rows go through the facade's write
+     function or a product testing door, with a normal import — not
+     `apps.get_model` (see "Test-infrastructure coupling" above for why).
    - Compatibility shims exist to bridge between serial PRs — the one-pass shape rarely
      needs them. If one is unavoidable, it dies in the final cleanup PR, not "later".
    - Exception: callers with subtle behavior (transaction boundaries, write-path
@@ -293,13 +340,15 @@ in `facade/api.py` with the viewset deferred.
    4. **Narrowed `turbo.json` inputs** — restrict `backend:contract-check`
       inputs to `backend/facade/**` and `backend/presentation/**` so the
       Django suite is only re-run on facade/presentation changes (see
-      `products/visual_review/turbo.json`). Widen the inputs when core
-      depends on the product **outside the import graph**: add
-      `backend/models.py` if hogql system tables expose the product's
-      tables or core config references its dotted paths (the scan's
-      string-reference section surfaces the latter). tach/import-linter
-      only police the import channel; a mechanical check for these
-      non-import channels is a known gap, noted and deferred.
+      `products/visual_review/turbo.json`). The inputs must also watch the
+      whole model surface — `backend/models.py` or `backend/models/**`,
+      plus `backend/migrations/**` (required even before the first
+      migration lands): a model is reachable without an import
+      (`apps.get_model` strings, migrations, admin, hogql system tables,
+      dotted-string config), so tach/import-linter cannot prove nothing
+      outside observes it. `hogli product:lint` blocks a narrowing that
+      omits any of it, and `product:bootstrap` scaffolds the inputs
+      already covering it.
    - **Permanent-interface exception (irreducible import coupling).** Some
      import coupling genuinely cannot be drained: ClickHouse DDL modules
      (`backend.sql`, `backend.embedding`, …) are imported by core's

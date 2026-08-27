@@ -16,6 +16,8 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
 
+from django.conf import settings
+
 from posthoganalytics import Posthog
 
 from ..trace_events import DISTINCT_ID
@@ -45,6 +47,7 @@ def _build_posthog_kwargs() -> dict[str, Any]:
             "$ai_parent_id": trace_id,
             "$ai_span_name": "Scorer",
             "ai_product": "evals",
+            "team_id": settings.LLM_ANALYTICS_INTERNAL_TEAM_ID,
             "$ai_experiment_id": ctx.get("experiment_id", ""),
             "$ai_experiment_name": ctx.get("experiment_name", ""),
         },
@@ -79,7 +82,7 @@ def create_traced_scorer_clients(posthog_client: Posthog) -> TracedClients:
             kwargs.setdefault(k, v)
         return await original_openai_create(*args, **kwargs)
 
-    openai_client.chat.completions.create = patched_openai_create  # type: ignore
+    openai_client.chat.completions.create = patched_openai_create
 
     class _TracedLLMClient(LLMClient):
         def __post_init__(self):
@@ -205,6 +208,7 @@ class TracedScorer(AsyncOnlyScorerMixin, Scorer):
                     **metadata,
                 },
                 "ai_product": "evals",
+                "team_id": settings.LLM_ANALYTICS_INTERNAL_TEAM_ID,
                 "$ai_experiment_id": self._eval_metadata.get("experiment_id", ""),
                 "$ai_experiment_name": self._eval_metadata.get("experiment_name", ""),
             },

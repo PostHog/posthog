@@ -32,6 +32,34 @@ function chunkText(event: AcpMessage): string {
   return params.update.content.text;
 }
 
+function toolUpdate(
+  toolCallId: string,
+  fields: Record<string, unknown>,
+): AcpMessage {
+  return {
+    ts: 1,
+    message: {
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        sessionId: RUN_ID,
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId,
+          ...fields,
+        },
+      },
+    },
+  } as unknown as AcpMessage;
+}
+
+function updateFields(event: AcpMessage): Record<string, unknown> {
+  return (
+    (event.message as { params?: { update?: Record<string, unknown> } }).params
+      ?.update ?? {}
+  );
+}
+
 function createHarness() {
   const sessions: Record<string, AgentSession> = {
     [RUN_ID]: {
@@ -189,6 +217,31 @@ describe("streamed event batching", () => {
     // A single flush tick drains the whole burst, in arrival order.
     vi.advanceTimersByTime(FLUSH_MS);
     expect(h.events().map(chunkText)).toEqual(["a", "b", "c"]);
+  });
+
+  it("stores one merged snapshot for buffered updates to the same tool call", () => {
+    const h = createHarness();
+
+    h.emit(toolUpdate("tool-1", { rawInput: { command: "ls" } }));
+    h.emit(
+      toolUpdate("tool-1", {
+        rawInput: { command: "ls -la" },
+        title: "List files",
+      }),
+    );
+    h.emit(toolUpdate("tool-1", { status: "completed", rawOutput: "done" }));
+
+    vi.advanceTimersByTime(FLUSH_MS);
+
+    expect(h.events()).toHaveLength(1);
+    expect(updateFields(h.events()[0])).toEqual({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "tool-1",
+      rawInput: { command: "ls -la" },
+      title: "List files",
+      status: "completed",
+      rawOutput: "done",
+    });
   });
 
   it("flushes buffered events synchronously on teardown", () => {

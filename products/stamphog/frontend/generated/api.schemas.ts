@@ -22,87 +22,6 @@ export const ResolutionSourceEnumApi = {
     OwnersContact: 'owners_contact',
 } as const
 
-export interface DigestChannelApi {
-    readonly id: string
-    /** Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone. */
-    audience_key: string
-    /** ID of the team's Slack integration used to post the digest. */
-    slack_integration_id: number
-    /** Slack channel ID to post the digest to, e.g. 'C012AB3CD'. */
-    slack_channel_id: string
-    /** Human-readable Slack channel name, for display only. */
-    slack_channel_name?: string
-    /** How this row was created: 'manual' (via this API), 'slack_name_match' (auto-provisioned because the workspace has a channel named exactly like the audience_key), 'stamphog_config' (auto-provisioned from the channel the repo declared under 'digest:' in .stamphog/policy.yml), or 'owners_contact' (reserved for the future owners.yaml contact.slack step, not implemented yet).
-     *
-     * * `manual` - MANUAL
-     * * `slack_name_match` - SLACK_NAME_MATCH
-     * * `stamphog_config` - STAMPHOG_CONFIG
-     * * `owners_contact` - OWNERS_CONTACT */
-    readonly resolution_source: ResolutionSourceEnumApi
-    /** Whether this channel is included in the daily digest fan-out. */
-    enabled: boolean
-    /**
-     * When a digest was last posted to this channel.
-     * @nullable
-     */
-    readonly last_digest_at: string | null
-    readonly created_at: string
-    readonly updated_at: string
-}
-
-export interface PaginatedDigestChannelListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DigestChannelApi[]
-}
-
-/**
- * Input shape for creating/updating a digest channel (see the repo-config write serializer).
- */
-export interface DigestChannelWriteApi {
-    /** Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone. */
-    audience_key: string
-    /** ID of the team's Slack integration used to post the digest. */
-    slack_integration_id: number
-    /** Slack channel ID to post the digest to, e.g. 'C012AB3CD'. */
-    slack_channel_id: string
-    /** Human-readable Slack channel name, for display only. */
-    slack_channel_name?: string
-    /** Whether this channel is included in the daily digest fan-out. */
-    enabled?: boolean
-}
-
-export interface PatchedDigestChannelApi {
-    readonly id?: string
-    /** Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone. */
-    audience_key?: string
-    /** ID of the team's Slack integration used to post the digest. */
-    slack_integration_id?: number
-    /** Slack channel ID to post the digest to, e.g. 'C012AB3CD'. */
-    slack_channel_id?: string
-    /** Human-readable Slack channel name, for display only. */
-    slack_channel_name?: string
-    /** How this row was created: 'manual' (via this API), 'slack_name_match' (auto-provisioned because the workspace has a channel named exactly like the audience_key), 'stamphog_config' (auto-provisioned from the channel the repo declared under 'digest:' in .stamphog/policy.yml), or 'owners_contact' (reserved for the future owners.yaml contact.slack step, not implemented yet).
-     *
-     * * `manual` - MANUAL
-     * * `slack_name_match` - SLACK_NAME_MATCH
-     * * `stamphog_config` - STAMPHOG_CONFIG
-     * * `owners_contact` - OWNERS_CONTACT */
-    readonly resolution_source?: ResolutionSourceEnumApi
-    /** Whether this channel is included in the daily digest fan-out. */
-    enabled?: boolean
-    /**
-     * When a digest was last posted to this channel.
-     * @nullable
-     */
-    readonly last_digest_at?: string | null
-    readonly created_at?: string
-    readonly updated_at?: string
-}
-
 /**
  * * `pending` - PENDING
  * * `completed` - COMPLETED
@@ -118,8 +37,19 @@ export const DigestRunStatusEnumApi = {
 
 export interface DigestRunApi {
     readonly id: string
-    /** ID of the digest channel this run belongs to. */
-    readonly digest_channel: string
+    /** Digest bucket this run drained, e.g. a team slug or 'repo:PostHog/posthog'. */
+    readonly audience_key: string
+    /** Slack channel this digest was posted to, e.g. 'C012AB3CD'. */
+    readonly slack_channel_id: string
+    /** Human-readable name of that channel, for display. */
+    readonly slack_channel_name: string
+    /** Why the digest went to this channel: 'slack_name_match' (no declaration anywhere, so the audience_key matched a same-named Slack channel), 'stamphog_config' (the channel the repo declared under 'digest:' in .stamphog/policy.yml), 'owners_contact' (a teams: entry in a root owners.yaml named it), or 'manual' (no longer produced).
+     *
+     * * `manual` - MANUAL
+     * * `slack_name_match` - SLACK_NAME_MATCH
+     * * `stamphog_config` - STAMPHOG_CONFIG
+     * * `owners_contact` - OWNERS_CONTACT */
+    readonly resolution_source: ResolutionSourceEnumApi
     /** Current state of the digest run (pending, completed, failed).
      *
      * * `pending` - PENDING
@@ -352,6 +282,19 @@ export interface StamphogSyncInstallationResponseApi {
 }
 
 /**
+ * * `self_driving` - SELF_DRIVING
+ * * `label` - LABEL
+ * * `all` - ALL
+ */
+export type ReviewRunTriggerEnumApi = (typeof ReviewRunTriggerEnumApi)[keyof typeof ReviewRunTriggerEnumApi]
+
+export const ReviewRunTriggerEnumApi = {
+    SelfDriving: 'self_driving',
+    Label: 'label',
+    All: 'all',
+} as const
+
+/**
  * * `queued` - QUEUED
  * * `gated` - GATED
  * * `reviewing` - REVIEWING
@@ -428,6 +371,10 @@ export interface ReviewRunApi {
     readonly pr_number: number
     /** Full URL to the pull request on GitHub. */
     readonly pr_url: string
+    /** Pull request title as of the last webhook delivery applied. */
+    readonly title: string
+    /** GitHub login of the pull request author. */
+    readonly author_login: string
     /** Commit SHA of the PR head at the time this run started. */
     readonly head_sha: string
     /** Branch name of the PR head. */
@@ -437,6 +384,12 @@ export interface ReviewRunApi {
      * @nullable
      */
     readonly delivery_id: string | null
+    /** What caused this run to exist: self-driving inbox provenance, the repo's trigger label, or the repo reviewing every PR event.
+     *
+     * * `self_driving` - SELF_DRIVING
+     * * `label` - LABEL
+     * * `all` - ALL */
+    readonly trigger: ReviewRunTriggerEnumApi
     /** Current stage of the review run's lifecycle.
      *
      * * `queued` - QUEUED
@@ -461,6 +414,21 @@ export interface ReviewRunApi {
     readonly output: _ReviewOutputSummaryApi
     /** Error message if the run failed, blank otherwise. */
     readonly error: string
+    /**
+     * ID of the GitHub review this run posted, null if it never posted one.
+     * @nullable
+     */
+    readonly posted_review_id: number | null
+    /**
+     * When this run's verdict reached GitHub, null if it never did.
+     * @nullable
+     */
+    readonly verdict_posted_at: string | null
+    /**
+     * When this run's GitHub approval was retracted because the head moved, null if it wasn't.
+     * @nullable
+     */
+    readonly approval_dismissed_at: string | null
     /** When the review run was created. */
     readonly created_at: string
     /** When the review run was last updated. */
@@ -481,23 +449,8 @@ export interface PaginatedReviewRunListApi {
     results: ReviewRunApi[]
 }
 
-export type StamphogDigestChannelsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
 export type StamphogDigestRunsListParams = {
     /**
-     * Filter by digest channel ID.
-     */
-    digest_channel?: string
-    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -505,6 +458,10 @@ export type StamphogDigestRunsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Filter by the Slack channel the digest was posted to, e.g. 'C012AB3CD'.
+     */
+    slack_channel_id?: string
 }
 
 export type StamphogPullRequestsListParams = {
@@ -558,4 +515,17 @@ export type StamphogReviewRunsListParams = {
      * Filter by review run status.
      */
     status?: string
+    /**
+     * Filter by what caused the run: self_driving, label, or all.
+     */
+    trigger?: StamphogReviewRunsListTrigger
 }
+
+export type StamphogReviewRunsListTrigger =
+    (typeof StamphogReviewRunsListTrigger)[keyof typeof StamphogReviewRunsListTrigger]
+
+export const StamphogReviewRunsListTrigger = {
+    All: 'all',
+    Label: 'label',
+    SelfDriving: 'self_driving',
+} as const

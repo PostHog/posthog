@@ -7,6 +7,7 @@ import {
   Cube,
   DiscordLogo,
   Folder,
+  Gauge,
   GearSix,
   GithubLogo,
   Keyboard,
@@ -31,7 +32,6 @@ import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { useLogoutMutation } from "@posthog/ui/features/auth/useAuthMutations";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
-import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useQuickAskAvailable } from "@posthog/ui/features/quick-ask/useQuickAskAvailable";
 import { SettingsPageContent } from "@posthog/ui/features/settings/components/SettingsPageContent";
@@ -80,7 +80,10 @@ const SIDEBAR_GROUPS: SidebarGroup[] = [
   },
   {
     label: "Account",
-    items: [{ id: "plan-usage", icon: <CreditCard size={16} /> }],
+    items: [
+      { id: "plan-usage", icon: <CreditCard size={16} /> },
+      { id: "cost-management", icon: <Gauge size={16} /> },
+    ],
   },
   {
     label: "Code",
@@ -121,7 +124,7 @@ export interface SettingsPanelProps {
   /**
    * Override the active category. Defaults to the `$category` URL param
    * (which is what every in-app entry point uses). Provided for the
-   * pre-router `AiApprovalScreen` shell where RouterProvider isn't mounted.
+   * pre-router `ConsentScreen` shell where RouterProvider isn't mounted.
    */
   activeCategory?: SettingsCategory;
   /** Override the close handler. Defaults to router history back. */
@@ -148,8 +151,6 @@ export function SettingsPanel({
   const client = useOptionalAuthenticatedClient();
   const { data: user } = useCurrentUser({ client });
   const billingEnabled = useFeatureFlag(BILLING_FLAG);
-  // The channels layout's nav is fixed, so the Sidebar page can't do anything.
-  const channelsLayout = useChannelsLayout();
   const { localWorkspaces } = useHostCapabilities();
   const logoutMutation = useLogoutMutation();
   const quickAskAvailable = useQuickAskAvailable();
@@ -159,7 +160,6 @@ export function SettingsPanel({
     billingEnabled,
     spendAnalysisEnabled,
     localWorkspaces,
-    channelsLayout,
     quickAskAvailable,
   });
   const sidebarGroups = SIDEBAR_GROUPS.map((group) => ({
@@ -230,7 +230,7 @@ export function SettingsPanel({
           }}
         />
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto [scrollbar-gutter:stable]">
           {searchQuery.trim() ? (
             <SettingsSearchResults
               results={searchResults}

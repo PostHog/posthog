@@ -44,6 +44,8 @@ tools:
         param_overrides:
             id:
                 description: ID of the channel whose instructions to read.
+        feature_flag: context-layer
+        feature_flag_behavior: disable
     channel-instructions-update:
         operation: task_channels_instructions_update
         enabled: true
@@ -63,6 +65,8 @@ tools:
                 description: ID of the channel whose instructions to update.
             base_version:
                 input_schema: ChannelInstructionsBaseVersionSchema
+        feature_flag: context-layer
+        feature_flag_behavior: disable
     channel-list:
         operation: task_channels_list
         enabled: true
@@ -87,9 +91,7 @@ tools:
             idempotent: true
         title: Get a channel
         description: "Get a single PostHog Tasks channel by id, returning its name and type. Channels are the project's
-            workspace channels that group tasks and canvases (public channels plus each member's #me channel). Use
-            channel-list to resolve a channel id from its name; use channel-instructions-retrieve to read the channel's
-            CONTEXT.md instructions."
+            workspace channels that group tasks and canvases (public channels plus each member's #me channel)."
         param_overrides:
             id:
                 description: ID of the channel to read.
@@ -102,6 +104,47 @@ tools:
     code-sandbox-pricing-list:
         operation: code_sandbox_pricing_list
         enabled: false
+    desktop-access-retrieve:
+        operation: desktop_access_retrieve
+        enabled: false
+    desktop-beta-terms-create:
+        operation: desktop_beta_terms_create
+        enabled: false
+    desktop-beta-terms-list:
+        operation: desktop_beta_terms_list
+        enabled: false
+    loop-channel-instructions-retrieve:
+        operation: task_channels_instructions_retrieve
+        enabled: true
+        scopes:
+            - task:read
+            - loop_context_internal:write
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read fallback loop context
+        description: Read legacy channel context when an unattended loop cannot access an initialized context wiki.
+        param_overrides:
+            id:
+                description: ID of the loop's context channel.
+    loop-channel-instructions-update:
+        operation: task_channels_instructions_update
+        enabled: true
+        scopes:
+            - task:write
+            - loop_context_internal:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Update fallback loop context
+        description: Update legacy channel context when an unattended loop cannot access an initialized context wiki.
+        param_overrides:
+            id:
+                description: ID of the loop's context channel.
+            base_version:
+                input_schema: ChannelInstructionsBaseVersionSchema
     loops-create:
         operation: loops_create
         enabled: true
@@ -279,24 +322,6 @@ tools:
     task-activity-mark-read-create:
         operation: task_activity_mark_read_create
         enabled: false
-    task-automations-create:
-        operation: task_automations_create
-        enabled: false
-    task-automations-destroy:
-        operation: task_automations_destroy
-        enabled: false
-    task-automations-list:
-        operation: task_automations_list
-        enabled: false
-    task-automations-partial-update:
-        operation: task_automations_partial_update
-        enabled: false
-    task-automations-retrieve:
-        operation: task_automations_retrieve
-        enabled: false
-    task-automations-run-create:
-        operation: task_automations_run_create
-        enabled: false
     task-channels-context-generation-retrieve:
         operation: task_channels_context_generation_retrieve
         enabled: false
@@ -324,11 +349,23 @@ tools:
     task-channels-instructions-versions-retrieve:
         operation: task_channels_instructions_versions_retrieve
         enabled: false
+    task-channels-onboarding-session-create:
+        operation: task_channels_onboarding_session_create
+        enabled: false
+    task-channels-onboarding-session-test-create:
+        operation: task_channels_onboarding_session_test_create
+        enabled: false
     task-channels-partial-update:
         operation: task_channels_partial_update
         enabled: false
+    task-channels-provision-defaults-create:
+        operation: task_channels_provision_defaults_create
+        enabled: false
     task-channels-star-create:
         operation: task_channels_star_create
+        enabled: false
+    task-channels-teaching-canvas-test-create:
+        operation: task_channels_teaching_canvas_test_create
         enabled: false
     task-mentions-list:
         operation: task_mentions_list
@@ -388,6 +425,9 @@ tools:
                 - updated_at
     tasks-destroy:
         operation: tasks_destroy
+        enabled: false
+    tasks-handoff-create:
+        operation: tasks_handoff_create
         enabled: false
     tasks-list:
         operation: tasks_list
@@ -471,6 +511,12 @@ tools:
     tasks-run-create:
         operation: tasks_run_create
         enabled: false
+    tasks-runs-analysis-insight-create:
+        operation: tasks_runs_analysis_insight_create
+        enabled: false
+    tasks-runs-analyze-create:
+        operation: tasks_runs_analyze_create
+        enabled: false
     tasks-runs-append-log-create:
         operation: tasks_runs_append_log_create
         enabled: false
@@ -497,6 +543,9 @@ tools:
         enabled: false
     tasks-runs-artifacts-presign-create:
         operation: tasks_runs_artifacts_presign_create
+        enabled: false
+    tasks-runs-artifacts-references-create:
+        operation: tasks_runs_artifacts_references_create
         enabled: false
     tasks-runs-cancel-create:
         operation: tasks_runs_cancel_create
@@ -558,6 +607,12 @@ tools:
         enabled: false
     tasks-runs-partial-update:
         operation: tasks_runs_partial_update
+        enabled: false
+    tasks-runs-peers-message-create:
+        operation: tasks_runs_peers_message_create
+        enabled: false
+    tasks-runs-peers-retrieve:
+        operation: tasks_runs_peers_retrieve
         enabled: false
     tasks-runs-relay-message-create:
         operation: tasks_runs_relay_message_create
@@ -652,6 +707,12 @@ tools:
     tasks-update:
         operation: tasks_update
         enabled: false
+    tasks-usage-retrieve:
+        operation: tasks_usage_retrieve
+        enabled: false
     tasks-warm-create:
         operation: tasks_warm_create
+        enabled: false
+    tasks-warm-resume-create:
+        operation: tasks_warm_resume_create
         enabled: false

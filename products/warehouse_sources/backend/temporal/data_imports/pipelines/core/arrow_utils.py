@@ -5,7 +5,7 @@ import math
 import uuid
 import decimal
 import datetime
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from functools import _make_key, wraps
 from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
@@ -228,7 +228,11 @@ def _time_to_seconds(value: datetime.time) -> float:
     return value.hour * 3600 + value.minute * 60 + value.second + value.microsecond / 1_000_000
 
 
-def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Schema | None) -> pa.Table:
+def evolve_pyarrow_schema(
+    incoming_table: pa.Table,
+    delta_schema: deltalake.Schema | None,
+    merge_key_columns: Sequence[str] | None = None,
+) -> pa.Table:
     # First pass: normalize types that Delta write path does not handle well.
     for column_name in incoming_table.column_names:
         incoming_column = incoming_table.column(column_name)
@@ -285,6 +289,7 @@ def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sche
 
     # Second pass: align with existing Delta table schema.
     delta_arrow_schema = pyarrow_schema_from_arrow_exportable(delta_schema)
+    merge_keys = {_fold_column_name_for_match(name) for name in merge_key_columns or []}
     for delta_field in delta_arrow_schema:
         if delta_field.name not in incoming_table.schema.names:
             new_column_data = (
@@ -356,6 +361,28 @@ def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sche
                     incoming_table = incoming_table.set_column(
                         incoming_table.schema.get_field_index(delta_field.name), delta_field.name, parsed_timestamps
                     )
+            elif (
+                _fold_column_name_for_match(delta_field.name) in merge_keys
+                and (pa.types.is_binary(delta_field.type) or pa.types.is_large_binary(delta_field.type))
+                and (pa.types.is_string(incoming_column.type) or pa.types.is_large_string(incoming_column.type))
+            ):
+                # A table written before `hex_encode_id_binary_columns` stores this key as raw
+                # bytes while the batch now carries hex text. pyarrow casts string to binary
+                # without complaint, which would store the hex text as bytes: the merge predicate
+                # would then match no stored row and re-insert every incoming row. Fail instead,
+                # so the table is reset and re-synced onto the hex representation.
+                #
+                # Only merge keys (primary keys and the partition-key source columns) take this
+                # path. Every other column casts as before, so a source that legitimately turns a
+                # non-key binary column into a string column keeps syncing.
+                raise SchemaColumnTypeChangedException(
+                    f"Source column type changed: merge key '{delta_field.name}' is stored as {delta_field.type} "
+                    f"but now arrives as text ({incoming_column.type}). Reset and fully re-sync this table to "
+                    f"adopt the new type.",
+                    column_name=delta_field.name,
+                    stored_type=delta_field.type,
+                    incoming_type=incoming_column.type,
+                )
             else:
                 try:
                     casted_column = incoming_column.cast(delta_field.type).combine_chunks()
@@ -587,6 +614,116 @@ def merge_observed_columns_into_schema_metadata(config: dict[str, Any], observed
             existing["is_nullable"] = observed["is_nullable"]
 
 
+BINARY_ID_COLUMN_NAMES = {"id", "uuid", "guid"}
+
+
+def _is_id_like_column(column_name: str, primary_keys: Sequence[str] | None) -> bool:
+    lowered = column_name.lower()
+    if lowered in BINARY_ID_COLUMN_NAMES or lowered.endswith("_id"):
+        return True
+    return any(lowered == key.lower() for key in (primary_keys or []))
+
+
+def _hex_arrays_or_report(
+    value_chunks: Iterable[Sequence[bytes | None]],
+    column_name: str,
+    binary_reporter: Optional[BinaryColumnReporter],
+    hex_type: pa.DataType,
+) -> Optional[list[pa.Array]]:
+    """Lowercase-hex strings for one binary column, or None when the values can't be converted.
+
+    Takes the column one chunk at a time so the Python `bytes` and `str` objects of a whole
+    column are never live at once — an Arrow-native source hands over batches far larger than
+    the row path's, and this is the only step that leaves Arrow.
+
+    Callers decide what None means: the row path drops the column, the Arrow path leaves it
+    binary. Both report the same way.
+    """
+    try:
+        hex_arrays: list[pa.Array] = [
+            pa.array([None if value is None else value.hex() for value in chunk], type=hex_type)
+            for chunk in value_chunks
+        ]
+    # pa.ArrowException also catches the 32-bit offset overflow of a chunk whose hex crosses
+    # 2 GB, which is an ArrowCapacityError and so sits outside ValueError.
+    except (AttributeError, TypeError, ValueError, pa.ArrowException) as e:
+        if binary_reporter:
+            binary_reporter.conversion_failed(column_name, e)
+        return None
+
+    if binary_reporter:
+        binary_reporter.converted(column_name)
+    return hex_arrays
+
+
+class BinaryColumnReporter:
+    """Logs each binary column's outcome once per instance lifetime (one sync), because
+    `_process_batch` runs per batch and logging there directly would repeat the same line
+    for every batch in the sync logs."""
+
+    def __init__(self, logger: FilteringBoundLogger) -> None:
+        self._logger = logger
+        self._reported_columns: set[str] = set()
+
+    def _once(self, column_name: str) -> bool:
+        if column_name in self._reported_columns:
+            return False
+        self._reported_columns.add(column_name)
+        return True
+
+    def converted(self, column_name: str) -> None:
+        if self._once(column_name):
+            self._logger.info(f"Column '{column_name}' has a binary data type. Its values were synced as hex strings.")
+
+    def dropped(self, column_name: str) -> None:
+        if self._once(column_name):
+            self._logger.warning(
+                f"Column '{column_name}' was not synced because its binary data type is not supported."
+            )
+
+    def conversion_failed(self, column_name: str, error: Exception) -> None:
+        if self._once(column_name):
+            self._logger.warning(
+                f"Column '{column_name}' was not synced because its binary values could not be converted to hex strings: {error}"
+            )
+
+
+def hex_encode_id_binary_columns(
+    table: pa.Table,
+    primary_keys: Optional[Sequence[str]] = None,
+    binary_reporter: Optional[BinaryColumnReporter] = None,
+) -> pa.Table:
+    """Convert id-like binary columns of an Arrow-native batch to lowercase hex strings.
+
+    Sources that hand the pipeline Arrow tables (BigQuery, Snowflake, Databricks, MotherDuck)
+    never reach `_process_batch`, so their binary keys land in Delta as raw bytes, which cannot
+    be read or joined in HogQL. Same name/primary-key gate as the row path.
+
+    Non-key binary columns stay untouched: this path has always synced them, so dropping them
+    the way the row path does would delete data these tables already carry.
+    """
+    for index, field in enumerate(table.schema):
+        if not (pa.types.is_binary(field.type) or pa.types.is_large_binary(field.type)):
+            continue
+        if not _is_id_like_column(field.name, primary_keys):
+            continue
+
+        # Indexed, not by name: a batch carrying the same column name twice makes the name
+        # lookup raise instead of converting.
+        column = table.column(index)
+        # Keep 64-bit offsets where the source column has them: hex doubles the byte length.
+        hex_type = pa.large_string() if pa.types.is_large_binary(field.type) else pa.string()
+        hex_arrays = _hex_arrays_or_report(
+            (chunk.to_pylist() for chunk in column.chunks), field.name, binary_reporter, hex_type
+        )
+        if hex_arrays is None:
+            continue
+
+        table = table.set_column(index, field.with_type(hex_type), pa.chunked_array(hex_arrays, type=hex_type))
+
+    return table
+
+
 def _convert_uuid_to_string(row: dict) -> dict:
     return {key: str(value) if isinstance(value, uuid.UUID) else value for key, value in row.items()}
 
@@ -601,22 +738,36 @@ def _json_dumps(obj: Any) -> str:
             return str(obj)
 
 
-def table_from_iterator(data_iterator: Iterator[dict], schema: Optional[pa.Schema] = None) -> pa.Table:
+def table_from_iterator(
+    data_iterator: Iterator[dict],
+    schema: Optional[pa.Schema] = None,
+    *,
+    primary_keys: Optional[Sequence[str]] = None,
+    binary_reporter: Optional[BinaryColumnReporter] = None,
+) -> pa.Table:
     batch = list(data_iterator)
     if not batch:
         return pa.Table.from_pylist([])
 
-    processed_batch = _process_batch(batch, schema)
+    processed_batch = _process_batch(batch, schema, primary_keys=primary_keys, binary_reporter=binary_reporter)
 
     return processed_batch
 
 
-def table_from_py_list(table_data: list[Any], schema: Optional[pa.Schema] = None) -> pa.Table:
+def table_from_py_list(
+    table_data: list[Any],
+    schema: Optional[pa.Schema] = None,
+    *,
+    primary_keys: Optional[Sequence[str]] = None,
+    binary_reporter: Optional[BinaryColumnReporter] = None,
+) -> pa.Table:
     """
     Convert a list of Python dictionaries to a PyArrow Table.
     This is a wrapper around table_from_iterator for backward compatibility.
     """
-    return table_from_iterator(iter(table_data), schema=schema)
+    return table_from_iterator(
+        iter(table_data), schema=schema, primary_keys=primary_keys, binary_reporter=binary_reporter
+    )
 
 
 def restrict_schema_to_columns(schema: pa.Schema, column_names: Sequence[str]) -> pa.Schema:
@@ -800,6 +951,37 @@ def align_incoming_decimals_to_delta(pa_table: pa.Table, delta_schema: deltalake
     return pa_table
 
 
+def relax_batch_nullability(pa_table: pa.Table) -> pa.Table:
+    """Mark every batch column that actually holds nulls as nullable in the batch's own schema.
+
+    SQL sources build the batch schema from the source database's own `is_nullable` metadata, so a
+    column the source declares NOT NULL can still arrive holding nulls: the value was dropped by a
+    projection or a join, or its conversion failed. pyarrow does not check the claim when it builds
+    the table in Python, so the batch reaches the writers with a schema that contradicts its data.
+
+    Every delta path checks it and refuses the batch: `write_deltalake` raises a DeltaError,
+    `DeltaTable.merge` panics in Rust before it can plan the merge, and deltalite's
+    `RecordBatch::try_new` rejects it, which sends the write to the MERGE that then panics. All
+    three report "declared as non-nullable but contains null values". Correcting the claim before
+    the write also lets deltalite relax a stored column that a past batch already poisoned.
+
+    The cast rewrites field metadata only, so the column buffers are shared and not copied.
+    """
+    relaxed: list[pa.Field] = []
+    changed = False
+    for index, field in enumerate(pa_table.schema):
+        if not field.nullable and pa_table.column(index).null_count > 0:
+            relaxed.append(field.with_nullable(True))
+            changed = True
+        else:
+            relaxed.append(field)
+
+    if not changed:
+        return pa_table
+
+    return pa_table.cast(pa.schema(relaxed).with_metadata(pa_table.schema.metadata or {}))
+
+
 def raise_on_nullability_drift(pa_table: pa.Table, delta_schema: deltalake.Schema) -> None:
     """Stop the sync when a batch has nulls in a column the table declares non-nullable.
 
@@ -936,7 +1118,13 @@ def _serialize_dict_columns(table_data: list[dict]) -> tuple[list[dict], set[str
     return serialized_rows, dict_columns
 
 
-def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -> pa.Table:
+def _process_batch(
+    table_data: list[dict],
+    schema: Optional[pa.Schema] = None,
+    *,
+    primary_keys: Optional[Sequence[str]] = None,
+    binary_reporter: Optional[BinaryColumnReporter] = None,
+) -> pa.Table:
     table_data, serialized_dict_columns = _serialize_dict_columns(table_data)
 
     # Support both given schemas and inferred schemas
@@ -1049,9 +1237,30 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                 adjusted_field = arrow_schema.field(field_index).with_type(pa.timestamp("us")).with_nullable(has_nulls)
                 arrow_schema = arrow_schema.set(field_index, adjusted_field)
 
-            # Remove any binary columns
+            # Binary columns can't be queried, so they are dropped; id-like ones are kept as hex
+            # strings because they are usually the table's key, and losing the key breaks joins
+            # and incremental merges on the synced table.
             if pa.types.is_binary(field.type):
-                drop_column_names.add(field_name)
+                if _is_id_like_column(str(field_name), primary_keys):
+                    hex_arrays = _hex_arrays_or_report(
+                        [_to_list_array(columnar_table_data[field_name])],
+                        str(field_name),
+                        binary_reporter,
+                        pa.string(),
+                    )
+                    if hex_arrays is None:
+                        drop_column_names.add(field_name)
+                    else:
+                        columnar_table_data[field_name] = hex_arrays[0]
+                        py_type = str
+                        unique_types_in_column = {str}
+                        arrow_schema = arrow_schema.set(
+                            field_index, arrow_schema.field(field_index).with_type(pa.string())
+                        )
+                else:
+                    if binary_reporter:
+                        binary_reporter.dropped(str(field_name))
+                    drop_column_names.add(field_name)
 
             # Ensure duration columns have the correct arrow type
             col = columnar_table_data[field_name]
@@ -1236,11 +1445,14 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             if arrow_schema:
                 arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
 
-        # If str and dict are shared - then turn everything into a json string
+        # If str and dict are shared - then turn everything into a json string. A column can also
+        # carry a third type alongside them (e.g. an int, as with a free-form field that varies per
+        # row) — JSON-dump anything that isn't already a string rather than only dict/list, so that
+        # third type doesn't reach pa.array() unconverted and raise ArrowTypeError.
         if len(unique_types_in_column) > 1 and str in unique_types_in_column and dict in unique_types_in_column:
             json_array = pa.array(
                 [
-                    None if s is None else _json_dumps(s) if isinstance(s, dict | list) else s
+                    None if s is None else s if isinstance(s, str) else _json_dumps(s)
                     for s in _to_list_array(columnar_table_data[field_name])
                 ]
             )
@@ -1281,9 +1493,27 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             if arrow_schema:
                 arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
 
-        # Remove any binary columns
+        # Same keep-or-drop rule as the schema-typed binary branch above; this one catches
+        # columns whose binary type is only visible from the Python values (e.g. inferred
+        # schemas, or a declared type the values don't match).
         if issubclass(py_type, bytes):
-            drop_column_names.add(field_name)
+            if _is_id_like_column(str(field_name), primary_keys):
+                hex_arrays = _hex_arrays_or_report(
+                    [_to_list_array(columnar_table_data[field_name])], str(field_name), binary_reporter, pa.string()
+                )
+                if hex_arrays is None:
+                    drop_column_names.add(field_name)
+                else:
+                    columnar_table_data[field_name] = hex_arrays[0]
+                    py_type = str
+                    if arrow_schema:
+                        arrow_schema = arrow_schema.set(
+                            field_index, arrow_schema.field(field_index).with_type(pa.string())
+                        )
+            else:
+                if binary_reporter:
+                    binary_reporter.dropped(str(field_name))
+                drop_column_names.add(field_name)
 
     if len(drop_column_names) != 0:
         for column in drop_column_names:

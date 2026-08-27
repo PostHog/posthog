@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from uuid import uuid4
 
 from unittest.mock import patch
 
@@ -9,10 +10,13 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.models import Integration, Organization, OrganizationMembership, Team, User
+from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
+from posthog.models.personal_api_key import hash_key_value
+from posthog.models.utils import generate_random_token_personal
 
 from products.tasks.backend.exceptions import ComputeBillingLimitError
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.onboarding_canvas import TeachingCanvas
 from products.tasks.backend.models import Channel, ChannelFeedMessage, Task, TaskActivity, TaskRun, TaskThreadMessage
 from products.tasks.backend.push_dispatcher import (
     notify_task_run_awaiting_input,
@@ -36,32 +40,62 @@ class ChannelsAPITestCase(TestCase):
         self.client = APIClient()
         self.client.force_authenticate(self.user)
 
+    def _provision(self, client=None) -> dict:
+        response = (client or self.client).post(f"{self._channels_url()}provision_defaults/")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        return response.json()
+
     def _channels_url(self) -> str:
         return f"/api/projects/{self.team.id}/task_channels/"
 
     def _tasks_url(self) -> str:
         return f"/api/projects/{self.team.id}/tasks/"
 
-    def test_list_provisions_personal_channel(self):
-        response = self.client.get(self._channels_url())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        personal = [c for c in response.json() if c["channel_type"] == "personal"]
+    def test_provision_creates_personal_channel(self):
+        provisioned = self._provision()
+        self.assertTrue(provisioned["personal_created"])
+        personal = [c for c in provisioned["channels"] if c["channel_type"] == "personal"]
         self.assertEqual(len(personal), 1)
         self.assertEqual(personal[0]["name"], "me")
         self.assertEqual(personal[0]["created_by"]["id"], self.user.id)
 
-        # Listing again reuses the same personal channel
-        again = self.client.get(self._channels_url()).json()
+        again = self._provision()
+        self.assertFalse(again["personal_created"])
         self.assertEqual(
-            [c["id"] for c in again if c["channel_type"] == "personal"],
+            [c["id"] for c in again["channels"] if c["channel_type"] == "personal"],
             [personal[0]["id"]],
         )
 
+    @parameterized.expand(
+        [
+            ("write_scope", "task:write", status.HTTP_200_OK),
+            ("read_scope", "task:read", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_provisioning_over_a_scoped_token_needs_task_write(self, _name, scope, expected_status):
+        # Desktop authenticates with an OAuth bearer token, so an action missing from the
+        # write-scope list is refused before its scopes are even read.
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, label=f"provisioning {scope}", secure_value=hash_key_value(key), scopes=[scope]
+        )
+
+        response = APIClient().post(
+            f"{self._channels_url()}provision_defaults/", headers={"authorization": f"Bearer {key}"}
+        )
+        self.assertEqual(response.status_code, expected_status, response.content)
+
+    def test_list_does_not_provision(self):
+        response = self.client.get(self._channels_url())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), [])
+        self.assertFalse(Channel.objects.for_team(self.team.id).exists())
+
     def test_personal_channels_are_per_user(self):
-        mine = self.client.get(self._channels_url()).json()
+        mine = self._provision()["channels"]
         other_client = APIClient()
         other_client.force_authenticate(self.other_user)
-        theirs = other_client.get(self._channels_url()).json()
+        theirs = self._provision(other_client)["channels"]
 
         my_personal = [c["id"] for c in mine if c["channel_type"] == "personal"]
         their_personal = [c["id"] for c in theirs if c["channel_type"] == "personal"]
@@ -76,7 +110,7 @@ class ChannelsAPITestCase(TestCase):
         self.assertEqual(second.json()["id"], first.json()["id"])
 
     def test_personal_channel_cannot_be_renamed_or_deleted(self):
-        self.client.get(self._channels_url())
+        self._provision()
         # Direct ORM reads in tests bypass the DRF-set team context, so opt out
         # of the fail-closed scoping explicitly (see test_presence.py).
         personal = Channel.objects.unscoped().get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)
@@ -85,11 +119,192 @@ class ChannelsAPITestCase(TestCase):
         delete = self.client.delete(f"{self._channels_url()}{personal.id}/")
         self.assertEqual(delete.status_code, status.HTTP_403_FORBIDDEN)
 
-    @patch("posthog.models.integration.GitHubIntegration.list_all_cached_repositories")
+    def test_provision_creates_general_channel_once(self):
+        first = self._provision()
+        self.assertTrue(first["general_created"])
+        general = [c for c in first["channels"] if c["system_role"] == "general"]
+        self.assertEqual(len(general), 1)
+        self.assertEqual(general[0]["name"], "general")
+        self.assertEqual(general[0]["channel_type"], "public")
+        self.assertFalse(general[0]["starred"])
+
+        other_client = APIClient()
+        other_client.force_authenticate(self.other_user)
+        again = self._provision(other_client)
+        self.assertFalse(again["general_created"])
+        self.assertEqual(
+            [c["id"] for c in again["channels"] if c["system_role"] == "general"],
+            [general[0]["id"]],
+        )
+
+    @patch("products.tasks.backend.presentation.views.channels_api.onboarding_test_tools_enabled", return_value=False)
+    def test_onboarding_test_tools_require_the_feature_flag(self, _enabled):
+        for action in ("onboarding_session_test", "teaching_canvas_test"):
+            response = self.client.post(f"{self._channels_url()}{action}/", {}, format="json")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch("products.tasks.backend.presentation.views.channels_api.onboarding_test_tools_enabled", return_value=True)
+    def test_flagged_user_can_create_test_onboarding_artifacts(self, _enabled):
+        personal_id = next(
+            channel["id"] for channel in self._provision()["channels"] if channel["system_role"] == "personal"
+        )
+        task_id = uuid4()
+        canvas_id = uuid4()
+
+        with patch(
+            "products.tasks.backend.presentation.views.channels_api.start_onboarding_test_session", return_value=task_id
+        ) as start:
+            response = self.client.post(
+                f"{self._channels_url()}onboarding_session_test/",
+                {"joining_existing_organization": True, "other_members": ["Max"], "has_events": True},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json(), {"task_id": str(task_id), "channel_id": personal_id})
+        self.assertTrue(start.call_args.kwargs["joining_existing_organization"])
+        self.assertEqual(start.call_args.kwargs["other_members"], ["Max"])
+
+        teaching = TeachingCanvas(channel_id=uuid4(), canvas_id=canvas_id)
+        with patch(
+            "products.tasks.backend.presentation.views.channels_api.ensure_teaching_canvas", return_value=teaching
+        ):
+            response = self.client.post(f"{self._channels_url()}teaching_canvas_test/", {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json(), {"canvas_id": str(canvas_id), "channel_id": str(teaching.channel_id)})
+
+    @parameterized.expand(
+        [
+            ("rename", lambda client, url: client.patch(url, {"name": "not-general"})),
+            ("delete", lambda client, url: client.delete(url)),
+        ]
+    )
+    def test_general_channel_cannot_be_renamed_or_deleted(self, _name, act):
+        self._provision()
+        general = Channel.objects.unscoped().get(team=self.team, system_role=Channel.SystemRole.GENERAL)
+        response = act(self.client, f"{self._channels_url()}{general.id}/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_legacy_personal_channel_is_stamped_with_system_role_on_provision(self):
+        # A row from before the role existed is identified by channel_type alone.
+        legacy = Channel.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            created_by=self.user,
+            name=Channel.PERSONAL_CHANNEL_NAME,
+            channel_type=Channel.ChannelType.PERSONAL,
+        )
+
+        provisioned = self._provision()
+        self.assertFalse(provisioned["personal_created"])
+        personal = [c for c in provisioned["channels"] if c["channel_type"] == "personal"]
+        self.assertEqual([c["id"] for c in personal], [str(legacy.id)])
+        self.assertEqual(personal[0]["system_role"], "personal")
+
+        legacy.refresh_from_db()
+        self.assertEqual(legacy.system_role, Channel.SystemRole.PERSONAL)
+
+    def test_legacy_general_channel_is_adopted_and_stamped_on_provision(self):
+        legacy = Channel.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            created_by=self.user,
+            name=Channel.GENERAL_CHANNEL_NAME,
+            channel_type=Channel.ChannelType.PUBLIC,
+        )
+
+        provisioned = self._provision()
+        self.assertFalse(provisioned["general_created"])
+        general = [c for c in provisioned["channels"] if c["system_role"] == "general"]
+        self.assertEqual([c["id"] for c in general], [str(legacy.id)])
+
+        legacy.refresh_from_db()
+        self.assertEqual(legacy.system_role, Channel.SystemRole.GENERAL)
+
+    @parameterized.expand(
+        [
+            ("hash_prefix", "#growth", "growth"),
+            ("spaces", "Growth Ideas", "growth-ideas"),
+            ("punctuation", "team.core!", "team-core"),
+            ("surrounding_separators", "  --growth--  ", "growth"),
+        ]
+    )
+    def test_a_created_space_takes_the_name_desktop_showed(self, _name, sent, stored):
+        # The field normalizes as the user types, so the server has to agree with it.
+        response = self.client.post(self._channels_url(), {"name": sent})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["name"], stored)
+
+    def test_a_name_with_nothing_usable_in_it_is_rejected(self):
+        response = self.client.post(self._channels_url(), {"name": "###"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_finding_the_general_space_never_provisions_one(self):
+        # Products that file work into #general gate on it existing, so a lookup that
+        # created one would put a space in every team that never asked for Desktop.
+        self.assertIsNone(tasks_facade.find_general_channel_id(self.team.id))
+
+        provisioned = self._provision()
+        general = next(c for c in provisioned["channels"] if c["system_role"] == "general")
+        self.assertEqual(str(tasks_facade.find_general_channel_id(self.team.id)), general["id"])
+
+    def test_finding_the_general_space_matches_an_unstamped_row(self):
+        legacy = Channel.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            created_by=self.user,
+            name=Channel.GENERAL_CHANNEL_NAME,
+            channel_type=Channel.ChannelType.PUBLIC,
+        )
+
+        self.assertEqual(tasks_facade.find_general_channel_id(self.team.id), legacy.id)
+
+    def test_creating_a_space_named_general_resolves_the_system_space(self):
+        created = self.client.post(self._channels_url(), {"name": "General"})
+        self.assertEqual(created.status_code, status.HTTP_200_OK)
+        self.assertEqual(created.json()["system_role"], "general")
+
+        provisioned = self._provision()
+        self.assertFalse(provisioned["general_created"])
+        self.assertEqual(
+            [c["id"] for c in provisioned["channels"] if c["system_role"] == "general"],
+            [created.json()["id"]],
+        )
+
+    @parameterized.expand([("stored_name", "Me"), ("display_label", " personal ")])
+    def test_a_shared_space_cannot_claim_a_personal_space_name(self, _name, name):
+        response = self.client.post(self._channels_url(), {"name": name})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @parameterized.expand([("personal_name", "me"), ("personal_label", "personal"), ("general", "General")])
+    def test_a_space_cannot_be_renamed_to_a_reserved_name(self, _name, name):
+        channel_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
+
+        response = self.client.patch(f"{self._channels_url()}{channel_id}/", {"name": name})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @parameterized.expand(
+        [
+            ("rename", lambda client, url: client.patch(url, {"name": "not-general"})),
+            ("delete", lambda client, url: client.delete(url)),
+        ]
+    )
+    def test_unstamped_general_channel_cannot_be_renamed_or_deleted(self, _name, act):
+        # Desktop reads an unstamped row named "general" as the team's general space, so
+        # the server has to protect it on the same terms.
+        legacy = Channel.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            created_by=self.user,
+            name=Channel.GENERAL_CHANNEL_NAME,
+            channel_type=Channel.ChannelType.PUBLIC,
+        )
+
+        response = act(self.client, f"{self._channels_url()}{legacy.id}/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch("posthog.models.integration.github.GitHubIntegration.list_all_cached_repositories")
     def test_cannot_configure_someone_elses_personal_channel_repositories(self, list_repositories):
         list_repositories.return_value = [{"full_name": "posthog/posthog"}]
         integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
-        self.client.get(self._channels_url())
+        self._provision()
         personal = Channel.objects.unscoped().get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)
 
         other_client = APIClient()
@@ -140,7 +355,7 @@ class ChannelsAPITestCase(TestCase):
         self.assertIsNone(channel.github_integration_id)
         self.assertEqual(channel.repositories, [])
 
-    @patch("posthog.models.integration.GitHubIntegration.list_all_cached_repositories")
+    @patch("posthog.models.integration.github.GitHubIntegration.list_all_cached_repositories")
     def test_new_tasks_inherit_channel_repositories(self, list_repositories):
         list_repositories.return_value = [
             {"full_name": "posthog/posthog"},
@@ -167,7 +382,7 @@ class ChannelsAPITestCase(TestCase):
         self.assertEqual(created.json()["repositories"], ["posthog/posthog", "posthog/posthog-js"])
         self.assertEqual(created.json()["github_integration"], integration.id)
 
-    @patch("posthog.models.integration.GitHubIntegration.list_all_cached_repositories")
+    @patch("posthog.models.integration.github.GitHubIntegration.list_all_cached_repositories")
     def test_project_member_can_configure_or_rename_public_channel(self, list_repositories):
         list_repositories.return_value = [{"full_name": "posthog/posthog"}]
         integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
@@ -224,7 +439,7 @@ class ChannelsAPITestCase(TestCase):
         ]
     )
     def test_task_in_private_space_stays_private(self, _name: str, select_channel: bool):
-        self.client.get(self._channels_url())
+        self._provision()
         personal = Channel.objects.unscoped().get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)
         payload = {"title": "Secret", "description": "mine"}
         if select_channel:
@@ -243,7 +458,7 @@ class ChannelsAPITestCase(TestCase):
         )
 
     def test_team_readable_origin_does_not_widen_private_space(self):
-        self.client.get(self._channels_url())
+        self._provision()
         personal = Channel.objects.unscoped().get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)
         task = Task.objects.create(
             team=self.team,
@@ -278,7 +493,7 @@ class ChannelsAPITestCase(TestCase):
     def test_task_controller_can_move_public_task_to_private_space(self):
         public_space_id = self.client.post(self._channels_url(), {"name": "shared"}).json()["id"]
         private_space_id = next(
-            space["id"] for space in self.client.get(self._channels_url()).json() if space["channel_type"] == "personal"
+            space["id"] for space in self._provision()["channels"] if space["channel_type"] == "personal"
         )
         task = self.client.post(
             self._tasks_url(),
@@ -326,8 +541,24 @@ class ChannelsAPITestCase(TestCase):
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertFalse(Channel.objects.unscoped().get(id=channel_id).deleted)
 
+    def test_space_holding_only_archived_tasks_can_be_deleted(self):
+        channel_id = self.client.post(self._channels_url(), {"name": "wrapped-up"}).json()["id"]
+        task_id = self.client.post(
+            self._tasks_url(),
+            {"title": "Done with this", "description": "d", "channel": channel_id},
+        ).json()["id"]
+        self.client.patch(f"{self._tasks_url()}{task_id}/", {"archived": True}, format="json")
+
+        response = self.client.delete(f"{self._channels_url()}{channel_id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.content)
+        self.assertTrue(Channel.objects.unscoped().get(id=channel_id).deleted)
+        self.assertIsNone(Task.objects.get(id=task_id).channel_id)
+        listed = self.client.get(f"{self._tasks_url()}?archived=true").json()["results"]
+        self.assertEqual([task["id"] for task in listed], [task_id])
+
     def test_cannot_file_task_into_someone_elses_personal_channel(self):
-        self.client.get(self._channels_url())
+        self._provision()
         personal = Channel.objects.unscoped().get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)
         other_client = APIClient()
         other_client.force_authenticate(self.other_user)
@@ -936,9 +1167,8 @@ class ChannelFeedMessageAPITestCase(TestCase):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_personal_channel_feed_is_owner_only(self):
-        # Listing provisions the requester's personal channel.
-        mine = self.client.get(self._channels_url()).json()
-        personal_id = next(c["id"] for c in mine if c["channel_type"] == "personal")
+        mine = self.client.post(f"{self._channels_url()}provision_defaults/").json()
+        personal_id = next(c["id"] for c in mine["channels"] if c["channel_type"] == "personal")
         self.client.post(
             self._feed_url(personal_id),
             {"event": "context_created", "payload": {"context_name": "me"}},

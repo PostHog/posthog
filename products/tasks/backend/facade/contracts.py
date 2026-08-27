@@ -16,10 +16,20 @@ their data results.
 """
 
 from datetime import datetime
+from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
 from pydantic import Field
 from pydantic.dataclasses import dataclass
+
+
+class DesktopAccessReason(StrEnum):
+    STARTUP_PLAN = "startup_plan"
+    PREPAID_CREDITS = "prepaid_credits"
+
+
+DESKTOP_ACCESS_REASON_SCHEMA_VALUES = [*(reason.value for reason in DesktopAccessReason), None]
 
 
 @dataclass(frozen=True)
@@ -159,7 +169,8 @@ class TaskDetailDTO:
     ``None``). ``latest_run`` is the most-recent run as a ``TaskRunDetailDTO`` (or ``None``).
     ``latest_run_id`` carries just that run's id for the conversation envelope, which needs the id
     to reconnect to sandbox logs but not the full (presigned-log) run payload. ``created_by``
-    mirrors core ``UserBasicSerializer`` output.
+    mirrors core ``UserBasicSerializer`` output. ``last_activity_at`` is when something last
+    happened in the task, as opposed to ``updated_at``, which is when the row was last written.
     """
 
     id: UUID
@@ -183,6 +194,7 @@ class TaskDetailDTO:
     latest_run: "TaskRunDetailDTO | None" = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    last_activity_at: datetime | None = None
     created_by: "TaskUserBasicInfo | None" = None
     latest_run_id: UUID | None = None
     channel: UUID | None = None
@@ -201,6 +213,14 @@ class ChannelDTO:
     created_at: datetime
     created_by: "TaskUserBasicInfo | None" = None
     starred: bool = False
+    system_role: str | None = None
+
+
+@dataclass(frozen=True)
+class ProvisionedChannelsDTO:
+    channels: list[ChannelDTO]
+    personal_created: bool
+    general_created: bool
 
 
 @dataclass(frozen=True)
@@ -371,6 +391,10 @@ class TaskSummaryDTO:
     updated_at: datetime
     origin_product: str = ""
     latest_run: TaskLatestRunSummaryDTO | None = None
+
+
+class TaskAnalysisError(Exception):
+    """A task analysis could not be created or recorded; ``message`` is safe to surface."""
 
 
 @dataclass(frozen=True)
@@ -601,6 +625,8 @@ class TaskRunSandboxConnectionDTO:
     sandbox_url: str | None
     sandbox_connect_token: str | None
     connection_token: str | None = None
+    # Query-param name the transport token travels under (provider-specific).
+    sandbox_token_param: str = "_modal_connect_token"
 
 
 @dataclass(frozen=True)
@@ -618,6 +644,42 @@ class CreatedTaskDTO:
 
 
 @dataclass(frozen=True)
+class WorkflowTaskDTO:
+    """Outcome of a workflow's "Create AI task" action.
+
+    ``created`` is False when the request replayed an already-used idempotency key and the
+    ids belong to the previously created task. ``run_id`` is ``None`` only for a replayed
+    task whose run has since been deleted.
+    """
+
+    task_id: UUID
+    run_id: UUID | None
+    created: bool
+
+
+@dataclass(frozen=True, kw_only=True)
+class WorkflowTaskSlackContext:
+    """The Slack thread whose message triggered the workflow run, so the task reports back there.
+
+    ``integration_id`` is the PostHog integration pk stamped on the trigger event;
+    ``slack_team_id`` is the Slack workspace id, kept as a fallback for re-resolving the
+    integration when the stamped pk is stale. ``slack_user_id`` is empty when a bot
+    posted the triggering message. ``message_ts`` is the triggering message itself,
+    which differs from ``thread_ts`` when a reply started the run.
+    ``is_ext_shared_channel`` comes from the Slack event envelope and decides whether the
+    channel needs an approval on file before a task may reply in it.
+    """
+
+    integration_id: int
+    channel: str
+    thread_ts: str
+    message_ts: str = ""
+    slack_user_id: str = ""
+    slack_team_id: str = ""
+    is_ext_shared_channel: bool = False
+
+
+@dataclass(frozen=True)
 class CodeInviteRedeemResult:
     """Outcome of attempting to redeem a PostHog Desktop invite.
 
@@ -631,33 +693,8 @@ class CodeInviteRedeemResult:
 
 
 @dataclass(frozen=True)
-class TaskAutomationDTO:
-    """A scheduled task automation.
-
-    Mirrors exactly the fields ``TaskAutomationSerializer`` emits. Most read fields are
-    proxied off the underlying ``Task`` (``name``/``prompt``/``repository``/
-    ``github_integration``) or derived from the linked last run (``last_run_at``/
-    ``last_run_status``). ``github_integration`` is the integration's primary key (or
-    ``None``). ``last_task_id`` is always present (the automation's task id as a string);
-    ``last_task_run_id`` is the most recent run's id as a string, or ``None``.
-    """
-
-    id: UUID
-    name: str
-    prompt: str
-    repository: str | None
-    github_integration: int | None
-    cron_expression: str
-    timezone: str
-    template_id: str | None
-    enabled: bool
-    last_run_at: datetime | None
-    last_run_status: str | None
-    last_task_id: str
-    last_task_run_id: str | None
-    last_error: str | None
-    created_at: datetime
-    updated_at: datetime
+class DesktopBetaTermsAcceptanceDTO:
+    is_desktop_beta_terms_accepted: bool
 
 
 @dataclass(frozen=True)
@@ -694,6 +731,7 @@ class SandboxEnvironmentDTO:
     repositories: list[str] = Field(default_factory=list)
     effective_domains: list[str] = Field(default_factory=list)
     has_environment_variables: bool = False
+    environment_variable_keys: list[str] = Field(default_factory=list)
     created_by: TaskUserBasicInfo | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -750,6 +788,38 @@ class WarmTaskDTO:
 
     task_id: UUID
     run_id: UUID
+
+
+@dataclass(frozen=True)
+class TaskRunPeerDTO:
+    """One peer agent run visible to a sender run (agent peer messaging discovery)."""
+
+    run_id: str
+    task_id: str
+    task_title: str
+    created_by_email: str | None
+    runtime: str
+    model: str | None
+    repository: str | None
+    stage: str | None
+    status: str
+    sendable: bool
+    updated_at: str | None
+
+
+PeerSendResultKind = Literal["accepted", "target_finished", "rejected"]
+
+
+@dataclass(frozen=True)
+class PeerMessageSendResultDTO:
+    """Synchronous result of a peer-message send. ``result`` is the public contract:
+    ``accepted`` means queued for delivery (never "delivered" — the sandbox handoff
+    happens later inside the workflow), ``target_finished`` means the target's
+    workflow is gone, ``rejected`` covers throttles and validation failures."""
+
+    result: PeerSendResultKind
+    detail: str
+    message_id: str | None = None
 
 
 @dataclass(frozen=True)

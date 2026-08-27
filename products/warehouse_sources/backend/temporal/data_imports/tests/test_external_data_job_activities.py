@@ -1,5 +1,6 @@
 import asyncio
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest import mock
 
@@ -9,6 +10,7 @@ from parameterized import parameterized
 from temporalio.exceptions import ApplicationError, CancelledError
 from temporalio.testing import ActivityEnvironment
 
+from posthog.models import Organization, Team
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -131,3 +133,46 @@ class TestUpdateExternalDataJobModelActivity(BaseTest):
         mock_capture_exception.assert_not_called()
         mock_finish_row_tracking.assert_called_once_with(self.team.id, inputs.schema_id)
         mock_update_job_status.assert_called_once()
+
+
+# transaction=True commits the fixture rows: the activity resolves the schema through
+# database_sync_to_async_pool, whose pool-thread connection can't see a test transaction.
+@pytest.mark.django_db(transaction=True)
+def test_failed_finalization_with_no_job_resets_stale_running_schema() -> None:
+    # When an early activity fails before the job row is committed, no later finalization can
+    # repaint the schema, so the Running status painted at trigger time would stick forever.
+    org = Organization.objects.create(name="org")
+    team = Team.objects.create(organization=org, name="team")
+    source = ExternalDataSource.objects.create(team=team)
+    schema = ExternalDataSchema.objects.create(
+        team=team, source=source, name="table", status=ExternalDataSchema.Status.RUNNING
+    )
+
+    env = ActivityEnvironment()
+    inputs = UpdateExternalDataJobStatusInputs(
+        team_id=team.id,
+        job_id=None,
+        schema_id=str(schema.id),
+        source_id=str(source.id),
+        status=ExternalDataJob.Status.FAILED,
+        internal_error=None,
+        latest_error="could not create the sync job",
+        workflow_run_id="run-id-with-no-job",
+    )
+
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_rows",
+            return_value=0,
+        ),
+        mock.patch("products.warehouse_sources.backend.temporal.data_imports.external_data_job.finish_row_tracking"),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.capture_exception"
+        ) as mock_capture_exception,
+    ):
+        asyncio.run(env.run(update_external_data_job_model, inputs))
+
+    mock_capture_exception.assert_not_called()
+    schema.refresh_from_db()
+    assert schema.status == ExternalDataSchema.Status.FAILED
+    assert schema.latest_error == "could not create the sync job"
