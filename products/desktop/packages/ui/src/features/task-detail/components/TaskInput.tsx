@@ -1264,7 +1264,7 @@ export function TaskInput({
               <Flex
                 gap="2"
                 align="center"
-                className="absolute bottom-full left-0 mb-1 min-w-0 gap-1"
+                className="absolute bottom-full left-0 mb-2 min-w-0 gap-1"
               >
                 {spaceSelector?.({ disabled: isCreatingTask })}
                 <WorkspaceModeSelect
