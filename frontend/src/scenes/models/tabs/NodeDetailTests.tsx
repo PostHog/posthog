@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { Link } from '@posthog/lemon-ui'
 
 import { DataWarehouseTab } from 'scenes/data-warehouse/dataWarehouseSceneLogic'
+import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
 import { urls } from 'scenes/urls'
 
 import { dataQualityChecksLogic } from 'products/data_quality/frontend/dataQualityChecksLogic'
@@ -33,6 +34,7 @@ function GateNotice(): JSX.Element | null {
 export function NodeDetailTests({ id, subjectId }: { id: string; subjectId: string }): JSX.Element {
     const { savedQuery } = useValues(nodeDetailSceneLogic({ id }))
     const { accessDenied } = useValues(dataQualityChecksLogic({ subjectType: 'view', subjectId }))
+    const { lastSuccessfulSyncAt } = useValues(materializationJobsLogic({ viewId: subjectId }))
 
     if (accessDenied) {
         return <p className="mb-0 text-secondary">You don't have access to the tests for this model.</p>
@@ -45,7 +47,7 @@ export function NodeDetailTests({ id, subjectId }: { id: string; subjectId: stri
                 subjectType="view"
                 subjectId={subjectId}
                 columns={savedQuery?.columns ?? []}
-                dataLastSyncedAt={savedQuery?.is_materialized ? savedQuery.last_run_at : undefined}
+                dataLastSyncedAt={savedQuery?.is_materialized ? lastSuccessfulSyncAt : undefined}
                 hideTitle
             />
         </div>

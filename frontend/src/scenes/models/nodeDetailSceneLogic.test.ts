@@ -114,6 +114,26 @@ describe('nodeDetailSceneLogic', () => {
         expect(logic.values.effectiveTab).toEqual('materialization')
     })
 
+    // A failed saved-query request leaves the scene rendering with nothing to read is_materialized
+    // from. Reading that absence as "not materialized" would open a matview on Query and print
+    // "Materialization: Off" under its own Materialized view tag.
+    it('falls back to the node type for materialization when the saved query fails to load', async () => {
+        node = buildNode('matview')
+        useMocks({
+            get: {
+                '/api/environments/:team_id/data_modeling_nodes/lineage/': { nodes: [], edges: [] },
+                '/api/environments/:team_id/data_modeling_nodes/:id/': () => [200, node],
+                '/api/environments/:team_id/warehouse_saved_queries/:id/': () => [500, {}],
+            },
+        })
+
+        await mountScene(urls.nodeDetail(NODE_ID))
+
+        expect(logic.values.savedQueryError).toBe(true)
+        expect(logic.values.isMaterialized).toBe(true)
+        expect(logic.values.effectiveTab).toEqual('materialization')
+    })
+
     // Deep links from the data quality overview outlive the flag that created them.
     it('falls back to the default tab when the URL names a tab this model does not have', async () => {
         flagsLogic.actions.setFeatureFlags([], {})

@@ -43,7 +43,7 @@ function FreshnessItem({
 }
 
 export function NodeDetailOverview({ id }: { id: string }): JSX.Element | null {
-    const { node, savedQuery, effectiveLastRunAt, effectiveLastRunStatus } = useValues(nodeDetailSceneLogic({ id }))
+    const { node, isMaterialized, effectiveLastRunAt, effectiveLastRunStatus } = useValues(nodeDetailSceneLogic({ id }))
 
     if (!node) {
         return null
@@ -51,7 +51,6 @@ export function NodeDetailOverview({ id }: { id: string }): JSX.Element | null {
 
     const typeTag = NODE_TYPE_TAG_SETTINGS[node.type]
     const isTable = node.type === 'table'
-    const isMaterialized = !!savedQuery?.is_materialized
 
     return (
         <dl className="flex flex-row flex-wrap gap-8 mb-0">

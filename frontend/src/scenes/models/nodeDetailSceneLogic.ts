@@ -42,6 +42,7 @@ export interface nodeDetailSceneLogicValues {
     effectiveLastRunAt: string | null
     effectiveLastRunStatus: string | null
     effectiveTab: NodeDetailSceneTab | null
+    isMaterialized: boolean
     lineageGraph: LineageGraphData | null
     lineageGraphError: boolean
     lineageGraphLoading: boolean
@@ -186,7 +187,8 @@ export interface nodeDetailSceneLogicMeta {
             sceneResolved: boolean,
             featureFlags: FeatureFlagsSet
         ) => NodeDetailSceneTab[]
-        defaultTab: (node: DataModelingNode | null, savedQuery: DataWarehouseSavedQuery | null) => NodeDetailSceneTab
+        isMaterialized: (node: DataModelingNode | null, savedQuery: DataWarehouseSavedQuery | null) => boolean
+        defaultTab: (node: DataModelingNode | null, isMaterialized: boolean) => NodeDetailSceneTab
         effectiveTab: (
             currentTab: 'lineage' | 'materialization' | 'query' | 'tests' | null,
             availableTabs: ('lineage' | 'materialization' | 'query' | 'tests')[],
@@ -353,9 +355,22 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 return tabs
             },
         ],
-        defaultTab: [
+        // The saved query is the authority on this, but its request can fail, and the scene still
+        // renders once it settles. The node's type carries the same answer, so a failed load falls
+        // back to it rather than reading as not materialized -- which would contradict the
+        // Materialized view tag beside it and send the default tab to Query.
+        isMaterialized: [
             (s) => [s.node, s.savedQuery],
-            (node: DataModelingNode | null, savedQuery: DataWarehouseSavedQuery | null): NodeDetailSceneTab => {
+            (node: DataModelingNode | null, savedQuery: DataWarehouseSavedQuery | null): boolean => {
+                if (savedQuery) {
+                    return !!savedQuery.is_materialized
+                }
+                return node?.type === 'matview' || node?.type === 'endpoint'
+            },
+        ],
+        defaultTab: [
+            (s) => [s.node, s.isMaterialized],
+            (node: DataModelingNode | null, isMaterialized: boolean): NodeDetailSceneTab => {
                 if (node?.type === 'table') {
                     return 'lineage'
                 }
@@ -364,7 +379,7 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 if (node?.type === 'endpoint') {
                     return 'query'
                 }
-                return savedQuery?.is_materialized ? 'materialization' : 'query'
+                return isMaterialized ? 'materialization' : 'query'
             },
         ],
         effectiveTab: [
