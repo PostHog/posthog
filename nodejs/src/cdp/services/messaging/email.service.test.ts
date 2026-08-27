@@ -2,6 +2,7 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
 
+import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
@@ -1208,6 +1209,37 @@ describe('EmailService', () => {
                     $email_subject: 'Test Subject',
                     $email_tracking_enabled: true,
                 },
+            })
+        })
+
+        it('names the workflow and the step that sent the email', async () => {
+            // Covers the send path reading the names off the invocation's flow and putting them on the
+            // captured event, so that an insight breaks down by workflow name instead of by UUID. The
+            // separate guarantee that a workflow step's invocation still carries its flow is held by
+            // the return type of `HogFlowFunctionsService.buildHogFunctionInvocation`, not by this test.
+            jest.spyOn((service as any).teamWorkflowsConfigService, 'shouldCaptureEngagementEvents').mockResolvedValue(
+                true
+            )
+            const hogFlow = new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withName('Onboarding drip')
+                .withWorkflow({
+                    actions: {
+                        trigger: { type: 'trigger', config: { type: 'event', filters: {} } },
+                        welcome_email: { type: 'function_email', name: 'Welcome email', config: {} as any },
+                    },
+                    edges: [{ from: 'trigger', to: 'welcome_email', type: 'continue' }],
+                })
+                .build()
+            invocation.state.actionId = 'welcome_email'
+            ;(invocation as any).hogFlow = hogFlow
+
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.capturedPostHogEvents[0].properties).toMatchObject({
+                $workflow_name: 'Onboarding drip',
+                $workflow_action_name: 'Welcome email',
             })
         })
 
