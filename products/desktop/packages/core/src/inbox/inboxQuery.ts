@@ -33,9 +33,9 @@ export const inboxReportKeys = {
   signalProcessingState: ["inbox", "signal-processing-state"] as const,
 };
 
-// Long enough for hover/focus intent to survive the navigation that follows,
-// while keeping status-sensitive report data short-lived.
-export const INBOX_REPORT_DETAIL_STALE_TIME_MS = 30_000;
+// Long enough for hover/focus intent to survive a pause before navigation,
+// while keeping status-sensitive report data reasonably fresh.
+export const INBOX_REPORT_DETAIL_STALE_TIME_MS = 10 * 60_000;
 
 /** Shared keys for the per-team / per-user Self-driving config queries. */
 export const signalsConfigKeys = {
