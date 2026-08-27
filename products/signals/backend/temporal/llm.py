@@ -174,9 +174,13 @@ async def call_llm(
             # string. Another attempt usually recovers, so retry instead of discarding the report.
             logger.warning(
                 f"LLM returned a malformed response (attempt {attempt + 1}/{retries}): {e}",
+                stage=stage_label,
                 attempt=attempt + 1,
                 retries=retries,
             )
+            # Count the malformed reply under its own status, so the gateway degradation rate stays
+            # visible even when the retry recovers and the call ends "ok".
+            metrics.increment_llm_call(stage_label, metrics.LLM_STATUS_MALFORMED)
             last_exception = e
             continue
         except Exception:

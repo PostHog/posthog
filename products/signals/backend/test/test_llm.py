@@ -90,7 +90,10 @@ async def test_non_message_response_retries_then_recovers():
     client = _mock_anthropic_client()
     client.messages.create = AsyncMock(side_effect=["not json", _text_response("ok")])
 
-    with patch(f"{MODULE_PATH}.build_async_anthropic_client", return_value=client):
+    with (
+        patch(f"{MODULE_PATH}.build_async_anthropic_client", return_value=client),
+        patch(f"{MODULE_PATH}.metrics.increment_llm_call") as increment_llm_call,
+    ):
         result = await call_llm(
             team_id=1,
             system_prompt="s",
@@ -102,6 +105,10 @@ async def test_non_message_response_retries_then_recovers():
 
     assert result == "{ok"
     assert client.messages.create.call_count == 2
+    # The malformed reply is counted under its own status even though the retry recovers, so the
+    # gateway degradation rate stays observable instead of hiding behind the final "ok".
+    assert ("match", "malformed") in {args for args, _ in increment_llm_call.call_args_list}
+    assert ("match", "ok") in {args for args, _ in increment_llm_call.call_args_list}
 
 
 @pytest.mark.asyncio
