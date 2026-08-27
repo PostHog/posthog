@@ -5,12 +5,13 @@ import pytest
 from fastapi import HTTPException
 
 from llm_gateway.baseten import (
+    BASETEN_MODELS,
     _inject_baseten_params,
     ensure_baseten_configured,
     make_baseten_responses_call,
 )
 from llm_gateway.config import Settings
-from llm_gateway.rate_limiting.cost_refresh import COST_ALIASES, normalize_metric_labels
+from llm_gateway.rate_limiting.cost_refresh import ALIAS_METRIC_LABELS, COST_ALIASES, normalize_metric_labels
 from llm_gateway.rate_limiting.model_cost_overrides import MODEL_COST_OVERRIDES
 
 GLM_MODEL = "@cf/zai-org/glm-5.2"
@@ -55,6 +56,16 @@ def test_inject_baseten_params_maps_model_and_pins_api_key(
     assert MODEL_COST_OVERRIDES[metric_model]["cache_read_input_token_cost"] == cache_read_cost
     assert MODEL_COST_OVERRIDES[metric_model]["output_cost_per_token"] == output_cost
     assert normalize_metric_labels(litellm_model, "openai") == ("baseten", metric_model)
+
+
+@pytest.mark.parametrize("public_model", sorted(BASETEN_MODELS))
+def test_every_baseten_model_is_priced_and_labeled(public_model: str) -> None:
+    # Derived from BASETEN_MODELS, so a model added there without a price fails here rather than
+    # billing nothing: the usage reporter drops any generation whose $ai_total_cost_usd is 0.
+    litellm_key = f"openai/{BASETEN_MODELS[public_model]}"
+    assert litellm_key in COST_ALIASES or litellm_key in MODEL_COST_OVERRIDES
+    provider, _ = ALIAS_METRIC_LABELS[litellm_key]
+    assert provider == "baseten"
 
 
 def test_inject_baseten_params_forces_streaming_usage() -> None:

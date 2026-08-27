@@ -49,7 +49,7 @@ def register_routes(routers: RouterRegistry) -> None:
     routers.projects.register(
         r"sandbox_custom_images", tasks.SandboxCustomImageViewSet, "project_sandbox_custom_images", ["team_id"]
     )
-    routers.root.register(r"code/invites", tasks.CodeInviteViewSet, "code_invites")
+    routers.root.register(r"code/invites", tasks.LegacyDesktopAccessViewSet, "code_invites")
     routers.root.register(
         r"code/sandbox-pricing", sandbox_pricing.SandboxComputePricingViewSet, "sandbox_compute_pricing"
     )

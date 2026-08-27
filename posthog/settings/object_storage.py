@@ -135,23 +135,24 @@ if TEST or DEBUG:
 else:
     IDENTITY_MATCHING_S3_ENDPOINT = os.getenv("IDENTITY_MATCHING_S3_ENDPOINT", "") or None
 
-# Deletion dictionary staging (posthog/dags/deletes.py). The pending-deletion and queued-uuid
-# dictionaries reach every host of the main cluster because their source table is replicated, and
+# Dictionary staging (posthog/dags/common/staged_dictionary.py), used by deletes_job and by the
+# person-overrides squash. A dictionary reaches every host of the main cluster because its
+# source table is replicated, and
 # replication is exactly what stops at a cluster boundary: a cluster with its own Keeper can never
-# join that replica set. So when a deletion target's storage lives on another cluster, deletes_job
-# stages the dictionary rows here as Parquet and each host there loads the same object for itself.
+# join that replica set. So when a target's storage lives on another cluster, the job stages the
+# dictionary rows here as Parquet and each host there loads the same object for itself.
 # Written and read by the ClickHouse cluster via `INSERT INTO FUNCTION s3(...)` / `s3(...)`, so
 # only the cluster needs bucket access; the Dagster process never touches boto3. Nothing deletes
 # these objects, so infra must expire the prefix through the bucket lifecycle policy. They hold
 # team ids and the person uuids already recorded on the Postgres AsyncDeletion rows.
-DELETES_DICTIONARY_S3_BUCKET = os.getenv("DELETES_DICTIONARY_S3_BUCKET") or OBJECT_STORAGE_BUCKET
-DELETES_DICTIONARY_S3_PREFIX = os.getenv("DELETES_DICTIONARY_S3_PREFIX", "deletes_dictionaries")
-DELETES_DICTIONARY_S3_REGION = os.getenv("DELETES_DICTIONARY_S3_REGION") or OBJECT_STORAGE_REGION
+DICTIONARY_STAGING_S3_BUCKET = os.getenv("DICTIONARY_STAGING_S3_BUCKET") or OBJECT_STORAGE_BUCKET
+DICTIONARY_STAGING_S3_PREFIX = os.getenv("DICTIONARY_STAGING_S3_PREFIX", "deletes_dictionaries")
+DICTIONARY_STAGING_S3_REGION = os.getenv("DICTIONARY_STAGING_S3_REGION") or OBJECT_STORAGE_REGION
 # Must be an endpoint the ClickHouse cluster can reach, which is not always OBJECT_STORAGE_ENDPOINT;
 # see the IDENTITY_MATCHING_S3_ENDPOINT note above for why localhost breaks under TEST.
 if TEST or DEBUG:
-    DELETES_DICTIONARY_S3_ENDPOINT: Optional[str] = (
-        os.getenv("DELETES_DICTIONARY_S3_ENDPOINT", "http://objectstorage:19000") or None
+    DICTIONARY_STAGING_S3_ENDPOINT: Optional[str] = (
+        os.getenv("DICTIONARY_STAGING_S3_ENDPOINT", "http://objectstorage:19000") or None
     )
 else:
-    DELETES_DICTIONARY_S3_ENDPOINT = os.getenv("DELETES_DICTIONARY_S3_ENDPOINT", "") or None
+    DICTIONARY_STAGING_S3_ENDPOINT = os.getenv("DICTIONARY_STAGING_S3_ENDPOINT", "") or None
