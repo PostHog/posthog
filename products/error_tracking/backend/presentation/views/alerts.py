@@ -11,8 +11,9 @@ from products.error_tracking.backend.facade import alerts as alerts_facade
 from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertDestination
 
 
-class ErrorTrackingAlertDestinationSerializer(serializers.Serializer):
-    id = serializers.UUIDField(read_only=True, help_text="Unique identifier of the destination.")
+class ErrorTrackingAlertDestinationRequestSerializer(serializers.Serializer):
+    # Request-side twin of ErrorTrackingAlertDestinationSerializer without the
+    # server-generated id, so generated clients don't require one on create.
     channel_type = serializers.ChoiceField(
         choices=ErrorTrackingAlertDestination.ChannelType.choices,
         help_text="Delivery channel for notifications.",
@@ -24,6 +25,10 @@ class ErrorTrackingAlertDestinationSerializer(serializers.Serializer):
         help_text="ID of the workspace integration used to deliver notifications (required for Slack).",
     )
     config = serializers.JSONField(help_text='Channel-specific delivery settings, e.g. {"channel": "C0123"} for Slack.')
+
+
+class ErrorTrackingAlertDestinationSerializer(ErrorTrackingAlertDestinationRequestSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="Unique identifier of the destination.")
 
 
 class ErrorTrackingAlertSerializer(serializers.Serializer):
@@ -67,7 +72,7 @@ class ErrorTrackingAlertCreateRequestSerializer(serializers.Serializer):
         min_value=0,
         help_text="Minimum seconds between thread-opening notifications per issue. 0 disables the throttle.",
     )
-    destinations = ErrorTrackingAlertDestinationSerializer(
+    destinations = ErrorTrackingAlertDestinationRequestSerializer(
         many=True,
         allow_empty=False,
         help_text="Delivery targets notifications fan out to.",
@@ -97,7 +102,7 @@ class ErrorTrackingAlertUpdateRequestSerializer(serializers.Serializer):
         min_value=0,
         help_text="Minimum seconds between thread-opening notifications per issue. Omit to keep the current value.",
     )
-    destinations = ErrorTrackingAlertDestinationSerializer(
+    destinations = ErrorTrackingAlertDestinationRequestSerializer(
         many=True,
         required=False,
         allow_empty=False,

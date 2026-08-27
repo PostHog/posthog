@@ -32,8 +32,6 @@ export const ChannelTypeEnumApi = {
 } as const
 
 export interface ErrorTrackingAlertDestinationApi {
-    /** Unique identifier of the destination. */
-    readonly id: string
     /** Delivery channel for notifications.
      *
      * * `slack` - Slack */
@@ -45,6 +43,8 @@ export interface ErrorTrackingAlertDestinationApi {
     integration_id?: number | null
     /** Channel-specific delivery settings, e.g. {"channel": "C0123"} for Slack. */
     config: unknown
+    /** Unique identifier of the destination. */
+    readonly id: string
 }
 
 export interface ErrorTrackingAlertApi {
@@ -77,6 +77,20 @@ export interface PaginatedErrorTrackingAlertListApi {
     results: ErrorTrackingAlertApi[]
 }
 
+export interface ErrorTrackingAlertDestinationRequestApi {
+    /** Delivery channel for notifications.
+     *
+     * * `slack` - Slack */
+    channel_type: ChannelTypeEnumApi
+    /**
+     * ID of the workspace integration used to deliver notifications (required for Slack).
+     * @nullable
+     */
+    integration_id?: number | null
+    /** Channel-specific delivery settings, e.g. {"channel": "C0123"} for Slack. */
+    config: unknown
+}
+
 export interface ErrorTrackingAlertCreateRequestApi {
     /**
      * Human-readable name of the alert.
@@ -93,7 +107,7 @@ export interface ErrorTrackingAlertCreateRequestApi {
      */
     throttle_seconds?: number
     /** Delivery targets notifications fan out to. */
-    destinations: ErrorTrackingAlertDestinationApi[]
+    destinations: ErrorTrackingAlertDestinationRequestApi[]
 }
 
 export interface ErrorTrackingAlertUpdateRequestApi {
@@ -114,7 +128,7 @@ export interface ErrorTrackingAlertUpdateRequestApi {
      */
     throttle_seconds?: number
     /** Delivery targets notifications fan out to. When provided, replaces all current destinations. */
-    destinations?: ErrorTrackingAlertDestinationApi[]
+    destinations?: ErrorTrackingAlertDestinationRequestApi[]
 }
 
 export interface PatchedErrorTrackingAlertUpdateRequestApi {
@@ -135,7 +149,7 @@ export interface PatchedErrorTrackingAlertUpdateRequestApi {
      */
     throttle_seconds?: number
     /** Delivery targets notifications fan out to. When provided, replaces all current destinations. */
-    destinations?: ErrorTrackingAlertDestinationApi[]
+    destinations?: ErrorTrackingAlertDestinationRequestApi[]
 }
 
 /**

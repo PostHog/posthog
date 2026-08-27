@@ -39,7 +39,6 @@ export const ErrorTrackingAlertsCreateBody = /* @__PURE__ */ zod.object({
     destinations: zod
         .array(
             zod.object({
-                id: zod.uuid().describe('Unique identifier of the destination.'),
                 channel_type: zod
                     .enum(['slack'])
                     .describe('\* `slack` - Slack')
@@ -94,7 +93,6 @@ export const ErrorTrackingAlertsUpdateBody = /* @__PURE__ */ zod.object({
     destinations: zod
         .array(
             zod.object({
-                id: zod.uuid().describe('Unique identifier of the destination.'),
                 channel_type: zod
                     .enum(['slack'])
                     .describe('\* `slack` - Slack')
@@ -150,7 +148,6 @@ export const ErrorTrackingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
     destinations: zod
         .array(
             zod.object({
-                id: zod.uuid().describe('Unique identifier of the destination.'),
                 channel_type: zod
                     .enum(['slack'])
                     .describe('\* `slack` - Slack')

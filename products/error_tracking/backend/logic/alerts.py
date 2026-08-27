@@ -24,6 +24,10 @@ NATIVE_ALERTS_FLAG = "error-tracking-native-alerts"
 
 def native_alerts_enabled(team_id: int) -> bool:
     try:
+        # Alert rows are canonical-project-scoped, so the flag must bucket child
+        # environments with their parent or per-environment ids would gate
+        # differently than the rows they read.
+        team_id = resolve_effective_team_id(team_id)
         return feature_enabled_or_false(
             NATIVE_ALERTS_FLAG,
             str(team_id),
