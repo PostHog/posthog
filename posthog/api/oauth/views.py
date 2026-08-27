@@ -47,6 +47,7 @@ from posthog.api.oauth.cimd import (
     CIMDFetchError,
     CIMDValidationError,
     enqueue_cimd_refresh_if_stale,
+    find_cimd_application,
     get_application_by_client_id,
     get_or_create_cimd_application,
     is_cimd_client_id,
@@ -387,7 +388,6 @@ class OAuthValidator(OAuth2Validator):
         """
         Load the application from the database, supporting CIMD URL-form client_ids.
 
-        For URL-format client_ids, looks up by cimd_metadata_url.
         Does NOT fetch metadata — that only happens in validate_client_id().
         """
 
@@ -397,10 +397,9 @@ class OAuthValidator(OAuth2Validator):
         if request.client:
             return request.client
 
-        # CIMD URLs are looked up by cimd_metadata_url, not the auto-generated client_id UUID
         app: OAuthApplication | None = None
         if is_cimd_client_id(client_id):
-            app = OAuthApplication.objects.filter(cimd_metadata_url=client_id).first()
+            app = find_cimd_application(client_id)
         else:
             app = OAuthApplication.objects.filter(client_id=client_id).first()
 
@@ -1298,7 +1297,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         # Must happen here (not in the OAuthValidator) because the validator
         # only receives an oauthlib Request which lacks request.META for IP extraction.
         client_id = request.query_params.get("client_id")
-        if is_cimd_client_id(client_id) and not OAuthApplication.objects.filter(cimd_metadata_url=client_id).exists():
+        if is_cimd_client_id(client_id) and find_cimd_application(client_id) is None:
             for throttle_cls in CIMD_THROTTLE_CLASSES:
                 throttle = throttle_cls()
                 if not throttle.allow_request(request, view=self):
