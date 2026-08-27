@@ -33,7 +33,9 @@ class Config(BaseSettings):
     environment: str | None = Field(default=None)
     grafana_url: str | None = Field(default=None)
     loki_datasource_uid: str = Field(default="P44D702D3E93867EC")
-    runbook_url: str | None = Field(default=None)
+    runbook_url: str | None = Field(
+        default="https://runbooks.posthog.com/services/ingestion/runbooks/ingestion-acceptance-test"
+    )
 
     @field_validator("api_host")
     @classmethod

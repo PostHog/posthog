@@ -273,7 +273,6 @@ class TestSendSlackNotification:
             project_api_key="phc_test_key",
             team_id=12345,
             slack_webhook_url="https://hooks.slack.com/services/T00/B00/XXX",
-            runbook_url="https://runbooks.posthog.com/services/ingestion/acceptance-test-failure",
         )
         run_context = RunContext(
             workflow_id="wf-1",
@@ -289,7 +288,9 @@ class TestSendSlackNotification:
         assert "<https://cloud.temporal.io/namespaces/ns.abc/workflows/wf-1/run-1/history|Temporal run>" in links_text
         assert "https://grafana.prod-us.posthog.dev/explore?left=" in links_text
         assert "temporal-worker-general-purpose" in unquote(links_text)
-        assert "<https://runbooks.posthog.com/services/ingestion/acceptance-test-failure|Runbook>" in links_text
+        assert (
+            "<https://runbooks.posthog.com/services/ingestion/runbooks/ingestion-acceptance-test|Runbook>" in links_text
+        )
         assert "Environment: prod-us" in " ".join(str(b) for b in blocks)
 
     @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")

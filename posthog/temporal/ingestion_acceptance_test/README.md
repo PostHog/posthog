@@ -85,18 +85,18 @@ class TestExample(AcceptanceTest):
 
 All configuration is loaded from environment variables with the `INGESTION_ACCEPTANCE_TEST_` prefix:
 
-| Variable                | Required | Default             | Description                                                                              |
-| ----------------------- | -------- | ------------------- | ---------------------------------------------------------------------------------------- |
-| `API_HOST`              | Yes      | -                   | PostHog API host (e.g., `https://us.posthog.com`)                                        |
-| `PROJECT_API_KEY`       | Yes      | -                   | Project token for capturing events                                                       |
-| `TEAM_ID`               | Yes      | -                   | Team ID for ClickHouse queries                                                           |
-| `EVENT_TIMEOUT_SECONDS` | No       | 90                  | Max time to wait for events to appear                                                    |
-| `POLL_INTERVAL_SECONDS` | No       | 10.0                | Interval between query attempts                                                          |
-| `SLACK_WEBHOOK_URL`     | No       | -                   | Slack incoming webhook for failure notifications                                         |
-| `ENVIRONMENT`           | No       | derived             | Deployment name in alerts (`prod-us`, `prod-eu`, `dev`); derived from `API_HOST`         |
-| `GRAFANA_URL`           | No       | derived             | Grafana base URL for the Loki link; `https://grafana.<environment>.posthog.dev` for `prod-us`, `prod-eu`, `dev` |
-| `LOKI_DATASOURCE_UID`   | No       | `P44D702D3E93867EC` | Loki datasource UID used in the Grafana Explore link                                     |
-| `RUNBOOK_URL`           | No       | -                   | Runbook link included in alerts                                                          |
+| Variable                | Required | Default                                                                                                         | Description                                                                                                     |
+| ----------------------- | -------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `API_HOST`              | Yes      | -                                                                                                               | PostHog API host (e.g., `https://us.posthog.com`)                                                               |
+| `PROJECT_API_KEY`       | Yes      | -                                                                                                               | Project token for capturing events                                                                              |
+| `TEAM_ID`               | Yes      | -                                                                                                               | Team ID for ClickHouse queries                                                                                  |
+| `EVENT_TIMEOUT_SECONDS` | No       | 90                                                                                                              | Max time to wait for events to appear                                                                           |
+| `POLL_INTERVAL_SECONDS` | No       | 10.0                                                                                                            | Interval between query attempts                                                                                 |
+| `SLACK_WEBHOOK_URL`     | No       | -                                                                                                               | Slack incoming webhook for failure notifications                                                                |
+| `ENVIRONMENT`           | No       | derived                                                                                                         | Deployment name in alerts (`prod-us`, `prod-eu`, `dev`); derived from `API_HOST`                                |
+| `GRAFANA_URL`           | No       | derived                                                                                                         | Grafana base URL for the Loki link; `https://grafana.<environment>.posthog.dev` for `prod-us`, `prod-eu`, `dev` |
+| `LOKI_DATASOURCE_UID`   | No       | `P44D702D3E93867EC`                                                                                             | Loki datasource UID used in the Grafana Explore link                                                            |
+| `RUNBOOK_URL`           | No       | [ingestion-acceptance-test](https://runbooks.posthog.com/services/ingestion/runbooks/ingestion-acceptance-test) | Runbook link included in alerts                                                                                 |
 
 ## Running Locally
 
