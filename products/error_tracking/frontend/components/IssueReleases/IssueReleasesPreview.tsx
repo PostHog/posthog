@@ -23,7 +23,7 @@ import { ErrorTrackingReleasesQueryResponse } from '~/queries/schema/schema-gene
 import { IssueFilterPreviewHeader } from '../IssueFilterPreview/IssueFilterPreviewHeader'
 import { issueFilterPreviewLogic } from '../IssueFilterPreview/issueFilterPreviewLogic'
 import { IssueReleaseRow } from './IssueReleaseRow'
-import { IssueReleaseStrip, listReleaseStrips, maxBucketValue } from './issueReleases'
+import { formatReleaseCount, IssueReleaseStrip, listReleaseStrips, maxBucketValue } from './issueReleases'
 import { issueReleasesLogic } from './issueReleasesLogic'
 import { IssueReleasesStackedChart } from './IssueReleasesStackedChart'
 
@@ -117,7 +117,7 @@ function ReleasesSummary({
     if (releases === null) {
         return null
     }
-    const count = pluralize(releases.release_count, 'release')
+    const count = formatReleaseCount(releases.release_count, 'release', releases.release_count_truncated)
     // An active `$app_namespace` chip narrows the response to that app, so the picker stays to switch back.
     if (selectedNamespace === null) {
         if (releases.release_count === 0 && releases.namespaces.length === 0) {

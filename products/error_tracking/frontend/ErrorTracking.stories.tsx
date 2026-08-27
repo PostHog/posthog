@@ -240,6 +240,7 @@ function storyReleasesResponse(maxReleases: number): ErrorTrackingReleasesQueryR
         other_release_count: hidden.length,
         unattributed,
         release_count: releases.length,
+        release_count_truncated: false,
         namespaces: ['com.example.app'],
         total: series.reduce((sum, release) => sum + release.total, 0),
     }

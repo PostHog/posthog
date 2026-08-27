@@ -12,6 +12,7 @@ from posthog.schema import (
 )
 
 from products.error_tracking.backend.hogql_queries.error_tracking_releases_query_runner import (
+    MAX_QUERY_RELEASES,
     MAX_RELEASES,
     MAX_RESOLUTION,
     ErrorTrackingReleasesQueryRunner,
@@ -186,6 +187,24 @@ class TestErrorTrackingReleasesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.other_release_count == 1
         assert response.other is not None
         assert response.other.counts == [0, 0, 0, 0, 0, 0, 1]
+
+    def test_flags_a_release_count_the_query_capped(self) -> None:
+        runner = ErrorTrackingReleasesQueryRunner(
+            team=self.team,
+            query=ErrorTrackingReleasesQuery(
+                kind="ErrorTrackingReleasesQuery",
+                issueId=ISSUE_ID,
+                dateRange=DateRange(date_from="2024-01-01T00:00:00Z", date_to="2024-01-08T00:00:00Z"),
+                resolution=7,
+            ),
+        )
+        bucket = runner.bucket_starts[-1]
+
+        def rows(count: int) -> list:
+            return [("com.example.ios", str(index), None, [(bucket, 1)], 1) for index in range(count)]
+
+        assert runner.fold(rows(MAX_QUERY_RELEASES)).release_count_truncated is True
+        assert runner.fold(rows(MAX_QUERY_RELEASES - 1)).release_count_truncated is False
 
     def test_rejects_malformed_issue_id(self) -> None:
         with self.assertRaises(ValidationError):

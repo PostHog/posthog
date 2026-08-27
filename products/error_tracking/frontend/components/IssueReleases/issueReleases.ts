@@ -1,4 +1,5 @@
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
 import {
@@ -23,6 +24,12 @@ export function formatReleaseVersion(release: Pick<ErrorTrackingIssueRelease, 'v
         return 'Unknown version'
     }
     return release.build ? `${release.version} (${release.build})` : release.version
+}
+
+/** A release count for display. A truncated response counted only the releases the query returned, so it reads as a lower bound. */
+export function formatReleaseCount(count: number, noun: string, truncated: boolean): string {
+    const number = humanFriendlyNumber(count)
+    return `${truncated ? `${number}+` : number} ${pluralize(count, noun, undefined, false)}`
 }
 
 export type IssueReleaseStripKind = 'release' | 'other' | 'unattributed'
@@ -58,7 +65,11 @@ export function listReleaseStrips(
         }
     })
     if (response.other) {
-        const label = pluralize(response.other_release_count, 'other release')
+        const label = formatReleaseCount(
+            response.other_release_count,
+            'other release',
+            response.release_count_truncated
+        )
         strips.push({
             key: 'other',
             kind: 'other',

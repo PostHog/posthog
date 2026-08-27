@@ -3999,6 +3999,8 @@ export interface ErrorTrackingReleasesQueryResponse extends AnalyticsQueryRespon
     unattributed: ErrorTrackingReleaseSeries | null
     /** Distinct releases in the range for the selected app, before folding. */
     release_count: integer
+    /** Set when the query hit its row cap, so `release_count`, `other` and `total` are lower bounds. */
+    release_count_truncated: boolean
     /** Every app namespace in the range, regardless of `appNamespace`. */
     namespaces: string[]
     total: integer

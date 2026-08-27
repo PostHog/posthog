@@ -11321,6 +11321,10 @@ class CachedErrorTrackingReleasesQueryResponse(BaseModel):
         ...,
         description=("Distinct releases in the range for the selected app, before folding."),
     )
+    release_count_truncated: bool = Field(
+        ...,
+        description=("Set when the query hit its row cap, so `release_count`, `other` and `total` are lower bounds."),
+    )
     resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
         default=None,
         description=("The resolved previous/comparison period date range, when comparing against another period"),
@@ -16700,6 +16704,10 @@ class ErrorTrackingReleasesQueryResponse(BaseModel):
         ...,
         description=("Distinct releases in the range for the selected app, before folding."),
     )
+    release_count_truncated: bool = Field(
+        ...,
+        description=("Set when the query hit its row cap, so `release_count`, `other` and `total` are lower bounds."),
+    )
     resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
         default=None,
         description=("The resolved previous/comparison period date range, when comparing against another period"),
@@ -19394,6 +19402,10 @@ class QueryResponseAlternative16(BaseModel):
     release_count: int = Field(
         ...,
         description=("Distinct releases in the range for the selected app, before folding."),
+    )
+    release_count_truncated: bool = Field(
+        ...,
+        description=("Set when the query hit its row cap, so `release_count`, `other` and `total` are lower bounds."),
     )
     resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
         default=None,

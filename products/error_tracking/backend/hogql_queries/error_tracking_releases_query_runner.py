@@ -32,7 +32,8 @@ DEFAULT_MAX_RELEASES = 5
 MAX_RELEASES = 1000
 MIN_BUCKET_SECONDS = 60
 # Rows the query hands back for folding. Past this, the lowest-volume releases are dropped, so the
-# fold undercounts `other` but every returned series stays exact.
+# fold undercounts `other` but every returned series stays exact. A capped response says so, so the
+# panel can show its release count as a lower bound.
 MAX_QUERY_RELEASES = 5000
 
 # Bounded digit runs keep `int()` from raising on absurdly long client-set version strings. Only the
@@ -267,6 +268,7 @@ class ErrorTrackingReleasesQueryRunner(
             other_release_count=len(hidden),
             unattributed=self.series(unattributed) if unattributed else None,
             release_count=len(ordered),
+            release_count_truncated=len(rows) >= MAX_QUERY_RELEASES,
             namespaces=sorted(namespaces),
             total=total,
         )

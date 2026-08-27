@@ -7846,6 +7846,10 @@
                     "$ref": "#/definitions/integer",
                     "description": "Distinct releases in the range for the selected app, before folding."
                 },
+                "release_count_truncated": {
+                    "description": "Set when the query hit its row cap, so `release_count`, `other` and `total` are lower bounds.",
+                    "type": "boolean"
+                },
                 "resolved_compare_date_range": {
                     "$ref": "#/definitions/ResolvedDateRangeResponse",
                     "description": "The resolved previous/comparison period date range, when comparing against another period"
@@ -7920,6 +7924,7 @@
                 "other",
                 "other_release_count",
                 "release_count",
+                "release_count_truncated",
                 "results",
                 "timezone",
                 "total",
@@ -22580,6 +22585,10 @@
                     "$ref": "#/definitions/integer",
                     "description": "Distinct releases in the range for the selected app, before folding."
                 },
+                "release_count_truncated": {
+                    "description": "Set when the query hit its row cap, so `release_count`, `other` and `total` are lower bounds.",
+                    "type": "boolean"
+                },
                 "resolved_compare_date_range": {
                     "$ref": "#/definitions/ResolvedDateRangeResponse",
                     "description": "The resolved previous/comparison period date range, when comparing against another period"
@@ -22647,6 +22656,7 @@
                 "other",
                 "other_release_count",
                 "release_count",
+                "release_count_truncated",
                 "results",
                 "total",
                 "unattributed"
@@ -40675,6 +40685,10 @@
                             "$ref": "#/definitions/integer",
                             "description": "Distinct releases in the range for the selected app, before folding."
                         },
+                        "release_count_truncated": {
+                            "description": "Set when the query hit its row cap, so `release_count`, `other` and `total` are lower bounds.",
+                            "type": "boolean"
+                        },
                         "resolved_compare_date_range": {
                             "$ref": "#/definitions/ResolvedDateRangeResponse",
                             "description": "The resolved previous/comparison period date range, when comparing against another period"
@@ -40742,6 +40756,7 @@
                         "other",
                         "other_release_count",
                         "release_count",
+                        "release_count_truncated",
                         "results",
                         "total",
                         "unattributed"

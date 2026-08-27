@@ -1,7 +1,13 @@
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import { PreviewPropertyFilter } from '../IssueFilterPreview/issueFilterPreviewLogic'
-import { IssueReleaseStrip, IssueReleaseStripKind, releasePropertyFilters, selectedAppNamespace } from './issueReleases'
+import {
+    formatReleaseCount,
+    IssueReleaseStrip,
+    IssueReleaseStripKind,
+    releasePropertyFilters,
+    selectedAppNamespace,
+} from './issueReleases'
 
 describe('issueReleases', () => {
     const group = (...filters: object[]): UniversalFiltersGroup => ({
@@ -27,6 +33,15 @@ describe('issueReleases', () => {
         ['handles an empty group', group(), null],
     ])('selectedAppNamespace %s', (_name, filterGroup, expected) => {
         expect(selectedAppNamespace(filterGroup)).toBe(expected)
+    })
+
+    it.each<[number, string, boolean, string]>([
+        [5000, 'release', true, '5,000+ releases'],
+        [4999, 'release', false, '4,999 releases'],
+        [1, 'release', false, '1 release'],
+        [12, 'other release', true, '12+ other releases'],
+    ])('formatReleaseCount %s %s truncated=%s', (count, noun, truncated, expected) => {
+        expect(formatReleaseCount(count, noun, truncated)).toBe(expected)
     })
 
     const emptySeries = { counts: [], total: 0, first_seen: null, last_seen: null }
