@@ -29724,6 +29724,28 @@ export namespace Schemas {
     }
 
     /**
+     * How much workflow email this project may send, and how much of that it has used.
+     */
+    export interface EmailSendingAllowance {
+      /** The project's current sending tier. Projects start at 0 and move up as they build a clean sending history. */
+      readonly tier: number;
+      /** The highest tier there is, so the current tier can be shown as progress. */
+      readonly max_tier: number;
+      /** How many emails this tier allows per hour. */
+      readonly emails_per_hour: number;
+      /** How many emails this tier allows per day. */
+      readonly emails_per_day: number;
+      /** The largest audience this tier allows for a single batch send. */
+      readonly max_batch_audience: number;
+      /** Emails sent by this project's workflows in the last hour. */
+      readonly emails_sent_last_hour: number;
+      /** Emails sent by this project's workflows in the last 24 hours. */
+      readonly emails_sent_last_day: number;
+      /** True when these allowances are applied to sends. False while they are only being measured. */
+      readonly enforced: boolean;
+    }
+
+    /**
      * Bounce/complaint rates over the last 30 days of workflow email, computed on the fly from app metrics.
      */
     export interface EmailSendingRates {
@@ -84849,6 +84871,8 @@ export namespace Schemas {
       readonly email_sending_suspended_at: string | null;
       /** Staff-authored reason shown to customers alongside the suspension notice; empty when not suspended. */
       readonly email_sending_suspension_reason: string;
+      /** The project's sending tier, what it allows, and how much of it has been used; null when the caller lacks project-wide workflow access. */
+      readonly sending_allowance: EmailSendingAllowance | null;
     }
 
     export const TeamMCPGatewayConfigMemberDefaultPreset = {...MCPPolicyPresetEnum,...BlankEnum,} as const
