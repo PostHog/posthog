@@ -5,16 +5,29 @@ import { z } from 'zod'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
+import { UUIDT } from '~/common/utils/utils'
 
 /**
- * One completion marker per processor partition certifies a reconcile run. Kept in step with
- * `COHORT_PARTITION_COUNT` in `rust/cohort-core/src/partitioner.rs`, which is compile-time stable
- * by design — the marker topic's partition count is load-bearing for the same reason.
+ * One completion marker per processor partition certifies a reconcile run. Must match the
+ * processor's `cohort_partition_count` (`rust/cohort-stream-processor/src/config.rs`), which is 64
+ * in production but env-overridable; on an environment running fewer partitions the bitmap never
+ * completes and every sweep is a no-op, surfaced only by runs aging into abandonment.
  */
 export const COHORT_PARTITION_COUNT = 64
 
+/**
+ * The producer's fixed-width version stamp, so lexicographic order is chronological order. Pinned
+ * wherever a stamp is bound into a `::timestamp` cast: anything Postgres cannot parse would throw
+ * out of the batch and take the consumer down with it.
+ */
+export const PRODUCER_VERSION_FORMAT = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}$/
+
 /** All 64 bits set, read as a signed 64-bit integer. Same convention as the seeder's ledger. */
 const ALL_MARKERS = '-1'
+
+/** The marker topic's retention. Past this a run's markers cannot be redelivered, so a run still
+ * unswept by then is unrecoverable and its ledger row is only hygiene. */
+const MARKER_RETENTION_DAYS = 30
 
 /** A tick sweeps at most this many runs; the rest wait for the next one. */
 const MAX_RUNS_PER_TICK = 10
@@ -36,10 +49,7 @@ const ReconcileCompleteMarkerSchema = z.object({
         .min(0)
         .max(COHORT_PARTITION_COUNT - 1),
     run_id: z.guid(),
-    // The producer's fixed-width stamp. Pinned here because it is bound straight into a
-    // `::timestamp` cast: anything Postgres cannot parse would throw out of the marker batch and
-    // take the membership consumer down with it.
-    last_updated: z.string().regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}$/),
+    last_updated: z.string().regex(PRODUCER_VERSION_FORMAT),
 })
 
 export type ReconcileCompleteMarker = z.infer<typeof ReconcileCompleteMarkerSchema>
@@ -67,6 +77,7 @@ type ClaimableRun = {
     team_id: string
     membership_hwms: MembershipWatermarks | null
     threshold: string | null
+    claim_token: string | null
 }
 
 const markersConsumed = new Counter({
@@ -92,7 +103,8 @@ const sweepsGateBlocked = new Counter({
 
 const sweepsAbandoned = new Counter({
     name: 'cdp_cohort_membership_sweeps_abandoned',
-    help: 'Reconcile runs given up on because their marker set never completed',
+    help: 'Reconcile runs given up on, by the state they were stuck in',
+    labelNames: ['reason'],
 })
 
 const sweepCycles = new Counter({
@@ -103,27 +115,31 @@ const sweepCycles = new Counter({
 
 const sweepGateWaitSeconds = new Gauge({
     name: 'cdp_cohort_membership_sweep_gate_wait_seconds',
-    help: 'Time since the oldest fully-marked run was last written to, while it waits on the gate',
+    help: 'Time since the oldest gate-blocked run completed its marker set',
 })
 
 /**
  * Deletes `cohort_membership` rows that a completed reconcile run did not re-assert.
  *
  * The consumer only ever upserts, so a person who stops matching an edited cohort keeps an
- * `in_cohort = true` row forever. A reconcile run replays the cohort's full current membership and
- * then certifies itself with one marker per partition; everything the run stamped older than
- * itself is by definition no longer a member.
+ * `in_cohort = true` row forever. A reconcile run emits one row per person holding a `cf_stage2`
+ * register row for the cohort and then certifies itself with one marker per partition; persons
+ * with no register row get nothing, and their versioned rows older than the run are what the
+ * sweep deletes.
  */
 export class CohortMembershipSweeper {
     private running = false
+    private stopping = false
     private loopPromise: Promise<void> | null = null
     private sleepResolve: (() => void) | null = null
 
     constructor(
         private config: CohortMembershipSweepConfig,
         private postgres: PostgresRouter,
-        /** Both read the membership consumer's own client: the two topics may live on different clusters. */
+        /** All three describe the membership consumer's own client: the marker topic may live on another cluster. */
         private kafka: {
+            /** Broker identity the progress rows are keyed by; offsets are only comparable within one cluster. */
+            cluster: string
             captureMembershipWatermarks: () => Promise<MembershipWatermarks>
             refreshConsumerProgress: () => Promise<void>
         }
@@ -165,56 +181,89 @@ export class CohortMembershipSweeper {
     }
 
     /**
-     * Folding a marker in is a bit union, so redelivery changes nothing. The run turns claimable
-     * only on the transition to a complete set, and only once.
+     * Folding a marker in is a bit union, so redelivery changes nothing. This path runs inside the
+     * marker consumer's batch, whose offsets commit whether or not each fold landed, so a failed
+     * fold is caught and counted rather than rethrown: a rethrow would take the membership consumer
+     * in the same process down with it. A lost fold leaves the run one bit short until it ages into
+     * abandonment, which `sweepsAbandoned` surfaces, and the next reconcile heals the cohort.
      */
     public async applyMarkers(markers: ReconcileCompleteMarker[]): Promise<void> {
         for (const marker of markers) {
-            const result = await this.postgres.query<{ complete: boolean; status: string }>(
-                PostgresUse.BEHAVIORAL_COHORTS_RW,
-                `
-                    INSERT INTO cohort_membership_sweeps
-                        (run_id, cohort_id, team_id, marker_bits, min_marker_version)
-                    VALUES ($1, $2, $3, (1::bigint << $4), $5::timestamp)
-                    ON CONFLICT (run_id, cohort_id)
-                    DO UPDATE SET
-                        marker_bits = cohort_membership_sweeps.marker_bits | (1::bigint << $4),
-                        min_marker_version = LEAST(
-                            cohort_membership_sweeps.min_marker_version,
-                            EXCLUDED.min_marker_version
-                        ),
-                        updated_at = CURRENT_TIMESTAMP
-                    RETURNING marker_bits = ${ALL_MARKERS} AS complete, status
-                `,
-                [marker.run_id, marker.cohort_id, marker.team_id, marker.partition, marker.last_updated],
-                'applyCohortReconcileMarker'
-            )
-
-            const { complete, status } = result.rows[0]
-            if (!complete || status !== 'collecting') {
-                continue
+            try {
+                await this.postgres.query(
+                    PostgresUse.BEHAVIORAL_COHORTS_RW,
+                    `
+                        INSERT INTO cohort_membership_sweeps
+                            (run_id, cohort_id, team_id, marker_bits, min_marker_version)
+                        VALUES ($1, $2, $3, (1::bigint << $4), $5::timestamp)
+                        ON CONFLICT (run_id, cohort_id)
+                        DO UPDATE SET
+                            marker_bits = cohort_membership_sweeps.marker_bits | (1::bigint << $4),
+                            min_marker_version = LEAST(
+                                cohort_membership_sweeps.min_marker_version,
+                                EXCLUDED.min_marker_version
+                            ),
+                            updated_at = CURRENT_TIMESTAMP
+                    `,
+                    [marker.run_id, marker.cohort_id, marker.team_id, marker.partition, marker.last_updated],
+                    'applyCohortReconcileMarker'
+                )
+            } catch (error) {
+                markersConsumed.inc({ outcome: 'apply_failed' })
+                logger.error('Failed to apply a reconcile marker', {
+                    error: String(error),
+                    run_id: marker.run_id,
+                    cohort_id: marker.cohort_id,
+                    partition: marker.partition,
+                })
             }
+        }
+    }
 
-            // Every snapshot row of this run was acked before its marker was produced, so the
-            // watermarks read now bound the whole snapshot on the membership topic.
-            const watermarks = await this.kafka.captureMembershipWatermarks()
+    /**
+     * Turns fully-marked runs claimable. This lives in the sweep loop rather than the marker batch
+     * because capturing watermarks talks to Kafka and can fail transiently; the loop retries every
+     * tick until it lands, while a throw inside the marker batch would kill the pod.
+     */
+    private async promoteMarkedRuns(): Promise<void> {
+        const marked = await this.postgres.query<{ run_id: string; cohort_id: string; team_id: string }>(
+            PostgresUse.BEHAVIORAL_COHORTS_RW,
+            `
+                SELECT run_id, cohort_id, team_id FROM cohort_membership_sweeps
+                WHERE status = 'collecting' AND marker_bits = ${ALL_MARKERS}
+                LIMIT ${MAX_CANDIDATES_PER_TICK}
+            `,
+            undefined,
+            'findMarkedCohortMembershipSweeps'
+        )
 
+        if (marked.rows.length === 0) {
+            return
+        }
+
+        // Every snapshot row of these runs was acked before its last marker was produced, so
+        // watermarks read now bound each whole snapshot on the membership topic. Reading later
+        // than the completion only raises the bar the gate waits for, never lowers it.
+        const watermarks = await this.kafka.captureMembershipWatermarks()
+
+        for (const run of marked.rows) {
             await this.postgres.query(
                 PostgresUse.BEHAVIORAL_COHORTS_RW,
                 `
                     UPDATE cohort_membership_sweeps
-                    SET status = 'ready', membership_hwms = $1::jsonb, updated_at = CURRENT_TIMESTAMP
+                    SET status = 'ready', membership_hwms = $1::jsonb,
+                        ready_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
                     WHERE run_id = $2 AND cohort_id = $3
                       AND status = 'collecting' AND marker_bits = ${ALL_MARKERS}
                 `,
-                [JSON.stringify(watermarks), marker.run_id, marker.cohort_id],
+                [JSON.stringify(watermarks), run.run_id, run.cohort_id],
                 'readyCohortMembershipSweep'
             )
 
             logger.info('Reconcile run is fully marked and ready to sweep', {
-                run_id: marker.run_id,
-                cohort_id: marker.cohort_id,
-                team_id: marker.team_id,
+                run_id: run.run_id,
+                cohort_id: run.cohort_id,
+                team_id: run.team_id,
             })
         }
     }
@@ -222,10 +271,15 @@ export class CohortMembershipSweeper {
     public async runOnce(): Promise<SweepCycleResult> {
         const result: SweepCycleResult = { swept: 0, rowsDeleted: 0, blocked: 0, abandoned: 0 }
 
+        await this.promoteMarkedRuns()
         await this.kafka.refreshConsumerProgress()
         const progress = await this.readConsumerProgress()
 
         for (const run of await this.claimableRuns()) {
+            if (this.stopping) {
+                break
+            }
+
             if (!this.gateSatisfied(run, progress)) {
                 result.blocked += 1
                 sweepsGateBlocked.inc()
@@ -241,7 +295,12 @@ export class CohortMembershipSweeper {
                 continue
             }
 
-            result.rowsDeleted += await this.sweep(claimed)
+            const deleted = await this.sweep(claimed)
+            if (deleted === null) {
+                continue
+            }
+
+            result.rowsDeleted += deleted
             result.swept += 1
             sweepsExecuted.inc()
         }
@@ -261,15 +320,17 @@ export class CohortMembershipSweeper {
      * A run with no snapshot minimum is never claimable. Marker stamps alone cannot bound the
      * snapshot: a fast partition finishes and stamps its marker while a slower one is still
      * emitting rows, so the earliest marker can sit above rows the run asserted. Sweeping there
-     * would delete live members — and every unversioned row with them. Such a run waits for
-     * abandonment instead; the next reconcile heals the cohort.
+     * would delete live members. Such a run waits for abandonment instead. This also excludes a
+     * run whose snapshot was legitimately empty (a cohort edited so nobody matches): it can never
+     * prove a snapshot minimum, so its stale rows outlive every reconcile until they are cleaned
+     * up out of band.
      */
     private async claimableRuns(): Promise<ClaimableRun[]> {
         const result = await this.postgres.query<ClaimableRun>(
             PostgresUse.BEHAVIORAL_COHORTS_RW,
             `
                 SELECT run_id, cohort_id, team_id, membership_hwms,
-                       LEAST(min_snapshot_version, min_marker_version) AS threshold
+                       LEAST(min_snapshot_version, min_marker_version) AS threshold, claim_token
                 FROM cohort_membership_sweeps
                 WHERE min_snapshot_version IS NOT NULL
                   AND (status = 'ready'
@@ -287,8 +348,8 @@ export class CohortMembershipSweeper {
     private async readConsumerProgress(): Promise<Map<number, number>> {
         const result = await this.postgres.query<{ partition: number; next_offset: string }>(
             PostgresUse.BEHAVIORAL_COHORTS_RW,
-            'SELECT partition, next_offset FROM cohort_membership_consumer_progress',
-            undefined,
+            'SELECT partition, next_offset FROM cohort_membership_consumer_progress WHERE cluster = $1',
+            [this.kafka.cluster],
             'readCohortMembershipProgress'
         )
 
@@ -341,98 +402,171 @@ export class CohortMembershipSweeper {
     }
 
     private async claim(run: ClaimableRun): Promise<ClaimableRun | null> {
+        const claimToken = new UUIDT().toString()
+
         const result = await this.postgres.query<ClaimableRun>(
             PostgresUse.BEHAVIORAL_COHORTS_RW,
             `
                 UPDATE cohort_membership_sweeps
-                SET status = 'sweeping', claimed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                SET status = 'sweeping', claimed_at = CURRENT_TIMESTAMP, claim_token = $4,
+                    updated_at = CURRENT_TIMESTAMP
                 WHERE run_id = $1 AND cohort_id = $2
                   AND min_snapshot_version IS NOT NULL
                   AND (status = 'ready'
                        OR (status = 'sweeping' AND claimed_at < CURRENT_TIMESTAMP - $3::interval))
                 RETURNING run_id, cohort_id, team_id, membership_hwms,
-                          LEAST(min_snapshot_version, min_marker_version) AS threshold
+                          LEAST(min_snapshot_version, min_marker_version) AS threshold, claim_token
             `,
-            [run.run_id, run.cohort_id, `${this.config.COHORT_MEMBERSHIP_SWEEP_CLAIM_TIMEOUT_MS} milliseconds`],
+            [
+                run.run_id,
+                run.cohort_id,
+                `${this.config.COHORT_MEMBERSHIP_SWEEP_CLAIM_TIMEOUT_MS} milliseconds`,
+                claimToken,
+            ],
             'claimCohortMembershipSweep'
         )
 
         return result.rows[0] ?? null
     }
 
-    private async sweep(run: ClaimableRun): Promise<number> {
+    /** Returns the deleted row count, or null when the run was refused rather than swept. */
+    private async sweep(run: ClaimableRun): Promise<number | null> {
         if (!run.threshold) {
+            // Unreachable while claim() requires a snapshot minimum; kept so a future claim change
+            // cannot silently delete below no bound. Abandoning gives the row a terminal state
+            // instead of leaving it wedged in 'sweeping'.
             logger.error('Refusing to sweep a run with no threshold', {
                 run_id: run.run_id,
                 cohort_id: run.cohort_id,
             })
-            return 0
+            await this.postgres.query(
+                PostgresUse.BEHAVIORAL_COHORTS_RW,
+                `
+                    UPDATE cohort_membership_sweeps
+                    SET status = 'abandoned', claimed_at = NULL, claim_token = NULL,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE run_id = $1 AND cohort_id = $2 AND status = 'sweeping' AND claim_token = $3
+                `,
+                [run.run_id, run.cohort_id, run.claim_token],
+                'abandonThresholdlessCohortMembershipSweep'
+            )
+            sweepsAbandoned.inc({ reason: 'no_threshold' })
+            return null
         }
 
+        // The threshold string was parsed to millisecond precision on the way out of Postgres, so
+        // it can sit up to 999 microseconds below the stored minimum. Truncation only ever lowers
+        // it, which makes the sweep under-delete, never over-delete; the next reconcile deletes
+        // the sliver it leaves behind.
         let deleted = 0
         let lastBatch = 0
+        // Keyset cursor over the (team_id, cohort_id, version) index order. Deleted index entries
+        // stay visible to a scan until VACUUM, so restarting each page from the range start would
+        // walk past every previously-deleted entry again.
+        let cursorVersion = '-infinity'
+        let cursorId = '0'
 
         do {
             // The predicate is repeated in the DELETE on purpose: under READ COMMITTED the DELETE
             // re-checks it against the newest row version, so a row a concurrent upsert just
-            // refreshed past the threshold is left alone instead of deleted anyway.
-            const result = await this.postgres.query(
+            // refreshed past the threshold is left alone instead of deleted anyway. A refreshed
+            // row also leaves the cursor range entirely, so skipping past it loses nothing.
+            const result = await this.postgres.query<{ version: string; id: string }>(
                 PostgresUse.BEHAVIORAL_COHORTS_RW,
                 `
                     WITH candidates AS (
                         SELECT id FROM cohort_membership
                         WHERE team_id = $1 AND cohort_id = $2
-                          AND (version IS NULL OR version < $3::timestamp)
+                          AND version < $3::timestamp
+                          AND (version, id) > ($5::timestamp, $6::bigint)
+                        ORDER BY version, id
                         LIMIT $4
                         FOR UPDATE SKIP LOCKED
                     )
                     DELETE FROM cohort_membership m
                     USING candidates c
-                    WHERE m.id = c.id AND (m.version IS NULL OR m.version < $3::timestamp)
+                    WHERE m.id = c.id AND m.version < $3::timestamp
+                    RETURNING to_char(m.version, 'YYYY-MM-DD HH24:MI:SS.US') AS version, m.id
                 `,
-                [run.team_id, run.cohort_id, run.threshold, this.config.COHORT_MEMBERSHIP_SWEEP_BATCH_SIZE],
+                [
+                    run.team_id,
+                    run.cohort_id,
+                    run.threshold,
+                    this.config.COHORT_MEMBERSHIP_SWEEP_BATCH_SIZE,
+                    cursorVersion,
+                    cursorId,
+                ],
                 'sweepCohortMembership'
             )
 
             lastBatch = result.rowCount ?? 0
             deleted += lastBatch
 
+            for (const row of result.rows) {
+                if (
+                    row.version > cursorVersion ||
+                    (row.version === cursorVersion && BigInt(row.id) > BigInt(cursorId))
+                ) {
+                    cursorVersion = row.version
+                    cursorId = row.id
+                }
+            }
+
             // Without this the claim goes stale mid-run and every other pod reclaims the same
-            // cohort, so N pods page over the same rows.
+            // cohort, so N pods page over the same rows. Zero rows updated means the claim is no
+            // longer ours (reclaimed after a stall, or abandoned); the new owner finishes the run.
             if (lastBatch > 0) {
-                await this.postgres.query(
+                const heartbeat = await this.postgres.query(
                     PostgresUse.BEHAVIORAL_COHORTS_RW,
                     `UPDATE cohort_membership_sweeps SET claimed_at = CURRENT_TIMESTAMP
-                     WHERE run_id = $1 AND cohort_id = $2 AND status = 'sweeping'`,
-                    [run.run_id, run.cohort_id],
+                     WHERE run_id = $1 AND cohort_id = $2 AND status = 'sweeping' AND claim_token = $3`,
+                    [run.run_id, run.cohort_id, run.claim_token],
                     'heartbeatCohortMembershipSweep'
                 )
+
+                if ((heartbeat.rowCount ?? 0) === 0) {
+                    logger.warn('Lost the sweep claim mid-run, yielding to the new owner', {
+                        run_id: run.run_id,
+                        cohort_id: run.cohort_id,
+                        rows: deleted,
+                    })
+                    rowsSwept.inc(deleted)
+                    return deleted
+                }
             }
-        } while (lastBatch > 0)
+        } while (lastBatch > 0 && !this.stopping)
 
-        // A zero-delete iteration means either nothing is left or SKIP LOCKED skipped everything.
-        // Only the first is finished; calling the second `swept` would retire the run with stale
-        // rows still in place, and nothing revisits a swept run.
-        const remaining = await this.postgres.query(
-            PostgresUse.BEHAVIORAL_COHORTS_RW,
-            `SELECT 1 FROM cohort_membership
-             WHERE team_id = $1 AND cohort_id = $2 AND (version IS NULL OR version < $3::timestamp)
-             LIMIT 1`,
-            [run.team_id, run.cohort_id, run.threshold],
-            'checkCohortMembershipSweepComplete'
-        )
-        const finished = remaining.rows.length === 0
+        let finished = false
+        if (this.stopping && lastBatch > 0) {
+            // Interrupted by shutdown; the run goes back to 'ready' and resumes on the next claim.
+            finished = false
+        } else {
+            // A zero-delete iteration means either nothing is left or SKIP LOCKED skipped
+            // everything. Only the first is finished; calling the second `swept` would retire the
+            // run with stale rows still in place, and nothing revisits a swept run.
+            const remaining = await this.postgres.query(
+                PostgresUse.BEHAVIORAL_COHORTS_RW,
+                `SELECT 1 FROM cohort_membership
+                 WHERE team_id = $1 AND cohort_id = $2 AND version < $3::timestamp
+                 LIMIT 1`,
+                [run.team_id, run.cohort_id, run.threshold],
+                'checkCohortMembershipSweepComplete'
+            )
+            finished = remaining.rows.length === 0
+        }
 
-        // Guarded on 'sweeping' so a straggler cannot overwrite the pod that reclaimed the run, nor
-        // resurrect one that was abandoned in between.
+        // The claim token fences stragglers: a pod whose claim timed out and was reclaimed no
+        // longer matches, so it cannot overwrite the new owner's state nor resurrect a run that
+        // was abandoned in between. swept_rows accumulates across partial passes.
         await this.postgres.query(
             PostgresUse.BEHAVIORAL_COHORTS_RW,
             `
                 UPDATE cohort_membership_sweeps
-                SET status = $1, swept_rows = $2, claimed_at = NULL, updated_at = CURRENT_TIMESTAMP
-                WHERE run_id = $3 AND cohort_id = $4 AND status = 'sweeping'
+                SET status = $1, swept_rows = COALESCE(swept_rows, 0) + $2,
+                    claimed_at = NULL, claim_token = NULL, updated_at = CURRENT_TIMESTAMP
+                WHERE run_id = $3 AND cohort_id = $4 AND status = 'sweeping' AND claim_token = $5
             `,
-            [finished ? 'swept' : 'ready', deleted, run.run_id, run.cohort_id],
+            [finished ? 'swept' : 'ready', deleted, run.run_id, run.cohort_id, run.claim_token],
             'finishCohortMembershipSweep'
         )
 
@@ -449,29 +583,55 @@ export class CohortMembershipSweeper {
     }
 
     /**
-     * A reconcile superseded by a cohort edit emits no marker, so its set can never complete. The
-     * row is only table hygiene at that point.
+     * Two distinct give-up paths, kept apart because only one is routine. A reconcile superseded
+     * by a cohort edit emits no marker, so its `collecting` row can never complete; that is
+     * expected traffic. A `ready` run is fully proven and only waiting on consumer lag, and a
+     * `sweeping` run only ever fails transiently, so both get the marker-retention horizon rather
+     * than the short timeout: abandoning them sooner would discard runs that would have swept.
+     *
+     * These filters and the GC below scan without an index; the ledger is bounded by the GC to a
+     * month of reconcile runs, so a sequential scan stays trivial.
      */
     private async abandonStuckRuns(): Promise<number> {
-        const result = await this.postgres.query(
+        const unmarked = await this.postgres.query(
             PostgresUse.BEHAVIORAL_COHORTS_RW,
             `
                 UPDATE cohort_membership_sweeps
                 SET status = 'abandoned', updated_at = CURRENT_TIMESTAMP
-                WHERE status IN ('collecting', 'ready')
+                WHERE status = 'collecting'
                   AND updated_at < CURRENT_TIMESTAMP - $1::interval
             `,
             [`${this.config.COHORT_MEMBERSHIP_SWEEP_ABANDON_AFTER_DAYS} days`],
-            'abandonCohortMembershipSweeps'
+            'abandonUnmarkedCohortMembershipSweeps'
         )
 
-        const abandoned = result.rowCount ?? 0
-        if (abandoned > 0) {
-            sweepsAbandoned.inc(abandoned)
-            logger.warn('Abandoned reconcile runs that never completed their marker set', { count: abandoned })
+        const unmarkedCount = unmarked.rowCount ?? 0
+        if (unmarkedCount > 0) {
+            sweepsAbandoned.inc({ reason: 'markers_incomplete' }, unmarkedCount)
+            logger.warn('Abandoned reconcile runs that never completed their marker set', { count: unmarkedCount })
         }
 
-        return abandoned
+        const unswept = await this.postgres.query(
+            PostgresUse.BEHAVIORAL_COHORTS_RW,
+            `
+                UPDATE cohort_membership_sweeps
+                SET status = 'abandoned', claim_token = NULL, updated_at = CURRENT_TIMESTAMP
+                WHERE status IN ('ready', 'sweeping')
+                  AND created_at < CURRENT_TIMESTAMP - INTERVAL '${MARKER_RETENTION_DAYS} days'
+            `,
+            undefined,
+            'abandonUnsweptCohortMembershipSweeps'
+        )
+
+        const unsweptCount = unswept.rowCount ?? 0
+        if (unsweptCount > 0) {
+            sweepsAbandoned.inc({ reason: 'never_swept' }, unsweptCount)
+            logger.warn('Abandoned fully-marked reconcile runs whose sweep never completed', {
+                count: unsweptCount,
+            })
+        }
+
+        return unmarkedCount + unsweptCount
     }
 
     /** Matches the marker topic's retention, past which a run's markers cannot be redelivered. */
@@ -481,10 +641,22 @@ export class CohortMembershipSweeper {
             `
                 DELETE FROM cohort_membership_sweeps
                 WHERE status IN ('swept', 'abandoned')
-                  AND updated_at < CURRENT_TIMESTAMP - INTERVAL '30 days'
+                  AND updated_at < CURRENT_TIMESTAMP - INTERVAL '${MARKER_RETENTION_DAYS} days'
             `,
             undefined,
             'gcCohortMembershipSweeps'
+        )
+
+        // Progress rows keyed to a broker cluster the consumer left stop updating and would
+        // otherwise sit forever.
+        await this.postgres.query(
+            PostgresUse.BEHAVIORAL_COHORTS_RW,
+            `
+                DELETE FROM cohort_membership_consumer_progress
+                WHERE updated_at < CURRENT_TIMESTAMP - INTERVAL '${MARKER_RETENTION_DAYS} days'
+            `,
+            undefined,
+            'gcCohortMembershipProgress'
         )
     }
 
@@ -492,7 +664,7 @@ export class CohortMembershipSweeper {
         const result = await this.postgres.query<{ wait_seconds: string | null }>(
             PostgresUse.BEHAVIORAL_COHORTS_RW,
             `
-                SELECT EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - MIN(updated_at)))::text AS wait_seconds
+                SELECT EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - MIN(ready_at)))::text AS wait_seconds
                 FROM cohort_membership_sweeps WHERE status = 'ready'
             `,
             undefined,
@@ -515,6 +687,9 @@ export class CohortMembershipSweeper {
     }
 
     public async stop(): Promise<void> {
+        // `stopping` breaks the paging loops inside a running cycle; without it, shutdown waits
+        // for up to MAX_RUNS_PER_TICK full cohort sweeps to page to completion.
+        this.stopping = true
         this.running = false
         this.sleepResolve?.()
         await this.loopPromise

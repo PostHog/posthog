@@ -2,6 +2,7 @@ import { Message } from 'node-rdkafka'
 import { z } from 'zod'
 
 import { KAFKA_COHORT_MEMBERSHIP_CHANGED, KAFKA_COHORT_RECONCILE_MARKERS } from '~/common/config/kafka-topics'
+import { getKafkaConfigFromEnv } from '~/common/kafka/config'
 import { KafkaConsumerInterface, RdKafkaConsumerConfig, createKafkaConsumer } from '~/common/kafka/consumer'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { PostgresUse, TransactionClient } from '~/common/utils/db/postgres'
@@ -10,7 +11,11 @@ import { logger } from '~/common/utils/logger'
 
 import { HealthCheckResult } from '../../types'
 import type { CdpConfig } from '../config'
-import { CohortMembershipSweeper, MembershipWatermarks } from '../services/cohort-membership/sweeper.service'
+import {
+    CohortMembershipSweeper,
+    MembershipWatermarks,
+    PRODUCER_VERSION_FORMAT,
+} from '../services/cohort-membership/sweeper.service'
 import { CdpConsumerBase, CdpConsumerBaseConfig, CdpConsumerBaseDeps } from './cdp-base.consumer'
 
 export type CdpCohortMembershipConsumerConfig = CdpConsumerBaseConfig &
@@ -25,6 +30,17 @@ export type CdpCohortMembershipConsumerConfig = CdpConsumerBaseConfig &
 
 // Markers from runs that predate the sweeper are useless — the next reconcile heals anyway.
 const startAtLatest = { ['auto.offset.reset' as keyof RdKafkaConsumerConfig]: 'latest' as never }
+
+/**
+ * The broker list the membership consumer resolves, mirroring the consumer's own config
+ * resolution. Progress offsets are only comparable against watermarks from the same cluster, so
+ * this keys every progress row: after a cluster move the old rows stop matching, and the gate
+ * starts from no progress instead of comparing the old cluster's large offsets against the new
+ * cluster's small watermarks.
+ */
+function membershipClusterId(): string {
+    return String(getKafkaConfigFromEnv('CONSUMER')['metadata.broker.list'] ?? 'kafka:9092')
+}
 
 // `origin` is a loose string, not an enum: nothing branches on it, and rejecting a value the
 // processor added later would throw the whole batch and crash-loop on redelivery.
@@ -78,6 +94,9 @@ function partitionProgressFromMessages(messages: Message[]): PartitionProgress[]
  *
  * Versions are compared as strings: the producer's format is fixed-width, so lexicographic order
  * is chronological order. A row carrying no version bounds nothing and is left out.
+ *
+ * The result is sorted by (run_id, cohort_id) because it feeds one multi-row upsert whose row
+ * locks are held to commit: two pods writing the same runs in different orders would deadlock.
  */
 function collectSnapshotMarks(changes: CohortMembershipChange[]): SnapshotMark[] {
     const marks = new Map<string, SnapshotMark>()
@@ -116,7 +135,7 @@ function collectSnapshotMarks(changes: CohortMembershipChange[]): SnapshotMark[]
         }
     }
 
-    return Array.from(marks.values())
+    return Array.from(marks.values()).sort((a, b) => a.runId.localeCompare(b.runId) || a.cohortId - b.cohortId)
 }
 
 export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMembershipConsumerConfig> {
@@ -124,6 +143,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
     private kafkaConsumer: KafkaConsumerInterface
     private markerKafkaConsumer: KafkaConsumerInterface | null = null
     private sweeper: CohortMembershipSweeper | null = null
+    private membershipCluster = membershipClusterId()
 
     constructor(config: CdpCohortMembershipConsumerConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
@@ -138,6 +158,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
                 startAtLatest
             )
             this.sweeper = new CohortMembershipSweeper(config, deps.postgres, {
+                cluster: this.membershipCluster,
                 captureMembershipWatermarks: () => this.captureMembershipWatermarks(),
                 refreshConsumerProgress: () => this.refreshConsumerProgressFromCommittedOffsets(),
             })
@@ -179,6 +200,26 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
             throw new Error(`No partition metadata for ${KAFKA_COHORT_MEMBERSHIP_CHANGED}`)
         }
 
+        // Partitions are never removed from a topic, so the progress rows the fleet has written
+        // are a durable lower bound on the partition count. Metadata reporting fewer means the
+        // broker returned a partial list (a refresh mid-leader-election, a reconfiguration);
+        // capturing then would persist watermarks the gate treats as the full set, and the sweep
+        // would fire while the missing partitions still hold unconsumed snapshot rows.
+        const known = await this.deps.postgres.query<{ count: string }>(
+            PostgresUse.BEHAVIORAL_COHORTS_RW,
+            'SELECT COUNT(*) AS count FROM cohort_membership_consumer_progress WHERE cluster = $1',
+            [this.membershipCluster],
+            'countCohortMembershipProgressPartitions'
+        )
+
+        const knownPartitions = Number(known.rows[0]?.count ?? 0)
+        if (metadata.length < knownPartitions) {
+            throw new Error(
+                `Partial partition metadata for ${KAFKA_COHORT_MEMBERSHIP_CHANGED}: ` +
+                    `broker reported ${metadata.length}, consumer progress covers ${knownPartitions}`
+            )
+        }
+
         const results = await Promise.all(
             metadata.map(async ({ id: partition }) => {
                 const [, high] = await this.kafkaConsumer.queryWatermarkOffsets(
@@ -201,6 +242,11 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
      * Membership rows, the snapshot marks they carry, and the consumer's progress all land in one
      * transaction: progress must never claim offsets whose rows rolled back, or a sweep could
      * delete rows it believes were re-asserted.
+     *
+     * With the sweep flag off, none of the sweep bookkeeping is written and the upsert keeps the
+     * pre-sweep single-statement shape against the pre-sweep schema. That keeps the migrations a
+     * prerequisite of the flag flip only, not of every deploy: a pod reaching a database that has
+     * not migrated yet must degrade to the old behavior, not crash-loop on a missing column.
      */
     private async persistCohortMembershipChanges(
         changes: CohortMembershipChange[],
@@ -211,10 +257,23 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
         }
 
         try {
-            // Deduplicate by (team_id, cohort_id, person_id), keeping last in Kafka order
+            // Deduplicate by (team_id, cohort_id, person_id), keeping the highest version so the
+            // in-memory pick agrees with the SQL last-writer-wins guard; an absent version counts
+            // as the oldest, and Kafka order breaks ties.
             const deduped = new Map<string, CohortMembershipChange>()
             for (const change of changes) {
-                deduped.set(`${change.team_id}:${change.cohort_id}:${change.person_id}`, change)
+                const key = `${change.team_id}:${change.cohort_id}:${change.person_id}`
+                const existing = deduped.get(key)
+                if (!existing || (change.last_updated ?? '') >= (existing.last_updated ?? '')) {
+                    deduped.set(key, change)
+                }
+            }
+
+            if (!this.config.COHORT_MEMBERSHIP_SWEEP_ENABLED) {
+                if (deduped.size > 0) {
+                    await this.upsertMembershipRowsWithoutVersion(Array.from(deduped.values()))
+                }
+                return
             }
 
             const marks = collectSnapshotMarks(changes)
@@ -287,6 +346,35 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
         )
     }
 
+    /** The flag-off shape: no version column, no transaction, valid against the pre-sweep schema. */
+    private async upsertMembershipRowsWithoutVersion(changes: CohortMembershipChange[]): Promise<void> {
+        const values: any[] = []
+        const placeholders: string[] = []
+        let paramIndex = 1
+
+        for (const change of changes) {
+            placeholders.push(
+                `($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, CURRENT_TIMESTAMP)`
+            )
+            values.push(change.team_id, change.cohort_id, change.person_id, change.status === 'entered')
+            paramIndex += 4
+        }
+
+        await this.deps.postgres.query(
+            PostgresUse.BEHAVIORAL_COHORTS_RW,
+            `
+                INSERT INTO cohort_membership (team_id, cohort_id, person_id, in_cohort, last_updated)
+                VALUES ${placeholders.join(', ')}
+                ON CONFLICT (team_id, cohort_id, person_id)
+                DO UPDATE SET
+                    in_cohort = EXCLUDED.in_cohort,
+                    last_updated = CURRENT_TIMESTAMP
+            `,
+            values,
+            'batchUpsertCohortMembership'
+        )
+    }
+
     /**
      * Folds this batch's contribution into each run's ledger row. The row is created here when the
      * snapshot arrives before the run's completion markers, which is the normal ordering.
@@ -339,17 +427,17 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
         let paramIndex = 1
 
         for (const entry of progress) {
-            placeholders.push(`($${paramIndex}, $${paramIndex + 1})`)
-            values.push(entry.partition, entry.nextOffset)
-            paramIndex += 2
+            placeholders.push(`($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2})`)
+            values.push(this.membershipCluster, entry.partition, entry.nextOffset)
+            paramIndex += 3
         }
 
         await this.deps.postgres.query(
             target,
             `
-                INSERT INTO cohort_membership_consumer_progress (partition, next_offset)
+                INSERT INTO cohort_membership_consumer_progress (cluster, partition, next_offset)
                 VALUES ${placeholders.join(', ')}
-                ON CONFLICT (partition)
+                ON CONFLICT (cluster, partition)
                 DO UPDATE SET
                     next_offset = GREATEST(
                         cohort_membership_consumer_progress.next_offset,
@@ -387,6 +475,23 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
                 }
 
                 const cohortMembershipChange = validationResult.data
+
+                // A version is only usable in the producer's fixed-width format: it is compared
+                // lexicographically and bound into `::timestamp` casts. Rejecting the message
+                // would crash-loop the feed, so an off-format value degrades to "no version",
+                // which last-writer-wins treats as the oldest.
+                if (
+                    cohortMembershipChange.last_updated &&
+                    !PRODUCER_VERSION_FORMAT.test(cohortMembershipChange.last_updated)
+                ) {
+                    logger.warn('Dropping an off-format membership version', {
+                        last_updated: cohortMembershipChange.last_updated,
+                        team_id: cohortMembershipChange.team_id,
+                        cohort_id: cohortMembershipChange.cohort_id,
+                    })
+                    cohortMembershipChange.last_updated = undefined
+                }
+
                 cohortMembershipChanges.push(cohortMembershipChange)
             } catch (error) {
                 logger.error('Error processing cohort membership change message', {
@@ -402,7 +507,8 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
 
     private async handleBatch(messages: Message[]): Promise<void> {
         const cohortMembershipChanges = this._parseAndValidateBatch(messages)
-        await this.persistCohortMembershipChanges(cohortMembershipChanges, partitionProgressFromMessages(messages))
+        const progress = this.config.COHORT_MEMBERSHIP_SWEEP_ENABLED ? partitionProgressFromMessages(messages) : []
+        await this.persistCohortMembershipChanges(cohortMembershipChanges, progress)
     }
 
     public override async start(): Promise<void> {
@@ -427,23 +533,50 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
                     await this.handleMarkerBatch(messages)
                 })
             })
+
+            // The topic is not auto-created, and a consumer subscribed to a missing topic is a
+            // green pod that marks nothing: every run would sit `collecting` until abandonment.
+            // The flag being set is a claim that the environment has the topic, so hold it to that.
+            const markerPartitions =
+                await this.markerKafkaConsumer.getPartitionsForTopic(KAFKA_COHORT_RECONCILE_MARKERS)
+            if (markerPartitions.length === 0) {
+                throw new Error(
+                    `COHORT_MEMBERSHIP_SWEEP_ENABLED is set but ${KAFKA_COHORT_RECONCILE_MARKERS} has no partitions`
+                )
+            }
+
             this.sweeper.start()
         }
     }
 
+    /**
+     * Never rethrows: this batch's offsets commit either way, and a throw would escape to the
+     * consumer loop and take the membership consumer in the same process down with it. Parsing and
+     * marker application each degrade per message instead.
+     */
     private async handleMarkerBatch(messages: Message[]): Promise<void> {
         const sweeper = this.sweeper
         if (!sweeper) {
             return
         }
 
-        await sweeper.applyMarkers(sweeper.parseMarkers(messages))
+        try {
+            await sweeper.applyMarkers(sweeper.parseMarkers(messages))
+        } catch (error) {
+            logger.error('Failed to process a reconcile marker batch', {
+                error: String(error),
+                count: messages.length,
+            })
+        }
     }
 
     public override async stop(): Promise<void> {
         logger.info('💤', `Stopping ${this.name}...`)
         await this.sweeper?.stop()
-        await Promise.all([this.kafkaConsumer.disconnect(), this.markerKafkaConsumer?.disconnect()])
+        // The marker path reads watermarks off the membership client, so that client disconnects
+        // only after the marker consumer has fully drained.
+        await this.markerKafkaConsumer?.disconnect()
+        await this.kafkaConsumer.disconnect()
 
         // IMPORTANT: super always comes last
         await super.stop()

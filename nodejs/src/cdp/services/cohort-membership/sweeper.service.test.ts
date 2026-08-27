@@ -31,6 +31,8 @@ describe('CohortMembershipSweeper', () => {
         COHORT_MEMBERSHIP_SWEEP_ABANDON_AFTER_DAYS: 3,
     }
 
+    const CLUSTER = 'test-cluster'
+
     let postgres: PostgresRouter
     let sweeper: CohortMembershipSweeper
     let watermarks: MembershipWatermarks
@@ -42,6 +44,7 @@ describe('CohortMembershipSweeper', () => {
         watermarks = { 0: 10 }
         runId = new UUIDT().toString()
         sweeper = new CohortMembershipSweeper(config, postgres, {
+            cluster: CLUSTER,
             captureMembershipWatermarks: () => Promise.resolve(watermarks),
             refreshConsumerProgress: () => Promise.resolve(),
         })
@@ -108,19 +111,23 @@ describe('CohortMembershipSweeper', () => {
         await query(
             `INSERT INTO cohort_membership_sweeps
                 (run_id, cohort_id, team_id, marker_bits, min_marker_version, min_snapshot_version,
-                 membership_hwms, status)
-             VALUES ($1, $2, $3, -1, $4::timestamp, $5::timestamp, $6::jsonb, 'ready')`,
+                 membership_hwms, status, ready_at)
+             VALUES ($1, $2, $3, -1, $4::timestamp, $5::timestamp, $6::jsonb, 'ready', CURRENT_TIMESTAMP)`,
             [runId, COHORT_ID, TEAM_ID, MARKER_VERSION, THRESHOLD, JSON.stringify(watermarks)]
+        )
+    }
+
+    const insertProgress = async (partition: number, nextOffset: number): Promise<void> => {
+        await query(
+            `INSERT INTO cohort_membership_consumer_progress (cluster, partition, next_offset) VALUES ($1, $2, $3)`,
+            [CLUSTER, partition, nextOffset]
         )
     }
 
     /** Record the consumer as having applied everything the run's watermarks cover. */
     const openGate = async (): Promise<void> => {
         for (const [partition, highWatermark] of Object.entries(watermarks)) {
-            await query(`INSERT INTO cohort_membership_consumer_progress (partition, next_offset) VALUES ($1, $2)`, [
-                Number(partition),
-                highWatermark,
-            ])
+            await insertProgress(Number(partition), highWatermark)
         }
     }
 
@@ -151,11 +158,22 @@ describe('CohortMembershipSweeper', () => {
 
         expect(await readSweep()).toMatchObject({ status: 'collecting' })
 
+        // An incomplete set must not be promoted by the loop either.
+        await sweeper.runOnce()
+
+        expect(await readSweep()).toMatchObject({ status: 'collecting', membership_hwms: null })
+
         watermarks = { 0: 10, 3: 4 }
-        // The last partition sets the sign bit, which is what completes the i64 bitmap.
+        // The last partition sets the sign bit, which is what completes the i64 bitmap. The
+        // watermark capture and the 'ready' transition happen on the next sweep tick, not in the
+        // marker batch, so a transient Kafka failure retries instead of killing the pod.
         await sweeper.applyMarkers(
             sweeper.parseMarkers([markerMessage(COHORT_PARTITION_COUNT - 1, { last_updated: ABOVE_THRESHOLD })])
         )
+
+        expect(await readSweep()).toMatchObject({ marker_bits: '-1', status: 'collecting', membership_hwms: null })
+
+        await sweeper.runOnce()
 
         expect(await readSweep()).toMatchObject({
             marker_bits: '-1',
@@ -173,7 +191,8 @@ describe('CohortMembershipSweeper', () => {
         expect(await sweeper.runOnce()).toMatchObject({ swept: 0, blocked: 1 })
         expect(await survivingPersonIds()).toEqual([stale])
 
-        await query(`INSERT INTO cohort_membership_consumer_progress (partition, next_offset) VALUES (0, 9), (3, 4)`)
+        await insertProgress(0, 9)
+        await insertProgress(3, 4)
 
         expect(await sweeper.runOnce()).toMatchObject({ swept: 0, blocked: 1 })
         expect(await survivingPersonIds()).toEqual([stale])
@@ -190,6 +209,9 @@ describe('CohortMembershipSweeper', () => {
 
         const stale1 = await insertMembership(TEAM_ID, COHORT_ID, BELOW_THRESHOLD)
         const stale2 = await insertMembership(TEAM_ID, COHORT_ID, BELOW_THRESHOLD)
+        const stale3 = await insertMembership(TEAM_ID, COHORT_ID, BELOW_THRESHOLD)
+        // Only versioned rows are sweepable: a NULL was written either before the feature or by a
+        // rolled-back image asserting current membership, and the two cannot be told apart here.
         const neverVersioned = await insertMembership(TEAM_ID, COHORT_ID, null)
         const asserted = await insertMembership(TEAM_ID, COHORT_ID, THRESHOLD)
         const liveChange = await insertMembership(TEAM_ID, COHORT_ID, ABOVE_THRESHOLD)
@@ -199,8 +221,10 @@ describe('CohortMembershipSweeper', () => {
         expect(await sweeper.runOnce()).toMatchObject({ swept: 1, rowsDeleted: 3 })
 
         const surviving = await survivingPersonIds()
-        expect(surviving).toEqual([asserted, liveChange, otherCohort, otherTeam].sort((a, b) => a.localeCompare(b)))
-        expect(surviving).not.toEqual(expect.arrayContaining([stale1, stale2, neverVersioned]))
+        expect(surviving).toEqual(
+            [neverVersioned, asserted, liveChange, otherCohort, otherTeam].sort((a, b) => a.localeCompare(b))
+        )
+        expect(surviving).not.toEqual(expect.arrayContaining([stale1, stale2, stale3]))
         expect(await readSweep()).toMatchObject({ status: 'swept', swept_rows: '3' })
 
         // A second cycle must not re-sweep a finished run.
@@ -213,7 +237,7 @@ describe('CohortMembershipSweeper', () => {
     ])('should refuse to sweep a run when %s', async (_label, damage) => {
         watermarks = { 0: 10 }
         await readyRun()
-        await query(`INSERT INTO cohort_membership_consumer_progress (partition, next_offset) VALUES (0, 10)`)
+        await insertProgress(0, 10)
         await query(`UPDATE cohort_membership_sweeps SET ${damage} WHERE run_id = $1`, [runId])
 
         const live = await insertMembership(TEAM_ID, COHORT_ID, ABOVE_THRESHOLD)
@@ -238,7 +262,7 @@ describe('CohortMembershipSweeper', () => {
         expect(await survivingPersonIds()).not.toContain(stale)
     })
 
-    it('should abandon a run whose marker set never completed', async () => {
+    it('should abandon a run whose marker set never completed, but not a gate-blocked ready run', async () => {
         await query(
             `INSERT INTO cohort_membership_sweeps (run_id, cohort_id, team_id, marker_bits, created_at, updated_at)
              VALUES ($1, $2, $3, 7, CURRENT_TIMESTAMP - INTERVAL '30 days',
@@ -246,7 +270,26 @@ describe('CohortMembershipSweeper', () => {
             [runId, COHORT_ID, TEAM_ID]
         )
 
+        // A fully-proven run held back only by consumer lag must survive the short timeout: it
+        // sweeps whenever the gate opens, and discarding it would leave the cohort stale.
+        const blockedRunId = new UUIDT().toString()
+        await query(
+            `INSERT INTO cohort_membership_sweeps
+                (run_id, cohort_id, team_id, marker_bits, min_marker_version, min_snapshot_version,
+                 membership_hwms, status, ready_at, created_at, updated_at)
+             VALUES ($1, $2, $3, -1, $4::timestamp, $5::timestamp, $6::jsonb, 'ready',
+                     CURRENT_TIMESTAMP - INTERVAL '5 days', CURRENT_TIMESTAMP - INTERVAL '5 days',
+                     CURRENT_TIMESTAMP - INTERVAL '5 days')`,
+            [blockedRunId, COHORT_ID + 1, TEAM_ID, MARKER_VERSION, THRESHOLD, JSON.stringify({ 0: 10 })]
+        )
+
         expect(await sweeper.runOnce()).toMatchObject({ abandoned: 1 })
         expect(await readSweep()).toMatchObject({ status: 'abandoned' })
+
+        const blocked = await query<{ status: string }>(
+            `SELECT status FROM cohort_membership_sweeps WHERE run_id = $1`,
+            [blockedRunId]
+        )
+        expect(blocked[0].status).toEqual('ready')
     })
 })
