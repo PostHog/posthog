@@ -5,7 +5,7 @@ import { ExperimentStatus } from '~/types'
 import {
     getExperimentStatusColor,
     getExperimentStatusLabel,
-} from '../../../../../products/experiments/frontend/scenes/experimentsLogic'
+} from 'products/experiments/frontend/scenes/experimentsLogic'
 
 export function StatusTag({ status }: { status: ExperimentStatus }): JSX.Element {
     return (
