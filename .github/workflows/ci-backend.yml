@@ -1013,7 +1013,7 @@ jobs:
               env:
                   PRODUCT_FILTERS: ${{ matrix.filters }}
               run: |
-                  .github/scripts/prepare-product-junit-for-trunk.sh \
+                  bash .github/scripts/prepare-product-junit-for-trunk.sh \
                       trunk-junit \
                       "$PRODUCT_FILTERS" \
                       products/warehouse_sources/junit-product.xml

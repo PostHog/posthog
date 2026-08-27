@@ -25,7 +25,7 @@ run_case() {
     create_product "$root" other @posthog/products-other "$other_report"
 
     set +e
-    output=$(cd "$root" && "$script" trunk-junit "$filters" "${exclusions[@]}" 2>&1)
+    output=$(cd "$root" && bash "$script" trunk-junit "$filters" "${exclusions[@]}" 2>&1)
     status=$?
     set -e
 

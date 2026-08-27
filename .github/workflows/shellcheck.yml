@@ -42,7 +42,7 @@ jobs:
             - name: Check product JUnit preparation script
               run: |
                   shellcheck .github/scripts/prepare-product-junit-for-trunk.sh .github/scripts/prepare-product-junit-for-trunk.test.sh
-                  .github/scripts/prepare-product-junit-for-trunk.test.sh
+                  bash .github/scripts/prepare-product-junit-for-trunk.test.sh
 
             # Runs here, not in a path-gated ci-* job, so AGENTS/CLAUDE changes
             # anywhere in the repo are validated on every PR.
