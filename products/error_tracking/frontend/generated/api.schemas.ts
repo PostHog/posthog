@@ -8,6 +8,137 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `issue_created` - Issue created
+ * * `issue_reopened` - Issue reopened
+ * * `issue_spiking` - Issue spiking
+ * * `issue_assigned` - Issue assigned
+ */
+export type TriggersEnumApi = (typeof TriggersEnumApi)[keyof typeof TriggersEnumApi]
+
+export const TriggersEnumApi = {
+    IssueCreated: 'issue_created',
+    IssueReopened: 'issue_reopened',
+    IssueSpiking: 'issue_spiking',
+    IssueAssigned: 'issue_assigned',
+} as const
+
+/**
+ * * `slack` - Slack
+ */
+export type ChannelTypeEnumApi = (typeof ChannelTypeEnumApi)[keyof typeof ChannelTypeEnumApi]
+
+export const ChannelTypeEnumApi = {
+    Slack: 'slack',
+} as const
+
+export interface ErrorTrackingAlertDestinationApi {
+    /** Unique identifier of the destination. */
+    readonly id: string
+    /** Delivery channel for notifications.
+     *
+     * * `slack` - Slack */
+    channel_type: ChannelTypeEnumApi
+    /**
+     * ID of the workspace integration used to deliver notifications (required for Slack).
+     * @nullable
+     */
+    integration_id?: number | null
+    /** Channel-specific delivery settings, e.g. {"channel": "C0123"} for Slack. */
+    config: unknown
+}
+
+export interface ErrorTrackingAlertApi {
+    /** Unique identifier of the alert. */
+    readonly id: string
+    /** Human-readable name of the alert. */
+    name: string
+    /** Whether the alert currently fires notifications. */
+    enabled: boolean
+    /** Issue lifecycle events that open a notification thread for an issue. */
+    triggers: TriggersEnumApi[]
+    /** Property filters a transition must match to open a notification thread. Same shape as hog function filters, including the compiled bytecode. */
+    filters: unknown
+    /** Minimum seconds between thread-opening notifications per issue. 0 disables the throttle. */
+    throttle_seconds: number
+    /** Delivery targets notifications fan out to. */
+    destinations: ErrorTrackingAlertDestinationApi[]
+    /** When the alert was created. */
+    readonly created_at: string
+    /** When the alert was last updated. */
+    readonly updated_at: string
+}
+
+export interface PaginatedErrorTrackingAlertListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingAlertApi[]
+}
+
+export interface ErrorTrackingAlertCreateRequestApi {
+    /**
+     * Human-readable name of the alert.
+     * @maxLength 400
+     */
+    name: string
+    /** Issue lifecycle events that open a notification thread for an issue. */
+    triggers: TriggersEnumApi[]
+    /** Property filters a transition must match to open a notification thread. Same shape as hog function filters; the bytecode is compiled on save. */
+    filters?: unknown
+    /**
+     * Minimum seconds between thread-opening notifications per issue. 0 disables the throttle.
+     * @minimum 0
+     */
+    throttle_seconds?: number
+    /** Delivery targets notifications fan out to. */
+    destinations: ErrorTrackingAlertDestinationApi[]
+}
+
+export interface ErrorTrackingAlertUpdateRequestApi {
+    /**
+     * Human-readable name of the alert. Omit to keep the current name.
+     * @maxLength 400
+     */
+    name?: string
+    /** Whether the alert fires notifications. Omit to keep the current state. */
+    enabled?: boolean
+    /** Issue lifecycle events that open a notification thread. Omit to keep the current triggers. */
+    triggers?: TriggersEnumApi[]
+    /** Property filters a transition must match to open a notification thread. Omit to keep the current filters. */
+    filters?: unknown
+    /**
+     * Minimum seconds between thread-opening notifications per issue. Omit to keep the current value.
+     * @minimum 0
+     */
+    throttle_seconds?: number
+    /** Delivery targets notifications fan out to. When provided, replaces all current destinations. */
+    destinations?: ErrorTrackingAlertDestinationApi[]
+}
+
+export interface PatchedErrorTrackingAlertUpdateRequestApi {
+    /**
+     * Human-readable name of the alert. Omit to keep the current name.
+     * @maxLength 400
+     */
+    name?: string
+    /** Whether the alert fires notifications. Omit to keep the current state. */
+    enabled?: boolean
+    /** Issue lifecycle events that open a notification thread. Omit to keep the current triggers. */
+    triggers?: TriggersEnumApi[]
+    /** Property filters a transition must match to open a notification thread. Omit to keep the current filters. */
+    filters?: unknown
+    /**
+     * Minimum seconds between thread-opening notifications per issue. Omit to keep the current value.
+     * @minimum 0
+     */
+    throttle_seconds?: number
+    /** Delivery targets notifications fan out to. When provided, replaces all current destinations. */
+    destinations?: ErrorTrackingAlertDestinationApi[]
+}
+
+/**
  * @nullable
  */
 export type ErrorTrackingAssignmentRuleApiAssignee = {
@@ -2037,6 +2168,17 @@ export type ErrorTrackingSymbolSetBulkStartUploadResponseApiIdMap = {
 export interface ErrorTrackingSymbolSetBulkStartUploadResponseApi {
     /** Map of chunk ID to upload details. Chunks skipped because their content is unchanged are omitted. */
     id_map: ErrorTrackingSymbolSetBulkStartUploadResponseApiIdMap
+}
+
+export type ErrorTrackingAlertsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type ErrorTrackingAssignmentRulesListParams = {

@@ -17258,6 +17258,16 @@ export namespace Schemas {
     }
 
     /**
+     * * `slack` - Slack
+     */
+    export type ChannelTypeEnum = typeof ChannelTypeEnum[keyof typeof ChannelTypeEnum];
+
+
+    export const ChannelTypeEnum = {
+      Slack: 'slack',
+    } as const;
+
+    /**
      * Response shape for a channel's page identity in the wiki.
      */
     export interface ChannelWikiPage {
@@ -31015,6 +31025,99 @@ export namespace Schemas {
       volumeRange?: number[];
       /** Labeled volume buckets. */
       volume_buckets?: ErrorTrackingVolumeBucket[];
+    }
+
+    /**
+     * * `issue_created` - Issue created
+     * * `issue_reopened` - Issue reopened
+     * * `issue_spiking` - Issue spiking
+     * * `issue_assigned` - Issue assigned
+     */
+    export type TriggersEnum = typeof TriggersEnum[keyof typeof TriggersEnum];
+
+
+    export const TriggersEnum = {
+      IssueCreated: 'issue_created',
+      IssueReopened: 'issue_reopened',
+      IssueSpiking: 'issue_spiking',
+      IssueAssigned: 'issue_assigned',
+    } as const;
+
+    export interface ErrorTrackingAlertDestination {
+      /** Unique identifier of the destination. */
+      readonly id: string;
+      /** Delivery channel for notifications.
+       *
+       * * `slack` - Slack */
+      channel_type: ChannelTypeEnum;
+      /**
+         * ID of the workspace integration used to deliver notifications (required for Slack).
+         * @nullable
+         */
+      integration_id?: number | null;
+      /** Channel-specific delivery settings, e.g. {"channel": "C0123"} for Slack. */
+      config: unknown;
+    }
+
+    export interface ErrorTrackingAlert {
+      /** Unique identifier of the alert. */
+      readonly id: string;
+      /** Human-readable name of the alert. */
+      name: string;
+      /** Whether the alert currently fires notifications. */
+      enabled: boolean;
+      /** Issue lifecycle events that open a notification thread for an issue. */
+      triggers: TriggersEnum[];
+      /** Property filters a transition must match to open a notification thread. Same shape as hog function filters, including the compiled bytecode. */
+      filters: unknown;
+      /** Minimum seconds between thread-opening notifications per issue. 0 disables the throttle. */
+      throttle_seconds: number;
+      /** Delivery targets notifications fan out to. */
+      destinations: ErrorTrackingAlertDestination[];
+      /** When the alert was created. */
+      readonly created_at: string;
+      /** When the alert was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface ErrorTrackingAlertCreateRequest {
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 400
+         */
+      name: string;
+      /** Issue lifecycle events that open a notification thread for an issue. */
+      triggers: TriggersEnum[];
+      /** Property filters a transition must match to open a notification thread. Same shape as hog function filters; the bytecode is compiled on save. */
+      filters?: unknown;
+      /**
+         * Minimum seconds between thread-opening notifications per issue. 0 disables the throttle.
+         * @minimum 0
+         */
+      throttle_seconds?: number;
+      /** Delivery targets notifications fan out to. */
+      destinations: ErrorTrackingAlertDestination[];
+    }
+
+    export interface ErrorTrackingAlertUpdateRequest {
+      /**
+         * Human-readable name of the alert. Omit to keep the current name.
+         * @maxLength 400
+         */
+      name?: string;
+      /** Whether the alert fires notifications. Omit to keep the current state. */
+      enabled?: boolean;
+      /** Issue lifecycle events that open a notification thread. Omit to keep the current triggers. */
+      triggers?: TriggersEnum[];
+      /** Property filters a transition must match to open a notification thread. Omit to keep the current filters. */
+      filters?: unknown;
+      /**
+         * Minimum seconds between thread-opening notifications per issue. Omit to keep the current value.
+         * @minimum 0
+         */
+      throttle_seconds?: number;
+      /** Delivery targets notifications fan out to. When provided, replaces all current destinations. */
+      destinations?: ErrorTrackingAlertDestination[];
     }
 
     export interface ErrorTrackingAssignee {
@@ -54157,6 +54260,15 @@ export namespace Schemas {
       results: EnterprisePropertyDefinition[];
     }
 
+    export interface PaginatedErrorTrackingAlertList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ErrorTrackingAlert[];
+    }
+
     export interface PaginatedErrorTrackingAssignmentRuleList {
       count: number;
       /** @nullable */
@@ -61539,6 +61651,27 @@ export namespace Schemas {
       hidden?: boolean | null;
       /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
       readonly warehouse_origin?: unknown;
+    }
+
+    export interface PatchedErrorTrackingAlertUpdateRequest {
+      /**
+         * Human-readable name of the alert. Omit to keep the current name.
+         * @maxLength 400
+         */
+      name?: string;
+      /** Whether the alert fires notifications. Omit to keep the current state. */
+      enabled?: boolean;
+      /** Issue lifecycle events that open a notification thread. Omit to keep the current triggers. */
+      triggers?: TriggersEnum[];
+      /** Property filters a transition must match to open a notification thread. Omit to keep the current filters. */
+      filters?: unknown;
+      /**
+         * Minimum seconds between thread-opening notifications per issue. Omit to keep the current value.
+         * @minimum 0
+         */
+      throttle_seconds?: number;
+      /** Delivery targets notifications fan out to. When provided, replaces all current destinations. */
+      destinations?: ErrorTrackingAlertDestination[];
     }
 
     /**
@@ -93309,6 +93442,17 @@ export namespace Schemas {
      * Name of the evaluation context to restore to suggestions.
      */
     context_name: string;
+    };
+
+    export type ErrorTrackingAlertsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type ErrorTrackingAssignmentRulesListParams = {

@@ -9,6 +9,165 @@
  */
 import * as zod from 'zod'
 
+export const errorTrackingAlertsCreateBodyNameMax = 400
+
+export const errorTrackingAlertsCreateBodyThrottleSecondsDefault = 0
+export const errorTrackingAlertsCreateBodyThrottleSecondsMin = 0
+
+export const ErrorTrackingAlertsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(errorTrackingAlertsCreateBodyNameMax).describe('Human-readable name of the alert.'),
+    triggers: zod
+        .array(
+            zod
+                .enum(['issue_created', 'issue_reopened', 'issue_spiking', 'issue_assigned'])
+                .describe(
+                    '\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `issue_assigned` - Issue assigned'
+                )
+        )
+        .describe('Issue lifecycle events that open a notification thread for an issue.'),
+    filters: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Property filters a transition must match to open a notification thread. Same shape as hog function filters; the bytecode is compiled on save.'
+        ),
+    throttle_seconds: zod
+        .number()
+        .min(errorTrackingAlertsCreateBodyThrottleSecondsMin)
+        .default(errorTrackingAlertsCreateBodyThrottleSecondsDefault)
+        .describe('Minimum seconds between thread-opening notifications per issue. 0 disables the throttle.'),
+    destinations: zod
+        .array(
+            zod.object({
+                id: zod.uuid().describe('Unique identifier of the destination.'),
+                channel_type: zod
+                    .enum(['slack'])
+                    .describe('\* `slack` - Slack')
+                    .describe('Delivery channel for notifications.\n\n\* `slack` - Slack'),
+                integration_id: zod
+                    .number()
+                    .nullish()
+                    .describe('ID of the workspace integration used to deliver notifications (required for Slack).'),
+                config: zod
+                    .unknown()
+                    .describe('Channel-specific delivery settings, e.g. {\"channel\": \"C0123\"} for Slack.'),
+            })
+        )
+        .describe('Delivery targets notifications fan out to.'),
+})
+
+export const errorTrackingAlertsUpdateBodyNameMax = 400
+
+export const errorTrackingAlertsUpdateBodyThrottleSecondsMin = 0
+
+export const ErrorTrackingAlertsUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(errorTrackingAlertsUpdateBodyNameMax)
+        .optional()
+        .describe('Human-readable name of the alert. Omit to keep the current name.'),
+    enabled: zod
+        .boolean()
+        .optional()
+        .describe('Whether the alert fires notifications. Omit to keep the current state.'),
+    triggers: zod
+        .array(
+            zod
+                .enum(['issue_created', 'issue_reopened', 'issue_spiking', 'issue_assigned'])
+                .describe(
+                    '\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `issue_assigned` - Issue assigned'
+                )
+        )
+        .optional()
+        .describe('Issue lifecycle events that open a notification thread. Omit to keep the current triggers.'),
+    filters: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Property filters a transition must match to open a notification thread. Omit to keep the current filters.'
+        ),
+    throttle_seconds: zod
+        .number()
+        .min(errorTrackingAlertsUpdateBodyThrottleSecondsMin)
+        .optional()
+        .describe('Minimum seconds between thread-opening notifications per issue. Omit to keep the current value.'),
+    destinations: zod
+        .array(
+            zod.object({
+                id: zod.uuid().describe('Unique identifier of the destination.'),
+                channel_type: zod
+                    .enum(['slack'])
+                    .describe('\* `slack` - Slack')
+                    .describe('Delivery channel for notifications.\n\n\* `slack` - Slack'),
+                integration_id: zod
+                    .number()
+                    .nullish()
+                    .describe('ID of the workspace integration used to deliver notifications (required for Slack).'),
+                config: zod
+                    .unknown()
+                    .describe('Channel-specific delivery settings, e.g. {\"channel\": \"C0123\"} for Slack.'),
+            })
+        )
+        .optional()
+        .describe('Delivery targets notifications fan out to. When provided, replaces all current destinations.'),
+})
+
+export const errorTrackingAlertsPartialUpdateBodyNameMax = 400
+
+export const errorTrackingAlertsPartialUpdateBodyThrottleSecondsMin = 0
+
+export const ErrorTrackingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(errorTrackingAlertsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Human-readable name of the alert. Omit to keep the current name.'),
+    enabled: zod
+        .boolean()
+        .optional()
+        .describe('Whether the alert fires notifications. Omit to keep the current state.'),
+    triggers: zod
+        .array(
+            zod
+                .enum(['issue_created', 'issue_reopened', 'issue_spiking', 'issue_assigned'])
+                .describe(
+                    '\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `issue_assigned` - Issue assigned'
+                )
+        )
+        .optional()
+        .describe('Issue lifecycle events that open a notification thread. Omit to keep the current triggers.'),
+    filters: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Property filters a transition must match to open a notification thread. Omit to keep the current filters.'
+        ),
+    throttle_seconds: zod
+        .number()
+        .min(errorTrackingAlertsPartialUpdateBodyThrottleSecondsMin)
+        .optional()
+        .describe('Minimum seconds between thread-opening notifications per issue. Omit to keep the current value.'),
+    destinations: zod
+        .array(
+            zod.object({
+                id: zod.uuid().describe('Unique identifier of the destination.'),
+                channel_type: zod
+                    .enum(['slack'])
+                    .describe('\* `slack` - Slack')
+                    .describe('Delivery channel for notifications.\n\n\* `slack` - Slack'),
+                integration_id: zod
+                    .number()
+                    .nullish()
+                    .describe('ID of the workspace integration used to deliver notifications (required for Slack).'),
+                config: zod
+                    .unknown()
+                    .describe('Channel-specific delivery settings, e.g. {\"channel\": \"C0123\"} for Slack.'),
+            })
+        )
+        .optional()
+        .describe('Delivery targets notifications fan out to. When provided, replaces all current destinations.'),
+})
+
 export const errorTrackingAssignmentRulesCreateBodyOrderKeyDefault = 0
 
 export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object({
