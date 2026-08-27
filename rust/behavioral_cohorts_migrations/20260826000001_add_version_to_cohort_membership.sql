@@ -4,4 +4,12 @@
 --
 -- Nullable with no default keeps this an instant catalog-only DDL. A NULL version means
 -- "older than anything the pipeline has stamped", which is what pre-feature rows are.
+--
+-- The DDL is catalog-only, but it still takes a brief ACCESS EXCLUSIVE lock: queueing for it
+-- behind a long-running statement parks every subsequent reader behind us. lock_timeout bounds
+-- that wait; on timeout the per-file transaction aborts, nothing is recorded, and the next
+-- migration run retries this idempotent file.
+
+SET LOCAL lock_timeout = '5s';
+
 ALTER TABLE cohort_membership ADD COLUMN IF NOT EXISTS version TIMESTAMP;

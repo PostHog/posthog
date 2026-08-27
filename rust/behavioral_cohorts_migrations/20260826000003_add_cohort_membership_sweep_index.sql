@@ -1,0 +1,19 @@
+-- no-transaction
+--
+-- The sweep pages through one cohort's rows below a version. The unique constraint on
+-- (team_id, cohort_id, person_id) can only prefix-match the cohort, leaving the version filter to
+-- discard most of what it reads; carrying version in the index lets each page stop early.
+--
+-- CONCURRENTLY, alone in its own no-transaction file: a plain CREATE INDEX takes SHARE on
+-- cohort_membership, which conflicts with the ROW EXCLUSIVE every consumer upsert needs, and sqlx
+-- would hold it until the whole file commits. This table is on the membership consumer's hot write
+-- path, so a blocking build stalls every batch for the duration.
+--
+-- Recovery note: if this CONCURRENTLY build is ever interrupted, it leaves the index INVALID and a
+-- rerun's IF NOT EXISTS will NOT rebuild it. A drop-first statement can't fix that here, because
+-- sqlx runs a no-transaction migration as one implicitly-transactional batch, so CONCURRENTLY
+-- statements must be alone in their file, and a separate drop migration wouldn't re-run on retry.
+-- Recover manually:
+--   DROP INDEX CONCURRENTLY idx_cohort_membership_sweep;  -- then re-run migrations
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_cohort_membership_sweep
+    ON cohort_membership (team_id, cohort_id, version);
