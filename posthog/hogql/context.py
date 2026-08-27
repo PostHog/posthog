@@ -41,6 +41,8 @@ class HogQLFieldAccess:
     sql: str
 
 
+# Mutable by design, because the resolver and the printers accumulate into it as they walk a query:
+# bound values, notices, warnings, and the lazily-resolved retention floors below.
 @dataclass(frozen=False)
 class HogQLContext:
     """Context given to a HogQL expression printer"""
