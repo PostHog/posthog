@@ -147,33 +147,58 @@ def cron_to_rrule(cron: str | None) -> str:
     return f"FREQ=WEEKLY;BYDAY={days};BYHOUR={hour};BYMINUTE={minute}"
 
 
-def _delivery_config_for_alert(alert: VisionAlertConfiguration, *, can_edit: bool = True) -> list[dict[str, Any]]:
-    """Rebuild the legacy delivery target list from the alert's destination hog functions.
+def _delivery_configs_for_alerts(
+    team_id: int, alert_ids: list[str], *, can_edit: bool
+) -> dict[str, list[dict[str, Any]]]:
+    """Delivery targets for many alerts in one query, keyed by alert id.
 
-    A webhook URL can carry a bearer token, so it stays redacted for readers without edit
-    access — the same bar the legacy representation applied."""
-    targets: list[dict[str, Any]] = []
+    The list endpoint renders every alert on the team, so a per-alert query here is one round trip
+    per row.
+    """
+    by_alert: dict[str, list[dict[str, Any]]] = {alert_id: [] for alert_id in alert_ids}
+    if not alert_ids:
+        return by_alert
     seen: set[tuple[Any, ...]] = set()
     hog_functions = owned_alert_destinations_qs(
-        team_id=alert.team_id, alert_ids=[str(alert.id)], allowed_event_ids=VISION_ALERT_EVENT_IDS
+        team_id=team_id, alert_ids=alert_ids, allowed_event_ids=VISION_ALERT_EVENT_IDS
     ).filter(enabled=True)
     for hog_function in hog_functions:
-        inputs = hog_function.inputs or {}
-        template_id = hog_function.template_id or ""
-        if "slack" in template_id:
-            channel = (inputs.get("channel") or {}).get("value")
-            integration = (inputs.get("slack_workspace") or {}).get("value")
-            key = ("slack", integration, channel)
-            if channel and key not in seen:
-                seen.add(key)
-                targets.append({"type": "slack", "integration_id": integration, "channel": channel})
-        else:
-            url = (inputs.get("url") or {}).get("value")
-            key = ("webhook", url, None)
-            if url and key not in seen:
-                seen.add(key)
-                targets.append({"type": "webhook", "url": url if can_edit else redact_webhook_url(url)})
-    return targets
+        properties = (hog_function.filters or {}).get("properties") or []
+        alert_id = next((p.get("value") for p in properties if p.get("key") == "alert_id"), None)
+        if alert_id not in by_alert:
+            continue
+        target = _render_destination(hog_function, seen, can_edit=can_edit)
+        if target is not None:
+            by_alert[str(alert_id)].append(target)
+    return by_alert
+
+
+def _render_destination(hog_function: Any, seen: set[tuple[Any, ...]], *, can_edit: bool) -> dict[str, Any] | None:
+    """One legacy delivery target, or None when it duplicates one already rendered.
+
+    A webhook URL can carry a bearer token, so it stays redacted for readers without edit access,
+    the same bar the legacy representation applied.
+    """
+    inputs = hog_function.inputs or {}
+    template_id = hog_function.template_id or ""
+    if "slack" in template_id:
+        channel = (inputs.get("channel") or {}).get("value")
+        integration = (inputs.get("slack_workspace") or {}).get("value")
+        key = ("slack", integration, channel)
+        if not channel or key in seen:
+            return None
+        seen.add(key)
+        return {"type": "slack", "integration_id": integration, "channel": channel}
+    url = (inputs.get("url") or {}).get("value")
+    key = ("webhook", url, None)
+    if not url or key in seen:
+        return None
+    seen.add(key)
+    return {"type": "webhook", "url": url if can_edit else redact_webhook_url(url)}
+
+
+def _delivery_config_for_alert(alert: VisionAlertConfiguration, *, can_edit: bool = True) -> list[dict[str, Any]]:
+    return _delivery_configs_for_alerts(alert.team_id, [str(alert.id)], can_edit=can_edit)[str(alert.id)]
 
 
 def _scout_delivery_config(summary: ScoutSummary, *, can_edit: bool = True) -> list[dict[str, Any]]:
@@ -197,7 +222,9 @@ def _scout_delivery_config(summary: ScoutSummary, *, can_edit: bool = True) -> l
     return targets
 
 
-def render_alert_as_action(alert: VisionAlertConfiguration, *, can_edit: bool = True) -> dict[str, Any]:
+def render_alert_as_action(
+    alert: VisionAlertConfiguration, *, can_edit: bool = True, delivery_config: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
     if alert.kind == VisionAlertKind.MATCH:
         alert_config: dict[str, Any] = {"frequency": "every_match", "metric": alert.metric or "count"}
     else:
@@ -220,7 +247,9 @@ def render_alert_as_action(alert: VisionAlertConfiguration, *, can_edit: bool = 
         "selection": alert.selection or {},
         "synthesis_config": {},
         "alert_config": alert_config,
-        "delivery_config": _delivery_config_for_alert(alert, can_edit=can_edit),
+        "delivery_config": (
+            delivery_config if delivery_config is not None else _delivery_config_for_alert(alert, can_edit=can_edit)
+        ),
         "hog_flow": None,
         "next_run_at": alert.next_check_at.isoformat() if alert.next_check_at else None,
         "last_run_at": alert.last_checked_at.isoformat() if alert.last_checked_at else None,
@@ -270,9 +299,12 @@ def list_actions(team: Team, scanner_ids: list[str], *, can_edit: bool = True) -
     scouts = signals_facade.list_scouts_for_source(
         (team.parent_team or team).id, SCOUT_SOURCE_PRODUCT, source_ids=scanner_ids
     )
-    return [render_alert_as_action(alert, can_edit=can_edit) for alert in alerts] + [
-        render_scout_as_action(scout, can_edit=can_edit) for scout in scouts
-    ]
+    alert_rows = list(alerts)
+    deliveries = _delivery_configs_for_alerts(team.id, [str(alert.id) for alert in alert_rows], can_edit=can_edit)
+    return [
+        render_alert_as_action(alert, can_edit=can_edit, delivery_config=deliveries.get(str(alert.id)))
+        for alert in alert_rows
+    ] + [render_scout_as_action(scout, can_edit=can_edit) for scout in scouts]
 
 
 def _resolve(team: Team, pk: str) -> tuple[str, Any] | None:
