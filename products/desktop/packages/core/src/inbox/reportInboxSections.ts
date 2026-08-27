@@ -10,8 +10,10 @@ import type { SignalReport } from "@posthog/shared/types";
 export interface InboxReportSections {
   /** Ready: research done, a person decides — act, review the PR, or archive. */
   decision: SignalReport[];
-  /** Still moving or stuck: running, queued, waiting on input, failed. */
-  monitoring: SignalReport[];
+  /** A responder cannot continue without input, or its latest run failed. */
+  attention: SignalReport[];
+  /** Work the responder is still processing or preparing. */
+  inProgress: SignalReport[];
 }
 
 /**
@@ -34,9 +36,19 @@ export function partitionInboxReports(
   reports: SignalReport[],
 ): InboxReportSections {
   const decision: SignalReport[] = [];
-  const monitoring: SignalReport[] = [];
+  const attention: SignalReport[] = [];
+  const inProgress: SignalReport[] = [];
   for (const report of reports) {
-    (reportNeedsDecision(report) ? decision : monitoring).push(report);
+    if (reportNeedsDecision(report)) {
+      decision.push(report);
+    } else if (
+      report.status === "pending_input" ||
+      report.status === "failed"
+    ) {
+      attention.push(report);
+    } else {
+      inProgress.push(report);
+    }
   }
-  return { decision, monitoring };
+  return { decision, attention, inProgress };
 }

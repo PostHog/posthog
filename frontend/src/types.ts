@@ -593,6 +593,7 @@ export interface OrganizationType extends OrganizationBasicType {
     members_can_create_projects?: boolean
     members_can_use_personal_api_keys: boolean
     members_can_see_org_members?: boolean
+    read_only_mcp_access?: boolean
     allow_publicly_shared_resources: boolean
     metadata?: OrganizationMetadata
     member_count: number
@@ -4615,6 +4616,22 @@ export type ScheduledChangePayload =
           }
       }
 
+// Keep in sync with products/approvals/backend/models.py ChangeRequestState
+export enum ScheduledChangeRequestState {
+    Pending = 'pending',
+    Approved = 'approved',
+    Applied = 'applied',
+    Rejected = 'rejected',
+    Expired = 'expired',
+    Failed = 'failed',
+}
+
+/** Summary of the approval change request gating a scheduled change. */
+export interface ScheduledChangeRequestSummary {
+    id: string
+    state: ScheduledChangeRequestState
+}
+
 export interface ScheduledChangeType {
     id: number
     team_id: number
@@ -4631,6 +4648,8 @@ export interface ScheduledChangeType {
     cron_expression: string | null
     last_executed_at: string | null
     end_date: string | null
+    /** Null when the change is not gated on approval. */
+    change_request: ScheduledChangeRequestSummary | null
 }
 
 export interface PrevalidatedInvite {
@@ -5901,6 +5920,7 @@ export const API_SCOPE_OBJECTS = [
     'user',
     'user_interview',
     'vision_action',
+    'vision_alert',
     'visual_review',
     'warehouse_objects',
     'warehouse_table',

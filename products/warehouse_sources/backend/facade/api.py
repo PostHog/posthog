@@ -50,6 +50,7 @@ from products.warehouse_sources.backend.models.util import (
     postgres_column_to_dwh_column,
     postgres_columns_to_dwh_columns,
     snowflake_columns_to_dwh_columns,
+    trino_columns_to_dwh_columns,
     validate_source_prefix,
     validate_warehouse_table_url_pattern,
 )
@@ -75,6 +76,7 @@ __all__ = [
     # framework-free helper transforms
     "clickhouse_columns_to_dwh_columns",
     "motherduck_columns_to_dwh_columns",
+    "trino_columns_to_dwh_columns",
     "mysql_column_to_dwh_column",
     "mysql_columns_to_dwh_columns",
     "postgres_column_to_dwh_column",
@@ -352,6 +354,18 @@ def resolve_object_by_name(team_id: int, name: str) -> contracts.WarehouseObject
         else contracts.WAREHOUSE_OBJECT_VIEW
     )
     return contracts.WarehouseObjectRef(kind=kind, id=resolved.id)
+
+
+def queryable_table_names(team_id: int, table_ids: Collection[UUID]) -> dict[UUID, str]:
+    """The current name of each table that is still queryable. One query; anything gone is absent.
+
+    The bulk form of ``get_queryable_table`` for a caller that only needs names, so authorizing a
+    page of stored table references costs one query rather than one per reference.
+    """
+    if not table_ids:
+        return {}
+    rows = _DataWarehouseTable.raw_objects.queryable().filter(team_id=team_id, id__in=list(table_ids))
+    return dict(rows.values_list("id", "name"))
 
 
 def list_tables_for_source(source_id: UUID, team_id: int) -> list[contracts.DataWarehouseTable]:

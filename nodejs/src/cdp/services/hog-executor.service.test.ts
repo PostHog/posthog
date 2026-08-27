@@ -73,7 +73,6 @@ describe('Hog Executor', () => {
                 sesEndpoint: hub.SES_ENDPOINT,
                 sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
                 sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
-                sesTenantAttributionEnabled: hub.EMAIL_SES_TENANT_ATTRIBUTION_ENABLED,
             },
             hub.integrationManager,
             new TeamWorkflowsConfigService(hub.postgres),

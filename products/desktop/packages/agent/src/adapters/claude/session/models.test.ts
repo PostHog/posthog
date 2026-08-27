@@ -2,44 +2,60 @@ import { isDefaultSelectOption, selectOptionDocsUrl } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_EFFORT,
+  FALLBACK_MODEL,
   getContextWindowOptions,
   getEffortOptions,
+  rerootedModelOptions,
   resolveEffortForModel,
+  resolveFallbackModel,
   resolveModelPreference,
   supports1MContext,
   supportsEffort,
   supportsMcpInjection,
   supportsXhighEffort,
-  toSdkModelId,
 } from "./models";
 
-describe("toSdkModelId", () => {
-  it("maps known gateway IDs to SDK aliases", () => {
-    expect(toSdkModelId("claude-opus-4-7")).toBe("opus");
-    expect(toSdkModelId("claude-opus-4-8")).toBe("opus");
-    expect(toSdkModelId("claude-sonnet-4-6")).toBe("sonnet");
+describe("resolveFallbackModel", () => {
+  it("recommends the fallback model when it differs from the live model", () => {
+    expect(resolveFallbackModel("claude-sonnet-5")).toBe(FALLBACK_MODEL);
   });
 
-  it("passes unknown IDs through unchanged", () => {
-    expect(toSdkModelId("custom-model")).toBe("custom-model");
+  it("omits the fallback when the live model already is the fallback model", () => {
+    expect(resolveFallbackModel(FALLBACK_MODEL)).toBeUndefined();
+  });
+});
+
+describe("rerootedModelOptions", () => {
+  it("returns no override when there is no live modelId", () => {
+    expect(rerootedModelOptions(undefined)).toEqual({});
   });
 
-  it("passes claude-fable-5 through unchanged (no SDK alias)", () => {
-    expect(toSdkModelId("claude-fable-5")).toBe("claude-fable-5");
+  it("re-roots on the pinned gateway model id, unaliased", () => {
+    expect(rerootedModelOptions("claude-sonnet-5")).toEqual({
+      model: "claude-sonnet-5",
+      fallbackModel: FALLBACK_MODEL,
+    });
   });
 
-  it("passes claude-sonnet-5 through unchanged (no SDK alias)", () => {
-    expect(toSdkModelId("claude-sonnet-5")).toBe("claude-sonnet-5");
+  it("omits the fallback model when the live model is the fallback model itself", () => {
+    expect(rerootedModelOptions(FALLBACK_MODEL)).toEqual({
+      model: FALLBACK_MODEL,
+      fallbackModel: undefined,
+    });
   });
 
-  it("passes claude-opus-5 through unchanged (no SDK alias)", () => {
-    expect(toSdkModelId("claude-opus-5")).toBe("claude-opus-5");
+  it("preserves a caller-configured fallback model instead of the computed default", () => {
+    expect(rerootedModelOptions("claude-sonnet-5", "claude-fable-5")).toEqual({
+      model: "claude-sonnet-5",
+      fallbackModel: "claude-fable-5",
+    });
   });
 
-  it("passes deprecated gateway IDs through unchanged", () => {
-    expect(toSdkModelId("claude-opus-4-6")).toBe("claude-opus-4-6");
-    expect(toSdkModelId("claude-sonnet-4-5")).toBe("claude-sonnet-4-5");
-    expect(toSdkModelId("claude-haiku-4-5")).toBe("claude-haiku-4-5");
+  it("falls back to the computed default when the caller's fallback now equals the live model", () => {
+    expect(rerootedModelOptions("claude-sonnet-5", "claude-sonnet-5")).toEqual({
+      model: "claude-sonnet-5",
+      fallbackModel: FALLBACK_MODEL,
+    });
   });
 });
 
@@ -122,6 +138,13 @@ describe("model capability flags", () => {
       xhighEffort: false,
       mcpInjection: true,
     },
+    {
+      modelId: "zai-org/glm-5.3-flash",
+      oneMContext: false,
+      effort: true,
+      xhighEffort: false,
+      mcpInjection: true,
+    },
   ])(
     "$modelId capability flags",
     ({ modelId, oneMContext, effort, xhighEffort, mcpInjection }) => {
@@ -174,6 +197,7 @@ describe("getEffortOptions", () => {
     ["claude-opus-4-7", ["low", "medium", "high", "xhigh", "max", "ultracode"]],
     ["@cf/zai-org/glm-5.2", ["high", "max"]],
     ["zai-org/glm-5.3", ["high", "max"]],
+    ["zai-org/glm-5.3-flash", ["high", "max"]],
   ])("returns the exact effort levels for %s", (modelId, expected) => {
     expect(getEffortOptions(modelId)?.map((o) => o.value)).toEqual(expected);
   });
