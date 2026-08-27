@@ -240,6 +240,34 @@ describe('billingLogic', () => {
         expect(unregisterSpy).toHaveBeenCalledWith('custom_limits_usd.product_analytics')
     })
 
+    it('keeps the patched limit even when a follow-up billing read would be stale', async () => {
+        // The PATCH returns the freshly persisted limit; a parallel refetch can land later carrying
+        // a read-replica value that has not caught up. Only the PATCH result may win, so the GET
+        // here stays stale (no custom limit) to catch a reintroduced refetch overwriting it.
+        billingState = billingWithProducts([productWithUsage(0.5)])
+        useMocks({
+            get: {
+                '/_preflight': [200, { ...preflightJson, cloud: true }],
+                '/api/billing': () => [200, billingState],
+                '/api/billing/credits/overview': [200, creditOverviewResponse],
+            },
+            patch: {
+                '/api/billing': () => [
+                    200,
+                    billingWithProducts([productWithUsage(0.5)], { [ProductKey.PRODUCT_ANALYTICS]: 100 }),
+                ],
+            },
+        })
+        billingLogic.mount()
+        await expectLogic(preflightLogic).toFinishAllListeners()
+
+        await expectLogic(billingLogic, () => {
+            billingLogic.actions.updateBillingLimits({ [ProductKey.PRODUCT_ANALYTICS]: 100 })
+        }).toFinishAllListeners()
+
+        expect(billingLogic.values.billing?.custom_limits_usd).toEqual({ [ProductKey.PRODUCT_ANALYTICS]: 100 })
+    })
+
     it.each<BillingAccessCase>([
         {
             name: 'member with both member-access flags',

@@ -3,9 +3,11 @@ import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { BillingType } from '~/types'
 
 import type { SignalReportRefundSummaryResponseApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -154,5 +156,56 @@ describe('inboxUsageLogic', () => {
         // via afterMount independently of the refund summary, so wait for all loaders above before
         // reading usedPrs, which depends on both.
         expect(logic.values.usedPrs).toBe(1)
+    })
+
+    // A limit lowered below current usage takes effect next period; billing records it under
+    // `next_period_custom_limits_usd`, not `custom_limits_usd`. The widget must read it and price it
+    // back into PRs, otherwise the lowered limit reads as a silent revert.
+    it('reads next_period_custom_limits_usd as a pending PR limit', async () => {
+        useMocks({
+            get: {
+                '/api/billing': () => [
+                    200,
+                    {
+                        products: [
+                            {
+                                type: 'inbox',
+                                display_divisor: CREDITS_PER_PR,
+                                unit_amount_usd: '0.01',
+                                current_usage: 0,
+                            },
+                        ],
+                        next_period_custom_limits_usd: { inbox: 150 },
+                    },
+                ],
+                '/api/projects/:team_id/signals/reports/refund-summary/': () => [
+                    200,
+                    { credited_refund_count: 0, quota_limited: false, period_billable_credits: 0, credited_credits: 0 },
+                ],
+            },
+        })
+        featureFlagLogic.mount()
+        setRefundsFlag()
+        logic = inboxUsageLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // 0.01 USD/credit × 1500 credits = 15 USD/PR; 150 USD / 15 = 10 PRs, with no free tier.
+        expect(logic.values.pricePerPrUsd).toBe(15)
+        expect(logic.values.nextPeriodLimitPrs).toBe(10)
+    })
+
+    // The submit only fires the billing update. The modal must close on that write landing (so a
+    // failed write keeps it open with the error), and the refund summary must reload so a raised
+    // limit clears the paused banner in place.
+    it('closes the modal and reloads the refund summary when a limit update lands', async () => {
+        logic = await mountWithUsage(1500, { period_billable_credits: 1500, credited_credits: 0 })
+        logic.actions.openModal()
+        expect(logic.values.isModalOpen).toBe(true)
+
+        await expectLogic(logic, () => {
+            billingLogic.actions.updateBillingLimitsSuccess({ products: [] } as unknown as BillingType)
+        }).toDispatchActions(['loadRefundSummary'])
+        expect(logic.values.isModalOpen).toBe(false)
     })
 })
