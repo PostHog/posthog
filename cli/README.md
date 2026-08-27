@@ -114,6 +114,19 @@ The CLI resolves exact Xcode build-setting references such as `$(APP_VERSION)` a
 Missing, unresolved, or compound values fall back to `PRODUCT_BUNDLE_IDENTIFIER`, `MARKETING_VERSION`, and `CURRENT_PROJECT_VERSION`.
 Explicit `--release-name`, `--release-version`, and `--build` values take precedence.
 
+### Reporting the release from a native app at runtime
+
+A web build injects `$release_id` into its bundle. A compiled binary has no bundle, so it reports the release from an environment variable instead. Resolve the release, put its id in `POSTHOG_RELEASE_ID`, and run the app with that variable set:
+
+```bash
+export POSTHOG_RELEASE_ID=$(posthog-cli release resolve --release-name my-app --release-version 1.4.0)
+./my-app
+```
+
+The SDK reads `POSTHOG_RELEASE_ID` at runtime and reports it as `$release_id` on every event, so the server resolves each exception's release by a direct id lookup. The release name and version do not have to match anything the app reports. posthog-rs reads this variable (PostHog/posthog-rs#239); other native SDKs read the same one.
+
+Upload the debug symbols the usual way, with `symbol-sets upload` and no extra flag, so native frames still symbolicate. The symbols carry no release, so an unchanged binary keeps one symbol set across releases.
+
 ## Skipping uploads (dry run)
 
 Pass `--dry-run` before the subcommand (`posthog-cli --dry-run hermes upload ...`), or set `POSTHOG_CLI_DRY_RUN=true`, to turn the upload commands — `sourcemap`, `dsym`, `hermes`, and `proguard` — into a no-op.
