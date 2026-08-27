@@ -415,10 +415,12 @@ pub enum TrackerStoreOp {
     /// Read of the team's previous observation. The build falls back to first
     /// sight, so confirmations are lost while reads fail.
     Read,
-    /// Write of this observation. The team's next shadow build finds nothing to
-    /// compare against, so it also reports first sight.
+    /// Write of this observation. The previous observation is cleared in its place,
+    /// so the team's next shadow build finds nothing to compare against and also
+    /// reports first sight.
     Write,
-    /// Clear of the team's pending state after a clean build.
+    /// Clear of the team's pending state, either after a clean build or in place of
+    /// a write that failed.
     Clear,
 }
 
@@ -470,10 +472,17 @@ impl MismatchTracker {
     /// observation) and first-sight. An empty `diffs` clears the team's pending
     /// state.
     ///
-    /// Every store failure resolves towards first sight and none of them fail
-    /// the shadow build: a mismatch we cannot prove is a repeat is reported as a
-    /// first sighting, so an unreachable store loses confirmations instead of
-    /// inventing them. The failures come back in `store_errors` to be counted.
+    /// Store failures resolve towards first sight and none of them fail the shadow
+    /// build: a mismatch we cannot prove is a repeat is reported as a first
+    /// sighting, so an unreachable store loses confirmations rather than inventing
+    /// them. The failures come back in `store_errors` to be counted.
+    ///
+    /// That fallback needs the team's stale pending state gone, and removing it is
+    /// itself a store access that can fail. When a clean build's clear fails, or
+    /// when a write and the clear that compensates for it both fail, the previous
+    /// fingerprints stand until the TTL. A disagreement that then returns byte for
+    /// byte can confirm one build early. The counter shows it: `op="clear"` alone,
+    /// or `op="write"` together with `op="clear"`.
     pub async fn observe(&self, team_id: TeamId, diffs: Vec<ShadowDiff>) -> ShadowObservation {
         let key = pending_key(team_id);
 
@@ -494,9 +503,16 @@ impl MismatchTracker {
             }
         };
 
-        if let Err(e) = self.write_pending(key, &diffs).await {
-            tracing::warn!(team_id, error = %e, "Shadow mismatch tracker write failed; the team's next build cannot confirm");
+        if let Err(e) = self.write_pending(key.clone(), &diffs).await {
+            tracing::warn!(team_id, error = %e, "Shadow mismatch tracker write failed; clearing the team's pending state instead");
             store_errors.push(TrackerStoreOp::Write);
+            // A failed SETEX leaves the previous build's fingerprints in place with
+            // their own TTL, so the team's next build would compare against an
+            // observation from two builds ago and could confirm a disagreement that
+            // the build in between did not see. Clearing keeps the fallback at first
+            // sight. Redis serves DEL when it refuses a write for `maxmemory`, which
+            // is the case that produces this.
+            store_errors.extend(self.clear_pending(team_id, key).await);
         }
 
         let (confirmed, first_sight) = diffs
@@ -534,14 +550,13 @@ impl MismatchTracker {
         self.redis.setex(key, payload, self.ttl.as_secs()).await
     }
 
-    /// A clean build ends the team's pending window, so the next mismatch starts
-    /// over as a first sighting.
+    /// Drop the team's pending state, so the next mismatch starts over as a first
+    /// sighting. Called after a clean build, and in place of a write that failed.
     ///
-    /// A failed clear leaves the previous fingerprints in place until the TTL,
-    /// which is the one path to a confirmation the rule would not give: the same
-    /// disagreement would have to come back, byte for byte, after a clean build
-    /// and inside the TTL. The fingerprint hashes the content, so that is a real
-    /// recurrence rather than the rebuild race the suppression exists to filter.
+    /// A failed clear is the residual described on `observe`. It needs the same
+    /// disagreement to come back byte for byte inside the TTL, and the fingerprint
+    /// hashes the content, so that is a real recurrence rather than the rebuild
+    /// race the suppression exists to filter.
     async fn clear_pending(&self, team_id: TeamId, key: String) -> Vec<TrackerStoreOp> {
         match self.redis.del(key).await {
             // Redis reports no error for a DEL of a key that is not there, and
