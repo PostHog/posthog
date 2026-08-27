@@ -640,6 +640,13 @@ class MarketingAnalyticsRetentionQueryRunner(
     # ------------------------------------------------------------------ execution
 
     def _calculate(self) -> MarketingAnalyticsRetentionQueryResponse:
+        if self._period_count <= 0:
+            # An inverted range spans no periods. `cohort_starts` still floors itself at one entry so the
+            # expressions have an anchor to read, and that lone cohort opens at the aligned start of
+            # `date_to`, which sits BEFORE `date_to` itself. Running the query would report whoever
+            # arrived in that gap, so a range ending before it starts would return real retention data.
+            return self._empty_response()
+
         query = self.to_query()
 
         response = execute_hogql_query(
@@ -672,6 +679,19 @@ class MarketingAnalyticsRetentionQueryRunner(
             totalCohortSize=sum(row.cohortSize for row in rows),
             hogql=response.hogql,
             timings=response.timings,
+            modifiers=self.modifiers,
+        )
+
+    def _empty_response(self) -> MarketingAnalyticsRetentionQueryResponse:
+        """The table a range that spans no periods describes, without paying for a scan."""
+        return MarketingAnalyticsRetentionQueryResponse(
+            results=[],
+            intervalCount=self.interval_count,
+            interval=self.retention_interval,
+            labels=[f"{_INTERVAL_LABEL[self.retention_interval]} {i}" for i in range(self.interval_count)],
+            otherBreakdownCount=0,
+            truncatedCohorts=0,
+            totalCohortSize=0,
             modifiers=self.modifiers,
         )
 
