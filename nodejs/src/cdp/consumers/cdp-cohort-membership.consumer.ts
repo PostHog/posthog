@@ -536,7 +536,10 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
 
             // The topic is not auto-created, and a consumer subscribed to a missing topic is a
             // green pod that marks nothing: every run would sit `collecting` until abandonment.
-            // The flag being set is a claim that the environment has the topic, so hold it to that.
+            // The flag being set is a claim that this environment runs the US-scoped cohort
+            // pipeline that produces the topic, so hold it to that. The fix for tripping this is
+            // to unset the flag, not to create the topic: a marker topic with no processor behind
+            // it turns the loud failure back into the silent one.
             const markerPartitions =
                 await this.markerKafkaConsumer.getPartitionsForTopic(KAFKA_COHORT_RECONCILE_MARKERS)
             if (markerPartitions.length === 0) {
