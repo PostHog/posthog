@@ -363,6 +363,7 @@ export interface loginLogicMeta {
         ) => SSOProvider[] | null
         signupUrl: (searchParams: Record<string, any>) => string
         wasSignedOutForSessionRisk: (searchParams: Record<string, any>) => boolean
+        isStripeMarketplaceInstall: (searchParams: Record<string, any>) => boolean
     }
 }
 
