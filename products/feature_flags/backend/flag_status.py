@@ -65,9 +65,14 @@ def filter_stale_flags(queryset: QuerySet) -> QuerySet:
     question for one flag and also produces the human-readable reason. The two are meant to
     classify the same flags, so change them together.
 
-    They do not agree yet. The checker calls a flag with no release conditions fully rolled
-    out, so `filters` of `{"groups": []}` (the model default) is STALE to the checker and not
-    stale here. The config branch below matches an empty `filters` only as `NULL` or `{}`.
+    They do not agree yet, on two shapes. First, the checker calls a flag with no release
+    conditions fully rolled out, so `filters` of `{"groups": []}` (the model default) is STALE
+    to the checker and not stale here; the config branch below matches an empty `filters` only
+    as `NULL` or `{}`. Second, the checker reads a group that omits the `properties` key, e.g.
+    `{"groups": [{"rollout_percentage": 100}]}`, as an empty targeting list and calls it STALE,
+    while the config branch requires a literal `[]` and Postgres `->` returns NULL for the
+    absent key, so no branch matches. The editor and the filters serializer now write
+    `properties: []`, so only unedited legacy rows hold the second shape.
     `test_stale_filter_agrees_with_status_checker` covers the shapes where the two do agree.
 
     The caller supplies the scope, so a batched caller can compose this with its own team
@@ -162,7 +167,7 @@ def filter_flags_by_active_param(queryset: QuerySet, value: str | bool) -> Query
 # - UNKNOWN: The feature flag is not found in the database.
 #
 # The set-based counterpart is `filter_stale_flags`. Both are meant to classify the same flags as
-# stale, with the exception recorded in that function's docstring.
+# stale, with the exceptions recorded in that function's docstring.
 class FeatureFlagStatusChecker:
     def __init__(
         self,
