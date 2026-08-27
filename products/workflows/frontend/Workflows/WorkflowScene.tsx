@@ -28,6 +28,7 @@ import {
     isEditingEmailAction,
 } from './workflowAgentContext'
 import { WorkflowAssets } from './WorkflowAssets'
+import { WorkflowEmailPauseBanner } from './WorkflowEmailPauseBanner'
 import { WorkflowInvocations } from './WorkflowInvocations'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowMetrics } from './WorkflowMetrics'
@@ -166,6 +167,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         <SceneContent className="h-full flex flex-col grow" data-attr="workflow-scene">
             <BindLogic logic={workflowLogic} props={{ id: props.id, templateId, editTemplateId }}>
                 <WorkflowSceneHeader {...props} />
+                <WorkflowEmailPauseBanner />
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}
                 {!props.id || props.id === 'new' ? (
                     <Workflow {...props} />

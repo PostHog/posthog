@@ -118,6 +118,7 @@ export type EmailMetric =
     | 'email_blocked'
     | 'email_untracked'
     | 'email_suspended'
+    | 'email_paused'
 
 export type PushMetric = 'push_sent' | 'push_skipped' | 'push_failed' | 'push_opened'
 
@@ -184,6 +185,7 @@ export const METRIC_COLORS: Record<string, string> = {
     'Marked as spam': getColorVar('data-color-9'),
     Untracked: getColorVar('data-color-10'),
     Suspended: getColorVar('data-color-11'),
+    Paused: getColorVar('data-color-12'),
     Skipped: getColorVar('data-color-2'),
     // Workflow run + batch-job metrics
     Success: getColorVar('success'),
@@ -307,6 +309,13 @@ export const WORKFLOW_EMAIL_METRICS: Record<
         color: METRIC_COLORS['Suspended'],
         metricNames: ['email_suspended'],
     },
+    email_paused: {
+        name: 'Paused',
+        description:
+            "Total number of emails that were not sent because this workflow's email is paused. Sending pauses automatically when a workflow's spam complaint or hard bounce rate gets high enough to hurt delivery. Clean up the audience, then resume sending from this workflow's page.",
+        color: METRIC_COLORS['Paused'],
+        metricNames: ['email_paused'],
+    },
 }
 
 // Push has no delivery-receipt channel like email's SES webhook (FCM/APNs respond synchronously), so
@@ -361,6 +370,8 @@ export const EMAIL_METRIC_INVOCATION_FILTERS: Partial<
     email_blocked: { search: 'Complaint', levels: ['WARN', 'ERROR'] },
     // Suspension skips log "Skipping send: email sending is suspended …" at WARN (EmailService).
     email_suspended: { search: 'Skipping send', levels: ['WARN'] },
+    // A per-workflow pause logs "Skipping send: email sending is paused …" at WARN (EmailService).
+    email_paused: { search: 'Skipping send', levels: ['WARN'] },
 }
 
 // Build the router search params that point the Invocations tab at the runs behind the given email
@@ -399,6 +410,7 @@ const EMAIL_METRICS: EmailMetric[] = [
     'email_blocked',
     'email_untracked',
     'email_suspended',
+    'email_paused',
 ]
 
 const PUSH_METRICS: PushMetric[] = ['push_sent', 'push_skipped', 'push_failed', 'push_opened']

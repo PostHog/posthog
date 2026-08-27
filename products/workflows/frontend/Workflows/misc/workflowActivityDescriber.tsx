@@ -130,6 +130,17 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
         }
     }
 
+    if (logItem.activity == 'email_sending_resumed') {
+        return {
+            description: (
+                <>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> resumed email sending for
+                    the {objectNoun}: {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
+                </>
+            ),
+        }
+    }
+
     if (logItem.activity == 'updated' || logItem.activity == 'published') {
         const verb = logItem.activity == 'published' ? 'published' : 'updated'
         const changes: JSX.Element[] = []

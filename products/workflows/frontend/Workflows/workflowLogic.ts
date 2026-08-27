@@ -25,6 +25,7 @@ import { userLogic } from 'scenes/userLogic'
 import { AccessControlLevel, HogFunctionTemplateType } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
+import { hogFlowsResumeEmailSending } from 'products/workflows/frontend/generated/api'
 
 import type { ResourceEditedEvent, UserBasicType, UserType } from '../../../../frontend/src/types'
 import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
@@ -241,6 +242,9 @@ export interface workflowLogicValues {
     scheduleTimezone: string
     schedules: HogFlowSchedule[]
     showWorkflowErrors: boolean
+    emailSendingPaused: boolean
+    emailSendingPausedReason: string
+    resumeEmailSendingPending: boolean
     triggerAction: TriggerAction | null
     workflow: HogFlow
     workflowAllErrors: Record<string, any>
@@ -2320,6 +2324,15 @@ export interface workflowLogicActions {
     resetWorkflow: (values?: HogFlow) => {
         values?: HogFlow
     }
+    resumeEmailSending: () => {
+        value: true
+    }
+    confirmResumeEmailSending: () => {
+        value: true
+    }
+    setResumeEmailSendingPending: (pending: boolean) => {
+        pending: boolean
+    }
     saveWorkflow: (updates: HogFlow) => HogFlow
     saveWorkflowFailure: (
         error: string,
@@ -3001,6 +3014,9 @@ export const workflowLogic = kea<workflowLogicType>([
         setDraftActionPending: (pending: 'publish' | 'discard' | null) => ({ pending }),
         setDeferredResourceEdited: (event: ResourceEditedEvent | null) => ({ event }),
         replayDeferredResourceEdited: true,
+        resumeEmailSending: true,
+        confirmResumeEmailSending: true,
+        setResumeEmailSendingPending: (pending: boolean) => ({ pending }),
     }),
     loaders(({ props, values, actions }) => ({
         originalWorkflow: [
@@ -3323,6 +3339,12 @@ export const workflowLogic = kea<workflowLogicType>([
             null as 'publish' | 'discard' | null,
             {
                 setDraftActionPending: (_, { pending }) => pending,
+            },
+        ],
+        resumeEmailSendingPending: [
+            false,
+            {
+                setResumeEmailSendingPending: (_, { pending }) => pending,
             },
         ],
         // A resource_edited event parked while our own save/reload was in flight. Replayed once the
@@ -3648,6 +3670,17 @@ export const workflowLogic = kea<workflowLogicType>([
             (s) => [s.originalWorkflow],
             (originalWorkflow: HogFlow | null): boolean => !!originalWorkflow?.draft,
         ],
+
+        // Read off the saved row, never the editor form: a pause is server state and the form is
+        // whatever the author has typed since.
+        emailSendingPaused: [
+            (s) => [s.originalWorkflow],
+            (originalWorkflow: HogFlow | null): boolean => !!originalWorkflow?.email_sending_paused_at,
+        ],
+        emailSendingPausedReason: [
+            (s) => [s.originalWorkflow],
+            (originalWorkflow: HogFlow | null): string => originalWorkflow?.email_sending_paused_reason ?? '',
+        ],
     }),
     listeners(({ actions, values, props, cache }) => ({
         setScheduleStartsAtFromPicker: ({ pickerDate }) => {
@@ -3763,6 +3796,42 @@ export const workflowLogic = kea<workflowLogicType>([
                 actions.loadWorkflow()
             } finally {
                 actions.setDraftActionPending(null)
+            }
+        },
+        resumeEmailSending: () => {
+            if (!props.id || props.id === 'new' || values.resumeEmailSendingPending) {
+                return
+            }
+            LemonDialog.open({
+                title: 'Resume email sending?',
+                description:
+                    'Send again from this workflow. If it keeps drawing spam complaints or hitting addresses that do not exist, sending pauses again on its own within a few minutes.',
+                primaryButton: {
+                    children: 'Resume sending',
+                    onClick: () => actions.confirmResumeEmailSending(),
+                },
+                secondaryButton: {
+                    children: 'Cancel',
+                },
+            })
+        },
+        confirmResumeEmailSending: async () => {
+            // Also guards the dialog's close-animation window, where a fast double-click on the
+            // confirm button dispatches twice.
+            if (!props.id || props.id === 'new' || values.resumeEmailSendingPending) {
+                return
+            }
+            actions.setResumeEmailSendingPending(true)
+            try {
+                await hogFlowsResumeEmailSending(String(values.currentProjectId), props.id)
+                lemonToast.success('Email sending resumed')
+            } catch {
+                lemonToast.error('Could not resume email sending. Please try again.')
+            } finally {
+                actions.setResumeEmailSendingPending(false)
+                // Reload either way: on success to clear the banner, on failure because another
+                // editor may have resumed it already.
+                actions.loadWorkflow()
             }
         },
         discardDraft: () => {

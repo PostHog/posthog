@@ -2223,6 +2223,23 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     'Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.'
                 ),
+            email_sending_paused_at: zod.iso
+                .datetime({ offset: true })
+                .nullable()
+                .describe(
+                    "When PostHog paused this workflow's email automatically because its spam complaint or hard bounce rate crossed a threshold. Null when sending is not paused. Read-only: only the resume_email_sending endpoint clears a pause, so a normal update or publish can't lift it."
+                ),
+            email_sending_paused_reason: zod
+                .string()
+                .describe(
+                    'Plain-language reason for the pause, naming the signal and the window. Empty when not paused.'
+                ),
+            email_sending_resumed_at: zod.iso
+                .datetime({ offset: true })
+                .nullable()
+                .describe(
+                    'When sending was last resumed. Every detector window starts after this, so resuming does not immediately re-trip on the feedback that caused the pause. Null if never paused.'
+                ),
         })
         .describe('Mixin for serializers to add user access control fields')
         .optional()

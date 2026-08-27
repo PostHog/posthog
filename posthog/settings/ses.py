@@ -2,6 +2,8 @@ import os
 from typing import Optional
 
 from posthog.settings.base_variables import DEBUG, TEST
+from posthog.settings.utils import get_from_env
+from posthog.utils import str_to_bool
 
 if TEST or DEBUG:
     SES_ENDPOINT = os.getenv("SES_ENDPOINT", "http://localhost:4566")
@@ -33,3 +35,51 @@ SES_TENANT_CONFIGURATION_SETS: list[str] = [
 WORKFLOWS_SES_EVENTS_SNS_TOPIC_ARNS: list[str] = [
     arn.strip() for arn in os.getenv("WORKFLOWS_SES_EVENTS_SNS_TOPIC_ARNS", "").split(",") if arn.strip()
 ]
+
+# Automatic per-workflow email pause. The detector sweeps every workflow's spam-complaint and
+# hard-bounce rates and pauses the ones that breach a threshold, because all workflow email shares
+# one SES account and one bad workflow drags deliverability down for every customer.
+#
+# Off by default. While off, the detector logs what it would have paused and increments its
+# counter, but writes nothing, which is how the thresholds below get calibrated per region before
+# anything enforces.
+WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED: bool = get_from_env(
+    "WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED", False, type_cast=str_to_bool
+)
+
+# Volume gates. A workflow that sent 12 emails and drew 1 complaint is a 8% complaint rate and
+# no information, so a breach needs both enough sends in the window and enough feedback events.
+WORKFLOW_EMAIL_AUTO_PAUSE_MIN_SENT_1H: int = get_from_env("WORKFLOW_EMAIL_AUTO_PAUSE_MIN_SENT_1H", 200, type_cast=int)
+WORKFLOW_EMAIL_AUTO_PAUSE_MIN_SENT_24H: int = get_from_env(
+    "WORKFLOW_EMAIL_AUTO_PAUSE_MIN_SENT_24H", 1000, type_cast=int
+)
+
+# Complaint thresholds sit below AWS's account danger zone (about 0.1% draws warnings and about
+# 0.5% risks enforcement) because a single workflow held at 0.3% measurably drags the shared
+# account down.
+WORKFLOW_EMAIL_AUTO_PAUSE_COMPLAINT_MIN_EVENTS_1H: int = get_from_env(
+    "WORKFLOW_EMAIL_AUTO_PAUSE_COMPLAINT_MIN_EVENTS_1H", 5, type_cast=int
+)
+WORKFLOW_EMAIL_AUTO_PAUSE_COMPLAINT_RATE_1H: float = get_from_env(
+    "WORKFLOW_EMAIL_AUTO_PAUSE_COMPLAINT_RATE_1H", 0.01, type_cast=float
+)
+WORKFLOW_EMAIL_AUTO_PAUSE_COMPLAINT_MIN_EVENTS_24H: int = get_from_env(
+    "WORKFLOW_EMAIL_AUTO_PAUSE_COMPLAINT_MIN_EVENTS_24H", 10, type_cast=int
+)
+WORKFLOW_EMAIL_AUTO_PAUSE_COMPLAINT_RATE_24H: float = get_from_env(
+    "WORKFLOW_EMAIL_AUTO_PAUSE_COMPLAINT_RATE_24H", 0.003, type_cast=float
+)
+
+# Hard-bounce thresholds mirror AWS's own bounce guidance: 5% warn, 10% enforce.
+WORKFLOW_EMAIL_AUTO_PAUSE_BOUNCE_MIN_EVENTS_1H: int = get_from_env(
+    "WORKFLOW_EMAIL_AUTO_PAUSE_BOUNCE_MIN_EVENTS_1H", 20, type_cast=int
+)
+WORKFLOW_EMAIL_AUTO_PAUSE_BOUNCE_RATE_1H: float = get_from_env(
+    "WORKFLOW_EMAIL_AUTO_PAUSE_BOUNCE_RATE_1H", 0.10, type_cast=float
+)
+WORKFLOW_EMAIL_AUTO_PAUSE_BOUNCE_MIN_EVENTS_24H: int = get_from_env(
+    "WORKFLOW_EMAIL_AUTO_PAUSE_BOUNCE_MIN_EVENTS_24H", 50, type_cast=int
+)
+WORKFLOW_EMAIL_AUTO_PAUSE_BOUNCE_RATE_24H: float = get_from_env(
+    "WORKFLOW_EMAIL_AUTO_PAUSE_BOUNCE_RATE_24H", 0.05, type_cast=float
+)

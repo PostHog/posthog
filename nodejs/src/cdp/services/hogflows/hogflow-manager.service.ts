@@ -34,6 +34,8 @@ const HOG_FLOW_FIELDS = [
     'conversion',
     'exit_condition',
     'email_sending_rate_limit',
+    'email_sending_paused_at',
+    'email_sending_paused_reason',
     'edges',
     'actions',
     'encrypted_inputs',

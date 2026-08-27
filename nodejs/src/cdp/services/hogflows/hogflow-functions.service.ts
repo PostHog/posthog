@@ -47,7 +47,12 @@ export class HogFlowFunctionsService {
             updated_at: '',
             // The action's config, plus flow-level send settings the email service needs at the
             // send choke point, where only the synthetic hog function is in scope.
-            metadata: { ...config, email_sending_rate_limit: hogFlow.email_sending_rate_limit ?? null },
+            metadata: {
+                ...config,
+                email_sending_rate_limit: hogFlow.email_sending_rate_limit ?? null,
+                email_sending_paused_at: hogFlow.email_sending_paused_at ?? null,
+                email_sending_paused_reason: hogFlow.email_sending_paused_reason ?? null,
+            },
         }
 
         return hogFunction

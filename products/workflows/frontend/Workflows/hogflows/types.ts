@@ -95,6 +95,11 @@ export interface HogFlow extends z.infer<typeof HogFlowSchema> {
     // content fields; null when nothing is staged. Read-only server state.
     draft?: Partial<HogFlow> | null
     draft_updated_at?: string | null
+    // Set when PostHog paused this workflow's email because its spam complaint or hard bounce rate
+    // crossed a threshold. Read-only server state: only the resume endpoint clears it.
+    email_sending_paused_at?: string | null
+    email_sending_paused_reason?: string
+    email_sending_resumed_at?: string | null
 }
 
 export interface HogFlowEdge extends z.infer<typeof HogFlowEdgeSchema> {}
