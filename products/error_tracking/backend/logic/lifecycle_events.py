@@ -10,6 +10,7 @@ import json
 from typing import Any, Optional
 
 from django.db import transaction
+from django.utils import timezone
 
 import structlog
 
@@ -17,7 +18,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 from posthog.models.user import User
 
-from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
 
 logger = structlog.get_logger(__name__)
 
@@ -26,7 +27,7 @@ ISSUE_SUPPRESSED_EVENT = "$error_tracking_issue_suppressed"
 ISSUE_ASSIGNED_EVENT = "$error_tracking_issue_assigned"
 ISSUE_MERGED_EVENT = "$error_tracking_issue_merged"
 # Cymbal emits this same event when an ingested exception reopens an issue; manual
-# reopens reuse it (without exception props) so reopened alerts cover both paths.
+# reopens reuse it so reopened alerts cover both paths.
 ISSUE_REOPENED_EVENT = "$error_tracking_issue_reopened"
 
 STATUS_CHANGE_EVENTS: dict[str, str] = {
@@ -64,10 +65,21 @@ def produce_issue_lifecycle_event_on_commit(
     # Snapshot everything now: the issue row may be mutated again (or deleted, for
     # merge sources) before the surrounding transaction commits.
     team_id = issue.team_id
+    # Destination message templates deep-link issues via `fingerprint` plus
+    # `exception_timestamp` (see the error tracking sub-templates). Manual
+    # transitions have no triggering exception, so any of the issue's
+    # fingerprints and the transition time keep those links working.
+    fingerprint = (
+        ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, issue_id=issue.id)
+        .values_list("fingerprint", flat=True)
+        .first()
+    )
     properties: dict[str, Any] = {
         "name": issue.name,
         "description": issue.description,
         "status": status_label(status if status is not None else issue.status),
+        "exception_timestamp": timezone.now().isoformat(),
+        **({"fingerprint": fingerprint} if fingerprint is not None else {}),
         **(extra_properties or {}),
     }
     internal_event = InternalEventEvent(event=event, distinct_id=str(issue.id), properties=properties)

@@ -503,7 +503,7 @@ class TestErrorTracking(APIBaseTest):
     def test_issue_status_update_produces_lifecycle_internal_event(
         self, initial_status, new_status, event_name, status_prop, previous_prop
     ):
-        issue = self.create_issue()
+        issue = self.create_issue(fingerprints=["lifecycle_fingerprint"])
         ErrorTrackingIssue.objects.filter(id=issue.id).update(status=initial_status)
 
         with (
@@ -524,6 +524,9 @@ class TestErrorTracking(APIBaseTest):
         assert event.distinct_id == str(issue.id)
         assert event.properties["status"] == status_prop
         assert event.properties["previous_status"] == previous_prop
+        # Destination templates deep-link issues from these two properties.
+        assert event.properties["fingerprint"] == "lifecycle_fingerprint"
+        assert event.properties["exception_timestamp"] is not None
         assert kwargs["person"].id == str(self.user.id)
 
     def test_issue_update_without_status_transition_produces_no_lifecycle_event(self):
