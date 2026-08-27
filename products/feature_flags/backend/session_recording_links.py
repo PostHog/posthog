@@ -296,39 +296,6 @@ def save_replay_gate_rewrites(team_id: int, compute: Callable[[Team], ReplayGate
         team.save(update_fields=update_fields)
 
 
-def update_linked_flag_key(team: Team, expected_flag_id: int, new_key: str) -> None:
-    """Rewrite the stored key on a team's replay link, leaving teams that no longer need it alone."""
-    # Locks the row and re-reads inside the lock, rather than trusting `team`'s in-memory copy:
-    # callers load teams in a batch before looping over them, so another edit to this team's
-    # linked flag could land before its turn comes up. The lock closes the window between the
-    # read and the save below; taking it here is safe because it's the only row this function
-    # locks and the transaction commits before returning, so it can't deadlock against another
-    # call doing the same for a different team (see `relink_teams_on_key_change` for the case
-    # that does require avoiding a lock).
-    with transaction.atomic():
-        linked_flag = (
-            Team.objects.select_for_update()
-            .filter(pk=team.pk)
-            .values_list("session_recording_linked_flag", flat=True)
-            .first()
-        )
-        # Don't route this through `stored_flag_id`: it stays loose to match the jsonb comparison
-        # `teams_gating_replay_on_flag` selected on, where a stored float id equals an int one.
-        if not isinstance(linked_flag, dict) or linked_flag.get("id") != expected_flag_id:
-            # Someone pointed the team at a different flag since the caller looked it up; that
-            # edit isn't ours to touch, and this rename has nothing left to fix here.
-            return
-        if linked_flag.get("key") == new_key:
-            # A no-op save would still spend a write, a Celery task, and a RemoteConfig rebuild.
-            return
-
-        team.session_recording_linked_flag = {**linked_flag, "key": new_key}
-        # Saving the instance rather than issuing a queryset `update()` is what fires the `post_save`
-        # receiver that refreshes the team's RemoteConfig; a bulk update would leave the cached SDK
-        # payload holding the old key.
-        team.save(update_fields=["session_recording_linked_flag"])
-
-
 def relink_teams(feature_flag: FeatureFlag, *, old_key: str) -> None:
     """Point every team gating replay on this flag at its current key.
 
