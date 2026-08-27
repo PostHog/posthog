@@ -8,9 +8,9 @@ import {
 import {
   codeUsageMeter,
   desktopUsageComponents,
+  formatCreditsWithUsd,
   formatResetTime,
   formatUsageQuantity,
-  formatUsdAmount,
   isCodeUsageFreeTier,
 } from "@posthog/core/billing/usageDisplay";
 import type { UsageOutput } from "@posthog/core/usage/schemas";
@@ -99,7 +99,7 @@ export function PlanUsageContent({
   const meter = codeUsageMeter(usage);
   const components = desktopUsageComponents(usage);
   const hasUsageMix =
-    components?.tokenUsd != null && components.computeUsd != null;
+    components?.tokenCredits != null && components.computeCredits != null;
 
   const openBilling = () => {
     if (billingUrl) window.open(billingUrl, "_blank", "noopener,noreferrer");
@@ -186,7 +186,7 @@ export function PlanUsageContent({
             <UsageMeter
               label={freeTier ? "Monthly free usage" : "Usage this period"}
               percent={meter.percent}
-              valueLabel={`${formatUsdAmount(meter.usedUsd)} of ${formatUsdAmount(meter.limitUsd)}${freeTier ? " included" : ""}`}
+              valueLabel={`${formatCreditsWithUsd(meter.usedUsd)} of ${formatCreditsWithUsd(meter.limitUsd)}${freeTier ? " included" : ""}`}
               detail={`${meter.exceeded ? "Limit exceeded. " : ""}${formatResetTime(meter.resetAt, { label: "Billing period ends" })}`}
               breakdown={
                 meter.breakdown
@@ -256,10 +256,11 @@ function UsageMix({
 }: {
   components: NonNullable<ReturnType<typeof desktopUsageComponents>>;
 }) {
-  const tokenUsd = components.tokenUsd ?? 0;
-  const computeUsd = components.computeUsd ?? 0;
-  const totalUsd = tokenUsd + computeUsd;
-  const tokenPercent = totalUsd > 0 ? (tokenUsd / totalUsd) * 100 : 0;
+  const tokenCredits = components.tokenCredits ?? 0;
+  const computeCredits = components.computeCredits ?? 0;
+  const totalCredits = tokenCredits + computeCredits;
+  const tokenPercent =
+    totalCredits > 0 ? (tokenCredits / totalCredits) * 100 : 0;
   const roundedTokenPercent = Math.round(tokenPercent);
   const computeDetails = [
     components.cpuCoreSeconds == null
@@ -280,10 +281,10 @@ function UsageMix({
       <Text className="font-medium text-[13px] text-foreground">Usage mix</Text>
       <div
         role="img"
-        aria-label={`${roundedTokenPercent}% tokens and ${totalUsd > 0 ? 100 - roundedTokenPercent : 0}% cloud compute`}
+        aria-label={`${roundedTokenPercent}% tokens and ${totalCredits > 0 ? 100 - roundedTokenPercent : 0}% cloud compute`}
         className="flex h-3 w-full overflow-hidden rounded-full bg-(--gray-a4)"
       >
-        {totalUsd > 0 && (
+        {totalCredits > 0 && (
           <>
             <div
               className="bg-(--purple-9)"
@@ -298,13 +299,13 @@ function UsageMix({
           color="bg-(--purple-9)"
           label="Tokens"
           percent={roundedTokenPercent}
-          value={formatUsdAmount(tokenUsd)}
+          value={formatCreditsWithUsd(tokenCredits / 100)}
         />
         <MixLegend
           color="bg-(--blue-9)"
           label="Cloud compute"
-          percent={totalUsd > 0 ? 100 - roundedTokenPercent : 0}
-          value={formatUsdAmount(computeUsd)}
+          percent={totalCredits > 0 ? 100 - roundedTokenPercent : 0}
+          value={formatCreditsWithUsd(computeCredits / 100)}
         />
       </Flex>
       <Text className="text-[12px] text-muted-foreground">

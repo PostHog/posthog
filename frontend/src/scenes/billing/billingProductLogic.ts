@@ -1119,6 +1119,11 @@ export const billingProductLogic = kea<billingProductLogicType>([
         ],
     })),
     listeners(({ actions, values, props }) => ({
+        submitBillingLimitInputFailure: ({ errors }) => {
+            if (errors.input === values.billingLimitConfig.maxExceededError) {
+                posthog.capture('billing limit update blocked', { product: props.product.type, reason: 'max_exceeded' })
+            }
+        },
         updateBillingLimitsSuccess: () => {
             actions.billingLoaded()
         },

@@ -7,6 +7,9 @@ export interface UsageLimitContent {
   dismissLabel: string;
 }
 
+const CREDIT_PRICE_NOTE = "1 credit is $0.01";
+const INCLUDED_USAGE = "2,000 included credits (≈ $20)";
+
 export function usageLimitContent(args: {
   cause: GatewayLimitCause | null;
   resetLabel: string | null;
@@ -38,8 +41,7 @@ export function usageLimitContent(args: {
     if (!canManageBilling) {
       return {
         title: "Organization usage limit reached",
-        description:
-          "Your organization has reached its PostHog Desktop credit limit. Contact an organization administrator to change the limit.",
+        description: `Your organization has reached its PostHog Desktop credit limit. ${CREDIT_PRICE_NOTE}. Contact an organization administrator to change the limit.`,
         actionLabel: null,
         dismissLabel: "Got it",
       };
@@ -47,7 +49,7 @@ export function usageLimitContent(args: {
     if (subscribed === false) {
       return {
         title: "Free usage used up",
-        description: `Your organization has used up its included usage.${
+        description: `Your organization has used up its ${INCLUDED_USAGE}.${
           resetLabel ? ` ${resetLabel}.` : ""
         } Add a payment method to keep going — you only pay for what you use.`,
         actionLabel: "Add payment method",
@@ -56,8 +58,7 @@ export function usageLimitContent(args: {
     }
     return {
       title: "Organization usage limit reached",
-      description:
-        "Your organization has reached its PostHog Desktop credit limit. Change the limit in Plan & usage to keep going.",
+      description: `Your organization has reached its PostHog Desktop credit limit. ${CREDIT_PRICE_NOTE}. Change the limit in Plan & usage to keep going.`,
       actionLabel: "Open Plan & usage",
       dismissLabel: "Got it",
     };

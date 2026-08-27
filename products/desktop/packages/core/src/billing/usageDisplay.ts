@@ -1,6 +1,7 @@
 import type { UsageBucket, UsageOutput } from "../usage/schemas";
 
 export const CODE_INCLUDED_USAGE_USD = 20;
+export const CREDITS_PER_USD = 100;
 
 /** Confirmed free tier only — an absent `code_usage_subscribed` is unknown, never free. */
 export function isCodeUsageFreeTier(
@@ -73,16 +74,26 @@ export function codeUsageMeter(
 }
 
 export function formatUsdAmount(amount: number): string {
-  return Number.isInteger(amount) ? `$${amount}` : `$${amount.toFixed(2)}`;
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
+
+export function formatCreditsWithUsd(amountUsd: number): string {
+  const credits = Math.round(amountUsd * CREDITS_PER_USD);
+  return `${credits.toLocaleString("en-US")} credits (≈ ${formatUsdAmount(amountUsd)})`;
 }
 
 export function formatUsageBreakdown(breakdown: CodeUsageBreakdown): string {
-  return `${formatUsdAmount(breakdown.includedUsd)} included + ${formatUsdAmount(breakdown.spendLimitUsd)} org spend limit`;
+  return `${formatCreditsWithUsd(breakdown.includedUsd)} included + ${formatCreditsWithUsd(breakdown.spendLimitUsd)} org spend limit`;
 }
 
 export interface DesktopUsageComponents {
-  tokenUsd: number | null;
-  computeUsd: number | null;
+  tokenCredits: number | null;
+  computeCredits: number | null;
   cpuCoreSeconds: number | null;
   memoryGibSeconds: number | null;
 }
@@ -94,12 +105,8 @@ export function desktopUsageComponents(
   if (breakdown == null) return null;
 
   return {
-    tokenUsd:
-      breakdown.token_credits == null ? null : breakdown.token_credits / 100,
-    computeUsd:
-      breakdown.compute_credits == null
-        ? null
-        : breakdown.compute_credits / 100,
+    tokenCredits: breakdown.token_credits ?? null,
+    computeCredits: breakdown.compute_credits ?? null,
     cpuCoreSeconds:
       breakdown.cpu_millicore_seconds == null
         ? null

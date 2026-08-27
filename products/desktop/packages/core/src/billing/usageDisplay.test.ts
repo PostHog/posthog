@@ -4,6 +4,7 @@ import {
   codeOrgSpendLimitUsd,
   codeUsageMeter,
   desktopUsageComponents,
+  formatCreditsWithUsd,
   formatResetTime,
   formatUsageBreakdown,
   formatUsdAmount,
@@ -208,7 +209,7 @@ describe("codeOrgSpendLimitUsd", () => {
 describe("formatUsageBreakdown", () => {
   it("phrases the merged limit as included + spend limit", () => {
     expect(formatUsageBreakdown({ includedUsd: 20, spendLimitUsd: 50 })).toBe(
-      "$20 included + $50 org spend limit",
+      "2,000 credits (≈ $20) included + 5,000 credits (≈ $50) org spend limit",
     );
   });
 });
@@ -231,8 +232,8 @@ describe("desktopUsageComponents", () => {
     };
 
     expect(desktopUsageComponents(usage)).toEqual({
-      tokenUsd: 12.34,
-      computeUsd: 2.66,
+      tokenCredits: 1_234,
+      computeCredits: 266,
       cpuCoreSeconds: 9_876_543.21,
       memoryGibSeconds: 7_474_922.947265625,
     });
@@ -256,8 +257,8 @@ describe("desktopUsageComponents", () => {
         },
       }),
     ).toEqual({
-      tokenUsd: 0,
-      computeUsd: null,
+      tokenCredits: 0,
+      computeCredits: null,
       cpuCoreSeconds: 0,
       memoryGibSeconds: null,
     });
@@ -270,8 +271,15 @@ describe("formatUsdAmount", () => {
     [12.4, "$12.40"],
     [0.5, "$0.50"],
     [0, "$0"],
+    [1234.56, "$1,234.56"],
   ])("formats %s as %s", (amount, expected) => {
     expect(formatUsdAmount(amount)).toBe(expected);
+  });
+});
+
+describe("formatCreditsWithUsd", () => {
+  it("shows comma-separated credits with their dollar equivalent", () => {
+    expect(formatCreditsWithUsd(12.34)).toBe("1,234 credits (≈ $12.34)");
   });
 });
 

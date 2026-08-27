@@ -18,8 +18,9 @@ describe('DesktopUsageBreakdown', () => {
         )
         const usageMix = screen.getByLabelText('82% tokens and 18% cloud compute')
         expect(usageMix.firstElementChild).toHaveStyle({ width: '82%' })
-        expect(screen.getByText(/\$12\.34/)).toBeTruthy()
-        expect(screen.getByText(/\$2\.66/)).toBeTruthy()
+        expect(screen.getByText(/1,234 credits \(≈ \$12\.34\)/)).toBeTruthy()
+        expect(screen.getByText(/266 credits \(≈ \$2\.66\)/)).toBeTruthy()
+        expect(screen.getByText('1 credit is $0.01.')).toBeTruthy()
         expect(screen.getByText(/1\.5 core-seconds · 4\.5 GiB-seconds/)).toBeTruthy()
     })
 
@@ -33,7 +34,7 @@ describe('DesktopUsageBreakdown', () => {
             />
         )
         expect(screen.getByLabelText('0% tokens and 0% cloud compute')).toBeTruthy()
-        expect(screen.getAllByText(/\$0\.00/)).toHaveLength(2)
+        expect(screen.getAllByText(/0 credits \(≈ \$0\.00\)/)).toHaveLength(2)
         expect(screen.getByText(/CPU unavailable · Memory unavailable/)).toBeTruthy()
     })
 
