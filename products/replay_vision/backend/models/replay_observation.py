@@ -131,6 +131,13 @@ class ReplayObservation(UUIDModel):
         indexes = [
             models.Index(fields=["team", "created_at"], name="rlo_team_created_idx"),
             models.Index(fields=["scanner", "status"], name="rlo_scanner_status_idx"),
+            # Serves the alert-engine observation window: succeeded rows per scanner in a
+            # completed_at range. Partial: terminal succeeded rows are the only ones scanned.
+            models.Index(
+                fields=["scanner", "completed_at"],
+                name="rlo_scanner_completed_idx",
+                condition=models.Q(status="succeeded"),
+            ),
             # Serves the per-scanner list ordering and the prev/next-neighbor lookups (both order by created_at).
             models.Index(fields=["scanner", "created_at"], name="rlo_scanner_created_idx"),
             models.Index(

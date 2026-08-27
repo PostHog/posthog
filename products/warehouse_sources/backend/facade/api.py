@@ -50,6 +50,7 @@ from products.warehouse_sources.backend.models.util import (
     postgres_column_to_dwh_column,
     postgres_columns_to_dwh_columns,
     snowflake_columns_to_dwh_columns,
+    trino_columns_to_dwh_columns,
     validate_source_prefix,
     validate_warehouse_table_url_pattern,
 )
@@ -75,6 +76,7 @@ __all__ = [
     # framework-free helper transforms
     "clickhouse_columns_to_dwh_columns",
     "motherduck_columns_to_dwh_columns",
+    "trino_columns_to_dwh_columns",
     "mysql_column_to_dwh_column",
     "mysql_columns_to_dwh_columns",
     "postgres_column_to_dwh_column",
