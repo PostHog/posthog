@@ -27,6 +27,7 @@ from posthog.clickhouse.cluster import (
 from posthog.clickhouse.plugin_log_entries import PLUGIN_LOG_ENTRIES_TABLE
 from posthog.dags.common import JobOwners
 from posthog.dags.person_overrides import squash_person_overrides
+from posthog.dataclasses import frozen
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.deletion_targets import resolve_placements, sweep_clusters
 from posthog.models.event.deletion import events_data_tables
@@ -281,7 +282,7 @@ class StagedDictionary:
         client.execute(f"INSERT INTO FUNCTION s3({self.__args}) {source_query} SETTINGS s3_truncate_on_insert=1")
 
 
-@dataclass
+@frozen
 class Dictionary(abc.ABC):
     source: Table
 
@@ -382,7 +383,7 @@ class Dictionary(abc.ABC):
         raise NotImplementedError()
 
 
-@dataclass
+@frozen
 class PendingDeletesDictionary(Dictionary):
     source: PendingDeletesTable
 
@@ -438,7 +439,7 @@ class PendingDeletesDictionary(Dictionary):
         return checksum
 
 
-@dataclass
+@frozen
 class AdhocEventDeletesDictionary(Dictionary):
     source: AdhocEventDeletesTable
 
