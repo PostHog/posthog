@@ -533,16 +533,20 @@ test('the schema selection scripts claim the python lanes', () => {
     }
 })
 
-// Called by ci-frontend, the rust smoke build, and the rust image CD.
-test('the reusable rust image builder spans its three callers', () => {
-    const targets = computeTargets(['.github/workflows/_rust-build-images.yml'], CONTEXT)
-    assert.equal(targets.includes('fe:core'), true)
-    assert.equal(targets.includes('deploy'), true)
-    assert.equal(
-        targets.some((target) => target.startsWith('rust:crate:')),
-        true
-    )
-    assert.equal(targets.includes('py:core'), false)
+// Called by the rust smoke build and the rust image CD; the image map is also
+// parsed by rust-compute-affected in the rust and nodejs PR checks.
+test('the rust image builder and image map span rust plus deploy', () => {
+    for (const file of ['.github/workflows/_rust-build-images.yml', '.github/rust-images.yml']) {
+        const targets = computeTargets([file], CONTEXT)
+        assert.equal(targets.includes('deploy'), true, file)
+        assert.equal(
+            targets.some((target) => target.startsWith('rust:crate:')),
+            true,
+            file
+        )
+        assert.equal(targets.includes('fe:core'), false, file)
+        assert.equal(targets.includes('py:core'), false, file)
+    }
 })
 
 // cargo-dist packages the CLI, which ci-cli.yml builds from services/mcp
@@ -607,7 +611,6 @@ test('release and CD workflows share the deploy lane', () => {
         '.github/workflows/rust-docker-build.yml',
         '.github/workflows/release-cli.yml',
         '.github/workflows/publish-hogli.yml',
-        '.github/rust-images.yml',
         'Dockerfile.llm-analytics',
     ]) {
         assert.deepEqual(computeTargets([file], CONTEXT), ['deploy'], file)

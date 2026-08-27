@@ -149,7 +149,9 @@ const NODE = 'node'
 
 // Suites that run the backend and the frontend together: E2E, Hog, and the
 // builds of the images those suites run inside. Both language families in
-// full, which still leaves the rust crates and the standalone trees free.
+// full, which still leaves the rust crates and the standalone trees free
+// (E2E runs prebuilt capture containers from rust/, but rust/** is outside
+// its paths filter, so that gap is the filter's, not this lane's).
 const FULLSTACK = 'fullstack'
 
 // Release and CD workflows. See addDeployLane for why one shared lane is safe.
@@ -297,7 +299,10 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/rust-docker-build.yml', DEPLOY],
     ['.github/workflows/release-cli.yml', DEPLOY],
     ['.github/workflows/publish-hogli.yml', DEPLOY],
-    ['.github/rust-images.yml', DEPLOY],
+    // Also read by rust-compute-affected in ci-rust and ci-nodejs, so it takes
+    // the rust lanes on top of deploy: those PR checks parse it, even though
+    // only the image builds act on what it maps.
+    ['.github/rust-images.yml', [RUST, DEPLOY]],
     // The hogbox preview environment gates no check, and its deploys read the
     // hogbox tooling, which owns a lane already.
     ['.github/workflows/hogbox-preview-env.yml', HOGBOX_PREVIEW],
@@ -455,6 +460,8 @@ const TRIPWIRE_RULES = [
     ['.github/actions/desktop-build-agent-release/**', DESKTOP],
     ['.github/actions/desktop-restore-turbo-cache/**', DESKTOP],
     ['.github/actions/setup-python-cached/**', PYTHON],
+    // Also used by ci-scripts.yml, which is universal, so the node lane is the
+    // only radius left to claim.
     ['.github/actions/report-jest-timings/**', NODE],
     ['.github/actions/get-pr-labels/**', APP_IMAGE],
     ['.github/actions/wait-for-check/**', HOBBY],
@@ -485,9 +492,10 @@ const TRIPWIRE_RULES = [
     ['.github/scripts/schema-impact.test.js', PYTHON],
     ['.github/scripts/schema_usage_scan.py', PYTHON],
     ['.github/scripts/test_schema_usage_scan.py', PYTHON],
-    // Reusable image builder called by ci-frontend, the rust smoke build, and
-    // the rust image CD, so it spans exactly those three radii.
-    ['.github/workflows/_rust-build-images.yml', [RUST, JAVASCRIPT, DEPLOY]],
+    // Reusable image builder called by the rust smoke build and the rust
+    // image CD (ci-frontend only names it in a comment), so it spans exactly
+    // those two radii.
+    ['.github/workflows/_rust-build-images.yml', [RUST, DEPLOY]],
 
     // Lint rules that run repo-wide: a new rule fails code that merged in a
     // parallel lane, which is the same conflict .oxlintrc.json is here for. The
