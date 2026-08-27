@@ -36,16 +36,19 @@ export const PlayerFrame = (): JSX.Element => {
 
             const parentDimensions = frameRef.current.parentElement.getBoundingClientRect()
 
-            // Cap at 0.999 instead of 1 to avoid a Chrome GPU compositing bug where
-            // an identity transform (scale(1)) causes the iframe layer to paint outside
-            // its clipping bounds, overlapping the rest of the UI.
             const scale = Math.min(
                 parentDimensions.width / dimensions.width,
                 parentDimensions.height / dimensions.height,
-                0.999
+                1
             )
 
-            player.replayer.wrapper.style.transform = `scale(${scale})`
+            // Scale with `zoom` instead of `transform: scale()`. A decimal transform scale
+            // promotes the large replay iframe to a composited layer, which WebKit
+            // re-rasterizes at pinch-zoom scale and crashes the tab on iOS (FB13816677).
+            // `zoom` scales through layout, so no oversized layer exists. This also avoids
+            // the Chrome GPU bug where an identity transform painted the iframe layer
+            // outside its clipping bounds, which previously forced a 0.999 scale cap.
+            player.replayer.wrapper.style.setProperty('zoom', String(scale))
 
             setScale(scale)
         },

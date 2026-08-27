@@ -36,6 +36,7 @@ import { PreAggregatedTablesSetting } from 'scenes/settings/environment/PreAggre
 import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
 import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
+import { OrganizationMCPAccess } from 'scenes/settings/organization/OrganizationMCPAccess'
 import { urls } from 'scenes/urls'
 
 import {
@@ -564,13 +565,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['notification', 'alert', 'threshold', 'spike'],
             },
             {
-                id: 'error-tracking-suppression-rules',
-                title: 'Suppression rules',
-                description: 'Filter out exceptions that match the given filters.',
-                component: <SuppressionRules />,
-                keywords: ['filter', 'ignore', 'suppress', 'exception', 'type', 'message'],
-            },
-            {
                 id: 'error-tracking-spike-detection',
                 title: 'Spike detection',
                 component: <SpikeDetectionSettings />,
@@ -584,25 +578,31 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'error-tracking-auto-assignment',
-                title: 'Auto assignment rules',
+                title: 'Assignment rules',
                 description: 'Automatically assign errors to team members based on rules you define.',
                 component: <AssignmentRules />,
-                keywords: ['assign', 'owner', 'team', 'rule', 'routing'],
+                keywords: ['assign', 'auto', 'owner', 'team', 'rule', 'routing'],
+            },
+            {
+                id: 'error-tracking-custom-grouping',
+                title: 'Grouping rules',
+                description: 'Define rules for how errors are grouped together into issues.',
+                component: <GroupingRules />,
+                keywords: ['group', 'custom', 'merge', 'fingerprint', 'dedup'],
             },
             {
                 id: 'error-tracking-severity-rules',
                 title: 'Severity rules',
                 description: 'Set the initial severity of new issues based on rules you define.',
                 component: <SeverityRules />,
-                flag: 'ERROR_TRACKING_SEVERITY_RULES',
                 keywords: ['severity', 'priority', 'triage', 'critical', 'rule'],
             },
             {
-                id: 'error-tracking-custom-grouping',
-                title: 'Custom grouping rules',
-                description: 'Define rules for how errors are grouped together into issues.',
-                component: <GroupingRules />,
-                keywords: ['group', 'merge', 'fingerprint', 'dedup'],
+                id: 'error-tracking-suppression-rules',
+                title: 'Suppression rules',
+                description: 'Filter out exceptions that match the given filters.',
+                component: <SuppressionRules />,
+                keywords: ['filter', 'ignore', 'suppress', 'exception', 'type', 'message'],
             },
             {
                 id: 'error-tracking-symbol-sets',
@@ -892,12 +892,12 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'logs-metric-rules',
-                title: 'Metric rules',
+                title: 'Log-based metrics',
                 description:
                     'Generate metrics from your logs at ingestion time. Metrics are computed before drop rules, so you can drop noisy logs and keep the trend.',
                 component: <LogsMetricRulesSection />,
                 flag: LogsFeatureFlagKeys.metricRules,
-                keywords: ['metric', 'metrics', 'generate', 'count', 'aggregate', 'logs to metrics'],
+                keywords: ['metric', 'metrics', 'log-based', 'generate', 'count', 'aggregate', 'logs to metrics'],
             },
             {
                 id: 'logs-retention-rules',
@@ -1907,6 +1907,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Configure organization-wide security policies.',
                 component: <OrganizationSecuritySettings />,
                 keywords: ['compliance', 'sharing', 'public'],
+            },
+            {
+                id: 'organization-mcp-access',
+                title: 'MCP access',
+                description: 'Control what the PostHog MCP can do in this organization.',
+                component: <OrganizationMCPAccess />,
+                keywords: ['mcp', 'ai', 'agent', 'read-only', 'model context protocol'],
             },
             {
                 id: 'organization-personal-api-keys',

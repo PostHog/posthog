@@ -20,6 +20,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   status: null as TaskStatusInput | null,
   currentUserId: 999 as number | undefined,
+  currentUserUuid: "u-1" as string | undefined,
   analysis: {
     canAnalyze: false,
     isPending: false,
@@ -27,7 +28,9 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
-  useCurrentUser: () => ({ data: { id: mocks.currentUserId } }),
+  useCurrentUser: () => ({
+    data: { id: mocks.currentUserId, uuid: mocks.currentUserUuid },
+  }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelTaskStatus", () => ({
   useChannelTaskStatus: () => mocks.status,
@@ -132,6 +135,11 @@ describe("ChannelItemRow", () => {
   // rather than the status: starting, live but stalled, or something to read.
   it.each([
     ["a permission prompt", { needsPermission: true }, "Needs your input"],
+    [
+      "an agent session being created",
+      { isAgentSessionStarting: true },
+      "Starting",
+    ],
     ["a streaming agent", { isGenerating: true }, "Working"],
     [
       // A background run is one-shot and unattended, so its in_progress really
@@ -514,7 +522,7 @@ describe("ChannelItemRow", () => {
       kind: "canvas",
       id: "c1",
       title: "Web analytics overview",
-      authorUser: { id: 999, uuid: "u-1", email: "owner@example.com" },
+      authorUuid: "u-1",
     });
     renderInList(
       <ChannelItemRow
@@ -544,7 +552,7 @@ describe("ChannelItemRow", () => {
       kind: "canvas",
       id: "c1",
       title: "Web analytics overview",
-      authorUser: { id: 7, uuid: "u-2", email: "creator@example.com" },
+      authorUuid: "u-2",
     });
     renderInList(
       <ChannelItemRow actions={actions} isActive={false} item={canvas} />,
