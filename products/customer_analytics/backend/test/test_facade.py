@@ -119,24 +119,16 @@ class TestCustomerAnalyticsFacade(BaseTest):
             is None
         )
 
-    def test_get_account_context_data_denied_object_level_returns_none(self):
-        account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-123")
-        uac = MagicMock()
-        uac.check_access_level_for_resource.return_value = True
-        uac.filter_queryset_by_access_level.side_effect = lambda qs: qs.none()
-
-        assert (
-            facade.get_account_context_data(self.team.id, account_id=str(account.id), user_access_control=uac) is None
-        )
-
-    def test_get_account_context_data_denied_resource_level_returns_none(self):
+    def test_get_account_context_data_ignores_account_access_controls(self):
         account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-123")
         uac = MagicMock()
         uac.check_access_level_for_resource.return_value = False
+        uac.filter_queryset_by_access_level.side_effect = lambda qs: qs.none()
 
-        assert (
-            facade.get_account_context_data(self.team.id, account_id=str(account.id), user_access_control=uac) is None
-        )
+        data = facade.get_account_context_data(self.team.id, account_id=str(account.id), user_access_control=uac)
+
+        assert data is not None
+        assert data.id == account.id
 
     def test_search_accounts_matches_name_and_external_id(self):
         create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-123")

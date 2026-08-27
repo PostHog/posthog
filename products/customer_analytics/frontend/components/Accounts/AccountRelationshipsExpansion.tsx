@@ -12,7 +12,9 @@ import {
 } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
+import { TeamMembershipLevel } from 'lib/constants'
 
 import type { AccountRelationshipApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
@@ -43,6 +45,10 @@ export function AccountRelationshipsExpansion({ accountId }: { accountId: string
         closeDeleteConfirmation,
         deleteRelationship,
     } = useActions(accountRelationshipsLogic({ accountId }))
+    const destructiveActionRestrictionReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const columns: LemonTableColumns<AccountRelationshipApi> = [
         {
@@ -91,7 +97,9 @@ export function AccountRelationshipsExpansion({ accountId }: { accountId: string
                                 size="xsmall"
                                 icon={<IconX />}
                                 tooltip={`End this ${relationship.definition.name} assignment`}
-                                disabledReason={relationshipSaving ? 'Saving…' : undefined}
+                                disabledReason={
+                                    destructiveActionRestrictionReason ?? (relationshipSaving ? 'Saving…' : undefined)
+                                }
                                 onClick={() => endRelationship(relationship)}
                             />
                         )}

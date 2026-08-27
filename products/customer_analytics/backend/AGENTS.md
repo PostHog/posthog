@@ -1,25 +1,20 @@
 # Customer analytics — backend
 
-## Access control: accounts and their sub-resources are resource-level scoped
+## Access control: account reads are project-wide, mutations remain gated
 
-Account viewsets and their nested sub-resources (custom property values, notebooks, and
-future account children) authorize at the **resource level**, not the object level:
+Every project member can read accounts and their account-owned metadata. Account access-control rows do not hide account records, custom property values, relationships, notes, or other account read surfaces.
 
-- `AccessControlViewSetMixin` + `scope_object = "account"` enforces the caller's default
-  access to the `account` scope (`viewer` for reads, `editor` for writes) plus project
-  membership.
-- `facade.get_accessible_account_id(...)` additionally filters to accounts the caller can
-  see (effective access above `none`).
+- Account-scoped viewsets set `access_control_unrestricted_read = True`. `AccessControlPermission` still checks project membership, while scoped API tokens still need the corresponding `account:read` scope.
+- Read facades use team-scoped account querysets without `UserAccessControl` filtering.
+- Account HogQL tables use `rbac_unrestricted_read`, which allows project members and trusted userless jobs while preserving `account:read` scope checks for service principals.
+- A related resource with its own access model still enforces it. For example, account communication endpoints separately check the `ticket` resource, and warehouse-backed account tabs check warehouse access.
 
-Per-account **object-level** access overrides are intentionally **not** enforced on writes
-to nested sub-resources. A caller with resource-level `editor` can therefore write the
-sub-resources of any account they can see, even if their access to that specific account
-was lowered to `viewer`. This is the accepted model for now — keep new account
-sub-resource viewsets consistent with it: gate on `get_accessible_account_id` and rely on
-the mixin for the resource-level `editor` requirement.
+Account mutations remain access-controlled:
 
-Automated security reviewers periodically flag nested account write endpoints as an
-"object-level write access bypass". That is **known and intentional** here — don't treat it
-as a bug to fix. If we later decide to enforce object-level writes, mirror the account
-update/delete path: call `_enforce_object_access(account, user_access_control, "editor")`
-in the nested viewset's `create`/`destroy` before the write.
+- `AccessControlViewSetMixin` + `scope_object = "account"` requires `editor` for create, update, and other non-safe actions.
+- `_AccountDestructiveActionPermission` additionally requires effective project admin access for deletes and destructive actions such as ending a relationship.
+- Direct account update and delete paths enforce object-level editor access.
+- Nested account mutations use `facade.get_writable_account_id(...)`. This keeps a caller with only a specific account grant from mutating a different account.
+- A caller with resource-level `editor` can mutate nested resources for any account in the project. This is the accepted model for account-owned custom properties, relationships, notebooks, and similar children.
+
+When adding an account surface, use `get_readable_account_id(...)` for reads and `get_writable_account_id(...)` for mutations. Do not reintroduce account filtering on list or detail reads. Preserve any independent access check for data owned by another resource.

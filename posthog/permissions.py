@@ -945,7 +945,9 @@ class AccessControlPermission(ScopeBasePermission):
         resource = self._get_scope_object(request, view)
         required_scopes = self._get_required_scopes(request, view)
 
-        if resource == "INTERNAL":
+        if resource == "INTERNAL" or (
+            request.method in SAFE_METHODS and getattr(view, "access_control_unrestricted_read", False)
+        ):
             return None
 
         ordered_access_levels_list = ordered_access_levels(resource)
@@ -975,6 +977,8 @@ class AccessControlPermission(ScopeBasePermission):
         # They're gated by API scope + project membership, so scopes grant project-wide access
         # within that resource type and object-level RBAC restrictions don't apply.
         if is_service_auth(request):
+            return True
+        if request.method in SAFE_METHODS and getattr(view, "access_control_unrestricted_read", False):
             return True
 
         # NOTE: If the object is a Team then we shortcircuit here and create a UAC
@@ -1014,6 +1018,9 @@ class AccessControlPermission(ScopeBasePermission):
             if view.param_derived_from_user_current_team in ("team_id", "project_id"):
                 if request.user.current_team_id is None:
                     raise AuthenticationFailed("This endpoint requires a current project to be set on your account.")
+
+        if request.method in SAFE_METHODS and getattr(view, "access_control_unrestricted_read", False):
+            return True
 
         uac = self._get_user_access_control(request, view)
         scope_object = self._get_scope_object(request, view)

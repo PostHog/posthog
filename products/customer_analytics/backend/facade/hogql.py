@@ -175,10 +175,9 @@ account_email_thread_links: PostgresTable = PostgresTable(
 account_custom_property_values: PostgresTable = PostgresTable(
     name="_account_custom_property_values",
     postgres_table_name="customer_analytics_custompropertyvalue",
-    # Per-account deny filters used to arrive via the account-subquery predicate; with the
-    # direct team guard they must be declared explicitly, filtering on the account FK.
     access_scope="account",
     access_control_id_field="account_id",
+    rbac_unrestricted_read=True,
     description="Internal federated table (PostgreSQL `customer_analytics_custompropertyvalue`) of custom property values per account; not for direct querying — use `system.accounts.custom_properties`.",
     # Unlike the FK-only junction tables, this table has a real `team_id` column, so the
     # framework's standard `team_id = X` guard scopes it, and as a plain column comparison it is
@@ -221,6 +220,7 @@ account_custom_property_values_history: PostgresTable = PostgresTable(
     postgres_table_name="customer_analytics_custompropertyvalue",
     access_scope="account",
     access_control_id_field="account_id",
+    rbac_unrestricted_read=True,
     description="Internal federated table (PostgreSQL `customer_analytics_custompropertyvalue`) of every custom property value write per account, superseded rows included; not for direct querying — use `system.accounts.custom_properties_history`.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Primary key of the custom property value row."),
@@ -990,10 +990,9 @@ account_email_threads_lazy_join: LazyJoin = LazyJoin(
 account_relationship_definitions: PostgresTable = PostgresTable(
     name="account_relationship_definitions",
     postgres_table_name="customer_analytics_accountrelationshipdefinition",
-    # Sub-resource of accounts; gated at the account resource level (see customer_analytics backend CLAUDE.md).
     access_scope="account",
-    # Team-level definitions shared by every account, so a per-account grant never keys these rows.
     resource_level_access_only=True,
+    rbac_unrestricted_read=True,
     description="Customer analytics account relationship definitions: team-defined relationship types between PostHog users and accounts (CSM, Account executive, ...), one row per definition. Per-account assignments live in system.account_relationships and via the system.accounts.relationships lazy join.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Relationship definition UUID."),
@@ -1024,11 +1023,9 @@ account_relationship_definitions: PostgresTable = PostgresTable(
 account_relationships: PostgresTable = PostgresTable(
     name="account_relationships",
     postgres_table_name="customer_analytics_accountrelationship",
-    # Sub-resource of accounts; gated at the account resource level (see customer_analytics backend CLAUDE.md).
     access_scope="account",
-    # Child rows expose per-account data: object-level denies must filter the account FK,
-    # not the assignment's own id, or a denied account's relationships leak.
     access_control_id_field="account_id",
+    rbac_unrestricted_read=True,
     description="User-to-account relationship assignments (CSM, Account executive, ...), one row per assignment with its effective range — `ended_at` is NULL while active, set when the assignment ends, so historical account management is queryable. Active assignments per account are also exposed as a JSON object via the `system.accounts.relationships` lazy join.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Relationship assignment UUID."),
@@ -1056,11 +1053,9 @@ account_relationships: PostgresTable = PostgresTable(
 accounts: PostgresTable = PostgresTable(
     name="accounts",
     postgres_table_name="customer_analytics_account",
-    # Object-level access control filters out ids directly off access_scope, so we use
-    # `account` here (where the per-object grants are stored) instead of the
-    # `customer_analytics` umbrella. Resource-level gating still works via RESOURCE_INHERITANCE_MAP.
     access_scope="account",
     access_control_creator_id_field="created_by_id",
+    rbac_unrestricted_read=True,
     description="Customer analytics accounts (companies/organizations being tracked); one row per account, with CRM identifiers extracted from properties.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Account UUID."),
@@ -1153,8 +1148,7 @@ feature_request_product_areas: PostgresTable = PostgresTable(
 feature_request_account_links: PostgresTable = PostgresTable(
     name="feature_request_account_links",
     postgres_table_name="customer_analytics_featurerequestaccountlink",
-    access_scope="account",
-    access_control_id_field="account_id",
+    access_scope="customer_analytics",
     predicates=[parse_expr("unlinked_at IS NULL")],
     description="Active links between Customer analytics feature requests and affected accounts, one row per request and account pair.",
     fields={
@@ -1313,10 +1307,9 @@ feature_request_history: PostgresTable = PostgresTable(
 custom_property_definitions: PostgresTable = PostgresTable(
     name="custom_property_definitions",
     postgres_table_name="customer_analytics_custompropertydefinition",
-    # Sub-resource of accounts; gated at the account resource level (see customer_analytics backend CLAUDE.md).
     access_scope="account",
-    # Team-level definitions shared by every account, so a per-account grant never keys these rows.
     resource_level_access_only=True,
+    rbac_unrestricted_read=True,
     description="Customer analytics custom property definitions: team-scoped attribute shapes (the property's name and type), one row per definition. Per-account values are exposed via the system.accounts.custom_properties lazy join.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Custom property definition UUID."),

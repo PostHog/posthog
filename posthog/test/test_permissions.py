@@ -147,6 +147,17 @@ class TestAccessControlPermission(BaseTest):
         # Should NOT have permission
         assert self.permission.has_permission(request, view) is False
 
+    def test_unrestricted_read_does_not_unrestrict_writes(self):
+        self._create_access_control(resource="customer_analytics", access_level="none")
+        view = self._create_real_view(action="list")
+        view.scope_object = "account"
+        view.access_control_unrestricted_read = True
+
+        assert self.permission.has_permission(self._create_mock_request(), view) is True
+
+        view.action = "create"
+        assert self.permission.has_permission(self._create_mock_request(method="POST"), view) is False
+
     def test_has_object_permission_with_specific_access(self):
         """Test object-level permission when user has specific access to the object"""
         # Set resource-level access to "none"

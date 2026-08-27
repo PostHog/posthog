@@ -978,7 +978,7 @@ class TestAccountsTableQueryRunner(BaseTest):
             )
 
     @pytest.mark.ee
-    def test_object_access_filters_rows_and_partitions_the_cache(self) -> None:
+    def test_object_access_does_not_filter_rows_or_partition_the_cache(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -998,22 +998,22 @@ class TestAccountsTableQueryRunner(BaseTest):
         )
 
         blocked_runner = AccountsTableQueryRunner(
-            query=AccountsTableQuery(columns=[], filters=[], limit=1),
+            query=AccountsTableQuery(columns=[], filters=[], limit=10),
             team=self.team,
             user=self.user,
         )
         blocked_cache_key = blocked_runner.get_cache_key()
         response = blocked_runner.calculate()
 
-        assert [row.id for row in response.results] == [str(visible_account.id)]
+        assert {row.id for row in response.results} == {str(visible_account.id), str(denied_account.id)}
 
         blocking_access.delete()
         unblocked_cache_key = AccountsTableQueryRunner(
-            query=AccountsTableQuery(columns=[], filters=[], limit=1),
+            query=AccountsTableQuery(columns=[], filters=[], limit=10),
             team=self.team,
             user=self.user,
         ).get_cache_key()
-        assert blocked_cache_key != unblocked_cache_key
+        assert blocked_cache_key == unblocked_cache_key
 
 
 class TestAccountsTableQueryAPI(APIBaseTest):

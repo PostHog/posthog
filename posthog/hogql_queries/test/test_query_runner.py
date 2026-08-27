@@ -1571,21 +1571,15 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         assert "notebook" in restricted  # queried and denied
         assert "survey" not in restricted  # denied but not read by the query
 
-    def test_resource_deny_on_parent_partitions_inherited_child_table(self):
-        # system.accounts uses the "account" scope, which inherits from "customer_analytics".
-        # A deny on the parent must still partition a query that reads the child table - otherwise the
-        # schema filter denies it but the cache key doesn't, and a denied user gets a cached result.
+    def test_unrestricted_accounts_table_does_not_partition_on_customer_analytics_access(self):
         self._ac(resource="customer_analytics", access_level="none")
         query = {"kind": "HogQLQuery", "query": "select * from system.accounts"}
         runner = HogQLQueryRunner(query=query, team=self.team, user=self.user)
 
-        restricted = set(runner.get_cache_payload().get("restricted_resources") or [])
-        assert "account" in restricted  # denied via the inherited parent customer_analytics
+        assert "restricted_resources" not in runner.get_cache_payload()
 
     def test_querying_access_controlled_tables_issues_one_preload(self):
-        # has_resource_access (incl. the inheritance recursion account -> customer_analytics) resolves
-        # against the in-memory preload, so reading several access-controlled tables still issues exactly
-        # one ee_accesscontrol query - no per-scope N+1.
+        # Reading several access-controlled tables resolves against one in-memory preload.
         self._ac(resource="customer_analytics", access_level="none")
         self._ac(resource="notebook", access_level="none")
         query = {"kind": "HogQLQuery", "query": "select * from system.accounts, system.notebooks, system.surveys"}
