@@ -1197,7 +1197,7 @@ def get_teams_with_mobile_billable_recording_count_in_period(begin: datetime, en
                 FROM session_replay_events
                 WHERE min_first_timestamp >= %(begin)s AND min_first_timestamp < %(end)s
                 GROUP BY session_id
-                HAVING ifNull(argMinMerge(snapshot_source), '') == 'mobile'
+                HAVING (ifNull(argMinMerge(snapshot_source), 'web') == 'mobile') == 1
                 AND max(is_deleted) = 0
             )
             WHERE session_id NOT IN (
