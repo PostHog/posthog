@@ -4,6 +4,11 @@ Status: proposal.
 Scope: the Node.js ingestion pipelines framework (`nodejs/src/ingestion/framework/`), the WorkerIngest gRPC transport, and the Rust ingestion consumer's handling of partial acks.
 The HTTP `/ingest` path keeps its current behavior; it is being retired.
 
+Vocabulary follows the nomenclature in [`rust/ingestion-consumer/docs/driver-model.md`](../../rust/ingestion-consumer/docs/driver-model.md) §8 (#89277): **worker** (one Node.js ingestion-api process), **worker stream** (the ordered gRPC connection, never "lane"), **sub-batch** (the worker-facing unit on the wire), **batch** (one Kafka collection unit), **routing key** (`token:distinct_id`), **group** (one routing key's messages from one poll), **watermark** (the per-key acked offset), **resolve** (a send finished, success or failure).
+Two sanctioned deviations where this doc touches Node code by name: the framework's `BatchingPipeline` calls one fed sub-batch a batch (so "batch" appears on framework surfaces like `BatchBudget` and `batchContext`), and "chunk" keeps its two code senses — the framework's per-stage unit (`ChunkPipeline`) and the transport's 413 body split.
+"Budget" here always means this proposal's per-sub-batch **time** budget; the driver model's uncommitted-work budget `B` is a different axis and is untouched.
+The proposal composes with the driver-model redesign: under it the budgeted unit becomes the request, and dispositions resolve per group — simpler there, since an incomplete group returns to its key driver's queue head.
+
 ## Problem
 
 Pipeline steps have no time limits.
@@ -31,8 +36,8 @@ The watchdog stays as what it should be: a dead-worker detector.
 The extension slots for this already exist:
 
 - `SubBatchStatus` is designed for it: the consumer treats any status it does not recognize as retriable backpressure (fence in order, re-route, worker stays healthy), so a new `PARTIAL` status degrades safely for old consumers.
-- `BatchingPipeline.feed(elements, batchContext)` already correlates completed batches back to their feed call (`BatchResult.batchContext`), and `CompletedSubBatch.settled` already gives per-batch ack barriers.
-- The consumer's dispatcher already cascade-defers: a key with deferred groups pending gets its newer messages queued behind them, which is exactly the ordering machinery redelivery needs.
+- `BatchingPipeline.feed(elements, batchContext)` already correlates completed batches back to their feed call (`BatchResult.batchContext`), and `CompletedSubBatch.settled` already gives per-sub-batch ack barriers.
+- The consumer's dispatcher already enforces the cascade rule: once a routing key defers, its newer groups defer behind the stashed ones — which is exactly the ordering machinery redelivery needs.
 
 ### Cancellation is cooperative, at framework checkpoints
 
@@ -48,7 +53,7 @@ server reads SubBatch frame             arm BatchBudget (admission wait counts)
       ◆ StepPipeline.process            exhausted? → incomplete, skip the step
       ◆ chunk steps                     pre-mark exhausted elements, run the rest
       ◆ withStepRetry / withChunkRetry  signal fired? stop retrying → incomplete
-    concurrentlyPerGroup                order gate for poisoned keys (see below)
+    concurrentlyPerGroup                per-key order gate (see below)
     handleResults                       incomplete: metric only, no produce
     afterBatch flush                    always runs; commits completed events' writes
   ack PARTIAL { accepted, incomplete: [indices] }
@@ -66,7 +71,7 @@ server reads SubBatch frame             arm BatchBudget (admission wait counts)
 
 `INCOMPLETE` means "not acked, redeliver"; the other four results all mean "handled, do not resend".
 An incomplete element still emits a result, so `BatchingPipeline`'s count invariant holds untouched: N messages in, N results out, `afterBatch` flush still runs for the events that did finish.
-An event cancelled mid-chain (after person processing, before Kafka emit) is redelivered and reprocessed from the top — the at-least-once semantics the pipeline already has, narrowed from whole fenced lanes to the unfinished remainder.
+An event cancelled mid-chain (after person processing, before Kafka emit) is redelivered and reprocessed from the top — the at-least-once semantics the pipeline already has, narrowed from whole fenced worker streams to the unfinished remainder.
 
 ## Framework interface
 
@@ -118,7 +123,7 @@ export type ProcessingStep<T, U, R extends string = never> = (
 ) => Promise<PipelineResult<U, R>>
 ```
 
-### Driver surface
+### `StreamIngestDriver` surface
 
 `GrpcStreamIngestDriver` computes dispositions from the completed batch's elements (already in feed order):
 
@@ -140,22 +145,22 @@ The ordinary path acks after `settled` resolves: `PARTIAL` when `incomplete` is 
 
 This is the one genuinely new invariant the ordered stream forces us to handle.
 
-Within one sub-batch, budget exhaustion is monotone, so a key's completed events are always a prefix of its feed order — redelivering the suffix is safe.
-Across sub-batches it is not: sub-batch N and N+1 can both be in flight with events for key K (hot keys — the ones that make batches slow — hit this constantly).
+Within one sub-batch, budget exhaustion is monotone, so a routing key's completed events are always a prefix of its feed order — redelivering the suffix is safe.
+Across sub-batches it is not: sub-batch N and N+1 can both be in flight with events for one routing key K (hot keys — the ones that make sub-batches slow — hit this constantly).
 If N's K-events go incomplete while N+1's K-events process (N+1's budget is younger), redelivering N's suffix would reorder the key.
 
 The fix is a per-key **order gate** in the grouping stage, activated only for keys that produced an incomplete result:
 
-- When an element of key K resolves incomplete, record the offset of its first incomplete message and the set of sub-batches currently in flight in the pipeline.
-- While the gate is active, an arriving K-element with offset **greater than** the poison point is stale in-flight work — resolve it incomplete without processing (its own sub-batch acks it as incomplete, and the consumer's cascade-deferral queues it behind K's earlier messages).
+- When an element of key K resolves incomplete, record the **gate offset** (the offset of its first incomplete message) and the set of sub-batches currently in flight in the pipeline.
+- While K is gated, an arriving K-element with offset **greater than** the gate offset is stale in-flight work — resolve it incomplete without processing (its own sub-batch acks it as incomplete, and the consumer's cascade rule defers it behind K's earlier messages).
 - The gate clears in either of two ways:
-  - **The in-flight window drains**: every sub-batch that was in flight at poisoning time has completed. After that, no stale K-element can exist — the consumer holds K's newer messages behind the deferred ones until the redelivery resolves, so anything arriving later is already ordered.
-  - **The redelivery returns here**: a K-element arrives with offset at or before the poison point, restoring per-key contiguity directly.
+  - **The in-flight window drains**: every sub-batch that was in flight at gating time has completed. After that, no stale K-element can exist — the consumer holds K's newer groups behind the deferred ones until the redelivery resolves, so anything arriving later is already ordered.
+  - **The redelivery returns here**: a K-element arrives with offset at or before the gate offset, restoring per-key contiguity directly.
 
-Kafka offsets are per-partition monotone and a key lives on one partition, so "at or before the poison point" is exactly "restores per-key contiguity".
+Kafka offsets are per-partition monotone and a routing key lives on one partition, so "at or before the gate offset" is exactly "restores per-key contiguity".
 The offset clause alone is not sufficient, and the window-drain clause is not an optimization: the redelivery is a deferral flush, and the dispatcher's sticky pin escapes to another worker when the pinned one is unhealthy or heavily loaded — which a budget-blowing worker often is.
-The redelivery then lands elsewhere and this worker never sees an offset at or before the poison point; without the window-drain clause it would gate fresh, correctly ordered K traffic forever, feeding a redeliver-and-gate livelock against the consumer's flush-stall bail.
-The gate is generic in the framework (`concurrentlyPerGroup` gains an optional per-item sequence extractor; the analytics pipeline supplies the Kafka offset from the element context) and holds state only for poisoned keys.
+The redelivery then lands elsewhere and this worker never sees an offset at or before the gate offset; without the window-drain clause it would gate fresh, correctly ordered K traffic forever, feeding a redeliver-and-gate livelock against the consumer's flush-stall bail.
+The gate is generic in the framework (`concurrentlyPerGroup` gains an optional per-item sequence extractor; the analytics pipeline supplies the Kafka offset from the element context) and holds state only for gated keys.
 A TTL eviction plus metric remains as a bug net, but it is not load-bearing for correctness and never needs to race `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS`.
 
 A simpler fallback exists if the gate proves troublesome: on budget expiry, cancel every not-yet-started element in the pipeline (all keys, all in-flight sub-batches).
@@ -187,7 +192,7 @@ message SubBatchAck {
 
 `budget_ms` is a relative allowance rather than an absolute deadline, so clock skew is irrelevant; time spent on the wire and in HTTP/2 buffers stays invisible to the worker, which is why the consumer sizes the budget well under the watchdog (see rollout) and the watchdog remains the backstop.
 
-Compatibility is already designed in: a consumer that predates `PARTIAL` treats it like `BUSY` — fence the lane in order as retriable and replay the tail — so a budget-enabled worker never corrupts an old consumer, it just wastes the partial progress.
+Compatibility is already designed in: a consumer that predates `PARTIAL` treats it like `BUSY` — fence the worker stream in order as retriable and replay the tail — so a budget-enabled worker never corrupts an old consumer, it just wastes the partial progress.
 
 The ack shape carries a hard invariant, validated fail-closed on the consumer: `PARTIAL` requires a non-empty `incomplete` and `accepted + incomplete.len() == messages.len()`; `OK` requires an empty one.
 An ack violating either is a protocol error handled like `FAILED` — fence the stream and replay.
@@ -196,13 +201,13 @@ The consumer must never derive acceptance from the `incomplete` list without tha
 ## Consumer changes
 
 This is the largest piece outside the framework.
-The stash, cascade-deferral, and ordered flush are reused as-is, but everything between the ack and the stash needs real work:
+The stash, the cascade rule, and the ordered flush are reused as-is, but everything between the ack and the stash needs real work:
 
-- Regenerate the proto; stamp `budget_ms` on each `SubBatch` from new config (suggested: `INGESTION_WORKER_BATCH_BUDGET_MS`, default 0 = disabled; when set, sized at roughly half `INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS`).
+- Regenerate the proto; stamp `budget_ms` on each `SubBatch` from new config (suggested: `INGESTION_WORKER_SUB_BATCH_BUDGET_MS`, default 0 = disabled; when set, sized at roughly half `INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS`).
 - **A per-message reply shape.** The transport reply today is all-or-nothing (`Accepted { accepted, messages }`), and a sub-batch the transport split into size-bounded chunks acks per chunk — the transport must remap each chunk's `incomplete` indices back to sub-batch positions and merge the chunk dispositions into one resolution.
 - **A mixed resolve path.** Today a sub-batch resolves fully (release keys, advance counts) or fails fully (`defer_failed` stashes everything). Partial acceptance needs a resolve that releases completed messages and stashes the rest while preserving the dispatcher's outstanding-count invariants (the count nets to unchanged for stashed keys and never dips to zero mid-handoff).
 - **Per-key acked watermarks computed from completed messages only.** The order sentinel advances a key's watermark using the key's maximum offset in the sub-batch; on a partial ack that would advance past unprocessed offsets and flag the redelivery as a resend-after-ack violation. The watermark must come from the completed subset.
-- **An escalation ladder for events that never fit the budget.** A poison event would otherwise redeliver forever — the deferral path has no attempt cap — with each round ending in the flush-stall bail and a process restart, the watchdog fully masked. Stash entries produced by partial acks carry an attempt count; after N budget-limited attempts the message resends with `budget_ms = 0`, degrading to exactly today's semantics (full watchdog window, fence on overrun) for that message alone, with a counter so the poison event is visible instead of masked.
+- **An escalation ladder for events that never fit the budget.** Such an event would otherwise redeliver forever — the deferral path has no attempt cap — with each round ending in the flush-stall bail and a process restart, the watchdog fully masked. Stash entries produced by partial acks carry an attempt count; after N budget-limited attempts the message resends with `budget_ms = 0`, degrading to exactly today's semantics (full watchdog window, fence on overrun) for that message alone, with a counter so the pathological event is visible instead of masked.
 - Offset commit accounting is unchanged in kind: partially accepted sub-batches hold commits exactly the way deferred groups do today, just for fewer messages.
 
 ## What this deliberately does not do
@@ -224,7 +229,7 @@ The stash, cascade-deferral, and ordered flush are reused as-is, but everything 
 - `ingestion_batch_budget_exhausted_total` — budgets that expired before the batch completed.
 - Incomplete results by last step (existing `ingestion_pipeline_result` counter gains the label value).
 - Overrun histogram — time from budget expiry to batch completion; this is the tail the checkpoints cannot cut, and the input for choosing which steps adopt the signal.
-- Order-gate metrics — keys poisoned, stale elements gated, clears by window-drain vs offset vs TTL.
+- Order-gate metrics — routing keys gated, stale elements gated, clears by window-drain vs offset vs TTL.
 - Consumer side — partial acks, messages redelivered after partial, budget-exempt escalations.
 
 Shadow mode (`enforce: false`) records all of the above without changing any result, so budgets can run in production before the first cancelled event.
@@ -233,7 +238,7 @@ Shadow mode (`enforce: false`) records all of the above without changing any res
 
 1. **Framework** — `INCOMPLETE`, `BatchBudget`, feed plumbing, the three checkpoints, retry integration, metrics, shadow mode, a framework docs chapter, and stall-investigation cases for the count invariant and within-batch prefix property under budgets.
    Default `unlimited()`: zero behavior change.
-2. **Order gate** — the poison/clear mechanism in `ConcurrentlyGroupingChunkPipeline` behind the sequence-extractor option, plus fuzz tests.
+2. **Order gate** — the gate/clear mechanism in `ConcurrentlyGroupingChunkPipeline` behind the sequence-extractor option, plus fuzz tests.
    Inert without budgets.
 3. **Wire + worker** — proto fields, `PARTIAL` acks in `WorkerIngestServer`, dispositions in `GrpcStreamIngestDriver`, worker-side cap config.
    Run shadow in production; read the overrun and would-have-cancelled metrics.
