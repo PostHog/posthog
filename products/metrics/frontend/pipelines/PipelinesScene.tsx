@@ -8,10 +8,12 @@ import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { pipelinesFeaturePreviewGate } from '../featurePreviewGate'
 import { pipelinesLogic } from './pipelinesLogic'
 import { MetricsPipelineType } from './types'
 
@@ -22,6 +24,14 @@ export const scene: SceneExport = {
 }
 
 export function MetricsPipelinesScene(): JSX.Element {
+    return (
+        <FeaturePreviewSceneGate config={pipelinesFeaturePreviewGate}>
+            <MetricsPipelinesSceneContent />
+        </FeaturePreviewSceneGate>
+    )
+}
+
+function MetricsPipelinesSceneContent(): JSX.Element {
     const { pipelines, pipelinesLoading } = useValues(pipelinesLogic)
     const { deletePipeline } = useActions(pipelinesLogic)
 

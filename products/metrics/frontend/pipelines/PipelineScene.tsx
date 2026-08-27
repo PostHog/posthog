@@ -5,10 +5,12 @@ import { LemonBanner, LemonButton, LemonSelect, LemonTag, Spinner } from '@posth
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { pipelinesFeaturePreviewGate } from '../featurePreviewGate'
 import { PipelineDrillPanel } from './PipelineDrillPanel'
 import { PipelineEditor } from './PipelineEditor'
 import { PipelineGraph } from './PipelineGraph'
@@ -22,6 +24,14 @@ export const scene: SceneExport<PipelineLogicProps> = {
 }
 
 export function MetricsPipelineScene({ id }: PipelineLogicProps = { id: NEW_PIPELINE_ID }): JSX.Element {
+    return (
+        <FeaturePreviewSceneGate config={pipelinesFeaturePreviewGate}>
+            <MetricsPipelineSceneContent id={id} />
+        </FeaturePreviewSceneGate>
+    )
+}
+
+function MetricsPipelineSceneContent({ id }: PipelineLogicProps): JSX.Element {
     const logic = pipelineLogic({ id })
     const {
         pipeline,
