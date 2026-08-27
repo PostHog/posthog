@@ -131,7 +131,7 @@ export const getSvelteServerSteps = (ctx: OnboardingComponentsContext): StepDefi
                             },
                             {
                                 language: 'bash',
-                                file: 'Bun',
+                                file: 'bun',
                                 code: dedent`
                                     bun add posthog-node
                                 `,
