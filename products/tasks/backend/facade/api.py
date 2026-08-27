@@ -210,6 +210,7 @@ __all__ = [
     "get_conversation_task_dtos",
     "get_latest_pr_url_by_task",
     "get_merged_pr_task_ids",
+    "get_open_pr_runs_for_team",
     "get_latest_run_by_task",
     "get_resume_snapshot_carry_state",
     "get_sandbox_custom_image",
@@ -976,6 +977,51 @@ def get_merged_pr_task_ids(task_ids: Iterable[str | UUID]) -> set[str]:
         .distinct("task_id")
     )
     return {str(row["task_id"]) for row in rows if row["output_pr_merged_flag"] in ("true", "True")}
+
+
+def get_open_pr_runs_for_team(
+    team_id: int, *, since: datetime | None = None, limit: int = 100
+) -> list[contracts.OpenPullRequestRunDTO]:
+    """The team's task runs whose pull request is still open, newest first.
+
+    One entry per task: its latest PR-bearing run, matching ``get_latest_pr_url_by_task``, with
+    merged and closed PRs dropped. The merge/close state is read from the same webhook-maintained
+    ``output`` keys the task list filters use, so a PR whose webhook never arrived counts as open:
+    for the callers this serves (telling an agent what work is already in flight) an extra PR to
+    check costs a sentence, while a missed one costs a duplicate PR.
+
+    ``since`` bounds the scan to recently-created runs; without it every PR-bearing run the team
+    ever produced is read.
+    """
+    runs = TaskRun.objects.filter(team_id=team_id, output__pr_url__isnull=False).exclude(output__pr_url="")
+    if since is not None:
+        runs = runs.filter(created_at__gte=since)
+    rows = (
+        runs.order_by("task_id", "-created_at", "-id")
+        .distinct("task_id")
+        .values("id", "task_id", "branch", "created_at", "output")
+    )
+
+    open_runs: list[contracts.OpenPullRequestRunDTO] = []
+    for row in rows:
+        output = row["output"] if isinstance(row["output"], dict) else {}
+        pr_url = output.get("pr_url")
+        if not isinstance(pr_url, str) or not pr_url:
+            continue
+        if output.get("pr_state") in ("merged", "closed") or output.get("pr_merged") in (True, "true", "True"):
+            continue
+        open_runs.append(
+            contracts.OpenPullRequestRunDTO(
+                run_id=row["id"],
+                task_id=row["task_id"],
+                pr_url=pr_url,
+                created_at=row["created_at"],
+                branch=row["branch"],
+            )
+        )
+    # `distinct("task_id")` forces a task-ordered query, so recency ordering happens here.
+    open_runs.sort(key=lambda run: run.created_at, reverse=True)
+    return open_runs[:limit]
 
 
 def get_latest_run_by_task(task_ids: Iterable[str | UUID]) -> dict[str, contracts.TaskRunDTO]:

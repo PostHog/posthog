@@ -19,10 +19,11 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.business_knowledge.backend.logic import is_available_for_team
 from products.signals.backend.agent_runtime import STEP_RESEARCH, resolve_agent_runtime
-from products.signals.backend.artefact_schemas import ArtefactContent, RelatedTo, SuggestedReviewers
+from products.signals.backend.artefact_schemas import ArtefactContent, NoteArtefact, RelatedTo, SuggestedReviewers
 from products.signals.backend.auto_start import ReviewerContent, maybe_autostart_implementation_task
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
+from products.signals.backend.report_generation.open_prs import OpenSelfDrivingPr, collect_open_self_driving_prs
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -481,6 +482,40 @@ def _team_has_business_knowledge(team_id: int) -> bool:
         return False
 
 
+def _load_open_self_driving_prs(team_id: int, report_id: str, repository: str) -> list[OpenSelfDrivingPr]:
+    """The team's open self-driving PRs, and a `note` artefact recording what research was shown.
+
+    The note is the audit trail the block exists for: an `already_addressed: false` on a report we
+    already had a PR for can be read back against the list the agent actually received, instead of
+    being unfalsifiable. Written only when the list is non-empty, since an empty list adds nothing
+    to the report's timeline.
+
+    Fails open to an empty list, because a research run must not die when this lookup breaks. The
+    agent still runs its own in-flight check.
+    """
+    try:
+        open_prs = collect_open_self_driving_prs(team_id=team_id, repository=repository, exclude_report_id=report_id)
+    except Exception:
+        logger.warning("signals open self-driving PR lookup failed", report_id=report_id, exc_info=True)
+        return []
+    if not open_prs:
+        return []
+
+    listed = "\n".join(f"- {pr.pr_url} (report {pr.report_id})" for pr in open_prs)
+    try:
+        SignalReportArtefact.add_log(
+            team_id=team_id,
+            report_id=str(report_id),
+            content=NoteArtefact(
+                note=f"Research was shown these open self-driving pull requests before it assessed this report:\n\n{listed}"
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+    except Exception:
+        logger.warning("signals open self-driving PR note failed", report_id=report_id, exc_info=True)
+    return open_prs
+
+
 def _team_report_charts_enabled(team_id: int) -> bool:
     """Whether the research agent may attach charts to this team's reports.
 
@@ -546,6 +581,10 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             resolved_report_title, resolved_report_summary = await _load_resolved_report_context(
                 input.team_id, input.report_id
             )
+            # 2c. Load the PRs we already have open, so research doesn't have to rediscover our own work
+            open_self_driving_prs = await database_sync_to_async(_load_open_self_driving_prs, thread_sensitive=False)(
+                input.team_id, input.report_id, repository
+            )
             # 3. Run the agentic research in the sandbox
             result = await run_multi_turn_research(
                 input.signals,
@@ -557,6 +596,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 resolved_report_title=resolved_report_title,
                 resolved_report_summary=resolved_report_summary,
                 charts_enabled=charts_enabled,
+                open_self_driving_prs=open_self_driving_prs,
             )
             # 4. Persist artefacts, avoid partial data from failed runs
             await _persist_agentic_report_artefacts(

@@ -3,9 +3,11 @@ from datetime import datetime
 import pytest
 
 from products.signals.backend.report_charts import ReportChart
+from products.signals.backend.report_generation.open_prs import OpenSelfDrivingPr
 from products.signals.backend.report_generation.research import (
     SignalFinding,
     _render_signal_for_research,
+    build_actionability_prompt,
     build_initial_research_prompt,
     build_report_presentation_prompt,
     build_signal_investigation_prompt,
@@ -106,6 +108,43 @@ class TestBuildInitialResearchPrompt:
         signal = _make_signal({})
         prompt = build_initial_research_prompt(signal, 1)
         assert "## Previously resolved report" not in prompt
+
+    # The block is the whole fix for a research run opening a PR against work the pipeline already
+    # has in flight: if it stops rendering, or renders without the URLs and paths that make an
+    # overlap recognizable, the agent is back to rediscovering our own PRs with `gh pr list`.
+    @pytest.mark.parametrize("open_pr_count", [0, 1, 25])
+    def test_open_self_driving_prs_block(self, open_pr_count):
+        prs = [
+            OpenSelfDrivingPr(
+                report_id=f"report-{i}",
+                report_title=f"fix(replay): stop dropping events {i}",
+                repository="PostHog/posthog",
+                pr_url=f"https://github.com/PostHog/posthog/pull/{i}",
+                branch=f"posthog/fix-{i}",
+                code_paths=(f"products/replay/backend/module_{i}.py",),
+            )
+            for i in range(open_pr_count)
+        ]
+
+        prompt = build_initial_research_prompt(_make_signal({}), 1, open_self_driving_prs=prs)
+
+        assert ("## Pull requests PostHog already opened" in prompt) == bool(prs)
+        for i, pr in enumerate(prs):
+            assert pr.pr_url in prompt
+            assert pr.report_title in prompt
+            assert f"posthog/fix-{i}" in prompt
+            assert pr.code_paths[0] in prompt
+
+    # The actionability verdict is a later turn, so it restates the pointer at the moment
+    # `already_addressed` is actually decided. It must track whether a block was rendered at all:
+    # pointing the agent at a section the prompt never carried is the failure the initial-prompt
+    # case above already guards.
+    @pytest.mark.parametrize("has_open_self_driving_prs", [False, True])
+    def test_actionability_prompt_points_at_the_block_only_when_it_exists(self, has_open_self_driving_prs):
+        prompt = build_actionability_prompt(1, has_open_self_driving_prs=has_open_self_driving_prs)
+
+        assert ("## Pull requests PostHog already opened" in prompt) == has_open_self_driving_prs
+        assert "`already_addressed` is broader than" in prompt
 
     @pytest.mark.parametrize("has_previous_finding", [False, True])
     def test_uses_stable_finding_response_envelope(self, has_previous_finding):

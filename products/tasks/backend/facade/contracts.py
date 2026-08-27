@@ -68,6 +68,22 @@ class SignalImplementationRunDTO:
 
 
 @dataclass(frozen=True)
+class OpenPullRequestRunDTO:
+    """A task run whose pull request is still open, meaning neither merged nor closed.
+
+    Returned by ``get_open_pr_runs_for_team``, one entry per task (its latest PR-bearing run),
+    newest first. Openness comes from the webhook-maintained ``output.pr_state`` /
+    ``output.pr_merged``, so a PR that never got a webhook delivery reads as open.
+    """
+
+    run_id: UUID
+    task_id: UUID
+    pr_url: str
+    created_at: datetime
+    branch: str | None = None
+
+
+@dataclass(frozen=True)
 class WizardCloudRunDTO:
     """A team's active onboarding wizard cloud run.
 
