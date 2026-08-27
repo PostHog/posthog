@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
+import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -91,8 +92,15 @@ function DetailPane({ className }: { className?: string }): JSX.Element {
 }
 
 function ListPane({ className }: { className?: string }): JSX.Element {
-    const { sessions, sessionsLoading, selectedSessionId, getSessionTitle, hasMoreSessions, moreSessionsLoading } =
-        useValues(aiObservabilitySessionsViewLogic)
+    const {
+        sessions,
+        sessionsLoading,
+        sessionsError,
+        selectedSessionId,
+        getSessionTitle,
+        hasMoreSessions,
+        moreSessionsLoading,
+    } = useValues(aiObservabilitySessionsViewLogic)
     const { selectSession, loadMoreSessions } = useActions(aiObservabilitySessionsViewLogic)
 
     return (
@@ -110,6 +118,8 @@ function ListPane({ className }: { className?: string }): JSX.Element {
                             <LemonSkeleton key={i} className="h-12 w-full" />
                         ))}
                     </div>
+                ) : sessionsError && sessions.length === 0 ? (
+                    <SessionsErrorState />
                 ) : sessions.length === 0 ? (
                     <AIObservabilitySessionsEmptyState />
                 ) : (
@@ -143,6 +153,28 @@ function ListPane({ className }: { className?: string }): JSX.Element {
                     </>
                 )}
             </div>
+        </div>
+    )
+}
+
+function SessionsErrorState(): JSX.Element {
+    const { sessionsLoading } = useValues(aiObservabilitySessionsViewLogic)
+    const { loadSessions } = useActions(aiObservabilitySessionsViewLogic)
+
+    return (
+        <div className="p-4 text-center">
+            <div className="text-sm text-secondary mb-1">Could not load sessions</div>
+            <div className="text-xs text-secondary mb-3">The query failed. This is usually temporary. Try again.</div>
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconRefresh />}
+                loading={sessionsLoading}
+                onClick={() => loadSessions()}
+                data-attr="llma-sessions-retry"
+            >
+                Retry
+            </LemonButton>
         </div>
     )
 }

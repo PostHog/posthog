@@ -69,6 +69,7 @@ export interface aiObservabilitySessionsViewLogicValues {
     moreSessionsLoading: boolean
     selectedSessionId: string | null
     sessions: SessionListRow[]
+    sessionsError: boolean
     sessionsLoading: boolean
     sessionsQuery: DataTableNode
     sessionsSort: SortState
@@ -187,6 +188,16 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
                 loadSessions: () => true,
                 loadSessionsSuccess: () => false,
                 loadSessionsFailure: () => false,
+            },
+        ],
+        // The list keeps its default empty array when the query fails. Track the failure so the
+        // playlist can offer a retry instead of the "no sessions yet" empty state.
+        sessionsError: [
+            false,
+            {
+                loadSessions: () => false,
+                loadSessionsSuccess: () => false,
+                loadSessionsFailure: () => true,
             },
         ],
         moreSessionsLoading: [
