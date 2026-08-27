@@ -266,9 +266,25 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
 
         assert more_recordings_available is False
 
-    def test_duration_metrics_stay_in_valid_range(self):
-        # An ongoing recording can report more active time than its elapsed span,
-        # which used to give a negative inactive time and an activity score above 100.
+    @parameterized.expand(
+        [
+            # Concurrent tabs give overlapping blocks whose active time sums past the elapsed span,
+            # which used to surface as a negative inactive time and a score above 100.
+            ("active_time_exceeds_span", 20, 1, 100 * 1000, 0, 100),
+            # Nothing to divide by: no mouse activity, no console output, no duration. The ratio was
+            # 0/0, which reached the API as NaN and is not valid JSON.
+            ("no_denominator", 0, 0, 0, 0, 0),
+        ]
+    )
+    def test_duration_metrics_stay_in_valid_range(
+        self,
+        _name: str,
+        span_seconds: int,
+        mouse_activity_count: int,
+        active_milliseconds: int,
+        expected_inactive: int,
+        expected_score: int,
+    ):
         user = "test_duration_metrics-user"
         create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
@@ -277,20 +293,20 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             session_id=session_id,
             team_id=self.team.pk,
             first_timestamp=self.an_hour_ago,
-            last_timestamp=(self.an_hour_ago + relativedelta(seconds=20)),
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=span_seconds)),
             distinct_id=user,
             click_count=0,
             keypress_count=0,
-            mouse_activity_count=1,
-            active_milliseconds=100 * 1000,  # more active time than the 20 second span
+            mouse_activity_count=mouse_activity_count,
+            active_milliseconds=active_milliseconds,
         )
 
         session_recordings, _, _, _ = self._filter_recordings_by()
 
         assert len(session_recordings) == 1
         recording = session_recordings[0]
-        assert recording["inactive_seconds"] == 0
-        assert 0 <= recording["activity_score"] <= 100
+        assert recording["inactive_seconds"] == expected_inactive
+        assert recording["activity_score"] == expected_score
 
     @snapshot_clickhouse_queries
     def test_basic_query_active_sessions(
