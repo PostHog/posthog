@@ -1,3 +1,4 @@
+import json
 import uuid
 from typing import TYPE_CHECKING
 
@@ -732,6 +733,71 @@ def _create_support_ticket(team: Team, label: str) -> Ticket:
         widget_session_id=f"session_{label}",
         distinct_id=f"user_{label}",
         status="new",
+        organization_id=f"organization_{label}",
+    )
+
+
+def _create_account_meeting(team: Team, label: str):
+    Account = apps.get_model("customer_analytics", "Account")
+    Meeting = apps.get_model("customer_analytics", "Meeting")
+    account = Account.objects.unscoped().create(team=team, name=f"account_{label}")
+    return Meeting.objects.unscoped().create(
+        team=team,
+        account=account,
+        ical_uid=f"meeting_{label}",
+        start_time=timezone.now(),
+    )
+
+
+def _create_account_channel_summary(team: Team, label: str):
+    Account = apps.get_model("customer_analytics", "Account")
+    AccountChannelSummary = apps.get_model("customer_analytics", "AccountChannelSummary")
+    account = Account.objects.unscoped().create(team=team, name=f"account_{label}")
+    return AccountChannelSummary.objects.unscoped().create(
+        team=team,
+        account=account,
+        slack_channel_id=f"channel_{label}",
+        cadence="daily",
+        period_start=timezone.now(),
+        period_end=timezone.now(),
+        content=f"summary_{label}",
+    )
+
+
+def _create_account_email_thread(team: Team, label: str):
+    Account = apps.get_model("customer_analytics", "Account")
+    EmailThread = apps.get_model("conversations", "EmailThread")
+    EmailThreadAccountLink = apps.get_model("conversations", "EmailThreadAccountLink")
+    account = Account.objects.unscoped().create(team=team, name=f"account_{label}")
+    thread = EmailThread.objects.for_team(team.id).create(
+        team=team,
+        canonical_thread_key=f"thread_{label}",
+        subject=f"subject_{label}",
+    )
+    EmailThreadAccountLink.objects.for_team(team.id).create(
+        team=team,
+        thread=thread,
+        account_id=str(account.id),
+        match_source="known_email",
+    )
+    return thread
+
+
+def _create_account_email_thread_link(team: Team, label: str):
+    Account = apps.get_model("customer_analytics", "Account")
+    EmailThread = apps.get_model("conversations", "EmailThread")
+    EmailThreadAccountLink = apps.get_model("conversations", "EmailThreadAccountLink")
+    account = Account.objects.unscoped().create(team=team, name=f"account_{label}")
+    thread = EmailThread.objects.for_team(team.id).create(
+        team=team,
+        canonical_thread_key=f"thread_{label}",
+        subject=f"subject_{label}",
+    )
+    return EmailThreadAccountLink.objects.for_team(team.id).create(
+        team=team,
+        thread=thread,
+        account_id=str(account.id),
+        match_source="known_email",
     )
 
 
@@ -883,6 +949,10 @@ SYSTEM_TABLE_FACTORIES = [
     ("cohorts", _create_cohort),
     ("cohort_calculation_history", _create_cohort_calculation_history),
     ("custom_property_definitions", _create_custom_property_definition),
+    ("_account_meetings", _create_account_meeting),
+    ("_account_channel_summaries", _create_account_channel_summary),
+    ("_account_email_threads", _create_account_email_thread),
+    ("_account_email_thread_links", _create_account_email_thread_link),
     ("dashboards", _create_dashboard),
     ("dashboard_tiles", _create_dashboard_tile),
     ("dataset_item_versions", _create_dataset_item_version),
@@ -1272,6 +1342,17 @@ class TestSystemTicketTagsLazyJoin(NonAtomicBaseTest):
         other_project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=other_org)
         self.other_team = Team.objects.create(id=other_project.id, project=other_project, organization=other_org)
 
+    def test_organization_id_is_queryable(self):
+        ticket = _create_support_ticket(self.team, "organization")
+
+        response = execute_hogql_query(
+            f"SELECT organization_id FROM system.support_tickets WHERE id = '{ticket.id}'",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert response.results == [("organization_organization",)]
+
     def test_tags_lazy_join_returns_tag_names_array(self):
         ticket = _create_support_ticket(self.team, "tagged")
         ticket.tagged_items.create(tag=Tag.objects.create(name="billing", team=self.team))
@@ -1451,6 +1532,86 @@ class TestSystemAccountsLazyJoins(NonAtomicBaseTest):
         rows_by_id = {str(row[0]): row[1] for row in response.results}
 
         assert rows_by_id[str(account.id)] == 3
+
+    def test_customer_context_lazy_joins_return_recent_account_records(self):
+        account = Account.objects.unscoped().create(team=self.team, name="Acme", external_id="acme-org")
+        Meeting = apps.get_model("customer_analytics", "Meeting")
+        AccountChannelSummary = apps.get_model("customer_analytics", "AccountChannelSummary")
+        EmailThread = apps.get_model("conversations", "EmailThread")
+        EmailThreadAccountLink = apps.get_model("conversations", "EmailThreadAccountLink")
+
+        Meeting.objects.unscoped().create(
+            team=self.team,
+            account=account,
+            ical_uid="acme-meeting",
+            start_time=timezone.now(),
+            title="Account review",
+        )
+        AccountChannelSummary.objects.unscoped().create(
+            team=self.team,
+            account=account,
+            slack_channel_id="C123",
+            cadence="weekly",
+            period_start=timezone.now(),
+            period_end=timezone.now(),
+            content="Account is healthy",
+        )
+        request = FeatureRequest.objects.unscoped().create(team=self.team, title="Export reports")
+        FeatureRequestAccountLink.objects.unscoped().create(team=self.team, feature_request=request, account=account)
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source="widget",
+            widget_session_id="acme-ticket-session",
+            distinct_id="acme-customer",
+            status="open",
+            organization_id=account.external_id,
+        )
+        thread = EmailThread.objects.for_team(self.team.id).create(
+            team=self.team,
+            canonical_thread_key="acme-thread",
+            subject="Quarterly review",
+            preview="Customer update",
+            message_count=2,
+            last_message_at=timezone.now(),
+        )
+        EmailThreadAccountLink.objects.for_team(self.team.id).create(
+            team=self.team,
+            thread=thread,
+            account_id=str(account.id),
+            match_source="known_email",
+        )
+
+        response = execute_hogql_query(
+            f"""
+            SELECT
+                meetings.count,
+                meetings.recent,
+                slack_summaries.count,
+                slack_summaries.recent,
+                feature_requests.count,
+                feature_requests.recent,
+                support_tickets.count,
+                support_tickets.recent,
+                email_threads.count,
+                email_threads.recent
+            FROM system.accounts
+            WHERE id = '{account.id}'
+            """,
+            team=self.team,
+            user=self.user,
+        )
+
+        row = response.results[0]
+        assert row[0] == 1
+        assert json.loads(row[1])[0]["title"] == "Account review"
+        assert row[2] == 1
+        assert json.loads(row[3])[0]["content"] == "Account is healthy"
+        assert row[4] == 1
+        assert json.loads(row[5])[0]["title"] == "Export reports"
+        assert row[6] == 1
+        assert json.loads(row[7])[0]["id"] == str(ticket.id)
+        assert row[8] == 1
+        assert json.loads(row[9])[0]["subject"] == "Quarterly review"
 
     def _custom_property_value(self, account, definition, **value_kwargs):
         return CustomPropertyValue.objects.unscoped().create(
