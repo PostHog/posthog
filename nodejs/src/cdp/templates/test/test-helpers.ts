@@ -231,10 +231,10 @@ export class TemplateTester {
             },
             {
                 teamManager: this.mockTeamManager as any,
-                conversationsTicketsJwt: new ScopedServiceJwt(
-                    PosthogJwtAudience.CONVERSATIONS_TICKETS,
-                    config.CONVERSATIONS_TICKETS_JWT_SECRET
-                ),
+                // Disabled on purpose: template tests pin Hog response handling, and
+                // invokeFetchResponse simulates any transport's response push. The scoped-JWT
+                // transport itself is covered in hog-executor.service.test.ts.
+                conversationsTicketsJwt: new ScopedServiceJwt(PosthogJwtAudience.CONVERSATIONS_TICKETS, ''),
                 hogInputsService,
                 emailService,
                 recipientTokensService,
