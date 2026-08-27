@@ -112,24 +112,49 @@ def _report_diagnostic_counts(result: AiReportResult) -> DiagnosticCounts:
     return _tally_diagnostics([(d.ok, d.error_type) for d in result.diagnostics])
 
 
-async def _persist_ai_report(delivery_id: uuid.UUID, result: AiReportResult, prompt: str | None) -> None:
+async def _persist_ai_report(
+    delivery_id: uuid.UUID,
+    result: AiReportResult,
+    prompt: str | None,
+    context_references: list[tuple[str, str]] | None = None,
+) -> None:
     @database_sync_to_async(thread_sensitive=False)
     def _write() -> None:
         # No DoesNotExist guard: create_delivery_record always writes this row before
         # generation runs, so a missing row is a wiring bug — let it raise loudly.
-        delivery = SubscriptionDelivery.objects.get(pk=delivery_id)
-        # LLM output and the user prompt can carry NUL bytes that Postgres text/jsonb reject;
-        # scrub them here (payloads are small) as they are the untrusted inputs on this write path.
-        delivery.content_snapshot = {
-            **(delivery.content_snapshot or {}),
-            AI_REPORT_SNAPSHOT_KEY: strip_null_bytes(result.markdown),
-            AI_REPORT_DIAGNOSTICS_KEY: strip_null_bytes([dataclasses.asdict(d) for d in result.diagnostics]),
-            AI_REPORT_WINDOW_END_KEY: result.window_end_utc,
-            AI_REPORT_CHARTS_KEY: strip_null_bytes([dataclasses.asdict(chart) for chart in result.charts]),
-            # prompt is None for non-AI subs; "" if cleared — omit either.
-            **({AI_REPORT_PROMPT_SNAPSHOT_KEY: strip_null_bytes(prompt)} if prompt else {}),
-        }
-        delivery.save(update_fields=["content_snapshot", "last_updated_at"])
+        with transaction.atomic():
+            delivery = SubscriptionDelivery.objects.select_for_update().get(pk=delivery_id)
+            # LLM output and the user prompt can carry NUL bytes that Postgres text/jsonb reject;
+            # scrub them here (payloads are small) as they are the untrusted inputs on this write path.
+            delivery.content_snapshot = {
+                **(delivery.content_snapshot or {}),
+                AI_REPORT_SNAPSHOT_KEY: strip_null_bytes(result.markdown),
+                AI_REPORT_DIAGNOSTICS_KEY: strip_null_bytes([dataclasses.asdict(d) for d in result.diagnostics]),
+                AI_REPORT_WINDOW_END_KEY: result.window_end_utc,
+                AI_REPORT_CHARTS_KEY: strip_null_bytes([dataclasses.asdict(chart) for chart in result.charts]),
+                # prompt is None for non-AI subs; "" if cleared — omit either.
+                **({AI_REPORT_PROMPT_SNAPSHOT_KEY: strip_null_bytes(prompt)} if prompt else {}),
+            }
+            delivery.save(update_fields=["content_snapshot", "last_updated_at"])
+            if context_references is not None:
+                canonical_team_id = resolve_effective_team_id(delivery.team_id)
+                contexts = SubscriptionDeliveryContext.objects.for_team(canonical_team_id, canonical=True)
+                contexts.filter(delivery=delivery).delete()
+                contexts.bulk_create(
+                    [
+                        SubscriptionDeliveryContext(
+                            delivery=delivery,
+                            team_id=canonical_team_id,
+                            kind=kind,
+                            identifier=identifier,
+                        )
+                        for kind, identifier in [
+                            (AI_REPORT_DELIVERY_CONTEXT_MARKER_KIND, AI_REPORT_DELIVERY_CONTEXT_MARKER_IDENTIFIER),
+                            *context_references,
+                        ]
+                    ],
+                    ignore_conflicts=True,
+                )
 
     await _write()
 
@@ -322,10 +347,9 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
 
     try:
         context = await resolve_ai_subscription_context(subscription)
-        if not context.anchor_unavailable:
-            await _replace_delivery_context_references(
-                inputs.delivery_id, subscription.team_id, context.anchor.resource_references if context.anchor else []
-            )
+        context_references = (
+            None if context.anchor_unavailable else context.anchor.resource_references if context.anchor else []
+        )
         report_result = await build_ai_subscription_report(subscription, context=context)
     except AnchorContextAccessDenied:
         reason = "A selected report context is no longer accessible. Remove it before re-enabling this subscription."
@@ -359,7 +383,7 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
             aborted=True, recipient_results=aborted.recipient_results, target_type=subscription.target_type
         )
 
-    await _persist_ai_report(inputs.delivery_id, report_result, subscription.prompt)
+    await _persist_ai_report(inputs.delivery_id, report_result, subscription.prompt, context_references)
     counts = _report_diagnostic_counts(report_result)
     return GenerateAIReportResult(
         aborted=False,

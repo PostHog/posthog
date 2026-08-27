@@ -2,9 +2,7 @@ import json
 import hashlib
 from collections.abc import Iterator
 
-from django.db.models import IntegerField, Q, QuerySet, Value
-from django.db.models.fields.json import KeyTextTransform, KeyTransform
-from django.db.models.functions import Cast, Coalesce
+from django.db.models import Q, QuerySet
 
 import structlog
 from pydantic import BaseModel, Field
@@ -27,6 +25,12 @@ ANCHOR_TILES_LIMIT = 25
 ANCHOR_QUERY_JSON_MAX_CHARS = 2000
 ANCHOR_NAME_MAX_LENGTH = 120
 ANCHOR_DESCRIPTION_MAX_LENGTH = 300
+# Bounds candidate tile reads before applying layout order. A dashboard can contain many tiles, but
+# only the most useful bounded prefix belongs in a scheduled report's planner context.
+ANCHOR_TILE_CANDIDATES_LIMIT = 250
+# The planner receives this alongside the user's prompt, so cap the combined context rather than
+# relying only on independent limits for descriptions, query JSON, and dashboard metadata.
+ANCHOR_CONTEXT_MAX_CHARS = 12_000
 # Matches MAX_PINNED_EVENTS in spec_generator so anchor pins obey the same context bound.
 ANCHOR_EVENT_NAMES_LIMIT = 25
 
@@ -118,22 +122,41 @@ def _capped_dashboard_tiles(
 ) -> tuple[list[DashboardTile], bool]:
     """Return only the layout-first tiles needed for one bounded report anchor.
 
-    Ordering in SQL prevents a large dashboard from being materialized in a worker just to keep
-    the first few tiles. Dashboard layout values are numeric in the persisted schema; missing
-    coordinates retain the UI's existing fallback of 100, with ID as a deterministic tie-break.
+    Candidate reads are bounded before layout sorting so a large dashboard cannot turn a report
+    generation into an unbounded JSON-expression database sort. Missing coordinates retain the
+    UI's existing fallback of 100, with ID as a deterministic tie-break.
     """
     if not limit:
         return [], False
     tiles = dashboard.tiles.filter(insight_id__in=viewable_insights)
-    layout_sm = KeyTransform("sm", "layouts")
     selected_tiles = list(
-        tiles.annotate(
-            layout_y=Coalesce(Cast(KeyTextTransform("y", layout_sm), IntegerField()), Value(100)),
-            layout_x=Coalesce(Cast(KeyTextTransform("x", layout_sm), IntegerField()), Value(100)),
-        )
-        .order_by("layout_y", "layout_x", "id")
-        .only("id", "insight_id", "filters_overrides")[: limit + 1]
+        tiles.select_related("insight")
+        .order_by("id")
+        .only(
+            "id",
+            "insight_id",
+            "filters_overrides",
+            "layouts",
+            "insight__id",
+            "insight__name",
+            "insight__derived_name",
+            "insight__description",
+            "insight__query",
+            "insight__filters",
+        )[:ANCHOR_TILE_CANDIDATES_LIMIT]
     )
+
+    def layout_position(tile: DashboardTile) -> tuple[float, float, int]:
+        sm_layout = tile.layouts.get("sm", {}) if isinstance(tile.layouts, dict) else {}
+        x = sm_layout.get("x", 100) if isinstance(sm_layout, dict) else 100
+        y = sm_layout.get("y", 100) if isinstance(sm_layout, dict) else 100
+        return (
+            float(y) if isinstance(y, int | float) else 100,
+            float(x) if isinstance(x, int | float) else 100,
+            tile.id,
+        )
+
+    selected_tiles.sort(key=layout_position)
     return selected_tiles[:limit], len(selected_tiles) > limit
 
 
@@ -225,22 +248,9 @@ def _build_anchor_context(subscription: Subscription) -> AnchorContext | None:
             if metadata_line:
                 lines.append(metadata_line)
         capped_tiles, has_more_tiles = _capped_dashboard_tiles(dashboard, viewable_tile_insights, remaining_tiles)
-        insights_by_id = {
-            insight_row.id: insight_row
-            for insight_row in Insight.objects.filter(id__in=[tile.insight_id for tile in capped_tiles]).only(
-                # `filters` is loaded too so a legacy (query=None) insight's query_from_filters
-                # fallback reads it from memory instead of firing a deferred query per tile.
-                "id",
-                "name",
-                "derived_name",
-                "description",
-                "query",
-                "filters",
-            )
-        }
         for tile in capped_tiles:
-            tile_insight = insights_by_id.get(tile.insight_id)
-            if tile_insight is not None and can_view(tile_insight):
+            tile_insight = tile.insight
+            if can_view(tile_insight):
                 lines.extend(_insight_lines(tile_insight, events))
                 resource_references.append(("dashboard_tile_insight", str(tile_insight.id)))
                 tile_filters = _dashboard_metadata_line("Tile filters", tile.filters_overrides)
@@ -260,7 +270,7 @@ def _build_anchor_context(subscription: Subscription) -> AnchorContext | None:
     if not lines:
         return None
 
-    blob = "\n".join(lines)
+    blob = sanitize_user_text("\n".join(lines), ANCHOR_CONTEXT_MAX_CHARS, truncate_marker="…(truncated)")
     unique_events = list(dict.fromkeys(events))[:ANCHOR_EVENT_NAMES_LIMIT]
     # Hash both planner inputs, not just `blob`. event_names is pinned into event selection on its
     # own and is derived from the untruncated query, so an event edit that lands past the blob's

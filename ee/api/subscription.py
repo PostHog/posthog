@@ -1186,7 +1186,13 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # Explicit send_test_now wins. When omitted, infer: send when the edit changed what
         # gets delivered, or on re-enable — a schedule/meta-only edit must not push a fresh
         # delivery. Disabled subscriptions never fire regardless.
-        wants_delivery = send_test_now if send_test_now is not None else (is_re_enabling or delivery_content_changed)
+        wants_delivery = (
+            False
+            if self.context.get("is_context_recovery")
+            else send_test_now
+            if send_test_now is not None
+            else (is_re_enabling or delivery_content_changed)
+        )
         delivery_triggered = wants_delivery and instance.enabled
 
         # Explicit observability for the delivery decision on edits — the canonical
@@ -1691,6 +1697,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
             self._validate_context_recovery_update(instance, request.data)
 
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.context["is_context_recovery"] = is_context_recovery
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
 

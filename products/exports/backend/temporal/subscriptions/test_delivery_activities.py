@@ -89,17 +89,13 @@ async def test_ai_report_does_not_mark_provenance_when_anchor_is_unavailable(tea
             new=AsyncMock(return_value=SimpleNamespace(anchor_unavailable=True, anchor=None)),
         ),
         patch(
-            "products.exports.backend.temporal.subscriptions.ai_subscription.activities._replace_delivery_context_references",
-            new=AsyncMock(),
-        ) as replace_context_references,
-        patch(
             "products.exports.backend.temporal.subscriptions.ai_subscription.activities.build_ai_subscription_report",
             new=AsyncMock(return_value=report_result),
         ),
         patch(
             "products.exports.backend.temporal.subscriptions.ai_subscription.activities._persist_ai_report",
             new=AsyncMock(),
-        ),
+        ) as persist_ai_report,
         patch(
             "products.exports.backend.temporal.subscriptions.ai_subscription.activities.is_team_over_ai_credit_budget",
             return_value=False,
@@ -109,7 +105,7 @@ async def test_ai_report_does_not_mark_provenance_when_anchor_is_unavailable(tea
             GenerateAIReportInputs(subscription_id=subscription.id, delivery_id=uuid.uuid4())
         )
 
-    replace_context_references.assert_not_awaited()
+    assert persist_ai_report.call_args.args[3] is None
 
 
 # v1 only exists as a Temporal history-compat shim for pre-patch workflows. Both

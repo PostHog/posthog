@@ -3519,6 +3519,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert cleared.status_code == status.HTTP_200_OK, cleared.json()
         assert cleared.json()["context_dashboards"] == []
         assert cleared.json()["context_recovery"] is False
+        self.mock_temporal_client.start_workflow.assert_not_called()
 
         deliveries = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/")
         assert deliveries.status_code == status.HTTP_200_OK
