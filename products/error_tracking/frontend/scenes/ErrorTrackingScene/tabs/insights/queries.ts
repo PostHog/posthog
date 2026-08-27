@@ -64,6 +64,8 @@ export function buildIssuesCreatedQuery(
                     event: '$exception',
                     custom_name: 'Issues created',
                     math: HogQLMathType.HogQL,
+                    // Cymbal stores issue_first_seen from the same event timestamp when it creates the fingerprint,
+                    // so equality selects the event that created the issue rather than its later occurrences.
                     math_hogql: 'uniqIf(issue_id, timestamp = issue_first_seen)',
                 },
             ],
