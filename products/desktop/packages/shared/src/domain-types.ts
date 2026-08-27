@@ -425,6 +425,12 @@ export interface SandboxEnvironment {
   include_default_domains: boolean;
   repositories: string[];
   has_environment_variables: boolean;
+  /**
+   * Names of the variables that are set. Values are write-only and never returned.
+   * Optional because desktop releases are not orchestrated with backend deploys, so a
+   * client can reach an API that predates this field.
+   */
+  environment_variable_keys?: string[];
   private: boolean;
   effective_domains: string[];
   custom_image_id: string | null;
