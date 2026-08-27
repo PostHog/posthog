@@ -20,8 +20,8 @@ checked against rather than a second copy of the same assumptions.
 
 from __future__ import annotations
 
-import datetime as dt
 import math
+import datetime as dt
 from collections.abc import Mapping, Sequence
 from enum import StrEnum
 from typing import TypeVar
