@@ -372,17 +372,18 @@ def _plan_to_freeze(
     trace_correlation_id: Optional[Union[int, str]],
     chart_failure_count: int = 0,
 ) -> Optional[dict]:
-    # A plan generated while the anchor failed to resolve has no grounding; freezing it would
-    # replace a grounded plan with an ungrounded one until the next content change. Re-plan next
-    # run instead, when the anchor is hopefully back.
-    if anchor_unavailable:
-        logger.warning("ai_report.anchor_unavailable_not_frozen", trace_correlation_id=trace_correlation_id)
-        return None
     # Steps already carry their final HogQL by this point — see the write-back in `run_step`.
     # Never freeze a plan the next delivery is better off re-planning: a plan with any failed step would
     # replay that broken HogQL every run, and a step without any window placeholder would scan unbounded
     # every run.
     if not freshly_planned:
+        return None
+    # A plan generated while the anchor failed to resolve has no grounding; freezing it would
+    # replace a grounded plan with an ungrounded one until the next content change. Re-plan next
+    # run instead, when the anchor is hopefully back. Checked after the reuse path so a degraded
+    # run that was never going to freeze does not log a second time.
+    if anchor_unavailable:
+        logger.warning("ai_report.anchor_unavailable_not_frozen", trace_correlation_id=trace_correlation_id)
         return None
     # Freeze only when every step succeeded. If any step failed, re-plan next run instead — a frozen plan
     # replays verbatim until the plan version bumps, so even a single broken step would re-send broken

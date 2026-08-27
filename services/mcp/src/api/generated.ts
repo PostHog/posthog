@@ -96431,7 +96431,7 @@ export namespace Schemas {
      */
     dashboard?: number;
     /**
-     * Filter to subscriptions on insights that are tiles of the given dashboard ID.
+     * Filter to subscriptions on insights that are tiles of the given dashboard ID. Includes AI report subscriptions anchored to one of those insights.
      */
     dashboard_tiles?: number;
     /**

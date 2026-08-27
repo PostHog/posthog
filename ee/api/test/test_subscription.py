@@ -2679,6 +2679,19 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["anchor_dashboard"] is None
 
+    def test_cannot_anchor_to_a_deleted_dashboard(self, *mocks: MagicMock):
+        # A deleted anchor resolves to no grounding at delivery, so accepting it would leave the
+        # user believing the report is anchored when it silently is not.
+        self._enable_ai()
+        deleted_dashboard = Dashboard.objects.create(team=self.team, name="Gone", created_by=self.user, deleted=True)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(anchor_dashboard=deleted_dashboard.id),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_cannot_anchor_to_another_teams_dashboard(self, *mocks: MagicMock):
         self._enable_ai()
         other_team = Team.objects.create(organization=self.organization, name="other")
@@ -3382,6 +3395,34 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         self._delivery_for(subscription)
 
         self._assert_visibility(subscription, sees_subscription=sees_subscription, sees_deliveries=sees_deliveries)
+
+    def test_anchor_access_loss_hides_from_lists_but_keeps_the_owner_in_control(self):
+        # The list filter hides a sub anchored to a resource the caller can no longer view, but the
+        # single-object path must not: otherwise the owner cannot open, un-anchor, disable, or delete
+        # their own subscription, and it keeps delivering reports grounded in the blocked dashboard.
+        subscription = self._subscription_for(
+            prompt="How did signups do last week?", anchor_dashboard=self.restricted_dashboard
+        )
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
+        assert subscription.id not in [row["id"] for row in listed.json()["results"]]
+
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}")
+        assert retrieved.status_code == status.HTTP_200_OK, retrieved.json()
+
+        cleared = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", {"anchor_dashboard": None}
+        )
+        assert cleared.status_code == status.HTTP_200_OK, cleared.json()
+        assert cleared.json()["anchor_dashboard"] is None
+
+    def test_cannot_anchor_to_a_dashboard_the_caller_cannot_view(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._payload(prompt="How did signups do?", anchor_dashboard=self.restricted_dashboard.id),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
     def _create_on_a_restricted_insight(self):
         return self.client.post(

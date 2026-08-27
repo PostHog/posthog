@@ -9,6 +9,7 @@ from posthog.security.llm_prompt_sanitization import sanitize_user_text
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import Subscription
+from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
 
@@ -112,25 +113,27 @@ def _build_anchor_context(subscription: Subscription) -> AnchorContext | None:
         description = sanitize_user_text(dashboard.description or "", ANCHOR_DESCRIPTION_MAX_LENGTH)
         if description:
             lines.append(f"  Description: {description}")
-        # order_by("id") gives ties (missing or equal layouts) a stable order; the layout sort is
-        # stable, so without this the blob hash flaps with Postgres heap order and every flap
-        # invalidates the frozen plan. only() keeps the big unused insight columns out of memory.
+        # Sort on layout columns alone, then load only the insights that survive the cap: a
+        # dashboard's `query` JSON is its heaviest column, and a large dashboard would otherwise
+        # pull every tile's query to render 25 lines. order_by("id") gives ties (missing or equal
+        # layouts) a stable order, and the layout sort is stable, so without it the blob hash
+        # follows Postgres heap order and every flap invalidates the frozen plan.
         tiles = DashboardTile.sort_tiles_by_layout(
-            dashboard.tiles.select_related("insight")
-            .filter(insight__isnull=False, insight__deleted=False)
+            dashboard.tiles.filter(insight__isnull=False, insight__deleted=False)
             .order_by("id")
-            .only(
-                "id",
-                "layouts",
-                "insight__id",
-                "insight__name",
-                "insight__derived_name",
-                "insight__description",
-                "insight__query",
-            )
+            .only("id", "layouts", "insight_id")
         )
-        for tile in tiles[:ANCHOR_TILES_LIMIT]:
-            lines.extend(_insight_lines(tile.insight, events))
+        capped_tiles = tiles[:ANCHOR_TILES_LIMIT]
+        insights_by_id = {
+            insight_row.id: insight_row
+            for insight_row in Insight.objects.filter(id__in=[tile.insight_id for tile in capped_tiles]).only(
+                "id", "name", "derived_name", "description", "query"
+            )
+        }
+        for tile in capped_tiles:
+            tile_insight = insights_by_id.get(tile.insight_id)
+            if tile_insight is not None:
+                lines.extend(_insight_lines(tile_insight, events))
         if len(tiles) > ANCHOR_TILES_LIMIT:
             lines.append(f"  ({len(tiles) - ANCHOR_TILES_LIMIT} more tiles not shown)")
     elif insight is not None and not insight.deleted:

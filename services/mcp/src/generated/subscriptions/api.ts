@@ -25,7 +25,9 @@ export const SubscriptionsListQueryParams = /* @__PURE__ */ zod.object({
     dashboard_tiles: zod
         .number()
         .optional()
-        .describe('Filter to subscriptions on insights that are tiles of the given dashboard ID.'),
+        .describe(
+            'Filter to subscriptions on insights that are tiles of the given dashboard ID. Includes AI report subscriptions anchored to one of those insights.'
+        ),
     insight: zod
         .number()
         .optional()

@@ -529,8 +529,13 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # locks a user out of their own subscription.
         for field in ("anchor_dashboard", "anchor_insight"):
             target = attrs.get(field)
-            if target is not None:
-                _require_viewer_access(user_access_control, target, field)
+            if target is None:
+                continue
+            _require_viewer_access(user_access_control, target, field)
+            if target.deleted:
+                # A deleted anchor resolves to no grounding at delivery time, so accepting it
+                # would silently do nothing.
+                raise ValidationError({field: [f"This {field.removeprefix('anchor_')} has been deleted."]})
 
         if existing is None:
             # Create: a subscription must export an insight, a dashboard, or an AI prompt.
@@ -1078,15 +1083,19 @@ def _blocked_target_ids(
     )
 
 
-def _viewable_subscription_filter(user_access_control: UserAccessControl, team_id: int) -> Q:
-    return _target_filter(user_access_control, team_id, _SUBSCRIPTION_TARGETS)
+def _viewable_subscription_filter(
+    user_access_control: UserAccessControl, team_id: int, *, include_anchors: bool = True
+) -> Q:
+    return _target_filter(user_access_control, team_id, _SUBSCRIPTION_TARGETS, include_anchors=include_anchors)
 
 
 def _viewable_delivery_filter(user_access_control: UserAccessControl, team_id: int) -> Q:
     return _target_filter(user_access_control, team_id, _DELIVERY_TARGETS)
 
 
-def _target_filter(user_access_control: UserAccessControl, team_id: int, targets: _TargetLookups) -> Q:
+def _target_filter(
+    user_access_control: UserAccessControl, team_id: int, targets: _TargetLookups, *, include_anchors: bool = True
+) -> Q:
     if not user_access_control.access_controls_supported or user_access_control.is_organization_admin:
         return Q()
     rules = (user_access_control.blocked_resource_ids_by_scope, user_access_control.allowlisted_resource_ids_by_scope)
@@ -1106,21 +1115,25 @@ def _target_filter(user_access_control: UserAccessControl, team_id: int, targets
 
     targets_a_blocked_insight = Q(**{targets.insight: blocked_insights})
     targets_a_blocked_dashboard = Q(**{targets.dashboard: blocked_dashboards})
-    # An AI report anchored to a blocked resource carries that resource's insight definitions,
-    # so anchored subs hide under the same rules as exported ones.
-    anchored_to_a_blocked_insight = Q(**{targets.anchor_insight: blocked_insights})
-    anchored_to_a_blocked_dashboard = Q(**{targets.anchor_dashboard: blocked_dashboards})
     exports_a_blocked_insight = Q(**{targets.exported_insights: blocked_insights})
     renders_a_blocked_tile = Q(**{targets.no_selection: True}) & Q(**{targets.dashboard: dashboards_with_blocked_tiles})
 
-    return ~(
-        targets_a_blocked_insight
-        | targets_a_blocked_dashboard
-        | anchored_to_a_blocked_insight
-        | anchored_to_a_blocked_dashboard
-        | exports_a_blocked_insight
-        | renders_a_blocked_tile
+    hidden = (
+        targets_a_blocked_insight | targets_a_blocked_dashboard | exports_a_blocked_insight | renders_a_blocked_tile
     )
+    if include_anchors:
+        # An AI report anchored to a blocked resource carries that resource's insight definitions,
+        # so anchored subs drop out of listings under the same rules as exported ones. Callers fetching
+        # one subscription pass include_anchors=False: the owner must stay able to open, un-anchor,
+        # disable, or delete their own subscription after losing access to its anchor, and the detail
+        # response carries the anchor's id, never the blocked resource's contents.
+        hidden = (
+            hidden
+            | Q(**{targets.anchor_insight: blocked_insights})
+            | Q(**{targets.anchor_dashboard: blocked_dashboards})
+        )
+
+    return ~hidden
 
 
 def _parse_int_param(value: str, param: str) -> int:
@@ -1206,7 +1219,10 @@ def _subscription_is_ai_prompt(subscription_id: str | int, team_id: int) -> bool
                 type=int,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Filter to subscriptions on insights that are tiles of the given dashboard ID.",
+                description=(
+                    "Filter to subscriptions on insights that are tiles of the given dashboard ID. "
+                    "Includes AI report subscriptions anchored to one of those insights."
+                ),
             ),
         ],
     ),
@@ -1367,7 +1383,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         subscription = get_object_or_404(queryset, pk=self.kwargs[self.lookup_field])
         can_view_subscription = (
             Subscription.objects.filter(pk=subscription.pk, team_id=self.team_id)
-            .filter(_viewable_subscription_filter(self.user_access_control, self.team_id))
+            .filter(_viewable_subscription_filter(self.user_access_control, self.team_id, include_anchors=False))
             .exists()
         )
         if not can_view_subscription:
