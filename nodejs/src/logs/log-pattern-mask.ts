@@ -1,3 +1,5 @@
+import type RE2 from 're2'
+
 import { createTrackedRE2 } from '~/common/utils/tracked-re2'
 
 import { parseLogBodyForIngestion } from './log-body-parse'
@@ -82,9 +84,25 @@ export const MASK_RULES: readonly MaskRule[] = [
     { name: 'bearer', pattern: '(?i:Bearer\\s+)[-A-Za-z0-9._~+/]{16,}=*', replacement: 'Bearer <TOKEN>' },
     // Both segments must start `eyJ` — base64url for `{"`, so header and payload each decode to the
     // start of a JSON object. One `eyJ` alone matches any base64-encoded JSON.
-    { name: 'jwt', pattern: '\\beyJ[A-Za-z0-9_-]*\\.eyJ[A-Za-z0-9_-]*\\.[A-Za-z0-9_-]*', replacement: '<JWT>' },
+    //
+    // Each segment also carries a minimum length. RE2 matches in linear time, but `replace` with the
+    // global flag restarts at every position, so an unbounded tail turns a body of `eyJ.eyJ.eyJ...`
+    // into quadratic work — measured at 258 times the cost of an ordinary line, from input a
+    // customer controls.
+    {
+        name: 'jwt',
+        pattern: '\\beyJ[A-Za-z0-9_-]{8,}\\.eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{4,}',
+        replacement: '<JWT>',
+    },
     { name: 'stripe', pattern: '\\b[sr]k_(?:live|test)_[A-Za-z0-9]{20,}\\b', replacement: '<STRIPE_KEY>' },
-    { name: 'aikey', pattern: '\\bsk-(?:ant-)?[A-Za-z0-9_-]{16,}\\b', replacement: '<AI_KEY>' },
+    // The two vendor shapes are spelled out rather than sharing one tail, because a tail that admits
+    // the hyphen both matches any kebab-case token starting `sk-` (`sk-cluster-prod-eu-west-1`) and
+    // gives `sk-sk-sk-...` one enormous run to chew through.
+    {
+        name: 'aikey',
+        pattern: '\\bsk-(?:ant-api\\d{2}-[A-Za-z0-9_-]{16,}|(?:proj-)?[A-Za-z0-9]{20,})\\b',
+        replacement: '<AI_KEY>',
+    },
     { name: 'posthogkey', pattern: '\\bph[xsar]_[A-Za-z0-9]{20,}\\b', replacement: '<POSTHOG_KEY>' },
     { name: 'ghtoken', pattern: '\\bgh[pousr]_[A-Za-z0-9]{36}\\b', replacement: '<GH_TOKEN>' },
     { name: 'slacktoken', pattern: '\\bxox[baprs]-[A-Za-z0-9-]{10,}\\b', replacement: '<SLACK_TOKEN>' },
@@ -110,11 +128,43 @@ export const JSON_ARRAY = '<JSON_ARRAY>'
 
 const KEY_SET_MAX_KEYS = 32
 
-const MASK_COMBINED_RE = createTrackedRE2(
-    MASK_RULES.map((rule) => `(${rule.pattern})`).join('|'),
-    'g',
-    'log-pattern-mask:combined'
+const CREDENTIAL_RULES: ReadonlySet<MaskRuleName> = new Set([
+    'awskey',
+    'bearer',
+    'jwt',
+    'stripe',
+    'aikey',
+    'posthogkey',
+    'ghtoken',
+    'slacktoken',
+])
+
+// Two passes, because every branch costs per character even when it matches nothing: carrying the
+// credential rules on every line roughly doubles the cost of masking an ordinary one. Almost no
+// line holds a credential, so a literal prefilter picks the cheaper pass for nearly all of them.
+//
+// Every credential rule needs a fixed literal to be present before it can match, and the prefilter
+// is the union of those literals, so the cheap pass can only skip a rule that could not have fired.
+// It is case-insensitive where the rules are not, which makes it a superset and keeps that true.
+// The per-rule tests below are what hold it: a rule whose literal is missing here stops masking its
+// own fixture.
+const CREDENTIAL_PREFILTER_RE = createTrackedRE2(
+    '(?i:bearer|eyJ|A3T|AKIA|ASIA|ABIA|ACCA|sk-|sk_|rk_|ph[xsar]_|gh[pousr]_|xox)',
+    undefined,
+    'log-pattern-mask:credential-prefilter'
 )
+
+// Each pass carries the MASK_RULES index of every rule it runs, so a fire is attributed to the same
+// slot whichever pass produced it. Capture groups are positional, so the group number and the rule
+// index part company as soon as one pass omits a rule.
+const ALL_RULE_INDEXES = MASK_RULES.map((_, index) => index)
+const CHEAP_RULE_INDEXES = MASK_RULES.flatMap((rule, index) => (CREDENTIAL_RULES.has(rule.name) ? [] : [index]))
+
+const combinedFor = (indexes: number[], source: string): RE2 =>
+    createTrackedRE2(indexes.map((index) => `(${MASK_RULES[index].pattern})`).join('|'), 'g', source)
+
+const MASK_COMBINED_RE = combinedFor(ALL_RULE_INDEXES, 'log-pattern-mask:combined')
+const MASK_CHEAP_RE = combinedFor(CHEAP_RULE_INDEXES, 'log-pattern-mask:no-credentials')
 
 export type MaskResult = {
     masked: string
@@ -123,11 +173,16 @@ export type MaskResult = {
 
 export function maskString(input: string): MaskResult {
     const ruleFires: number[] = new Array(MASK_RULES.length).fill(0)
-    const masked = input.replace(MASK_COMBINED_RE, (...args: unknown[]): string => {
-        for (let i = 0; i < MASK_RULES.length; i++) {
-            if (args[i + 1] !== undefined) {
-                ruleFires[i]++
-                return MASK_RULES[i].replacement
+    // `CREDENTIAL_PREFILTER_RE` carries no global flag, so `test` holds no position between calls.
+    const mayHoldCredential = CREDENTIAL_PREFILTER_RE.test(input)
+    const indexes = mayHoldCredential ? ALL_RULE_INDEXES : CHEAP_RULE_INDEXES
+    const combined = mayHoldCredential ? MASK_COMBINED_RE : MASK_CHEAP_RE
+    const masked = input.replace(combined, (...args: unknown[]): string => {
+        for (let group = 0; group < indexes.length; group++) {
+            if (args[group + 1] !== undefined) {
+                const index = indexes[group]
+                ruleFires[index]++
+                return MASK_RULES[index].replacement
             }
         }
         return args[0] as string

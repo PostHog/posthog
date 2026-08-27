@@ -108,8 +108,22 @@ describe('log-pattern-mask', () => {
             ['a short word after Bearer is not a token', 'Bearer token missing'],
             ['a bare sk- prefix with too short a tail', 'saw sk-short here'],
             ['a ph prefix that is not a secret key type', `init ${PH_UNKNOWN_TYPE} ok`],
+            // A tail that admitted the hyphen swallowed any long kebab-case token starting `sk-`,
+            // and gave `sk-sk-sk-...` one run to chew through.
+            ['a kebab-case name that begins sk-', 'draining sk-cluster-prod-eu-west-two now'],
+            ['a jwt whose segments are too short to be base64 json', 'saw eyJ.eyJ. here'],
         ])('credential rules do not fire on: %s', (_name, input) => {
             expect(maskString(input).masked).toEqual(input)
+        })
+
+        // The cheap pass drops the credential rules entirely, so it may only be chosen when none of
+        // them could fire. A credential whose literal is missing from the prefilter would reach the
+        // cheap pass and come out unmasked, which every rule's own case above would catch. This one
+        // guards the reverse: a line holding a credential must mask the same either way.
+        it('masks a credential that sits behind text which alone would take the cheap pass', () => {
+            expect(maskString(`plain words then ${AWS_KEY} at the end`).masked).toEqual(
+                'plain words then <AWS_KEY> at the end'
+            )
         })
 
         // The klog rule reaches text `\b\d+` cannot, so each guard is asserted from the negative
@@ -270,7 +284,7 @@ describe('log-pattern-mask', () => {
                 .update(MASK_RULES.map((rule) => `${rule.name}\0${rule.pattern}\0${rule.replacement}`).join('\x01'))
                 .digest('hex')
                 .slice(0, 16)
-            expect({ version: PATTERN_VERSION, digest }).toEqual({ version: 4, digest: '676e765b2fb1a7ba' })
+            expect({ version: PATTERN_VERSION, digest }).toEqual({ version: 4, digest: '287d0750ac77bb77' })
         })
     })
 
