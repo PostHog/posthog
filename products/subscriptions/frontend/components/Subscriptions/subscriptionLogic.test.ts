@@ -876,6 +876,34 @@ describe('subscriptionLogic', () => {
         recoveryLogic.unmount()
     })
 
+    it('sends only the deleted flag when deleting during recovery', async () => {
+        // The recovery allowlist rejects any extra key, so a delete must carry {deleted} alone.
+        let capturedBody: Record<string, unknown> | undefined
+        useMocks({
+            get: {
+                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                    resource_type: 'ai_prompt',
+                    prompt: 'Weekly gains',
+                    context_recovery: true,
+                }),
+            },
+            patch: {
+                '/api/environments/:team/subscriptions/1': async ({ request }) => {
+                    capturedBody = (await request.json()) as Record<string, unknown>
+                    return [200, { id: 1, ...capturedBody } as SubscriptionType]
+                },
+            },
+        })
+        const recoveryLogic = subscriptionLogic({ dashboardId: 9, id: 1 })
+        recoveryLogic.mount()
+        router.actions.push('/dashboard/9/subscriptions/1')
+        await expectLogic(recoveryLogic).toFinishListeners().toDispatchActions(['loadSubscriptionSuccess'])
+        recoveryLogic.actions.recoverContextAccess('delete')
+        await expectLogic(recoveryLogic).toFinishListeners().toDispatchActions(['recoverContextAccessSuccess'])
+        expect(capturedBody).toEqual({ deleted: true })
+        recoveryLogic.unmount()
+    })
+
     it('drops a stale prompt when saving a non-AI subscription', async () => {
         // Toggling resource_type back to insight after typing a prompt leaves it in form state;
         // it must not be sent, else the backend rejects a non-AI sub that carries a prompt.

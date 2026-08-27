@@ -79,6 +79,9 @@ export function SubscriptionContextPicker({
                 groupType={TaxonomicFilterGroupType.Insights}
                 groupTypes={CONTEXT_GROUP_TYPES}
                 onChange={handleChange}
+                // Hide the Events tab's "All events" row (value null): it is a no-op here, since a
+                // report context is a specific event, dashboard, or insight, not the whole project.
+                excludedProperties={{ [TaxonomicFilterGroupType.Events]: [null] }}
                 closeOnChange={false}
                 placeholder="Add context"
                 size="small"

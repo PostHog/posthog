@@ -316,8 +316,8 @@ export interface subscriptionLogicActions {
         }
         payload?: any
     }
-    recoverContextAccess: (action: 'clear' | 'pause') => {
-        action: 'clear' | 'pause'
+    recoverContextAccess: (action: 'clear' | 'pause' | 'delete') => {
+        action: 'clear' | 'pause' | 'delete'
     }
     recoverContextAccessFailure: () => {
         value: true
@@ -434,7 +434,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         addContextEvent: (eventName: string) => ({ eventName }),
         removeContext: (context: SubscriptionContextApi) => ({ context }),
         removeContextEvent: (eventName: string) => ({ eventName }),
-        recoverContextAccess: (action: 'pause' | 'clear') => ({ action }),
+        recoverContextAccess: (action: 'pause' | 'clear' | 'delete') => ({ action }),
         recoverContextAccessFailure: true,
         recoverContextAccessSuccess: true,
         selectAiExamplePrompt: (prompt: string, label: string) => ({
@@ -688,24 +688,38 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 return
             }
             const visibleContexts = values.subscription.contexts ?? []
+            // Recovery accepts only this allowlist of fields, so each action sends just its own — the
+            // full form payload would fail the server's subset check.
+            let payload: Partial<SubscriptionType>
+            if (action === 'pause') {
+                payload = { enabled: false }
+            } else if (action === 'delete') {
+                payload = { deleted: true }
+            } else {
+                payload = {
+                    context_dashboards: visibleContexts
+                        .filter((context) => context.kind === 'dashboard')
+                        .map((context) => context.id),
+                    context_insights: visibleContexts
+                        .filter((context) => context.kind === 'insight')
+                        .map((context) => context.id),
+                    context_items: values.subscription.context_items ?? [],
+                }
+            }
             try {
-                const updated = await api.subscriptions.update(
-                    props.id,
-                    action === 'pause'
-                        ? { enabled: false }
-                        : {
-                              context_dashboards: visibleContexts
-                                  .filter((context) => context.kind === 'dashboard')
-                                  .map((context) => context.id),
-                              context_insights: visibleContexts
-                                  .filter((context) => context.kind === 'insight')
-                                  .map((context) => context.id),
-                              context_items: values.subscription.context_items ?? [],
-                          }
-                )
-                actions.resetSubscription(updated)
+                const updated = await api.subscriptions.update(props.id, payload)
+                // A deleted subscription has no form to restore; the modal closes from the caller.
+                if (action !== 'delete') {
+                    actions.resetSubscription(updated)
+                }
                 actions.recoverContextAccessSuccess()
-                lemonToast.success(action === 'pause' ? 'Subscription paused.' : 'Inaccessible context removed.')
+                lemonToast.success(
+                    action === 'pause'
+                        ? 'Subscription paused.'
+                        : action === 'delete'
+                          ? 'Subscription deleted.'
+                          : 'Inaccessible context removed.'
+                )
             } catch {
                 actions.recoverContextAccessFailure()
                 lemonToast.error('Could not update this subscription. Please try again.')
