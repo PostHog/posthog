@@ -36,6 +36,13 @@ export const getSvelteClientSteps = (ctx: OnboardingComponentsContext): StepDefi
                                     pnpm add posthog-js
                                 `,
                             },
+                            {
+                                language: 'bash',
+                                file: 'bun',
+                                code: dedent`
+                                    bun add posthog-js
+                                `,
+                            },
                         ]}
                     />
                 </>
