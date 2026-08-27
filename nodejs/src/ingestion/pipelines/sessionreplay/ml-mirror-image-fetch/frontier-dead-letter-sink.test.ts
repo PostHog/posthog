@@ -73,7 +73,7 @@ describe('KafkaFrontierDeadLetterSink', () => {
                 key: null,
                 value: Buffer.alloc(MAX_RECORD_BYTES + 1, '{'),
             } as Message,
-            'oversized'
+            'oversized_record'
         )
 
         expect(produce).toHaveBeenCalledWith(
