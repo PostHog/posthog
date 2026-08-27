@@ -799,6 +799,42 @@ class TestFeatureRequestsAPI(APIBaseTest):
         self.assertEqual(visible_filter.json()["count"], 1)
         self.assertFalse(response.json()["can_update"])
 
+    def test_list_sorts_by_full_creator_name(self) -> None:
+        later_creator = User.objects.create_and_join(self.organization, "alex-zimmerman@example.com", "testtest")
+        later_creator.first_name = "Alex"
+        later_creator.last_name = "Zimmerman"
+        later_creator.save(update_fields=["first_name", "last_name"])
+        earlier_creator = User.objects.create_and_join(self.organization, "alex-anderson@example.com", "testtest")
+        earlier_creator.first_name = "Alex"
+        earlier_creator.last_name = "Anderson"
+        earlier_creator.save(update_fields=["first_name", "last_name"])
+        self._set_access_level(later_creator, "editor")
+        self._set_access_level(earlier_creator, "editor")
+
+        self.client.force_login(later_creator)
+        later_payload = self._payload()
+        later_payload["title"] = "Later creator"
+        later_request = self.client.post(self.requests_url, later_payload, format="json").json()
+        self.client.force_login(earlier_creator)
+        earlier_payload = self._payload()
+        earlier_payload["title"] = "Earlier creator"
+        earlier_request = self.client.post(self.requests_url, earlier_payload, format="json").json()
+        self.client.force_login(self.user)
+
+        ascending = self.client.get(self.requests_url, {"request_ordering": "created_by"})
+        descending = self.client.get(self.requests_url, {"request_ordering": "-created_by"})
+
+        self.assertEqual(ascending.status_code, status.HTTP_200_OK)
+        self.assertEqual(descending.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [request["id"] for request in ascending.json()["results"]],
+            [earlier_request["id"], later_request["id"]],
+        )
+        self.assertEqual(
+            [request["id"] for request in descending.json()["results"]],
+            [later_request["id"], earlier_request["id"]],
+        )
+
     def test_list_combines_filters_orders_priorities_and_hides_archived_requests(self) -> None:
         first = self.client.post(self.requests_url, self._payload(), format="json").json()
         first_with_evidence = self._add_evidence(
