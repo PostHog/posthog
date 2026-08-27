@@ -6,12 +6,17 @@ import {
     HogFunctionInvocationGlobalsWithInputs,
     MinimalLogEntry,
 } from './types'
+import { ScopedServiceJwt } from './utils/scoped-service-jwt'
 
 export type AsyncFunctionContext = {
     invocation: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>['invocation']
     globals: HogFunctionInvocationGlobalsWithInputs
     teamManager: TeamManager
     siteUrl: string
+    // In-cluster Django base URL for /api/projects/<team_id>/internal/... routes, which
+    // Contour blocks from the public internet. Only first-party handlers may call it.
+    internalApiBaseUrl: string
+    conversationsTicketsJwt: ScopedServiceJwt
 }
 
 export type AsyncFunctionHandler = {

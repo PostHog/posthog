@@ -21,6 +21,7 @@ import { resolveAwsSigV4Credentials, signAwsRequest } from '../utils/aws-sigv4'
 import { cdpTrackedFetch, fetchErrorDetail, isFetchResponseRetriable } from '../utils/cdp-fetch'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
+import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
 import { HogExecutorExecuteOptions, HogExecutorPreviousResult, HogExecutorService } from './hog-executor.service'
 import { HogInputsService } from './hog-inputs.service'
 import { EMAIL_QUEUE_PRIORITY, getEmailQueuePriorityClass } from './messaging/email-priority'
@@ -48,6 +49,7 @@ export interface HogExecutorAsyncConfig {
     fetchBackoffBaseMs: number
     fetchBackoffMaxMs: number
     siteUrl: string
+    internalApiBaseUrl: string
 }
 
 /**
@@ -57,6 +59,7 @@ export interface HogExecutorAsyncConfig {
  */
 export interface HogExecutorAsyncDependencies {
     teamManager: TeamManager
+    conversationsTicketsJwt: ScopedServiceJwt
     hogInputsService: HogInputsService
     emailService: EmailService
     recipientTokensService: RecipientTokensService
@@ -242,6 +245,8 @@ export class HogExecutorAsyncService {
                             globals,
                             teamManager: this.deps.teamManager,
                             siteUrl: this.config.siteUrl,
+                            internalApiBaseUrl: this.config.internalApiBaseUrl,
+                            conversationsTicketsJwt: this.deps.conversationsTicketsJwt,
                         },
                         result
                     )
