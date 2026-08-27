@@ -183,7 +183,6 @@ export interface nodeDetailSceneLogicMeta {
         sceneResolved: (node: DataModelingNode | null, savedQuerySettled: boolean) => boolean
         availableTabs: (
             node: DataModelingNode | null,
-            savedQuery: DataWarehouseSavedQuery | null,
             sceneResolved: boolean,
             featureFlags: FeatureFlagsSet
         ) => NodeDetailSceneTab[]
