@@ -16,7 +16,7 @@ import { resolveTaskPrUrls, type TaskPrUrls } from "./utils/resolveTaskPrUrls";
  * value is available synchronously — the live `gh` lookups still run and
  * supersede the cache as their values arrive.
  *
- * Shared by the task header (`TaskActionsMenu`) and the command center cell
+ * Shared by the prompt footer (`TaskActionsMenu`) and the command center cell
  * header (`CommandCenterPRButton`) so they always agree on what PR a task
  * points at.
  */

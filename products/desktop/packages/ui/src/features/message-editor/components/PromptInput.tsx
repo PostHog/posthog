@@ -97,6 +97,12 @@ export interface PromptInputProps {
    * rather than a separate widget attached outside it.
    */
   headerAddon?: React.ReactNode;
+  /**
+   * Rendered as an attached footer inside the composer border. Use this for
+   * task-level actions that must stay near the prompt without joining its
+   * send controls.
+   */
+  footerAddon?: React.ReactNode;
   // Drop the toolbar row's own controls (attach/mode/model/reasoning/history).
   // The row itself is omitted unless a caller slot still needs it, and send
   // stays put — it lives in the box, not the row. Used by surfaces that want
@@ -160,6 +166,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
       submitAdornment,
       toolbarEndSlot,
       headerAddon,
+      footerAddon,
       hideDefaultToolbar = false,
       getPromptHistory,
       onPromptRecall,
@@ -599,6 +606,14 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
               </span>
             )}
           </div>
+          {footerAddon && (
+            <InputGroupAddon
+              align="block-end"
+              className="border-input border-t px-1 py-1"
+            >
+              {footerAddon}
+            </InputGroupAddon>
+          )}
         </InputGroup>
         {slotMachineMode && !inStopMode && (
           <SlotMachineSubmit

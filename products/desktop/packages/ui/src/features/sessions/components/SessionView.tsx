@@ -79,6 +79,7 @@ import {
 import type { Plan } from "@posthog/ui/features/sessions/types";
 import { useSessionHandoffInProgress } from "@posthog/ui/features/sessions/useSession";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import { TaskRunActions } from "@posthog/ui/features/task-detail/components/TaskRunActions";
 import { useIsWorkspaceCloudRun } from "@posthog/ui/features/workspace/useWorkspace";
 import { useConnectivity } from "@posthog/ui/hooks/useConnectivity";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -862,6 +863,9 @@ export function SessionView({
                               taskId={taskId}
                               focused={isActiveSession !== false}
                             />
+                          }
+                          footerAddon={
+                            task ? <TaskRunActions task={task} /> : undefined
                           }
                           onToggleMessagingMode={toggleMessagingMode}
                           onAttachmentsChange={handleAttachmentsChange}
