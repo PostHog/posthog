@@ -1219,7 +1219,7 @@ describe('insightVizDataLogic', () => {
     })
 
     describe('allEventNames', () => {
-        it('resolves action series when actionsModel was built but not mounted before the insight', async () => {
+        it('resolves action series once actionsModel mounts, without mounting it itself', async () => {
             initKeaTests()
             actionsModel.build()
             const props = { dashboardItemId: Insight123 }
@@ -1233,6 +1233,10 @@ describe('insightVizDataLogic', () => {
                 series: [{ kind: NodeKind.ActionsNode, id: 7 }],
             } as TrendsQuery)
 
+            expect(actionsModel.isMounted()).toBe(false)
+            expect(builtInsightVizDataLogic.values.allEventNames).toEqual([])
+
+            actionsModel.mount()
             await expectLogic(builtInsightVizDataLogic)
                 .toDispatchActions([actionsModel.actionTypes.loadActionsSuccess])
                 .toMatchValues({ allEventNames: ['$pageview', 'sign_up'] })
