@@ -128,6 +128,8 @@ export function LLMSkillScene(): JSX.Element {
     const isOwner = !!user && skillOwners.some((owner) => owner.uuid === user.uuid)
     // Publishing is owner-only on the backend, so mirror that here instead of letting a non-owner's
     // click come back a 403. In-flight guard keyed on the skill name matches the list view.
+    // The backend publishes the latest version by name, so block publishing from a historical
+    // version to avoid pushing content the user is not viewing.
     const publishDisabledReason = isSkill(skill)
         ? publishingSkills[skill.name]
             ? 'Publishing…'
@@ -135,7 +137,9 @@ export function LLMSkillScene(): JSX.Element {
               ? 'Add an owner before publishing to the community'
               : !isOwner
                 ? "Only the skill's owners can publish it"
-                : undefined
+                : isHistoricalVersion
+                  ? 'Switch to the latest version to publish'
+                  : undefined
         : undefined
 
     const content =
