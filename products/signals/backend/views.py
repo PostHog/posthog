@@ -1,3 +1,4 @@
+import re
 import json
 import uuid
 from collections.abc import Callable, Sequence
@@ -35,6 +36,7 @@ from asgiref.sync import async_to_sync
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
 from opentelemetry import trace
+from pydantic import ValidationError as PydanticValidationError
 from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -166,6 +168,7 @@ from products.signals.backend.temporal.types import (
     SignalReportReingestionWorkflowInputs,
 )
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 logger = structlog.get_logger(__name__)
@@ -452,20 +455,31 @@ SIGNAL_REPORT_DISMISSAL_REASON_CHOICES = [
     ("already_fixed", "Already fixed"),
     ("report_unclear", "Report is unclear to me"),
     ("analysis_wrong", "Agent's analysis is wrong"),
+    ("wrong_repo", "Agent picked the wrong repository"),
     ("wontfix_intentional", "Won't fix - intentional behavior"),
     ("wontfix_irrelevant", "Won't fix - issue is real but insignificant"),
     ("other", "Something else…"),
 ]
 
+# Reason code that carries the optional corrected_repository payload and triggers the
+# selected-repository denormalization onto the dismissal artefact.
+DISMISSAL_REASON_WRONG_REPO = "wrong_repo"
+
 _DISMISSAL_REASON_HELP_TEXT = (
     "Optional canonical reason code for the dismissal. Must be one of: already_fixed, "
-    "report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match "
-    "the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work "
-    "this report asked for is done, the honest transition is state='resolved' (the reason/note records "
-    "why). Reserve 'already_fixed' with state='potential' (snooze/restore) for \"fixed by something "
-    "else / might recur\" cases, so the report reappears if the issue comes back. Use 'other' together "
-    "with a dismissal_note for anything that doesn't fit a code."
+    "report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, other — "
+    "these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. "
+    "When the work this report asked for is done, the honest transition is state='resolved' (the "
+    "reason/note records why). Reserve 'already_fixed' with state='potential' (snooze/restore) for "
+    '"fixed by something else / might recur" cases, so the report reappears if the issue comes '
+    "back. Use 'wrong_repo' when the report (or its PR) targets the wrong repository, ideally with "
+    "corrected_repository naming the right one. Use 'other' together with a dismissal_note for "
+    "anything that doesn't fit a code."
 )
+
+# GitHub caps owners at 39 characters and repository names at 100; 'owner/repo' fits in 140.
+_CORRECTED_REPOSITORY_MAX_LENGTH = 140
+_CORRECTED_REPOSITORY_RE = re.compile(r"^[^/\s]+/[^/\s]+$")
 
 
 class SignalReportBulkStateOutcome(models.TextChoices):
@@ -513,6 +527,18 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
         max_length=SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH,
         help_text="Optional free-form note explaining the dismissal. Capped at 4000 characters.",
     )
+    corrected_repository = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        max_length=_CORRECTED_REPOSITORY_MAX_LENGTH,
+        help_text=(
+            "Optional, only allowed with dismissal_reason='wrong_repo'. The repository this report "
+            "should have targeted, in 'owner/repo' format (case-insensitive). It is recorded with "
+            "the dismissal and fed into future repository selection for this project. When the "
+            "repository is connected to the project, it also becomes the report's corrected repo "
+            "selection, so restoring the report re-researches against it."
+        ),
+    )
     snooze_for = serializers.IntegerField(
         required=False,
         min_value=1,
@@ -523,6 +549,21 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
             "Omit to let the report re-enter the pipeline on the next matching signal."
         ),
     )
+
+    def validate_corrected_repository(self, value: str) -> str:
+        # Lowercased on the way in: repo-selection candidate lists, the heavy cache, and connected-repo
+        # checks all compare lowercased 'owner/repo' names.
+        value = value.strip().lower()
+        if not _CORRECTED_REPOSITORY_RE.match(value):
+            raise serializers.ValidationError("Must be in 'owner/repo' format.")
+        return value
+
+    def validate(self, attrs: dict) -> dict:
+        if attrs.get("corrected_repository") and attrs.get("dismissal_reason") != DISMISSAL_REASON_WRONG_REPO:
+            raise serializers.ValidationError(
+                {"corrected_repository": "Only allowed when dismissal_reason is 'wrong_repo'."}
+            )
+        return attrs
 
 
 class SignalReportBulkStateRequestSerializer(SignalReportStateRequestSerializer):
@@ -1786,15 +1827,18 @@ class SignalReportViewSet(
         Transition a report to a new state. The model validates allowed transitions.
 
         The request body is validated by SignalReportStateRequestSerializer — only the
-        fields it declares (state, dismissal_reason, dismissal_note, snooze_for) are read,
-        and only snooze_for is ever forwarded to transition_to. Any other key is ignored,
-        so internal transition_to kwargs (reset_weight, error, ...) can't be injected.
+        fields it declares (state, dismissal_reason, dismissal_note, corrected_repository,
+        snooze_for) are read, and only snooze_for is ever forwarded to transition_to. Any
+        other key is ignored, so internal transition_to kwargs (reset_weight, error, ...)
+        can't be injected.
 
         Body: {
             "state": "suppressed" | "potential" | "resolved",
             # Optional dismissal feedback (honored when state == "suppressed", "potential", or "resolved"):
             "dismissal_reason": "<canonical reason code, see SIGNAL_REPORT_DISMISSAL_REASON_CHOICES>",
             "dismissal_note": "free-form text",
+            # Optional, only allowed with dismissal_reason == "wrong_repo":
+            "corrected_repository": "owner/repo the report should have targeted",
             # Optional, only honored for state == "potential":
             "snooze_for": <number of additional signals before re-promotion>,
         }
@@ -1810,6 +1854,7 @@ class SignalReportViewSet(
             target=data["state"],
             dismissal_reason=data.get("dismissal_reason"),
             dismissal_note=data.get("dismissal_note"),
+            corrected_repository=data.get("corrected_repository"),
             snooze_for=data.get("snooze_for"),
         )
 
@@ -1961,6 +2006,58 @@ class SignalReportViewSet(
             self._cached_request_attribution = resolve_request_attribution(self.request, self.team.id)
         return self._cached_request_attribution
 
+    def _latest_selected_repository(self, report_id: str) -> str | None:
+        """The repository named by the report's latest repo_selection artefact, if any."""
+        artefact = (
+            SignalReportArtefact.objects.filter(
+                report_id=report_id, type=SignalReportArtefact.ArtefactType.REPO_SELECTION
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        if artefact is None:
+            return None
+        try:
+            return RepoSelectionResult.model_validate_json(artefact.content).repository
+        except PydanticValidationError:
+            # Legacy or malformed rows degrade to "unknown" rather than failing the dismissal.
+            return None
+
+    def _connected_repositories(self) -> set[str]:
+        """Lowercased 'owner/repo' names connected to this team, cached for the request.
+
+        Cached because bulk_state calls the transition helper per report, and the underlying
+        lookup reads the integration's cached repository list.
+        """
+        if not hasattr(self, "_cached_connected_repositories"):
+            from products.tasks.backend.facade.repo_selection import (  # noqa: PLC0415 — keeps repo-selection agent imports off the API import path
+                list_team_connected_repositories,
+            )
+
+            self._cached_connected_repositories = set(list_team_connected_repositories(self.team.id))
+        return self._cached_connected_repositories
+
+    def _append_corrected_repo_selection(self, report: SignalReport, corrected_repository: str) -> None:
+        """Persist a wrong-repo correction as the report's newest repo_selection artefact.
+
+        repo_selection resolves latest-wins, so a later restore re-researches against the corrected
+        repository instead of repeating the selection the dismisser just rejected. Only written when
+        the repository is currently connected: research clones through the team integration, and an
+        unconnected repository would turn a restore into a guaranteed clone failure. The correction
+        itself is still recorded on the dismissal artefact either way.
+        """
+        if corrected_repository not in self._connected_repositories():
+            return
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=RepoSelectionResult(
+                repository=corrected_repository,
+                reason="A reviewer dismissed this report as targeting the wrong repository and named this one instead.",
+            ),
+            attribution=self._request_attribution(),
+        )
+
     def _transition_report_state(
         self,
         report: SignalReport,
@@ -1969,6 +2066,7 @@ class SignalReportViewSet(
         dismissal_reason: str | None,
         dismissal_note: str | None,
         snooze_for: int | None,
+        corrected_repository: str | None = None,
     ) -> "tuple[SignalReportBulkStateOutcome, str | None]":
         """
         Apply one report state transition (plus optional dismissal artefact) and return a
@@ -1983,6 +2081,10 @@ class SignalReportViewSet(
         `transition_to` kwarg (signals_at_run_increment, reset_weight, title, summary, error) is an
         internal pipeline concern and must never be reachable from this public API surface, so it is
         passed explicitly rather than splatting caller-supplied kwargs.
+
+        `corrected_repository` (validated upstream: wrong_repo dismissals only) is recorded on the
+        dismissal artefact, and additionally appended as the report's newest repo_selection artefact
+        when the repository is connected — see `_append_corrected_repo_selection`.
         """
         target_status = SignalReport.Status(target)
 
@@ -2067,17 +2169,25 @@ class SignalReportViewSet(
                 user = self.request.user
                 is_authenticated = getattr(user, "is_authenticated", False)
                 user_uuid = getattr(user, "uuid", None) if is_authenticated else None
+                is_wrong_repo = dismissal_reason == DISMISSAL_REASON_WRONG_REPO
                 SignalReportArtefact.append_dismissal(
                     team_id=self.team.id,
                     report_id=str(report.id),
                     content=Dismissal(
                         reason=dismissal_reason,
                         note=dismissal_note,
+                        # Denormalized so a wrong-repo dismissal is self-contained: the correction
+                        # feed reads which repo was wrong straight off this artefact instead of
+                        # joining the repo_selection history at selection time.
+                        selected_repository=self._latest_selected_repository(str(report.id)) if is_wrong_repo else None,
+                        corrected_repository=corrected_repository if is_wrong_repo else None,
                         user_id=getattr(user, "id", None) if is_authenticated else None,
                         user_uuid=str(user_uuid) if user_uuid else None,
                     ),
                     attribution=self._request_attribution(),
                 )
+                if is_wrong_repo and corrected_repository:
+                    self._append_corrected_repo_selection(report, corrected_repository)
                 # The dismissal prefetch may have been evaluated before this artefact
                 # existed; drop the stale cache so a follow-up serializer re-reads the
                 # just-written reason/note instead of the previous (or empty) dismissal.
@@ -2111,6 +2221,7 @@ class SignalReportViewSet(
         target = data["state"]
         dismissal_reason = data.get("dismissal_reason")
         dismissal_note = data.get("dismissal_note")
+        corrected_repository = data.get("corrected_repository")
         snooze_for = data.get("snooze_for")
 
         # De-duplicate while preserving request order so the response lines up with what was asked.
@@ -2142,6 +2253,7 @@ class SignalReportViewSet(
                     target=target,
                     dismissal_reason=dismissal_reason,
                     dismissal_note=dismissal_note,
+                    corrected_repository=corrected_repository,
                     snooze_for=snooze_for,
                 )
                 report_status = report.status if outcome == SignalReportBulkStateOutcome.TRANSITIONED else None

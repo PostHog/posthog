@@ -6,20 +6,21 @@ import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import { DISMISSAL_REASON_OPTIONS, DismissalReasonValue, isDismissalReasonSnooze } from '../../utils/dismissalReasons'
-
-export interface DismissReportDialogResult {
-    reason: DismissalReasonValue
-    note: string
-}
+import {
+    DISMISSAL_REASON_OPTIONS,
+    DismissalFeedback,
+    DismissalReasonValue,
+    isDismissalReasonSnooze,
+} from '../../utils/dismissalReasons'
+import { DismissCorrectedRepoField } from './DismissCorrectedRepoField'
 
 interface OpenDismissReportDialogParams {
     /** Report title for single-report copy. Ignored when `selectedCount > 1`. */
     reportTitle?: string | null
     /** When greater than 1, copy reflects a bulk dismiss of the current selection. */
     selectedCount?: number
-    /** Called with the chosen reason + note once the user confirms. */
-    onConfirm: (result: DismissReportDialogResult) => void | Promise<void>
+    /** Called with the chosen reason, note and optional repo correction once the user confirms. */
+    onConfirm: (result: DismissalFeedback) => void | Promise<void>
 }
 
 const PAUSE_OPTION_TOOLTIP =
@@ -71,12 +72,19 @@ export function openDismissReportDialog({
         title,
         description,
         maxWidth: '36rem',
-        initialValues: { reason: null as DismissalReasonValue | null, note: '' },
+        initialValues: {
+            reason: null as DismissalReasonValue | null,
+            note: '',
+            correctedRepository: null as string | null,
+        },
         content: (
             <div className="flex flex-col gap-3">
                 <LemonField name="reason" label="Reason">
                     {({ value, onChange }) => (
-                        <LemonRadio value={value} onChange={onChange} options={REASON_RADIO_OPTIONS} />
+                        <div className="flex flex-col gap-3">
+                            <LemonRadio value={value} onChange={onChange} options={REASON_RADIO_OPTIONS} />
+                            {value === 'wrong_repo' && <DismissCorrectedRepoField />}
+                        </div>
                     )}
                 </LemonField>
                 <LemonField name="note" label="Note" info="Optional. The agent reads it on its next run.">
@@ -94,11 +102,16 @@ export function openDismissReportDialog({
         },
         primaryButtonProps: { children: 'Archive & teach the agent' },
         shouldAwaitSubmit: true,
-        onSubmit: async ({ reason, note }) => {
+        onSubmit: async ({ reason, note, correctedRepository }) => {
             if (!reason) {
                 return
             }
-            await onConfirm({ reason, note: (note ?? '').trim() })
+            await onConfirm({
+                reason,
+                note: (note ?? '').trim(),
+                // A correction picked and then abandoned for another reason must not ride along.
+                correctedRepository: reason === 'wrong_repo' ? (correctedRepository ?? null) : null,
+            })
         },
     })
 }

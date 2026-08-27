@@ -18,6 +18,10 @@ export const DISMISSAL_REASON_OPTIONS = [
         label: "Agent's analysis is wrong",
     },
     {
+        value: 'wrong_repo',
+        label: 'Agent picked the wrong repository',
+    },
+    {
         value: 'wontfix_intentional',
         label: "Won't fix - intentional behavior",
     },
@@ -30,6 +34,14 @@ export const DISMISSAL_REASON_OPTIONS = [
 
 /** Persisted dismissal / suppress reason (values match {@link DISMISSAL_REASON_OPTIONS}). */
 export type DismissalReasonValue = (typeof DISMISSAL_REASON_OPTIONS)[number]['value']
+
+/** Feedback captured by the dismiss dialog and forwarded to the report state API. */
+export interface DismissalFeedback {
+    reason: DismissalReasonValue
+    note: string
+    /** 'owner/repo' the reports should have targeted; only set when reason is 'wrong_repo'. */
+    correctedRepository: string | null
+}
 
 // Reason codes persisted by flows outside the dismiss dialog (never user-selectable there), so the
 // dismissal chip still renders a label instead of the raw code. `refunded` is written by the PR

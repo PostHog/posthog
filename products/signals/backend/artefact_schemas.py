@@ -234,6 +234,21 @@ class Dismissal(BaseModel):
 
     reason: str | None = Field(default=None, description="Caller-owned dismissal reason code.")
     note: str | None = Field(default=None, description="Free-form dismissal note.")
+    selected_repository: str | None = Field(
+        default=None,
+        description=(
+            "Repository the pipeline had selected when the report was dismissed, in 'owner/repo' "
+            "format. Recorded on wrong-repo dismissals so selection mistakes are queryable without "
+            "joining the repo_selection artefact history."
+        ),
+    )
+    corrected_repository: str | None = Field(
+        default=None,
+        description=(
+            "Repository the dismisser said the report should have targeted, in 'owner/repo' format. "
+            "Fed back into future repository selection for the project."
+        ),
+    )
     user_id: int | None = Field(default=None, description="ID of the dismissing user, when known.")
     user_uuid: str | None = Field(default=None, description="UUID of the dismissing user, when known.")
     slack_user_id: str | None = Field(

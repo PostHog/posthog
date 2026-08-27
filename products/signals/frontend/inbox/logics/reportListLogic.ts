@@ -22,7 +22,7 @@ import {
     SignalReport,
 } from '../types'
 import type { SignalReportPriority } from '../types'
-import { DismissalReasonValue } from '../utils/dismissalReasons'
+import { DismissalFeedback } from '../utils/dismissalReasons'
 import { isInboxRedesignEnabled } from '../utils/inboxRedesign'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { buildSignalReportListOrdering, inboxFiltersLogic } from './inboxFiltersLogic'
@@ -190,17 +190,9 @@ export interface reportListLogicActions {
     } // inboxFiltersLogic
     archiveReport: (
         reportId: string,
-        reason: DismissalReasonValue,
-        note: string
+        dismissal: DismissalFeedback
     ) => {
-        note: string
-        reason:
-            | 'already_fixed'
-            | 'analysis_wrong'
-            | 'other'
-            | 'report_unclear'
-            | 'wontfix_intentional'
-            | 'wontfix_irrelevant'
+        dismissal: DismissalFeedback
         reportId: string
     }
     ensureLoaded: () => {
@@ -358,7 +350,7 @@ export const reportListLogic = kea<reportListLogicType>([
     actions({
         ensureLoaded: true,
         loadMore: true,
-        archiveReport: (reportId: string, reason: DismissalReasonValue, note: string) => ({ reportId, reason, note }),
+        archiveReport: (reportId: string, dismissal: DismissalFeedback) => ({ reportId, dismissal }),
         restoreReport: (reportId: string) => ({ reportId }),
         removeReport: (reportId: string) => ({ reportId }),
         refresh: true,
@@ -618,13 +610,14 @@ export const reportListLogic = kea<reportListLogicType>([
                 actions.refresh()
             }
         },
-        archiveReport: async ({ reportId, reason, note }) => {
+        archiveReport: async ({ reportId, dismissal }) => {
             actions.removeReport(reportId)
             try {
                 await api.signalReports.setState(reportId, {
                     state: 'suppressed',
-                    dismissal_reason: reason,
-                    ...(note ? { dismissal_note: note } : {}),
+                    dismissal_reason: dismissal.reason,
+                    ...(dismissal.note ? { dismissal_note: dismissal.note } : {}),
+                    ...(dismissal.correctedRepository ? { corrected_repository: dismissal.correctedRepository } : {}),
                 })
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to archive report')

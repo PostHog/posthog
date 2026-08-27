@@ -18,7 +18,7 @@ import {
     SignalReportStatus,
     SignalSourceProduct,
 } from '../../types'
-import { dismissalReasonLabel, DismissalReasonValue } from '../../utils/dismissalReasons'
+import { dismissalReasonLabel, DismissalFeedback } from '../../utils/dismissalReasons'
 import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
 import {
     deriveHeadline,
@@ -121,7 +121,7 @@ export function ReportCard({
     sectionKey?: InboxReportSectionKey
     attached?: boolean
     /** Archive from the row. The inbox list omits it; surfaces that embed this card can opt in. */
-    onArchive?: (reason: DismissalReasonValue, note: string) => void
+    onArchive?: (dismissal: DismissalFeedback) => void
     onRestore?: () => void
     /** Internal path the detail view's back button should return to, for cards rendered outside the inbox. */
     backUrl?: string

@@ -448,6 +448,8 @@ export interface SignalReportStateRequest {
     state: 'suppressed' | 'potential'
     dismissal_reason?: string
     dismissal_note?: string
+    /** 'owner/repo' the report should have targeted; only allowed with dismissal_reason 'wrong_repo'. */
+    corrected_repository?: string
     /** Only honored for state === 'potential' (snooze): re-promote after N more signals. */
     snooze_for?: number
 }

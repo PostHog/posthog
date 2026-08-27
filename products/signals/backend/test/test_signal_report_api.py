@@ -48,6 +48,7 @@ from products.signals.backend.task_run_artefacts import (
     record_report_task,
 )
 from products.tasks.backend.facade.api import Channel
+from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import Task, TaskRun
@@ -1506,6 +1507,15 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                 "wontfix_irrelevant",
                 "snoozing for now",
             ),
+            # wrong_repo without a correction, on a report with no repo_selection artefact:
+            # the selected-repository denormalization degrades to null instead of failing.
+            (
+                "suppress_with_wrong_repo_no_correction",
+                {"state": "suppressed", "dismissal_reason": "wrong_repo", "dismissal_note": "not this codebase"},
+                SignalReport.Status.SUPPRESSED,
+                "wrong_repo",
+                "not this codebase",
+            ),
             (
                 "resolve_with_reason_and_note",
                 {
@@ -1620,6 +1630,14 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                 "non_canonical_dismissal_reason",
                 {"state": "suppressed", "dismissal_reason": "some_brand_new_code"},
             ),
+            (
+                "corrected_repository_without_wrong_repo_reason",
+                {"state": "suppressed", "dismissal_reason": "other", "corrected_repository": "acme/checkout"},
+            ),
+            (
+                "malformed_corrected_repository",
+                {"state": "suppressed", "dismissal_reason": "wrong_repo", "corrected_repository": "not-a-repo"},
+            ),
         ]
     )
     def test_state_transition_rejects_invalid_dismissal(self, _name, body):
@@ -1631,6 +1649,63 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert not SignalReportArtefact.objects.filter(
             report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
         ).exists()
+
+    @parameterized.expand(
+        [
+            # A connected correction becomes the report's newest repo_selection artefact, so a
+            # restore re-researches against it; an unconnected one is recorded on the dismissal
+            # only, because research cannot clone a repository the team has not connected.
+            ("connected_repo_appends_corrected_selection", True),
+            ("unconnected_repo_records_dismissal_only", False),
+        ]
+    )
+    def test_wrong_repo_dismissal_with_correction(self, _name, corrected_connected):
+        report = self._create_report()
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=RepoSelectionResult(repository="acme/website", reason="initial pick"),
+            attribution=ArtefactAttribution.system(),
+        )
+        connected = ["acme/website", "acme/checkout"] if corrected_connected else ["acme/website"]
+        with patch(
+            "products.tasks.backend.facade.repo_selection.list_team_connected_repositories",
+            return_value=connected,
+        ):
+            response = self.client.post(
+                self._state_url(str(report.id)),
+                data=json.dumps(
+                    {
+                        "state": "suppressed",
+                        "dismissal_reason": "wrong_repo",
+                        "dismissal_note": "belongs in checkout",
+                        # Mixed case on purpose: the API normalizes to the lowercase form used
+                        # by candidate lists and the connected-repos check.
+                        "corrected_repository": "Acme/Checkout",
+                    }
+                ),
+                content_type="application/json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        dismissal = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
+        content = json.loads(dismissal.content)
+        assert content["reason"] == "wrong_repo"
+        assert content["selected_repository"] == "acme/website"
+        assert content["corrected_repository"] == "acme/checkout"
+
+        selections = list(
+            SignalReportArtefact.objects.filter(
+                report=report, type=SignalReportArtefact.ArtefactType.REPO_SELECTION
+            ).order_by("created_at")
+        )
+        if corrected_connected:
+            assert len(selections) == 2
+            latest = json.loads(selections[-1].content)
+            assert latest["repository"] == "acme/checkout"
+            assert selections[-1].created_by_id == self.user.id
+        else:
+            assert len(selections) == 1
 
     def test_rejects_unknown_state(self):
         report = self._create_report()

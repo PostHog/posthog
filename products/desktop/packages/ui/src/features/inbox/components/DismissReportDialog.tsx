@@ -4,10 +4,16 @@ import {
   isDismissalReasonSnooze,
 } from "@posthog/shared/dismissalReasons";
 import type { SignalReport } from "@posthog/shared/types";
+import { GitHubRepoPicker } from "@posthog/ui/features/folder-picker/GitHubRepoPicker";
 import {
   ExplainedPauseLabel,
   ExplainedSuppressLabel,
 } from "@posthog/ui/features/inbox/components/utils/ExplainedDismissOptionLabels";
+import { useIntegrationSelectors } from "@posthog/ui/features/integrations/store";
+import {
+  useGithubRepositories,
+  useIntegrations,
+} from "@posthog/ui/features/integrations/useIntegrations";
 import { Button } from "@posthog/ui/primitives/Button";
 import { Dialog, Flex, RadioGroup, Text, TextArea } from "@radix-ui/themes";
 import { useEffect, useRef, useState } from "react";
@@ -15,6 +21,8 @@ import { useEffect, useRef, useState } from "react";
 export interface DismissReportDialogResult {
   reason: DismissalReasonOptionValue;
   note: string;
+  /** 'owner/repo' the reports should have targeted; only set when reason is 'wrong_repo'. */
+  correctedRepository: string | null;
 }
 
 export interface DismissReportDialogProps {
@@ -103,10 +111,29 @@ function DismissReportDialogBody({
 }) {
   const [reason, setReason] = useState<DismissalReasonOptionValue | null>(null);
   const [note, setNote] = useState("");
+  const [correctedRepository, setCorrectedRepository] = useState<string | null>(
+    null,
+  );
+  const [isRepoPickerOpen, setIsRepoPickerOpen] = useState(false);
+  const [repoSearch, setRepoSearch] = useState("");
+
+  const isWrongRepo = reason === "wrong_repo";
+  // Populates the integration store in case no other surface loaded it yet; react-query dedupes.
+  useIntegrations();
+  const { hasGithubIntegration } = useIntegrationSelectors();
+  const repoPage = useGithubRepositories(
+    repoSearch,
+    isWrongRepo && isRepoPickerOpen,
+  );
 
   const handleConfirm = () => {
     if (!reason) return;
-    onConfirm({ reason, note: note.trim() });
+    onConfirm({
+      reason,
+      note: note.trim(),
+      // A correction picked and then abandoned for another reason must not ride along.
+      correctedRepository: isWrongRepo ? correctedRepository : null,
+    });
   };
 
   const alreadyFixedDisabled = snoozeDisabledReason !== null;
@@ -159,6 +186,34 @@ function DismissReportDialogBody({
             })}
           </Flex>
         </RadioGroup.Root>
+
+        {isWrongRepo && hasGithubIntegration ? (
+          <div className="flex flex-col gap-1">
+            <span className="text-(--gray-12) text-xs">
+              Which repository should it have been?
+            </span>
+            <GitHubRepoPicker
+              value={correctedRepository}
+              onChange={setCorrectedRepository}
+              repositories={repoPage.repositories}
+              isLoading={repoPage.isPending}
+              isLoadingMore={repoPage.isFetchingMore}
+              open={isRepoPickerOpen}
+              onOpenChange={setIsRepoPickerOpen}
+              searchQuery={repoSearch}
+              onSearchQueryChange={setRepoSearch}
+              hasMore={repoPage.hasMore}
+              onLoadMore={repoPage.loadMore}
+              disabled={isSubmitting}
+              placeholder="Search repositories"
+              size="1"
+            />
+            <span className="text-(--gray-10) text-xs">
+              Optional. The agent uses your correction when picking repositories
+              in the future.
+            </span>
+          </div>
+        ) : null}
 
         <TextArea
           value={note}

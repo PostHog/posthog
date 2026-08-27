@@ -131,12 +131,15 @@ export function bulkSelectionKey(selection: InboxBulkSelection): string {
 export interface DismissReportInput {
   reason: DismissalReasonOptionValue;
   note: string;
+  /** 'owner/repo' the reports should have targeted; only set when reason is 'wrong_repo'. */
+  correctedRepository?: string | null;
 }
 
 export type SuppressStateRequest = {
   state: "suppressed";
   dismissal_reason?: DismissalReasonOptionValue;
   dismissal_note?: string;
+  corrected_repository?: string;
 };
 
 /** Body for `updateSignalReportState` when suppressing/dismissing. Notes are clamped to 4000 chars. */
@@ -150,6 +153,9 @@ export function buildSuppressRequest(
     state: "suppressed",
     dismissal_reason: dismissal.reason,
     dismissal_note: dismissal.note.slice(0, 4000),
+    ...(dismissal.correctedRepository
+      ? { corrected_repository: dismissal.correctedRepository }
+      : {}),
   };
 }
 

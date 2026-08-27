@@ -37,7 +37,7 @@ export function InboxBulkSelectionBar(): JSX.Element | null {
                     onClick={() =>
                         openDismissReportDialog({
                             selectedCount,
-                            onConfirm: ({ reason, note }) => bulkDismiss(reason, note),
+                            onConfirm: (dismissal) => bulkDismiss(dismissal),
                         })
                     }
                 >
