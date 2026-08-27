@@ -1481,8 +1481,10 @@ body.ph-window-blurred .app-fade-in {
     background-color: var(--fill-selected) !important;
   }
   /* Quill spans the line indicator across the whole trigger; pull it in by the
-     trigger's px-2 so it underlines the label instead of the fill box. */
-  .quill-tabs-fill .quill-tabs__indicator--variant-line {
+     trigger's px-2 so it underlines the label instead of the fill box. The
+     selector mirrors quill's own, plus the fill hook, so it outranks it. */
+  .group\/tabs[data-orientation="horizontal"] .quill-tabs-fill
+    .quill-tabs__indicator--variant-line {
     width: calc(var(--active-tab-width) - 1rem);
     transform: translateX(calc(var(--active-tab-left) + 0.5rem));
   }
