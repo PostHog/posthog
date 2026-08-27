@@ -1,4 +1,3 @@
-// Serial: resets the shared test database.
 // Pins the full flag-evaluations shadow-write path — config → fork step → output
 // registration → Kafka topic → ClickHouse Kafka engine → MV → flag_evaluations
 // table — which no unit test can: a topic-key typo, a row column ClickHouse can't
@@ -24,7 +23,6 @@ import {
 } from '~/tests/helpers/ingestion-e2e'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
-import { resetTestDatabase } from '~/tests/helpers/sql'
 
 jest.mock('~/common/utils/logger')
 
@@ -47,14 +45,10 @@ describe('Flag evaluations shadow-routing E2E', () => {
     beforeAll(async () => {
         clickhouse = Clickhouse.create()
         await ensureKafkaTopics(TEST_KAFKA_TOPICS)
-        await resetTestDatabase()
-        await clickhouse.resetTestDatabase()
         await waitForClickHouseKafkaConsumer(clickhouse)
     })
 
-    afterAll(async () => {
-        await resetTestDatabase()
-        await clickhouse.resetTestDatabase()
+    afterAll(() => {
         clickhouse.close()
     })
 

@@ -44,6 +44,10 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     kernel_cpu_cores = models.FloatField(null=True, blank=True)
     kernel_memory_gb = models.FloatField(null=True, blank=True)
     kernel_idle_timeout_seconds = models.IntegerField(null=True, blank=True)
+    # Notebook-level variables, as [{name, type, value}]: a SQL cell reads one as a `{name}`
+    # placeholder and a Python cell as a global. A property of the notebook rather than a block
+    # in `content`, so editing prose can never delete it. Null until the notebook declares one.
+    variables: JSONField = JSONField(default=None, null=True, blank=True)
 
     class Meta:
         unique_together = ("team", "short_id")
