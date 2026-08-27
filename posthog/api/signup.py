@@ -35,15 +35,16 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailValidationHelper, reject_plus_addressed_email, validate_display_name
 from posthog.helpers.verified_domain_enforcement import resolve_login_organization
 from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
+from posthog.models.identity_provider_config import ConfigScope, IdentityProviderConfig
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
 from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle, SignupResendInviteThrottle
-from posthog.temporal.signup_enrichment.trigger import start_signup_enrichment_workflow
 from posthog.utils import get_can_create_org, get_trusted_client_ip, is_relative_url
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
 from products.demo.backend.facade.api import HedgeboxMatrix, MatrixManager
+from products.growth.backend.temporal.signup_enrichment.trigger import start_signup_enrichment_workflow
 
 logger = structlog.get_logger(__name__)
 
@@ -398,7 +399,12 @@ class SignupEmailPrecheckViewset(generics.GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         email = serializer.validated_data["email"]
-        email_exists = False if settings.DEMO else EmailValidationHelper.user_exists(email)
+        email_exists = False
+        if not settings.DEMO:
+            # Mirror SignupSerializer.validate_email. Without this the form clears the email step,
+            # the user fills in the rest, and only then hits the rejection on submit.
+            reject_plus_addressed_email(email)
+            email_exists = EmailValidationHelper.user_exists_with_stripped_alias(email)
         if email_exists:
             return response.Response(
                 {
@@ -813,13 +819,17 @@ class CompanyNameForm(forms.Form):
     emailOptIn = forms.BooleanField(required=False)
 
 
-def lookup_invite_for_saml(email: str, organization_domain_id: str) -> Optional[OrganizationInvite]:
-    # nosemgrep: idor-lookup-without-org (ID from SAML response)
-    organization_domain = OrganizationDomain.objects.get(id=organization_domain_id)
-    if not organization_domain:
+def lookup_invite_for_saml(email: str, saml_relay_state: str) -> Optional[OrganizationInvite]:
+    # The assertion round-trips the IdP config's `saml_relay_state`, which the SAML backend has
+    # already resolved to a config to validate the response. Resolve the organization the same way:
+    # the identifier holds a domain id on configs created before it moved onto the config, and that
+    # domain may since have been deleted out from under a config its siblings still back.
+    # nosemgrep: idor-lookup-without-org (identifier from an already-verified SAML response)
+    config = IdentityProviderConfig.objects.filter(saml_relay_state=saml_relay_state).first()
+    if config is None:
         return None
     return (
-        OrganizationInvite.objects.filter(target_email=email, organization=organization_domain.organization)
+        OrganizationInvite.objects.filter(target_email=email, organization_id=config.organization_id)
         .order_by("-created_at")
         .first()
     )
@@ -883,12 +893,15 @@ def process_social_domain_jit_provisioning_signup(
         )
         return user
     else:
+        scim_enabled = (
+            domain_instance.identity_provider_configs_for_scope(ConfigScope.SCIM).filter(scim_enabled=True).exists()
+        )
         logger.info(
             f"process_social_domain_jit_provisioning_signup_domain_exists",
             domain=domain,
             is_verified=domain_instance.is_verified,
             jit_provisioning_enabled=domain_instance.jit_provisioning_enabled,
-            scim_enabled=domain_instance.idp_config.scim_enabled,
+            scim_enabled=scim_enabled,
         )
         if domain_instance.is_verified and domain_instance.jit_provisioning_enabled:
             if not user:
@@ -939,7 +952,7 @@ def process_social_domain_jit_provisioning_signup(
                     domain=domain,
                     user=user.email,
                     organization=domain_instance.organization_id,
-                    scim_enabled=domain_instance.idp_config.scim_enabled,
+                    scim_enabled=scim_enabled,
                 )
 
     return user
@@ -975,10 +988,10 @@ def social_create_user(
         or details.get("username")
     )
 
-    # Handle SAML invites (organization_domain_id is the relay_state)
-    organization_domain_id = kwargs.get("response", {}).get("idp_name")
-    if not invite_id and organization_domain_id:
-        invite = lookup_invite_for_saml(email, organization_domain_id)
+    # Handle SAML invites (idp_name is the IdP config's relay state)
+    saml_relay_state = kwargs.get("response", {}).get("idp_name")
+    if not invite_id and saml_relay_state:
+        invite = lookup_invite_for_saml(email, saml_relay_state)
         invite_id = invite.id if invite else None
 
     # Domain enforcement: refuse blocked members — blocked admins still get a gated session.

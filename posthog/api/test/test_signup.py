@@ -19,21 +19,21 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.signup import _save_session_with_recovery, process_social_invite_signup
+from posthog.api.signup import _save_session_with_recovery, lookup_invite_for_saml, process_social_invite_signup
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.instance_setting import override_instance_config
+from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY, OrganizationInvite
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.utils import get_instance_realm
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
-
-from ee.models.rbac.access_control import AccessControl
 
 MOCK_GITLAB_SSO_RESPONSE = {
     "access_token": "123",
@@ -1044,10 +1044,8 @@ class TestSignupAPI(APIBaseTest):
                 jit_provisioning_enabled=True,
                 organization=new_org,
             )
-            domain.identity_provider_config = IdentityProviderConfig.objects.create(
-                organization=new_org, scim_enabled=True
-            )
-            domain.save()
+            config = IdentityProviderConfig.objects.create(organization=new_org, scim_enabled=True)
+            LinkedIdentityProviderConfig.objects.create(organization_domain=domain, identity_provider_config=config)
             Team.objects.create(organization=new_org, name="Test Project")
 
             response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
@@ -1090,10 +1088,8 @@ class TestSignupAPI(APIBaseTest):
                 jit_provisioning_enabled=True,
                 organization=new_org,
             )
-            domain.identity_provider_config = IdentityProviderConfig.objects.create(
-                organization=new_org, scim_enabled=True
-            )
-            domain.save()
+            config = IdentityProviderConfig.objects.create(organization=new_org, scim_enabled=True)
+            LinkedIdentityProviderConfig.objects.create(organization_domain=domain, identity_provider_config=config)
             Team.objects.create(organization=new_org, name="Test Project")
 
             response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
@@ -3284,6 +3280,17 @@ class TestSignupPrecheckPendingInvite(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertNotIn("pending_invite", response.json())
 
+    def test_precheck_rejects_plus_addressed_email(self):
+        response = self.client.post("/api/signup/precheck", {"email": "newperson+alias@acme.com"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "plus_addressing_not_allowed")
+
+    def test_precheck_reports_collision_with_an_aliased_account(self):
+        User.objects.create_user(email="dupe+old@acme.com", password=None, first_name="Dupe")
+        response = self.client.post("/api/signup/precheck", {"email": "dupe@acme.com"})
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertTrue(response.json()["email_exists"])
+
 
 class TestSignupResendInvite(APIBaseTest):
     def setUp(self):
@@ -3365,3 +3372,51 @@ class TestSignupResendInvite(APIBaseTest):
         # Bob still has a fresh bucket
         bob_ok = self.client.post("/api/signup/resend-invite", {"email": "bob@acme.com"})
         self.assertEqual(bob_ok.status_code, status.HTTP_200_OK)
+
+
+class TestSAMLInviteLookup(APIBaseTest):
+    def _saml_identifier_for(self, *domains: str) -> str:
+        config = IdentityProviderConfig.objects.create(
+            organization=self.organization, saml_entity_id="e", saml_acs_url="a", saml_x509_cert="c"
+        )
+        for domain in domains:
+            organization_domain = OrganizationDomain.objects.create(
+                organization=self.organization,
+                domain=domain,
+                verified_at=timezone.now(),
+            )
+            LinkedIdentityProviderConfig.objects.create(
+                organization_domain=organization_domain, identity_provider_config=config
+            )
+        config.refresh_from_db()
+        assert config.saml_relay_state is not None
+        return config.saml_relay_state
+
+    def test_finds_the_invite_for_the_config_that_signed_the_assertion(self):
+        identifier = self._saml_identifier_for("saml-invite.example.com")
+        invite = OrganizationInvite.objects.create(
+            organization=self.organization, target_email="joiner@saml-invite.example.com"
+        )
+
+        found = lookup_invite_for_saml("joiner@saml-invite.example.com", identifier)
+
+        assert found is not None
+        assert found.id == invite.id
+
+    def test_finds_it_when_the_identifier_no_longer_matches_a_domain(self):
+        # The identifier holds a domain id on configs created before it moved onto the config, and
+        # that domain can be deleted while sibling domains keep the config in service. Resolving the
+        # organization through the domain raises DoesNotExist here, which 500s the SSO signup.
+        identifier = self._saml_identifier_for("first.example.com", "second.example.com")
+        OrganizationDomain.objects.get(domain="first.example.com").delete()
+        invite = OrganizationInvite.objects.create(
+            organization=self.organization, target_email="joiner@second.example.com"
+        )
+
+        found = lookup_invite_for_saml("joiner@second.example.com", identifier)
+
+        assert found is not None
+        assert found.id == invite.id
+
+    def test_unknown_identifier_returns_nothing(self):
+        assert lookup_invite_for_saml("joiner@example.com", "not-an-identifier") is None

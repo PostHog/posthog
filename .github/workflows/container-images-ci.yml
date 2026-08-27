@@ -38,6 +38,9 @@ jobs:
             dockerfiles_files: ${{ steps.filter.outputs.dockerfiles_files }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
@@ -59,6 +62,7 @@ jobs:
                         - docker-compose.base.yml
                         - docker-compose.hobby.yml
                         - 'bin/deploy-hobby'
+                        - 'bin/hobby-ci-setup-user.py'
                         - 'bin/hobby-ci.py'
                         - 'bin/upgrade-hobby'
                         - 'bin/migrate-*-hobby'
@@ -80,12 +84,15 @@ jobs:
                       # by the `hobby:` filter — workflow self-edits, `.dockerignore`
                       # (silently changes the build context), and `pnpm-lock.yaml` so
                       # Renovate-style dep bumps are exercised on PR (otherwise they'd
-                      # only fail after merging).
+                      # only fail after merging). Root `package.json` carries the
+                      # `packageManager` pin the image seeds corepack from, and a pin-only
+                      # edit leaves the lockfile untouched.
                       build_inputs:
                         - .github/workflows/container-images-ci.yml
                         - .github/actions/build-n-cache-image/**
                         - .dockerignore
                         - pnpm-lock.yaml
+                        - package.json
                       # Drives the fast PR-time guard below (models `COPY . .`, so it only reacts
                       # to .dockerignore — Dockerfile COPY changes are covered by the image boot check).
                       dockerignore:

@@ -18,9 +18,10 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.conversations.backend.models.ticket import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
 from products.slack_app.backend.models import SlackChannel
 from products.slack_app.backend.services.slack_auth import write_auth_state_ok
@@ -30,8 +31,6 @@ from products.slack_app.backend.slack_link_unfurl import (
     parse_posthog_resource_link,
 )
 from products.tasks.backend.models import Task
-
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestParsePosthogResourceLink:
@@ -273,6 +272,30 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         )
 
         mock_client.chat_unfurl.assert_not_called()
+
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_skips_a_link_belonging_to_the_other_region(
+        self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
+    ) -> None:
+        # Resource ids repeat across regions, so resolving an eu.posthog.com link here would unfurl
+        # whichever local insight happens to carry the same short id — a card of the wrong data
+        # attached to someone else's link.
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+
+        url = f"https://eu.posthog.com/project/{self.team.pk}/insights/{self.insight.short_id}"
+        with capture_logs() as logs:
+            handle_posthog_link_unfurl(
+                {"channel": "C1", "message_ts": "123.456", "user": "U1", "links": [{"url": url}]},
+                self.integration,
+            )
+
+        mock_client.chat_unfurl.assert_not_called()
+        result = next(log for log in logs if log["event"] == "slack_app_link_unfurl_result")
+        assert result["skipped"] == [{"kind": "insight", "ref": self.insight.short_id, "reason": "other_region"}]
 
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")

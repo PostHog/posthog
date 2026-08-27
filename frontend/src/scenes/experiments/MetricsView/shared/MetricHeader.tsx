@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
@@ -28,7 +29,7 @@ import type { Experiment } from '~/types'
 
 import { MetricRetryDetails } from './MetricRetryState'
 import { MetricTitle } from './MetricTitle'
-import { getMetricTag } from './utils'
+import { MetricTypeTag } from './MetricTypeTag'
 
 const MAX_BREAKDOWNS = 3
 
@@ -264,7 +265,14 @@ export const MetricHeader = ({
                         </div>
                     </div>
                     {!readOnly && (
-                        <div className="flex flex-shrink-0 gap-1">
+                        <div
+                            className={clsx(
+                                'flex flex-shrink-0 gap-1 transition-opacity',
+                                menuVisible
+                                    ? 'opacity-100'
+                                    : 'opacity-0 group-hover/metric-cell:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100'
+                            )}
+                        >
                             <LemonButton
                                 type="tertiary"
                                 size="xsmall"
@@ -363,9 +371,7 @@ export const MetricHeader = ({
                                 Recalculating
                             </LemonTag>
                         ))}
-                    <LemonTag type="muted" size="small">
-                        {getMetricTag(metric)}
-                    </LemonTag>
+                    <MetricTypeTag metric={metric} />
                     {isMetricThresholdCueVisible(metric) && (
                         <Tooltip
                             title={`Reports the percentage of users whose value reaches or exceeds ${metric.threshold}.`}

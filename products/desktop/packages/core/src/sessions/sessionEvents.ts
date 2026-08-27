@@ -11,6 +11,7 @@ import type {
   AcpMessage,
   JsonRpcMessage,
   JsonRpcRequest,
+  OptimisticItem,
   StoredLogEntry,
   UserShellExecuteParams,
 } from "@posthog/shared";
@@ -19,6 +20,7 @@ import {
   isJsonRpcNotification,
   isJsonRpcRequest,
 } from "@posthog/shared";
+import { stripTrailingAttachmentSummary } from "../editor/cloud-prompt";
 import { skillTagsToSlashCommands } from "../message-editor/skillTags";
 import { isNotification, POSTHOG_NOTIFICATIONS } from "./acpNotifications";
 import { extractPromptDisplayContent } from "./promptContent";
@@ -45,6 +47,23 @@ export function getStoredLogEventPosition(
   event: AcpMessage,
 ): StoredLogEventPosition | undefined {
   return storedLogEventPositions.get(event);
+}
+
+export function dropEventsCoveredByTail(
+  events: AcpMessage[],
+  taskRunId: string,
+  startEntryIndex: number,
+): AcpMessage[] | undefined {
+  const isCovered = (event: AcpMessage): boolean => {
+    const position = storedLogEventPositions.get(event);
+    return (
+      position !== undefined &&
+      position.taskRunId === taskRunId &&
+      position.entryIndex >= startEntryIndex
+    );
+  };
+  if (!events.some(isCovered)) return undefined;
+  return events.filter((event) => !isCovered(event));
 }
 
 function recordStoredLogEventPosition(
@@ -83,8 +102,9 @@ function storedEntryToAcpMessage(
  * A typed user prompt replayed from an imported Claude Code session arrives as
  * a `user_message_chunk` tagged with `_meta.importedUserPrompt`. The renderer
  * ignores raw user_message_chunks (live, user turns render from session/prompt
- * requests), so promote the tagged ones into a session/prompt user event. Only
- * affects imported sessions; normal logs carry no such marker.
+ * requests), so promote the tagged ones into a session/prompt user event.
+ * Imported sessions and the backend-recorded `/clear` on a finished cloud run
+ * carry the tag; normal logs don't.
  */
 function promoteImportedUserPrompt(
   entry: StoredLogEntry,
@@ -133,6 +153,33 @@ export function createUserPromptEvent(
 
 export function createUserMessageEvent(text: string, ts: number): AcpMessage {
   return createUserPromptEvent([{ type: "text", text }], ts);
+}
+
+/**
+ * Fallback `/clear` frames for a finished cloud run, used only when the
+ * post-clear log repaint cannot confirm the persisted boundary. The backend
+ * has already written the same pair into the run log with its own timestamps,
+ * so this locally stamped copy never reconciles against the log-derived one
+ * and can render a duplicate divider after a later resume.
+ *
+ * The painted user message is a `session/prompt` request because that is the
+ * shape the renderer displays; the persisted copy is a `user_message_chunk`
+ * tagged `importedUserPrompt`, which log replay promotes back into this same
+ * request shape (see {@link promoteImportedUserPrompt}).
+ */
+export function createConversationClearedEvents(ts: number): AcpMessage[] {
+  return [
+    createUserMessageEvent("/clear", ts),
+    {
+      type: "acp_message",
+      ts,
+      message: {
+        jsonrpc: "2.0",
+        method: POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED,
+        params: {},
+      },
+    },
+  ];
 }
 
 /**
@@ -437,6 +484,60 @@ export function hasSessionPromptEventForTaskRun(
       event.message.method === "session/prompt" &&
       getStoredLogEventPosition(event)?.taskRunId === taskRunId,
   );
+}
+
+export function isSteerPromptParams(params: unknown): boolean {
+  return (
+    (params as { _meta?: { steer?: boolean } } | undefined)?._meta?.steer ===
+    true
+  );
+}
+
+/**
+ * Ids of the tail optimistic bubbles that `events` now carries an echo for.
+ *
+ * `firstUnseenEntryIndex` is the log cursor the store had before this commit.
+ * Only entries at or beyond it can be an echo, because a rebuilt log replays
+ * the whole run: without the floor, a prompt the user sent earlier would
+ * retire a bubble whose own echo has not arrived, and a repeated "yes" would
+ * do it every time.
+ *
+ * One echo retires one bubble, so two pending bubbles sharing text need two
+ * echoes. Pinned bubbles are left alone: the initial prompt is deduped against
+ * its echo by the merge layer, which upgrades it with the server's timestamp.
+ */
+export function selectEchoedOptimisticItemIds(
+  optimisticItems: OptimisticItem[],
+  events: AcpMessage[],
+  firstUnseenEntryIndex: number,
+): string[] {
+  const echoCounts = new Map<string, number>();
+  for (const event of events) {
+    const msg = event.message;
+    if (!isJsonRpcRequest(msg) || msg.method !== "session/prompt") continue;
+    const entryIndex = getStoredLogEventPosition(event)?.entryIndex;
+    if (entryIndex === undefined || entryIndex < firstUnseenEntryIndex)
+      continue;
+    const blocks = (msg.params as { prompt?: ContentBlock[] } | undefined)
+      ?.prompt;
+    if (!blocks?.length) continue;
+    const text = extractPromptDisplayContent(blocks, {
+      filterHidden: true,
+    }).text.trim();
+    echoCounts.set(text, (echoCounts.get(text) ?? 0) + 1);
+  }
+  if (echoCounts.size === 0) return [];
+
+  const echoed: string[] = [];
+  for (const item of optimisticItems) {
+    if (item.type !== "user_message" || item.pinToTop !== false) continue;
+    const text = stripTrailingAttachmentSummary(item.content);
+    const remaining = echoCounts.get(text) ?? 0;
+    if (remaining === 0) continue;
+    echoCounts.set(text, remaining - 1);
+    echoed.push(item.id);
+  }
+  return echoed;
 }
 
 /**

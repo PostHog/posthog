@@ -114,6 +114,12 @@ To sync private content or authenticate, create an [Application Password](https:
             "CertificateError": "The WordPress site's TLS certificate doesn't match its domain. This is often caused by a hosting platform's default certificate not covering a custom domain. Ask your hosting provider to install a certificate for this domain, then try again.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # Raised by get_rows()'s fetch_page for a 429/5xx response, only once its own tenacity
+        # retry budget (5 attempts with backoff) is already exhausted. The status code and URL
+        # that follow are variable, so match the stable prefix only.
+        return {"WordPress API error (retryable):"}
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.canonical_descriptions import (
             CANONICAL_DESCRIPTIONS,

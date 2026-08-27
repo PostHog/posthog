@@ -32,7 +32,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
-from products.replay_vision.backend.quota import quota_state
+from products.replay_vision.backend.quota import compute_scanner_budget, quota_state
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_EXECUTION_TIMEOUT,
     APPLY_SCANNER_WORKFLOW_NAME,
@@ -42,7 +42,9 @@ from products.replay_vision.backend.temporal.constants import (
     PROCESS_VISION_ACTION_WORKFLOW_NAME,
     build_apply_scanner_workflow_id,
     build_process_vision_action_workflow_id,
+    on_demand_priority,
 )
+from products.replay_vision.backend.temporal.metrics import record_scanner_limit_reached
 from products.replay_vision.backend.temporal.types import ApplyScannerInputs
 
 logger = structlog.get_logger(__name__)
@@ -78,6 +80,24 @@ def check_observation_quota(organization_id: UUID, observation_credits: int) -> 
                 f"${snapshot.credit_limit / 100:,.2f}. Resets {snapshot.period_end.strftime('%b')} "
                 f"{snapshot.period_end.day}."
             )
+        )
+
+
+def check_scanner_quota(scanner: ReplayScanner) -> None:
+    """Raise 402 when this scanner's own credit limit leaves no room for another observation."""
+    if scanner.credit_limit is None:
+        return
+    budget = compute_scanner_budget(scanner)
+    # blocked is only true when a limit is set; the direct check narrows without an assert.
+    if budget.credit_limit is not None and budget.blocked:
+        record_scanner_limit_reached("on_demand")
+        raise QuotaLimitExceeded(
+            detail=(
+                f"This scanner has {budget.remaining:,} of its {budget.credit_limit:,} credit limit left "
+                f"for this billing period, not enough for another observation. Raise the scanner's limit to keep "
+                f"scanning."
+            ),
+            code="scanner_credit_limit_exceeded",
         )
 
 
@@ -178,6 +198,8 @@ def start_apply_scanner_workflow(
             id=workflow_id,
             task_queue=settings.REPLAY_VISION_TASK_QUEUE,
             execution_timeout=APPLY_SCANNER_EXECUTION_TIMEOUT,
+            # Every caller of this trigger is user-initiated (observe, bulk, inline, retry), so all runs qualify.
+            priority=on_demand_priority(scanner.team_id),
             # Stamp the scanner id so on-demand applies count toward the sweep's in-flight cap.
             search_attributes=TypedSearchAttributes(
                 search_attributes=[
@@ -240,6 +262,7 @@ def start_process_vision_action_workflow(
             id=workflow_id,
             task_queue=settings.REPLAY_VISION_TASK_QUEUE,
             execution_timeout=PROCESS_VISION_ACTION_EXECUTION_TIMEOUT,
+            priority=on_demand_priority(team_id),
         )
     except WorkflowAlreadyStartedError as exc:
         if exc.workflow_id != workflow_id:

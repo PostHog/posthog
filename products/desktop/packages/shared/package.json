@@ -16,10 +16,6 @@
       "types": "./dist/announcements.d.ts",
       "import": "./dist/announcements.js"
     },
-    "./agent-platform-types": {
-      "types": "./dist/agent-platform-types.d.ts",
-      "import": "./dist/agent-platform-types.js"
-    },
     "./domain-types": {
       "types": "./dist/domain-types.d.ts",
       "import": "./dist/domain-types.js"
@@ -44,9 +40,21 @@
       "types": "./dist/mcp-sandbox-proxy.d.ts",
       "import": "./dist/mcp-sandbox-proxy.js"
     },
+    "./quick-ask-shortcuts": {
+      "types": "./dist/quick-ask-shortcuts.d.ts",
+      "import": "./dist/quick-ask-shortcuts.js"
+    },
+    "./rich-output-prompt": {
+      "types": "./dist/rich-output-prompt.d.ts",
+      "import": "./dist/rich-output-prompt.js"
+    },
     "./posthog-property-headers": {
       "types": "./dist/posthog-property-headers.d.ts",
       "import": "./dist/posthog-property-headers.js"
+    },
+    "./product-engineer-prompt": {
+      "types": "./dist/product-engineer-prompt.d.ts",
+      "import": "./dist/product-engineer-prompt.js"
     }
   },
   "scripts": {

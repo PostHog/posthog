@@ -117,6 +117,7 @@ export type feedbackPromptLogicType = MakeLogicType<
     feedbackPromptLogicMeta
 >
 
+// Duplicated for the sandbox runtime in products/posthog_ai/frontend/logics/feedbackPromptLogic.ts; this copy is deleted with the LangGraph runtime.
 export const feedbackPromptLogic = kea<feedbackPromptLogicType>([
     path(['scenes', 'max', 'feedbackPromptLogic']),
 

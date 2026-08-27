@@ -10,7 +10,8 @@ logged and dropped rather than retried — which also means a retry can't double
 a per-recipient sent marker to store.
 """
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from urllib.parse import urlencode
 from uuid import UUID
 
 from django.conf import settings
@@ -24,7 +25,7 @@ from posthog.models.comment import Comment
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
-from posthog.models.user import User
+from posthog.models.user import NOTIFICATION_DEFAULTS, User
 from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
@@ -34,12 +35,21 @@ from products.tasks.backend.models import Task, TaskCommentActivity
 
 logger = structlog.get_logger(__name__)
 
-# Opt-in: having linked a Slack account is not consent to have your comments forwarded into it.
 SLACK_DM_SETTING = "task_comments_slack_dm"
 
 # Slack allows 3000 characters per section; a DM that long is unreadable, and the link to the full
 # thread is right there in the heading.
 _BODY_LIMIT = 800
+_MAX_MENTION_LOOKUPS_PER_SLACK_WORKSPACE = 20
+
+# Slack resolves its own palette keyword per client, where a hex would be a fixed choice that
+# can't follow the reader's theme.
+_ACCENT = "good"
+
+_LOCATIONS: Mapping[str, str] = {
+    "desktop_canvas": "On a canvas",
+    "task_artifact": "On an artifact",
+}
 
 _HEADINGS: Mapping[str, str] = {
     TaskCommentActivity.Kind.MENTION: "{author} mentioned you on {link}",
@@ -49,7 +59,7 @@ _HEADINGS: Mapping[str, str] = {
 
 
 def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, recipients: Mapping[int, str]) -> None:
-    """DM each recipient who opted in, can still see the comment, and has linked Slack.
+    """DM each recipient who has not opted out, can still see the comment, and has linked Slack.
 
     ``recipients`` is the map ``comment_activity`` just projected: user id to activity kind.
     """
@@ -63,11 +73,10 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
     if skip_reason:
         return _skip(comment_id, skip_reason)
 
-    # Cheapest gate first: most comments have no opted-in recipient, and this keeps the flag call
-    # (a network hop) off that path.
+    # Resolve preferences before the flag call so explicit opt-outs avoid its network hop.
     wanted = _recipients_wanting_dms(team_id=team_id, comment=comment, recipients=recipients)
     if not wanted:
-        return _skip(comment_id, "no_opted_in_recipient")
+        return _skip(comment_id, "no_enabled_recipient")
 
     integrations = list(
         Integration.objects.filter(team_id=team_id, kind=Integration.IntegrationKind.SLACK)
@@ -92,6 +101,16 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
     users = User.objects.in_bulk(list(wanted))
     integration_by_workspace = {integration.integration_id: integration for integration in integrations}
     slack_clients: dict[int, SlackIntegration] = {}
+
+    def slack_for(integration: Integration) -> SlackIntegration:
+        if integration.id not in slack_clients:
+            slack_clients[integration.id] = SlackIntegration(integration)
+        return slack_clients[integration.id]
+
+    mention_cache: dict[tuple[int, str], str | None] = {}
+    mention_lookup_allowances = {
+        integration.id: _MAX_MENTION_LOOKUPS_PER_SLACK_WORKSPACE for integration in integrations
+    }
     for user_id, kind in wanted.items():
         recipient = users.get(user_id)
         if recipient is None:
@@ -118,24 +137,64 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
             _skip(comment_id, "recipient_lost_access", user_id=user_id)
             continue
         try:
-            integration = _integration_for_recipient(
-                user_id=user_id, integrations=integrations, integration_by_workspace=integration_by_workspace
+            integration = _linked_integration_for_recipient(
+                user_id=user_id, integration_by_workspace=integration_by_workspace
             )
-            if integration is None:
-                _skip(comment_id, "ambiguous_slack_workspace", user_id=user_id)
-                continue
-            if not settings.DEBUG and not is_slack_app_oauth_enabled(integration, integration.integration_id):
-                _skip(comment_id, "slack_app_oauth_disabled", user_id=user_id)
-                continue
-            slack = slack_clients.setdefault(integration.id, SlackIntegration(integration))
-            slack_user_id = _resolve_slack_user_id(
-                user_id=user_id, email=recipient.email or "", integration=integration, slack=slack
-            )
-            if not slack_user_id:
+            slack_user_id: str | None = None
+            if integration is not None:
+                if not settings.DEBUG and not is_slack_app_oauth_enabled(integration, integration.integration_id):
+                    _skip(comment_id, "slack_app_oauth_disabled", user_id=user_id)
+                    continue
+                slack = slack_for(integration)
+                slack_user_id = _linked_slack_user_id(user_id=user_id, integration=integration)
+            else:
+                email_destination_integration: Integration | None = None
+                email_destination_slack: SlackIntegration | None = None
+                ambiguous_email_destination = False
+                for candidate in integrations:
+                    if not settings.DEBUG and not is_slack_app_oauth_enabled(candidate, candidate.integration_id):
+                        continue
+                    candidate_slack = slack_for(candidate)
+                    candidate_user_id = _slack_user_id_by_email(
+                        email=recipient.email or "", integration=candidate, slack=candidate_slack
+                    )
+                    if not candidate_user_id:
+                        continue
+                    if email_destination_integration is not None:
+                        ambiguous_email_destination = True
+                        break
+                    email_destination_integration = candidate
+                    email_destination_slack = candidate_slack
+                    slack_user_id = candidate_user_id
+                if ambiguous_email_destination:
+                    _skip(comment_id, "ambiguous_slack_workspace", user_id=user_id)
+                    continue
+                if email_destination_integration is not None and email_destination_slack is not None:
+                    integration = email_destination_integration
+                    slack = email_destination_slack
+
+            if integration is None or not slack_user_id:
                 _skip(comment_id, "recipient_not_found_in_slack", user_id=user_id)
                 continue
-            fallback, blocks = _message(kind=kind, comment=comment, task=task, organization_id=team.organization_id)
-            slack.client.chat_postMessage(channel=slack_user_id, text=fallback, blocks=blocks, unfurl_links=False)
+            heading, blocks = _message(
+                kind=kind,
+                comment=comment,
+                task=task,
+                organization_id=team.organization_id,
+                slack_user_id_by_email=_mention_resolver(
+                    organization_id=team.organization_id,
+                    integration=integration,
+                    slack=slack,
+                    cache=mention_cache,
+                    lookup_allowances=mention_lookup_allowances,
+                ),
+            )
+            slack.client.chat_postMessage(
+                channel=slack_user_id,
+                text=heading,
+                attachments=[{"color": _ACCENT, "blocks": blocks}] if blocks else None,
+                unfurl_links=False,
+            )
         except Exception as exc:
             logger.warning("comment_slack_dm_failed", comment_id=str(comment_id), user_id=user_id, error=str(exc))
 
@@ -160,25 +219,24 @@ def _skip_reason(comment: Comment) -> str | None:
 
 
 def _recipients_wanting_dms(*, team_id: int, comment: Comment, recipients: Mapping[int, str]) -> dict[int, str]:
-    """Narrow the Activity recipients to the ones who asked to be DMed.
+    """Narrow the Activity recipients to the ones who have not disabled DMs.
 
     ``THREAD_REPLY`` narrows further: the Activity feed notifies every thread participant, but the
     DM says "replied to your comment", so only the thread's author gets one.
     """
-    # Read the raw partial settings rather than the merged `notification_settings` property: the
-    # setting is opt-in, so an absent key means off and there's no default to merge in.
-    opted_in = {
+    enabled = {
         user_id
         for user_id, partial in User.objects.filter(id__in=list(recipients), is_active=True).values_list(
             "id", "partial_notification_settings"
         )
-        if isinstance(partial, dict) and partial.get(SLACK_DM_SETTING) is True
+        if not isinstance(partial, dict)
+        or partial.get(SLACK_DM_SETTING, NOTIFICATION_DEFAULTS["task_comments_slack_dm"]) is True
     }
-    if not opted_in:
+    if not enabled:
         return {}
 
     root_author_id: int | None = None
-    if any(kind == TaskCommentActivity.Kind.THREAD_REPLY for uid, kind in recipients.items() if uid in opted_in):
+    if any(kind == TaskCommentActivity.Kind.THREAD_REPLY for uid, kind in recipients.items() if uid in enabled):
         root_author_id = (
             Comment.objects.filter(team_id=team_id, id=comment.source_comment_id or comment.id)
             .values_list("created_by_id", flat=True)
@@ -187,7 +245,7 @@ def _recipients_wanting_dms(*, team_id: int, comment: Comment, recipients: Mappi
 
     wanted: dict[int, str] = {}
     for user_id, kind in recipients.items():
-        if user_id not in opted_in:
+        if user_id not in enabled:
             continue
         if kind == TaskCommentActivity.Kind.THREAD_REPLY and user_id != root_author_id:
             continue
@@ -195,10 +253,7 @@ def _recipients_wanting_dms(*, team_id: int, comment: Comment, recipients: Mappi
     return wanted
 
 
-def _resolve_slack_user_id(
-    *, user_id: int, email: str, integration: Integration, slack: SlackIntegration
-) -> str | None:
-    """Who to DM, preferring the identity the user authenticated over the one we inferred."""
+def _linked_slack_user_id(*, user_id: int, integration: Integration) -> str | None:
     link = (
         UserIntegration.objects.filter(
             user_id=user_id,
@@ -208,24 +263,21 @@ def _resolve_slack_user_id(
         .order_by("-created_at")
         .first()
     )
-    if link:
-        return link.integration_id
-    return _slack_user_id_by_email(email=email, integration=integration, slack=slack)
+    return link.integration_id if link else None
 
 
-def _integration_for_recipient(
-    *, user_id: int, integrations: list[Integration], integration_by_workspace: Mapping[str | None, Integration]
+def _linked_integration_for_recipient(
+    *, user_id: int, integration_by_workspace: Mapping[str | None, Integration]
 ) -> Integration | None:
-    """Use a recipient's linked workspace; email lookup is safe only with one destination."""
-    linked_workspace = (
+    linked_workspaces = (
         UserIntegration.objects.filter(user_id=user_id, kind=UserIntegration.IntegrationKind.SLACK)
         .order_by("-created_at")
         .values_list("config__slack_team_id", flat=True)
-        .first()
     )
-    if isinstance(linked_workspace, str):
-        return integration_by_workspace.get(linked_workspace)
-    return integrations[0] if len(integrations) == 1 else None
+    for linked_workspace in linked_workspaces:
+        if isinstance(linked_workspace, str) and (integration := integration_by_workspace.get(linked_workspace)):
+            return integration
+    return None
 
 
 def _slack_user_id_by_email(*, email: str, integration: Integration, slack: SlackIntegration) -> str | None:
@@ -252,6 +304,53 @@ def _slack_user_id_by_email(*, email: str, integration: Integration, slack: Slac
     return slack_user_id
 
 
+def _mention_resolver(
+    *,
+    organization_id: str | UUID,
+    integration: Integration,
+    slack: SlackIntegration,
+    cache: dict[tuple[int, str], str | None],
+    lookup_allowances: dict[int, int],
+) -> Callable[[str], str | None]:
+    """Map a mentioned teammate's email to a Slack member of this workspace.
+
+    Comment content is author-controlled, so only current organization members can reach Slack's
+    email lookup. Unresolvable or untrusted addresses stay as plain display names.
+    """
+
+    def resolve(email: str) -> str | None:
+        normalized_email = email.strip().lower()
+        key = (integration.id, normalized_email)
+        if key in cache:
+            return cache[key]
+        if lookup_allowances.get(integration.id, 0) <= 0:
+            return None
+        lookup_allowances[integration.id] -= 1
+        if not OrganizationMembership.objects.filter(
+            organization_id=organization_id,
+            user__email__iexact=normalized_email,
+            user__is_active=True,
+        ).exists():
+            cache[key] = None
+            return None
+        cache[key] = _slack_user_id_by_email(email=normalized_email, integration=integration, slack=slack)
+        return cache[key]
+
+    return resolve
+
+
+def _truncate_body(body: str) -> str:
+    """Cutting mid-``<…>`` leaves a link or mention token Slack renders as raw text, so a long
+    comment ending in one would show `<https://posthog.com/do…` to the reader."""
+    if len(body) <= _BODY_LIMIT:
+        return body
+    cut = body[: _BODY_LIMIT - 1]
+    unclosed = cut.rfind("<")
+    if unclosed > cut.rfind(">"):
+        cut = cut[:unclosed]
+    return cut.rstrip() + "…"
+
+
 def _author_name(comment: Comment) -> str:
     author = comment.created_by
     if author is None:
@@ -259,22 +358,43 @@ def _author_name(comment: Comment) -> str:
     return f"{author.first_name} {author.last_name}".strip() or author.email or "Someone"
 
 
-def _message(*, kind: str, comment: Comment, task: Task, organization_id: str | UUID | None) -> tuple[str, list[dict]]:
-    url = f"{settings.SITE_URL}/project/{task.team_id}/tasks/{task.id}"
+def _bridge_url(*, comment: Comment, task: Task) -> str:
+    params = {"comment": str(comment.source_comment_id or comment.id)}
+    if comment.scope in _LOCATIONS and comment.item_id:
+        params["scope"] = comment.scope
+        params["item"] = comment.item_id
+    return f"{settings.SITE_URL}/code/task/{task.id}?{urlencode(params)}"
+
+
+def _message(
+    *,
+    kind: str,
+    comment: Comment,
+    task: Task,
+    organization_id: str | UUID | None,
+    slack_user_id_by_email: Callable[[str], str | None] | None = None,
+) -> tuple[str, list[dict]]:
+    url = _bridge_url(comment=comment, task=task)
     title = task.title or "a task"
     author = _author_name(comment)
     template = _HEADINGS.get(kind, _HEADINGS[TaskCommentActivity.Kind.MENTION])
     # A pipe in the title would end the link label early, so it can't survive into the label.
     label = escape_slack_mrkdwn(title).replace("|", "-")
     heading = template.format(author=f"*{escape_slack_mrkdwn(author)}*", link=f"<{url}|{label}>")
-    # Plain-text twin for the notification preview and older clients.
-    fallback = template.format(author=escape_slack_mrkdwn(author), link=escape_slack_mrkdwn(title))
 
     body, _ = rich_content_to_slack_payload(
-        comment.rich_content, comment.content or "", include_images=False, organization_id=organization_id
+        comment.rich_content,
+        comment.content or "",
+        include_images=False,
+        organization_id=organization_id,
+        slack_user_id_by_email=slack_user_id_by_email,
     )
-    body = body.strip()
-    if len(body) > _BODY_LIMIT:
-        body = body[: _BODY_LIMIT - 1] + "…"
-    text = f"{heading}\n\n> " + body.replace("\n", "\n> ") if body else heading
-    return fallback, [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
+    body = _truncate_body(body.strip())
+    blocks: list[dict] = []
+    if body:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": body}})
+    # Three canvases in one task otherwise produce three identical headings.
+    location = _LOCATIONS.get(comment.scope)
+    if location:
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": location}]})
+    return heading, blocks

@@ -1,6 +1,5 @@
 from collections.abc import Collection
 from contextlib import ExitStack
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
@@ -11,17 +10,22 @@ import structlog
 
 from posthog.schema import AlertCalculationInterval, AlertState, ChartDisplayType, NodeKind, TrendsQuery
 
-from posthog.rbac.user_access_control import UserAccessControl
+from posthog.dataclasses import frozen
+from posthog.ph_client import ph_background_capture
 from posthog.slo.context import get_current_slo
 from posthog.slo.types import SloOperation
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.delivery_slo import alert_delivery_slo
 from products.alerts.backend.destinations import (
     ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS,
+    AlertDelivery,
     alert_internal_event_delivered,
     flush_alert_internal_events,
+    list_active_alert_destinations,
     produce_alert_internal_event,
+    serialize_deliveries,
 )
 from products.alerts.backend.facade.api import send_alert_email
 from products.alerts.backend.insight_alert_state_machine import (
@@ -44,7 +48,7 @@ logger = structlog.get_logger(__name__)
 INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
 
 
-@dataclass
+@frozen
 class AlertEvaluationResult:
     value: float | None
     breaches: list[str] | None
@@ -139,13 +143,22 @@ def next_check_at_after_schedule_restriction_change(alert: AlertConfiguration) -
         alert.next_check_at = old_next
 
 
-def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> bool:
-    """Trigger all HogFunctions linked to the alert as notification destinations by producing an internal event."""
+def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> list[AlertDelivery]:
+    """Trigger all HogFunctions linked to the alert as notification destinations by producing an internal event.
 
+    Returns one receipt per destination that accepted the notification. An empty list also
+    covers an alert with no destinations configured, so callers cannot use it to tell
+    "there was nothing to send" apart from "sending failed".
+    """
+
+    log_properties = dict(properties)
+    if "insight_chart_url" in log_properties:
+        # The chart URL embeds a bearer token, so logs must not carry a usable credential.
+        log_properties["insight_chart_url"] = "[redacted]"
     logger.info(
         "Triggering internal event for alert destinations/hog functions",
         alert_id=alert.id,
-        properties=properties,
+        properties=log_properties,
     )
 
     props = {
@@ -160,17 +173,35 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
         **properties,
     }
 
+    destinations = list_active_alert_destinations(
+        team_id=alert.team_id,
+        alert_id=str(alert.id),
+        allowed_event_ids=(INSIGHT_ALERT_FIRING_EVENT,),
+    )
+    accepted_at = datetime.now(UTC).isoformat()
+    receipts = [
+        AlertDelivery(
+            channel="hog_function",
+            target=destination.name,
+            target_id=destination.id,
+            template=destination.destination_type,
+            at=accepted_at,
+        )
+        for destination in destinations
+    ]
+
     produce_result = produce_alert_internal_event(
         team_id=alert.team_id,
         event_name=INSIGHT_ALERT_FIRING_EVENT,
         properties=props,
     )
+
     slo = get_current_slo()
     if slo is None or slo.operation != SloOperation.ALERT_DELIVERY:
-        return produce_result is not None
+        return receipts if produce_result is not None else []
     if produce_result is None:
         slo.fail(failure_phase="destination_enqueue")
-        return False
+        return []
 
     flush_alert_internal_events(ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS)
     if not alert_internal_event_delivered(
@@ -180,7 +211,8 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
         event_name=INSIGHT_ALERT_FIRING_EVENT,
     ):
         slo.fail(failure_phase="notification_delivery")
-    return True
+        return []
+    return receipts
 
 
 def send_notifications_for_breaches(
@@ -188,13 +220,14 @@ def send_notifications_for_breaches(
     breaches: list[str],
     idempotency_key: str,
     extra_properties: dict[str, str] | None = None,
-) -> list[str]:
+) -> list[AlertDelivery]:
     """A stable idempotency_key (typically alert_check.id) lets MessagingRecord enforce
     per-recipient at-most-once email delivery on retries.
 
     `extra_properties` are merged into the internal-event properties that HogFunction
     destinations render (e.g. the anomaly investigation notebook URL for the Slack button).
     """
+    deliveries: list[AlertDelivery] = []
     email_targets = alert.get_subscribed_users_emails()
     if email_targets:
         subject = f"PostHog alert {alert.name} is firing for {alert.team.name}"
@@ -216,15 +249,19 @@ def send_notifications_for_breaches(
                 "project_name": alert.team.name,
             },
         )
+        accepted_at = datetime.now(UTC).isoformat()
+        deliveries.extend(AlertDelivery(channel="email", target=target, at=accepted_at) for target in email_targets)
 
     # Join with newlines so each breach/investigation line renders on its own line in
     # Slack/Discord/Teams destinations rather than as one run-on comma-separated string.
-    trigger_alert_hog_functions(
-        alert=alert,
-        properties={"breaches": "\n".join(breaches), **(extra_properties or {})},
+    deliveries.extend(
+        trigger_alert_hog_functions(
+            alert=alert,
+            properties={"breaches": "\n".join(breaches), **(extra_properties or {})},
+        )
     )
 
-    return email_targets
+    return deliveries
 
 
 def send_test_alert_email(alert: AlertConfiguration, recipients: Collection[str], idempotency_key: str) -> None:
@@ -246,7 +283,7 @@ def send_test_alert_email(alert: AlertConfiguration, recipients: Collection[str]
     )
 
 
-def send_notifications_for_errors(alert: AlertConfiguration, error: dict, idempotency_key: str) -> list[str]:
+def send_notifications_for_errors(alert: AlertConfiguration, error: dict, idempotency_key: str) -> list[AlertDelivery]:
     logger.info("Sending alert error notifications", alert_id=alert.id, error=error)
     email_targets = [email for _, email in get_alert_error_notification_recipients(alert) if email]
     if not email_targets:
@@ -271,7 +308,8 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict, idempo
             "next_check_at": alert.next_check_at,
         },
     )
-    return email_targets
+    accepted_at = datetime.now(UTC).isoformat()
+    return [AlertDelivery(channel="email", target=target, at=accepted_at) for target in email_targets]
 
 
 def next_scheduled_check_time(alert: AlertConfiguration) -> str | None:
@@ -298,13 +336,13 @@ def dispatch_alert_notification(
     alert_check: AlertCheck,
     breaches: list[str] | None,
     extra_properties: dict[str, str] | None = None,
-) -> list[str] | None:
+) -> list[AlertDelivery] | None:
     """Route an AlertCheck to the correct notification sender.
 
-    Returns the list of recipients the delivery targeted, or None if nothing was sent
+    Returns the delivery receipts the notification produced, or None if nothing was sent
     (NOT_FIRING, or ERRORED with a non-dict error payload). Callers pass the returned
-    list to record_alert_delivery so the `targets_notified` sentinel reflects reality
-    — never claiming delivery for a state that didn't actually send.
+    receipts to record_alert_delivery so the `targets_notified` sentinel reflects reality,
+    never claiming delivery for a state that didn't actually send.
 
     Raises:
         ValueError: state is FIRING but breaches is None/empty.
@@ -359,31 +397,60 @@ def dispatch_alert_notification(
                 raise AssertionError(f"dispatch_alert_notification: unhandled alert state: {alert_check.state}")
 
 
-def record_alert_delivery(alert: AlertConfiguration, alert_check: AlertCheck, targets: list[str]) -> None:
-    """Persist the side-effects of a successful notification delivery.
+def record_alert_delivery(
+    alert: AlertConfiguration,
+    alert_check: AlertCheck,
+    deliveries: list[AlertDelivery] | None,
+    *,
+    stamp_on_empty: bool = False,
+) -> bool:
+    """Persist the side-effects of accepted notification deliveries.
 
-    - alert_check.targets_notified: populated set = delivery happened (idempotency sentinel
-      for Temporal notify retries).
-    - alert.last_notified_at: used by monitoring / throttling.
+    Returns False without recording anything when nothing was accepted, so a check
+    can never claim delivery that didn't happen. `stamp_on_empty` is for the
+    investigation-gated dispatchers: a zero-accept attempt must still stamp
+    notification_sent_at (their sweep-idempotency marker), or the safety net would
+    re-dispatch an undeliverable check forever.
 
     Caller must wrap in transaction.atomic() if atomic semantics are required.
     """
-    alert_check.targets_notified = {"users": targets}
-    alert_check.save(update_fields=["targets_notified"])
-    alert.last_notified_at = datetime.now(UTC)
+    if not deliveries:
+        logger.warning(
+            "record_alert_delivery.no_transport_accepted",
+            alert_id=str(alert.id),
+            alert_check_id=str(alert_check.id),
+            alert_check_state=alert_check.state,
+        )
+        ph_background_capture()(
+            distinct_id=str(alert.id),
+            event="alert notification not delivered",
+            properties={
+                "team_id": alert.team_id,
+                "alert_id": str(alert.id),
+                "alert_check_id": str(alert_check.id),
+                "alert_state": alert_check.state,
+            },
+        )
+        if stamp_on_empty:
+            alert_check.notification_sent_at = datetime.now(UTC)
+            alert_check.save(update_fields=["notification_sent_at"])
+        return False
+    recorded_at = datetime.now(UTC)
+    alert_check.targets_notified = {
+        "users": [delivery.target for delivery in deliveries if delivery.channel == "email"],
+        "destinations": serialize_deliveries([d for d in deliveries if d.channel != "email"]),
+    }
+    alert_check.notification_sent_at = recorded_at
+    alert_check.save(update_fields=["targets_notified", "notification_sent_at"])
+    alert.last_notified_at = recorded_at
     alert.save(update_fields=["last_notified_at"])
+    return True
 
 
 def add_alert_check(
     alert: AlertConfiguration,
-    value: float | None,
-    breaches: list[str] | None,
+    evaluation_result: AlertEvaluationResult | None,
     error: dict | None,
-    anomaly_scores: list[float | None] | None = None,
-    triggered_points: list[int] | None = None,
-    triggered_dates: list[str] | None = None,
-    interval: str | None = None,
-    triggered_metadata: dict | None = None,
 ) -> tuple[AlertCheck, bool]:
     """Persist an AlertCheck row and return it plus a decision on whether notification is needed.
 
@@ -391,10 +458,12 @@ def add_alert_check(
     successful delivery and treats a non-empty value as the idempotency sentinel on retry.
     ``last_notified_at`` is likewise set by the notify activity on success, not here.
     """
+    # Evaluation never ran (query error): record an all-empty result so the check row still lands.
+    result = evaluation_result if evaluation_result is not None else AlertEvaluationResult(value=None, breaches=None)
     error_message = error.get("message") if error else None
     outcome = evaluate_alert_check(
         alert,
-        threshold_breached=bool(breaches),
+        threshold_breached=bool(result.breaches),
         error_message=error_message,
         now=datetime.now(UTC),
     )
@@ -406,16 +475,16 @@ def add_alert_check(
 
     alert_check = AlertCheck.objects.create(
         alert_configuration=alert,
-        calculated_value=value,
+        calculated_value=result.value,
         condition=alert.condition,
         targets_notified={},
         state=alert.state,
-        triggered_metadata=triggered_metadata,
+        triggered_metadata=result.triggered_metadata,
         error=error,
-        anomaly_scores=anomaly_scores,
-        triggered_points=triggered_points,
-        triggered_dates=triggered_dates,
-        interval=interval,
+        anomaly_scores=result.anomaly_scores,
+        triggered_points=result.triggered_points,
+        triggered_dates=result.triggered_dates,
+        interval=result.interval,
     )
 
     alert.save(update_fields=[*state_fields, "last_checked_at", "next_check_at"])
@@ -423,7 +492,13 @@ def add_alert_check(
     return alert_check, should_notify(outcome)
 
 
-def disable_invalid_alert(alert: AlertConfiguration, reason: str) -> AlertCheck:
+def disable_invalid_alert(
+    alert: AlertConfiguration,
+    reason: str,
+    *,
+    notify_subscribers: bool = True,
+    error_code: str | None = None,
+) -> AlertCheck:
     """Auto-disable a misconfigured alert and email its subscribers.
 
     Used for configuration problems that make the alert unevaluable as set up — a deliberate,
@@ -436,20 +511,24 @@ def disable_invalid_alert(alert: AlertConfiguration, reason: str) -> AlertCheck:
     alert.save(update_fields=[*state_fields, "last_checked_at"])
 
     targets_to_notify = alert.get_subscribed_users_emails()
+    error = {"message": reason}
+    if error_code:
+        error["code"] = error_code
     alert_check = AlertCheck.objects.create(
         alert_configuration=alert,
         calculated_value=None,
         condition=alert.condition,
-        targets_notified={"users": targets_to_notify} if targets_to_notify else {},
+        targets_notified={},
         state=AlertState.ERRORED,
-        error={"message": reason},
+        error=error,
     )
-    if targets_to_notify:
-        send_notifications_for_disabled(alert, reason, targets_to_notify)
+    if targets_to_notify and notify_subscribers:
+        deliveries = send_notifications_for_disabled(alert, reason, targets_to_notify)
+        record_alert_delivery(alert, alert_check, deliveries)
     return alert_check
 
 
-def send_notifications_for_disabled(alert: AlertConfiguration, reason: str, targets: list[str]) -> None:
+def send_notifications_for_disabled(alert: AlertConfiguration, reason: str, targets: list[str]) -> list[AlertDelivery]:
     logger.info("Sending alert disabled notification", alert_id=alert.id, reason=reason)
 
     subject = f"PostHog alert {alert.name} for {alert.team.name} has been disabled"
@@ -470,3 +549,5 @@ def send_notifications_for_disabled(alert: AlertConfiguration, reason: str, targ
             "project_name": alert.team.name,
         },
     )
+    accepted_at = datetime.now(UTC).isoformat()
+    return [AlertDelivery(channel="email", target=target, at=accepted_at) for target in targets]

@@ -1,6 +1,7 @@
 import uuid
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.core.cache import cache
 
@@ -11,8 +12,13 @@ from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.organization import OrganizationMembership
 
-from ee.models.rbac.access_control import AccessControl
+from products.access_control.backend.models.access_control import AccessControl
 
+from ...api.community_publish_services import (
+    CommunitySkillPublishError,
+    CommunitySkillPublishNotConfiguredError,
+    CommunitySkillPublishValidationError,
+)
 from ...api.skill_serializers import DEFAULT_BODY_PAGE_LENGTH
 from ...api.skill_services import (
     MAX_SKILL_FILE_COUNT,
@@ -23,6 +29,8 @@ from ...api.skill_services import (
     set_skill_owners,
 )
 from ...models.skills import LLMSkill, LLMSkillFile
+
+COMMUNITY_FLAG = "products.skills.backend.api.community_skills.posthoganalytics.feature_enabled"
 
 
 class TestLLMSkillAPI(APIBaseTest):
@@ -45,7 +53,8 @@ class TestLLMSkillAPI(APIBaseTest):
         category: str = "",
         created_by: User | None = None,
     ) -> LLMSkill:
-        return LLMSkill.objects.create(
+        owner = created_by or self.user
+        skill = LLMSkill.objects.create(
             team=self.team,
             name=name,
             description=description,
@@ -58,8 +67,12 @@ class TestLLMSkillAPI(APIBaseTest):
             allowed_tools=allowed_tools or [],
             metadata=metadata or {},
             category=category,
-            created_by=created_by or self.user,
+            created_by=owner,
         )
+        # The create endpoint seeds the creator as owner, so a fixture built straight from the ORM
+        # has to as well. Publishing to the community is owner-only.
+        set_skill_owners(self.team, name, [owner])
+        return skill
 
     # --- Create ---
 
@@ -152,6 +165,7 @@ class TestLLMSkillAPI(APIBaseTest):
             ("reserved_new", "new"),
             ("reserved_scouts", "scouts"),
             ("reserved_review_hog", "review-hog"),
+            ("reserved_community", "community"),
         ]
     )
     def test_create_skill_validates_name_format(self, _label, skill_name):
@@ -896,6 +910,28 @@ class TestLLMSkillAPI(APIBaseTest):
         copy_skill = LLMSkill.objects.get(name="the-copy", deleted=False)
         assert LLMSkillFile.objects.filter(skill=copy_skill).count() == 1
 
+    @parameterized.expand(
+        [
+            ("plain-name-copy", "", ""),
+            ("review-hog-perspective-my-lens", "", "review_hog"),
+            ("plain-copy-of-scout", "scout", ""),
+        ]
+    )
+    def test_duplicate_derives_category_from_new_name(
+        self, new_name: str, source_category: str, expected_category: str
+    ):
+        self.create_skill(name="category-source", category=source_category)
+
+        response = self.client.post(
+            self._url("name/category-source/duplicate"),
+            data={"new_name": new_name},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["category"] == expected_category
+        assert LLMSkill.objects.get(name=new_name, deleted=False).category == expected_category
+
     def test_duplicate_to_existing_name_fails(self):
         self.create_skill(name="source")
         self.create_skill(name="taken")
@@ -1222,9 +1258,146 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["versions"][0]["version"] == 2
         assert data["versions"][1]["version"] == 1
 
+    # --- Publish to community ---
+
+    @patch(COMMUNITY_FLAG, return_value=True)
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_publish_to_community_succeeds(self, mock_publish, _mock_flag):
+        mock_publish.return_value = {
+            "pr_url": "https://github.com/PostHog/community-skills/pull/7",
+            "pr_number": 7,
+            "branch": "community-skill/make-pr",
+        }
+        skill = self.create_skill(
+            name="make-pr",
+            description="Open a PR.",
+            body="# Make PR",
+            allowed_tools=["query"],
+            metadata={"tags": ["github"]},
+        )
+        LLMSkillFile.objects.create(
+            skill=skill, path="references/playbook.md", content="hints", content_type="text/markdown"
+        )
+
+        response = self.client.post(
+            self._url("name/make-pr/publish-community"),
+            data={"author_handle": "andymaguire"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json() == mock_publish.return_value
+        _, kwargs = mock_publish.call_args
+        assert kwargs["slug"] == "make-pr"
+        assert kwargs["name"] == "Make Pr"  # default display name = title-cased slug
+        assert kwargs["description"] == "Open a PR."
+        assert kwargs["tags"] == ["github"]  # falls back to metadata tags
+        assert kwargs["allowed_tools"] == ["query"]
+        assert kwargs["author_handle"] == "andymaguire"
+        assert kwargs["files"] == [
+            {"path": "references/playbook.md", "content": "hints", "content_type": "text/markdown"}
+        ]
+
+    @parameterized.expand(
+        [
+            # An explicit empty list means "no tags" and must not fall back to the skill's own tags.
+            ("explicit empty list", {"tags": []}, ["github"], []),
+            # metadata is an arbitrary dict, and ingest drops an entry whose tags are not all strings.
+            ("unusable metadata tags", {}, ["github", 123, {"name": "x"}, "  ", "y" * 65], ["github"]),
+            # Sync only lowercases a tag and filtering matches it exactly, so an unstripped tag would
+            # publish as one no catalog filter can select.
+            ("padded metadata tags", {}, [" github "], ["github"]),
+        ]
+    )
+    @patch(COMMUNITY_FLAG, return_value=True)
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_publish_to_community_tags(
+        self, _label: str, payload: dict, metadata_tags: list, expected: list, mock_publish, _mock_flag
+    ):
+        mock_publish.return_value = {"pr_url": "https://github.com/x/y/pull/1", "pr_number": 1, "branch": "b"}
+        self.create_skill(name="make-pr", metadata={"tags": metadata_tags})
+
+        response = self.client.post(self._url("name/make-pr/publish-community"), data=payload, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert mock_publish.call_args.kwargs["tags"] == expected
+
+    @patch(COMMUNITY_FLAG, return_value=True)
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_publish_to_community_unknown_skill_returns_404(self, mock_publish, _mock_flag):
+        response = self.client.post(self._url("name/does-not-exist/publish-community"), data={}, format="json")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        mock_publish.assert_not_called()
+
+    @parameterized.expand(
+        [
+            # Longer than CommunitySkill.name: the PR merges and ingest then drops the entry.
+            ("over the catalog limit", "x" * 65),
+            # The name becomes the commit message, where a trailer would reattribute the App's commit.
+            ("spanning two lines", "Make PR\nCo-authored-by: someone <a@b.c>"),
+        ]
+    )
+    @patch(COMMUNITY_FLAG, return_value=True)
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_publish_to_community_rejects_display_name(self, _label: str, display_name: str, mock_publish, _mock_flag):
+        self.create_skill(name="make-pr")
+
+        response = self.client.post(
+            self._url("name/make-pr/publish-community"),
+            data={"display_name": display_name},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_publish.assert_not_called()
+
+    @patch(COMMUNITY_FLAG, return_value=False)
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_publish_to_community_is_gated_on_the_community_flag(self, mock_publish, _mock_flag):
+        self.create_skill(name="make-pr")
+
+        response = self.client.post(self._url("name/make-pr/publish-community"), data={}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        mock_publish.assert_not_called()
+
+    @patch(COMMUNITY_FLAG, return_value=True)
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_publish_to_community_not_configured_returns_503(self, mock_publish, _mock_flag):
+        mock_publish.side_effect = CommunitySkillPublishNotConfiguredError("nope")
+        self.create_skill(name="make-pr")
+
+        response = self.client.post(self._url("name/make-pr/publish-community"), data={}, format="json")
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+    @patch(COMMUNITY_FLAG, return_value=True)
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_publish_to_community_invalid_skill_returns_400(self, mock_publish, _mock_flag):
+        # Nothing reached GitHub and republishing the same skill fails the same way, so a 502 would
+        # tell the publisher to retry an upstream request that was never the problem.
+        mock_publish.side_effect = CommunitySkillPublishValidationError("that slug is reserved")
+        self.create_skill(name="make-pr")
+
+        response = self.client.post(self._url("name/make-pr/publish-community"), data={}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "that slug is reserved"
+
+    @patch(COMMUNITY_FLAG, return_value=True)
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_publish_to_community_github_error_returns_502(self, mock_publish, _mock_flag):
+        mock_publish.side_effect = CommunitySkillPublishError("github exploded")
+        self.create_skill(name="make-pr")
+
+        response = self.client.post(self._url("name/make-pr/publish-community"), data={}, format="json")
+
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY
+
 
 # llm_skill is its own access-control resource (see ACCESS_CONTROL_RESOURCES in
-# posthog/rbac/user_access_control.py) - same as TestSkillMarketplaceRBAC in
+# products/access_control/backend/facade/user_access_control.py) - same as TestSkillMarketplaceRBAC in
 # test_marketplace_endpoints.py covers for the git clone endpoint, this covers the JSON skill API.
 class TestSkillAccessControlRBAC(APIBaseTest):
     def setUp(self):
@@ -1327,6 +1500,75 @@ class TestSkillAccessControlRBAC(APIBaseTest):
             format="json",
         )
         assert update_response.status_code == status.HTTP_200_OK
+
+    @patch(COMMUNITY_FLAG, return_value=True)
+    def test_an_object_level_grant_on_one_skill_does_not_allow_publishing_another(self, _mock_flag):
+        # AccessControlPermission.has_permission passes anyone holding an object-level grant for the
+        # resource, and the name/<slug> actions then load whichever skill the URL names. Ownership is
+        # the per-skill claim that stops one grant reaching every skill in the project.
+        theirs = LLMSkill.objects.create(
+            team=self.team,
+            name="theirs",
+            description="d",
+            body="# x\n",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        membership = OrganizationMembership.objects.get(user=self.member, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_skill",
+            resource_id=str(theirs.id),
+            access_level="editor",
+            organization_member=membership,
+        )
+        set_skill_owners(self.team, theirs.name, [self.member])
+        set_skill_owners(self.team, self.skill.name, [self.user])
+
+        response = self.client.post(
+            self._url(f"name/{self.skill.name}/publish-community"),
+            data={"author_handle": "someone"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand(
+        [
+            ("a skill nobody owns", "make-fractals", status.HTTP_403_FORBIDDEN),
+            ("a skill that does not exist", "no-such-skill", status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    @patch(COMMUNITY_FLAG, return_value=True)
+    def test_publishing_without_ownership_is_refused(self, _label, skill_name, expected_status, _mock_flag):
+        # Resource-level editor is not enough on its own. An ownerless skill is publishable by nobody,
+        # because the alternative fallback to edit access reaches every skill in the project again.
+        # An unknown slug still answers 404, the way the other name/<slug> actions answer it.
+        self._grant_llm_skill_access("editor")
+
+        response = self.client.post(
+            self._url(f"name/{skill_name}/publish-community"),
+            data={"author_handle": "someone"},
+            format="json",
+        )
+
+        assert response.status_code == expected_status
+
+    @patch(COMMUNITY_FLAG, return_value=True)
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_an_owner_with_editor_access_can_publish(self, mock_publish, _mock_flag):
+        mock_publish.return_value = {"pr_url": "https://example.com/pull/1", "pr_number": 1, "branch": "b"}
+        self._grant_llm_skill_access("editor")
+        set_skill_owners(self.team, self.skill.name, [self.member])
+
+        response = self.client.post(
+            self._url(f"name/{self.skill.name}/publish-community"),
+            data={"author_handle": "someone"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
 
     def test_org_admin_has_full_access_without_explicit_grant(self):
         membership = OrganizationMembership.objects.get(user=self.member, organization=self.organization)
@@ -1502,6 +1744,33 @@ class TestLLMSkillOwners(APIBaseTest):
         create_skill(self.team, user=self.user, name="reused", description="d", body="# fresh")
 
         assert [o.email for o in resolve_skill_owners(self.team, "reused")] == [self.user.email]
+
+    def test_list_filters_to_skills_owned_by_one_user(self) -> None:
+        # The owner filter has to match through LLMSkillOwner. created_by_id answers a different
+        # question (who published the latest version), so it can't stand in for this.
+        member = self._member("filterowner@example.com")
+        create_skill(self.team, user=self.user, name="theirs", description="d", body="# b")
+        create_skill(self.team, user=self.user, name="mine", description="d", body="# b")
+        set_skill_owners(self.team, "theirs", [member])
+
+        response = self.client.get(self._url() + f"?owner_id={member.id}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [r["name"] for r in response.json()["results"]] == ["theirs"]
+
+    def test_list_owner_filter_excludes_owner_who_lost_access(self) -> None:
+        # Owner rows survive a member losing access, so filtering by that member must return nothing
+        # rather than surfacing the skills through a stale row.
+        member = self._member("goneowner@example.com")
+        create_skill(self.team, user=self.user, name="orphaned", description="d", body="# b")
+        set_skill_owners(self.team, "orphaned", [member])
+
+        member.organization_memberships.filter(organization=self.organization).delete()
+
+        response = self.client.get(self._url() + f"?owner_id={member.id}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["results"] == []
 
     def test_skill_get_excludes_owner_who_lost_access(self) -> None:
         # An owner row survives the member losing access; the read path serializes UserBasic, so a

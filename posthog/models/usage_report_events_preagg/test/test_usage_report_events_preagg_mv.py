@@ -10,9 +10,10 @@ import time
 from datetime import datetime
 from uuid import uuid4
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+from posthog.test.base import ClickhouseTestMixin
 
 from django.conf import settings
+from django.test import TestCase
 
 from kafka import KafkaProducer
 
@@ -31,33 +32,38 @@ from posthog.models.usage_report_events_preagg.sql import (
     WRITABLE_USAGE_REPORT_EVENTS_PREAGG_TABLE_SQL,
 )
 
-# A team_id picked far above any realistic seeded test team to keep our rows
-# isolated from any other test's leftover data in the shared dev/test CH.
-TEST_TEAM_ID = 9_999_999
+# Team ids picked far above any realistic seeded test team keep each case isolated
+# from the other case and from leftover data in the shared dev/test ClickHouse.
+EVENT_FLOW_TEST_TEAM_ID = 9_999_999
+REPLAY_TEST_TEAM_ID = 10_000_000
 TEST_DATE = "2026-05-05"
 TEST_EVENT_DAY_TIMESTAMP = f"{TEST_DATE} 12:34:56"
 
 
-def _make_event_payload(distinct_id: str, event: str, lib: str) -> dict:
+def _make_event_payload(distinct_id: str, event: str, lib: str, team_id: int) -> dict:
     """Build a minimal event payload that satisfies the dedicated kafka_usage_report_events_preagg JSONEachRow schema."""
     return {
         "uuid": str(uuid4()),
         "event": event,
         "properties": json.dumps({"$lib": lib}),
         "timestamp": TEST_EVENT_DAY_TIMESTAMP,
-        "team_id": TEST_TEAM_ID,
+        "team_id": team_id,
         "distinct_id": distinct_id,
         "person_mode": "full",
     }
 
 
 def _wait_for_team_row(
-    team_id: int, expected_unique: int, expected_total: int, timeout_seconds: int = 15
+    team_id: int, expected_unique: int, expected_total: int, timeout_seconds: int = 90
 ) -> tuple[int, int]:
     """Poll usage_report_events_preagg until BOTH uniqExactMerge >= expected_unique AND
     sumMerge >= expected_total. Both conditions are required because in a replay scenario
     `unique_count` saturates at 1 after the first message lands while `total_count` is
     still climbing — returning early on `unique_count` alone races the second message.
+
+    The timeout has to outlast the initial Kafka consumer startup and any broker rebalance.
+    Polling stops as soon as both counts are satisfied, so a healthy run does not pay for
+    this headroom.
 
     Returns (unique_count, total_count) once both observed, or raises AssertionError on timeout.
     """
@@ -84,36 +90,40 @@ def _wait_for_team_row(
     )
 
 
-class TestUsageReportEventsPreaggMV(ClickhouseTestMixin, BaseTest):
-    def setUp(self) -> None:
+class TestUsageReportEventsPreaggMV(ClickhouseTestMixin, TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
         sync_execute(SHARDED_USAGE_REPORT_EVENTS_PREAGG_TABLE_SQL())
         sync_execute(DISTRIBUTED_USAGE_REPORT_EVENTS_PREAGG_TABLE_SQL())
         sync_execute(WRITABLE_USAGE_REPORT_EVENTS_PREAGG_TABLE_SQL())
         sync_execute(KAFKA_USAGE_REPORT_EVENTS_PREAGG_TABLE_SQL())
         sync_execute(USAGE_REPORT_EVENTS_PREAGG_MV_SQL())
-        sync_execute(
-            f"DELETE FROM {SHARDED_USAGE_REPORT_EVENTS_PREAGG_TABLE} WHERE team_id = %(t)s",
-            {"t": TEST_TEAM_ID},
-        )
-        super().setUp()
 
-    def tearDown(self) -> None:
-        sync_execute(f"DROP TABLE IF EXISTS {USAGE_REPORT_EVENTS_PREAGG_MV}")
-        sync_execute(f"DROP TABLE IF EXISTS {KAFKA_USAGE_REPORT_EVENTS_PREAGG_TABLE}")
-        sync_execute(f"DROP TABLE IF EXISTS {WRITABLE_USAGE_REPORT_EVENTS_PREAGG_TABLE}")
-        sync_execute(f"DROP TABLE IF EXISTS {USAGE_REPORT_EVENTS_PREAGG_TABLE}")
-        sync_execute(f"DROP TABLE IF EXISTS {SHARDED_USAGE_REPORT_EVENTS_PREAGG_TABLE} SYNC")
-        super().tearDown()
+    @classmethod
+    def tearDownClass(cls) -> None:
+        try:
+            sync_execute(f"DROP TABLE IF EXISTS {USAGE_REPORT_EVENTS_PREAGG_MV}")
+            sync_execute(f"DROP TABLE IF EXISTS {KAFKA_USAGE_REPORT_EVENTS_PREAGG_TABLE}")
+            sync_execute(f"DROP TABLE IF EXISTS {WRITABLE_USAGE_REPORT_EVENTS_PREAGG_TABLE}")
+            sync_execute(f"DROP TABLE IF EXISTS {USAGE_REPORT_EVENTS_PREAGG_TABLE}")
+            sync_execute(f"DROP TABLE IF EXISTS {SHARDED_USAGE_REPORT_EVENTS_PREAGG_TABLE} SYNC")
+        finally:
+            super().tearDownClass()
 
     def test_kafka_event_flows_into_aggregate(self) -> None:
         """Two events with distinct uuids land as 2 unique billable events in the daily agg."""
+        sync_execute(
+            f"DELETE FROM {SHARDED_USAGE_REPORT_EVENTS_PREAGG_TABLE} WHERE team_id = %(t)s",
+            {"t": EVENT_FLOW_TEST_TEAM_ID},
+        )
         producer = KafkaProducer(bootstrap_servers=settings.KAFKA_PROFILES["default"].hosts)
         for distinct_id in ("user_a", "user_b"):
-            payload = _make_event_payload(distinct_id, event="pageview", lib="web")
+            payload = _make_event_payload(distinct_id, event="pageview", lib="web", team_id=EVENT_FLOW_TEST_TEAM_ID)
             producer.send(topic=KAFKA_EVENTS_JSON, value=json.dumps(payload).encode("utf-8"))
         producer.flush()
 
-        unique_count, total_count = _wait_for_team_row(TEST_TEAM_ID, expected_unique=2, expected_total=2)
+        unique_count, total_count = _wait_for_team_row(EVENT_FLOW_TEST_TEAM_ID, expected_unique=2, expected_total=2)
         self.assertEqual(unique_count, 2)
         self.assertEqual(total_count, 2)
 
@@ -125,26 +135,30 @@ class TestUsageReportEventsPreaggMV(ClickhouseTestMixin, BaseTest):
             WHERE team_id = %(team_id)s AND date = toDate(%(date)s)
             GROUP BY date, team_id, person_mode, lib, event
             """,
-            {"team_id": TEST_TEAM_ID, "date": TEST_DATE},
+            {"team_id": EVENT_FLOW_TEST_TEAM_ID, "date": TEST_DATE},
         )
         self.assertEqual(len(rows), 1)
         row = rows[0]
         self.assertEqual(row[0], datetime.strptime(TEST_DATE, "%Y-%m-%d").date())
-        self.assertEqual(row[1], TEST_TEAM_ID)
+        self.assertEqual(row[1], EVENT_FLOW_TEST_TEAM_ID)
         self.assertEqual(row[2], "full")
         self.assertEqual(row[3], "web")
         self.assertEqual(row[4], "pageview")
 
     def test_kafka_replayed_event_dedupes(self) -> None:
         """Sending the same (distinct_id, uuid) pair twice yields 1 unique billable event but 2 in raw count."""
+        sync_execute(
+            f"DELETE FROM {SHARDED_USAGE_REPORT_EVENTS_PREAGG_TABLE} WHERE team_id = %(t)s",
+            {"t": REPLAY_TEST_TEAM_ID},
+        )
         producer = KafkaProducer(bootstrap_servers=settings.KAFKA_PROFILES["default"].hosts)
-        payload = _make_event_payload("user_replay", event="pageview", lib="web")
+        payload = _make_event_payload("user_replay", event="pageview", lib="web", team_id=REPLAY_TEST_TEAM_ID)
         # Ship the same payload twice — same uuid, same distinct_id.
         for _ in range(2):
             producer.send(topic=KAFKA_EVENTS_JSON, value=json.dumps(payload).encode("utf-8"))
         producer.flush()
 
-        unique_count, total_count = _wait_for_team_row(TEST_TEAM_ID, expected_unique=1, expected_total=2)
+        unique_count, total_count = _wait_for_team_row(REPLAY_TEST_TEAM_ID, expected_unique=1, expected_total=2)
         self.assertEqual(unique_count, 1, "uniqExactMerge should dedupe identical (distinct_id, uuid, event) tuples")
         # event_count is summed across all rows including replays, so total_count
         # is at least 2. May be larger if the kafka consumer buffered earlier replays.

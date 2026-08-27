@@ -157,6 +157,10 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # instead of naming the source type.
     supports_xmin: bool = False
 
+    # Direct-only connectors opt out so API clients cannot create a source that is accepted by
+    # discovery but can never run a scheduled import.
+    supports_scheduled_sync: bool = True
+
     # Vendor API versions this source implements, as opaque vendor labels (Stripe date
     # versions, semver, names) — never parsed or ordered by the framework. Sources whose
     # vendor has no meaningful API versioning keep the `UNVERSIONED_API_VERSION` default.
@@ -174,6 +178,11 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # Versions from `supported_versions` the vendor has deprecated. Drives the generic
     # in-product deprecation warning; no per-source UI work.
     deprecated_versions: tuple[VersionDeprecation, ...] = ()
+
+    # How far back a first sync reaches, for a source that bounds one. A source that sets this
+    # reads `SourceInputs.history_start` instead of resolving a constant against the day it runs.
+    # See `sources/common/history_window.py`.
+    history_lookback: datetime.timedelta | None = None
 
     @property
     @abstractmethod
@@ -222,6 +231,18 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         return set()
 
+    def get_required_parent_schemas(self, schema_name: str) -> list[str]:
+        """Sibling schemas `schema_name` reads from the warehouse instead of re-fetching.
+
+        Non-empty only for fan-out children that read their parent from the warehouse
+        (`DependentEndpointConfig.parent_source == "warehouse"`). Nothing requires these to
+        be enabled: `import_data_activity_sync` checks them per run and falls back to the
+        parent API when they aren't usable. Sources built on the shared REST fan-out wire
+        this to `required_parents_from_endpoint_configs`.
+        """
+
+        return []
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         """Curated, documentation-sourced descriptions for this source's well-known tables/endpoints.
 
@@ -233,6 +254,17 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """
 
         return {}
+
+    def get_canonical_descriptions_for_table_prefix(self, table_prefix: str) -> CanonicalDescriptions:
+        """Curated descriptions adapted to one connected source's physical table names.
+
+        `get_canonical_descriptions` is keyed by source type, so a description that names a physical
+        table is written for a source connected without a table prefix, while `build_table_name`
+        prepends whatever prefix that source was given. Sources whose descriptions embed table names
+        override this to rebuild them for `table_prefix`; almost none do, so the default ignores it.
+        """
+
+        return self.get_canonical_descriptions()
 
     def get_schemas(
         self,

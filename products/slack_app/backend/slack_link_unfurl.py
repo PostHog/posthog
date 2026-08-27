@@ -14,11 +14,15 @@ from posthog.models import Team
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.user_integration import UserIntegration
-from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
+from posthog.utils import get_instance_region
 
+from products.access_control.backend.facade.user_access_control import (
+    UserAccessControl,
+    access_level_satisfied_for_resource,
+)
 from products.conversations.backend.models.ticket import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.slack_app.backend.services.slack_messages import UNFURL_OPT_OUT_PARAM
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskSlackUnfurlDTO
@@ -65,6 +69,20 @@ def _truncate(text: str, max_len: int) -> str:
     if len(text) <= max_len:
         return text
     return text[: max_len - 1] + "…"
+
+
+# App hosts that name a Cloud region. `app.posthog.com` is the legacy alias for US Cloud; a bare
+# `posthog.com` link names no region at all.
+_APP_HOST_REGIONS: dict[str, str] = {
+    "us.posthog.com": "US",
+    "app.posthog.com": "US",
+    "eu.posthog.com": "EU",
+}
+
+
+def link_url_region(url: str) -> str | None:
+    """The Cloud region a link's host names, or None when the host doesn't say."""
+    return _APP_HOST_REGIONS.get(urlparse(url).hostname or "")
 
 
 def parse_posthog_resource_link(
@@ -423,6 +441,15 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
             continue
 
         kind, ref = parsed
+
+        # Resource ids repeat across regions, so a link for the other region would otherwise resolve
+        # to whatever local resource carries the same id and unfurl the wrong thing. Routing sends
+        # single-region messages to the region that owns them; this catches the leftover case of one
+        # message carrying links for both.
+        url_region = link_url_region(raw_url)
+        if url_region is not None and url_region != get_instance_region():
+            skipped.append({"kind": kind, "ref": str(ref), "reason": "other_region"})
+            continue
 
         if kind == "insight":
             if not isinstance(ref, str):

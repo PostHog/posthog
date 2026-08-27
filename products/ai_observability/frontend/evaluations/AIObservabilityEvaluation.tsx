@@ -27,6 +27,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
+import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { urls } from '~/scenes/urls'
 import { AccessControlLevel, AccessControlResourceType, ChartDisplayType, HogQLMathType } from '~/types'
@@ -39,14 +40,15 @@ import { providerKeyStateIssueDescription, providerLabel } from '../settings/pro
 import { EvaluationCodeEditor } from './components/EvaluationCodeEditor'
 import { EvaluationPromptEditor } from './components/EvaluationPromptEditor'
 import { EvaluationReportConfig } from './components/EvaluationReportConfig'
+import { EvaluationReportsCallout } from './components/EvaluationReportsCallout'
 import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
-import { EVALUATION_PASSED_HOGQL, EVALUATION_SUMMARY_MAX_RUNS } from './constants'
+import { EVALUATION_PASSED_HOGQL, EVALUATION_RUNS_QUERY_LIMIT } from './constants'
 import {
     evaluationOffersSessionTarget,
     evaluationSupportsReports,
-    evaluationSupportsRunSummary,
+    evaluationSupportsRunOutcomes,
     evaluationTypeHasEditableCriteria,
     evaluationTypeUsesModelConfiguration,
     isBooleanEvaluationOutput,
@@ -129,12 +131,12 @@ export function AIObservabilityEvaluation(): JSX.Element {
     const effectiveStrategy: EvaluationSettleStrategy =
         evaluation.target_config.strategy ?? (isSessionTarget ? 'inactivity' : 'fixed_window')
     const isReportableEvaluation = evaluationSupportsReports(evaluation)
-    const supportsRunSummary = evaluationSupportsRunSummary(evaluation)
+    const supportsRunOutcomes = evaluationSupportsRunOutcomes(evaluation)
     const isBooleanOutput = isBooleanEvaluationOutput(evaluation.output_type)
     const hasEditableCriteria = evaluationTypeHasEditableCriteria(evaluation.evaluation_type)
 
     const trendInsightUrl =
-        supportsRunSummary && !isNewEvaluation && evaluation.id
+        supportsRunOutcomes && !isNewEvaluation && evaluation.id
             ? urls.insightNew({
                   query: {
                       kind: NodeKind.InsightVizNode,
@@ -275,9 +277,11 @@ export function AIObservabilityEvaluation(): JSX.Element {
         <div className="space-y-6">
             <SceneBreadcrumbBackButton />
             {/* Header */}
-            <div className="flex justify-between items-start pb-4 border-b">
-                <div className="space-y-2">
-                    <h1 className="text-2xl font-semibold">{isNewEvaluation ? 'New evaluation' : evaluation.name}</h1>
+            <SceneStickyBar hasSceneTitleSection={false} className="flex justify-between items-start gap-2 space-y-0">
+                <div className="space-y-2 min-w-0">
+                    <h1 className="text-2xl font-semibold break-words">
+                        {isNewEvaluation ? 'New evaluation' : evaluation.name}
+                    </h1>
                     <div className="flex items-center gap-2">
                         {isNewEvaluation ? (
                             <LemonTag type="primary">New</LemonTag>
@@ -297,7 +301,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         )}
                     </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 shrink-0">
                     {trendInsightUrl ? (
                         <LemonButton
                             type="secondary"
@@ -324,8 +328,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
                     </LemonButton>
                     {activeTab !== 'runs' && (
                         <AccessControlAction
-                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            resourceType={AccessControlResourceType.Evaluation}
                             minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={evaluation.user_access_level ?? undefined}
                         >
                             <LemonButton
                                 type="primary"
@@ -338,7 +343,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         </AccessControlAction>
                     )}
                 </div>
-            </div>
+            </SceneStickyBar>
 
             {evaluation.status === 'error' && (
                 <LemonBanner type="error">
@@ -387,12 +392,23 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         content: (
                             <div className="max-w-6xl">
                                 <div className="flex justify-between items-center mb-4">
-                                    <p className="text-muted text-sm m-0">
-                                        History of when this evaluation has been executed.
-                                        {runsSummary && runsSummary.total > EVALUATION_SUMMARY_MAX_RUNS && (
-                                            <> The table below shows the latest {EVALUATION_SUMMARY_MAX_RUNS} runs.</>
+                                    <div className="min-w-0">
+                                        <p className="text-muted text-sm m-0">
+                                            History of when this evaluation has been executed.
+                                            {runsSummary && runsSummary.total > EVALUATION_RUNS_QUERY_LIMIT && (
+                                                <>
+                                                    {' '}
+                                                    The table below shows the latest {EVALUATION_RUNS_QUERY_LIMIT} runs.
+                                                </>
+                                            )}
+                                        </p>
+                                        {isReportableEvaluation && (
+                                            <EvaluationReportsCallout
+                                                evaluationId={evaluation.id}
+                                                onReportsClick={() => setActiveTab('reports')}
+                                            />
                                         )}
-                                    </p>
+                                    </div>
                                     {runsSummary && (
                                         <div className="flex flex-col items-end gap-1">
                                             <div className="flex gap-4 text-sm">
@@ -400,7 +416,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                     <div className="font-semibold text-lg">{runsSummary.total}</div>
                                                     <div className="text-muted">Total runs</div>
                                                 </div>
-                                                {supportsRunSummary && (
+                                                {supportsRunOutcomes && (
                                                     <div className="text-center">
                                                         <div className="font-semibold text-lg text-success">
                                                             {runsSummary.successRate}%
@@ -408,7 +424,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                         <div className="text-muted">Success rate</div>
                                                     </div>
                                                 )}
-                                                {supportsRunSummary && evaluation.output_config.allows_na && (
+                                                {supportsRunOutcomes && evaluation.output_config.allows_na && (
                                                     <div className="text-center">
                                                         <div className="font-semibold text-lg">
                                                             {runsSummary.applicabilityRate}%
@@ -439,6 +455,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                             content: (
                                 <EvaluationReportsTab
                                     evaluationId={evaluation.id}
+                                    userAccessLevel={evaluation.user_access_level ?? undefined}
                                     onConfigureClick={() => setActiveTab('configuration')}
                                 />
                             ),

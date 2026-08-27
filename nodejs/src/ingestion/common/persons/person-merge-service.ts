@@ -29,7 +29,7 @@ import {
     mergeError,
     mergeSuccess,
 } from './person-merge-types'
-import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
+import { applyEventPropertyUpdates, extractEventOps, refineEventOps } from './person-update'
 import { lifecycleOpIdFromEvent } from './person-uuid'
 import { PersonsStoreTransactionForBatch } from './persons-store-for-batch'
 
@@ -571,8 +571,8 @@ export class PersonMergeService {
         for (const source of mergeSources) {
             mergedProperties = { ...source.properties, ...mergedProperties }
         }
-        const propertyUpdates = computeEventPropertyUpdates(
-            this.context.event,
+        const propertyUpdates = refineEventOps(
+            extractEventOps(this.context.event, this.context.updateAllProperties),
             mergedProperties,
             this.context.updateAllProperties
         )
@@ -701,7 +701,7 @@ export class PersonMergeService {
 
         // If merge isn't allowed, we will ignore it, log an ingestion warning and return success with original person
         if (!mergeAllowed) {
-            await emitIngestionWarning(this.context.outputs, this.context.team.id, {
+            const warningAck = emitIngestionWarning(this.context.outputs, this.context.team.id, {
                 type: 'cannot_merge_already_identified',
                 details: {
                     sourcePersonDistinctId: otherPersonDistinctId,
@@ -713,11 +713,11 @@ export class PersonMergeService {
                 },
                 pipelineStep: 'person-merge',
                 alwaysSend: true,
-            })
+            }).then(() => undefined)
             logger.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call', {
                 team_id: this.context.team.id,
             })
-            return mergeSuccess(mergeInto, Promise.resolve(), true)
+            return mergeSuccess(mergeInto, warningAck, true)
         }
 
         // How the merge works:
@@ -735,8 +735,8 @@ export class PersonMergeService {
         //   we're calling aliasDeprecated as we need to refresh the persons info completely first
 
         const mergedProperties: Properties = { ...otherPerson.properties, ...mergeInto.properties }
-        const propertyUpdates = computeEventPropertyUpdates(
-            this.context.event,
+        const propertyUpdates = refineEventOps(
+            extractEventOps(this.context.event, this.context.updateAllProperties),
             mergedProperties,
             this.context.updateAllProperties
         )

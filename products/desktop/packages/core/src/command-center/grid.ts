@@ -31,6 +31,23 @@ export function isBrainrotCell(value: string | null): boolean {
   return value === BRAINROT_CELL;
 }
 
+// Reserved prefix for canvas cells. Canvas and task ids are UUIDs, so this
+// cannot collide with either kind of real id.
+export const CANVAS_CELL_PREFIX = "__canvas__:";
+
+export function isCanvasCell(value: string | null): value is string {
+  return value?.startsWith(CANVAS_CELL_PREFIX) ?? false;
+}
+
+export function makeCanvasCellValue(canvasId: string): string {
+  return `${CANVAS_CELL_PREFIX}${canvasId}`;
+}
+
+export function getCanvasCellId(value: string | null): string | null {
+  if (!isCanvasCell(value)) return null;
+  return value.slice(CANVAS_CELL_PREFIX.length) || null;
+}
+
 // Reserved prefix for standalone terminal cells. Never collides with a task id
 // (uuids) or with BRAINROT_CELL ("__brainrot__").
 export const TERMINAL_CELL_PREFIX = "__terminal__:";
@@ -127,6 +144,43 @@ export function getExpansionCellIndex(
 export function getOptimalLayout(count: number): LayoutPreset {
   const cols = Math.min(MAX_SPAN, Math.max(1, Math.ceil(Math.sqrt(count))));
   const rows = Math.min(MAX_SPAN, Math.max(1, Math.ceil(count / cols)));
+  return `${cols}x${rows}` as LayoutPreset;
+}
+
+/**
+ * Fewest tiles wins, then the squarer shape, then the wider one — matching
+ * `getOptimalLayout`, which is never taller than it is wide.
+ */
+function isBetterFit(a: GridDimensions, b: GridDimensions): boolean {
+  const [areaA, areaB] = [a.cols * a.rows, b.cols * b.rows];
+  if (areaA !== areaB) return areaA < areaB;
+  const [skewA, skewB] = [Math.abs(a.cols - a.rows), Math.abs(b.cols - b.rows)];
+  if (skewA !== skewB) return skewA < skewB;
+  return a.cols > b.cols;
+}
+
+/**
+ * The smallest layout holding `needed` tiles without shrinking either axis of
+ * `current`. Unlike `getOptimalLayout`, which picks the tightest shape for a
+ * count in isolation, this only ever grows: dropping from 1x3 to 3x2 would fit
+ * more tiles overall but `reflowCells` would discard whatever sat in row 3.
+ */
+export function getLayoutToFit(
+  current: LayoutPreset,
+  needed: number,
+): LayoutPreset {
+  const from = getGridDimensions(current);
+  if (needed <= from.cols * from.rows) return current;
+
+  let best: GridDimensions | null = null;
+  for (let cols = from.cols; cols <= MAX_SPAN; cols++) {
+    for (let rows = from.rows; rows <= MAX_SPAN; rows++) {
+      if (cols * rows < needed) continue;
+      if (!best || isBetterFit({ cols, rows }, best)) best = { cols, rows };
+    }
+  }
+  // Nothing within the 3x3 ceiling fits, so grow as far as the ceiling allows.
+  const { cols, rows } = best ?? { cols: MAX_SPAN, rows: MAX_SPAN };
   return `${cols}x${rows}` as LayoutPreset;
 }
 

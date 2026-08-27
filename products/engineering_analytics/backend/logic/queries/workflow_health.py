@@ -16,6 +16,7 @@ so the trend sparkline keeps a readable number of points — per-day buckets are
 for a 24h window and far too many for a year.
 """
 
+from dataclasses import dataclass
 from datetime import datetime
 
 from posthog.hogql import ast
@@ -42,9 +43,11 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     RUN_DURATION_PERCENTILE_CONDITION,
     branch_filter_clause,
     date_to_filter_clause,
+    non_default_branch_predicate,
     run_duration_percentile_expr,
     run_scope_filter_clause,
     run_started_floor_constant,
+    window_pair_predicates,
 )
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_workflow_window_costs
 
@@ -109,15 +112,78 @@ _BUCKET_SELECT = f"""
 """
 
 
-_TIME_TO_GREEN_SELECT = f"""
+# A push round is one (repo, head_sha): every workflow GitHub fired for that push. The measure is the
+# wall from the round's first run start to the moment its last workflow first completed benign: the
+# question a PR author asks ("how long until this push is green"), which no single run answers.
+#
+# Each workflow anchors on its FIRST benign completion, never its latest run: a flake re-run stretches
+# the wall to its recovery, while a re-fire after the round already went green cannot stretch it
+# retroactively. Benign is wider than success (a path-filtered workflow reports 'skipped' and holds
+# nothing back) and narrower than "not a decisive failure": a cancelled run reached no verdict.
+#
+# A round that can't be measured honestly is a non-sample, never a shorter one:
+#   - a workflow with no benign completion (still running, or it never passed)
+#   - no workflow that actually succeeded, so the round only ever skipped
+#   - partial attribution: fork-PR runs land unassociated, so a per-run ``pr_number`` filter would
+#     read a fork push as green in seconds. A round with any unattributed sibling drops out whole.
+#
+# Known overstatement: a workflow whose first run on the SHA lands late (marking a draft ready fires
+# workflows a draft never ran) stretches the wall, because the round really wasn't green until it
+# passed, so the wall then also covers the hours the PR sat in draft. Distinguishing that from a
+# slow queue would need a re-fire gap threshold, which is a number nobody can defend.
+_TIME_TO_GREEN_CTES = f"""
+    WITH workflows_on_push AS (
+        SELECT
+            repo_owner,
+            repo_name,
+            head_sha,
+            workflow_name,
+            min(pr_number > 0) AS attributed,
+            min(run_started_at) AS first_start,
+            min(if(
+                status = 'completed' AND coalesce(conclusion, '') IN ('success', 'skipped', 'neutral'),
+                updated_at, NULL
+            )) AS first_green_end,
+            countIf(status = 'completed' AND conclusion = 'success') > 0 AS has_success
+        FROM __RUNS_SOURCE__ AS r
+        WHERE run_started_at >= {{scan_from}} __DATE_TO__
+          AND NOT r.is_merge_queue
+          AND {non_default_branch_predicate()}
+        GROUP BY repo_owner, repo_name, head_sha, workflow_name
+    ),
+    green_rounds AS (
+        SELECT
+            min(first_start) AS round_start,
+            dateDiff('second', min(first_start), max(first_green_end)) AS wall_seconds
+        FROM workflows_on_push
+        GROUP BY repo_owner, repo_name, head_sha
+        HAVING min(attributed) = 1
+           AND countIf(first_green_end IS NULL) = 0
+           AND countIf(has_success) > 0
+    )
+"""
+
+_TIME_TO_GREEN_SELECT = (
+    _TIME_TO_GREEN_CTES
+    + f"""
     SELECT
         __BUCKET_FN__ AS bucket_start,
-        {run_duration_percentile_expr(0.5)} AS p50_seconds
-    FROM __RUNS_SOURCE__ AS r
-    WHERE run_started_at >= {{date_from}} __DATE_TO__ __RUN_SCOPE__
+        quantile(0.5)(wall_seconds) AS p50_seconds
+    FROM green_rounds
     GROUP BY bucket_start
     LIMIT {_BUCKET_LIMIT}
 """
+)
+
+_TIME_TO_GREEN_WINDOW_SELECT = (
+    _TIME_TO_GREEN_CTES
+    + """
+    SELECT
+        quantileIf(0.5)(wall_seconds, __CUR__) AS p50_cur,
+        quantileIf(0.5)(wall_seconds, __PREV__) AS p50_prev
+    FROM green_rounds
+"""
+)
 
 
 def query_time_to_green_series(
@@ -127,21 +193,19 @@ def query_time_to_green_series(
     date_to: datetime | None,
     granularity: Granularity,
 ) -> list[TimeToGreenBucket]:
-    """Median time-to-green per bucket across the window, oldest first: the p50 wall-clock duration of
-    successful, PR-attributed CI runs (default-branch runs excluded). Success-only + PR-scoped — the same
-    population workflow-health's percentiles use — so it answers "how long until CI passes on a PR", not
-    master build time. Empty buckets carry ``p50_seconds`` None (a gap, not instant CI)."""
+    """Median wall clock from a push round's first run start to all its workflows first green, per
+    bucket, oldest first, keyed on the bucket the round started in. Only fully green, fully attributed
+    rounds are samples (``_TIME_TO_GREEN_SELECT`` has the exclusions and the one known overstatement);
+    an empty bucket carries ``p50_seconds`` None (a gap, not instant CI)."""
     placeholders: dict[str, ast.Expr] = {
-        "date_from": ast.Constant(value=date_from),
+        "scan_from": ast.Constant(value=date_from),
         "run_started_floor": run_started_floor_constant(date_from),
     }
     date_to_clause = date_to_filter_clause(date_to, placeholders)
-    run_scope_clause = run_scope_filter_clause(WorkflowHealthRunScope.PULL_REQUEST)
     sql = (
         _TIME_TO_GREEN_SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
         .replace("__DATE_TO__", date_to_clause)
-        .replace("__RUN_SCOPE__", run_scope_clause)
-        .replace("__BUCKET_FN__", bucket_expr(granularity))
+        .replace("__BUCKET_FN__", bucket_expr(granularity, "round_start"))
     )
     response = curated.run(sql, query_type="engineering_analytics.time_to_green_series", placeholders=placeholders)
     p50_by_bucket = {
@@ -152,6 +216,43 @@ def query_time_to_green_series(
         TimeToGreenBucket(bucket_start=bucket, p50_seconds=p50_by_bucket.get(bucket))
         for bucket in window_buckets(date_from, date_to, granularity)
     ]
+
+
+@dataclass(frozen=True, kw_only=True)
+class TimeToGreenWindow:
+    """Median wall clock for a fully green push round over a window and its previous twin — the
+    same population and exclusions as the time-to-green series."""
+
+    median_seconds: float | None
+    median_seconds_prev: float | None
+
+
+def query_time_to_green_window(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: datetime,
+    date_to: datetime | None,
+    prev_from: datetime,
+) -> TimeToGreenWindow:
+    """Window-level time-to-green medians for [date_from, date_to] and [prev_from, date_from], one
+    scan, keyed on the bucketless equivalent of the series' round_start."""
+    windows = window_pair_predicates("round_start", date_to=date_to)
+    placeholders: dict[str, ast.Expr] = {
+        "scan_from": ast.Constant(value=prev_from),
+        "date_from": ast.Constant(value=date_from),
+        "prev_from": ast.Constant(value=prev_from),
+        "run_started_floor": run_started_floor_constant(prev_from),
+    }
+    date_to_clause = date_to_filter_clause(date_to, placeholders)
+    sql = (
+        _TIME_TO_GREEN_WINDOW_SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
+        .replace("__DATE_TO__", date_to_clause)
+        .replace("__CUR__", windows.current)
+        .replace("__PREV__", windows.previous)
+    )
+    response = curated.run(sql, query_type="engineering_analytics.time_to_green_window", placeholders=placeholders)
+    p50_cur, p50_prev = response.results[0] if response.results else (None, None)
+    return TimeToGreenWindow(median_seconds=opt_float(p50_cur), median_seconds_prev=opt_float(p50_prev))
 
 
 def query_workflow_health(

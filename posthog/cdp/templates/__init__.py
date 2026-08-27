@@ -74,13 +74,13 @@ from .rudderstack.template_rudderstack import (
 )
 from .salesforce.template_salesforce import (
     template_create as salesforce_create,
+    template_lookup as salesforce_lookup,
     template_update as salesforce_update,
 )
 from .sendgrid.template_sendgrid import (
     TemplateSendGridMigrator,
     template as sendgrid,
 )
-from .slack.template_slack import template as slack
 from .snapchat_ads.template_pixel import template_snapchat_pixel as snapchat_pixel
 from .tiktok_ads.template_tiktok_pixel import template_tiktok_pixel as tiktok_pixel
 from .userlist.template_userlist import template as userlist
@@ -90,7 +90,6 @@ from .zendesk.template_zendesk import template as zendesk
 HOG_FUNCTION_TEMPLATES = [
     blank_site_destination,
     blank_site_app,
-    slack,
     activecampaign,
     airtable,
     attio,
@@ -127,6 +126,7 @@ HOG_FUNCTION_TEMPLATES = [
     reddit_pixel,
     rudderstack,
     salesforce_create,
+    salesforce_lookup,
     salesforce_update,
     sendgrid,
     snapchat_pixel,

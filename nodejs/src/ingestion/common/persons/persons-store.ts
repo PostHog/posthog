@@ -8,6 +8,7 @@ import { BatchWritingStore } from '~/ingestion/common/stores/batch-writing-store
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
 
+import { EventOps } from './person-update'
 import { PersonsStoreTransaction } from './persons-store-transaction'
 
 export type FlushResult = {
@@ -75,6 +76,19 @@ export interface PersonsStore extends BatchWritingStore<FlushResult> {
         batchId: number,
         tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, PersonMessage[], boolean]>
+
+    /**
+     * Applies one event's extracted ops to a person, resolving what they
+     * mean against this store's own state: snapshot refinement, the
+     * identity OR-merge, the last-seen advance, and whether anything is
+     * worth writing at all.
+     */
+    applyEventOps(
+        person: InternalPerson,
+        ops: EventOps,
+        distinctId: string,
+        batchId: number
+    ): Promise<[InternalPerson, PersonMessage[]]>
 
     /**
      * Updates person for regular updates with specific properties to set and unset

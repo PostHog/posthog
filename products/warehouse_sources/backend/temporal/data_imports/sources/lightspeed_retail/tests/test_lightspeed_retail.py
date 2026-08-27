@@ -10,6 +10,7 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.constants import (
     LIGHTSPEED_RETAIL_API_VERSION_2_0,
     LIGHTSPEED_RETAIL_API_VERSION_2026_01,
+    LIGHTSPEED_RETAIL_API_VERSION_2026_07,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.lightspeed_retail import (
     LightspeedRetailResumeConfig,
@@ -23,6 +24,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed
     ENDPOINTS,
     LIGHTSPEED_RETAIL_ENDPOINTS,
 )
+
+SUPPORTED_API_VERSIONS = [
+    LIGHTSPEED_RETAIL_API_VERSION_2_0,
+    LIGHTSPEED_RETAIL_API_VERSION_2026_01,
+    LIGHTSPEED_RETAIL_API_VERSION_2026_07,
+]
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -94,7 +101,7 @@ class TestCleanDomainPrefix:
         with pytest.raises(ValueError):
             _clean_domain_prefix(value)
 
-    @pytest.mark.parametrize("api_version", [LIGHTSPEED_RETAIL_API_VERSION_2_0, LIGHTSPEED_RETAIL_API_VERSION_2026_01])
+    @pytest.mark.parametrize("api_version", SUPPORTED_API_VERSIONS)
     def test_base_url_carries_the_version_path_segment(self, api_version):
         assert _base_url("mystore", api_version) == f"https://mystore.retail.lightspeed.app/api/{api_version}"
 
@@ -133,7 +140,7 @@ class TestValidateCredentials:
 
         assert validate_credentials("mystore", "token", LIGHTSPEED_RETAIL_API_VERSION_2026_01) is expected
 
-    @pytest.mark.parametrize("api_version", [LIGHTSPEED_RETAIL_API_VERSION_2_0, LIGHTSPEED_RETAIL_API_VERSION_2026_01])
+    @pytest.mark.parametrize("api_version", SUPPORTED_API_VERSIONS)
     @mock.patch(LR_SESSION_PATCH)
     def test_validate_credentials_probes_the_pinned_version(self, mock_session, api_version):
         mock_session.return_value.get.return_value.status_code = 200
@@ -253,7 +260,7 @@ class TestGetRows:
         assert session.send.call_count == 2
         assert params[1]["after"] == 0
 
-    @pytest.mark.parametrize("api_version", [LIGHTSPEED_RETAIL_API_VERSION_2_0, LIGHTSPEED_RETAIL_API_VERSION_2026_01])
+    @pytest.mark.parametrize("api_version", SUPPORTED_API_VERSIONS)
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_requests_target_the_pinned_version(self, mock_session, api_version):
         session = mock_session.return_value

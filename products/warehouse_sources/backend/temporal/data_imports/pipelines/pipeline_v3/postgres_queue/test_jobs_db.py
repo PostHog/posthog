@@ -75,6 +75,7 @@ def _ensure_tables(conn: psycopg.Connection[Any]) -> None:
             latest_state VARCHAR(32) NOT NULL DEFAULT 'pending',
             latest_attempt SMALLINT NOT NULL DEFAULT 0,
             state_changed_at TIMESTAMPTZ,
+            superseded BOOLEAN NOT NULL DEFAULT FALSE,
             created_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
     """)
@@ -83,7 +84,8 @@ def _ensure_tables(conn: psycopg.Connection[Any]) -> None:
         ALTER TABLE {BATCH_TABLE}
             ADD COLUMN IF NOT EXISTS latest_state VARCHAR(32) NOT NULL DEFAULT 'pending',
             ADD COLUMN IF NOT EXISTS latest_attempt SMALLINT NOT NULL DEFAULT 0,
-            ADD COLUMN IF NOT EXISTS state_changed_at TIMESTAMPTZ
+            ADD COLUMN IF NOT EXISTS state_changed_at TIMESTAMPTZ,
+            ADD COLUMN IF NOT EXISTS superseded BOOLEAN NOT NULL DEFAULT FALSE
     """)
     conn.execute(f"""
         CREATE INDEX IF NOT EXISTS sb_claimable_idx ON {BATCH_TABLE} (team_id, created_at, batch_index)
@@ -97,6 +99,11 @@ def _ensure_tables(conn: psycopg.Connection[Any]) -> None:
         CREATE INDEX IF NOT EXISTS sb_schema_busy_idx ON {BATCH_TABLE} (team_id, schema_id)
             WHERE latest_state = 'executing'
     """)
+    conn.execute(f"""
+        CREATE INDEX IF NOT EXISTS sb_failed_changed_idx ON {BATCH_TABLE} (state_changed_at)
+            WHERE latest_state = 'failed'
+    """)
+    conn.execute(f"CREATE INDEX IF NOT EXISTS sb_job_id_idx ON {BATCH_TABLE} (job_id)")
     conn.execute(f"""
         CREATE TABLE IF NOT EXISTS {STATUS_TABLE} (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1037,6 +1044,54 @@ class TestGetStaleStrandedRuns:
 
         assert await self._run(conn) == []
 
+    @pytest.mark.asyncio
+    async def test_failed_run_gate_probes_the_run_gate_index(self, conn):
+        # The gate must stay one sb_run_gate_idx probe per candidate run. If the
+        # OFFSET 0 fence is dropped, the planner flattens it into a hash anti-join
+        # whose hash side is every failed batch in the pruning window, and the
+        # sweep degrades with failure-storm size instead of candidate count.
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+            _stranded_candidate_runs_sql,
+        )
+
+        # Seed a storm-shaped table and analyze, so the index pin is
+        # deterministic. With one row the planner rates the two partial indexes
+        # that cover the failed probe as a tie (CI saw sb_failed_changed_idx win
+        # in some runs), and statistics outside this test's control break that
+        # tie. Failed batches spread across many run_uuids is the shape
+        # sb_run_gate_idx exists for, and with real statistics it is always
+        # cheaper than the state_changed_at scan.
+        await conn.execute(f"""
+            INSERT INTO {BATCH_TABLE} (
+                team_id, schema_id, source_id, job_id, run_uuid, batch_index,
+                s3_path, row_count, byte_size, is_final_batch, sync_type,
+                resource_name, latest_state, state_changed_at
+            )
+            SELECT 1, 'schema-1', 'source-1', 'job-1', 'gate-seed-run-' || (g % 500), g,
+                   's3://bucket/path', 100, 1024, false, 'full_refresh', 'test_resource',
+                   'failed', now() - (g || ' seconds')::interval
+            FROM generate_series(1, 2500) g
+        """)
+        await conn.execute(f"ANALYZE {BATCH_TABLE}")
+        await conn.execute("SET enable_seqscan = off")
+        try:
+            cur = await conn.execute(
+                "EXPLAIN (FORMAT TEXT) " + _stranded_candidate_runs_sql(),
+                {"stale": self.STALE, "limit": 100},
+            )
+            plan = "\n".join(row[0] for row in await cur.fetchall())
+        finally:
+            await conn.execute("SET enable_seqscan = on")
+        # The fence must keep the failed-run gate a per-run SubPlan probing the
+        # run-gate index. Asserting "no Hash Anti Join anywhere" instead is flaky:
+        # the UNFENCED lease gate may legitimately plan as a hash anti-join, and a
+        # flattened failed-gate can still show sb_run_gate_idx (as its hash build).
+        # sb_failed_changed_idx is not an acceptable substitute: without a leading
+        # condition it scans every failed batch in the window per candidate run,
+        # which is the quadratic blowup this assertion exists to prevent.
+        assert "sb_run_gate_idx" in plan
+        assert "SubPlan" in plan
+
 
 @pytest.mark.django_db(transaction=True)
 class TestReconcileAbandonedRuns:
@@ -1495,6 +1550,40 @@ class TestClaimGates:
             await conn.execute("SET enable_seqscan = on")
         assert "sb_claimable_idx" in plan
 
+    @pytest.mark.asyncio
+    async def test_job_scoped_queries_use_the_job_id_index(self, conn):
+        # supersede_other_runs runs on every fresh run's first batch; without this
+        # index each call seq-scans every retained partition.
+        await _insert_batch(conn)
+        await conn.execute("SET enable_seqscan = off")
+        try:
+            cur = await conn.execute(
+                f"EXPLAIN (FORMAT TEXT) SELECT count(*) FROM {BATCH_TABLE} b "
+                "WHERE b.created_at > now() - interval '14 days' AND b.job_id = %s",
+                ["job-1"],
+            )
+            plan = "\n".join(row[0] for row in await cur.fetchall())
+        finally:
+            await conn.execute("SET enable_seqscan = on")
+        assert "sb_job_id_idx" in plan
+
+
+@pytest.mark.django_db(transaction=True)
+class TestGetClaimableBatchCount:
+    @pytest.mark.asyncio
+    async def test_counts_claimable_states_within_eligibility_window(self, conn):
+        # Feeds the queue-depth gauge; dropping a state or the window bound here
+        # makes the backpressure signal lie.
+        await _insert_batch(conn, batch_index=0, run_uuid="r-a")
+        retry = await _insert_batch(conn, batch_index=1, run_uuid="r-a")
+        await BatchQueue.update_status(conn, batch_id=retry, job_state="waiting_retry", attempt=1)
+        done = await _insert_batch(conn, batch_index=2, run_uuid="r-a")
+        await BatchQueue.update_status(conn, batch_id=done, job_state="succeeded", attempt=1)
+        expired = await _insert_batch(conn, batch_index=0, run_uuid="r-old")
+        await conn.execute(f"UPDATE {BATCH_TABLE} SET created_at = now() - interval '7 days' WHERE id = %s", (expired,))
+
+        assert await BatchQueue.get_claimable_batch_count(conn) == 2
+
 
 @pytest.mark.django_db(transaction=True)
 class TestClaimEligibilityWindow:
@@ -1641,3 +1730,106 @@ class TestRecoverySweepVsLiveOwner:
         cur = await conn.execute(f"SELECT latest_state FROM {BATCH_TABLE} WHERE id = %s", (bid,))
         row = await cur.fetchone()
         assert row is not None and row[0] == "succeeded", "the sweep must not re-queue a batch its owner finished"
+
+
+@pytest.mark.django_db(transaction=True)
+class TestGetFailedRuns:
+    """The reconcile sweep judges candidacy from the denormalized batch columns
+    alone; these guard the candidacy rules and the dual-write derivation of the
+    superseded flag they depend on."""
+
+    async def _backdate_run_failure(self, conn: psycopg.AsyncConnection[Any], run_uuid: str, age_seconds: int) -> None:
+        await conn.execute(
+            f"UPDATE {STATUS_TABLE} SET created_at = created_at - make_interval(secs => %s) "
+            f"WHERE batch_id IN (SELECT id FROM {BATCH_TABLE} WHERE run_uuid = %s)",
+            [age_seconds, run_uuid],
+        )
+        await conn.execute(
+            f"UPDATE {BATCH_TABLE} SET state_changed_at = state_changed_at - make_interval(secs => %s) "
+            f"WHERE run_uuid = %s",
+            [age_seconds, run_uuid],
+        )
+
+    @pytest.mark.parametrize(
+        "grace_seconds,failure_age_seconds,expect_returned",
+        [
+            (0, 0, True),
+            (3600, 0, False),  # too fresh: a fail_run may still be in flight
+            (0, 90_000, False),  # older than the lookback window
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_failed_run_surfaces_between_grace_and_lookback(
+        self, conn, grace_seconds, failure_age_seconds, expect_returned
+    ):
+        await _insert_batch(conn, run_uuid="run-f", job_id="job-f", metadata={"workflow_run_id": "wf-1"})
+        await BatchQueue.fail_run(conn, run_uuid="run-f", team_id=1, schema_id="schema-1", reason="boom")
+        if failure_age_seconds:
+            await self._backdate_run_failure(conn, "run-f", failure_age_seconds)
+
+        refs = await BatchQueue.get_failed_runs(conn, grace_seconds=grace_seconds, lookback_seconds=86_400, limit=10)
+
+        if expect_returned:
+            assert [(r.run_uuid, r.job_id, r.team_id, r.schema_id, r.reason) for r in refs] == [
+                ("run-f", "job-f", 1, "schema-1", "boom")
+            ]
+            assert refs[0].workflow_run_id == "wf-1"
+        else:
+            assert refs == []
+
+    @pytest.mark.parametrize(
+        "batch_age_seconds,grace_seconds,expect_returned",
+        [
+            (3 * 86_400, 0, True),  # older than the lookback, but must not strand
+            (0, 3600, False),  # grace applies too, measured on the fallback
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_legacy_rows_without_a_failure_timestamp(
+        self, conn, batch_age_seconds, grace_seconds, expect_returned
+    ):
+        # Pre-dual-write rows are 'failed' with no state_changed_at, so batch
+        # created_at stands in. It predates the failure, so measuring the lookback
+        # on it would age the row out while its run is still stranded.
+        await _insert_batch(conn, run_uuid="run-legacy", job_id="job-f")
+        await BatchQueue.fail_run(conn, run_uuid="run-legacy", team_id=1, schema_id="schema-1", reason="boom")
+        await conn.execute(
+            f"UPDATE {BATCH_TABLE} SET state_changed_at = NULL, created_at = now() - make_interval(secs => %s) "
+            f"WHERE run_uuid = 'run-legacy'",
+            [batch_age_seconds],
+        )
+
+        refs = await BatchQueue.get_failed_runs(conn, grace_seconds=grace_seconds, lookback_seconds=86_400, limit=10)
+
+        assert [r.run_uuid for r in refs] == (["run-legacy"] if expect_returned else [])
+
+    @pytest.mark.asyncio
+    async def test_superseded_runs_are_not_reconciled(self, conn, sync_conn):
+        await _insert_batch(conn, run_uuid="run-old", job_id="job-f")
+        await _insert_batch(conn, run_uuid="run-new", job_id="job-f")
+        BatchQueue.supersede_other_runs(sync_conn, job_id="job-f", current_run_uuid="run-new")
+        await _insert_batch(conn, run_uuid="run-failed", job_id="job-g", schema_id="schema-2")
+        await BatchQueue.fail_run(conn, run_uuid="run-failed", team_id=1, schema_id="schema-2", reason="boom")
+
+        refs = await BatchQueue.get_failed_runs(conn, grace_seconds=0, lookback_seconds=86_400, limit=10)
+
+        assert [r.run_uuid for r in refs] == ["run-failed"]
+        # The flag itself must be set: the post-LIMIT status re-check would also
+        # hide run-old from this query, silently masking a broken derivation.
+        cur = await conn.execute(f"SELECT bool_and(superseded) FROM {BATCH_TABLE} WHERE run_uuid = 'run-old'")
+        row = await cur.fetchone()
+        assert row is not None and row[0] is True
+
+    @pytest.mark.asyncio
+    async def test_pre_backfill_superseded_rows_stay_excluded(self, conn, sync_conn):
+        # A failed row written before the superseded column existed reads false
+        # until the backfill command runs; the status payload must still veto
+        # reconciling it, or a job with a live newer run gets failed.
+        await _insert_batch(conn, run_uuid="run-old", job_id="job-f")
+        await _insert_batch(conn, run_uuid="run-new", job_id="job-f")
+        BatchQueue.supersede_other_runs(sync_conn, job_id="job-f", current_run_uuid="run-new")
+        await conn.execute(f"UPDATE {BATCH_TABLE} SET superseded = false WHERE run_uuid = 'run-old'")
+
+        refs = await BatchQueue.get_failed_runs(conn, grace_seconds=0, lookback_seconds=86_400, limit=10)
+
+        assert refs == []

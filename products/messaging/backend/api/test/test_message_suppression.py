@@ -31,10 +31,9 @@ class TestMessageSuppressionViewSetScope(SimpleTestCase):
 
 class TestSuppressionListPersonalAPIKeyAccess(APIBaseTest):
     """
-    Guards against the read action losing its scope mapping. `suppressions` is a custom @action, so
-    APIScopePermission only resolves a required scope for it if it is named in
-    scope_object_read_actions — otherwise it resolves none and rejects every token with "does not
-    support personal API key access", while session auth (which skips scope checks) still works.
+    Guards the token scopes on the read action. It needs both hog_flow:read and person:read, so
+    neither alone opens up the recipient addresses and SMTP diagnostics the rows carry. Session auth
+    skips scope checks entirely, so only a token exercises this.
     """
 
     def _key(self, scopes: list[str]) -> str:
@@ -47,18 +46,58 @@ class TestSuppressionListPersonalAPIKeyAccess(APIBaseTest):
         )
         return value
 
-    @parameterized.expand([("hog_flow:read", 200), ("insight:read", 403)])
-    def test_suppressions_read_requires_hog_flow_read_scope(self, scope: str, expected_status: int) -> None:
+    @parameterized.expand(
+        [
+            (["hog_flow:read", "person:read"], 200),
+            (["hog_flow:read"], 403),
+            (["person:read"], 403),
+        ]
+    )
+    def test_suppressions_read_requires_both_scopes(self, scopes: list[str], expected_status: int) -> None:
         self.client.logout()
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/messaging_suppressions/suppressions/",
-            HTTP_AUTHORIZATION=f"Bearer {self._key([scope])}",
+            HTTP_AUTHORIZATION=f"Bearer {self._key(scopes)}",
         )
 
         assert response.status_code == expected_status, response.json()
         if expected_status == 200:
             assert set(response.json()) == {"count", "next", "previous", "results"}
+
+
+class TestSuppressionListSearch(APIBaseTest):
+    def test_search_filters_by_identifier_within_suppressed_rows(self) -> None:
+        for identifier in ["alice@example.com", "bob@example.com"]:
+            MessageSuppression.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                identifier=identifier,
+                source=SuppressionSource.MANUAL,
+                suppressed=True,
+            )
+        # Bounce-counting row that hasn't crossed the threshold: matches the search term but must
+        # stay off the list because it isn't suppressed
+        MessageSuppression.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            identifier="alice@not-suppressed.com",
+            source=SuppressionSource.BOUNCE,
+            suppressed=False,
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/messaging_suppressions/suppressions/", {"search": "ALICE"}
+        )
+
+        assert response.status_code == 200, response.json()
+        data = response.json()
+        assert data["count"] == 1
+        assert data["results"][0]["identifier"] == "alice@example.com"
+
+    def test_search_term_too_long(self) -> None:
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/messaging_suppressions/suppressions/", {"search": "a" * 513}
+        )
+        assert response.status_code == 400
 
 
 class TestRemoveSuppressionResetsSource(APIBaseTest):

@@ -5,12 +5,12 @@ description: >
   and answers broad CI-health questions ("is CI red?", "is master green today?",
   "what's broken right now?"). Use when the user asks why CI is red, asks for the
   current CI or master status, or mentions a failing check, GitHub Actions run,
-  Depot runner, workflow, job, shard, flaky test, lint failure, typecheck
+  Depot runner, workflow, job, shard, merge queue kick, flaky test, lint failure, typecheck
   failure, snapshot diff, migration check, generated types drift, or skills
-  build failure. Start with the `hogli ci:insights` digest (aggregated cross-run
-  CI intelligence), then guides read-only inspection, failure classification,
-  smallest local reproduction with hogli, and safe reporting without rerunning CI
-  or posting to GitHub.
+  build failure. Start with the `hogli ci:insights` digest (cross-run CI history
+  from engineering analytics), then guides read-only inspection, failure
+  classification, smallest local reproduction with hogli, and safe reporting
+  without rerunning CI or posting to GitHub.
 ---
 
 # Debugging PostHog CI failures
@@ -19,13 +19,22 @@ Find the first meaningful failure, classify it, reproduce the smallest useful
 case locally when appropriate, and report the result. Avoid public-visible or
 irreversible actions unless the user explicitly asks.
 
-Always start with the `hogli ci:insights` digest. It is the institutional,
-cross-run source of truth, and it is fresher and more reliable than scraping
-`gh run list` / the GitHub Actions API, which can lag or rate-limit.
+Always start with the `hogli ci:insights` digest. It aggregates across runs and
+branches, which `gh` cannot do cheaply, and tells you whether a failure is
+likely trunk-borne, gate-only, or isolated to a small set of branches. `gh` is
+authoritative for one run's current state and attribution. Use the digest to
+decide _what_ to inspect; use `gh` to confirm _whose_ failure it is and exactly
+what failed in a given run.
 
 This skill triages and classifies. Once a failure is confirmed flaky, hand off
 to the `fixing-flaky-tests` skill, which owns local reproduction, root-cause
-fixing, and N-run validation.
+fixing, and N-run validation. For "who broke master" — the culprit commit and
+the commit that fixed it — hand off to the `investigating-ci-failures` skill,
+which owns the green/red boundary analysis. For aggregate pipeline health (is CI
+getting slower, which workflow is the long pole, how long PRs take to merge),
+read `diagnosing-ci-and-merge-bottlenecks`. Both are product skills under
+`products/engineering_analytics/skills/`, not invocable here: read the
+`SKILL.md` at that path.
 
 ## Safety rules
 
@@ -47,31 +56,63 @@ overwrite unrelated work.
 
 ### 1. Start with CI insights (always first)
 
-`hogli ci:insights` is the institutional CI-intelligence backend. It aggregates
-cross-run history — recurring flakes, occurrence counts, confidence, and any
-proposed or merged fix — that a single run can't show. Consult it before any raw
-`gh` log archaeology; the raw GitHub Actions API can lag or rate-limit, while the
-insights digest is the freshest aggregated view.
+`hogli ci:insights` reads PostHog's own engineering analytics — the cross-run
+failure history a single run can't show. Consult it before any raw `gh` log
+archaeology.
 
 ```bash
 hogli ci:insights                                # digest for the current repo + branch
 hogli ci:insights search "<error or test name>"  # match a specific failure
-hogli ci:insights view <id>                       # one insight + its remediation actions
-hogli ci:insights plan <id>                       # print the recommended fix plan (does not apply it)
+hogli ci:insights view <ref>                     # one failure in full
+hogli ci:insights view <ref> --logs              # ...plus the failing log lines
 ```
 
 - Broad question ("is CI red?", "is master green today?", "what's broken right
-  now?"): the no-arg digest answers directly — it lists open / in-progress /
-  resolved counts and the most recent insights with severity and confidence. You
-  often do not need a target PR or run at all; report from the digest.
-- Specific failure: run `search "<error>"` to match it before reading logs. When
-  a matching insight exists, weigh its confidence and occurrence history, and note
-  whether a fix is already merged (the failure may already be resolved on
-  `master`) or proposed (a plan you can adapt).
+  now?"): the no-arg digest answers directly. It gives the default-branch verdict
+  (how many workflows are failing on their latest run, and which), the live
+  failures grouped by state, the jobs red on trunk right now, a grouped feed of
+  default-branch failures, and the PR your branch belongs to. You often do not
+  need a target PR or run at all; report from the digest.
+- Specific failure: run `search "<error>"` to match it before reading logs, then
+  `view <ref>` on a row the digest or search printed. `--logs` prints the thinned
+  failing lines from that failure's latest run, which is usually enough to
+  classify without touching `gh`.
 
-`hogli ci:insights` prints a setup hint if the backend isn't installed or
-authenticated — if so, fall back to the `gh`-based inspection below. Surface what
-you find per the Safety rules — do not auto-apply a fix.
+Read each row's `state` as a triage ranking:
+
+| State                  | Means                                                                        |
+| ---------------------- | ---------------------------------------------------------------------------- |
+| `breaking_master`      | failing on the default branch and that job's latest run is still red         |
+| `blocking_merge_queue` | failed only on merge-queue gate branches in the window                       |
+| `novel_burst`          | new within a day, already spreading across branches, not on trunk yet        |
+| `potentially_resolved` | hit trunk but that job's latest run is green again                           |
+| `flaky`                | sporadic across two or more branches over more than a day                    |
+| `pr_only`              | limited branch spread; job status may be missing or behind the failure lines |
+
+`potentially_resolved` is a hint, not a conclusion: confirm from run data before
+reporting a failure as already fixed.
+
+`blocking_merge_queue` proves a gate failure happened in the window, not that it
+still blocks landings. Check the current queue run with `gh` before reporting it
+as active. Likewise, confirm `pr_only` from the current run before assigning the
+failure to a PR; it is also the fallback when job status is missing or stale.
+
+Caveats to carry into whatever you report:
+
+- Failure grouping is pytest-only. Jest, Playwright, and cargo failures appear
+  only in the digest's grouped master-failures section, never as a row with a ref.
+- Every count is absolute, never a rate. Passing runs are not in the test-level
+  data, so there is no denominator to quote. Job conclusions do record greens;
+  the base-rate section below is how to get a real rate from them.
+- A run's conclusion can lag until GitHub's `workflow_run` webhook settles it, so
+  during a live incident confirm a specific run against `gh`.
+
+If nobody has signed in on this machine, `hogli ci:insights` exits `78`. Treat
+exit `78` as "no CI insights available" and fall back to the `gh`-based
+inspection below — then tell the user they can run `hogli posthog:login`
+once, which opens a browser and needs no API key. Do not run it yourself: it
+waits on a consent screen you cannot see. Surface what you find per the Safety
+rules — do not auto-apply a fix.
 
 ### 2. Find the failing run (for a specific failure)
 
@@ -81,6 +122,27 @@ Determine the target in this order:
 2. Otherwise, infer from the current branch with
    `gh pr view --json number,headRefName,statusCheckRollup`.
 3. If neither works, ask the user for a PR URL or run ID. Do not guess.
+
+**A PR kicked from the merge queue is the exception: its own checks are the
+wrong target.** Trunk tests each queued PR on a `trunk-merge/pr-<n>/<uuid>`
+branch holding master plus every PR queued ahead of it whose impacted targets
+overlap its own. The lane script over-reports targets on purpose, so in
+practice that is most of the queue. So:
+
+- The failing run is on that branch, never on the PR's head SHA. Take it from
+  the `Trunk Merge Queue` check run (`/merging-prs` step 4), not `gh pr checks`.
+  The branch is ephemeral; the run and its logs stay on GitHub, and the
+  warehouse keeps its jobs under that `head_branch` (query 8 in the
+  `investigating-ci-failures` references).
+- The PR's own checks can be green with the failing job **skipped** or
+  narrowed. On the PR, path filters see only that diff and the Django suite runs
+  a selected subset; on the queue branch the diff is every carried PR's and the
+  full matrices always run. A docs-only PR can be kicked by a job its own CI
+  never ran.
+- The branch names one PR but carries many. A failure on it is not evidence
+  against that PR until you find the change that caused it; the branch's other
+  merge commits are the first suspects.
+- In the digest this is the `blocking_merge_queue` state.
 
 Inspect read-only:
 
@@ -98,6 +160,14 @@ enough surrounding output:
 gh run view <run-id> --log --job <job-id>
 ```
 
+Given a run id, the `engineering-analytics-run-failure-logs` MCP tool returns
+every failed job's error region with original line numbers, already thinned.
+One call instead of a jobs listing plus a log download, and it works when the
+job died before any test ran. It is bounded by Logs retention, so fall back to
+`gh` for older runs. Given a PR number instead of a run id,
+`engineering-analytics-ci-failure-logs` does the same across every run that PR
+has pushed, so an earlier push's failure is still there.
+
 Extract these before classifying:
 
 - Workflow name or file, e.g. `.github/workflows/ci-backend.yml`.
@@ -109,25 +179,65 @@ When scanning logs, search for `FAIL`, `Error`, `error:`, `assert`,
 `Traceback`, `exit code`, and `##[error]`. Stop at the first failing step that
 explains the run's conclusion. Keep excerpts under 40 lines.
 
+For test-job failures, the `trunk` MCP server's `investigate-ci-failure` tool
+is a shortcut past log scanning: give it the run URL
+(`https://github.com/PostHog/posthog/actions/runs/<run-id>`) and it returns
+structured failing-test details — names, error messages, stdout/stderr — from
+the results CI uploaded to Trunk Flaky Tests, with quarantined known-flaky
+tests already filtered out. It only covers what ran and uploaded: for jobs
+that died before tests (build, setup, lint), use
+`engineering-analytics-run-failure-logs` or `gh run view --log`.
+Authenticate once via `/mcp` → `trunk` (browser OAuth); headless environments
+instead add an `Authorization: Bearer` header with a `TRUNK_API_TOKEN` org
+token to the server entry in `.mcp.json`. To dig into one test's flakiness
+history, hand off to `fixing-flaky-tests`, which covers the `search-test` and
+`fix-flaky-test` tools.
+
 ## Classification
 
-| Signal in the log                                                        | Class               | First action                                                       |
-| ------------------------------------------------------------------------ | ------------------- | ------------------------------------------------------------------ |
-| `AssertionError`, test diff, `FAILED test_...` in a committed test file  | code regression     | reproduce with `hogli test <path>::<test>`                         |
-| Test failed here, passed on `master` or on rerun in the same PR          | flaky test          | confirm against `master` history; to fix, use `fixing-flaky-tests` |
-| `ruff`, `oxlint`, `stylelint`, `markdownlint`, `prettier` errors         | lint                | `hogli lint:python:fix` or `hogli format` on touched files         |
-| `mypy`, `pyright`, `tsc`, `typescript:check` errors                      | typecheck           | run the same checker locally, not the full suite                   |
-| Chromatic / Storybook / Playwright visual diff, snapshot mismatch        | snapshot / visual   | surface the diff URL; do NOT auto-accept snapshots                 |
-| `manage.py migrate` error, `migrations:check` failure, missing migration | migration / schema  | `hogli migrations:check` locally                                   |
-| OpenAPI schema diff, generated API types out of sync                     | codegen drift       | `hogli build:openapi`                                              |
-| `Cannot connect`, `ECONNREFUSED`, OOM, runner killed, setup step timeout | infra / runner      | treat as transient; report, do not fix                             |
-| `apt-get`, `uv sync`, `pnpm install`, docker pull, setup action failures | environment / setup | diff `.nvmrc`, `pyproject.toml`, `package.json`, Dockerfiles       |
-| `hogli lint:skills`, `hogli build:skills` failure                        | skills build        | run the same `hogli` command locally                               |
-| SDK compat check, `ci-survey-sdk-check`, cross-version failure           | SDK compatibility   | check SDK version matrix for the affected package                  |
+| Signal in the log                                                                                  | Class               | First action                                                       |
+| -------------------------------------------------------------------------------------------------- | ------------------- | ------------------------------------------------------------------ |
+| `AssertionError`, test diff, `FAILED test_...` in a committed test file                            | code regression     | reproduce with `hogli test <path>::<test>`                         |
+| Test failed here, passed on `master` or on rerun in the same PR                                    | flaky test          | confirm against `master` history; to fix, use `fixing-flaky-tests` |
+| `ruff`, `oxlint`, `stylelint`, `markdownlint`, `prettier` errors                                   | lint                | `hogli lint:python:fix` or `hogli format` on touched files         |
+| `mypy`, `pyright`, `tsc`, `typescript:check` errors                                                | typecheck           | run the same checker locally, not the full suite                   |
+| Chromatic / Storybook / Playwright visual diff, snapshot mismatch                                  | snapshot / visual   | surface the diff URL; do NOT auto-accept snapshots                 |
+| `manage.py migrate` error, `migrations:check` failure, missing migration                           | migration / schema  | `hogli migrations:check` locally                                   |
+| OpenAPI schema diff, generated API types out of sync                                               | codegen drift       | `hogli build:openapi`                                              |
+| `Cannot connect`, `ECONNREFUSED`, `address already in use`, OOM, runner killed, setup step timeout | infra / runner      | get the base rate before calling it transient (below)              |
+| `apt-get`, `uv sync`, `pnpm install`, docker pull, setup action failures                           | environment / setup | diff `.nvmrc`, `pyproject.toml`, `package.json`, Dockerfiles       |
+| `hogli lint:skills`, `hogli build:skills` failure                                                  | skills build        | run the same `hogli` command locally                               |
+| SDK compat check, `ci-survey-sdk-check`, cross-version failure                                     | SDK compatibility   | check SDK version matrix for the affected package                  |
 
 If multiple signals match, choose the most specific class. For example, prefer
 codegen drift over lint, migration over typecheck, and snapshot / visual over a
 generic Playwright test failure.
+
+## Base rate for infra and setup failures
+
+"Transient" is a claim about how often the job fails, so do not assert it from
+one run. A job that dies before its tests run leaves no test-level evidence: no
+`FAILED` line, so no fingerprint and no span, so it never appears as a row in
+`broken_tests` or in the flaky-tests tool. It is still visible as a job
+conclusion, which is what the digest's master-failures section groups by, and
+`engineering-analytics-run-failure-logs` still returns its failing lines because
+it reads by run, not by test. Start there, not from a test.
+
+Unlike the span-derived test reads, this one can give you a real rate: the
+warehouse records every job attempt, greens included, so the denominator is
+honest. Query 7 in
+`products/engineering_analytics/skills/investigating-ci-failures/references/investigation-queries.md`
+is copy-ready; that skill also owns the wider investigation.
+
+Read the result as:
+
+- **Low percentage, recent hours mostly green** — transient. Report and move on.
+  For a queued PR, recommend re-enqueueing rather than a code change; posting
+  `/trunk merge` yourself needs approval, per the Safety rules above.
+- **Recent hours entirely red** — an outage, not a flake. Say so, and stop
+  telling people to retry.
+- **Steady over days** — a standing defect somebody owns. Worth a ticket even
+  though each occurrence looks like noise.
 
 ## Local reproduction
 
@@ -143,7 +253,7 @@ is unclear, read `.agents/skills/hogli/SKILL.md` and `hogli <command> --help`.
 | snapshot / visual   | Run the specific Playwright or Storybook workflow; read `playwright-test` if needed. |
 | migration / schema  | `hogli migrations:check`; run migrations only if the user agrees.                    |
 | codegen drift       | `hogli build:openapi`.                                                               |
-| infra / runner      | No local repro. Report and stop.                                                     |
+| infra / runner      | No local repro. Get the base rate (above), report, and stop.                         |
 | environment / setup | Reproduce the setup step only if cheap and relevant to changed files.                |
 | skills build        | `hogli lint:skills`; if that passes, `hogli build:skills`.                           |
 
@@ -184,4 +294,5 @@ Next action (needs your approval):
 ```
 
 If the classification is `infra / runner` or a shadow run, say so and stop;
-do not propose a code change.
+do not propose a code change. For `infra / runner`, include the base rate and
+whether a retry is warranted.

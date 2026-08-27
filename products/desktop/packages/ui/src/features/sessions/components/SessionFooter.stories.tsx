@@ -52,6 +52,17 @@ export const GeneratingAtNarrowWidths: Story = {
   render: (args) => <AtWidths args={args} />,
 };
 
+/** A turn that has rendered nothing for a while — one long tool call, or a
+ *  thinking block the model kept to itself. */
+export const GeneratingWhileQuietAtNarrowWidths: Story = {
+  args: {
+    ...generatingArgs,
+    promptStartedAt: Date.now() - 128_000,
+    lastActivityAt: Date.now() - 47_000,
+  },
+  render: (args) => <AtWidths args={args} />,
+};
+
 export const GeneratingWithQueueAtNarrowWidths: Story = {
   args: { ...generatingArgs, queuedCount: 2 },
   render: (args) => <AtWidths args={args} />,

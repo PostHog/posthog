@@ -19,6 +19,7 @@ import posthog from 'posthog-js'
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api'
+import { isTransientServerError } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -79,7 +80,7 @@ import type { InsightFilterOverrideContextApi } from '../../../../products/produ
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { ProductIntentProperties } from '../../lib/utils/product-intents'
 import type { Noun } from '../../models/groupsModel'
-import type { QueryStatus } from '../../queries/schema/schema-general'
+import type { QueryStatus, ResolvedDateRangeResponse } from '../../queries/schema/schema-general'
 import type { CohortType, DashboardTileBasicType, TeamPublicType, TeamType, UserBasicType, UserType } from '../../types'
 import { teamLogic } from '../teamLogic'
 import type { MathDefinition } from '../trends/mathsLogic'
@@ -122,6 +123,7 @@ export interface insightLogicValues {
     insightFeedback: 'disliked' | 'liked' | null
     insightId: number | null
     insightLoading: boolean
+    insightMissing: boolean
     insightName: string
     insightProps: InsightLogicProps
     insightSaving: boolean
@@ -206,6 +208,7 @@ export interface insightLogicActions {
             order: number | null
             query: Node<Record<string, any>> | null
             query_status?: QueryStatus | undefined
+            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result: any
             saved: boolean
             short_id: InsightShortId
@@ -250,6 +253,7 @@ export interface insightLogicActions {
             order: number | null
             query: Node<Record<string, any>> | null
             query_status?: QueryStatus | undefined
+            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result: any
             saved: boolean
             short_id: InsightShortId
@@ -371,6 +375,7 @@ export interface insightLogicActions {
             order?: number | null | undefined
             query?: Node<Record<string, any>> | null | undefined
             query_status?: QueryStatus | undefined
+            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result?: any
             saved?: boolean | undefined
             short_id?: InsightShortId | undefined
@@ -414,6 +419,7 @@ export interface insightLogicActions {
             order?: number | null | undefined
             query?: Node<Record<string, any>> | null | undefined
             query_status?: QueryStatus | undefined
+            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result?: any
             saved?: boolean | undefined
             short_id?: InsightShortId | undefined
@@ -429,6 +435,9 @@ export interface insightLogicActions {
                 Pick<QueryBasedInsightModel<Node<Record<string, any>>>, 'description' | 'favorited' | 'name' | 'tags'>
             >
         }
+    }
+    setInsightMissing: () => {
+        value: true
     }
     setPreviousQuery: (previousQuery: Node | null) => {
         previousQuery: Node<Record<string, any>> | null
@@ -598,6 +607,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         }),
         highlightSeries: (series: IndexedTrendResult | null) => ({ series }),
         setAccessDeniedToInsight: true,
+        setInsightMissing: true,
         handleInsightSuggested: (suggestedInsight: Node | null) => ({ suggestedInsight }),
         onRejectSuggestedInsight: true,
         onReapplySuggestedInsight: true,
@@ -643,6 +653,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                         )
 
                         if (!insight) {
+                            actions.setInsightMissing()
                             throw new Error(`Insight with shortId ${shortId} not found`)
                         }
 
@@ -835,6 +846,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             },
         },
         accessDeniedToInsight: [false, { setAccessDeniedToInsight: () => true }],
+        insightMissing: [false, { setInsightMissing: () => true, loadInsight: () => false }],
         /** The insight's state as it is in the database. */
         savedInsight: [
             () => props.cachedInsight || ({} as Partial<QueryBasedInsightModel>),
@@ -1067,6 +1079,13 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 actions.saveInsightSuccess()
             } catch (e) {
                 actions.saveInsightFailure()
+                if (isTransientServerError(e)) {
+                    // Gateway timeouts (e.g. an empty-bodied 503) carry no actionable detail and usually
+                    // succeed on retry. We've handled the failure, so stop here rather than rethrowing an
+                    // already-handled error into error tracking as an unhandled rejection.
+                    lemonToast.error('Saving your insight timed out. Try again in a moment.')
+                    return
+                }
                 if (e instanceof ApiError) {
                     lemonToast.error(e.detail ?? 'Could not save insight')
                 } else {

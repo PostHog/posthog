@@ -10,15 +10,21 @@ from temporalio import activity
 from posthog.models import Team
 from posthog.temporal.common.utils import asyncify, close_db_connections
 
+from products.context_layer.backend.facade import api as context_layer_facade
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
+    AGENT_PEER_MESSAGING_FEATURE_FLAG,
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     CONTINUE_AS_NEW_FEATURE_FLAG,
-    MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG,
+    DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
+    HOGLAND_SANDBOX_FEATURE_FLAG,
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
+    PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
+    PR_LOOP_ENABLED_STATE_KEY,
     RTK_DISABLED_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
+    SANDBOX_ROTATION_FEATURE_FLAG,
     get_vm_sandbox_flag_payload,
     vm_sandbox_allowed_origin_products,
     vm_sandbox_default_base_origin_products,
@@ -26,9 +32,19 @@ from products.tasks.backend.constants import (
     vm_sandbox_origin_in_rollout,
     vm_sandbox_origin_rollout_percentages,
 )
-from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
+from products.tasks.backend.exceptions import SandboxNetworkPolicyError, TaskInvalidStateError, TaskRunNotReadyError
 from products.tasks.backend.facade.api import ensure_task_run_session
 from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled
+from products.tasks.backend.logic.services.agentsh import (
+    _get_debug_only_domains,
+    _get_debug_only_ports,
+    enforced_egress_domains,
+)
+from products.tasks.backend.logic.services.network_policy import (
+    EffectiveNetworkPolicy,
+    NetworkPolicyValidationError,
+    compile_network_policy,
+)
 from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_CPU_CORES,
     MAX_SANDBOX_MEMORY_GB,
@@ -36,6 +52,7 @@ from products.tasks.backend.logic.services.sandbox_config import (
 )
 from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.temporal.constants import resolve_inactivity_timeout, resolve_max_run_duration
+from products.tasks.backend.temporal.oauth import is_interactive_signals_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import (
     format_allowed_domains_for_log,
@@ -53,7 +70,7 @@ class GetTaskProcessingContextInput:
     create_pr: bool = True
 
 
-@dataclass
+@dataclass(frozen=False)
 class TaskProcessingContext:
     """
     Serializable context object passed to all activities in the task processing workflow.
@@ -75,20 +92,26 @@ class TaskProcessingContext:
     task_created_by_id: int | None = None
     create_pr: bool = True
     pr_loop_enabled: bool = False
+    pr_babysit_enabled: bool = False
+    context_layer_enabled: bool = False
     state: dict | None = None
     _branch: str | None = None
     sandbox_environment_name: str | None = None
     allowed_domains: list[str] | None = None
+    modal_domain_allowlist: list[str] | None = None
+    agentsh_domain_allowlist: list[str] | None = None
+    network_policy_fingerprint: str | None = None
     json_schema: dict | None = None
     ci_prompt: str | None = None
     # Captured at workflow start so snapshot creation is deterministic across
     # activity retries. This means "create any Modal resume snapshot"; filesystem
     # snapshots are guarded by the legacy setting, directory snapshots by feature flag.
     use_modal_resume_snapshots: bool = True
-    use_modal_directory_resume_snapshots: bool = False
+    use_modal_directory_resume_snapshots: bool = True  # Temporal payload compatibility
     # Captured at workflow start so the sandbox event transport branch is
     # deterministic for the full run.
     sandbox_event_ingest_enabled: bool = False
+    sandbox_rotation_enabled: bool = False
     # Captured at workflow start so telemetry env injection (and the run-log mirror,
     # which reads the same state stamp) is deterministic for the full run.
     agent_otel_telemetry_enabled: bool = False
@@ -98,6 +121,8 @@ class TaskProcessingContext:
     # (request == limit). Captured at workflow start so it's stable across activity retries.
     burstable_sandbox_resources_enabled: bool = True
     overlap_clone_boot_enabled: bool = False
+    # Captured at workflow start so the warmup decision stays stable across retries.
+    desktop_workspace_warm_enabled: bool = False
     # Captured at workflow start so the agent-proxy stream lifetime stays deterministic across retries.
     agent_proxy_keep_stream_open: bool = False
     # Set only when the run resolved to the VM runtime — custom images layer on the VM base.
@@ -109,6 +134,17 @@ class TaskProcessingContext:
     # Captured at workflow start so the continue_as_new trigger is deterministic across replay.
     continue_as_new_enabled: bool = False
     continue_as_new_history_threshold: int = 0
+    # Wall-clock cap for interactive signals-origin runs, resolved activity-side. The None
+    # default is what pre-existing run histories decode, so replays schedule no new timer
+    # (see .claude/rules/temporal-workflow-versioning.md, pattern 2).
+    interactive_max_run_duration_seconds: int | None = None
+    # Whether agent peer messaging tools should surface in this run (flag + Pi runtime).
+    # Exposure only: the peers endpoints re-check authorization server-side on every call.
+    peer_messaging_enabled: bool = False
+    # Which sandbox provider this run provisions on ("modal" or "hogland"). Captured at
+    # workflow start and persisted into TaskRun.state at provision time, so activities
+    # and out-of-band consumers route deterministically for the run's whole life.
+    sandbox_backend: str = "modal"
 
     @property
     def mode(self) -> str:
@@ -209,7 +245,9 @@ class TaskProcessingContext:
 
     def inactivity_timeout(self) -> timedelta:
         """Idle time before the workflow times the run out; longer for user-driven runs."""
-        return resolve_inactivity_timeout(is_user_origin=self._is_user_origin(), state=self.state)
+        return resolve_inactivity_timeout(
+            is_user_origin=self._is_user_origin(), origin_product=self.origin_product, state=self.state
+        )
 
     def _is_user_origin(self) -> bool:
         return not self.origin_product or self.origin_product in (
@@ -222,10 +260,14 @@ class TaskProcessingContext:
 
         Unlike the inactivity timeout, this is not reset by heartbeats, so it stops a
         wedged-but-heartbeating agent that would otherwise run forever. User-driven
-        sessions can legitimately run for hours, so they are uncapped. Autonomous runs
-        get the cap as a safety net unless the setting disables it deployment-wide.
+        sessions can legitimately run for hours, so they are uncapped — except interactive
+        signals-origin runs, whose inference is unbilled and which therefore get their own
+        (longer) ceiling, resolved activity-side into the field below. Autonomous runs get
+        the cap as a safety net unless the setting disables it deployment-wide.
         """
         if self.mode == "interactive" or self._is_user_origin():
+            if self.interactive_max_run_duration_seconds:
+                return timedelta(seconds=self.interactive_max_run_duration_seconds)
             return None
         return resolve_max_run_duration()
 
@@ -321,6 +363,36 @@ def _is_agent_proxy_keep_stream_open_enabled(
         run_id=run_id,
         agent_proxy_keep_stream_open=enabled,
     )
+    return enabled
+
+
+def _is_peer_messaging_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+) -> bool:
+    """Whether the agent peer-messaging tools should surface in the sandbox.
+
+    Fail-closed exposure gate only — the peers list/message endpoints enforce the
+    flag and runtime again server-side, so a stale env var in a resumed sandbox
+    can never authorize anything."""
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                AGENT_PEER_MESSAGING_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("peer_messaging_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+    if enabled:
+        log_with_activity_context("peer_messaging_flag_checked", run_id=run_id, peer_messaging_enabled=True)
     return enabled
 
 
@@ -446,7 +518,7 @@ class VmSandboxDecision:
     use_vm_sandbox: bool
     # Modal image name from the flag payload that VM runs fall back to when no custom
     # image was picked. None whenever the payload was not consulted (state override,
-    # flag error, restricted egress) or defines no default — image-builder runs must
+    # flag error, network interlock) or defines no default — image-builder runs must
     # keep layering on the plain VM base, never on a prebaked default.
     default_custom_image: str | None = None
 
@@ -458,10 +530,13 @@ def _resolve_modal_vm_sandbox(
     run_id: str,
     origin_product: str | None,
     allowed_domains: list[str] | None,
+    use_modal_network_allowlist: bool = False,
     custom_image_available: bool = False,
     state: dict | None = None,
 ) -> VmSandboxDecision:
-    if allowed_domains is not None:
+    if allowed_domains is not None and not use_modal_network_allowlist:
+        # Restricted VMs require Modal's provider policy, so routing cannot consult overrides
+        # or rollout flags until that independent policy flag is enabled.
         log_with_activity_context(
             "modal_vm_sandbox_skipped_restricted_egress",
             run_id=run_id,
@@ -599,6 +674,35 @@ def _is_overlap_clone_boot_enabled(
     return enabled
 
 
+def _is_desktop_workspace_warm_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+) -> bool:
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("desktop_workspace_warm_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+
+    log_with_activity_context(
+        "desktop_workspace_warm_flag_checked",
+        run_id=run_id,
+        desktop_workspace_warm_enabled=enabled,
+    )
+    return enabled
+
+
 def _is_modal_network_allowlist_enabled(
     *,
     distinct_id: str,
@@ -638,16 +742,57 @@ def _is_modal_network_allowlist_enabled(
     return enabled
 
 
-def _is_modal_directory_resume_snapshots_enabled(
+def _resolve_sandbox_backend(
     *,
     distinct_id: str,
     organization_id: str,
     run_id: str,
-) -> bool:
+    state: dict | None,
+    task_runtime: str,
+    use_modal_vm_sandbox: bool,
+    use_modal_network_allowlist: bool,
+    custom_image_name: str | None,
+) -> str:
+    """Pick the sandbox provider for this run.
+
+    Hogland only takes plain default-template ACP runs; anything needing a
+    Modal-only feature (VM runtime, custom image, Pi runtime, Modal-level network
+    allowlist) stays on Modal even with the flag on. Fails closed to Modal.
+    """
+    raw_override = (state or {}).get("sandbox_backend")
+    override = raw_override if isinstance(raw_override, str) and raw_override in ("modal", "hogland") else None
+
+    # A "modal" override is a kill switch and always wins — forcing Modal is never unsafe.
+    if override == "modal":
+        log_with_activity_context("sandbox_backend_state_override", run_id=run_id, sandbox_backend="modal")
+        return "modal"
+
+    # Hard gates: a "hogland" result (override OR flag) is only allowed when hogland can
+    # actually run this run. These sit ahead of the override so a stale or forged `hogland`
+    # (e.g. carried across a cloud handoff) can't defeat the EU guard or the Modal-only
+    # fallbacks and leave the run with unenforced egress.
+    if not settings.HOGLAND_API_URL or not (settings.HOGLAND_API_TOKEN_FILE or settings.HOGLAND_API_TOKEN):
+        return "modal"
+    # Hogland runs in the US only; EU runs stay on Modal regardless of flag/override state.
+    if getattr(settings, "CLOUD_DEPLOYMENT", None) == "EU":
+        return "modal"
+    if (
+        use_modal_vm_sandbox
+        or custom_image_name is not None
+        or task_runtime == Task.Runtime.PI
+        or use_modal_network_allowlist
+    ):
+        return "modal"
+
+    # Past the gates, a "hogland" override pins the run (the canary lever), no flag eval.
+    if override == "hogland":
+        log_with_activity_context("sandbox_backend_state_override", run_id=run_id, sandbox_backend="hogland")
+        return "hogland"
+
     try:
         enabled = bool(
             posthoganalytics.feature_enabled(
-                MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG,
+                HOGLAND_SANDBOX_FEATURE_FLAG,
                 distinct_id=distinct_id,
                 groups={"organization": organization_id},
                 group_properties={"organization": {"id": organization_id}},
@@ -656,15 +801,26 @@ def _is_modal_directory_resume_snapshots_enabled(
             )
         )
     except Exception as e:
-        log_with_activity_context("modal_directory_resume_snapshots_flag_check_failed", run_id=run_id, error=str(e))
-        return False
+        log_with_activity_context("hogland_sandbox_flag_check_failed", run_id=run_id, error=str(e))
+        return "modal"
 
     log_with_activity_context(
-        "modal_directory_resume_snapshots_flag_checked",
+        "hogland_sandbox_flag_checked",
         run_id=run_id,
-        use_modal_directory_resume_snapshots=enabled,
+        sandbox_backend="hogland" if enabled else "modal",
     )
-    return enabled
+    return "hogland" if enabled else "modal"
+
+
+def _compile_effective_network_policy(allowed_domains: list[str]) -> EffectiveNetworkPolicy:
+    debug_domains = _get_debug_only_domains() if settings.DEBUG else []
+    debug_ports = _get_debug_only_ports() if settings.DEBUG else []
+    return compile_network_policy(
+        allowed_domains,
+        infrastructure_domains=enforced_egress_domains(),
+        debug_domains=debug_domains,
+        debug_ports=debug_ports,
+    )
 
 
 def _loop_pr_follow_up_enabled(task: Task, state: dict) -> bool:
@@ -678,6 +834,56 @@ def _loop_pr_follow_up_enabled(task: Task, state: dict) -> bool:
         return False
     behaviors = ((state or {}).get("config_snapshot") or {}).get("behaviors") or {}
     return bool(behaviors.get("watch_ci")) or bool(behaviors.get("fix_review_comments"))
+
+
+def _is_pr_babysit_snapshot_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+) -> bool:
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("pr_babysit_snapshot_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+
+    log_with_activity_context("pr_babysit_snapshot_flag_checked", run_id=run_id, pr_babysit_enabled=enabled)
+    return enabled
+
+
+def _is_sandbox_rotation_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+) -> bool:
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                SANDBOX_ROTATION_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("sandbox_rotation_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+
+    log_with_activity_context("sandbox_rotation_flag_checked", run_id=run_id, sandbox_rotation_enabled=enabled)
+    return enabled
 
 
 def _is_continue_as_new_enabled(
@@ -733,6 +939,12 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     emit_agent_log(run_id, "debug", "Fetching task details")
 
     task: Task = task_run.task
+    if not task_run.matches_task_ownership(task):
+        raise TaskInvalidStateError(
+            f"TaskRun {run_id} belongs to a previous task owner",
+            {"task_id": str(task.id), "run_id": run_id},
+            cause=RuntimeError(f"TaskRun {run_id} ownership version is stale"),
+        )
     if task.runtime == Task.Runtime.PI:
         ensure_task_run_session(task_run.id)
 
@@ -857,6 +1069,10 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         or False
     )  # Ensure we get a boolean value even if the flag is missing
     emit_agent_log(run_id, "debug", f"pr_loop_enabled: {pr_loop_enabled} for this task run")
+    try:
+        TaskRun.update_state_atomic(task_run.id, updates={PR_LOOP_ENABLED_STATE_KEY: pr_loop_enabled})
+    except Exception as e:
+        log_with_activity_context("pr_loop_enabled_stamp_failed", run_id=run_id, error=str(e))
     pi_persistent_streaming = task.runtime == Task.Runtime.PI and not is_slack_interaction_state(state)
     sandbox_event_ingest_override = state.get("sandbox_event_ingest_enabled")
     if pi_persistent_streaming and not isinstance(sandbox_event_ingest_override, bool):
@@ -879,12 +1095,50 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         run_id=run_id,
         state=state,
     )
+    context_layer_enabled = context_layer_facade.is_context_layer_enabled(
+        organization_id=organization_id, distinct_id=distinct_id
+    )
+    use_modal_network_allowlist = _is_modal_network_allowlist_enabled(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+        state=state,
+    )
+    emit_agent_log(
+        run_id,
+        "debug",
+        f"use_modal_network_allowlist: {use_modal_network_allowlist} for this task run",
+    )
+
+    effective_network_policy: EffectiveNetworkPolicy | None = None
+    if allowed_domains is not None:
+        try:
+            effective_network_policy = _compile_effective_network_policy(allowed_domains)
+        except NetworkPolicyValidationError as error:
+            log_with_activity_context(
+                "sandbox_network_policy_invalid",
+                run_id=run_id,
+                sandbox_environment_id=sandbox_environment_id,
+                invalid_domain_positions=[item.index + 1 for item in error.invalid_domains],
+            )
+            if use_modal_network_allowlist:
+                raise SandboxNetworkPolicyError(
+                    "This sandbox environment contains an invalid allowed domain. Update its network settings and run the task again.",
+                    {
+                        "run_id": run_id,
+                        "sandbox_environment_id": sandbox_environment_id,
+                        "invalid_domain_positions": [item.index + 1 for item in error.invalid_domains],
+                    },
+                    cause=error,
+                ) from error
+
     vm_sandbox_decision = _resolve_modal_vm_sandbox(
         distinct_id=distinct_id,
         organization_id=organization_id,
         run_id=run_id,
         origin_product=task.origin_product,
         allowed_domains=allowed_domains,
+        use_modal_network_allowlist=use_modal_network_allowlist,
         custom_image_available=environment_custom_image_name is not None,
         state=state,
     )
@@ -912,17 +1166,6 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         # this image is missing or unloadable.
         custom_image_name = vm_sandbox_decision.default_custom_image
         emit_agent_log(run_id, "debug", f"Using the organization's default custom base image: {custom_image_name}")
-    use_modal_network_allowlist = _is_modal_network_allowlist_enabled(
-        distinct_id=distinct_id,
-        organization_id=organization_id,
-        run_id=run_id,
-        state=state,
-    )
-    emit_agent_log(
-        run_id,
-        "debug",
-        f"use_modal_network_allowlist: {use_modal_network_allowlist} for this task run",
-    )
     burstable_sandbox_resources_enabled = _is_burstable_sandbox_resources_enabled(
         run_id=run_id,
         state=state,
@@ -943,7 +1186,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"overlap_clone_boot_enabled: {overlap_clone_boot_enabled} for this task run",
     )
-    use_modal_directory_resume_snapshots = _is_modal_directory_resume_snapshots_enabled(
+    desktop_workspace_warm_enabled = _is_desktop_workspace_warm_enabled(
         distinct_id=distinct_id,
         organization_id=organization_id,
         run_id=run_id,
@@ -951,7 +1194,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     emit_agent_log(
         run_id,
         "debug",
-        f"use_modal_directory_resume_snapshots: {use_modal_directory_resume_snapshots} for this task run",
+        f"desktop_workspace_warm_enabled: {desktop_workspace_warm_enabled} for this task run",
     )
     agent_proxy_keep_stream_open = _is_agent_proxy_keep_stream_open_enabled(
         distinct_id=distinct_id,
@@ -975,6 +1218,43 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"rtk_enabled: {rtk_enabled} for this task run",
     )
+    # The same test that mints the token's interactive-run marker: user-started signals runs get
+    # a finite wall-clock ceiling because their inference is unbilled and the generic interactive
+    # exemption would leave them bounded only by the inactivity timer.
+    interactive_max_run_duration_seconds = None
+    if (
+        (state or {}).get("mode") == "interactive"
+        and is_interactive_signals_run(task, state)
+        and settings.TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS > 0
+    ):
+        interactive_max_run_duration_seconds = settings.TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS
+
+    pr_babysit_enabled = pr_loop_enabled and _is_pr_babysit_snapshot_enabled(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+    )
+    emit_agent_log(
+        run_id,
+        "debug",
+        f"pr_babysit_enabled: {pr_babysit_enabled} for this task run",
+    )
+    sandbox_backend = _resolve_sandbox_backend(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+        state=state,
+        task_runtime=task.runtime,
+        use_modal_vm_sandbox=use_modal_vm_sandbox,
+        use_modal_network_allowlist=use_modal_network_allowlist,
+        custom_image_name=custom_image_name,
+    )
+    emit_agent_log(
+        run_id,
+        "debug",
+        f"sandbox_backend: {sandbox_backend} for this task run",
+    )
+
     pr_authorship_mode = get_pr_authorship_mode(task, state)
     user_github_integration_id = None
     if not (is_slack_interaction_state(state) and pr_authorship_mode.value == "user"):
@@ -1004,20 +1284,38 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         task_created_by_id=task.created_by_id,
         create_pr=input.create_pr,
         pr_loop_enabled=pr_loop_enabled,
+        pr_babysit_enabled=pr_babysit_enabled,
+        context_layer_enabled=context_layer_enabled,
         state=state,
         _branch=task_run.branch,
         sandbox_environment_name=sandbox_environment_name,
         allowed_domains=allowed_domains,
+        modal_domain_allowlist=(
+            list(effective_network_policy.modal_domains) if effective_network_policy is not None else None
+        ),
+        agentsh_domain_allowlist=(
+            list(effective_network_policy.agentsh_domains) if effective_network_policy is not None else None
+        ),
+        network_policy_fingerprint=(
+            effective_network_policy.fingerprint if effective_network_policy is not None else None
+        ),
         json_schema=task.json_schema,
         ci_prompt=task.ci_prompt,
-        use_modal_resume_snapshots=settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS or use_modal_directory_resume_snapshots,
-        use_modal_directory_resume_snapshots=use_modal_directory_resume_snapshots,
+        # Hogland has no resume-snapshot support yet; every run cold-boots there.
+        use_modal_resume_snapshots=sandbox_backend != "hogland",
+        use_modal_directory_resume_snapshots=sandbox_backend != "hogland",
         sandbox_event_ingest_enabled=sandbox_event_ingest_enabled,
+        sandbox_rotation_enabled=_is_sandbox_rotation_enabled(
+            distinct_id=distinct_id,
+            organization_id=organization_id,
+            run_id=run_id,
+        ),
         agent_otel_telemetry_enabled=agent_otel_telemetry_enabled,
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         use_modal_network_allowlist=use_modal_network_allowlist,
         burstable_sandbox_resources_enabled=burstable_sandbox_resources_enabled,
         overlap_clone_boot_enabled=overlap_clone_boot_enabled,
+        desktop_workspace_warm_enabled=desktop_workspace_warm_enabled,
         agent_proxy_keep_stream_open=agent_proxy_keep_stream_open,
         custom_image_name=custom_image_name,
         rtk_enabled=rtk_enabled,
@@ -1027,4 +1325,14 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
             run_id=run_id,
         ),
         continue_as_new_history_threshold=settings.TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD,
+        interactive_max_run_duration_seconds=interactive_max_run_duration_seconds,
+        sandbox_backend=sandbox_backend,
+        # v1 scopes peer messaging to Pi runs; the flag check is skipped elsewhere
+        # so ACP runs never even evaluate it.
+        peer_messaging_enabled=task.runtime == Task.Runtime.PI
+        and _is_peer_messaging_enabled(
+            distinct_id=distinct_id,
+            organization_id=organization_id,
+            run_id=run_id,
+        ),
     )

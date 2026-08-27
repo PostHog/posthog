@@ -41,6 +41,7 @@ export enum PluginServerMode {
     recordings_blob_ingestion_v2_ml_image_scrub = 'recordings-blob-ingestion-v2-ml-image-scrub',
     recordings_blob_ingestion_v2_ml_image_scrub_dlq_replay = 'recordings-blob-ingestion-v2-ml-image-scrub-dlq-replay',
     recordings_blob_ingestion_v2_ml_image_fetch = 'recordings-blob-ingestion-v2-ml-image-fetch',
+    recordings_blob_ingestion_v2_ml_image_fetch_retry = 'recordings-blob-ingestion-v2-ml-image-fetch-retry',
     cdp_processed_events = 'cdp-processed-events',
     cdp_person_updates = 'cdp-person-updates',
     cdp_data_warehouse_events = 'cdp-data-warehouse-events',
@@ -112,6 +113,15 @@ export type CommonConfig = BaseServerConfig & {
 
     // PersonHog gRPC
     PERSONHOG_ENABLED: boolean
+    /**
+     * Which world the ingestion persons store writes: 'pg' (default),
+     * 'personhog', or 'shadow' (pg authoritative, personhog best-effort).
+     * Until the merge saga lands, merge events fail loudly in personhog
+     * mode, so it is only safe for traffic that produces none.
+     */
+    PERSONS_STORE_MODE: string
+    /** Host and port of the personhog identity server. */
+    PERSONHOG_IDENTITY_ADDR: string
     PERSONHOG_ADDR: string
     PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: number
     PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS: string
@@ -126,6 +136,15 @@ export type CommonConfig = BaseServerConfig & {
     PERSONHOG_PING_IDLE_CONNECTION: boolean
     PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS: number
     PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS: number
+
+    // Usage ingestion gRPC. One team list per deployment, because each reporting site is its
+    // own service: '' reports nothing, '*' every team, '1,2' those teams. No percentage: it
+    // would bill a fraction of a team.
+    USAGE_INGESTION_ADDR: string
+    USAGE_INGESTION_TLS: boolean
+    USAGE_INGESTION_TIMEOUT_MS: number
+    USAGE_INGESTION_MAX_BATCH_SIZE: number
+    USAGE_INGESTION_REPORT_TEAMS: string
 
     // Redis
     REDIS_URL: string
@@ -293,6 +312,8 @@ export function getDefaultCommonConfig(): CommonConfig {
         // PersonHog gRPC
         PERSONHOG_ENABLED: false,
         PERSONHOG_ADDR: '',
+        PERSONS_STORE_MODE: 'pg',
+        PERSONHOG_IDENTITY_ADDR: '',
         PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: 0,
         PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS: '',
         PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE: 0,
@@ -306,6 +327,13 @@ export function getDefaultCommonConfig(): CommonConfig {
         PERSONHOG_PING_IDLE_CONNECTION: true,
         PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS: 15 * 60 * 1000,
         PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS: 5_000,
+
+        // Usage ingestion gRPC
+        USAGE_INGESTION_ADDR: isDevEnv() ? 'localhost:7143' : '',
+        USAGE_INGESTION_TLS: false,
+        USAGE_INGESTION_TIMEOUT_MS: 5_000,
+        USAGE_INGESTION_MAX_BATCH_SIZE: 500,
+        USAGE_INGESTION_REPORT_TEAMS: '',
 
         // Redis
         // ok to connect to localhost over plaintext

@@ -2,7 +2,12 @@ import type { LogRecord } from '~/logs/log-record-avro'
 import { runPipelineStages } from '~/logs/pipeline/log-processing-pipeline'
 
 import { compileRetentionRuleSet } from './compile-retention-rules'
-import { makeRetentionStage } from './retention-stage'
+import { logsRetentionRowsStampedCounter, makeRetentionStage } from './retention-stage'
+
+async function stampedCount(teamId: string, matched: 'true' | 'false'): Promise<number> {
+    const metric = await logsRetentionRowsStampedCounter.get()
+    return metric.values.find((v) => v.labels.team_id === teamId && v.labels.matched === matched)?.value ?? 0
+}
 
 describe('makeRetentionStage', () => {
     const record = (service: string): LogRecord => ({
@@ -44,9 +49,12 @@ describe('makeRetentionStage', () => {
         const ruleSet = compileRetentionRuleSet([serviceRule('a', 'api', 30)])
         const { kept } = await runPipelineStages(
             [record('api'), record('billing')],
-            [makeRetentionStage(ruleSet, 1, 14)]
+            [makeRetentionStage(ruleSet, 4242, 14)]
         )
         // 'api' matches the 30-day rule; 'billing' matches nothing so it takes the team default.
         expect(kept.map((r) => r.retention_days)).toEqual([30, 14])
+        // The counter split mirrors matching: one rule-matched row, one team-default row.
+        expect(await stampedCount('4242', 'true')).toBe(1)
+        expect(await stampedCount('4242', 'false')).toBe(1)
     })
 })
