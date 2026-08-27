@@ -112,11 +112,9 @@ export function InboxTabBar({
             // Hide LemonTabs' own bottom border + margin so the single full-width border lives on the
             // scene header row; the active-tab slider then sits directly on that one border.
             barClassName="before:hidden mb-0"
-            onChange={(key) => {
-                if (key !== WELCOME_TAB_KEY) {
-                    router.actions.push(tabLink(key))
-                }
-            }}
+            // No onChange: each real tab is an anchor (`link`) that owns navigation on both click and
+            // keyboard activation. A push here would fire a second, identical navigation on the same
+            // click, and kea-router writes a duplicate history entry for it — so Back would stay put.
             tabs={tabs}
         />
     )
