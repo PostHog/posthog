@@ -14,7 +14,7 @@ import {
   SlackWorkspaceConnectionCallouts,
 } from "./SlackWorkspaceConnection";
 
-const SLACK_DOCS_URL = "https://posthog.com/docs/libraries/slack";
+const SLACK_DOCS_URL = "https://posthog.com/docs/libraries/slack?tab=Desktop";
 const SETTINGS_REFETCH_INTERVAL_MS = 30_000;
 
 export function SlackSettings() {

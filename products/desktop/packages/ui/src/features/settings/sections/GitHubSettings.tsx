@@ -6,7 +6,7 @@ import { ProjectGithubConnectionSection } from "@posthog/ui/features/settings/se
 import { openUrlInBrowser } from "@posthog/ui/utils/browser";
 import { getPostHogUrl } from "@posthog/ui/utils/urls";
 
-const GITHUB_DOCS_URL = "https://posthog.com/docs/libraries/github";
+const GITHUB_DOCS_URL = "https://posthog.com/docs/libraries/github?tab=Desktop";
 
 export function GitHubSettings() {
   const projectId = useAuthStateValue((s) => s.currentProjectId);
