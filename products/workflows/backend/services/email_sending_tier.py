@@ -7,6 +7,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.api.app_metrics2 import fetch_app_metric_daily_totals_by_team
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
@@ -322,13 +323,18 @@ def _fetch_daily_metrics(
 ) -> dict[int, dict[str, dict[str, int]]]:
     auto_pause_metrics = [name for name in settings.WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES if name]
     metric_names = [SENT_METRIC, HARD_BOUNCE_METRIC, COMPLAINT_METRIC, *auto_pause_metrics]
-    return fetch_app_metric_daily_totals_by_team(
-        app_source=APP_SOURCE,
-        name=metric_names,
-        after=after,
-        before=before,
-        team_ids=team_ids,
-    )
+    # Tag the query so it is attributable in query-cost analysis and does not trip the untagged-query
+    # guard in local dev. Celery adds only task identity, not a product or feature. This derives tier
+    # state in the background, so it is enrichment, not a customer-facing query. One context here
+    # covers the daily sweep, the admin recompute, and the backfill command.
+    with tags_context(product=Product.WORKFLOWS, feature=Feature.ENRICHMENT):
+        return fetch_app_metric_daily_totals_by_team(
+            app_source=APP_SOURCE,
+            name=metric_names,
+            after=after,
+            before=before,
+            team_ids=team_ids,
+        )
 
 
 def _history_from_daily(team_id: int, days: dict[str, dict[str, int]]) -> TeamSendingHistory:
