@@ -89,8 +89,10 @@ export function createTooltipDateFormatter({
 }
 
 function pickMode(interval: TimeInterval, parsedDates: Dayjs[], first: Dayjs, last: Dayjs): TickMode {
-    const spanMonths = (last.year() - first.year()) * 12 + last.month() - first.month()
-    const spanDays = last.diff(first, 'day')
+    // A SQL result can be ordered newest-first, which makes `last` earlier than `first`. The span
+    // measures the range, so take it unsigned and let the caller keep the given display order.
+    const spanMonths = Math.abs((last.year() - first.year()) * 12 + last.month() - first.month())
+    const spanDays = Math.abs(last.diff(first, 'day'))
 
     if (interval === 'quarter') {
         return { type: 'quarter' }
@@ -167,14 +169,16 @@ function inferInterval(parsedDates: Dayjs[]): TimeInterval {
     if (parsedDates.length < 2) {
         return 'day'
     }
-    const diffHours = parsedDates[1].diff(parsedDates[0], 'hour')
+    // Unsigned for the same reason as the span in pickMode: a newest-first result gives negative
+    // diffs, which would otherwise fall through every threshold and infer the smallest bucket.
+    const diffHours = Math.abs(parsedDates[1].diff(parsedDates[0], 'hour'))
     if (diffHours < 1) {
         return 'minute'
     }
     if (diffHours < 24) {
         return 'hour'
     }
-    const diffDays = parsedDates[1].diff(parsedDates[0], 'day')
+    const diffDays = Math.abs(parsedDates[1].diff(parsedDates[0], 'day'))
     if (diffDays >= 300) {
         return 'year'
     }
