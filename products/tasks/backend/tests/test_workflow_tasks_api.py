@@ -149,21 +149,37 @@ class TestWorkflowTasksAPI(APIBaseTest):
         # `finish` holds a sandbox for the full background window.
         assert run.state["inactivity_timeout_seconds"] == 120
 
-    @parameterized.expand([("default_keeps_the_run_open", None), ("opt_in_ends_the_run", True)])
-    def test_end_run_when_done_reaches_the_run_state_only_on_opt_in(
-        self, _name: str, end_run_when_done: bool | None
-    ) -> None:
+    @parameterized.expand([("without_the_opt_in", None), ("with_the_opt_in", True)])
+    def test_a_run_with_no_thread_binding_always_ends_itself(self, _name: str, end_run_when_done: bool | None) -> None:
         body = {} if end_run_when_done is None else {"end_run_when_done": end_run_when_done}
         response = self._post(body)
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         run = TaskRun.objects.get(id=response.json()["run_id"])
-        if end_run_when_done:
-            assert run.state["end_run_when_done"] is True
-        else:
-            # Absent, not false: the agent server exposes `finish` only on the opt-in, and
-            # without it the run must stay live so its Slack reply can relay.
-            assert "end_run_when_done" not in run.state
+        # No binding means no reply to protect, and the idle timeout is not a safe
+        # fallback: the PR follow-up loop raises it far past the 2-minute window.
+        assert run.state["end_run_when_done"] is True
+
+    def test_a_thread_bound_run_stays_open_so_its_reply_can_relay(self) -> None:
+        integration = self._slack_integration()
+
+        response = self._post({"slack_context": self._slack_context(integration)})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert "end_run_when_done" not in run.state
+        assert SlackThreadTaskMapping.objects.filter(task_run=run).exists()
+
+    def test_the_opt_in_wins_over_a_slack_context_and_skips_the_binding(self) -> None:
+        integration = self._slack_integration()
+
+        response = self._post({"slack_context": self._slack_context(integration), "end_run_when_done": True})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert run.state["end_run_when_done"] is True
+        # An ended run cannot relay its reply, so a binding would only mislead the thread.
+        assert not SlackThreadTaskMapping.objects.filter(task_run=run).exists()
 
     def test_hands_the_agent_its_prompt_when_it_boots(self) -> None:
         response = self._post()

@@ -137,10 +137,11 @@ def create_workflow_task(
     the workflow or its team reached the daily created-task cap. A replayed
     `origin_key` bypasses the gate and every cap.
 
-    `event` is rendered into the agent's prompt as data. `end_run_when_done` exposes the
-    `finish` tool to the agent, ending the run the moment the agent is done; by default the
-    run stays live until its inactivity timeout, so its Slack reply can relay and the
-    sandbox stays open for thread replies. `slack_context` binds the run to
+    `event` is rendered into the agent's prompt as data. `end_run_when_done` ends the run
+    the moment the agent is done, and skips the Slack thread binding: an ended run cannot
+    relay its reply, so binding the thread would only mislead. A thread-bound run instead
+    stays live until its inactivity timeout, so its reply posts and thread replies reach
+    the agent; a run with no binding always ends itself. `slack_context` binds the run to
     the Slack thread that triggered the workflow. The task is created either way: a context
     is dropped, rather than failing the create, when it resolves to no Slack integration of
     this team, when the channel is externally shared without an approval, or when another
@@ -196,16 +197,19 @@ def create_workflow_task(
             }
         },
         "inactivity_timeout_seconds": WORKFLOW_RUN_IDLE_TIMEOUT_SECONDS,
-        # Read by the agent server at boot: only a state opt-in exposes the `finish` tool
-        # to a workflow-origin run, because finish ends the run mid-turn and the Slack
-        # reply relay refuses terminal runs (see the finish tool's isEnabled gate).
-        **({"end_run_when_done": True} if end_run_when_done else {}),
         # The boot-path override, not pending_user_message: the agent server self-delivers a
         # pending message at boot AND forward_pending_user_message forwards it, and the two
         # deliveries carry no shared idempotency id, so a cold-start background run gets the
         # prompt twice. The override is only read by the boot path, so it delivers once.
         "initial_prompt_override": _render_run_message(prompt, event),
     }
+
+    # The end-run opt-in and the thread binding are mutually exclusive: `finish` ends the
+    # run before the end-of-turn reply relay fires, so a bound thread would get the
+    # completion stub and never the agent's reply. The opt-in wins and the thread stays
+    # unbound, which also skips the thread lock and the acknowledgement reaction.
+    if end_run_when_done:
+        slack_context = None
 
     try:
         # One transaction so a duplicate origin_key rolls back the task, its run, and the
@@ -269,6 +273,15 @@ def create_workflow_task(
             # run to "slack", which flips actor and credential resolution to a Slack steering
             # user the run does not have. It must keep executing as the workflow owner.
             interaction_origin = "workflow" if thread_context is not None else None
+
+            if slack_binding is None:
+                # Only a thread-bound run must outlive its turn, because the reply relay
+                # fires at end of turn. Every other workflow run gets the `finish` tool
+                # (the agent server reads this key at boot), so its sandbox is reclaimed
+                # promptly. The idle timeout is not a safe fallback for those runs: the
+                # PR follow-up loop raises it well past the 2-minute window for
+                # repository runs.
+                extra_run_state["end_run_when_done"] = True
 
             task = Task.create_and_run(
                 team=team,

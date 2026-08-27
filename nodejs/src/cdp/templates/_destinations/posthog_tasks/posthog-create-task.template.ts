@@ -153,7 +153,7 @@ return response.body
             default: false,
             templating: false,
             description:
-                'Shuts the agent down as soon as it finishes. Leave this off to keep the run open for about 2 minutes after it finishes, so replies in the Slack thread still reach the agent.',
+                'Shuts the agent down as soon as it finishes. The run then skips Slack thread replies in both directions. Leave this off to keep the run open for about 2 minutes after it finishes, so the agent replies in the Slack thread and replies there reach it.',
         },
         {
             // Only meaningful on a Slack-triggered workflow; the builder hides it for other
