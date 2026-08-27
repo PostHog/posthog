@@ -2280,7 +2280,9 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
 
     @extend_schema(request=None, responses={204: None})
     def destroy(self, request: Request, *args, **kwargs) -> Response:
-        account_id = self._accessible_account_id()
+        account_id = api.get_editable_account_id(
+            self.team_id, self.parents_query_dict["account_id"], user_access_control=self.user_access_control
+        )
         if account_id is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         deleted = api.delete_account_relationship(
