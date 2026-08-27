@@ -1,10 +1,11 @@
 import posthog from 'posthog-js'
 
-import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
+import { LLMTrace, LLMTraceEvent, NodeKind, TraceQuery } from '~/queries/schema/schema-general'
 
 import {
     TraceTreeNode,
     buildFeedbackAttachmentMap,
+    getDataNodeLogicProps,
     getEffectiveEventId,
     getHighlightedEventId,
     getInitialFocusEventId,
@@ -14,6 +15,19 @@ import {
     restoreTree,
     traceHasRootContent,
 } from './aiObservabilityTraceDataLogic'
+
+describe('aiObservabilityTraceDataLogic: getDataNodeLogicProps', () => {
+    it('bounds the fallback trace query to the last 30 days when no query is passed', () => {
+        // A notebook trace node mounts this logic without a query, so the fallback must not scan
+        // from a year back with no upper bound and time out at the gateway.
+        const props = getDataNodeLogicProps({ traceId: 'trace-1', searchQuery: '' })
+        const query = props.query as TraceQuery
+
+        expect(query.kind).toBe(NodeKind.TraceQuery)
+        expect(query.dateRange?.date_from).toBe('-30d')
+        expect(query.dateRange?.date_to).toBeUndefined()
+    })
+})
 
 describe('aiObservabilityTraceDataLogic: restoreTree', () => {
     it('should group a basic trace into a tree', () => {
