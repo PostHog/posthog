@@ -23,7 +23,10 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
-from products.signals.backend.implementation_pr import fetch_implementation_pr_state_for_reports
+from products.signals.backend.implementation_pr import (
+    fetch_implementation_pr_state_for_reports,
+    pr_bearing_task_run_filter,
+)
 from products.signals.backend.models import InvalidStatusTransition, SignalReport
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 from products.tasks.backend.constants import PR_LOOP_ENABLED_STATE_KEY
@@ -986,19 +989,30 @@ def _transition_signal_reports_for_pr(
     reports = _signal_reports_for_pr_runs(pr_url, list(run_candidates))
 
     if record_merge and reports:
+        # The inbox badge reads pr_merged off the run the report's surfaced PR came from, so the
+        # attestation has to land there and not only on the run the webhook bound to.
+        # Research, repo-selection and scout runs are excluded because a PR URL on one of them is a
+        # PR the agent read while checking for in-flight work, not one it opened.
+        # Non-terminal first, for the same reason the pr_url leg of find_task_run orders that way:
+        # a resumed run shares its predecessor's PR, and only the live run can act on the merge.
         report_task_runs = SignalReport.associated_task_runs_for_reports(
             report_ids=[str(report.id) for report in reports]
         )
         associated_task_ids = {run.task_id for runs in report_task_runs.values() for run in runs}
         surfaced_runs = (
-            TaskRun.objects.filter(task_id__in=associated_task_ids, output__pr_url__isnull=False)
-            .exclude(output__pr_url="")
-            .order_by("task_id", "-created_at", "-id")
+            run_candidates.filter(pr_bearing_task_run_filter(), task_id__in=associated_task_ids)
+            .annotate(
+                terminal_rank=Case(
+                    When(status__in=_TERMINAL_RUN_STATUSES, then=Value(1)),
+                    default=Value(0),
+                    output_field=IntegerField(),
+                )
+            )
+            .order_by("task_id", "terminal_rank", "-created_at", "-id")
             .distinct("task_id")
         )
         for run in surfaced_runs:
-            if _pull_request_identity((run.output or {}).get("pr_url", "")) == _pull_request_identity(pr_url):
-                _record_run_pr_merged(run)
+            _record_run_pr_merged(run)
 
     for report in reports:
         try:
