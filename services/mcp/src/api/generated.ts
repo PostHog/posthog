@@ -51125,6 +51125,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `configured` - Configured
+     * * `inline` - Inline
+     */
+    export type ScannerOriginEnum = typeof ScannerOriginEnum[keyof typeof ScannerOriginEnum];
+
+
+    export const ScannerOriginEnum = {
+      Configured: 'configured',
+      Inline: 'inline',
+    } as const;
+
+    /**
      * * `pending` - Pending
      * * `running` - Running
      * * `succeeded` - Succeeded
@@ -51213,6 +51225,11 @@ export namespace Schemas {
       readonly id: string;
       /** The scanner that produced this observation. */
       readonly scanner_id: string;
+      /** Where the producing scanner came from. `configured` scanners are saved, named, and have a detail page; `inline` ones are throwaways minted for a one-off scan and are not addressable, so callers must not link to them.
+       *
+       * * `configured` - Configured
+       * * `inline` - Inline */
+      readonly scanner_origin: ScannerOriginEnum;
       /** Session recording id this scanner was applied to. */
       readonly session_id: string;
       /** Observation status (pending, running, succeeded, failed, ineligible).

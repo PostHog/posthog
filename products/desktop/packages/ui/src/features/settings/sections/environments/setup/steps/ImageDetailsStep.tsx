@@ -28,7 +28,7 @@ export function ImageDetailsStep({ plan, onChange }: ImageDetailsStepProps) {
   return (
     <StepBody
       title="What is this image for?"
-      description="A sandbox image with your tools already installed. Any environment can start from it."
+      description="A sandbox image with your tools already installed; any environment can start from it"
     >
       <div className="flex flex-col gap-2">
         <Label htmlFor={nameId} className="font-medium text-[12.5px]">

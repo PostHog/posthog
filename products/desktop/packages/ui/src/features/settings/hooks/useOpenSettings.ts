@@ -19,7 +19,10 @@ export function openSettings(
   contextOrAction?: SettingsContext | string,
 ): void {
   prepareSettingsPage(contextOrAction);
-  nav.navigateToSettings(category);
+  // A caller already inside settings is switching category, so replace rather
+  // than stack: one closeSettings() back-step must exit to the app instead of
+  // walking back through the categories visited.
+  nav.navigateToSettings(category, { replace: nav.isOnSettingsRoute() });
 }
 
 /**
