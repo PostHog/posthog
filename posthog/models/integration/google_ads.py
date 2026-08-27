@@ -6,7 +6,7 @@ from django.conf import settings
 
 import requests
 import structlog
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import APIException, ValidationError
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from posthog.egress.slack.client import SlackWebClient as WebClient
@@ -29,6 +29,16 @@ class GoogleAdsUnavailableError(Exception):
     def __init__(self, response: requests.Response) -> None:
         self.response = response
         super().__init__(f"Google Ads returned {response.status_code}")
+
+
+class GoogleAdsTemporarilyUnavailable(APIException):
+    # A transient 429/5xx from Google, still failing after retries, is not a client error. A 503 keeps
+    # it in the 5xx class generic retry policies and monitoring key on, instead of the 400
+    # validation_error a malformed request gets. As an APIException it is a handled error, so it does
+    # not file an error-tracking issue.
+    status_code = 503
+    default_code = "google_ads_unavailable"
+    default_detail = "Google Ads is temporarily unavailable. Try again in a moment."
 
 
 @retry(
@@ -88,7 +98,7 @@ class GoogleAdsIntegration:
                 status_code=e.response.status_code,
                 integration_id=self.integration.id,
             )
-            raise ValidationError("Google Ads is temporarily unavailable. Try again in a moment.")
+            raise GoogleAdsTemporarilyUnavailable()
 
         if response.status_code == 401:
             logger.warning(
@@ -137,7 +147,7 @@ class GoogleAdsIntegration:
                 status_code=e.response.status_code,
                 integration_id=self.integration.id,
             )
-            raise ValidationError("Google Ads is temporarily unavailable. Try again in a moment.")
+            raise GoogleAdsTemporarilyUnavailable()
 
         if response.status_code == 401:
             logger.warning(

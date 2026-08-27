@@ -9,9 +9,9 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase, override_settings
 
 import requests
-from rest_framework.exceptions import ValidationError
 
 from posthog.models.integration import GoogleAdsIntegration, Integration
+from posthog.models.integration.google_ads import GoogleAdsTemporarilyUnavailable
 
 
 class TestGoogleAdsIntegrationModel(BaseTest):
@@ -182,10 +182,12 @@ class TestGoogleAdsConversionActionRetries(SimpleTestCase):
     @patch("posthog.models.integration.google_ads.requests.request")
     def test_conversion_actions_raises_friendly_error_after_repeated_503(self, mock_request, mock_sleep):
         # A persistent 503 must surface a retry-me message rather than a 500 "internal error", and it must
-        # stop after the bounded retries rather than loop forever.
+        # stop after the bounded retries rather than loop forever. The retry-me error is a 503, not a 400
+        # validation error, so callers and monitoring read it as a transient failure.
         mock_request.return_value = MagicMock(status_code=503, text="UNAVAILABLE")
 
-        with pytest.raises(ValidationError, match="temporarily unavailable"):
+        with pytest.raises(GoogleAdsTemporarilyUnavailable, match="temporarily unavailable"):
             GoogleAdsIntegration(self._integration()).list_google_ads_conversion_actions("6501924158")
 
         assert mock_request.call_count == 3
+        assert GoogleAdsTemporarilyUnavailable.status_code == 503
