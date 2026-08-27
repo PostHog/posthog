@@ -118,6 +118,19 @@ where a freshly synced one waits out its pressure tier. Collapsing the two
 delays a new key's first read by a full tier interval (4 x `sync_interval` at
 Idle), during which the node knows only its own local count and cannot see the
 fleet.
+
+**A known, tolerated race.** `check_limit_internal` reads an entry, modifies
+it, and inserts it back. `process_read_results` inserts a fresh entry after a
+Redis read. Nothing orders the two, so a request that read just before a Redis
+read landed can overwrite the fresh fleet estimate with its stale copy. The
+effect is bounded in three ways. The stale entry is due for a sync at once, so
+the pod recovers on the next tick. The stale estimate is never higher than the
+fresh one, so the race only under-counts. The window is microseconds per event
+against one Redis read per key every 7.5 to 60 seconds. A fix through moka's
+per-key entry API (`entry().and_upsert_with` at both writers) was measured at
+about 0.3 µs per evaluation, a 31 to 36 percent regression on this crate's
+bench, for no measurable change in limiter decisions. It is deliberately not
+applied.
 Between syncs, the estimate **decays** at the configured leak rate:
 
 ```text
