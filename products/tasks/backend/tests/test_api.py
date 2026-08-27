@@ -12428,7 +12428,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
         run = TaskRun.objects.create(
             task=task,
             team=self.team,
-            environment=TaskRun.Environment.LOCAL,
+            environment=TaskRun.Environment.CLOUD,
             status=TaskRun.Status.COMPLETED,
             state={"pr_authorship_mode": "bot"},
         )
