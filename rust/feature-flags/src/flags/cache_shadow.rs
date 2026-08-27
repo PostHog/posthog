@@ -3,8 +3,10 @@
 //! A `shadow: true` invalidation asks the builder to prove parity, not to serve:
 //! build the payload exactly as a real invalidation would, diff it against the
 //! live cache entry Python (Celery) owns, and record the result — never write.
-//! This module holds the pure parts: the semantic diff and the repeat-offender
-//! suppression. Reading the live entry and emitting metrics stay in the binary.
+//! This module holds the semantic diff and the repeat-offender suppression. The
+//! diff is pure; the suppression keeps its pending state in the flags Redis
+//! tier, because it has to outlive the process. Reading the live entry and
+//! emitting metrics stay in the binary.
 //!
 //! The diff covers all three top-level payload keys, because all three feed the
 //! serve path (`flag_definitions_cache.rs` evaluates from `flags`,
@@ -36,8 +38,10 @@
 //! `None` against a cached value would otherwise be invisible.
 
 use std::collections::{HashMap, HashSet};
-use std::time::{Duration, Instant};
+use std::sync::Arc;
+use std::time::Duration;
 
+use common_redis::{Client, CustomRedisError};
 use common_types::TeamId;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -393,6 +397,9 @@ fn diff_cohorts(built: &[Cohort], live: &[Cohort]) -> Vec<ShadowDiff> {
 pub struct ShadowObservation {
     pub confirmed: Vec<ShadowDiff>,
     pub first_sight: Vec<ShadowDiff>,
+    /// Tracker store accesses that failed while this observation was made. The
+    /// caller counts them. They never move a diff into `confirmed`.
+    pub store_errors: Vec<TrackerStoreOp>,
 }
 
 impl ShadowObservation {
@@ -401,82 +408,149 @@ impl ShadowObservation {
     }
 }
 
-struct PendingMismatch {
-    fingerprints: HashSet<u64>,
-    recorded_at: Instant,
+/// Which tracker store access failed. Used as a metric label, so the set must
+/// stay small and static.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrackerStoreOp {
+    /// Read of the team's previous observation. The build falls back to first
+    /// sight, so confirmations are lost while reads fail.
+    Read,
+    /// Write of this observation. The team's next shadow build finds nothing to
+    /// compare against, so it also reports first sight.
+    Write,
+    /// Clear of the team's pending state after a clean build.
+    Clear,
 }
 
-/// Above this many pending teams, expired entries are swept on the next observe.
-/// Sized far beyond realistic mismatch volume — it only bounds memory if
-/// something goes systemically wrong.
-const PENDING_PRUNE_THRESHOLD: usize = 10_000;
+impl TrackerStoreOp {
+    pub fn as_label(&self) -> &'static str {
+        match self {
+            Self::Read => "read",
+            Self::Write => "write",
+            Self::Clear => "clear",
+        }
+    }
+}
 
-/// In-memory repeat-offender suppression: a mismatch counts only when the same
-/// fingerprint shows up on two consecutive shadow builds of the team within
-/// `ttl`. A shadow build races Python's own rebuild of the same team, so a
-/// single-shot mismatch is expected noise; Python repairs the entry and the next
-/// shadow build of the team comes back clean, clearing the pending state.
+/// Redis key for a team's pending mismatch. The `posthog:1:` prefix is how
+/// django-redis addresses keys in this tier (see `warm_run_status`), and
+/// `feature_flags/shadow_mismatch/` keeps these keys clear of the cache entries
+/// the serve path reads, which are `posthog:1:cache/teams/{team}/flags/...`.
+fn pending_key(team_id: TeamId) -> String {
+    format!("posthog:1:feature_flags/shadow_mismatch/{team_id}")
+}
+
+/// Repeat-offender suppression: a mismatch counts only when the same fingerprint
+/// shows up on two consecutive shadow builds of the team within `ttl`. A shadow
+/// build races Python's own rebuild of the same team, so a single-shot mismatch
+/// is expected noise; Python repairs the entry and the next shadow build of the
+/// team comes back clean, clearing the pending state.
+///
+/// The pending state lives in the flags Redis tier rather than in the process,
+/// because builder pods roll and Kafka partitions move between them far more
+/// often than the TTL elapses. Process-local state made the real confirmation
+/// window "as long as this pod lives", so a team that rebuilds less often than
+/// that could never confirm, however wrong its cache entry was.
+///
+/// Expiry is the TTL on the Redis key. Nothing in this process sweeps or bounds
+/// the pending set.
 pub struct MismatchTracker {
+    /// The same client the hypercache writer and reader use.
+    redis: Arc<dyn Client + Send + Sync>,
     ttl: Duration,
-    pending: HashMap<TeamId, PendingMismatch>,
 }
 
 impl MismatchTracker {
-    pub fn new(ttl: Duration) -> Self {
-        Self {
-            ttl,
-            pending: HashMap::new(),
+    pub fn new(redis: Arc<dyn Client + Send + Sync>, ttl: Duration) -> Self {
+        Self { redis, ttl }
+    }
+
+    /// Fold one shadow build's diffs into the store and split them into
+    /// confirmed (fingerprint also present in the team's previous, unexpired
+    /// observation) and first-sight. An empty `diffs` clears the team's pending
+    /// state.
+    ///
+    /// Every store failure resolves towards first sight and none of them fail
+    /// the shadow build: a mismatch we cannot prove is a repeat is reported as a
+    /// first sighting, so an unreachable store loses confirmations instead of
+    /// inventing them. The failures come back in `store_errors` to be counted.
+    pub async fn observe(&self, team_id: TeamId, diffs: Vec<ShadowDiff>) -> ShadowObservation {
+        let key = pending_key(team_id);
+
+        if diffs.is_empty() {
+            return ShadowObservation {
+                store_errors: self.clear_pending(team_id, key).await,
+                ..ShadowObservation::default()
+            };
+        }
+
+        let mut store_errors = Vec::new();
+        let prior = match self.read_pending(key.clone()).await {
+            Ok(prior) => prior,
+            Err(e) => {
+                tracing::warn!(team_id, error = %e, "Shadow mismatch tracker read failed; counting this build as a first sighting");
+                store_errors.push(TrackerStoreOp::Read);
+                HashSet::new()
+            }
+        };
+
+        if let Err(e) = self.write_pending(key, &diffs).await {
+            tracing::warn!(team_id, error = %e, "Shadow mismatch tracker write failed; the team's next build cannot confirm");
+            store_errors.push(TrackerStoreOp::Write);
+        }
+
+        let (confirmed, first_sight) = diffs
+            .into_iter()
+            .partition(|d| prior.contains(&d.fingerprint));
+        ShadowObservation {
+            confirmed,
+            first_sight,
+            store_errors,
         }
     }
 
-    /// Fold one shadow build's diffs into the tracker and split them into
-    /// confirmed (fingerprint also seen on the previous, unexpired observation)
-    /// and first-sight. An empty `diffs` clears the team's pending state.
-    pub fn observe(
-        &mut self,
-        team_id: TeamId,
-        diffs: Vec<ShadowDiff>,
-        now: Instant,
-    ) -> ShadowObservation {
-        if self.pending.len() >= PENDING_PRUNE_THRESHOLD {
-            let ttl = self.ttl;
-            self.pending
-                .retain(|_, p| now.duration_since(p.recorded_at) < ttl);
-        }
-
-        if diffs.is_empty() {
-            self.pending.remove(&team_id);
-            return ShadowObservation::default();
-        }
-
-        let prior: Option<HashSet<u64>> = self
-            .pending
-            .get(&team_id)
-            .filter(|p| now.duration_since(p.recorded_at) < self.ttl)
-            .map(|p| p.fingerprints.clone());
-
-        self.pending.insert(
-            team_id,
-            PendingMismatch {
-                fingerprints: diffs.iter().map(|d| d.fingerprint).collect(),
-                recorded_at: now,
-            },
-        );
-
-        match prior {
-            Some(previous) => {
-                let (confirmed, first_sight) = diffs
-                    .into_iter()
-                    .partition(|d| previous.contains(&d.fingerprint));
-                ShadowObservation {
-                    confirmed,
-                    first_sight,
-                }
+    /// Fingerprints from the team's previous shadow build. An absent key is how
+    /// the TTL expires the window, so it reads as "no previous build" and not as
+    /// an error. A value that does not parse is an error, because a stored shape
+    /// this build cannot read is worth seeing on the failure counter.
+    async fn read_pending(&self, key: String) -> Result<HashSet<u64>, CustomRedisError> {
+        match self.redis.get(key).await {
+            Ok(raw) => {
+                serde_json::from_str(&raw).map_err(|e| CustomRedisError::ParseError(e.to_string()))
             }
-            None => ShadowObservation {
-                confirmed: Vec::new(),
-                first_sight: diffs,
-            },
+            Err(CustomRedisError::NotFound) => Ok(HashSet::new()),
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn write_pending(
+        &self,
+        key: String,
+        diffs: &[ShadowDiff],
+    ) -> Result<(), CustomRedisError> {
+        let fingerprints: Vec<u64> = diffs.iter().map(|d| d.fingerprint).collect();
+        let payload = serde_json::to_string(&fingerprints)
+            .map_err(|e| CustomRedisError::ParseError(e.to_string()))?;
+        self.redis.setex(key, payload, self.ttl.as_secs()).await
+    }
+
+    /// A clean build ends the team's pending window, so the next mismatch starts
+    /// over as a first sighting.
+    ///
+    /// A failed clear leaves the previous fingerprints in place until the TTL,
+    /// which is the one path to a confirmation the rule would not give: the same
+    /// disagreement would have to come back, byte for byte, after a clean build
+    /// and inside the TTL. The fingerprint hashes the content, so that is a real
+    /// recurrence rather than the rebuild race the suppression exists to filter.
+    async fn clear_pending(&self, team_id: TeamId, key: String) -> Vec<TrackerStoreOp> {
+        match self.redis.del(key).await {
+            // Redis reports no error for a DEL of a key that is not there, and
+            // an absent key is the state this call wants anyway.
+            Ok(()) | Err(CustomRedisError::NotFound) => Vec::new(),
+            Err(e) => {
+                tracing::warn!(team_id, error = %e, "Shadow mismatch tracker clear failed; the team's pending state stands until it expires");
+                vec![TrackerStoreOp::Clear]
+            }
         }
     }
 }
@@ -516,8 +590,9 @@ pub fn summarize_diffs(diffs: &[ShadowDiff], max_entries: usize, max_bytes: usiz
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
+    use common_redis::{MockRedisCall, MockRedisClient, MockRedisValue};
     use serde_json::json;
 
     use super::*;
@@ -867,74 +942,172 @@ mod tests {
         diff_live_entry(&built, &cached)
     }
 
-    #[test]
-    fn tracker_suppresses_first_sight_and_confirms_repeat() {
-        let mut tracker = MismatchTracker::new(Duration::from_secs(3600));
-        let now = Instant::now();
+    const TRACKER_TTL: Duration = Duration::from_secs(3600);
 
-        let first = tracker.observe(7, mismatch_diffs(), now);
+    fn tracker(redis: &MockRedisClient) -> MismatchTracker {
+        MismatchTracker::new(Arc::new(redis.clone()), TRACKER_TTL)
+    }
+
+    /// The store as the team's next shadow build finds it, in a new process.
+    /// `MockRedisClient` records writes but serves no reads, so replaying its
+    /// recorded writes into a fresh client is what models state that outlived the
+    /// process which wrote it. The tracker holds nothing in memory, so a later
+    /// build in the same pod and one in a new pod run the same code path.
+    fn next_build(prior: &MockRedisClient) -> MockRedisClient {
+        let mut next = MockRedisClient::new();
+        for call in prior.get_calls() {
+            match (call.op.as_str(), call.value) {
+                ("setex", MockRedisValue::StringWithTTL(value, _)) => {
+                    next.get_ret(&call.key, Ok(value));
+                }
+                ("del", _) => {
+                    next.get_ret(&call.key, Err(CustomRedisError::NotFound));
+                }
+                _ => {}
+            }
+        }
+        next
+    }
+
+    fn calls_with_op(redis: &MockRedisClient, op: &str) -> Vec<MockRedisCall> {
+        redis
+            .get_calls()
+            .into_iter()
+            .filter(|call| call.op == op)
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn tracker_suppresses_first_sight_and_confirms_repeat_across_a_restart() {
+        let first_pod = MockRedisClient::new();
+        let first = tracker(&first_pod).observe(7, mismatch_diffs()).await;
         assert!(first.confirmed.is_empty());
         assert_eq!(first.first_sight.len(), 1);
+        assert!(first.store_errors.is_empty());
 
-        let second = tracker.observe(7, mismatch_diffs(), now + Duration::from_secs(60));
+        let second_pod = next_build(&first_pod);
+        let second = tracker(&second_pod).observe(7, mismatch_diffs()).await;
         assert_eq!(second.confirmed.len(), 1);
         assert!(second.first_sight.is_empty());
     }
 
-    #[test]
-    fn tracker_clears_pending_state_on_match() {
-        let mut tracker = MismatchTracker::new(Duration::from_secs(3600));
-        let now = Instant::now();
+    #[tokio::test]
+    async fn tracker_clears_pending_state_on_match() {
+        let first_pod = MockRedisClient::new();
+        tracker(&first_pod).observe(7, mismatch_diffs()).await;
 
-        tracker.observe(7, mismatch_diffs(), now);
-        let clean = tracker.observe(7, Vec::new(), now + Duration::from_secs(30));
+        let second_pod = next_build(&first_pod);
+        let clean = tracker(&second_pod).observe(7, Vec::new()).await;
         assert!(clean.is_match());
 
         // The earlier sighting no longer counts — mismatch starts over.
-        let after = tracker.observe(7, mismatch_diffs(), now + Duration::from_secs(60));
+        let third_pod = next_build(&second_pod);
+        let after = tracker(&third_pod).observe(7, mismatch_diffs()).await;
         assert!(after.confirmed.is_empty());
         assert_eq!(after.first_sight.len(), 1);
     }
 
-    #[test]
-    fn tracker_expires_pending_state_after_ttl() {
-        let mut tracker = MismatchTracker::new(Duration::from_secs(100));
-        let now = Instant::now();
+    #[tokio::test]
+    async fn tracker_expires_pending_state_after_ttl() {
+        let first_pod = MockRedisClient::new();
+        tracker(&first_pod).observe(7, mismatch_diffs()).await;
 
-        tracker.observe(7, mismatch_diffs(), now);
-        let late = tracker.observe(7, mismatch_diffs(), now + Duration::from_secs(101));
+        // The TTL on this write is the only thing that bounds the confirmation
+        // window, and the key is pinned because a tracker write must never land
+        // on a cache entry the serve path reads.
+        let writes = calls_with_op(&first_pod, "setex");
+        assert_eq!(writes.len(), 1);
+        assert_eq!(writes[0].key, "posthog:1:feature_flags/shadow_mismatch/7");
+        match writes[0].value.clone() {
+            MockRedisValue::StringWithTTL(_, ttl) => assert_eq!(ttl, TRACKER_TTL.as_secs()),
+            other => panic!("expected a value with a TTL, got {other:?}"),
+        }
+
+        // The mock has no clock, so a key the next build cannot read is expiry.
+        let late = tracker(&MockRedisClient::new())
+            .observe(7, mismatch_diffs())
+            .await;
         assert!(late.confirmed.is_empty());
         assert_eq!(late.first_sight.len(), 1);
     }
 
-    #[test]
-    fn tracker_treats_different_content_as_first_sight() {
+    #[tokio::test]
+    async fn tracker_treats_different_content_as_first_sight() {
         // An edit session produces a different disagreement each save — the
         // fingerprint hashes the content, so those never confirm.
-        let mut tracker = MismatchTracker::new(Duration::from_secs(3600));
-        let now = Instant::now();
-
-        tracker.observe(7, mismatch_diffs(), now);
+        let first_pod = MockRedisClient::new();
+        tracker(&first_pod).observe(7, mismatch_diffs()).await;
 
         let built = wrapper(vec![flag_from_json(base_flag_json(1))]);
         let mut cached_json = base_flag_json(1);
         cached_json["filters"]["groups"][0]["rollout_percentage"] = json!(25.0);
         let other = diff_live_entry(&built, &live(vec![flag_from_json(cached_json)]));
 
-        let second = tracker.observe(7, other, now + Duration::from_secs(60));
+        let second_pod = next_build(&first_pod);
+        let second = tracker(&second_pod).observe(7, other).await;
         assert!(second.confirmed.is_empty());
         assert_eq!(second.first_sight.len(), 1);
     }
 
-    #[test]
-    fn tracker_is_per_team() {
-        let mut tracker = MismatchTracker::new(Duration::from_secs(3600));
-        let now = Instant::now();
+    #[tokio::test]
+    async fn tracker_is_per_team() {
+        let first_pod = MockRedisClient::new();
+        tracker(&first_pod).observe(7, mismatch_diffs()).await;
 
-        tracker.observe(7, mismatch_diffs(), now);
-        let other_team = tracker.observe(8, mismatch_diffs(), now + Duration::from_secs(60));
+        let second_pod = next_build(&first_pod);
+        let other_team = tracker(&second_pod).observe(8, mismatch_diffs()).await;
         assert!(other_team.confirmed.is_empty());
         assert_eq!(other_team.first_sight.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn tracker_read_failure_falls_back_to_first_sight() {
+        let first_pod = MockRedisClient::new();
+        tracker(&first_pod).observe(7, mismatch_diffs()).await;
+
+        let mut second_pod = next_build(&first_pod);
+        second_pod.get_ret(
+            "posthog:1:feature_flags/shadow_mismatch/7",
+            Err(CustomRedisError::Timeout),
+        );
+
+        let second = tracker(&second_pod).observe(7, mismatch_diffs()).await;
+        assert!(second.confirmed.is_empty());
+        assert_eq!(second.first_sight.len(), 1);
+        assert_eq!(second.store_errors, vec![TrackerStoreOp::Read]);
+    }
+
+    #[tokio::test]
+    async fn tracker_write_failure_leaves_nothing_to_confirm_against() {
+        let mut first_pod = MockRedisClient::new();
+        first_pod.set_ret(
+            "posthog:1:feature_flags/shadow_mismatch/7",
+            Err(CustomRedisError::Timeout),
+        );
+
+        let first = tracker(&first_pod).observe(7, mismatch_diffs()).await;
+        assert_eq!(first.store_errors, vec![TrackerStoreOp::Write]);
+
+        // A fresh store, not `next_build`: the failed write left nothing behind,
+        // and the mock records the attempt whether it succeeded or not.
+        let second = tracker(&MockRedisClient::new())
+            .observe(7, mismatch_diffs())
+            .await;
+        assert!(second.confirmed.is_empty());
+        assert_eq!(second.first_sight.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn tracker_clear_failure_is_reported() {
+        let mut redis = MockRedisClient::new();
+        redis.del_ret(
+            "posthog:1:feature_flags/shadow_mismatch/7",
+            Err(CustomRedisError::Timeout),
+        );
+
+        let clean = tracker(&redis).observe(7, Vec::new()).await;
+        assert!(clean.is_match());
+        assert_eq!(clean.store_errors, vec![TrackerStoreOp::Clear]);
     }
 
     #[test]
