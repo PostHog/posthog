@@ -106,6 +106,21 @@ def aws_s3_integration(team, user):
 
 
 @pytest.fixture
+def aws_redshift_integration(team, user):
+    return Integration.objects.create(
+        team=team,
+        kind=Integration.IntegrationKind.AWS_REDSHIFT,
+        integration_id="prod-redshift-role",
+        config={
+            "name": "prod-redshift-role",
+            "aws_role_arn": "arn:aws:iam::123456789012:role/posthog-batch-exports",
+            "user": "awsuser",
+        },
+        created_by=user,
+    )
+
+
+@pytest.fixture
 def s3_compatible_integration(team, user):
     return Integration.objects.create(
         team=team,

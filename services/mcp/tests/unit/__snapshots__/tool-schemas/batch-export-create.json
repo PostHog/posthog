@@ -512,7 +512,7 @@
                             "type": "object"
                         },
                         "integration_id": {
-                            "description": "ID of an aws-redshift-kind Integration providing connection credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.",
+                            "description": "ID of an aws-redshift-kind Integration providing connection credentials. Use the integrations-list MCP tool to find one.",
                             "type": "number"
                         },
                         "type": {
@@ -520,7 +520,7 @@
                             "type": "string"
                         }
                     },
-                    "required": ["type", "config"],
+                    "required": ["type", "integration_id", "config"],
                     "type": "object"
                 }
             ],

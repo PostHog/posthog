@@ -1425,8 +1425,8 @@ export const RedshiftDestinationRequestApiType = {
  */
 export interface RedshiftDestinationRequestApi {
     type: RedshiftDestinationRequestApiType
-    /** ID of an aws-redshift-kind Integration providing connection credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one. */
-    integration_id?: number
+    /** ID of an aws-redshift-kind Integration providing connection credentials. Use the integrations-list MCP tool to find one. */
+    integration_id: number
     config: RedshiftDestinationConfigApi
 }
 
