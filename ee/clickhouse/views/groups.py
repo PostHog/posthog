@@ -48,6 +48,7 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.utils import str_to_bool
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.event_definitions.backend.models.property_definition import PropertyType
 from products.notebooks.backend.facade import api as notebooks
 from products.notebooks.backend.facade.content import (
@@ -192,7 +193,14 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except GroupTypeMapping.DoesNotExist:
             raise NotFound(detail="Group type not found")
 
-        if group_type_mapping.detail_dashboard_id:
+        # A stale detail_dashboard_id can linger when the referenced dashboard was deleted but the
+        # best-effort mapping cleanup did not run (e.g. personhog was unavailable at delete time).
+        # Only block creation when the referenced dashboard still exists, otherwise the group type
+        # would be stuck with no way to create a replacement dashboard.
+        if (
+            group_type_mapping.detail_dashboard_id
+            and Dashboard.objects.filter(id=group_type_mapping.detail_dashboard_id, team_id=self.team_id).exists()
+        ):
             return response.Response(
                 {"detail": "Dashboard already exists for this group type."},
                 status=status.HTTP_400_BAD_REQUEST,
