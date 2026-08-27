@@ -25,8 +25,7 @@ The two insight kinds configure it in different places:
   `settings.formatting` (see [SQL insights](#sql-insights-datavisualizationnode))
 
 This page is only about **units**.
-The chart type itself (line vs bar vs pie, how many series one chart can carry, the legend, a secondary axis) is `choosing-chart-display`.
-On a SQL insight both live in the same nested object, `settings.formatting` next to `settings.display`, so it is easy to set one and never consider the other.
+Chart type, legend, series count, and a secondary axis are `choosing-chart-display` — on a SQL insight they sit in the same nested object, `settings.display` next to `settings.formatting`.
 
 ## The anti-pattern
 

@@ -1,130 +1,74 @@
 ---
 name: choosing-chart-display
 description: >
-  Pick the chart type and display settings for an insight so it is actually readable:
-  the `display` / `ChartDisplayType` choice plus legend, series count, secondary axis,
-  stacking, and value labels. Use whenever creating or updating an insight with
-  `insight-create` or `insight-update`, for both TrendsQuery (`trendsFilter`) and SQL
-  insights (`DataVisualizationNode`, `chartSettings`), or when the user says a chart is
-  "unreadable", "cluttered", "spaghetti", "hard to read", "the wrong chart type", or
-  asks for a bar / line / pie / stacked / area / scatter chart, a second y-axis, or a
-  legend. Covers when NOT to mix bar and line series, how many series one chart can
-  carry, and which settings need turning on explicitly because they default to off. For
-  y-axis units and number formatting use `formatting-insight-axes`; for the
-  line-vs-slope question use `choosing-trend-or-slope-view`.
+  Pick the chart type and display settings so an insight is readable: `display` /
+  `ChartDisplayType`, legend, series count, secondary axis, stacking, value labels.
+  Use when creating or updating an insight (`insight-create`, `insight-update`) for
+  TrendsQuery or SQL (`DataVisualizationNode`) insights, or when a chart is called
+  unreadable, cluttered, spaghetti, or the wrong chart type. For y-axis units see
+  `formatting-insight-axes`; for line-vs-slope see `choosing-trend-or-slope-view`.
 ---
 
 # Choosing a chart display
 
-A query that returns the right numbers still fails if the chart is unreadable.
-Pick the display deliberately.
-Most defaults are tuned for the simplest case, not for the chart you are actually building.
+Defaults are tuned for the simplest case, not the chart you are building.
 
-## 1. Pick one chart type
+## Pick one chart type
 
-| The result is...                          | Use                                                     |
-| ----------------------------------------- | ------------------------------------------------------- |
-| A measure over time                       | `ActionsLineGraph` (the trends default)                 |
-| A measure over time, part-of-whole        | `ActionsAreaGraph` or `ActionsStackedBar`               |
-| Categories compared against each other    | `ActionsBar` (SQL) / `ActionsBarValue` (trends)         |
-| Proportions of a single total, few slices | `ActionsPie`                                            |
-| One number                                | `BoldNumber`, or `Metric` for trends with a change pill |
-| Two measures related, one point per row   | `ScatterPlot`                                           |
-| Rows a reader needs to scan or copy       | `ActionsTable`                                          |
+| The result is...                       | Use                                                |
+| -------------------------------------- | -------------------------------------------------- |
+| A measure over time                    | `ActionsLineGraph` (the trends default)            |
+| A measure over time, part-of-whole     | `ActionsAreaGraph` or `ActionsStackedBar`          |
+| Categories compared against each other | `ActionsBar` (SQL) / `ActionsBarValue` (trends)    |
+| Proportions of one total, few slices   | `ActionsPie`                                       |
+| One number                             | `BoldNumber`, or trends `Metric` for a change pill |
+| Two measures, one point per row        | `ScatterPlot`                                      |
+| Rows to scan or copy                   | `ActionsTable`                                     |
 
 Two traps:
 
-- **SQL insights default to `ActionsTable` when `display` is omitted.**
-  A time series left at the default renders as a wall of rows.
-  Set `display` explicitly.
-- **Trends `ActionsBar` is a time-series bar chart**, one bar per interval.
-  For "top N countries" you want `ActionsBarValue`, which bars the totals.
+- SQL insights render as `ActionsTable` when `display` is omitted, so a time series left at the default is a wall of rows.
+- Trends `ActionsBar` is a time-series bar chart, one bar per interval. "Top N countries" wants `ActionsBarValue`.
 
-## 2. Do not mix bar and line series
+## Do not mix bar and line series
 
-One chart, one series type.
-The per-series override (`chartSettings.yAxis[].settings.display.displayType`) defaults to `auto`, which follows the chart-level `display`.
-Leave it there.
+One chart, one series type. Leave `yAxis[].settings.display.displayType` at `auto`.
 
-The single case that justifies a mix:
-one series is on a genuinely different scale or unit, and you pin it to the secondary axis.
+The only exception: a series on a different scale or unit, pinned to the secondary axis.
 
 ```json
-{
-  "yAxis": [
-    { "column": "signups", "settings": { "display": { "displayType": "bar", "yAxisPosition": "left" } } },
-    { "column": "conversion_rate", "settings": { "display": { "displayType": "line", "yAxisPosition": "right" } } }
-  ],
-  "leftYAxisSettings": { "label": "Signups" },
-  "rightYAxisSettings": { "label": "Conversion rate" },
-  "showLegend": true
-}
+{ "column": "conversion_rate", "settings": { "display": { "displayType": "line", "yAxisPosition": "right" } } }
 ```
 
-If the series share a unit, use one type.
-If they are unrelated, use two insights.
-A bar/line mix on a single shared axis is noise: the reader cannot compare across shapes, and nothing in the chart explains why they differ.
+Label both axes when you do (`leftYAxisSettings.label`, `rightYAxisSettings.label`).
+Series sharing a unit share one type; unrelated measures belong in separate insights.
 
-Whenever you use a secondary axis, label both axes.
-Without `leftYAxisSettings.label` and `rightYAxisSettings.label` the reader cannot tell which series reads against which scale.
+## Turn the legend on for more than one series
 
-## 3. Turn the legend on when more than one series renders
+SQL charts default to `showLegend: false`, leaving a multi-series chart readable only by hovering.
+Set `showLegend: true` whenever several `yAxis` columns or a `seriesBreakdownColumn` render.
+This is the most common miss, because nothing about writing the query prompts it.
 
-SQL charts default to `showLegend: false`.
-A multi-series chart without a legend is only decipherable by hovering each line.
+## Cap the series count
 
-Set `showLegend: true` whenever the chart renders more than one series.
-That means either several `yAxis` columns, or a `seriesBreakdownColumn`, which splits one column into many.
-A single unbroken series does not need one.
+Past about six series a line chart reads as spaghetti.
+Keep a top N with an `Other` row, split into several insights, or switch to `ActionsTable`.
 
-This is the most common readability miss, because nothing about writing the query prompts you to think about it.
+## Settings that usually hurt
 
-## 4. Cap the series count
+- `showValuesOnSeries` — fine on a few bars, unreadable on a dense time series.
+- `trendLine` — only when the trend is the point.
+- Log scale (`leftYAxisSettings.scale`, `trendsFilter.yAxisScaleType`) — only for series spanning orders of magnitude.
+- `stackBars100` — hides absolute movement, so pair it with a volume chart.
+- Bar charts need `leftYAxisSettings.startAtZero`; a truncated bar axis misstates the ratio between bars.
 
-Six series on a line chart is about the limit.
-Past that the colors stop being distinguishable and it reads as spaghetti.
+## Field locations
 
-When a breakdown returns more:
-
-- Rank in SQL and keep the top N, folding the rest into an `Other` row, or
-- Split into several insights along a meaningful cut, or
-- Switch to `ActionsTable` if the reader genuinely needs every row.
-
-Do not solve it by shrinking the chart or leaning on the tooltip.
-
-## 5. Settings that usually make things worse
-
-- `showValuesOnSeries` is fine for a handful of bars and unreadable on a dense time series where every point gets a label.
-  Leave it off for time series.
-- `trendLine` earns its place only when the trend is the point.
-  On a series that is already visibly trending it adds a line that says nothing new.
-- Logarithmic scale (`leftYAxisSettings.scale: "logarithmic"`, or `trendsFilter.yAxisScaleType: "log10"`) suits series that genuinely span orders of magnitude.
-  Otherwise it flattens the change the chart exists to show.
-- `stackBars100` suits parts that really do sum to a meaningful whole.
-  It hides absolute movement, so pair it with a volume chart when that matters.
-
-## 6. Axis baselines
-
-Bar charts must start at zero.
-A truncated bar axis misstates the ratio between bars, which is the whole point of bars.
-Set `leftYAxisSettings.startAtZero: true` where the data allows.
-
-Line charts may start off zero when the interesting variation sits in a small band high above it.
-Say so in the insight description when they do.
-
-## 7. Field locations
-
-The same decisions live in different places per insight kind:
-
-| Decision        | TrendsQuery (`trendsFilter`)      | SQL (`chartSettings`)                      |
-| --------------- | --------------------------------- | ------------------------------------------ |
-| Chart type      | `display`                         | `display` (on the `DataVisualizationNode`) |
-| Legend          | `showLegend`                      | `showLegend`                               |
-| Value labels    | `showValuesOnSeries`              | `showValuesOnSeries`                       |
-| Second y-axis   | `showMultipleYAxes`               | `yAxis[].settings.display.yAxisPosition`   |
-| Per-series type | not available, one type per chart | `yAxis[].settings.display.displayType`     |
-| Log scale       | `yAxisScaleType`                  | `leftYAxisSettings.scale`                  |
-| Axis label      | `xAxisLabel` / `yAxisLabel`       | `xAxisLabel` / `leftYAxisSettings.label`   |
-
-Units and number formatting are a separate decision.
-See `formatting-insight-axes`.
+| Decision        | Trends (`trendsFilter`)           | SQL (`chartSettings`)                    |
+| --------------- | --------------------------------- | ---------------------------------------- |
+| Chart type      | `display`                         | `display` (on the node)                  |
+| Legend          | `showLegend`                      | `showLegend`                             |
+| Second y-axis   | `showMultipleYAxes`               | `yAxis[].settings.display.yAxisPosition` |
+| Per-series type | not available, one type per chart | `yAxis[].settings.display.displayType`   |
+| Log scale       | `yAxisScaleType`                  | `leftYAxisSettings.scale`                |
+| Axis label      | `xAxisLabel` / `yAxisLabel`       | `xAxisLabel` / `leftYAxisSettings.label` |
