@@ -6051,6 +6051,39 @@
             "required": ["day", "label", "min", "p25", "median", "p75", "max", "mean"],
             "type": "object"
         },
+        "BoxPlotSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "excludeOutliers": {
+                    "type": "boolean"
+                },
+                "maxColumn": {
+                    "type": "string"
+                },
+                "meanColumn": {
+                    "type": "string"
+                },
+                "medianColumn": {
+                    "type": "string"
+                },
+                "minColumn": {
+                    "type": "string"
+                },
+                "p25Column": {
+                    "type": "string"
+                },
+                "p75Column": {
+                    "type": "string"
+                },
+                "seriesColumn": {
+                    "type": ["string", "null"]
+                },
+                "xAxisColumn": {
+                    "type": ["string", "null"]
+                }
+            },
+            "type": "object"
+        },
         "Breakdown": {
             "additionalProperties": false,
             "properties": {
@@ -15810,6 +15843,9 @@
         "ChartSettings": {
             "additionalProperties": false,
             "properties": {
+                "boxPlot": {
+                    "$ref": "#/definitions/BoxPlotSettings"
+                },
                 "chartStyle": {
                     "$ref": "#/definitions/ChartStyle",
                     "description": "Chart rendering style overrides (line shape). Only applies to line and area charts."
