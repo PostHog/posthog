@@ -29,7 +29,6 @@ import {
 import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
 import { getSessionJsonlPath } from "../adapters/claude/session/jsonl-hydration";
 import type { PermissionMode } from "../execution-mode";
-import { HandoffCheckpointTracker } from "../handoff-checkpoint";
 import type { PostHogAPIClient } from "../posthog-api";
 import type { ResumeState } from "../resume";
 import {
@@ -687,7 +686,6 @@ describe("AgentServer HTTP Mode", () => {
       };
       cleanupServer.session = {
         payload: { run_id: "run-1" },
-        pendingHandoffGitState: undefined,
         logWriter: { flush: vi.fn(async () => {}) },
         acpConnection: { cleanup: vi.fn(async () => {}) },
         sseController: { close: vi.fn() },
@@ -3629,7 +3627,6 @@ describe("AgentServer HTTP Mode", () => {
               content: [{ type: "text", text: "work completed so far" }],
             },
           ],
-          latestGitCheckpoint: null,
           interrupted: false,
           logEntryCount: 2,
           sessionId: "prior-session",
@@ -3734,7 +3731,6 @@ describe("AgentServer HTTP Mode", () => {
             content: [{ type: "text", text: "work completed so far" }],
           },
         ],
-        latestGitCheckpoint: null,
         interrupted: false,
         logEntryCount: 2,
         sessionId: "prior-session",
@@ -3799,7 +3795,6 @@ describe("AgentServer HTTP Mode", () => {
                 content: [{ type: "text", text: "work completed so far" }],
               },
             ],
-            latestGitCheckpoint: null,
             interrupted: false,
             logEntryCount: 1,
             sessionId: "prior-session",
@@ -3815,48 +3810,6 @@ describe("AgentServer HTTP Mode", () => {
       );
       expect(internals.prewarmedRun).toBe(true);
       expect(internals.resumeState).not.toBeNull();
-    }, 30000);
-
-    it("applies the resume git checkpoint at most once", async () => {
-      // The checkpoint resets the workspace to the resumed run's snapshot. Applying it again after
-      // a turn has written files discards that work — including a turn that failed and is retried.
-      const s = createServer();
-      await s.start();
-
-      const applyFromHandoff = vi
-        .spyOn(HandoffCheckpointTracker.prototype, "applyFromHandoff")
-        .mockResolvedValue({ packBytes: 1, indexBytes: 1, totalBytes: 2 });
-      const payload: JwtPayload = {
-        run_id: "test-run-id",
-        task_id: "test-task-id",
-        team_id: 1,
-        user_id: 1,
-        distinct_id: "test-distinct-id",
-        mode: "interactive",
-      };
-      const internals = s as unknown as {
-        resumeState: ResumeState | null;
-        resumeGitCheckpointApplied: boolean | null;
-        config: { repositoryPath?: string };
-        applyResumeGitCheckpoint(payload: JwtPayload): Promise<boolean>;
-      };
-      internals.config.repositoryPath = "/tmp/workspace";
-      internals.resumeGitCheckpointApplied = null;
-      internals.resumeState = {
-        conversation: [],
-        latestGitCheckpoint: { branch: "main", head: "abc123" },
-        interrupted: false,
-        logEntryCount: 0,
-        sessionId: "prior-session",
-      } as unknown as ResumeState;
-
-      const first = await internals.applyResumeGitCheckpoint(payload);
-      const second = await internals.applyResumeGitCheckpoint(payload);
-
-      expect(first).toBe(true);
-      expect(second).toBe(true);
-      expect(applyFromHandoff).toHaveBeenCalledOnce();
-      applyFromHandoff.mockRestore();
     }, 30000);
 
     it("still continues after /compact sent as the first forwarded message", async () => {
@@ -3901,7 +3854,6 @@ describe("AgentServer HTTP Mode", () => {
             content: [{ type: "text", text: "work completed so far" }],
           },
         ],
-        latestGitCheckpoint: null,
         interrupted: false,
         logEntryCount: 1,
         sessionId: "prior-session",
@@ -3989,7 +3941,6 @@ describe("AgentServer HTTP Mode", () => {
             content: [{ type: "text", text: "work completed so far" }],
           },
         ],
-        latestGitCheckpoint: null,
         interrupted: false,
         logEntryCount: 2,
         sessionId: "prior-session",
@@ -4077,7 +4028,6 @@ describe("AgentServer HTTP Mode", () => {
             content: [{ type: "text", text: "old answer" }],
           },
         ],
-        latestGitCheckpoint: null,
         interrupted: false,
         logEntryCount: 2,
         sessionId: "prior-session",
@@ -4130,7 +4080,7 @@ describe("AgentServer HTTP Mode", () => {
       });
     });
 
-    describe("idle handoff resume", () => {
+    describe("idle same-run resume", () => {
       const idlePayload: JwtPayload = {
         task_id: "test-task-id",
         run_id: "test-run-id",
@@ -4383,7 +4333,6 @@ describe("AgentServer HTTP Mode", () => {
       const goal = { objective: "Ship the fix", status: "paused" as const };
       s.resumeState = {
         conversation: [],
-        latestGitCheckpoint: null,
         interrupted: false,
         logEntryCount: 1,
         sessionId: "prior-session",
@@ -4474,7 +4423,6 @@ describe("AgentServer HTTP Mode", () => {
                 content: [{ type: "text", text: "progress so far" }],
               },
             ],
-            latestGitCheckpoint: null,
             interrupted: false,
             logEntryCount: 2,
             sessionId: "prior-session",
@@ -4526,7 +4474,6 @@ describe("AgentServer HTTP Mode", () => {
               content: [{ type: "text", text: "visible answer only" }],
             },
           ],
-          latestGitCheckpoint: null,
           interrupted: false,
           logEntryCount: 3,
           sessionId: "prior-session",
@@ -4621,7 +4568,6 @@ describe("AgentServer HTTP Mode", () => {
           conversation: [
             { role: "user", content: [{ type: "text", text: "continue" }] },
           ],
-          latestGitCheckpoint: null,
           interrupted: false,
           logEntryCount: 1,
           sessionId,

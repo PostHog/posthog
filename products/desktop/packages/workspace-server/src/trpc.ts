@@ -50,8 +50,6 @@ import {
   changedFilesOutput,
   checkoutBranchInput,
   checkoutBranchOutput,
-  cleanupAfterCloudHandoffInput,
-  cleanupAfterCloudHandoffOutput,
   cloneRepositoryInput,
   cloneRepositoryOutput,
   commitInput,
@@ -121,8 +119,6 @@ import {
   pullOutput,
   pushInput,
   pushOutput,
-  readHandoffLocalGitStateInput,
-  readHandoffLocalGitStateOutput,
   replyToPrCommentInput,
   replyToPrCommentOutput,
   resetSoftInput,
@@ -139,16 +135,12 @@ import {
 } from "./services/git/schemas";
 import type { GitService } from "./services/git/service";
 import {
-  countLocalLogEntriesInput,
-  countLocalLogEntriesOutput,
-  deleteLocalLogCacheInput,
   readLocalLogsCollapsedInput,
   readLocalLogsCollapsedOutput,
   readLocalLogsInput,
   readLocalLogsOutput,
   readLocalLogsTailInput,
   readLocalLogsTailOutput,
-  seedLocalLogsInput,
   writeLocalLogsInput,
 } from "./services/local-logs/schemas";
 import type { LocalLogsService } from "./services/local-logs/service";
@@ -714,23 +706,6 @@ export function createAppRouter({
           ),
         ),
 
-      readHandoffLocalGitState: t.procedure
-        .input(readHandoffLocalGitStateInput)
-        .output(readHandoffLocalGitStateOutput)
-        .query(({ input }) =>
-          gitService().readHandoffLocalGitState(input.directoryPath),
-        ),
-
-      cleanupAfterCloudHandoff: t.procedure
-        .input(cleanupAfterCloudHandoffInput)
-        .output(cleanupAfterCloudHandoffOutput)
-        .mutation(({ input }) =>
-          gitService().cleanupAfterCloudHandoff(
-            input.directoryPath,
-            input.branchName,
-          ),
-        ),
-
       getDiffStats: t.procedure
         .input(diffStatsInput)
         .output(diffStatsSchema)
@@ -923,25 +898,6 @@ export function createAppRouter({
         .input(writeLocalLogsInput)
         .mutation(({ input }) =>
           localLogsService().writeLocalLogs(input.taskRunId, input.content),
-        ),
-
-      seed: t.procedure
-        .input(seedLocalLogsInput)
-        .mutation(({ input }) =>
-          localLogsService().seedLocalLogs(input.taskRunId, input.content),
-        ),
-
-      count: t.procedure
-        .input(countLocalLogEntriesInput)
-        .output(countLocalLogEntriesOutput)
-        .query(({ input }) =>
-          localLogsService().countLocalLogEntries(input.taskRunId),
-        ),
-
-      delete: t.procedure
-        .input(deleteLocalLogCacheInput)
-        .mutation(({ input }) =>
-          localLogsService().deleteLocalLogCache(input.taskRunId),
         ),
     }),
     connectivity: t.router({

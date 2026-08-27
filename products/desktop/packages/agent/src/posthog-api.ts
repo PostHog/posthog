@@ -110,13 +110,7 @@ export interface PeerMessageSendResult {
 export type TaskRunUpdate = Partial<
   Pick<
     TaskRun,
-    | "status"
-    | "branch"
-    | "stage"
-    | "error_message"
-    | "output"
-    | "state"
-    | "environment"
+    "status" | "branch" | "stage" | "error_message" | "output" | "state"
   >
 > & {
   state_remove_keys?: string[];
@@ -365,14 +359,6 @@ export class PostHogAPIClient {
         body: JSON.stringify(insight),
         signal,
       },
-    );
-  }
-
-  async resumeRunInCloud(taskId: string, runId: string): Promise<TaskRun> {
-    const teamId = this.getTeamId();
-    return this.apiRequest<TaskRun>(
-      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/resume_in_cloud/`,
-      { method: "POST" },
     );
   }
 
