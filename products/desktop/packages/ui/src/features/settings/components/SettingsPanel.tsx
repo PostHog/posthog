@@ -257,7 +257,7 @@ export function SettingsPanel({
 
         {isAuthenticated && (
           <div className="border-border border-t p-2">
-            <ProjectSwitcher />
+            <ProjectSwitcher onNavigateToSettings={setCategory} />
           </div>
         )}
       </div>
