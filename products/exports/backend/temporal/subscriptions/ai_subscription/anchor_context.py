@@ -67,17 +67,22 @@ def _insight_lines(insight, collected_events: list[str]) -> list[str]:
     description = sanitize_user_text(insight.description or "", ANCHOR_DESCRIPTION_MAX_LENGTH)
     if description:
         lines.append(f"    Description: {description}")
-    if insight.query:
+    # A legacy insight keeps its definition in `filters` with query=None; query_from_filters
+    # converts it to the query shape (and returns None when that conversion fails). Fall back so
+    # those tiles still contribute a query shape and event names, matching the same
+    # `query or query_from_filters` fallback used elsewhere in this product.
+    effective_query = insight.query or insight.query_from_filters
+    if effective_query:
         # The serialized query carries user-editable strings (custom names, breakdown values), so
         # it gets the same LLM-marker stripping as names and descriptions. The stripped JSON is
         # only read by the planner, never parsed back, so lost structure is acceptable.
         query_json = sanitize_user_text(
-            json.dumps(insight.query, separators=(",", ":"), sort_keys=True),
+            json.dumps(effective_query, separators=(",", ":"), sort_keys=True),
             ANCHOR_QUERY_JSON_MAX_CHARS,
             truncate_marker="…(truncated)",
         )
         lines.append(f"    Query definition (JSON): {query_json}")
-        collected_events.extend(_extract_event_names(insight.query))
+        collected_events.extend(_extract_event_names(effective_query))
     return lines
 
 
@@ -133,7 +138,14 @@ def _build_anchor_context(subscription: Subscription) -> AnchorContext | None:
         insights_by_id = {
             insight_row.id: insight_row
             for insight_row in Insight.objects.filter(id__in=[tile.insight_id for tile in capped_tiles]).only(
-                "id", "name", "derived_name", "description", "query"
+                # `filters` is loaded too so a legacy (query=None) insight's query_from_filters
+                # fallback reads it from memory instead of firing a deferred query per tile.
+                "id",
+                "name",
+                "derived_name",
+                "description",
+                "query",
+                "filters",
             )
         }
         for tile in capped_tiles:

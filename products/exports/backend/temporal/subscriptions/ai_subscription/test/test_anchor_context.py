@@ -86,6 +86,19 @@ class TestBuildAnchorContext(APIBaseTest):
         assert changed is not None
         assert changed.content_hash != context.content_hash
 
+    def test_legacy_filters_only_insight_contributes_query_and_events(self) -> None:
+        # A legacy insight stores its definition in `filters` with query=None. Without the
+        # query_from_filters fallback the planner would see only the name, and no events would pin.
+        insight = Insight.objects.create(
+            team=self.team, name="Legacy", filters={"insight": "TRENDS", "events": [{"id": "$pageview"}]}
+        )
+
+        context = build_anchor_context(self._subscription(anchor_insight=insight))
+
+        assert context is not None
+        assert "Query definition (JSON)" in context.blob
+        assert context.event_names == ["$pageview"]
+
     def test_soft_deleted_anchor_degrades_to_none(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Gone", deleted=True)
         assert build_anchor_context(self._subscription(anchor_dashboard=dashboard)) is None
