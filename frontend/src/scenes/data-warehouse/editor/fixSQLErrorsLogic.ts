@@ -1,8 +1,9 @@
 import { MakeLogicType, actions, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { ApiError } from 'lib/api-error'
+import { ApiError, shouldReportApiFailure } from 'lib/api-error'
 
 export interface Response {
     query: string
@@ -71,14 +72,20 @@ export const fixSQLErrorsLogic = kea<fixSQLErrorsLogicType>([
 
                         return response as Response
                     } catch (e) {
-                        // The fixer can't run (no LLM credentials, provider outage). The endpoint
-                        // returns a { trace_id, error } body for this. Catch it here so it degrades
-                        // to a normal response instead of an unhandled exception in error tracking.
-                        const apiError = e as ApiError
+                        // A { trace_id, error } 400 is the backend's own "fixer can't run" message
+                        // (missing LLM credentials, provider outage) — surface it as a normal
+                        // response. Report anything else (a 500 from outside the backend try, a
+                        // throttle, a dropped request) to error tracking first, using the shared
+                        // policy, so the catch degrades the expected case without hiding a genuine
+                        // fault.
+                        const apiError = e instanceof ApiError ? e : null
+                        if (apiError?.status !== 400 && shouldReportApiFailure(e)) {
+                            posthog.captureException(e)
+                        }
                         return {
                             query: '',
-                            trace_id: apiError.data?.trace_id ?? '',
-                            error: apiError.data?.error ?? FIXER_UNAVAILABLE_MESSAGE,
+                            trace_id: apiError?.data?.trace_id ?? '',
+                            error: apiError?.data?.error ?? FIXER_UNAVAILABLE_MESSAGE,
                         }
                     }
                 },
