@@ -85,6 +85,7 @@ import {
   useSessionViewActions,
   useShowRawLogs,
 } from "@posthog/ui/features/sessions/sessionViewStore";
+import { useSideQuestionStore } from "@posthog/ui/features/sessions/sideQuestionStore";
 import type { Plan } from "@posthog/ui/features/sessions/types";
 import { useSessionHandoffInProgress } from "@posthog/ui/features/sessions/useSession";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
@@ -264,11 +265,21 @@ export function SessionView({
   const canCopyHandoffSummary = useSessionSelector(taskId, (session) =>
     session ? sessionSupportsSideQuestion(session) : false,
   );
+  // The handoff summary sends a side question directly, and the Claude adapter
+  // aborts any in-flight one. Withhold it while a `/btw` question is pending so
+  // copying a summary cannot cancel the user's visible question.
+  const hasPendingSideQuestion = useSideQuestionStore((s) =>
+    taskId ? s.byTaskId[taskId]?.status === "pending" : false,
+  );
 
   const applyConfigOption = useCallback(
     async (configId: string, value: string): Promise<boolean> => {
       if (!taskId) return false;
-      return await sessionService.setSessionConfigOption(taskId, configId, value);
+      return await sessionService.setSessionConfigOption(
+        taskId,
+        configId,
+        value,
+      );
     },
     [taskId, sessionService],
   );
@@ -988,7 +999,9 @@ export function SessionView({
             : undefined
         }
         onCopyHandoffSummary={
-          canCopyHandoffSummary ? handleCopyHandoffSummary : undefined
+          canCopyHandoffSummary && !hasPendingSideQuestion
+            ? handleCopyHandoffSummary
+            : undefined
         }
         onCancel={cancelModelSwitch}
       />
