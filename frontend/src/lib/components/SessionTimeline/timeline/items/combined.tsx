@@ -24,6 +24,7 @@ const SELECT = [
     'properties.$exception_list',
     'properties.$exception_fingerprint',
     'properties.$exception_issue_id',
+    'properties.$screen_name',
 ]
 
 type RawCombinedEventRow = [
@@ -35,6 +36,7 @@ type RawCombinedEventRow = [
     rawExceptionList: unknown,
     exceptionFingerprint: unknown,
     exceptionIssueId: unknown,
+    screenName: unknown,
 ]
 
 interface ParsedCombinedEventRow {
@@ -46,6 +48,7 @@ interface ParsedCombinedEventRow {
     rawExceptionList: unknown
     exceptionFingerprint?: string
     exceptionIssueId?: string
+    screenName?: string
 }
 
 interface CombinedEventQueryResponse {
@@ -55,7 +58,7 @@ interface CombinedEventQueryResponse {
 function buildWhere(sessionId: string): string[] {
     return [
         `equals($session_id, '${escapeHogQLString(sessionId)}')`,
-        "or(equals(event, '$exception'), equals(event, '$pageview'), notEquals(left(event, 1), '$'))",
+        "or(equals(event, '$exception'), equals(event, '$pageview'), equals(event, '$screen'), notEquals(left(event, 1), '$'))",
     ]
 }
 
@@ -116,12 +119,21 @@ function parseItemsFromResults(results: unknown[] | undefined): TimelineItem[] {
 }
 
 function parseCombinedEventRow(row: unknown): ParsedCombinedEventRow | null {
-    if (!Array.isArray(row) || row.length < 8) {
+    if (!Array.isArray(row) || row.length < 9) {
         return null
     }
 
-    const [uuid, eventName, timestamp, lib, currentUrl, rawExceptionList, exceptionFingerprint, exceptionIssueId] =
-        row as RawCombinedEventRow
+    const [
+        uuid,
+        eventName,
+        timestamp,
+        lib,
+        currentUrl,
+        rawExceptionList,
+        exceptionFingerprint,
+        exceptionIssueId,
+        screenName,
+    ] = row as RawCombinedEventRow
 
     if (typeof uuid !== 'string' || typeof eventName !== 'string') {
         return null
@@ -145,6 +157,7 @@ function parseCombinedEventRow(row: unknown): ParsedCombinedEventRow | null {
         rawExceptionList,
         exceptionFingerprint: typeof exceptionFingerprint === 'string' ? exceptionFingerprint : undefined,
         exceptionIssueId: typeof exceptionIssueId === 'string' ? exceptionIssueId : undefined,
+        screenName: typeof screenName === 'string' ? screenName : undefined,
     }
 }
 
@@ -174,6 +187,15 @@ function buildItem(evt: ParsedCombinedEventRow): TimelineItem {
             category: ItemCategory.PAGE_VIEWS,
             timestamp: ts,
             payload: { runtime, url: evt.currentUrl ?? '' },
+        }
+    }
+
+    if (evt.eventName === '$screen') {
+        return {
+            id: evt.uuid,
+            category: ItemCategory.PAGE_VIEWS,
+            timestamp: ts,
+            payload: { runtime, screenName: evt.screenName ?? '' },
         }
     }
 
