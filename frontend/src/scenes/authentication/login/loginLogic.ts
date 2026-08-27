@@ -177,6 +177,7 @@ export interface loginLogicValues {
     isLoginSubmitting: boolean
     isLoginValid: boolean
     isPasswordLoginUnavailable: boolean
+    isStripeMarketplaceInstall: boolean
     login: LoginForm
     loginAllErrors: Record<string, any>
     loginChanged: boolean
@@ -546,6 +547,13 @@ export const loginLogic = kea<loginLogicType>([
         wasSignedOutForSessionRisk: [
             () => [router.selectors.searchParams],
             (searchParams: Record<string, string>): boolean => searchParams['reason'] === 'session_risk',
+        ],
+        isStripeMarketplaceInstall: [
+            () => [router.selectors.searchParams],
+            (searchParams: Record<string, string>): boolean => {
+                const nextParam = getRelativeNextPath(searchParams['next'], location)
+                return !!nextParam && nextParam.startsWith(urls.stripeConfirmInstall())
+            },
         ],
     })),
     forms(({ actions, values }) => ({

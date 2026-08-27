@@ -54,6 +54,7 @@ export function LoginForm(): JSX.Element {
         hasNoConfiguredLoginMethod,
         restrictToProviders,
         autoRedirectingToProvider,
+        isStripeMarketplaceInstall,
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
 
@@ -106,6 +107,19 @@ export function LoginForm(): JSX.Element {
                     sub={isCodeSent ? undefined : "Welcome back. Let's go ship something."}
                 />
                 <SessionRiskBanner className="mb-4" />
+                {isStripeMarketplaceInstall && (
+                    <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-primary-highlight border border-primary rounded">
+                        <span>To connect Stripe you need a PostHog account. Log in below, or</span>{' '}
+                        <Link
+                            to={[signupUrl, { email: login.email }]}
+                            data-attr="stripe-install-signup"
+                            className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                        >
+                            create one first
+                        </Link>
+                        <span>. We'll bring you back to finish the install.</span>
+                    </div>
+                )}
                 {generalError && (
                     <div
                         className={twMerge(
