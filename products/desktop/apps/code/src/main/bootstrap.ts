@@ -22,12 +22,18 @@ import path from "node:path";
 import { app, crashReporter, protocol } from "electron";
 import { fixPath } from "./utils/fixPath";
 import { shouldRefuseInternalChildBoot } from "./utils/internal-child-guard";
+import { installStdStreamGuards, safeStreamWrite } from "./utils/std-stream";
+
+// Guard stdout/stderr before the first write so a dead parent pipe cannot crash
+// the main process.
+installStdStreamGuards();
 
 // The internal-child marker means a workspace-server descendant stripped
 // ELECTRON_RUN_AS_NODE and ran `node` or process.execPath; booting a full app
 // here would race the single-instance lock and open phantom windows.
 if (shouldRefuseInternalChildBoot(app.isPackaged, process.env)) {
-  process.stderr.write(
+  safeStreamWrite(
+    process.stderr,
     "[posthog-code] Refusing to start the desktop app from inside its own " +
       "child process tree (expected ELECTRON_RUN_AS_NODE=1).\n",
   );

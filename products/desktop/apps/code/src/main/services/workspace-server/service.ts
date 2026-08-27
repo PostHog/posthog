@@ -7,6 +7,7 @@ import { POSTHOG_CODE_INTERNAL_CHILD_ENV } from "@posthog/shared/constants";
 import type { WorkspaceConnection } from "@posthog/workspace-client/client";
 import { injectable } from "inversify";
 import { logger } from "../../utils/logger.js";
+import { safeStreamWrite } from "../../utils/std-stream.js";
 
 const HEALTH_POLL_INTERVAL_MS = 100;
 const HEALTH_POLL_TIMEOUT_MS = 5_000;
@@ -200,8 +201,8 @@ export class WorkspaceServerService extends TypedEventEmitter<WorkspaceServerEve
       windowsHide: true,
     });
 
-    c.stdout?.on("data", (chunk) => process.stdout.write(chunk));
-    c.stderr?.on("data", (chunk) => process.stderr.write(chunk));
+    c.stdout?.on("data", (chunk) => safeStreamWrite(process.stdout, chunk));
+    c.stderr?.on("data", (chunk) => safeStreamWrite(process.stderr, chunk));
     c.once("exit", (code, signal) => {
       if (this.child !== c) return;
       const wasConnected = this.connection !== null;
