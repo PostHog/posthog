@@ -76,8 +76,19 @@ function fakeServer(params?: SignalReportsQueryParams): SignalReportsResponse {
   }
   return {
     count: PIPELINE_TOTAL,
-    results: Array.from({ length: 100 }, (_, i) => readyReport(i)),
+    results: Array.from({ length: params?.limit ?? 100 }, (_, i) =>
+      readyReport(i),
+    ),
   };
+}
+
+function pipelineParams(): SignalReportsQueryParams | undefined {
+  for (const [params] of mockGetSignalReports.mock.calls) {
+    if (params?.has_implementation_pr == null && params?.count_only == null) {
+      return params;
+    }
+  }
+  return undefined;
 }
 
 /** Params of the Reports-count request, or undefined if it was never fired. */
@@ -122,6 +133,15 @@ describe("useInboxAllReports", () => {
     // with the list it labels.
     expect(reportsCountParams()?.status).toBe("ready");
     expect(reportsCountParams()?.count_only).toBe(true);
+  });
+
+  it("loads a small first page before continuing through infinite scroll", async () => {
+    const { result } = renderCounts();
+
+    await waitFor(() => {
+      expect(result.current.allReports).toHaveLength(25);
+    });
+    expect(pipelineParams()).toMatchObject({ limit: 25, offset: 0 });
   });
 
   it("skips the Reports count query for consumers that only read the pulls badge", async () => {
