@@ -1,6 +1,6 @@
 import json
 from collections.abc import Callable, Sequence
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from zoneinfo import ZoneInfo
 
 from django.http import HttpResponse
@@ -493,7 +493,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 body = {}
                 if custom_limits_usd:
                     body["custom_limits_usd"] = custom_limits_usd
-                    if _billing_limit_todays_usage_enabled(self.request.user, org):
+                    if _billing_limit_todays_usage_enabled(cast(User, self.request.user), org):
                         todays_usage = _todays_usage_by_usage_key(org)
                         if todays_usage:
                             body["todays_usage_by_usage_key"] = todays_usage
