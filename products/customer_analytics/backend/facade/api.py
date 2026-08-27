@@ -3972,11 +3972,22 @@ def list_account_meetings(
             | Q(participants__display_name__icontains=search)
         ).distinct()
     count = queryset.count()
-    meetings = queryset.order_by("-start_time").prefetch_related("participants")[offset : offset + limit]
+    meetings = list(queryset.order_by("-start_time").prefetch_related("participants")[offset : offset + limit])
+
+    from products.customer_analytics.backend.logic.gong import (  # noqa: PLC0415 — keeps HogQL off the facade import path
+        get_gong_urls_by_meeting_id,
+    )
+
+    team = user_access_control.team
+    if team is None or team.id != team_id:
+        team = Team.objects.get(id=team_id)
+    gong_urls_by_meeting_id = get_gong_urls_by_meeting_id(team=team, user=user_access_control.user, meetings=meetings)
+
     views = [
         contracts.MeetingView(
             id=meeting.id,
             title=meeting.title,
+            gong_url=gong_urls_by_meeting_id.get(meeting.id),
             start_time=meeting.start_time,
             end_time=meeting.end_time,
             organizer_email=meeting.organizer_email,

@@ -27,8 +27,10 @@ import {
     OrganizationFeatureFlag,
     PropertyFilterType,
     PropertyOperator,
+    RecurrenceInterval,
     ScheduledChangeModels,
     ScheduledChangeOperationType,
+    ScheduledChangeRequestState,
     ScheduledChangeType,
 } from '~/types'
 import { FeatureFlagFilters } from '~/types'
@@ -1889,7 +1891,7 @@ describe('featureFlagLogic', () => {
         })
     })
 
-    describe('schedule ordering', () => {
+    describe('scheduled changes', () => {
         const makeScheduledChange = (overrides: Partial<ScheduledChangeType>): ScheduledChangeType => ({
             id: 1,
             team_id: MOCK_DEFAULT_PROJECT.id,
@@ -1906,6 +1908,7 @@ describe('featureFlagLogic', () => {
             cron_expression: null,
             last_executed_at: null,
             end_date: null,
+            change_request: null,
             ...overrides,
         })
 
@@ -1953,6 +1956,78 @@ describe('featureFlagLogic', () => {
             await expectLogic(logic).toMatchValues({
                 activeSchedules: expectedIds.map((id) => partial({ id })),
             })
+        })
+
+        it('moves one-time schedules with a rejected or expired approval to history, keeps others active', async () => {
+            useMocks({
+                get: {
+                    [schedulesUrl]: () => [
+                        200,
+                        {
+                            results: [
+                                makeScheduledChange({
+                                    id: 1,
+                                    change_request: { id: 'cr-1', state: ScheduledChangeRequestState.Rejected },
+                                }),
+                                makeScheduledChange({
+                                    id: 2,
+                                    change_request: { id: 'cr-2', state: ScheduledChangeRequestState.Expired },
+                                }),
+                                makeScheduledChange({
+                                    id: 3,
+                                    change_request: { id: 'cr-3', state: ScheduledChangeRequestState.Pending },
+                                }),
+                                // A recurring schedule re-gates each occurrence, so a denied request is not terminal.
+                                makeScheduledChange({
+                                    id: 4,
+                                    is_recurring: true,
+                                    recurrence_interval: RecurrenceInterval.Daily,
+                                    change_request: { id: 'cr-4', state: ScheduledChangeRequestState.Expired },
+                                }),
+                                // An executed row pins how denied rows interleave with real history:
+                                // executed first, never-executed denied rows after.
+                                makeScheduledChange({
+                                    id: 5,
+                                    scheduled_at: '2025-12-01T00:00:00Z',
+                                    executed_at: '2025-12-01T00:00:00Z',
+                                }),
+                            ],
+                        },
+                    ],
+                },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.loadScheduledChanges()
+            }).toDispatchActions(['loadScheduledChangesSuccess'])
+
+            await expectLogic(logic).toMatchValues({
+                activeSchedules: [partial({ id: 3 }), partial({ id: 4 })],
+                completedSchedules: [partial({ id: 5 }), partial({ id: 2 }), partial({ id: 1 })],
+            })
+        })
+
+        it.each([
+            {
+                name: 'gated create toasts pending approval',
+                change_request: { id: 'cr-toast', state: ScheduledChangeRequestState.Pending },
+                expectedMessage:
+                    'Change scheduled - pending approval. It will be skipped if not approved before the scheduled time.',
+            },
+            {
+                name: 'ungated create toasts plain success',
+                change_request: null,
+                expectedMessage: 'Change scheduled successfully',
+            },
+        ])('$name', async ({ change_request, expectedMessage }) => {
+            useMocks({ get: { [schedulesUrl]: () => [200, { results: [] }] } })
+            // The success listener reports to eventUsageLogic, but featureFlagLogic does not mount it via connect().
+            eventUsageLogic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.createScheduledChangeSuccess(makeScheduledChange({ change_request }))
+            }).toFinishAllListeners()
+
+            expect(lemonToast.success).toHaveBeenCalledWith(expectedMessage)
         })
 
         it('orders completed changes most-recent first', async () => {
@@ -2021,6 +2096,42 @@ describe('featureFlagLogic', () => {
             await expectLogic(logic).toMatchValues({
                 completedSchedules: [partial({ id: 1 }), partial({ id: 2 })],
             })
+        })
+
+        it('collapses the form again after a create, so the plan stays in front', async () => {
+            useMocks({ get: { [schedulesUrl]: () => [200, { results: [makeScheduledChange({ id: 1 })] }] } })
+            // The success listener reports to eventUsageLogic, but featureFlagLogic does not mount it via connect().
+            eventUsageLogic.mount()
+            await expectLogic(logic, () => {
+                logic.actions.loadScheduledChanges()
+            }).toDispatchActions(['loadScheduledChangesSuccess'])
+
+            logic.actions.setScheduleFormExpanded(true)
+            expect(logic.values.scheduleFormState).toEqual('expanded')
+
+            await expectLogic(logic, () => {
+                logic.actions.createScheduledChangeSuccess(makeScheduledChange({ id: 2 }))
+            }).toFinishAllListeners()
+
+            expect(logic.values.scheduleFormState).toEqual('collapsed')
+        })
+
+        it('opens the form again when the last schedule goes, to match the empty state', async () => {
+            let results = [makeScheduledChange({ id: 1 })]
+            useMocks({ get: { [schedulesUrl]: () => [200, { results }] } })
+            await expectLogic(logic, () => {
+                logic.actions.loadScheduledChanges()
+            }).toDispatchActions(['loadScheduledChangesSuccess'])
+
+            logic.actions.setScheduleFormExpanded(false)
+            expect(logic.values.scheduleFormState).toEqual('collapsed')
+
+            results = []
+            await expectLogic(logic, () => {
+                logic.actions.loadScheduledChanges()
+            }).toDispatchActions(['loadScheduledChangesSuccess'])
+
+            expect(logic.values.scheduleFormState).toEqual('expanded')
         })
     })
 
