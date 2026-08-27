@@ -251,7 +251,8 @@ tools:
             title, start and end times, organizer, status, optional Gong call URL, and participants. Each participant
             includes their email, display name, RSVP status, organizer status, and resolved PostHog person UUID when
             available. Pass `search` to filter by meeting title, attendee email, or attendee name. The account must be
-            accessible to the caller. Meetings and participants are read-only because they sync from connected calendars.
+            accessible to the caller. Meetings and participants are read-only because they sync from connected
+            calendars.
         feature_flag: customer-analytics-csp
         response:
             informational_wrapper:
