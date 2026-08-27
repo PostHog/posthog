@@ -1200,6 +1200,15 @@ test('the cascade names direct importers and stops before the next hop', () => {
 // The base CONTEXT keeps an empty tach graph, so no product is declared in it.
 // A product `tach check` does not constrain has no bounded importer set: any
 // module may import it, so its change still has to reach every backend lane.
+// The tach map is read from the head tree, so a file the PR deleted has no
+// importer edge left; alpha's known importers are not enough to bound its lane.
+test('a deleted product python file widens to every backend target', () => {
+    const file = 'products/alpha/backend/facade/api.py'
+    const context = { ...TACH_DECLARED_CONTEXT, deletedFiles: new Set([file]) }
+    assert.equal(computeTargets([file], context).includes('py:core'), true)
+    assert.equal(computeTargets([file], TACH_DECLARED_CONTEXT).includes('py:core'), false)
+})
+
 test('a product absent from the tach graph widens to every backend target', () => {
     const targets = computeTargets(['products/gamma/backend/api.py'], CONTEXT)
     assert.equal(targets.includes('py:core'), true)

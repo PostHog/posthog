@@ -450,9 +450,44 @@ function runTachMap(repoRoot) {
     }
 }
 
+// Python files under products/ that the diff deleted, or null when the diff
+// cannot be read. Renames count as deletions of the old path. Empty without a
+// base ref: a push run tests everything regardless.
+//
+// The map is read from the head tree, so a deleted file is not a key in it and
+// an importer of that file has no edge left; the importer's suite would be the
+// one that fails on the missing module. Any such file makes the cascade
+// unknown, so callers widen on it as they do on an unreadable map.
+function deletedProductPythonFiles() {
+    const base = process.env.TURBO_SCM_BASE
+    if (!base) {
+        return []
+    }
+    try {
+        return execFileSync(
+            'git',
+            ['diff', '--name-only', '--no-renames', '--diff-filter=D', `${base}...HEAD`, '--', 'products/'],
+            TURBO_EXEC_OPTS
+        )
+            .split('\n')
+            .filter((file) => file.endsWith('.py') && productOfFile(file) !== null)
+    } catch (e) {
+        console.error(`::warning::Could not list deleted files against ${base} (${e.message}) — the dependent cascade widens to every product`)
+        return null
+    }
+}
+
 // Products that transitively depend on `products` per the tach map, or null when
 // the map cannot be read. Callers treat null as "unknown dependents" and widen.
 function tachDependentProducts(products, allProductSet) {
+    const deleted = deletedProductPythonFiles()
+    if (deleted === null) {
+        return null
+    }
+    if (deleted.length > 0) {
+        console.error(`Deleted product files have no importer edges in the tach map: ${JSON.stringify(deleted)} — the dependent cascade widens to every product`)
+        return null
+    }
     const tachGraph = loadTachModuleGraph()
     if (tachGraph === null) {
         return null

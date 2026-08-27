@@ -1458,6 +1458,7 @@ function computeTargets(changedFiles, context) {
         productWorkspaces = new Map(),
         backendDetachedProducts = new Set(),
         tachDeclaredProducts = listTachDeclaredProducts(products, tachGraph),
+        deletedFiles = new Set(),
     } = context
     const targets = new Set()
 
@@ -1648,7 +1649,13 @@ function computeTargets(changedFiles, context) {
                 targets.add(feProduct(product))
             }
             if (isBackend || (!isBackend && !isFrontend && !isWorkspaceOnly)) {
-                if (isolatedProducts.has(product)) {
+                if (isBackend && deletedFiles.has(file)) {
+                    // The tach map is read from the head tree, so a deleted or
+                    // renamed-away file is not in it and its importers are
+                    // unknown. The PR that removes a facade module beside a
+                    // caller it missed is the exact conflict lanes exist for.
+                    allPyProducts()
+                } else if (isolatedProducts.has(product)) {
                     targets.add(pyProduct(product))
                     if (touchesContractSurface(product, file, contractSurfaces)) {
                         cascadeSeeds.add(product)
@@ -1914,7 +1921,9 @@ if (require.main === module) {
             console.error('No changed files on stdin; reporting ALL')
             result = ALL
         } else {
-            result = computeTargets(changedFiles, buildContext(REPO_ROOT))
+            // The change list carries deleted paths too; the tree no longer does.
+            const deletedFiles = new Set(changedFiles.filter((file) => !fs.existsSync(path.join(REPO_ROOT, file))))
+            result = computeTargets(changedFiles, { ...buildContext(REPO_ROOT), deletedFiles })
         }
     } catch (error) {
         // Any unexpected failure has to widen rather than narrow, because a
