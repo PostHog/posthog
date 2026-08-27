@@ -624,6 +624,11 @@ class ScratchpadEntrySerializer(serializers.Serializer):
     )
     created_at = serializers.CharField(allow_null=True, help_text="ISO-8601 creation timestamp.")
     updated_at = serializers.CharField(allow_null=True, help_text="ISO-8601 last-write timestamp.")
+    expires_at = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="ISO-8601 expiry, or null for a durable memory that stays until it's forgotten.",
+    )
     created_by_run_id = serializers.CharField(
         allow_null=True,
         help_text="Run that wrote this entry, or null if human-authored.",
@@ -666,6 +671,14 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
             "ISO-8601 exclusive upper bound on `updated_at`. Pass to walk back past the result "
             "cap on subsequent calls (cursor-style: set to the `updated_at` of the oldest entry "
             "from the prior page)."
+        ),
+    )
+    include_expired = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Include entries whose `expires_at` has passed. Off by default so a time-boxed memory "
+            "retires itself; turn it on to audit what the fleet remembered and when it lapsed."
         ),
     )
     keys_only = serializers.BooleanField(
@@ -717,6 +730,21 @@ class RememberRequestSerializer(serializers.Serializer):
             "null), not rejected, so the memory write is never lost."
         ),
     )
+    expires_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional ISO-8601 expiry for a memory that's only true for a while (a cooldown, a "
+            "window you're watching). After this time the entry drops out of searches, so you "
+            "don't have to come back and forget it. Omit for a durable memory — every write sets "
+            "the whole entry, so omitting it on a later write clears an expiry set earlier."
+        ),
+    )
+
+    def validate_expires_at(self, value: datetime | None) -> datetime | None:
+        if value is not None and value <= timezone.now():
+            raise serializers.ValidationError("expires_at must be in the future")
+        return value
 
 
 class ForgetRequestSerializer(serializers.Serializer):

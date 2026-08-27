@@ -493,7 +493,10 @@ class DebugCHQueries(viewsets.ViewSet):
 
         config = get_or_create_team_extension(team, TeamExperimentsConfig)
         config.experiment_precomputation_enabled = enabled
-        config.save(update_fields=["experiment_precomputation_enabled"])
+        # A human toggling precomputation must stick: the auto-enrollment job only
+        # writes when precomputation_enabled_set_by is null or "auto".
+        config.precomputation_enabled_set_by = TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL
+        config.save(update_fields=["experiment_precomputation_enabled", "precomputation_enabled_set_by"])
 
         org_id = str(team.organization.id) if team.organization else None
         arr_by_org = self._fetch_org_arr({org_id}) if org_id else {}

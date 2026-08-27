@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::billing::{BillingAggregator, FeatureFlagsLimiter, SessionReplayLimiter};
+use crate::billing::{BillingAggregator, FeatureFlagsLimiter, SessionReplayLimiter, UsageReporter};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::cohorts::membership::{
     CachedCohortMembershipProvider, CohortMembershipProvider, NoOpCohortMembershipProvider,
@@ -547,8 +547,18 @@ pub async fn serve(
         tokio_monitor.start_monitoring(tokio_monitor_handle).await;
     });
 
-    let billing_aggregator: Arc<BillingAggregator> =
-        BillingAggregator::start(redis_client.clone(), config.get_billing_aggregator_config());
+    let usage_reporter = UsageReporter::new(
+        &config.usage_ingestion_addr,
+        config.usage_ingestion_tls,
+        config.usage_ingestion_teams.clone(),
+        config.usage_ingestion_timeout_ms,
+    )
+    .expect("invalid usage-ingestion configuration");
+    let billing_aggregator: Arc<BillingAggregator> = BillingAggregator::start_with_usage_reporter(
+        redis_client.clone(),
+        config.get_billing_aggregator_config(),
+        usage_reporter,
+    );
 
     let app = router::router(
         redis_client,

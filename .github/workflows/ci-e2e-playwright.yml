@@ -738,11 +738,13 @@ jobs:
                   pnpm --filter=@posthog/frontend build:products
                   pnpm --filter=@posthog/frontend build
 
-            - name: Collect static files
+            - name: Collect static files without compression
               # The image-bitmap-data-url-worker-*.js.map files are already mirrored
               # into frontend/dist/ by copyRRWebWorkerFiles() in frontend/build.mjs
               # (see common/esbuilder/utils.mjs), which runs as part of the
               # `pnpm --filter=@posthog/frontend build` step above. No extra cp needed.
+              env:
+                  STATIC_PRECOMPRESS: '0'
               run: python manage.py collectstatic --noinput
             - name: Create test database
               shell: bash
