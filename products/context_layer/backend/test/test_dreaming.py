@@ -55,6 +55,28 @@ class TestDreamPrompt(SimpleTestCase):
         assert "name: context-layer-dreaming" not in prompt
 
 
+class TestDreamCandidates(SimpleTestCase):
+    def test_fetch_candidates_caps_each_tick_at_one_thousand(self) -> None:
+        configs = [MagicMock(last_dream_started_at=None, organization_id=index) for index in range(1001)]
+        queryset = MagicMock()
+        queryset.order_by.return_value = configs
+
+        with (
+            patch.object(dreaming.ContextLayerConfig.objects, "filter", return_value=queryset),
+            patch.object(dreaming.context_layer_facade, "is_context_layer_enabled", return_value=True),
+            patch.object(dreaming, "_capture_lane_event") as capture_mock,
+        ):
+            candidates = dreaming._fetch_dream_candidates()
+
+        assert len(candidates) == 1000
+        assert candidates[-1] == "999"
+        capture_mock.assert_called_once_with(
+            dreaming.COORDINATOR_DISTINCT_ID,
+            "context layer dream dispatch cap reached",
+            {"cap": 1000},
+        )
+
+
 class TestDreamingLane(BaseTest):
     def _config(self, **overrides) -> ContextLayerConfig:
         defaults = {"organization": self.organization, "head_sha": "a" * 40, "created_by": self.user}

@@ -38,7 +38,7 @@ from products.context_layer.backend.models import ContextLayerConfig
 
 logger = structlog.get_logger(__name__)
 
-DISPATCH_CAP_PER_TICK = 200
+DISPATCH_CAP_PER_TICK = 1000
 # Dispatch failures, not run failures: a lane pauses when we cannot even start
 # its nightly run several nights in a row, and a human unpauses it.
 FAILURE_STREAK_PAUSE_THRESHOLD = 3
