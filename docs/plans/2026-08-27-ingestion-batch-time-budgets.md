@@ -370,7 +370,10 @@ Everything here is inert: no code constructs a limited budget until Phase C wire
     `CompletedSubBatch` gains `accepted` / `timedOut` / `rejected` computed from the completed batch's elements in feed order; the server acks `PARTIAL` when either list is non-empty after `settled`, `OK` otherwise.
     Tests assert the ack invariant from the wire-protocol section.
 
-### Phase D — consumer (commits 17–23)
+### Phase D — consumer (follow-up PR, commits 17–23)
+
+This branch stays on the Node.js side; the consumer commits land in a follow-up PR.
+The wire compatibility rules make the split safe: an old consumer treats `PARTIAL` as retriable `BUSY`, and the worker ships in shadow mode, where no `PARTIAL` ack is ever produced.
 
 17. `feat(ingestion-consumer): stamp sub-batch budgets from config`
     `INGESTION_WORKER_SUB_BATCH_SOFT_BUDGET_MS` / `_HARD_BUDGET_MS` (default 0 — today's semantics), stamped on every `SubBatch`; hard < soft when both set is a startup config error.
@@ -395,7 +398,7 @@ Everything here is inert: no code constructs a limited budget until Phase C wire
 25. `feat(ingestion): seal batch stores at settle and cap zombies`
     Batch-scoped store views seal at settle (late writes dropped with a counter) and stay alive until their zombies drain; at the zombie cap the worker stops admitting (`BUSY`), with the outstanding-zombies gauge and the hard-settle metrics.
 
-Out of scope for this branch: step adoption (rollout stage 5 — driven by production overrun metrics) and any production config enabling budgets.
+Out of scope for this branch: the consumer (Phase D, a follow-up PR), step adoption (rollout stage 5 — driven by production overrun metrics), and any production config enabling budgets.
 
 ## Alternatives considered
 
