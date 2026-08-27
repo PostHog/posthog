@@ -26,7 +26,7 @@ from posthog.sync import database_sync_to_async
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
-from products.replay_vision.backend.observation_formatting import EVENT_ID_CITATION_RE, describe_output
+from products.replay_vision.backend.observation_formatting import describe_output, plain_snippet
 from products.replay_vision.backend.scanner_access import readable_scanner_ids
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
 from products.replay_vision.backend.temporal.decorators import track_activity
@@ -515,9 +515,10 @@ def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) 
         text = output.get("summary") or output.get("reasoning")
         if not isinstance(text, str) or not text.strip():
             continue
-        # Collapse to a single line: keeps the feed one-observation-per-line and stops recording-derived
-        # text from forging extra descriptor-bearing lines inside the untrusted fence.
-        clean = re.sub(r"\s+", " ", EVENT_ID_CITATION_RE.sub("", text)).strip()
+        # Flatten and collapse to a single line: keeps the feed one-observation-per-line and stops
+        # recording-derived text from forging extra descriptor-bearing lines inside the untrusted fence.
+        # Uncapped — the feed has its own observation cap, and truncating mid-sentence loses evidence.
+        clean = plain_snippet(text, limit=None)
         descriptor = _synthesis_descriptor(output)
         # Label each line `[obs N]` (1-based) so the model can cite it; N tracks `observation_ids` order,
         # which the serializer mirrors as `index`.

@@ -31,6 +31,23 @@ function chartRefId(href: unknown): string | null {
     return typeof href === 'string' ? (CHART_REF_TARGET.exec(href)?.[1] ?? null) : null
 }
 
+/**
+ * Link target that marks a moment in a recording, e.g. `[01:32](t:92000)` — the offset in milliseconds.
+ * Same reasoning as `chart:`: a link rather than a bespoke token, so the same markdown degrades to a
+ * readable timestamp in the renderers that have no player to seek.
+ */
+export const TIMESTAMP_REF_PREFIX = 't:'
+
+// Bounded digits so an overlong target is an ordinary link rather than a reference, keeping it subject
+// to the usual URL sanitizing. 12 digits is ~31 years of recording, well past any real session.
+const TIMESTAMP_REF_TARGET = new RegExp(`^${TIMESTAMP_REF_PREFIX}(\\d{1,12})$`)
+
+/** The offset in milliseconds behind a `t:` link target, or null when `href` is an ordinary link. */
+function timestampRefMs(href: unknown): number | null {
+    const digits = typeof href === 'string' ? TIMESTAMP_REF_TARGET.exec(href)?.[1] : undefined
+    return digits === undefined ? null : parseInt(digits, 10)
+}
+
 /** Whether a paragraph's child node is a chart reference. */
 function isChartRefNode(node: any): boolean {
     return node?.tagName === 'a' && chartRefId(node.properties?.href) !== null
@@ -91,6 +108,13 @@ export interface LemonMarkdownProps {
      * is a scheme no browser can follow.
      */
     renderChartRef?: (chartId: string, sourceOffset?: number) => React.ReactNode
+    /**
+     * Optional renderer for `t:<ms>` link targets (see `TIMESTAMP_REF_PREFIX`). Returning null or
+     * undefined renders the link's own label as plain text, which is the fallback for a reference no
+     * player is on screen to seek. Omitting this prop renders every timestamp target as its label —
+     * never as a link, since `t:` is a scheme no browser can follow.
+     */
+    renderTimestampRef?: (timestampMs: number) => React.ReactNode
 }
 
 const HEADING_TAGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'] as const
@@ -130,10 +154,17 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     generateHeadingIds = false,
     renderMermaid,
     renderChartRef,
+    renderTimestampRef,
 }: LemonMarkdownProps): JSX.Element {
     const components = useMemo(
         () => ({
             a: ({ href, children, node }: any): JSX.Element => {
+                const timestampMs = timestampRefMs(href)
+                if (timestampMs !== null) {
+                    // Falls back to its own label — the timestamp itself — which is what a reader with no
+                    // player on screen needs anyway.
+                    return <>{renderTimestampRef?.(timestampMs) ?? children}</>
+                }
                 const chartId = chartRefId(href)
                 if (chartId !== null) {
                     // Falls back to its own label as plain text: for a consumer that can't draw
@@ -277,19 +308,22 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
             generateHeadingIds,
             renderMermaid,
             renderChartRef,
+            renderTimestampRef,
         ]
     )
 
-    // `chart:` is not a protocol the default URL sanitizer knows, so it strips the href before the
-    // `a` override ever sees it — and an emptied href is what `Link` turns into a focusable
-    // target-blank stub that goes nowhere. Let the scheme through whether or not this caller can
-    // draw charts, so the `a` override can recognize the reference and render its label as text.
-    // Only on `href`: the same transform runs for an image `src`, where nothing downstream reads a
-    // chart reference, so `![x](chart:y)` would carry an unsanitized scheme into a broken image.
+    // Neither `chart:` nor `t:` is a protocol the default URL sanitizer knows, so it strips the href
+    // before the `a` override ever sees it — and an emptied href is what `Link` turns into a focusable
+    // target-blank stub that goes nowhere. Let both schemes through whether or not this caller can draw
+    // charts or seek a player, so the `a` override can recognize the reference and render its label as
+    // text. Only on `href`: the same transform runs for an image `src`, where nothing downstream reads a
+    // reference, so `![x](chart:y)` would carry an unsanitized scheme into a broken image.
     const urlTransform = useMemo(
         () =>
             (url: string, key: string): string =>
-                key === 'href' && chartRefId(url) !== null ? url : defaultUrlTransform(url),
+                key === 'href' && (chartRefId(url) !== null || timestampRefMs(url) !== null)
+                    ? url
+                    : defaultUrlTransform(url),
         []
     )
 
@@ -319,6 +353,7 @@ function LemonMarkdownComponent({
     generateHeadingIds = false,
     renderMermaid,
     renderChartRef,
+    renderTimestampRef,
     className,
 }: LemonMarkdownProps): JSX.Element {
     return (
@@ -331,6 +366,7 @@ function LemonMarkdownComponent({
                 generateHeadingIds={generateHeadingIds}
                 renderMermaid={renderMermaid}
                 renderChartRef={renderChartRef}
+                renderTimestampRef={renderTimestampRef}
             >
                 {children}
             </LemonMarkdownRenderer>

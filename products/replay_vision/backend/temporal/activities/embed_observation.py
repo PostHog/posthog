@@ -27,6 +27,7 @@ from products.replay_vision.backend.embeddings import (
     EMBEDDING_PRODUCT,
     OBSERVATION_EMBEDDING_MODEL,
 )
+from products.replay_vision.backend.observation_formatting import flatten_markdown
 from products.replay_vision.backend.tags import slugify_tag
 from products.replay_vision.backend.temporal.constants import KAFKA_DELIVERY_TIMEOUT_S
 from products.replay_vision.backend.temporal.decorators import track_activity
@@ -49,8 +50,10 @@ def _renderings_for(model_output: AnyScannerOutput) -> list[tuple[str, str]]:
             ("friction_points", "\n".join(model_output.friction_points)),
             ("keywords", ", ".join(model_output.keywords)),
         ]
-    # monitor / classifier / scorer all carry a free-text `reasoning` field.
-    return [("reasoning", model_output.reasoning)]
+    # monitor / classifier / scorer all carry a free-text `reasoning` field. Flattened first: markdown
+    # syntax the model wrote is not meaning, and embedding `**` and `##` tokens dilutes the vector that
+    # semantic search ranks on.
+    return [("reasoning", flatten_markdown(model_output.reasoning))]
 
 
 def _result_metadata(model_output: AnyScannerOutput) -> dict[str, Any]:
