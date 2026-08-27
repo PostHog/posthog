@@ -23,12 +23,12 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { filterRecentsForContext } from 'lib/components/TaxonomicFilter/utils/suggestedContextFilters'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
-import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
+import { experimentsLogic } from 'products/experiments/frontend/scenes/experimentsLogic'
 
 export type GetLocalOverride = (groupType: TaxonomicFilterGroupType) => TaxonomicDefinitionTypes[] | undefined
 

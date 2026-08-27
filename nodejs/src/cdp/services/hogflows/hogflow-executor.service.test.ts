@@ -1,4 +1,3 @@
-// Serial: resets shared Postgres and relies on the reset-created default team.
 // sort-imports-ignore
 import { DateTime, Duration } from 'luxon'
 
@@ -10,9 +9,9 @@ import { compileHog } from '~/cdp/templates/compiler'
 import { createHub } from '~/common/utils/db/hub'
 import { logger } from '~/common/utils/logger'
 import { fetch } from '~/common/utils/request'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTestTeamFixture, uniqueTestId } from '~/tests/helpers/sql'
 
-import { Hub } from '../../../types'
+import { Hub, Team } from '../../../types'
 import { HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { CohortMembershipRepository } from '../cohorts/cohort-membership-repository'
@@ -50,6 +49,8 @@ const cleanLogs = (logs: string[]): string[] => {
 describe('Hogflow Executor', () => {
     let executor: HogFlowExecutorService
     let hub: Hub
+    let team: Team
+    let integrationId: number
     const mockFetch = jest.mocked(fetch)
 
     beforeEach(async () => {
@@ -63,10 +64,11 @@ describe('Hogflow Executor', () => {
             }
         })
 
-        await resetTestDatabase()
         hub = await createHub({
             SITE_URL: 'http://localhost:8000',
         })
+        team = (await createTestTeamFixture(hub.postgres)).team
+        integrationId = uniqueTestId()
         const hogInputsService = new HogInputsService(
             hub.integrationManager,
             new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
@@ -81,7 +83,6 @@ describe('Hogflow Executor', () => {
                 sesEndpoint: hub.SES_ENDPOINT,
                 sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
                 sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
-                sesTenantAttributionEnabled: hub.EMAIL_SES_TENANT_ATTRIBUTION_ENABLED,
             },
             hub.integrationManager,
             new TeamWorkflowsConfigService(hub.postgres),
@@ -2620,10 +2621,8 @@ describe('Hogflow Executor', () => {
         }
 
         it('should record billing metrics for both regular hog functions and email functions', async () => {
-            const team = await getFirstTeam(hub.postgres)
-
             await insertIntegration(hub.postgres, team.id, {
-                id: 1,
+                id: integrationId,
                 kind: 'email',
                 config: {
                     email: 'test@posthog.com',
@@ -2697,7 +2696,7 @@ describe('Hogflow Executor', () => {
                                             name: 'Recipient',
                                         },
                                         from: {
-                                            integrationId: 1,
+                                            integrationId,
                                         },
                                         subject: 'Test Email 1',
                                         text: 'Test Text 1',
@@ -2719,7 +2718,7 @@ describe('Hogflow Executor', () => {
                                             name: 'Recipient 2',
                                         },
                                         from: {
-                                            integrationId: 1,
+                                            integrationId,
                                         },
                                         subject: 'Test Email 2',
                                         text: 'Test Text 2',
@@ -2776,10 +2775,8 @@ describe('Hogflow Executor', () => {
 
     describe('email queue routing', () => {
         it('should route email actions to the email queue', async () => {
-            const team = await getFirstTeam(hub.postgres)
-
             await insertIntegration(hub.postgres, team.id, {
-                id: 1,
+                id: integrationId,
                 kind: 'email',
                 config: {
                     email: 'test@posthog.com',
@@ -2835,7 +2832,7 @@ describe('Hogflow Executor', () => {
                                     email: {
                                         value: {
                                             to: { email: 'recipient@example.com', name: 'Recipient' },
-                                            from: { integrationId: 1, email: 'test@posthog.com' },
+                                            from: { integrationId, email: 'test@posthog.com' },
                                             subject: 'Test Email',
                                             text: 'Test',
                                             html: '<p>Test</p>',
@@ -2870,10 +2867,8 @@ describe('Hogflow Executor', () => {
         })
 
         it('should complete the full round-trip: hogflow → email queue → email sent → workflow continues', async () => {
-            const team = await getFirstTeam(hub.postgres)
-
             await insertIntegration(hub.postgres, team.id, {
-                id: 1,
+                id: integrationId,
                 kind: 'email',
                 config: {
                     email: 'test@posthog.com',
@@ -2929,7 +2924,7 @@ describe('Hogflow Executor', () => {
                                     email: {
                                         value: {
                                             to: { email: 'recipient@example.com', name: 'Recipient' },
-                                            from: { integrationId: 1, email: 'test@posthog.com' },
+                                            from: { integrationId, email: 'test@posthog.com' },
                                             subject: 'Test Email',
                                             text: 'Test text',
                                             html: '<p>Test html</p>',

@@ -50007,6 +50007,7 @@ export namespace Schemas {
     /**
      * * `BOUNCE` - Bounce
      * * `MANUAL` - Manual
+     * * `COMPLAINT` - Complaint
      */
     export type MessageSuppressionSourceEnum = typeof MessageSuppressionSourceEnum[keyof typeof MessageSuppressionSourceEnum];
 
@@ -50014,6 +50015,7 @@ export namespace Schemas {
     export const MessageSuppressionSourceEnum = {
       Bounce: 'BOUNCE',
       Manual: 'MANUAL',
+      Complaint: 'COMPLAINT',
     } as const;
 
     export interface MessageSuppression {
@@ -50021,10 +50023,11 @@ export namespace Schemas {
       readonly id: string;
       /** Normalized recipient email address. Suppression is keyed on this value, per team. */
       readonly identifier: string;
-      /** How the entry landed on the list: `BOUNCE` for automatic (bounce-driven), `MANUAL` for user-added via the UI/API.
+      /** How the entry landed on the list: `BOUNCE` for automatic (bounce-driven), `COMPLAINT` for automatic (the recipient reported a message as spam), `MANUAL` for user-added via the UI/API.
        *
        * * `BOUNCE` - Bounce
-       * * `MANUAL` - Manual */
+       * * `MANUAL` - Manual
+       * * `COMPLAINT` - Complaint */
       readonly source: MessageSuppressionSourceEnum;
       /**
          * Human-readable reason for the suppression (e.g. 'Auto-suppressed after 5 consecutive soft bounces').
@@ -50395,6 +50398,21 @@ export namespace Schemas {
       readonly id: string;
     } | null;
 
+    /**
+     * One notebook-level variable. Shared by the notebook's own `variables` field and a run body.
+     */
+    export interface NotebookVariable {
+      /**
+         * Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.
+         * @maxLength 200
+         */
+      name: string;
+      /** How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'. */
+      type: string;
+      /** The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone. */
+      value?: unknown;
+    }
+
     export interface Notebook {
       /** UUID of the notebook. */
       readonly id: string;
@@ -50435,6 +50453,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly parent_resource: NotebookParentResource;
+      /** Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique. */
+      variables?: NotebookVariable[];
       _create_in_folder?: string;
     }
 
@@ -50806,6 +50826,8 @@ export namespace Schemas {
       output_name?: string;
       /** Available upstream nodes, keyed by dataframe name. A SQL node inlines referenced hogql refs as CTEs — unless it references a local ref, which reroutes the run to the sandbox's DuckDB; a python node materializes the hogql refs its code reads as pandas frames. */
       refs?: NotebookSQLV2RunRequestRefs;
+      /** Notebook-level variables in scope for this run. A SQL node has each `{name}` bound to its value before dispatch; a Python node gets them as globals in the kernel namespace. A SQL node reading a `{name}` that is absent here fails the dispatch. */
+      variables?: NotebookVariable[];
       /**
          * SQL nodes only: id of a direct-query-capable external data source to run against instead of PostHog's ClickHouse. Omit to query PostHog.
          * @nullable
@@ -54697,16 +54719,22 @@ export namespace Schemas {
     }
 
     /**
-     * List response for sandbox environments (subset of fields).
+     * A sandbox environment, as returned by list, detail, create and update.
      */
     export interface SandboxEnvironmentDTO {
       id: string;
       name: string;
       network_access_level: string;
       allowed_domains?: string[];
+      include_default_domains: boolean;
       repositories?: string[];
+      /** Whether any environment variables are set on this environment. */
+      has_environment_variables?: boolean;
+      /** Names of the environment variables that are set, sorted. Values are write-only and never returned. */
+      environment_variable_keys?: string[];
       private: boolean;
       internal: boolean;
+      effective_domains?: string[];
       created_by?: TaskUserBasicInfo | null;
       /** @nullable */
       created_at?: string | null;
@@ -62635,6 +62663,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly parent_resource?: PatchedNotebookParentResource;
+      /** Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique. */
+      variables?: NotebookVariable[];
       _create_in_folder?: string;
     }
 
@@ -95147,7 +95177,7 @@ export namespace Schemas {
      */
     properties?: Property[];
     /**
-     * Search persons, either by email (full text search) or distinct_id (exact match).
+     * Search persons by email, name, person ID, or distinct ID. Partial values match. When the term is a complete email address or UUID that exactly matches a distinct ID or person ID, only that person is returned.
      */
     search?: string;
     };
