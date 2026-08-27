@@ -92,7 +92,14 @@ export function SettingsCardRow({
         )}
       </div>
       {children && (
-        <div className={cn("min-w-0", !stacked && "shrink-0")}>{children}</div>
+        <div
+          className={cn(
+            "min-w-0",
+            !stacked && "flex shrink-0 items-center justify-end",
+          )}
+        >
+          {children}
+        </div>
       )}
     </div>
   );

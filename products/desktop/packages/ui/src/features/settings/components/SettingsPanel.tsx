@@ -197,7 +197,7 @@ export function SettingsPanel({
         <div className="drag h-[36px] shrink-0 border-b border-b-border" />
 
         {isAuthenticated && user && (
-          <div className="flex items-center gap-3 border-b border-b-border px-3 py-3">
+          <div className="flex h-14 items-center gap-3 border-b border-b-border px-3">
             <UserAvatar user={user} />
             <div className="flex min-w-0 flex-col">
               <span className="truncate font-medium text-sm">{user.email}</span>
