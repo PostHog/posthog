@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 from unittest.mock import patch
 
 from django.test import TestCase, override_settings
@@ -14,6 +16,10 @@ from products.tasks.backend.temporal.process_task.activities.slack_agent_design 
 
 @override_settings(SITE_URL="https://us.posthog.com")
 class TestSlackAgentDesignStream(TestCase):
+    org: ClassVar[Organization]
+    team: ClassVar[Team]
+    integration: ClassVar[Integration]
+
     @classmethod
     def setUpTestData(cls) -> None:
         cls.org = Organization.objects.create(name="TestOrg")
