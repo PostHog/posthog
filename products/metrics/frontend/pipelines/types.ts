@@ -176,12 +176,14 @@ function humanNumber(value: number): string {
 function humanBytes(value: number): string {
     const units = ['B', 'KB', 'MB', 'GB', 'TB']
     let unitIndex = 0
-    let scaled = value
+    // Scale on the magnitude so a negative delta picks the same unit as its
+    // positive twin instead of staying in bytes.
+    let scaled = Math.abs(value)
     while (scaled >= 1024 && unitIndex < units.length - 1) {
         scaled /= 1024
         unitIndex += 1
     }
-    return `${scaled.toFixed(1)} ${units[unitIndex]}/s`
+    return `${value < 0 ? '-' : ''}${scaled.toFixed(1)} ${units[unitIndex]}`
 }
 
 function humanDuration(seconds: number): string {

@@ -264,17 +264,28 @@ def get_pipeline(*, team: Team, pipeline_id: str) -> MetricsPipelineRecord:
         raise PipelineNotFoundError(pipeline_id) from e
 
 
+def _validated_config(config: dict) -> dict:
+    """Validate a config and fill the optional list keys.
+
+    A PATCH sends `partial=True`, which DRF propagates into the nested config
+    serializer, so its `edges`/`variables` defaults are skipped and the keys can
+    be absent. The parser tolerates that, but readers should not have to, so the
+    stored config always carries every top-level key.
+    """
+    _parse_pipeline_config(config)
+    return {**config, "edges": config.get("edges") or [], "variables": config.get("variables") or []}
+
+
 def create_pipeline(
     *, team: Team, created_by_id: int | None, name: str, description: str, config: dict, enabled: bool = True
 ) -> MetricsPipelineRecord:
     """Create a pipeline. Raises `ValueError` when `config` is invalid."""
-    _parse_pipeline_config(config)
     pipeline = MetricsPipeline.objects.for_team(team.pk).create(
         team_id=team.pk,
         created_by_id=created_by_id,
         name=name,
         description=description,
-        config=config,
+        config=_validated_config(config),
         enabled=enabled,
     )
     return _to_pipeline_record(_pipeline_queryset(team).get(id=pipeline.id))
@@ -296,8 +307,7 @@ def update_pipeline(
     except (MetricsPipeline.DoesNotExist, ValueError, ValidationError) as e:
         raise PipelineNotFoundError(pipeline_id) from e
     if config is not None:
-        _parse_pipeline_config(config)
-        pipeline.config = config
+        pipeline.config = _validated_config(config)
     if name is not None:
         pipeline.name = name
     if description is not None:

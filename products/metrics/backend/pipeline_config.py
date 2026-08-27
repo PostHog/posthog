@@ -16,6 +16,7 @@ from typing import Any
 
 from products.metrics.backend.facade.contracts import (
     MAX_PIPELINE_BREAKDOWN_TOP_N,
+    MAX_PIPELINE_EDGES,
     MAX_PIPELINE_NODES,
     MAX_PIPELINE_STATS_PER_NODE,
     MetricFilter,
@@ -310,7 +311,16 @@ def parse_pipeline_config(data: Any) -> PipelineConfig:
     raw_edges = data.get("edges") or ()
     if not isinstance(raw_edges, Sequence) or isinstance(raw_edges, str):
         raise ValueError("edges: must be a list")
+    # Every edge costs two ClickHouse queries per evaluation, and the scene
+    # re-evaluates on a timer, so the count is capped rather than left to the
+    # node cap (which bounds pairs at n^2, not the list length).
+    if len(raw_edges) > MAX_PIPELINE_EDGES:
+        raise ValueError(f"edges: at most {MAX_PIPELINE_EDGES} edges are allowed")
     edges = tuple(_parse_edge(e, path=f"edges[{i}]", node_ids=set(node_ids)) for i, e in enumerate(raw_edges))
+    pairs = [(edge.source, edge.target) for edge in edges]
+    for pair in pairs:
+        if pairs.count(pair) > 1:
+            raise ValueError(f"edges: duplicate edge {pair[0]!r} -> {pair[1]!r}")
     _assert_acyclic(nodes, edges)
 
     raw_variables = data.get("variables") or ()

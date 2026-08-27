@@ -19,6 +19,7 @@ import {
     updateNode,
     updateStat,
     updateVariable,
+    withUpperBound,
 } from './configEdits'
 import { PipelineLogicProps, pipelineLogic } from './pipelineLogic'
 import { PipelineConfigType, PipelineStatFormat } from './types'
@@ -187,10 +188,11 @@ export function PipelineEditor({ id }: PipelineLogicProps): JSX.Element {
                                                     onChange={(value) =>
                                                         setConfig(
                                                             updateStat(config, nodeIndex, statIndex, {
-                                                                thresholds: {
-                                                                    ...stat.thresholds,
-                                                                    warn: value === undefined ? null : { upper: value },
-                                                                },
+                                                                thresholds: withUpperBound(
+                                                                    stat.thresholds,
+                                                                    'warn',
+                                                                    value
+                                                                ),
                                                             })
                                                         )
                                                     }
@@ -204,10 +206,11 @@ export function PipelineEditor({ id }: PipelineLogicProps): JSX.Element {
                                                     onChange={(value) =>
                                                         setConfig(
                                                             updateStat(config, nodeIndex, statIndex, {
-                                                                thresholds: {
-                                                                    ...stat.thresholds,
-                                                                    crit: value === undefined ? null : { upper: value },
-                                                                },
+                                                                thresholds: withUpperBound(
+                                                                    stat.thresholds,
+                                                                    'crit',
+                                                                    value
+                                                                ),
                                                             })
                                                         )
                                                     }

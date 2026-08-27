@@ -19,9 +19,12 @@ class MetricsPipeline(
     FileSystemSyncMixin, ModelActivityMixin, TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel
 ):
     """A saved pipeline topology: nodes (components with health stats) and
-    edges (throughput flows), stored as one validated JSON config. The graph
-    invariants live in `parse_pipeline_config`; `clean()` delegates to it so
-    a config that would fail evaluation can never be saved."""
+    edges (throughput flows), stored as one validated JSON config.
+
+    The graph invariants live in `parse_pipeline_config`. The facade validates
+    against it on every write, which is what actually protects the stored
+    config; `clean()` delegates to the same parser so a `full_clean()` caller
+    (a ModelForm, the admin) gets the identical errors."""
 
     # db_constraint=False on the hot-table FKs (team, created_by) keeps the
     # CreateModel migration from taking a lock on posthog_team/posthog_user.

@@ -143,6 +143,33 @@ class TestMetricsPipelinesAPI(APIBaseTest):
             )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_disabled_pipeline_is_not_evaluated(self):
+        # Switching a pipeline off has to actually stop its ClickHouse queries,
+        # not just change a stored flag.
+        pipeline_id = self._create().json()["id"]
+        self.client.patch(
+            f"/api/projects/{self.team.id}/metrics_pipelines/{pipeline_id}/", {"enabled": False}, format="json"
+        )
+        with patch("products.metrics.backend.facade.api.run_metric_query", side_effect=fake_run_metric_query) as run:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/metrics_pipelines/{pipeline_id}/evaluate/", {}, format="json"
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert run.call_count == 0
+
+    def test_patch_without_edges_keeps_the_key(self):
+        # DRF propagates partial=True into the nested config serializer, so its
+        # `edges` default is skipped; the stored config must still carry the key.
+        pipeline_id = self._create().json()["id"]
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/metrics_pipelines/{pipeline_id}/",
+            {"config": {"nodes": SIMPLE_CONFIG["nodes"]}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["config"]["edges"] == []
+        assert response.json()["config"]["variables"] == []
+
     def test_flag_gates_the_api(self):
         self.flag_patcher.stop()
         with patch("posthoganalytics.feature_enabled", return_value=False):

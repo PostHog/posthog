@@ -2,7 +2,14 @@
 // The component computes the next draft with these and dispatches one
 // setDraft action, so every edit stays a plain reducer update.
 
-import { PipelineConfigType, PipelineEdgeType, PipelineNodeType, PipelineStatType, PipelineVariableType } from './types'
+import {
+    PipelineConfigType,
+    PipelineEdgeType,
+    PipelineNodeType,
+    PipelineStatType,
+    PipelineThresholdsType,
+    PipelineVariableType,
+} from './types'
 
 let nextSuffix = 1
 
@@ -81,6 +88,23 @@ export function removeNode(config: PipelineConfigType, index: number): PipelineC
         nodes: config.nodes.filter((_, i) => i !== index),
         edges: config.edges.filter((edge) => edge.source !== removedId && edge.target !== removedId),
     }
+}
+
+/** Set one severity's upper bound, keeping any lower bound already configured.
+ * The editor only exposes the upper bound, so replacing the whole severity
+ * object would silently drop a lower bound set through the API. Clearing the
+ * input drops the severity only when there is no lower bound left to keep. */
+export function withUpperBound(
+    thresholds: PipelineThresholdsType | null | undefined,
+    severity: 'warn' | 'crit',
+    upper: number | undefined
+): PipelineThresholdsType {
+    const existing = thresholds?.[severity]
+    const lower = existing?.lower ?? null
+    if (upper === undefined) {
+        return { ...thresholds, [severity]: lower === null ? null : { lower } }
+    }
+    return { ...thresholds, [severity]: lower === null ? { upper } : { lower, upper } }
 }
 
 export function updateStat(

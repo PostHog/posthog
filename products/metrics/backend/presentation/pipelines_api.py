@@ -397,7 +397,7 @@ class MetricsPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             config=params["config"],
             enabled=params["enabled"],
         )
-        report_user_action(user, "metrics pipeline created")
+        report_user_action(user, "metrics pipeline created", team=self.team)
         return Response(asdict(record), status=status.HTTP_201_CREATED)
 
     @extend_schema(
@@ -430,19 +430,19 @@ class MetricsPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
         except PipelineNotFoundError:
             raise NotFound("Pipeline not found")
-        report_user_action(cast(User, request.user), "metrics pipeline updated")
+        report_user_action(cast(User, request.user), "metrics pipeline updated", team=self.team)
         return Response(asdict(record))
 
     @extend_schema(
         responses={204: None},
-        description="Soft-delete a pipeline: it disappears from lists but keeps its activity history.",
+        description="Soft-delete a pipeline: the row is retained but stops appearing in lists.",
     )
     def destroy(self, request: Request, pk: str, *args, **kwargs) -> Response:
         try:
             soft_delete_pipeline(team=self.team, pipeline_id=pk)
         except PipelineNotFoundError:
             raise NotFound("Pipeline not found")
-        report_user_action(cast(User, request.user), "metrics pipeline deleted")
+        report_user_action(cast(User, request.user), "metrics pipeline deleted", team=self.team)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
@@ -461,6 +461,10 @@ class MetricsPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             record = get_pipeline(team=self.team, pipeline_id=pk)
         except PipelineNotFoundError:
             raise NotFound("Pipeline not found")
+        # Honour the `enabled` flag here rather than only in a future scheduler,
+        # so switching a pipeline off actually stops its ClickHouse queries.
+        if not record.enabled:
+            raise ParseError("This pipeline is disabled. Enable it to evaluate.")
         request_serializer = PipelineEvaluateRequestSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
         params = request_serializer.validated_data
@@ -478,5 +482,5 @@ class MetricsPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except ValueError as e:
             raise ParseError(str(e))
 
-        report_user_action(cast(User, request.user), "metrics pipeline evaluated")
+        report_user_action(cast(User, request.user), "metrics pipeline evaluated", team=self.team)
         return Response(asdict(evaluation), status=status.HTTP_200_OK)

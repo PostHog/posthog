@@ -209,6 +209,19 @@ class TestEvaluatePipeline:
         except ValueError:
             pass
 
+    def test_each_stat_queries_on_its_own_grid(self):
+        # Clauses sharing one request share one zero-filled bucket grid, so a
+        # slow-reporting stat would inherit trailing zeros from a fast
+        # neighbour and read as reporting zero instead of NO_DATA.
+        second = [
+            {"id": f"s{i}", "label": f"stat {i}", "format": "count", "metric_name": f"m{i}", "aggregation": "sum"}
+            for i in range(4)
+        ]
+        config = make_config(second_node_stats=second)
+        _, runner = evaluate(config, respond_with({"s1": [1.0], "s0": [1.0], "s2": [1.0], "s3": [1.0]}))
+        assert runner.requests, "expected at least one query"
+        assert all(len(request.clauses) == 1 for request in runner.requests)
+
     def test_alerts_derived_from_breached_stats(self):
         second = [
             {

@@ -5,8 +5,8 @@ Pure orchestration over an injected `run_query` callable (the facade's
 verdict logic needs no database to exercise.
 
 Query shape per tick:
-- each node's stats are packed into requests of up to `MAX_CLAUSES_PER_QUERY`
-  clauses (clause name = stat id), one bucket grid per node
+- each node stat runs its own single-clause request (clause name = stat id), so
+  every stat keeps its own bucket grid
 - each stat with a breakdown adds one grouped request for its table rows
 - each edge runs two single-clause requests: the current window and the same
   window shifted back by its `baseline_offset`
@@ -18,7 +18,6 @@ import datetime as dt
 from collections.abc import Callable, Mapping
 
 from products.metrics.backend.facade.contracts import (
-    MAX_CLAUSES_PER_QUERY,
     MetricFilter,
     MetricGroupBy,
     MetricPoint,
@@ -118,10 +117,6 @@ def _stat_state(thresholds: PipelineStatThresholds | None, value: float | None) 
     return HealthState.HEALTHY
 
 
-def _chunk(items: list[MetricQueryClause], size: int) -> list[list[MetricQueryClause]]:
-    return [items[i : i + size] for i in range(0, len(items), size)]
-
-
 def _breakdown_rows(
     stat: PipelineStatConfig, series_list: list[MetricSeries]
 ) -> tuple[tuple[PipelineBreakdownRow, ...], PipelineBreakdownRow | None]:
@@ -148,13 +143,18 @@ def _evaluate_node(
     date_to: dt.datetime,
     extra_filters: tuple[MetricFilter, ...],
 ) -> PipelineNodeResult:
-    plain_clauses = [_stat_clause(stat, extra_filters) for stat in node.stats]
+    # One request per stat, never a shared one. Clauses in a single request share
+    # one bucket grid that the runner zero-fills, so a stat scraped every 5 min
+    # packed beside one scraped every 15s would gain trailing zeros from its
+    # neighbour's cadence and read as reporting zero instead of NO_DATA. The
+    # runner already issues one ClickHouse query per clause, so this costs the
+    # same and keeps each stat on its own grid.
     series_by_stat: dict[str, MetricSeries] = {}
-    for chunk in _chunk(plain_clauses, MAX_CLAUSES_PER_QUERY):
-        request = MetricQueryRequest(clauses=tuple(chunk), date_from=date_from, date_to=date_to)
+    for stat in node.stats:
+        request = MetricQueryRequest(clauses=(_stat_clause(stat, extra_filters),), date_from=date_from, date_to=date_to)
         for series in run_query(request):
-            # Ungrouped clauses return exactly one series each; keep the first
-            # per stat defensively if a runner ever returns more.
+            # An ungrouped clause returns exactly one series; keep the first
+            # defensively if a runner ever returns more.
             if series.clause is not None:
                 series_by_stat.setdefault(series.clause, series)
 

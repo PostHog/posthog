@@ -2,6 +2,7 @@ import pytest
 
 from parameterized import parameterized
 
+from products.metrics.backend.facade.contracts import MAX_PIPELINE_EDGES
 from products.metrics.backend.facade.enums import HealthState, MetricAggregation
 from products.metrics.backend.pipeline_config import parse_pipeline_config, parse_relative_offset
 
@@ -135,6 +136,20 @@ class TestParsePipelineConfig:
         node["stats"] = [node["stats"][0], stat]
         with pytest.raises(ValueError, match="quantile"):
             parse_pipeline_config(config_with(nodes=[node], edges=[]))
+
+    def test_duplicate_edges_rejected(self):
+        edge = VALID_CONFIG["edges"][0]
+        with pytest.raises(ValueError, match="duplicate edge"):
+            parse_pipeline_config(config_with(edges=[edge, dict(edge)]))
+
+    def test_too_many_edges_rejected(self):
+        # Every edge costs two ClickHouse queries per refresh tick.
+        edge = VALID_CONFIG["edges"][0]
+        nodes = VALID_CONFIG["nodes"]
+        many = [{**edge, "target": f"n{i}"} for i in range(MAX_PIPELINE_EDGES + 1)]
+        extra = [{**dict(nodes[1]), "id": f"n{i}"} for i in range(MAX_PIPELINE_EDGES + 1)]
+        with pytest.raises(ValueError, match="at most"):
+            parse_pipeline_config(config_with(nodes=[nodes[0], *extra], edges=many))
 
     def test_duplicate_variable_keys_rejected(self):
         variables = [dict(VALID_CONFIG["variables"][0]), dict(VALID_CONFIG["variables"][0])]
