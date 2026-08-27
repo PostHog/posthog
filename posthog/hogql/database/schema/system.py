@@ -25,6 +25,7 @@ from posthog.hogql.database.models import (
     UUIDDatabaseField,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.database.schema.activity_log_visibility import activity_visibility_predicates
 from posthog.hogql.database.schema.information_schema import information_schema_node
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_expr, parse_select
@@ -1318,12 +1319,23 @@ file_system: PostgresTable = PostgresTable(
     },
 )
 
-activity_logs: PostgresTable = PostgresTable(
+
+class _ActivityLogsTable(PostgresTable):
+    """Compiles its visibility rules on first use rather than at import: the rule list lives under
+    `posthog.models`, and this module keeps the ORM off its import path."""
+
+    def get_predicates(self) -> list[Expr]:
+        return list(activity_visibility_predicates())
+
+
+activity_logs: _ActivityLogsTable = _ActivityLogsTable(
     name="activity_logs",
     postgres_table_name="posthog_activitylog",
     access_scope="activity_log",
     # Matches `premium_feature_on_cloud` on the REST activity-log viewsets, which gate the same rows.
     required_feature_on_cloud=AvailableFeature.AUDIT_LOGS,
+    # Same lookback the REST viewsets apply, so the SQL surface can't read past the plan's window.
+    retention_field="created_at",
     description="Audit trail of changes to objects (insights, flags, dashboards, etc.); one row per logged activity.",
     fields={
         "id": StringDatabaseField(name="id", description="Activity log entry UUID."),

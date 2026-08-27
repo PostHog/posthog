@@ -7,12 +7,12 @@ from parameterized import parameterized
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import (
     ActivityLog,
-    activity_visibility_restrictions,
     field_exclusions,
     field_with_masked_contents,
     signal_exclusions,
 )
 from posthog.models.activity_logging.utils import activity_storage, activity_visibility_manager
+from posthog.models.activity_logging.visibility_rules import activity_visibility_restrictions
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import model_activity_signal
 from posthog.test.activity_log_utils import ActivityLogTestHelper

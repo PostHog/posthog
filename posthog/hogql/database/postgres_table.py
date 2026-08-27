@@ -107,6 +107,11 @@ class PostgresTable(FunctionCallTable):
     # different space than this table's ids, so its rows can't be narrowed to a grant and
     # resource-level access is required to query it at all.
     resource_level_access_only: bool = False
+    # Column the entitlement-derived retention floor filters on, for tables whose rows are only
+    # readable back as far as the organization's plan allows. The floor is pushed into the federated
+    # read next to the team guard (see ClickHousePrinter._print_table_ref), so it prunes in Postgres
+    # rather than after the rows have been copied out. None means the table has no retention window.
+    retention_field: Optional[str] = None
     predicates: list[Expr] = []
 
     def get_predicates(self) -> list[Expr]:

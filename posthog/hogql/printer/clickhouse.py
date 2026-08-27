@@ -1,6 +1,6 @@
 import re
 from datetime import date, datetime
-from typing import ClassVar, cast
+from typing import TYPE_CHECKING, ClassVar, Optional, cast
 from uuid import UUID
 
 from django.conf import settings as django_settings
@@ -43,6 +43,9 @@ from posthog.clickhouse.events_json import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PE
 from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION, EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.uuidt import UUIDT
 from posthog.week_start_day import WeekStartDay
+
+if TYPE_CHECKING:
+    from posthog.hogql.database.postgres_table import PostgresTable
 
 
 def _table_filter_type(table_type: ast.TableOrSelectType) -> ast.TableOrSelectType:
@@ -1029,7 +1032,11 @@ class ClickHousePrinter(BasePrinter):
             # both exist at runtime (customer_analytics _AccountScopedPostgresTable).
             and not isinstance(table, DANGEROUS_NoTeamIdCheckTable)  # type: ignore[unreachable]
             and "team_id" in table.fields
-            and not table.get_predicates()
+            # A table declaring a retention floor still gets the wrap, because the floor is the
+            # filter that has to reach Postgres: it is indexed there, and the rows it prunes are
+            # the ones the organization is not entitled to read at all. Its other predicates stay
+            # in the enclosing select and run in ClickHouse over the already-bounded row set.
+            and (table.retention_field is not None or not table.get_predicates())
             and self.context.team_id is not None
         ):
             # The HogQL `team_id` field may map to a differently named DB column (e.g.
@@ -1037,9 +1044,34 @@ class ClickHousePrinter(BasePrinter):
             # the HogQL name. Skip the wrap when the field isn't a plain column.
             team_id_column = getattr(table.fields["team_id"], "name", None)
             if team_id_column:
-                sql = f"(SELECT * FROM {sql} WHERE {team_id_column} = {int(self.context.team_id)})"
+                conditions = [f"{team_id_column} = {int(self.context.team_id)}"]
+                retention_start = self._postgres_retention_start(table)
+                if retention_start is not None:
+                    conditions.append(f"{table.retention_field} >= {self.context.add_value(retention_start)}")
+                sql = f"(SELECT * FROM {sql} WHERE {' AND '.join(conditions)})"
 
         return sql
+
+    def _postgres_retention_start(self, table: "PostgresTable") -> Optional[datetime]:
+        """Oldest row timestamp the organization may read from a retention-bearing federated table.
+
+        Resolved once per query and only when such a table is actually printed, so ordinary queries
+        never pay the organization load. Emitted as a literal rather than `now() - interval` so the
+        comparison survives the trip into Postgres and can use the index there.
+        """
+        if table.retention_field is None:
+            return None
+
+        if not self.context.activity_log_retention_resolved:
+            # Deferred: Django-side load, kept off the printer's import path.
+            from posthog.models.activity_logging.retention import activity_log_retention_start_for_team  # noqa: PLC0415
+
+            self.context.activity_log_retention_start = activity_log_retention_start_for_team(
+                self.context.team, self.context.team_id
+            )
+            self.context.activity_log_retention_resolved = True
+
+        return self.context.activity_log_retention_start
 
     def _print_select_columns(self, columns):
         def _alias_from_column_type(column: ast.Expr) -> str | None:

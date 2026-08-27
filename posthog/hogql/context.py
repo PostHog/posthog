@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from datetime import datetime
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -148,6 +149,13 @@ class HogQLContext:
     # regardless of retention — notably the GDPR data-deletion mutation path — set this False. Deliberately NOT a
     # HogQLQueryModifier, so a query can't disable enforcement.
     apply_events_retention_floor: bool = True
+
+    # Entitlement-derived floor for federated tables that declare a `retention_field` (today only
+    # system.activity_logs). Resolved lazily by the ClickHouse printer the first time such a table is
+    # printed, so a query that never reads one doesn't pay the organization load; `resolved` tracks
+    # that the lookup already happened, since None is itself a meaningful answer (no restriction).
+    activity_log_retention_start: Optional[datetime] = None
+    activity_log_retention_resolved: bool = False
 
     def __post_init__(self):
         if self.team:
