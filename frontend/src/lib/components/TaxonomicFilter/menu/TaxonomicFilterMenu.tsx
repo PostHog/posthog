@@ -50,7 +50,13 @@ import { AnyPropertyFilter, EventDefinition } from '~/types'
 import { useTaxonomicFilterContext } from '../headless/context'
 import { recentTaxonomicFiltersLogic } from '../recentTaxonomicFiltersLogic'
 import { taxonomicFilterPinnedPropertiesLogic } from '../taxonomicFilterPinnedPropertiesLogic'
-import { isQuickFilterItem, META_GROUP_TYPES, TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from '../types'
+import {
+    isQuickFilterItem,
+    META_GROUP_TYPES,
+    TaxonomicDefinitionTypes,
+    TaxonomicFilterGroupType,
+    TaxonomicFilterValue,
+} from '../types'
 import { filterPinnedForContext, filterRecentsForContext } from '../utils/suggestedContextFilters'
 import { MenuFilterCombobox } from './Combobox'
 import { MenuFilterDwhConfig } from './DwhFlow'
@@ -388,7 +394,7 @@ export function TaxonomicFilterMenu({
             const mergedItem = extra
                 ? ({ ...(entry.item as unknown as object), ...extra } as unknown as TaxonomicDefinitionTypes)
                 : entry.item
-            const itemValue = entry.group.getValue?.(mergedItem) ?? null
+            const itemValue = entry.group.getValue?.(mergedItem) ?? entry.canonicalValue ?? null
             hadCommitRef.current = true
             posthog.capture('taxonomic filter menu item selected', {
                 groupType: entry.group.type,
@@ -844,10 +850,10 @@ interface ShortcutItem {
     // this branch was in flight; consumers (this menu) read whichever
     // shape exists. See `taxonomicFilterPinnedPropertiesLogic` /
     // `recentTaxonomicFiltersLogic`.
-    _pinnedContext?: { sourceGroupType?: TaxonomicFilterGroupType; value?: unknown }
+    _pinnedContext?: { sourceGroupType?: TaxonomicFilterGroupType; value?: TaxonomicFilterValue }
     _recentContext?: {
         sourceGroupType?: TaxonomicFilterGroupType
-        sourceValue?: unknown
+        sourceValue?: TaxonomicFilterValue
         propertyFilter?: AnyPropertyFilter
     }
 }
@@ -902,8 +908,8 @@ function mapShortcutItems(items: ShortcutItem[], groups: TaxonomicFilterGroup[])
             // Recent stores the value under `sourceValue`, pinned under
             // `value`. Read whichever side exists.
             const sourceValue =
-                (ctx as { sourceValue?: unknown } | undefined)?.sourceValue ??
-                (ctx as { value?: unknown } | undefined)?.value
+                (ctx as { sourceValue?: TaxonomicFilterValue } | undefined)?.sourceValue ??
+                (ctx as { value?: TaxonomicFilterValue } | undefined)?.value
             const group = resolveShortcutGroup(item, sourceType, sourceValue, groups)
             if (!group) {
                 return null
@@ -914,6 +920,7 @@ function mapShortcutItems(items: ShortcutItem[], groups: TaxonomicFilterGroup[])
                 item: item as TaxonomicDefinitionTypes,
                 group,
                 name,
+                ...(sourceValue != null ? { canonicalValue: sourceValue } : {}),
                 friendlyLabel: getCoreFilterDefinition(name, group.type)?.label,
                 ...(recentPropertyFilter
                     ? { recentPropertyFilter, recentLabel: formatPropertyLabel(recentPropertyFilter, {}) }

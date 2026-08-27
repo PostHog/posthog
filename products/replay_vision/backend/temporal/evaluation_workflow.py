@@ -12,7 +12,10 @@ from temporalio.common import SearchAttributePair, TypedSearchAttributes, Workfl
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.errors import unwrap_temporal_cause
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
-from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
+from posthog.temporal.session_replay.rasterize_recording.types import (
+    RASTERIZE_WORKFLOW_SINGLE_ATTEMPT_TIMEOUT,
+    RasterizeRecordingInputs,
+)
 
 with wf.unsafe.imports_passed_through():
     from django.conf import settings
@@ -136,7 +139,7 @@ class EvaluatePromptSuggestionWorkflow(PostHogWorkflow):
                 task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                 retry_policy=common.RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                execution_timeout=dt.timedelta(minutes=30),
+                execution_timeout=RASTERIZE_WORKFLOW_SINGLE_ATTEMPT_TIMEOUT,
                 search_attributes=TypedSearchAttributes(
                     search_attributes=[
                         SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=inputs.team_id),

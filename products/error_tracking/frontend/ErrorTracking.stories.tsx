@@ -1,10 +1,11 @@
-import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
 import { useLayoutEffect, useState } from 'react'
 
 import type { ErrorEventType } from 'lib/components/Errors/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -20,8 +21,17 @@ import { miniBreakdownsLogic } from './components/Breakdowns/miniBreakdownsLogic
 import { issueFilterPreviewLogic, IssueFilterPreview } from './components/IssueFilterPreview/issueFilterPreviewLogic'
 import { errorTrackingIssueSceneLogic } from './scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 
-const ISSUE_ID = 'issue-id'
+const ISSUE_ID = '01890a1b-2c3d-4e4f-8a9b-0c1d2e3f4a5b'
 const FINGERPRINT = String(TEST_EVENTS.javascript_resolved.properties.$exception_fingerprint)
+const STORY_FINGERPRINTS = [FINGERPRINT, ...Array.from({ length: 11 }, (_, index) => `story-fingerprint-${index + 1}`)]
+const STORY_FINGERPRINT_PROJECTION_RESPONSE = {
+    results: STORY_FINGERPRINTS.map((fingerprint, index) => ({
+        fingerprint,
+        x: Math.cos(index * 1.7) * (1 + (index % 3) * 0.4),
+        y: Math.sin(index * 1.7) * (1 + (index % 4) * 0.3),
+    })),
+    hasMore: false,
+}
 const STORY_STACK_FRAME_RESULTS = stackFrameResults.map((record) => ({
     ...record,
     raw_id: record.raw_id.includes('/') ? record.raw_id : `${record.raw_id}/0`,
@@ -202,6 +212,52 @@ const STORY_POSITION_EVENT = {
     timestamp: STORY_TIMESTAMPS[0],
     properties: STORY_EVENT_PROPERTIES,
 }
+const STORY_ASSIGNEE_MEMBERS = Array.from({ length: 32 }, (_, index) => {
+    const userNumber = index + 1
+    const user =
+        index === 0
+            ? MOCK_DEFAULT_BASIC_USER
+            : {
+                  id: 1000 + index,
+                  uuid: `story-user-${userNumber}`,
+                  distinct_id: `story-user-${userNumber}`,
+                  first_name: `Engineer ${String(userNumber).padStart(2, '0')}`,
+                  email: `engineer-${userNumber}@example.com`,
+              }
+
+    return {
+        id: `story-member-${userNumber}`,
+        user,
+        level: 1,
+        joined_at: '2024-01-01T00:00:00.000Z',
+        updated_at: '2024-01-01T00:00:00.000Z',
+        is_2fa_enabled: false,
+        has_social_auth: false,
+        last_login: '2024-07-08T00:00:00.000Z',
+    }
+})
+const STORY_ASSIGNEE_ROLES = Array.from({ length: 16 }, (_, index) => {
+    const roleId = `story-role-${index + 1}`
+    const includesCurrentUser = index % 5 === 0
+
+    return {
+        id: roleId,
+        name: `Engineering role ${String(index + 1).padStart(2, '0')}`,
+        members: includesCurrentUser
+            ? [
+                  {
+                      id: `story-role-member-${index + 1}`,
+                      user: MOCK_DEFAULT_BASIC_USER,
+                      role_id: roleId,
+                      joined_at: '2024-01-01T00:00:00.000Z',
+                      updated_at: '2024-01-01T00:00:00.000Z',
+                  },
+              ]
+            : [],
+        created_at: '2024-01-01T00:00:00.000Z',
+        created_by: MOCK_DEFAULT_BASIC_USER,
+    }
+})
 const STORY_ISSUE = {
     ...errorTrackingTypeIssue,
     id: ISSUE_ID,
@@ -255,7 +311,7 @@ const meta: Meta = {
                     {
                         logs_distinct_id_attribute_key: 'posthogDistinctId',
                         logs_distinct_id_attribute_keys: ['posthogDistinctId'],
-                        logs_session_id_attribute_keys: ['posthogSessionId'],
+                        logs_session_id_attribute_keys: ['sessionId'],
                     },
                 ],
                 '/api/environments/:team_id/error_tracking/issues/exists/': [200, { exists: true }],
@@ -264,13 +320,11 @@ const meta: Meta = {
                     200,
                     {
                         next: null,
-                        results: [
-                            {
-                                fingerprint: FINGERPRINT,
-                                issue_id: ISSUE_ID,
-                                created_at: STORY_TIMESTAMPS.at(-1),
-                            },
-                        ],
+                        results: STORY_FINGERPRINTS.map((fingerprint, index) => ({
+                            fingerprint,
+                            issue_id: ISSUE_ID,
+                            created_at: STORY_TIMESTAMPS[index % STORY_TIMESTAMPS.length],
+                        })),
                     },
                 ],
                 '/api/environments/:team_id/error_tracking/spike_events': [200, { results: [] }],
@@ -287,6 +341,9 @@ const meta: Meta = {
                     const body = (await request.json()) as { query?: { kind?: string; select?: string[] } }
                     if (body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
                         return [200, STORY_BREAKDOWNS_RESPONSE]
+                    }
+                    if (body.query?.kind === NodeKind.ErrorTrackingFingerprintProjectionQuery) {
+                        return [200, STORY_FINGERPRINT_PROJECTION_RESPONSE]
                     }
                     if (body.query?.kind === NodeKind.EventsQuery) {
                         return body.query.select?.includes('properties.$exception_list')
@@ -308,7 +365,9 @@ const meta: Meta = {
 export default meta
 
 type Story = StoryObj<{}>
-export const ListPage: Story = {}
+export const ListPage: Story = {
+    parameters: { featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_SEVERITY_RULES] },
+}
 
 // An unresolved source maps recommendation renders the wizard banner above the
 // issue list without the sticky filters bar overlapping its bottom edge
@@ -424,7 +483,53 @@ export const ListPageWithIngestionWarning: Story = {
 }
 export const GroupPage: Story = {
     name: 'Issue scene',
-    parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
+    parameters: {
+        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
+        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_SEVERITY_RULES],
+    },
+}
+
+export const GroupPageManyAssignees: Story = {
+    name: 'Issue scene with many assignees',
+    parameters: {
+        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
+        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_SEVERITY_RULES],
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/organizations/:organization_id/members': ({ request }) => {
+                    const search = new URL(request.url).searchParams.get('search')?.toLowerCase()
+                    const members = search
+                        ? STORY_ASSIGNEE_MEMBERS.filter((member) =>
+                              [member.user.first_name, member.user.email].some((value) =>
+                                  value.toLowerCase().includes(search)
+                              )
+                          )
+                        : STORY_ASSIGNEE_MEMBERS
+
+                    return [
+                        200,
+                        {
+                            count: members.length,
+                            results: members,
+                            next: null,
+                            previous: null,
+                        },
+                    ]
+                },
+                '/api/organizations/:organization_id/roles/': [
+                    200,
+                    {
+                        count: STORY_ASSIGNEE_ROLES.length,
+                        results: STORY_ASSIGNEE_ROLES,
+                        next: null,
+                        previous: null,
+                    },
+                ],
+            },
+        }),
+    ],
 }
 
 export const GroupPageContentSizedBreakdownPanel: Story = {
@@ -439,6 +544,15 @@ export const GroupPageCappedBreakdownPanel: Story = {
     render: () => (
         <IssueScenePreviewStory activePreview="properties" selectedEventProperties={STORY_MANY_EVENT_PROPERTIES} />
     ),
+}
+
+export const GroupPageFingerprintMap: Story = {
+    name: 'Issue scene with fingerprint map',
+    parameters: {
+        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
+        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_FINGERPRINT_MAP],
+    },
+    render: () => <IssueScenePreviewStory activePreview="fingerprints" />,
 }
 
 export const GroupPageBreakdownLoading: Story = {

@@ -4,6 +4,7 @@ import { SortableContext, arrayMove, sortableKeyboardCoordinates, verticalListSo
 import { useActions, useValues } from 'kea'
 
 import { verticalSortableListCollisionDetection } from 'lib/sortable'
+import { isLaunched } from 'scenes/experiments/experimentStatus'
 import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
 
 import {
@@ -16,7 +17,6 @@ import { ExperimentStatsMethod, InsightType } from '~/types'
 
 import { experimentLogic } from '../../experimentLogic'
 import { experimentMetricsLogic } from '../../experimentMetricsLogic'
-import { isLaunched } from '../../experimentsLogic'
 import { resolveSequentialEnabled } from '../../ExperimentView/sequential'
 import { type ExperimentVariantResult, getDefaultMetricTitle, getVariantInterval } from '../shared/utils'
 import { MAX_AXIS_RANGE } from './constants'
@@ -67,6 +67,8 @@ export function MetricsTable({
         duplicateSharedMetricAsInlineMetric,
         updateExperimentMetrics,
         updateMetricBreakdown,
+        updateMetricBreakdownAttribution,
+        updateMetricBreakdownLimit,
         removeMetricBreakdown,
         removeMetric,
         removeSharedMetricFromExperiment,
@@ -277,6 +279,24 @@ export function MetricsTable({
                                                 }
 
                                                 removeMetricBreakdown(metric.uuid, index, breakdown)
+                                            }}
+                                            onBreakdownAttributionChange={(attributionType, attributionValue) => {
+                                                if (!metric.uuid) {
+                                                    return
+                                                }
+
+                                                updateMetricBreakdownAttribution(
+                                                    metric.uuid,
+                                                    attributionType,
+                                                    attributionValue
+                                                )
+                                            }}
+                                            onBreakdownLimitChange={(breakdownLimit) => {
+                                                if (!metric.uuid) {
+                                                    return
+                                                }
+
+                                                updateMetricBreakdownLimit(metric.uuid, breakdownLimit)
                                             }}
                                             error={error}
                                             isLoading={isLoading}

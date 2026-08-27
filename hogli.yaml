@@ -13,10 +13,12 @@ config:
         - mprocs-test.yaml
         - sandbox-entrypoint.py
         - lint-feature-flag-sorting.mjs
+        - render-jest-timings-example
         # Locally-built, gitignored binary (tools/phrocs). Referenced via cmd:/process
         # name, not bin_script:, so exclude it from auto-discovery to stop the manifest
         # regenerating a stub entry on every hogli run.
         - phrocs
+        - start-local-ngrok
     env:
         files:
             - .env.development
@@ -816,8 +818,8 @@ quality:
             "$@"
         description: Format CSS/SCSS files
     format:js:
-        cmd: pnpm oxlint --fix --fix-suggestions --quiet --no-error-on-unmatched-pattern
-            "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"
+        cmd: pnpm oxlint --fix --fix-suggestions --quiet --no-error-on-unmatched-pattern "$@" && pnpm exec oxfmt
+            --no-error-on-unmatched-pattern "$@"
         description: Format JavaScript/TypeScript files (frontend)
     format:nodejs:
         cmd: pnpm --dir nodejs exec eslint --fix "$@" && pnpm --dir nodejs exec prettier
@@ -855,6 +857,15 @@ quality:
         cmd: pnpm run --filter @posthog/mcp format
         description: Format MCP files
 auth:
+    posthog:login:
+        click: hogli_commands.posthog_auth_cli:posthog_login
+        description: Sign hogli in to PostHog in your browser (no API key to mint)
+    posthog:status:
+        click: hogli_commands.posthog_auth_cli:posthog_status
+        description: Show hogli's cached PostHog credential (host, scopes, expiry)
+    posthog:logout:
+        click: hogli_commands.posthog_auth_cli:posthog_logout
+        description: Revoke and forget hogli's cached PostHog credential
     metabase:login:
         click: hogli_commands.metabase:metabase_login
         description: Log in to Metabase via SSO and cache the session cookie
@@ -898,6 +909,9 @@ tools:
     product:isolate:move:
         click: hogli_commands.product.cli:cmd_isolate_move
         description: Mechanical isolation moves with repo-wide path rewrites
+    product:crossings:
+        click: hogli_commands.product.cli:cmd_crossings
+        description: Report consumer uses of watched-models crossing classes by kind
     product:lint:owners:
         click: hogli_commands.product.cli:cmd_lint_owners
         description: Validate product.yaml owners against PostHog/posthog GitHub teams
@@ -1024,10 +1038,14 @@ tools:
         hidden: true
     ci:insights:
         click: hogli_commands.ci_insights:ci_insights
-        description: Show CI insights for the current repo + branch (search/view/plan subcommands)
+        description: What's broken in CI right now, from engineering analytics (search/view subcommands)
     ci:preflight:
         click: hogli_commands.ci_preflight:ci_preflight
         description: Catch deterministic CI failures reachable from your diff before you push (advisory; --fix, --strict)
+    review:
+        click: hogli_commands.review:review
+        description: One local Greptile review of the branch before opening the PR (skips when HEAD is already reviewed; --force, --instructions, --check)
+        needs_secrets: true
 desktop:
     desktop:dev:
         cmd: pnpm --dir products/desktop dev
@@ -1208,4 +1226,8 @@ environment:
     verify:ai:ingestion:stack:
         bin_script: verify-ai-ingestion-stack
         description: 'Check the multimodal AI ingestion path at the data layer: send an $ai_generation with an inline base64 image through capture-ai and assert ingestion offloaded it to a blob pointer in ClickHouse'
+        hidden: true
+    report:jest:timings:
+        bin_script: report-jest-timings
+        description: 'Render a Jest test-speed report from timing artifacts'
         hidden: true

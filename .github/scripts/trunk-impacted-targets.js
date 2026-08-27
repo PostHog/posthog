@@ -137,6 +137,11 @@ const PROTO = 'proto'
 // from its path, so it cannot be expressed as a static domain here.
 const SEMGREP = 'semgrep'
 
+// rust/Cargo.lock, answered by the cargo determinator rather than by the path.
+// Its own domain because the answer is a crate list rather than a fixed set of
+// lanes, and it degrades to RUST when that list is absent.
+const CARGO_LOCK = 'cargo-lock'
+
 const TRIPWIRE_RULES = [
     // Markdown in these trees compiles into nothing and no suite reads it, so
     // it is prose like any other. Ahead of the trees themselves, which would
@@ -249,11 +254,16 @@ const TRIPWIRE_RULES = [
     // pyproject.toml, so the python suites install a released wheel rather than
     // building either from this checkout. A resolution change reaches a python
     // lane only through the version bump, which is a pyproject.toml and uv.lock
-    // edit claiming those lanes above. ci-rust.yml already narrows a lockfile
-    // touch further, by diffing the resolved graph rather than rebuilding
-    // everything, which is a step this script cannot take without a cargo
-    // toolchain in the compute job.
-    ['rust/Cargo.lock', RUST],
+    // edit claiming those lanes above.
+    //
+    // The lockfile narrows further than the manifest, because it states the
+    // resolution rather than the request. CARGO_LOCK takes the crate list from
+    // the same determinator ci-rust.yml runs, so a dependency added for one
+    // crate stops claiming the whole workspace. rust/Cargo.toml stays on the
+    // whole domain: a workspace-wide feature or version request can change how
+    // a shared dependency compiles for every crate, and a manifest edit that
+    // moves no resolution leaves no lockfile diff for the determinator to read.
+    ['rust/Cargo.lock', CARGO_LOCK],
     ['rust/Cargo.toml', RUST],
     ['rust/.sqlx/**', RUST],
     ['hogli.yaml', UNIVERSAL],
@@ -290,8 +300,6 @@ const TRIPWIRE_RULES = [
     // product's own owners.yaml is not here: it keeps its product lane.
     ['tools/owners/**', UNIVERSAL],
     ['owners.yaml', UNIVERSAL],
-    // pytest-split timing data, and nothing else reads it.
-    ['.test_durations', PYTHON],
     // Left universal: the quarantine list covers all three suites at once, and
     // playwright.quarantine.ts and replay-shared's jest.config.js read it
     // alongside pytest, so an entry for a flaky frontend test moves a
@@ -339,6 +347,9 @@ const COMMON_FRONTEND = ['esbuilder', 'storybook', 'tailwind', 'replay-shared', 
 // spec and recorded by a Python script sitting beside them.
 const COMMON_FULLSTACK = ['fixtures']
 
+// The pr-approval-agent engine's home inside the stamphog product.
+const PR_APPROVAL_AGENT_DIR = 'products/stamphog/packages/pr-approval-agent'
+
 // Tools that own their whole test story and that no suite imports, so they can
 // hold a lane of their own. Everything else under tools/ falls through to the
 // backend lanes, which keeps a newly added tool over-reporting until someone
@@ -352,7 +363,6 @@ const TOOLS_INDEPENDENT = [
     'hogbox-preview',
     'traffic-sim',
     'hedgebox-dummy',
-    'pr-approval-agent',
     'query-performance-ai',
     'infra-scripts',
 ]
@@ -404,6 +414,7 @@ const REPO_CONFIG_DIRS = [
     '.codex',
     '.cursor',
     '.dagster_home',
+    '.greptile',
     '.husky',
     '.idea',
     '.interface-design',
@@ -434,7 +445,6 @@ const REPO_CONFIG_FILES = [
     '.worktreeinclude',
     '.worktreelink',
     'LICENSE',
-    'greptile.json',
 ]
 for (const entry of [...REPO_CONFIG_DIRS, ...REPO_CONFIG_FILES]) {
     STANDALONE_TREES.set(entry, ['repo-config'])
@@ -589,15 +599,17 @@ function listProducts(repoRoot) {
         .sort()
 }
 
-// A product is isolated when it declares a backend:contract-check script, the
-// same signal turbo-discover uses to decide a product can be tested alone.
-// Non-isolated products have no narrowed contract, so a change in one is
-// treated as a core change.
-function listIsolatedProducts(repoRoot, products) {
+// A product is isolated when it declares a backend:contract-check script *and*
+// narrows that task's inputs in its own turbo.json, the same pair turbo-discover
+// uses to decide a product can be tested alone. The script alone leaves the task
+// on the root definition, whose inputs are the product's whole backend, so the
+// product claims a contract surface it never narrowed. Non-isolated products
+// have no narrowed contract, so a change in one is treated as a core change.
+function listIsolatedProducts(repoRoot, products, contractSurfaces) {
     const isolated = new Set()
     for (const product of products) {
         const manifest = path.join(repoRoot, 'products', product, 'package.json')
-        if (!fs.existsSync(manifest)) {
+        if (!fs.existsSync(manifest) || !contractSurfaces.has(product)) {
             continue
         }
         const parsed = JSON.parse(fs.readFileSync(manifest, 'utf8'))
@@ -1145,8 +1157,8 @@ const feProduct = (product) => `fe:product:${product}`
 const rustCrate = (crate) => `rust:crate:${crate}`
 
 // The lanes that import a native module built from the cargo workspace.
-// nodejs/package.json is the only dependent of the three binding packages
-// (@posthog/cyclotron, @posthog/hogvm-node, @posthog/replay-anonymizer) today,
+// nodejs/package.json is the only dependent of the two binding packages
+// (@posthog/hogvm-node, @posthog/replay-anonymizer) today,
 // and the test suite re-derives that from pnpm-workspace.yaml so a second
 // dependent fails there rather than silently going unclaimed here.
 const NATIVE_BINDING_CONSUMER_LANES = ['node:ingestion']
@@ -1208,8 +1220,8 @@ function addPythonLanes(targets, context) {
     for (const product of context.products) {
         targets.add(pyProduct(product))
     }
-    // pyproject.toml roots products, but Python also lives under tools/, and
-    // tools/pr-approval-agent holds a lane of its own through .stamphog.
+    // pyproject.toml roots products, but Python also lives under tools/, and the
+    // pr-approval-agent engine holds a lane of its own through .stamphog.
     for (const tool of TOOLS_INDEPENDENT) {
         targets.add(`tools:${tool}`)
     }
@@ -1278,6 +1290,27 @@ function addRustLanes(targets, context) {
     return true
 }
 
+// The crates the determinator says the change set moved, or every crate when it
+// could not say. computeTargets runs its reverse closure over whatever lands
+// here, so these are seeds rather than a finished answer.
+//
+// An answer naming no crate is a real verdict on a lockfile edit that moved no
+// resolution, but claiming nothing for it costs more than it saves. A change set
+// of only rust/Cargo.lock would then reach computeTargets' empty-set guard,
+// which reads a target-less set as a path no rule claimed and widens to every
+// lane in the repo — worse than the every-crate fallback, for a case rare enough
+// not to be worth the lanes.
+function addCargoLockLanes(targets, context) {
+    const crates = context.cargoLockCrates
+    if (!crates || crates.length === 0) {
+        return addRustLanes(targets, context)
+    }
+    for (const crate of crates) {
+        targets.add(rustCrate(crate))
+    }
+    return true
+}
+
 // The nodejs lane on its own. No tripwire resolves to it, because a file that
 // can break the ingestion suite can almost always break more than that. The
 // rust and proto rules still need to name it without dragging in the frontend.
@@ -1306,10 +1339,16 @@ function addNodeLanes(targets) {
 // package imports them. The python half cannot narrow below every python lane:
 // the stubs are checked into posthog/, which is py:core, and py:core covers
 // every product lane by construction.
+// stubDir names the checked-in stub directory when it differs from the tree
+// name; the consistency test reads it. ingestion's node stubs land in
+// nodejs/src/common/generated/ingestion-worker, not .../ingestion.
 const PROTO_TREES = new Map([
     ['cymbal', { crates: ['cymbal-proto'], domains: [] }],
+    ['ingestion', { crates: ['ingestion-worker-proto'], domains: [NODE], stubDir: 'ingestion-worker' }],
     ['kafka_assigner', { crates: ['kafka-assigner-proto'], domains: [] }],
     ['personhog', { crates: ['personhog-proto'], domains: [PYTHON, NODE] }],
+    ['prometheus', { crates: ['prometheus-rw-proto'], domains: [] }],
+    ['usage_ingestion', { crates: ['usage-ingestion-proto'], domains: [NODE], stubDir: 'usage-ingestion' }],
 ])
 
 // A file directly under proto/ is treated as impacting all trees, since it's not
@@ -1349,6 +1388,7 @@ const DOMAIN_LANES = new Map([
     [PYTHON, addPythonLanes],
     [JAVASCRIPT, addJavaScriptLanes],
     [RUST, addRustLanes],
+    [CARGO_LOCK, addCargoLockLanes],
     [NODE, addNodeLanes],
     [PRODUCT_SURFACE, addProductSurfaceLanes],
     [PROTO, addProtoLanes],
@@ -1457,6 +1497,14 @@ function computeTargets(changedFiles, context) {
         // product lane its own directory rule would give it, a policy change and
         // a parser change would be free to merge in parallel.
         if (segments[segments.length - 1] === 'AGENT_APPROVALS.md') {
+            targets.add('tools:pr-approval-agent')
+            continue
+        }
+        // The engine sits inside the stamphog product, but no product suite imports it. ci-python
+        // runs its tests directly, and those are the same tests that .stamphog/ and every
+        // AGENT_APPROVALS.md feed into. All three share one lane, so a policy change and an engine
+        // change cannot merge in parallel against each other.
+        if (file.startsWith(`${PR_APPROVAL_AGENT_DIR}/`)) {
             targets.add('tools:pr-approval-agent')
             continue
         }
@@ -1755,19 +1803,61 @@ function listServices(repoRoot) {
     }
 }
 
+// The crate list rust-compute-affected produced for this diff, as a JSON array.
+// The workflow only runs the determinator when the change set holds
+// rust/Cargo.lock, so on every other PR this is unset and never read.
+const CARGO_LOCK_CRATES_ENV = 'CARGO_LOCK_CRATES'
+
+// Returns null for unknown, which the caller widens on. The determinator answers
+// for the whole diff rather than for the lockfile alone, so this is a superset
+// of the lockfile's own contribution — the safe direction, and the union with
+// the path rules is what lands either way.
+//
+// A name the crate graph does not know means the two disagree about the
+// workspace, and a disagreement resolves to unknown rather than to a lane list
+// built from half of it.
+function parseCargoLockCrates(raw, rustGraph) {
+    if (!rustGraph || !raw) {
+        return null
+    }
+    let crates
+    try {
+        crates = JSON.parse(raw)
+    } catch (error) {
+        console.error(`${CARGO_LOCK_CRATES_ENV} is not JSON (${error.message}); a lockfile change claims every crate`)
+        return null
+    }
+    if (!Array.isArray(crates) || crates.some((crate) => typeof crate !== 'string')) {
+        console.error(`${CARGO_LOCK_CRATES_ENV} is not a list of crate names; a lockfile change claims every crate`)
+        return null
+    }
+    const unknown = crates.filter((crate) => !rustGraph.dependsOn.has(crate))
+    if (unknown.length > 0) {
+        console.error(
+            `The determinator named crates the graph does not hold (${unknown.join(', ')}); ` +
+                'a lockfile change claims every crate'
+        )
+        return null
+    }
+    return crates
+}
+
 function buildContext(repoRoot) {
     const products = listProducts(repoRoot)
     const tachGraph = loadTachGraph(repoRoot)
+    const rustGraph = loadRustGraph(repoRoot)
+    const contractSurfaces = loadContractSurfaces(repoRoot, products)
     return {
         products,
+        cargoLockCrates: parseCargoLockCrates(process.env[CARGO_LOCK_CRATES_ENV], rustGraph),
         services: listServices(repoRoot),
-        isolatedProducts: listIsolatedProducts(repoRoot, products),
-        contractSurfaces: loadContractSurfaces(repoRoot, products),
+        isolatedProducts: listIsolatedProducts(repoRoot, products, contractSurfaces),
+        contractSurfaces,
         productWorkspaces: loadProductWorkspaces(repoRoot, products),
         backendDetachedProducts: loadBackendDetachedProducts(repoRoot, products, tachGraph),
         tachDeclaredProducts: listTachDeclaredProducts(products, tachGraph),
         semgrepDomains: loadSemgrepDomains(repoRoot),
-        rustGraph: loadRustGraph(repoRoot),
+        rustGraph,
         tachGraph,
     }
 }
@@ -1781,6 +1871,8 @@ module.exports = {
     globToRegExp,
     isProductDirectory,
     isTripwire,
+    listIsolatedProducts,
+    loadContractSurfaces,
     parseCrateDependencies,
     parseCrateName,
     parsePytestIgnores,
@@ -1790,7 +1882,9 @@ module.exports = {
     semgrepDomain,
     stripJsonComments,
     tripwireDomain,
+    parseCargoLockCrates,
     ALL,
+    CARGO_LOCK,
     JAVASCRIPT,
     NATIVE_BINDING_CONSUMER_LANES,
     NODE,

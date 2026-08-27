@@ -15,9 +15,13 @@
     position: relative;
     transition: height 100ms ease;
 
-    /* remove initial loading animation, animations are only needed in edit mode */
+    /* Preserve the tile border transition while spacing changes animate. */
     &.dashboard-view-mode .react-grid-item {
-        transition: border-color 100ms ease;
+        transition:
+            transform 220ms ease-out,
+            width 220ms ease-out,
+            height 220ms ease-out,
+            border-color 100ms ease;
 
         /* Skip rendering for off-screen tiles during resize/reflow */
         content-visibility: auto;
@@ -27,6 +31,22 @@
         &:has(> .handle) {
             content-visibility: visible;
         }
+    }
+
+    &.dashboard-tile-spacing-changing {
+        transition: none;
+
+        .react-grid-item {
+            transition: none;
+        }
+    }
+
+    &.dashboard-layout-interaction .react-grid-item {
+        transition: none;
+    }
+
+    &.dashboard-layout-settling .react-grid-item:not(.react-draggable-dragging, .resizing) {
+        transition: transform 180ms ease-out;
     }
 }
 
@@ -81,8 +101,10 @@
 
 .react-grid-item {
     box-sizing: border-box;
-    transition: all 100ms ease;
-    transition-property: left, top;
+    transition:
+        transform 220ms ease-out,
+        width 220ms ease-out,
+        height 220ms ease-out;
 
     // Drop InsightCard's fixed 30rem so RGL's inline height is the only constraint.
     &.DashboardTileCard.InsightCard {
@@ -240,5 +262,12 @@
         width: 2rem;
         height: 2rem;
         cursor: sw-resize;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .react-grid-layout.dashboard-view-mode .react-grid-item,
+    .react-grid-layout .react-grid-item {
+        transition: none;
     }
 }

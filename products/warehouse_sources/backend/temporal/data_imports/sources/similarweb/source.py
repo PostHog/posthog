@@ -26,6 +26,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     SimilarwebSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb.settings import (
+    API_VERSION_LEGACY,
+    API_VERSION_V5,
     ENDPOINTS,
     GRANULARITY_OPTIONS,
     INCREMENTAL_FIELDS,
@@ -47,10 +49,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class SimilarwebSource(ResumableSource[SimilarwebSourceConfig, SimilarwebResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    # Similarweb versions each endpoint in its own path segment (the traffic and rank endpoints
-    # sit on /v1, the geo breakdown on /v4) rather than exposing one account-wide API version,
-    # so there is no single version token to pin.
-    api_docs_url = "https://developers.similarweb.com/docs/getting-started"
+    # The legacy REST API versions each resource in its own path segment (`/v1/...`, `/v4/...`);
+    # API V5 replaces that with one `/v5/website-analysis` host that serves every engagement metric
+    # from a single multi-metric endpoint. New sources default to V5; a source pinned to the legacy
+    # label keeps the per-resource paths untouched. Only the engagement tables have a documented V5
+    # wire today, so the rank, traffic-sources and geo tables stay on the still-served legacy paths
+    # under both pins (see `settings.SimilarwebEndpointConfig.v5_metric`).
+    supported_versions = (API_VERSION_LEGACY, API_VERSION_V5)
+    default_version = API_VERSION_V5
+    api_docs_url = "https://developers.similarweb.com/changelog"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -125,6 +132,7 @@ class SimilarwebSource(ResumableSource[SimilarwebSourceConfig, SimilarwebResumeC
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

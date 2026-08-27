@@ -35,7 +35,7 @@ from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 def _social_auth_backend() -> BaseAuth:
@@ -201,7 +201,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 52
+        cls.base_app_num_queries = 53
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
 
@@ -355,7 +355,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
 
         with self.assertNumQueries(
             FuzzyInt(self.base_app_num_queries, self.base_app_num_queries + 10)
-        ):  # +1 from activity logging _get_before_update(), +1 from passkey credential review check
+        ):  # +1 from activity logging _get_before_update(), +1 from the credential review checks
             response_app = self.client.get(f"/feature_flags/{feature_flag.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -859,8 +859,10 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         [
             ("query", "query/", {"query": {"kind": "EventsQuery", "select": ["event"]}}),
             ("query_kind", "query/HogQLQuery/", {"query": {"kind": "HogQLQuery", "query": "select 1"}}),
-            # digit-containing kind — the allowlist regex used to miss these
-            ("query_kind_digit", "query/PathsV2Query/", {"query": {"kind": "PathsV2Query"}}),
+            # digit-containing kind — the allowlist regex used to miss these. The kind is
+            # made up on purpose: the middleware matches on the path alone, and a real kind
+            # here would execute a product-owned query runner from a core test.
+            ("query_kind_digit", "query/SomeV2Query/", {"query": {"kind": "SomeV2Query"}}),
             ("query_upgrade", "query/upgrade/", {"query": {"kind": "EventsQuery", "select": ["event"]}}),
             ("endpoint_materialization_preview", "endpoints/some_endpoint/materialization_preview/", {}),
             (
@@ -873,6 +875,13 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
                 "exports/",
                 {"export_format": "video/mp4", "export_context": {"session_recording_id": "test-session"}},
             ),
+            ("logs_query", "logs/query/", {}),
+            # hyphenated action that the shorter `count` alternative must not shadow
+            ("logs_count_ranges", "logs/count-ranges/", {"query": "not-a-dict"}),
+            ("tracing_attribute_breakdown", "tracing/spans/attribute-breakdown/", {}),
+            ("tracing_trace_by_id", "tracing/spans/trace/zzz/", {}),
+            ("metrics_query", "metrics/query/", {}),
+            ("metrics_explain", "metrics/explain/", {}),
         ]
     )
     def test_read_only_impersonation_allows_allowlisted_post(self, _name, path_suffix, body):
@@ -887,6 +896,27 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         )
 
         assert response.status_code != 403 or response.json().get("code") != "impersonation_read_only"
+
+    @parameterized.expand(
+        [
+            ("logs_alerts", "logs/alerts/"),
+            ("logs_views", "logs/views/"),
+            ("logs_sampling_rules", "logs/sampling_rules/"),
+        ]
+    )
+    def test_read_only_impersonation_blocks_logs_crud_siblings(self, _name, path_suffix):
+        self.login_as_other_user_read_only()
+
+        # The logs query allowlist enumerates action names precisely because the same
+        # `logs/` prefix hosts these writing viewsets.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/{path_suffix}",
+            data={},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+        assert response.json()["code"] == "impersonation_read_only"
 
     def test_read_only_impersonation_blocks_query_cancellation(self):
         self.login_as_other_user_read_only()
@@ -2059,8 +2089,10 @@ def test_chqueries_middleware_tags_source(user_agent, expected_source):
     from django.http import HttpResponse
     from django.test import RequestFactory
 
-    from posthog.clickhouse.query_tagging import get_query_tags
+    from posthog.clickhouse.query_tagging import get_query_tags, reset_query_tags
     from posthog.middleware import CHQueries
+
+    reset_query_tags()
 
     captured: dict = {}
 

@@ -24,6 +24,58 @@ Team deletion for tables that are replicated rather than sharded runs through a 
 A sharded table must not be registered there — it would sweep one shard.
 The team arm inside `delete_events` covers sharded tables.
 
+## Reach: one handle addresses one cluster
+
+Every sweep dispatches over a `ClickhouseCluster`, and one of those addresses exactly one cluster.
+Hosts come from `clusterAllReplicas(<name>, system.clusters) WHERE name = <name> AND is_local`, and only hosts whose `hostClusterRole` macro is `data` are given a shard number.
+`cluster.shards`, `map_one_host_per_shard` and `map_any_host_in_shards`, which is how every mutation reaches a storage table, enumerate those hosts alone.
+Passing `data_cluster=` replaces that shard map rather than merging a second one in, so a single handle cannot span two clusters.
+
+A Distributed table has no such limit: it routes to whichever cluster its engine names.
+That asymmetry is what makes an off-cluster storage table dangerous rather than merely unsupported.
+The sweep finds nothing to mutate and reports success, while the proxy every verification reads through still returns the rows.
+
+Two gates keep that from passing silently.
+
+- `placement_for` refuses a registered target whose storage table is on no data node of any cluster reachable from here while its Distributed proxy still returns rows (`UnreachableTargetError`). Absent from everywhere and empty is still treated as not yet migrated, which is the ordinary pre-rollout state.
+- `assert_sweep_complete` runs after the immediate person-removal and event-removal sweeps and counts survivors through the proxy, so rows a mutation never reached fail the request instead of completing it (`UnsweptRowsError`).
+
+Both gates probe hosts rather than compare cluster names.
+Two cluster names can cover the same nodes, which is what the dev stack and CI do, so a name comparison would refuse deployments that can in fact sweep the table.
+`DeletionTarget.cluster_setting` names where a storage table lives, and `ClickhouseCluster.sibling` turns that name into a handle; neither decides reachability.
+`sharded_events_json` carries `CLICKHOUSE_EVENTS_CLUSTER`, which names the `events` cluster.
+
+## Dispatching to a target's own cluster
+
+`resolve_placements` pairs each target with the handle whose shards carry it: the job's own handle where the table is local, a sibling derived from it where it is not.
+The handle in hand is probed first, so a deployment whose tables are all on one cluster never builds a second one.
+
+Sweeps that iterate placements dispatch each target over `placement.cluster.shards`:
+
+- `delete_person_events_op`
+- `execute_event_deletion`, immediate mode
+- `deletes_job` → `delete_events`, which also has to put its dictionaries on the second cluster; see below
+
+The rest are bound to a single handle and refuse rather than skip when a target has moved off it (`dispatchable_here`, `UnreachableTargetError`):
+
+- Property removal. Its staging table is host-local and its fan-out is one op per shard of one cluster.
+- The deferred queue fill. Both halves of its `INSERT` are host-local: the source table it reads and the `adhoc_events_deletion` queue it writes.
+
+### Getting the dictionaries onto the second cluster
+
+`delete_events` does not name the rows it removes. Its predicate joins two dictionaries, `pending_deletes_<timestamp>_dictionary` and `adhoc_events_deletion_dictionary`, so a mutation cannot run anywhere those are absent.
+
+Both reach every host of one cluster because their source table is replicated, and replication is exactly what a cluster boundary stops: a cluster with its own Keeper can never join that replica set.
+`adhoc_events_deletion` compounds it, being migration-managed and present only on the main cluster.
+
+So the rows are staged instead. One Parquet object per dictionary per run, written by the cluster itself with `INSERT INTO FUNCTION s3(...)`, and every host on the other cluster loads it through `SOURCE(CLICKHOUSE(QUERY 'SELECT ... FROM s3(...)'))`.
+ClickHouse has no S3 dictionary source, but that source runs its query locally, and the query can read anything the server can.
+
+- Nothing changes on a deployment where every target sits on the cluster the job connects to. The handle in hand is probed first, and no object is written.
+- The source tables stay where they are. `pending_deletes_<timestamp>` also carries the Postgres `AsyncDeletion` row ids that `mark_deletions_verified` reads back, and those never enter a dictionary.
+- `load_and_verify_deletes_dictionary` loads on every host of every cluster and fails the run unless all of them checksum alike. That is what catches a stale or missing object: without it the mutation there joins an empty dictionary, deletes nothing, and reports success.
+- Retention belongs to the bucket lifecycle policy, set through `DELETES_DICTIONARY_S3_*`. Nothing deletes the objects.
+
 ## Covered tables
 
 - `sharded_events` — all sweeps.
@@ -47,27 +99,31 @@ That decision predates this document; the older `posthog/models/async_deletion/d
 The events property-removal path rewrites rows in a staging table and resets each affected materialized column with `ALTER TABLE … UPDATE <col> = ''`.
 That works because `materialize()` creates columns as `DEFAULT <expr>`, which is assignable.
 
-`flag_evaluations` declares its nine typed columns as true ClickHouse `MATERIALIZED`. Measured against ClickHouse 26.6:
-
-- Assigning to one is rejected: `Cannot UPDATE materialized column 'session_id'`.
-- Updating `properties` is rejected too, because `flag_key` is materialized from it and sits in the sort key: `Updated column 'properties' affects MATERIALIZED column 'flag_key', which is a key column`.
-- `CREATE TABLE tmp AS sharded_flag_evaluations ENGINE = MergeTree()` inherits the sort key and the column kinds, so the staging table hits the same rejection.
-
-The planned fix is two follow-ups:
-
-1. Recreate the table with the typed columns as `DEFAULT <expr>`, the kind `materialize()` mints on events.
-   Recreating is only free while the table is empty, so this must land before the producer ships.
-2. Point the events rewrite machinery (column discovery, staging rewrite, shard walk) at the table; today all of it is scoped to `events`.
-
-One open question for the schema follow-up: `flag_key` sits in the sort key, and ClickHouse never accepts `UPDATE` on a key column, whatever its kind.
-Whether `UPDATE properties` is accepted once a `DEFAULT` key column depends on it needs measuring.
-If it is still rejected, the fallback is the heavier rewrite: `INSERT … SELECT` the cleaned rows, let the shard recompute the typed columns on write, then lightweight-delete the originals.
-
-Until the fix exists, `get_property_removal_shards` refuses to start when the table holds rows matching the request, so a request cannot complete while data it named survives.
+All of that machinery (column discovery, staging rewrite, shard walk) is scoped to `events`; none of it reaches `flag_evaluations`.
+Until it does, `get_property_removal_shards` refuses to start when the table holds rows matching the request, so a request cannot complete while data it named survives.
 The check costs nothing while the table is empty.
 
-This is also why `flag_evaluations` is deliberately absent from `MATERIALIZATION_VALID_TABLES`.
-Adding it would let `materialize()` mint `DEFAULT`-kind columns on a table whose property-removal path cannot reset them.
+The schema stopped being a second obstacle with migration `0301_flag_evaluations_default_columns`, which recreated the nine typed columns as `DEFAULT <expr>`, the kind `materialize()` mints on events; they were true ClickHouse `MATERIALIZED` before, which is not assignable at all.
+Measured against ClickHouse 26.6.2 on the `DEFAULT` shape:
+
+- `CREATE TABLE` accepts a `DEFAULT`-from-`properties` column (`flag_key`) in the sort key, and an insert that omits the typed columns computes them from `properties`.
+- Assigning to a non-key typed column is accepted: `ALTER TABLE … UPDATE session_id = ''` completes. Under `MATERIALIZED` it was rejected with `Cannot UPDATE materialized column 'session_id'`.
+- Updating `properties` is accepted, alone and in the events-path form that resets affected typed columns in the same mutation.
+  The `MATERIALIZED`-era rejection (`Updated column 'properties' affects MATERIALIZED column 'flag_key', which is a key column`) does not fire for `DEFAULT` dependents.
+- An `UPDATE` of `properties` does not recompute the typed columns; rows keep their stored values.
+  The rewrite must reset each affected column explicitly, exactly as the events path already does.
+- `flag_key` itself can never be reset: `ALTER TABLE … UPDATE flag_key = ''` is rejected with `Cannot UPDATE key column 'flag_key'` (`CANNOT_UPDATE_COLUMN`), whatever the column kind.
+  A request naming `$feature_flag` therefore still cannot be honored by mutation; that one property needs a refusal, or the heavier rewrite: `INSERT … SELECT` the cleaned rows omitting the typed columns so the shard recomputes them, then lightweight-delete the originals.
+
+The switch also changed two behaviors, measured on the same shape:
+
+- `SELECT *` on the shard now includes the nine typed columns, where `MATERIALIZED` hid them. Nothing in the repo depended on the hidden shape.
+- An insert that names a typed column stores the given value even when it contradicts `properties`, where `MATERIALIZED` rejected such inserts.
+  Producers must omit the columns; the Kafka path enforces that because `writable_flag_evaluations` does not declare them.
+
+The remaining fix is pointing the events rewrite machinery at this table, with the `$feature_flag` limitation above built into whatever it does here.
+
+`flag_evaluations` stays deliberately absent from `MATERIALIZATION_VALID_TABLES` until that lands: new `materialize()`-minted columns would only widen what the unfixed path silently leaves behind.
 
 #### If a request arrives before the fix lands
 
@@ -101,7 +157,8 @@ Keeping the fork downstream of person resolution is the contract, tracked on #81
 
 ## Adding a table
 
-Register it in `PERSONAL_DATA_TARGETS`, with capability flags reflecting what its schema can actually take.
+Register it in `PERSONAL_DATA_TARGETS`, with capability flags reflecting what its schema can actually take and what the sweep code actually implements: `accepts_property_rewrite` needs the rewrite machinery to reach the table, not just assignable columns.
 If it is not going to be swept, add it to `TTL_ONLY_TABLES` with the window you are accepting.
+If its storage lives on a cluster other than the one the deletion jobs connect to, give it a `cluster_setting` naming that cluster and mark it `optional`; see "Reach" and "Dispatching" above for which sweeps then reach it and which refuse.
 
 `posthog/clickhouse/test/test_deletion_coverage.py` fails on any storage table that declares `person_properties` and appears in neither list, so the decision has to be made rather than skipped.

@@ -120,7 +120,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_EMAIL_TRACKING_URL: string
 
     // Cyclotron (CDP job queue)
-    CYCLOTRON_DATABASE_URL: string
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
     CYCLOTRON_NODE_DATABASE_URL?: string
     // SES (Workflows email sending)
@@ -136,11 +135,6 @@ export type CdpConfig = ClickhouseConfig & {
     // Comma-separated allowlist of SNS Topic ARNs the SES webhook accepts events from. Empty string
     // means no restriction (dev/test); production should set this to the workflow SES topic ARN(s).
     SES_ALLOWED_SNS_TOPIC_ARNS: string
-    // When true, sends carry TenantName (team-<team_id>) so SES attributes reputation per team
-    // and its Standard reputation policy can pause a single tenant instead of the shared account.
-    // Off by default: a send naming a tenant whose identity association is missing fails, so this
-    // flips on only after tenant coverage is verified (migrate_ses_tenants --dry-run comes back empty).
-    EMAIL_SES_TENANT_ATTRIBUTION_ENABLED: boolean
 
     // Consecutive soft bounces before an address is auto-suppressed. Tunable without a deploy.
     EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: number
@@ -176,6 +170,14 @@ export type CdpConfig = ClickhouseConfig & {
     // newest first (first signs, all verify). Deliberately NOT the fleet-wide INTERNAL_API_SECRET
     // (see .agents/security.md): empty in prod means the route fails closed until provisioned.
     WORKFLOWS_RESCHEDULE_JWT_SECRET: string
+    // Scoped JWT keys verifying Django's calls to the cancel routes (invocations/cancel and
+    // batch_jobs/:id/cancel). A dedicated key, separate from the reschedule sweep's above: the
+    // web tier mints cancels while the worker mints reschedules, so neither tier's key can forge
+    // the other's calls. Same comma-separated rotation and fail-closed-when-empty semantics.
+    WORKFLOWS_CANCEL_JWT_SECRET: string
+    // Scoped JWT keys signing the workflow engine's task-create calls to Django, with the same
+    // comma-separated rotation and fail-closed-when-empty semantics as the secret above.
+    TASKS_CREATE_JWT_SECRET: string
     CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: number
     CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: number
     CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: number
@@ -244,8 +246,10 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_VALKEY_TLS: false,
         CDP_VALKEY_READ_FEATURES: '',
 
-        SES_RATE_LIMITER_VALKEY_HOST: '',
-        SES_RATE_LIMITER_VALKEY_PORT: 6379,
+        // Dev points at the compose stack's Valkey (same instance as CDP_VALKEY) so the SES gate,
+        // per-workflow email rate limits, and the MX-validation cache are exercisable locally.
+        SES_RATE_LIMITER_VALKEY_HOST: isDevEnv() ? '127.0.0.1' : '',
+        SES_RATE_LIMITER_VALKEY_PORT: isDevEnv() ? 6390 : 6379,
         SES_RATE_LIMITER_VALKEY_PASSWORD: '',
         SES_RATE_LIMITER_VALKEY_TLS: false,
 
@@ -287,9 +291,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',
 
         // Cyclotron
-        CYCLOTRON_DATABASE_URL: isTestEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
-            : 'postgres://posthog:posthog@localhost:5432/cyclotron',
         CYCLOTRON_SHARD_DEPTH_LIMIT: 1000000,
         CYCLOTRON_NODE_DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
@@ -305,7 +306,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_TRACKED_CONFIGURATION_SET: 'posthog-messaging',
         SES_UNTRACKED_CONFIGURATION_SET: '',
         SES_ALLOWED_SNS_TOPIC_ARNS: '',
-        EMAIL_SES_TENANT_ATTRIBUTION_ENABLED: false,
         EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: 5,
 
         // Destination migration diffing
@@ -315,7 +315,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Django's batch-job model always passes get_hogflow_batch_trigger_limit(team_id), so
         // production batches use the per-team value from settings; this is only a safety net for
         // direct callers (tests, admin tools). Match the fleet-wide default in settings.web.py.
-        CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: 50000,
+        CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: 500000,
 
         // Cyclotron Node
         CYCLOTRON_NODE_MAX_CONNECTIONS: 10,
@@ -334,6 +334,10 @@ export function getDefaultCdpConfig(): CdpConfig {
         // mass wake, so wakes are trickled (500k parked @ 200/s ≈ 42 min spread).
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         WORKFLOWS_RESCHEDULE_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflows-reschedule-jwt' : '',
+        // Dev/test default must match Django's (posthog/settings/data_stores.py).
+        WORKFLOWS_CANCEL_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflows-cancel-jwt' : '',
+        // Dev/test default must match Django's (posthog/settings/data_stores.py).
+        TASKS_CREATE_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-tasks-create-jwt' : '',
         CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: 600,
         CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: 200,
         CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: 300,

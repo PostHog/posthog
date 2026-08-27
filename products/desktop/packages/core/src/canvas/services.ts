@@ -23,6 +23,11 @@ import type {
   CanvasDataResult,
   CanvasLoadInsightInput,
 } from "./freeformSchemas";
+import type {
+  CanvasLayout,
+  CanvasLayoutResult,
+  LayoutOperation,
+} from "./gridLayoutSchemas";
 import type { CanvasTemplateSummary } from "./templateSchemas";
 
 // Structural service interfaces the host-router routers depend on. The concrete
@@ -35,18 +40,42 @@ export interface ICanvasTemplatesService {
 
 export interface IDashboardsService {
   list(channelId: string): Promise<DashboardRecord[]>;
+  // The component store: component-kind canvases visible to the caller.
+  listComponents(input: { search?: string }): Promise<DashboardRecord[]>;
   get(id: string): Promise<DashboardRecord | null>;
   create(input: {
     channelId: string;
     name: string;
     templateId?: string;
   }): Promise<DashboardRecord>;
+  // Get-or-create the caller's home grid canvas. Idempotent.
+  home(): Promise<DashboardRecord>;
+  // Read a grid canvas's layout (the head, or a historical version).
+  getLayout(input: {
+    id: string;
+    versionId?: string;
+  }): Promise<CanvasLayoutResult>;
+  // Publish a complete layout as the new head (live immediately, no build).
+  publishLayout(input: {
+    id: string;
+    layout: CanvasLayout;
+    prompt?: string;
+    expectedCurrentVersionId: string | null;
+  }): Promise<CanvasLayoutResult>;
+  // Apply surgical, guarded operations to the current layout.
+  patchLayout(input: {
+    id: string;
+    operations: LayoutOperation[];
+    prompt?: string;
+    expectedCurrentVersionId: string | null;
+  }): Promise<CanvasLayoutResult>;
   saveContext(input: { id: string; context: string }): Promise<DashboardRecord>;
   setGenerationTask(input: {
     id: string;
     taskId: string | null;
   }): Promise<DashboardRecord>;
   setPinned(input: { id: string; pinned: boolean }): Promise<DashboardRecord>;
+  file(input: { id: string; channelId: string }): Promise<DashboardRecord>;
   // File a rendering error against the build that threw it (best-effort).
   reportError(input: {
     id: string;
