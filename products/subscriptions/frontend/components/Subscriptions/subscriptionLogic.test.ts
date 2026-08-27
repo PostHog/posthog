@@ -898,9 +898,11 @@ describe('subscriptionLogic', () => {
         recoveryLogic.mount()
         router.actions.push('/dashboard/9/subscriptions/1')
         await expectLogic(recoveryLogic).toFinishListeners().toDispatchActions(['loadSubscriptionSuccess'])
-        recoveryLogic.actions.recoverContextAccess('delete')
+        const onDelete = jest.fn()
+        recoveryLogic.actions.recoverContextAccess('delete', onDelete)
         await expectLogic(recoveryLogic).toFinishListeners().toDispatchActions(['recoverContextAccessSuccess'])
         expect(capturedBody).toEqual({ deleted: true })
+        expect(onDelete).toHaveBeenCalledTimes(1)
         recoveryLogic.unmount()
     })
 

@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from datetime import UTC, datetime
 
 import pytest
@@ -8,10 +9,12 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.temporal.subscriptions.ai_subscription.anchor_context import (
+    ANCHOR_JSON_MAX_ITEMS_PER_CONTAINER,
     ANCHOR_QUERY_JSON_MAX_CHARS,
     ANCHOR_TILES_LIMIT,
     AnchorContextAccessDenied,
     AnchorContextUnavailable,
+    _bounded_json,
     build_anchor_context,
 )
 from products.product_analytics.backend.facade.models import Insight
@@ -22,6 +25,24 @@ _TRENDS_QUERY = {
     "kind": "InsightVizNode",
     "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "export created"}]},
 }
+
+
+def test_bounded_json_does_not_walk_an_entire_large_list() -> None:
+    class CountingList(list[int]):
+        seen = 0
+
+        def __iter__(self) -> Iterator[int]:
+            for item in super().__iter__():
+                self.seen += 1
+                yield item
+
+    items = CountingList(range(10_000))
+
+    serialized = _bounded_json({"items": items})
+
+    assert items.seen == ANCHOR_JSON_MAX_ITEMS_PER_CONTAINER
+    assert "truncated" in serialized
+    assert len(serialized) <= ANCHOR_QUERY_JSON_MAX_CHARS + len("…(truncated)")
 
 
 class TestBuildAnchorContext(APIBaseTest):

@@ -316,8 +316,12 @@ export interface subscriptionLogicActions {
         }
         payload?: any
     }
-    recoverContextAccess: (action: 'clear' | 'pause' | 'delete') => {
+    recoverContextAccess: (
+        action: 'clear' | 'pause' | 'delete',
+        onSuccess?: () => void
+    ) => {
         action: 'clear' | 'pause' | 'delete'
+        onSuccess?: () => void
     }
     recoverContextAccessFailure: () => {
         value: true
@@ -434,7 +438,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         addContextEvent: (eventName: string) => ({ eventName }),
         removeContext: (context: SubscriptionContextApi) => ({ context }),
         removeContextEvent: (eventName: string) => ({ eventName }),
-        recoverContextAccess: (action: 'pause' | 'clear' | 'delete') => ({ action }),
+        recoverContextAccess: (action: 'pause' | 'clear' | 'delete', onSuccess?: () => void) => ({ action, onSuccess }),
         recoverContextAccessFailure: true,
         recoverContextAccessSuccess: true,
         selectAiExamplePrompt: (prompt: string, label: string) => ({
@@ -682,7 +686,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             }
             actions.sendTestDeliveryFailure()
         },
-        recoverContextAccess: async ({ action }) => {
+        recoverContextAccess: async ({ action, onSuccess }) => {
             if (props.id === 'new') {
                 actions.recoverContextAccessFailure()
                 return
@@ -713,6 +717,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     actions.resetSubscription(updated)
                 }
                 actions.recoverContextAccessSuccess()
+                onSuccess?.()
                 lemonToast.success(
                     action === 'pause'
                         ? 'Subscription paused.'

@@ -329,11 +329,11 @@ function EditSubscriptionForm({
             // In recovery mode the server only accepts the restricted allowlist, so the normal
             // delete payload would 403; route through the recovery action that sends just {deleted}.
             if (subscription?.context_recovery) {
-                recoverContextAccess('delete')
+                recoverContextAccess('delete', onDelete)
             } else {
                 deleteSubscription(id)
+                onDelete()
             }
-            onDelete()
         }
     }
 
@@ -907,7 +907,8 @@ function EditSubscriptionForm({
                             type="secondary"
                             status="danger"
                             onClick={_onDelete}
-                            disabled={subscriptionLoading}
+                            loading={subscription.context_recovery && recoveryActionLoading}
+                            disabled={subscriptionLoading || recoveryActionLoading}
                         >
                             Delete subscription
                         </LemonButton>

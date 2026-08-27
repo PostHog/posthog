@@ -405,8 +405,7 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
         context_references = context.anchor.resource_references if context.anchor else []
         report_result = await build_ai_subscription_report(subscription, context=context)
     except AnchorContextAccessDenied:
-        reason = "A selected report context is no longer accessible. Remove it before re-enabling this subscription."
-        aborted = await auto_disable_and_return(subscription, reason, [])
+        aborted = await auto_disable_and_return(subscription, _AI_CONTEXT_ACCESS_REVOKED_DISABLE_REASON, [])
         return GenerateAIReportResult(
             aborted=True, recipient_results=aborted.recipient_results, target_type=subscription.target_type
         )

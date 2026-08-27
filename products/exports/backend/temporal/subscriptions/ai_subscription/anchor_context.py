@@ -1,6 +1,6 @@
 import json
 import hashlib
-from collections.abc import Iterator
+from itertools import islice
 
 from django.db.models import IntegerField, Q, QuerySet, Value
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
@@ -32,6 +32,11 @@ ANCHOR_DESCRIPTION_MAX_LENGTH = 300
 ANCHOR_CONTEXT_MAX_CHARS = 12_000
 # Matches MAX_PINNED_EVENTS in spec_generator so anchor pins obey the same context bound.
 ANCHOR_EVENT_NAMES_LIMIT = 25
+# Query definitions and dashboard metadata are user-controlled JSON. These bounds cap the work
+# before serialization so a large JSONB value cannot create a huge temporary string in a worker.
+ANCHOR_JSON_MAX_NODES = 256
+ANCHOR_JSON_MAX_ITEMS_PER_CONTAINER = 32
+ANCHOR_JSON_MAX_STRING_CHARS = ANCHOR_QUERY_JSON_MAX_CHARS + 1
 
 # The anchor_hash stored for a plan generated without an anchor. A frozen envelope written before
 # anchors existed carries no key and is read as this value, so those plans stay valid.
@@ -66,18 +71,75 @@ class AnchorContextAccessDenied(Exception):
     """A configured report context is no longer readable by the subscription creator."""
 
 
-def _extract_event_names(node: object) -> Iterator[str]:
-    # Insight queries reference events as {"event": "<name>"} nodes (TrendsQuery series, funnel
-    # steps, property filters). A structural walk keeps this schema-agnostic.
-    if isinstance(node, dict):
-        event = node.get("event")
-        if isinstance(event, str) and event:
-            yield event
-        for value in node.values():
-            yield from _extract_event_names(value)
-    elif isinstance(node, list):
-        for item in node:
-            yield from _extract_event_names(item)
+def _bounded_json_value(value: object, remaining_nodes: list[int], depth: int = 0) -> object:
+    """Copy a small, JSON-serializable prefix without walking an unbounded JSONB value."""
+    if remaining_nodes[0] <= 0 or depth >= ANCHOR_JSON_MAX_NODES:
+        return "…(truncated)"
+    remaining_nodes[0] -= 1
+
+    if isinstance(value, str):
+        return value[:ANCHOR_JSON_MAX_STRING_CHARS] + (
+            "…(truncated)" if len(value) > ANCHOR_JSON_MAX_STRING_CHARS else ""
+        )
+    if isinstance(value, dict):
+        bounded: dict[str, object] = {}
+        items = islice(value.items(), ANCHOR_JSON_MAX_ITEMS_PER_CONTAINER)
+        for key, item in items:
+            if remaining_nodes[0] <= 0:
+                break
+            bounded[str(key)[:ANCHOR_JSON_MAX_STRING_CHARS]] = _bounded_json_value(item, remaining_nodes, depth + 1)
+        if len(value) > len(bounded):
+            bounded["…(truncated)"] = True
+        return bounded
+    if isinstance(value, (list, tuple)):
+        bounded = []
+        for item in islice(value, ANCHOR_JSON_MAX_ITEMS_PER_CONTAINER):
+            if remaining_nodes[0] <= 0:
+                break
+            bounded.append(_bounded_json_value(item, remaining_nodes, depth + 1))
+        if len(value) > len(bounded):
+            bounded.append("…(truncated)")
+        return bounded
+    return value
+
+
+def _bounded_json(value: object) -> str:
+    """Serialize user JSON with fixed memory and output bounds before LLM sanitization."""
+    bounded_value = _bounded_json_value(value, [ANCHOR_JSON_MAX_NODES])
+    chunks: list[str] = []
+    remaining = ANCHOR_QUERY_JSON_MAX_CHARS + 1
+    truncated = False
+    for chunk in json.JSONEncoder(separators=(",", ":"), sort_keys=True).iterencode(bounded_value):
+        if not remaining:
+            truncated = True
+            break
+        chunks.append(chunk[:remaining])
+        if len(chunk) > remaining:
+            truncated = True
+            break
+        remaining -= len(chunk)
+    serialized = "".join(chunks)
+    sanitized = sanitize_user_text(serialized, ANCHOR_QUERY_JSON_MAX_CHARS, truncate_marker="…(truncated)")
+    return f"{sanitized}…(truncated)" if truncated and not sanitized.endswith("…(truncated)") else sanitized
+
+
+def _collect_event_names(node: object, collected_events: list[str]) -> None:
+    """Collect only the first usable unique event names from a bounded structural prefix."""
+    unique_events = set(collected_events)
+    worklist: list[object] = [node]
+    visited = 0
+    while worklist and visited < ANCHOR_JSON_MAX_NODES and len(unique_events) < ANCHOR_EVENT_NAMES_LIMIT:
+        current = worklist.pop()
+        visited += 1
+        if isinstance(current, dict):
+            event = current.get("event")
+            if isinstance(event, str) and event and event not in unique_events:
+                collected_events.append(event)
+                unique_events.add(event)
+            children = list(islice(current.values(), ANCHOR_JSON_MAX_ITEMS_PER_CONTAINER))
+            worklist.extend(reversed(children))
+        elif isinstance(current, list):
+            worklist.extend(reversed(list(islice(current, ANCHOR_JSON_MAX_ITEMS_PER_CONTAINER))))
 
 
 def _insight_lines(insight, collected_events: list[str]) -> list[str]:
@@ -95,24 +157,16 @@ def _insight_lines(insight, collected_events: list[str]) -> list[str]:
         # The serialized query carries user-editable strings (custom names, breakdown values), so
         # it gets the same LLM-marker stripping as names and descriptions. The stripped JSON is
         # only read by the planner, never parsed back, so lost structure is acceptable.
-        query_json = sanitize_user_text(
-            json.dumps(effective_query, separators=(",", ":"), sort_keys=True),
-            ANCHOR_QUERY_JSON_MAX_CHARS,
-            truncate_marker="…(truncated)",
-        )
+        query_json = _bounded_json(effective_query)
         lines.append(f"    Query definition (JSON): {query_json}")
-        collected_events.extend(_extract_event_names(effective_query))
+        _collect_event_names(effective_query, collected_events)
     return lines
 
 
 def _dashboard_metadata_line(label: str, value: object) -> str | None:
     if not value:
         return None
-    serialized = sanitize_user_text(
-        json.dumps(value, separators=(",", ":"), sort_keys=True),
-        ANCHOR_QUERY_JSON_MAX_CHARS,
-        truncate_marker="…(truncated)",
-    )
+    serialized = _bounded_json(value)
     return f"  {label} (JSON): {serialized}" if serialized else None
 
 
