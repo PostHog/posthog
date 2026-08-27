@@ -44,6 +44,7 @@ const notebookFixture = {
 describe('notebook variables wiring', () => {
     let logic: ReturnType<typeof notebookLogic.build>
     let stalenessLogic: ReturnType<typeof notebookNodeStalenessLogic.build>
+    let updateSpy: jest.SpyInstance
 
     beforeEach(() => {
         localStorage.clear()
@@ -56,7 +57,14 @@ describe('notebook variables wiring', () => {
         })
         initKeaTests()
         jest.spyOn(api.notebooks, 'collabStream').mockResolvedValue(undefined as any)
-        jest.spyOn(api.notebooks, 'update').mockResolvedValue({ ...notebookFixture, version: 2 })
+        // Echoes the saved variables, as the API does. Returning the fixture unchanged would
+        // hide a save that never reaches the bar.
+        updateSpy = jest
+            .spyOn(api.notebooks, 'update')
+            .mockImplementation(async (_shortId: string, data: Record<string, any>) => ({
+                ...notebookFixture,
+                ...data,
+            }))
 
         stalenessLogic = notebookNodeStalenessLogic({ shortId: SHORT_ID })
         stalenessLogic.mount()
@@ -84,6 +92,56 @@ describe('notebook variables wiring', () => {
     it('reads the saved variables off the notebook', async () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.variables).toEqual([{ name: 'country', type: 'string', value: 'US' }])
+    })
+
+    it('keeps the saved value once the save lands', async () => {
+        // The notebook this logic renders from is not the list row notebooksModel holds, so the
+        // save has to be written back to it. Without that the bar drops the local copy and falls
+        // back to the list the page loaded with, reverting the edit the person just made.
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setVariables([{ name: 'country', type: 'string', value: 'DE' }])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.variables).toEqual([{ name: 'country', type: 'string', value: 'DE' }])
+        expect(logic.values.syncStatus).toEqual('synced')
+    })
+
+    it('adding an empty row neither saves nor reports an error', async () => {
+        // Clicking "Add variable" used to PATCH a nameless row straight away: the API rejected it
+        // and the person got an error toast for a row they had not started filling in.
+        await expectLogic(logic).toFinishAllListeners()
+        updateSpy.mockClear()
+
+        logic.actions.setVariables([
+            { name: 'country', type: 'string', value: 'US' },
+            { name: '', type: 'string', value: '' },
+        ])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(updateSpy).not.toHaveBeenCalled()
+        expect(logic.values.variableErrors).toEqual([null, null])
+        expect(logic.values.syncStatus).toEqual('synced')
+    })
+
+    it('an unnamed row does not hold back an edit to a named one', async () => {
+        // The draft is withheld from the PATCH rather than blocking it, and it stays in the bar
+        // so the person can carry on naming it.
+        await expectLogic(logic).toFinishAllListeners()
+        updateSpy.mockClear()
+
+        logic.actions.setVariables([
+            { name: 'country', type: 'string', value: 'DE' },
+            { name: '', type: 'string', value: '' },
+        ])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(updateSpy).toHaveBeenCalledWith(SHORT_ID, {
+            variables: [{ name: 'country', type: 'string', value: 'DE' }],
+        })
+        expect(logic.values.variables).toEqual([
+            { name: 'country', type: 'string', value: 'DE' },
+            { name: '', type: 'string', value: '' },
+        ])
     })
 
     it('an edit counts as unsaved work until the save lands', async () => {
