@@ -537,10 +537,12 @@ struct WorkerBatcher {
     governor: Governor,                      // the permit valve + the ±1 law (§4.3, below)
     bins: Map<WorkerId, Bin>,                // bin: ordered groups, events/bytes, affinities
     in_flight: Map<WorkerId, u32>,           // per-stream depth in use (≤ DEPTH_MAX)
-    armed: Set<WorkerId>,                    // workers with a non-empty bin — armed until
+    armed: RotatingSet<WorkerId>,            // workers with a non-empty bin — armed until
                                              //   it drains, so a fire refused by depth or
                                              //   permits is retried at every wake, never
-                                             //   lost (the bounded-wait argument, §4.3)
+                                             //   lost (the bounded-wait argument, §4.3);
+                                             //   iterated round-robin, so scarce permits
+                                             //   reach every armed bin within |armed| turns
     retry_at: Option<Deadline>,              // armed only while a key is parked
     router: Router,                          // aperture + P2C over the health snapshot (§4.3)
     accumulators: Rx<Feed>,                  // Batch(accumulator) | Revoked(partition)
