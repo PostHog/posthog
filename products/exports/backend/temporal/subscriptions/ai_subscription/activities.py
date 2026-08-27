@@ -322,9 +322,10 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
 
     try:
         context = await resolve_ai_subscription_context(subscription)
-        await _replace_delivery_context_references(
-            inputs.delivery_id, subscription.team_id, context.anchor.resource_references if context.anchor else []
-        )
+        if not context.anchor_unavailable:
+            await _replace_delivery_context_references(
+                inputs.delivery_id, subscription.team_id, context.anchor.resource_references if context.anchor else []
+            )
         report_result = await build_ai_subscription_report(subscription, context=context)
     except AnchorContextAccessDenied:
         reason = "A selected report context is no longer accessible. Remove it before re-enabling this subscription."

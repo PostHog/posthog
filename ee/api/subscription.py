@@ -24,6 +24,7 @@ from drf_spectacular.utils import (
 from rest_framework import exceptions, filters, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
+from rest_framework.fields import html
 from rest_framework.pagination import CursorPagination
 from rest_framework.response import Response
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -522,8 +523,11 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # Bound raw arrays before DRF resolves each relation, so an oversized request cannot
         # turn one validation error into thousands of database lookups.
         for field in ("context_dashboards", "context_insights", "context_items"):
-            value = data.get(field) if hasattr(data, "get") else None
-            if isinstance(value, list) and len(value) > MAX_AI_REPORT_CONTEXTS:
+            if hasattr(data, "getlist"):
+                value = data.getlist(field) or html.parse_html_list(data, prefix=field, default=[])
+            else:
+                value = data.get(field) if hasattr(data, "get") else None
+            if isinstance(value, (list, tuple)) and len(value) > MAX_AI_REPORT_CONTEXTS:
                 raise ValidationError({field: [f"Select no more than {MAX_AI_REPORT_CONTEXTS} items."]})
         return super().to_internal_value(data)
 
@@ -1500,9 +1504,22 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
     def _write_touches_ai_subscription(self, request, view) -> bool:
         if request.data.get("prompt"):  # create (or a body that sets a prompt)
             return True
+        if self._is_context_recovery_write(request):
+            return False
         # Existing subscription (update / test-delivery): resolve its kind by pk, team-scoped.
         pk = view.kwargs.get("pk")
         return bool(pk) and _subscription_is_ai_prompt(pk, self.team_id)
+
+    def _is_context_recovery_write(self, request) -> bool:
+        if self.action not in ("update", "partial_update") or not isinstance(request.data, dict):
+            return False
+        if not set(request.data).issubset(self._RECOVERY_UPDATE_FIELDS):
+            return False
+        pk = self.kwargs.get(self.lookup_field)
+        if not pk:
+            return False
+        subscription = Subscription.objects.filter(pk=pk, team_id=self.team_id).first()
+        return subscription is not None and self._can_recover_context_access(subscription)
 
     def get_throttles(self):
         throttles = super().get_throttles()

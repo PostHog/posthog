@@ -1,7 +1,8 @@
 import uuid
+from types import SimpleNamespace
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from asgiref.sync import sync_to_async
 from temporalio.exceptions import ApplicationError
@@ -34,6 +35,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     CreateExportAssetsResult,
     DeliverSubscriptionInputs,
     DeliverSubscriptionResult,
+    GenerateAIReportInputs,
     GenerateAIReportResult,
     SnapshotInsightsResult,
     TrackedSubscriptionInputs,
@@ -73,6 +75,41 @@ async def test_ai_report_delivery_context_references_are_replaced_per_generation
         (AI_REPORT_DELIVERY_CONTEXT_MARKER_KIND, AI_REPORT_DELIVERY_CONTEXT_MARKER_IDENTIFIER),
         ("insight", "3"),
     ]
+
+
+async def test_ai_report_does_not_mark_provenance_when_anchor_is_unavailable(team, user) -> None:
+    team.organization.is_ai_data_processing_approved = True
+    await sync_to_async(team.organization.save)(update_fields=["is_ai_data_processing_approved"])
+    subscription = await sync_to_async(create_subscription)(team=team, created_by=user, prompt="Weekly report")
+    report_result = MagicMock(diagnostics=())
+
+    with (
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.resolve_ai_subscription_context",
+            new=AsyncMock(return_value=SimpleNamespace(anchor_unavailable=True, anchor=None)),
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities._replace_delivery_context_references",
+            new=AsyncMock(),
+        ) as replace_context_references,
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.build_ai_subscription_report",
+            new=AsyncMock(return_value=report_result),
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities._persist_ai_report",
+            new=AsyncMock(),
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.is_team_over_ai_credit_budget",
+            return_value=False,
+        ),
+    ):
+        await generate_ai_subscription_report(
+            GenerateAIReportInputs(subscription_id=subscription.id, delivery_id=uuid.uuid4())
+        )
+
+    replace_context_references.assert_not_awaited()
 
 
 # v1 only exists as a Temporal history-compat shim for pre-patch workflows. Both

@@ -2694,6 +2694,18 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert response.json()["context_dashboards"] == []
         assert response.json()["contexts"] == []
 
+    def test_rejects_oversized_form_context_before_relation_resolution(self, *mocks: MagicMock):
+        self._mock_temporal(mocks[-1])
+        self._enable_ai()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(context_dashboards=["999999"] * 26),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["context_dashboards"] == ["Select no more than 25 items."]
+
     def test_contexts_carry_names_for_display_and_omit_deleted_resources(self, *mocks: MagicMock):
         self._mock_temporal(mocks[-1])
         self._enable_ai()
@@ -3491,6 +3503,15 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
             f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", {"enabled": True}
         )
         assert reenabled.status_code == status.HTTP_403_FORBIDDEN, reenabled.json()
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="query",
+            resource_id=None,
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        cache.clear()
 
         cleared = self.client.patch(
             f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", {"context_dashboards": []}
