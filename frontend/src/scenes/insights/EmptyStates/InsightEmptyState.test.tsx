@@ -32,7 +32,9 @@ describe('EmptyStates', () => {
                 <StatelessInsightLoadingState queryId="q1" loadingTimeSeconds={loadingTimeSeconds} />
             )
             // humanFriendlyDuration joins units with a non-breaking space, so normalize before comparing.
-            const text = container.querySelector('[data-attr="insight-loading-elapsed"]')?.textContent?.replace(/\s/g, ' ')
+            const text = container
+                .querySelector('[data-attr="insight-loading-elapsed"]')
+                ?.textContent?.replace(/\s/g, ' ')
             expect(text).toBe(expected)
         })
 
