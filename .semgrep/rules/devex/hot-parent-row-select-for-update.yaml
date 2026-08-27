@@ -1,0 +1,31 @@
+rules:
+    - id: hot-parent-row-select-for-update
+      message: |
+          Locking Team or Organization makes unrelated child-row writers wait on a hot parent row.
+          Lock the quiet row that represents the serialized resource instead. If the parent row is
+          the resource being changed or deleted, suppress this finding with
+          `# nosemgrep: hot-parent-row-select-for-update -- <short justification>`.
+          Pre-existing findings are grandfathered; only newly introduced findings block CI.
+      languages: [python]
+      severity: WARNING
+      patterns:
+          - pattern: $MODEL.objects. ... .select_for_update(...)
+          - pattern-not: $MODEL.objects. ... .select_for_update(..., no_key=True, ...)
+          - metavariable-regex:
+                metavariable: $MODEL
+                regex: ^(Team|Organization)$
+      paths:
+          include:
+              - ee/**/*.py
+              - posthog/**/*.py
+              - products/**/*.py
+          exclude:
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+              - '**/*_test.py'
+              - '**/conftest*.py'
+      metadata:
+          category: performance
+          subcategory: audit
+          confidence: HIGH
