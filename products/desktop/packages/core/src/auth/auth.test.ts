@@ -1,6 +1,6 @@
 import type { RootLogger } from "@posthog/di/logger";
 import type { IPowerManager } from "@posthog/platform/power-manager";
-import { OAUTH_SCOPE_VERSION } from "@posthog/shared";
+import { NotAuthenticatedError, OAUTH_SCOPE_VERSION } from "@posthog/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthService } from "./auth";
 import type {
@@ -1189,6 +1189,129 @@ describe("AuthService", () => {
       expect(sessionPort.getCurrent()).toBeNull();
     });
 
+    it("never re-presents a refresh token the server rejected", async () => {
+      seedStoredSession();
+      oauthFlow.refreshToken.mockResolvedValue({
+        success: false,
+        error: "Token revoked",
+        errorCode: "auth_error",
+      });
+
+      await service.initialize();
+      expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
+
+      // Storage still holds the dead token, so this must fail without a request.
+      seedStoredSession();
+      await expect(service.getValidAccessToken()).rejects.toThrow(
+        NotAuthenticatedError,
+      );
+      expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
+    });
+
+    it("pauses rather than retires a token after an unclassified failure", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-08-24T00:00:00.000Z"));
+      try {
+        seedStoredSession();
+        oauthFlow.refreshToken.mockResolvedValue({
+          success: false,
+          error: "Something weird",
+          errorCode: "unknown_error",
+        });
+
+        await service.initialize();
+        expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
+
+        await expect(service.getValidAccessToken()).rejects.toThrow(/paused/i);
+        expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
+
+        // Held just under the cooldown, so the constant itself is pinned.
+        vi.setSystemTime(new Date("2026-08-24T00:00:14.900Z"));
+        await expect(service.getValidAccessToken()).rejects.toThrow(/paused/i);
+        expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
+
+        // And the pause lifts on its own, unlike a server rejection.
+        vi.setSystemTime(new Date("2026-08-24T00:00:15.100Z"));
+        await expect(service.getValidAccessToken()).rejects.toThrow();
+        expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("releases the refusal when a new grant bumps the session generation", async () => {
+      seedStoredSession();
+      oauthFlow.refreshToken.mockResolvedValue({
+        success: false,
+        error: "Token revoked",
+        errorCode: "auth_error",
+      });
+      await service.initialize();
+      expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
+
+      oauthFlow.startFlow.mockResolvedValue(
+        mockTokenResponse({
+          accessToken: "fresh-access-token",
+          refreshToken: "stored-refresh-token",
+        }),
+      );
+      stubAuthFetch();
+      await service.login("us");
+
+      // Same token as the refused one, so only the generation bump can release
+      // it. Otherwise signing back in leaves the user locked out.
+      seedStoredSession();
+      oauthFlow.refreshToken.mockResolvedValue(
+        mockTokenResponse({
+          accessToken: "rotated-access-token",
+          refreshToken: "rotated-refresh-token",
+        }),
+      );
+      await service.refreshAccessToken();
+      expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(2);
+    });
+
+    it("pauses only the token that failed", async () => {
+      seedStoredSession();
+      oauthFlow.refreshToken.mockResolvedValue({
+        success: false,
+        error: "Something weird",
+        errorCode: "unknown_error",
+      });
+      await service.initialize();
+      expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
+
+      // A different token is a different credential; the pause must not widen.
+      seedStoredSession({ refreshToken: "another-refresh-token" });
+      await expect(service.getValidAccessToken()).rejects.toThrow();
+      expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(2);
+    });
+
+    it("pauses the token when retries are exhausted", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-08-24T00:00:00.000Z"));
+      try {
+        seedStoredSession();
+        oauthFlow.refreshToken.mockResolvedValue({
+          success: false,
+          error: "Boom",
+          errorCode: "server_error",
+        });
+
+        const restoring = service.initialize();
+        await vi.advanceTimersByTimeAsync(10_000);
+        await restoring;
+        const spent = oauthFlow.refreshToken.mock.calls.length;
+        expect(spent).toBeGreaterThan(1);
+
+        // This exhausts the retry budget rather than failing on the first attempt.
+        await expect(service.getValidAccessToken()).rejects.toThrow();
+        expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(spent);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("keeps restoring after a non-retryable unknown_error", async () => {
       seedStoredSession();
       oauthFlow.refreshToken.mockResolvedValue({
@@ -1250,6 +1373,39 @@ describe("AuthService", () => {
       }
     });
 
+    it("raises a not-authenticated error on the rejection itself", async () => {
+      vi.useFakeTimers();
+      try {
+        oauthFlow.startFlow.mockResolvedValue(
+          mockTokenResponse({
+            accessToken: "current-access-token",
+            refreshToken: "current-refresh-token",
+          }),
+        );
+        stubAuthFetch();
+
+        await service.initialize();
+        await service.login("us");
+
+        oauthFlow.refreshToken.mockReset();
+        oauthFlow.refreshToken.mockResolvedValue({
+          success: false,
+          error: "Token revoked",
+          errorCode: "auth_error",
+        });
+
+        await vi.advanceTimersByTimeAsync(3_599_500);
+
+        // Raised by the rejection that tears the session down, so callers
+        // that stop on a dead session see it here, not one trigger later.
+        await expect(service.getValidAccessToken()).rejects.toBeInstanceOf(
+          NotAuthenticatedError,
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("does not use the current access token when refresh token auth fails", async () => {
       vi.useFakeTimers();
       try {
@@ -1285,6 +1441,58 @@ describe("AuthService", () => {
   });
 
   describe("transient org fetch failures", () => {
+    it("does not replace the stored project with another org's first project during partial recovery", async () => {
+      seedStoredSession({ selectedProjectId: 84 });
+      oauthFlow.refreshToken.mockResolvedValue(
+        mockTokenResponse({ scopedOrgs: ["org-1", "org-2"] }),
+      );
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string | Request) => {
+          const url = typeof input === "string" ? input : input.url;
+
+          if (url.includes("/api/users/@me/")) {
+            return {
+              ok: true,
+              json: vi.fn().mockResolvedValue({
+                uuid: "user-1",
+                organization: { id: "org-1" },
+              }),
+            } as unknown as Response;
+          }
+
+          if (url.includes("/api/organizations/org-1/")) {
+            return {
+              ok: true,
+              json: vi.fn().mockResolvedValue({
+                name: "Org 1",
+                teams: [{ id: 42, name: "Project 42" }],
+              }),
+            } as unknown as Response;
+          }
+
+          if (url.includes("/api/organizations/org-2/")) {
+            return {
+              ok: false,
+              status: 503,
+              json: vi.fn().mockResolvedValue({}),
+            } as unknown as Response;
+          }
+
+          return {
+            ok: true,
+            json: vi.fn().mockResolvedValue({ allowed: true, reason: null }),
+          } as unknown as Response;
+        }) as unknown as typeof fetch,
+      );
+
+      await service.initialize();
+
+      expect(service.getState().currentProjectId).toBeNull();
+      expect(sessionPort.getCurrent()?.selectedProjectId).toBe(84);
+    });
+
     it("retries the org fetch on a transient network failure and keeps the selected project", async () => {
       seedStoredSession({ selectedProjectId: 84 });
       oauthFlow.refreshToken.mockResolvedValue(mockTokenResponse());

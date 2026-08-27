@@ -51,9 +51,9 @@ from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.permissions import AccessControlPermission, APIScopePermission, get_authenticator_scopes
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.temporal.common.client import sync_connect
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.daily_limit import daily_report_limit_gate
 from products.signals.backend.models import (
     SignalProjectProfile,
@@ -1216,7 +1216,8 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "and `key`; pass `key` instead for an exact single-entry lookup. "
             "`date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, "
             "`< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls "
-            "to walk past the cap. Pass `keys_only=true` to scan keys without pulling entry bodies, or "
+            "to walk past the cap. Entries whose `expires_at` has passed are excluded unless "
+            "`include_expired=true`. Pass `keys_only=true` to scan keys without pulling entry bodies, or "
             "`content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan "
             "from returning every entry's full prose. Results capped at 1000."
         ),
@@ -1239,6 +1240,7 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             limit=limit,
             keys_only=keys_only,
             content_max_chars=content_max_chars,
+            include_expired=bool(validated.get("include_expired", False)),
         )
         return Response(ScratchpadEntrySerializer([row.as_dict() for row in rows], many=True).data)
 
@@ -1246,10 +1248,15 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request_serializer=RememberRequestSerializer,
         responses={
             200: OpenApiResponse(response=ScratchpadEntrySerializer, description="Memory entry written or refreshed."),
-            400: OpenApiResponse(description="Invalid memory shape (empty key/content, key too long)."),
+            400: OpenApiResponse(
+                description="Invalid memory shape (empty key/content, key too long, `expires_at` in the past)."
+            ),
         },
         summary="Remember a scratchpad entry",
-        description=("Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place."),
+        description=(
+            "Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. "
+            "A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted."
+        ),
         operation_id="signals_scout_scratchpad_remember",
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
@@ -1272,6 +1279,7 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 key=data["key"],
                 content=data["content"],
                 run_id=str(run_id) if run_id is not None else None,
+                expires_at=data.get("expires_at"),
             )
         except InvalidScratchpadError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})

@@ -158,6 +158,7 @@ describe('UrlFetchConsumer', () => {
     it('records distinct origins and registrable domains for the poll batch', async () => {
         const harness = build()
         const observeBatch = jest.spyOn(ImageFetchConsumerMetrics, 'observeBatch')
+        const observeBatchDiversity = jest.spyOn(ImageFetchConsumerMetrics, 'observeBatchDiversity')
         const otherExampleOrigin = candidate('b', {
             currentUrl: 'https://img.example.com/b.png',
             host: 'img.example.com',
@@ -176,6 +177,7 @@ describe('UrlFetchConsumer', () => {
         )
 
         expect(observeBatch).toHaveBeenCalledWith(3, 2, expect.any(Number))
+        expect(observeBatchDiversity).toHaveBeenCalledWith([1, 1, 1], [2, 1])
     })
 
     it('deduplicates one global ref within the batch', async () => {
@@ -201,6 +203,15 @@ describe('UrlFetchConsumer', () => {
         await harness.consumer.handleBatch([message([stale]), message([advanced])], NOW_MS)
 
         expect(harness.run.mock.calls[0][0]).toEqual([advanced])
+    })
+
+    it('keeps a low-origin-diversity marker from either duplicate job', async () => {
+        const harness = build()
+        const marked = candidate('a', { lowOriginDiversityDeferred: true })
+
+        await harness.consumer.handleBatch([message([candidate('a')]), message([marked])], NOW_MS)
+
+        expect(harness.run.mock.calls[0][0]).toEqual([marked])
     })
 
     it('keeps the latest not-before time from duplicate jobs', async () => {
@@ -379,9 +390,10 @@ describe('UrlFetchConsumer', () => {
         harness.history.writeError = new Error('write failed')
 
         await expect(harness.consumer.handleBatch([message([candidate('a')])], NOW_MS)).rejects.toThrow('write failed')
+        expect(harness.flush).not.toHaveBeenCalled()
     })
 
-    it('keeps publish work before the final history write', async () => {
+    it('writes durable state before it flushes buffered republishes', async () => {
         const harness = build()
         const order: string[] = []
         harness.run.mockImplementation((candidates) => {
@@ -393,10 +405,14 @@ describe('UrlFetchConsumer', () => {
             order.push('history')
             await write(items)
         }
+        harness.flush.mockImplementation(() => {
+            order.push('republished')
+            return Promise.resolve({ failedUrls: 0 })
+        })
 
         await harness.consumer.handleBatch([message([candidate('a')])], NOW_MS)
 
-        expect(order).toEqual(['published', 'history'])
+        expect(order).toEqual(['published', 'history', 'republished'])
     })
 
     it('throws when the fetch pass reports a lost URL', async () => {

@@ -1,3 +1,4 @@
+import { EMPTY_SPEND_LIMITS } from "@posthog/core/billing/spendLimits";
 import { TIP_KEYS } from "@posthog/ui/features/settings/tipKeys";
 import {
   flushRendererStateWrites,
@@ -449,6 +450,48 @@ describe("feature settingsStore custom sounds", () => {
       );
     },
   );
+});
+
+describe("feature settingsStore spend limits rehydrate", () => {
+  beforeEach(async () => {
+    await resetPersistenceMocks();
+  });
+
+  it.each([
+    {
+      label: "flat pre-rename keys into the per-period shape",
+      persistedLimits: {
+        dailyWarnUsd: 20,
+        dailyAlertUsd: 50,
+        monthlyStopUsd: 400,
+      },
+      expected: {
+        day: { warnUsd: 20, stopUsd: 50 },
+        month: { warnUsd: null, stopUsd: 400 },
+      },
+    },
+    {
+      label: "a warn line above its stop line down onto it",
+      persistedLimits: { day: { warnUsd: 80, stopUsd: 50 } },
+      expected: {
+        day: { warnUsd: 50, stopUsd: 50 },
+        month: { warnUsd: null, stopUsd: null },
+      },
+    },
+    {
+      label: "garbage values into cleared lines",
+      persistedLimits: { day: "nope", dailyWarnUsd: -3, monthlyStopUsd: "x" },
+      expected: EMPTY_SPEND_LIMITS,
+    },
+  ])("rehydrate migrates $label", async ({ persistedLimits, expected }) => {
+    getItem.mockResolvedValue(
+      JSON.stringify({ state: { spendLimits: persistedLimits }, version: 1 }),
+    );
+
+    await useSettingsStore.persist.rehydrate();
+
+    expect(useSettingsStore.getState().spendLimits).toEqual(expected);
+  });
 });
 
 describe("getEffectiveCustomInstructions", () => {

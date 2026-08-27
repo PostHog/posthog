@@ -58,6 +58,7 @@
  * guarantees the primitive/component class strings get compiled.
  */
 @source "../../../../node_modules/@posthog/quill/dist/**/*.js";
+@source "../../../../node_modules/@posthog/quill-charts/dist/**/*.js";
 
 /*
  * Indeterminate "section loading" bar — a thin accent bar that swoops across the
@@ -1478,5 +1479,19 @@ body.ph-window-blurred .app-fade-in {
   .quill-tabs-fill .quill-tabs__trigger:hover,
   .quill-tabs-fill .quill-tabs__trigger[data-active]:hover {
     background-color: var(--fill-selected) !important;
+  }
+}
+
+/*
+ * Spend-limit slider: the hatched overlay marking spend so far drifts, so a
+ * live figure reads as live rather than as a static striped fill. The stripe
+ * period is 6px, so translating by that lands back on an identical frame.
+ */
+@keyframes spend-usage-drift {
+  from {
+    background-position-x: 0;
+  }
+  to {
+    background-position-x: 6px;
   }
 }

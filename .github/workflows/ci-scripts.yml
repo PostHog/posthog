@@ -9,6 +9,9 @@ on:
             - .github/scripts/**
             - .github/auto-assign-labels.json
             - .github/workflows/ci-scripts.yml
+            # trunk-impacted-targets.test.js reads proto/ and fails on a tree the
+            # table does not declare, so adding one has to run these tests.
+            - proto/**
             # turbo-discover.test.js pins the Django segment table to these.
             - .github/workflows/ci-backend.yml
             - .depot/workflows/ci-backend.yml
@@ -31,86 +34,72 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         steps:
+            # The tests take seconds, so a full checkout of the monorepo dominated
+            # the job. Check out only the trees the suite reads: most tests are
+            # pure logic over path strings, but a few read the real repo to guard
+            # against drift — trunk-impacted-targets.test.js walks proto/, rust/,
+            # nodejs/ and every workspace package.json (the unanchored pattern
+            # pulls each manifest without its source tree), and
+            # report_test_timings imports tools/owners and finds the root by
+            # owners.yaml. A new test that reads another path must add it here.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 1
+                  sparse-checkout: |
+                      /.github/
+                      /bin/render-jest-timings-example
+                      /bin/report-jest-timings
+                      /.depot/
+                      /tools/
+                      /proto/
+                      /rust/
+                      /nodejs/
+                      /posthog/personhog_client/
+                      /.semgrep/
+                      /frontend/bin/ci-report/
+                      /products/README.md
+                      /services/README.md
+                      /.nvmrc
+                      /owners.yaml
+                      /pnpm-workspace.yaml
+                      /uv.lock
+                      /tach.toml
+                      /pyproject.toml
+                      package.json
+                  sparse-checkout-cone-mode: false
 
             - name: Setup Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
 
-            - name: Setup Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+            - name: Install uv
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  python-version-file: pyproject.toml
+                  version: '0.11.28'
 
-            # defusedxml + opentelemetry + tools/owners are report_test_timings.py's script deps.
+            # The preinstalled python3 runs these standalone tests, so no
+            # setup-python step. defusedxml + opentelemetry + tools/owners are
+            # report_test_timings.py's script deps.
             - name: Install pytest
-              run: python -m pip install --quiet pytest parameterized defusedxml==0.7.1 opentelemetry-sdk==1.33.1 opentelemetry-exporter-otlp-proto-http==1.33.1 ./tools/owners
+              run: python3 -m pip install --quiet pytest parameterized defusedxml==0.7.1 opentelemetry-sdk==1.33.1 opentelemetry-exporter-otlp-proto-http==1.33.1 ./tools/owners
 
             # `-c /dev/null` skips the repo pytest.ini (its --reuse-db addopt needs
             # pytest-django, which we don't install here). `--noconftest` skips the
             # root conftest.py, whose autouse fixtures import the posthog package
-            # (and thus Django) — not installed in this lightweight job. These tests
-            # are standalone and need no conftest fixtures beyond pytest's tmp_path.
-            - name: Schema-usage scanner tests (Python)
-              run: python -m pytest .github/scripts/test_schema_usage_scan.py -v -c /dev/null -p no:cacheprovider --noconftest
+            # (and thus Django) — not installed in this lightweight job. The tools/
+            # files stay explicit: a tools glob would double-run the dagster and
+            # playwright selection tests (they run in ci-dagster and
+            # ci-e2e-playwright) and collect test_selection_verdict.py, which is
+            # the script under test, not a test.
+            - name: Python script tests
+              run: |
+                  python3 -m pytest -v -c /dev/null -p no:cacheprovider --noconftest \
+                      .github/scripts/test_*.py \
+                      tools/test_snob_backend_test_selection_shadow.py \
+                      tools/test_test_selection_verdict.py
 
-            - name: Test-timings reporter tests (Python)
-              run: python -m pytest .github/scripts/test_report_test_timings.py -v -c /dev/null -p no:cacheprovider --noconftest
-
-            # hashFiles guard so an unrebased PR predating this script doesn't fail here.
-            - name: Workflow-run trace reporter tests (Python)
-              if: ${{ hashFiles('.github/scripts/test_report_workflow_run_traces.py') != '' }}
-              run: python -m pytest .github/scripts/test_report_workflow_run_traces.py -v -c /dev/null -p no:cacheprovider --noconftest
-
-            # The Django test selector decides what ci-backend runs, and a wrong
-            # subset is silent: it reports green having skipped the test that would
-            # have failed. hashFiles guard for PRs that predate the selector tests.
-            - name: Backend test-selection tests (Python)
-              if: ${{ hashFiles('tools/test_snob_backend_test_selection_shadow.py') != '' }}
-              run: python -m pytest tools/test_snob_backend_test_selection_shadow.py tools/test_test_selection_verdict.py -v -c /dev/null -p no:cacheprovider --noconftest
-
-            # Shells out to schema_usage_scan.py via python3 (preinstalled on ubuntu).
-            - name: Schema-impact tests (Node)
-              run: node --test .github/scripts/schema-impact.test.js
-
-            - name: Master CI alerts tests (Node)
-              run: node --test .github/scripts/ci-alerts-devex.test.js
-
-            - name: Rate-limit monitor tests (Node)
-              run: node --test .github/scripts/monitor-github-rate-limit.test.js
-
-            - name: PR title labeler tests (Node)
-              run: node --test .github/scripts/label-pr-from-title.test.js
-
-            - name: Auto-assign reviewers tests (Node)
-              run: node --test .github/scripts/assign-reviewers.test.js
-
-            - name: CI report section tests (Node)
-              run: node --test .github/scripts/post-ci-sections.test.mjs
-
-            - name: Weekly flaky report tests (Node)
-              if: ${{ hashFiles('.github/scripts/weekly-flaky-report.test.mjs') != '' }}
-              run: node --test .github/scripts/weekly-flaky-report.test.mjs
-
-            - name: Weekly slow tests report tests (Node)
-              if: ${{ hashFiles('.github/scripts/weekly-slow-tests-report.test.mjs') != '' }}
-              run: node --test .github/scripts/weekly-slow-tests-report.test.mjs
-
-            - name: CLI npm installer patch tests (Node)
-              if: ${{ hashFiles('.github/scripts/patch-cli-npm-installer.test.mjs') != '' }}
-              run: node --test .github/scripts/patch-cli-npm-installer.test.mjs
-
-            - name: Turbo-discover dependent-cascade tests (Node)
-              run: node --test .github/scripts/turbo-discover-cascade.test.js
-
-            # hashFiles guard so an unrebased PR predating these files doesn't fail here.
-            - name: Turbo-discover segment and staleness tests (Node)
-              if: ${{ hashFiles('.github/scripts/turbo-discover.test.js') != '' }}
-              run: node --test .github/scripts/turbo-discover.test.js .github/scripts/turbo-discover-staleness.test.js
-
-            - name: Selected Django shards tests (Node)
-              run: node --test .github/scripts/selected-django-shards.test.js
-
-            - name: Trunk impacted-targets tests (Node)
-              run: node --test .github/scripts/trunk-impacted-targets.test.js
+            # schema-impact.test.js shells out to schema_usage_scan.py via the same
+            # preinstalled python3.
+            - name: Node script tests
+              run: node --test .github/scripts/*.test.js .github/scripts/*.test.mjs

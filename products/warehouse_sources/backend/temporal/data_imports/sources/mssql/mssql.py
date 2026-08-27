@@ -719,7 +719,12 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                 cursor.execute(
                     "EXEC sp_spaceused %(full_table_name)s, @updateusage = 'TRUE'", {"full_table_name": full_table_name}
                 )
-            except Exception:
+            except Exception as e:
+                # A dead connection (DB-Lib 20047) needs a fresh connection, not a retry on the
+                # same dead cursor — retrying here raises a confusing secondary InterfaceError
+                # ("Not connected to any MS SQL server") instead of the real, transient cause.
+                if isinstance(e, pymssql.Error) and _is_transient_connection_error(e):
+                    raise
                 # If @updateusage parameter fails, try the older version
                 cursor.execute("EXEC sp_spaceused %(full_table_name)s", {"full_table_name": full_table_name})
 
@@ -762,6 +767,12 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
             total_bytes = int(size_value * multiplier)
             return TableStats(table_size_bytes=total_bytes, row_count=total_rows)
         except Exception as e:
+            # A transient connection death recovers on the next sync attempt with a fresh
+            # connection (see `retry_on_transient_connection_error`); table stats are best-effort,
+            # so skip capturing this known, self-recovering error as tracked noise.
+            if isinstance(e, pymssql.Error) and _is_transient_connection_error(e):
+                logger.debug(f"fetch_table_stats: transient MSSQL connection death, returning None: {e}")
+                return None
             logger.debug(f"fetch_table_stats: Error: {e}. Returning None", exc_info=e)
             capture_exception(e)
             return None

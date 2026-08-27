@@ -27,7 +27,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
     PartitionFormat,
     PartitionMode,
 )
-from products.warehouse_sources.backend.types import IncrementalFieldType
+from products.warehouse_sources.backend.types import (
+    ExternalDataSchemaStatus,
+    ExternalDataSchemaSyncFrequency,
+    ExternalDataSchemaSyncType,
+    IncrementalFieldType,
+)
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -151,26 +156,10 @@ class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
 
 
 class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
-    class Status(models.TextChoices):
-        RUNNING = "Running", "Running"
-        PAUSED = "Paused", "Paused"
-        FAILED = "Failed", "Failed"
-        COMPLETED = "Completed", "Completed"
-        BILLING_LIMIT_REACHED = "BillingLimitReached", "BillingLimitReached"
-        BILLING_LIMIT_TOO_LOW = "BillingLimitTooLow", "BillingLimitTooLow"
-
-    class SyncType(models.TextChoices):
-        FULL_REFRESH = "full_refresh", "full_refresh"
-        INCREMENTAL = "incremental", "incremental"
-        APPEND = "append", "append"
-        WEBHOOK = "webhook", "webhook"
-        CDC = "cdc", "cdc"
-        XMIN = "xmin", "xmin"
-
-    class SyncFrequency(models.TextChoices):
-        DAILY = "day", "Daily"
-        WEEKLY = "week", "Weekly"
-        MONTHLY = "month", "Monthly"
+    # Kept on the model so the nested names and the `choices=` below stay unchanged.
+    Status = ExternalDataSchemaStatus
+    SyncType = ExternalDataSchemaSyncType
+    SyncFrequency = ExternalDataSchemaSyncFrequency
 
     name = models.CharField(max_length=400)
     label = models.CharField(max_length=400, null=True, blank=True)
@@ -1293,6 +1282,29 @@ def mark_initial_sync_complete(schema_id: str | uuid.UUID, team_id: int) -> None
 
 def get_all_schemas_for_source_id(source_id: str, team_id: int):
     return list(ExternalDataSchema.objects.exclude(deleted=True).filter(team_id=team_id, source_id=source_id).all())
+
+
+@frozen
+class DirectSchemaReconciliation:
+    active_schemas: list[ExternalDataSchema]
+    stale_schemas: list[ExternalDataSchema]
+
+
+def get_schemas_for_direct_reconciliation(
+    source_id: str | uuid.UUID,
+    team_id: int,
+    current_schema_names: list[str],
+) -> DirectSchemaReconciliation:
+    candidates = list(
+        ExternalDataSchema.objects.filter(
+            models.Q(team_id=team_id, source_id=source_id),
+            models.Q(deleted=False) | models.Q(table__deleted=False),
+        ).select_related("table")
+    )
+    active = [schema for schema in candidates if schema.deleted is False]
+    current_names = set(current_schema_names)
+    stale = [schema for schema in candidates if schema.name not in current_names]
+    return DirectSchemaReconciliation(active_schemas=active, stale_schemas=stale)
 
 
 def _update_labels(old_schemas: list["ExternalDataSchema"], new_schemas: dict[str, str | None]) -> None:

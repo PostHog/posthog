@@ -152,6 +152,19 @@ helpers, which no facade re-export naturally covers:
   it down into core and have both sides import it downward; if the core test is
   really exercising the **product's** behavior, relocate the test into the
   product. Either way the cross-boundary test import disappears.
+- _Fixtures that need product rows_ — a core test seeds a product model
+  (`InsightViewed`, `Account`) to set up its scenario. Seed through a
+  facade write function, with a normal import. If none exists yet, add
+  one; that is the same move a production caller makes. A helper that
+  only fixtures need goes in a `facade/testing.py` submodule: the tach
+  interface already exposes `backend.facade.*`, and any other exposed
+  module counts as a legacy leak and blocks the isolated tests. Never
+  `apps.get_model("<label>", "<Model>")` at module scope: it is the same
+  dependency with the import edge removed.
+  tach, mypy, and LSP stop seeing it, and snob (the PR test selector) does
+  not select the test when the model changes, so the break lands on master.
+  A `TYPE_CHECKING` import next to it does not restore the edge; tach
+  ignores type-only imports, and so does snob.
 
 **Surfaces outside `backend/`.** A product can expose non-Django surfaces at its
 root — Dagster assets under `products/<name>/dags/`, for instance — that core
@@ -206,9 +219,11 @@ says nothing about what the consumer does with it. Two rules cover that:
 
 `apps.get_model('label', 'Class')` is counted too, and for **every** product model,
 not only the allowance ones. It leaves no import edge, so tach cannot refuse it.
-Test modules stay out of scope, so the fixture escape hatch this skill recommends
-for core tests still works. Migrations stay out too: the historical registry is the
-only way a migration can reach a model. Production code may not add a call.
+Test modules stay out of the scan, which is a blind spot, not permission: a core
+test fixture that reaches a model this way is uncounted and unselected (see
+"Test-infrastructure coupling" above). Migrations stay out too: the historical
+registry is the only way a migration can reach a model. Production code may not
+add a call.
 
 `hogli product:crossings <product>` lists a product's crossing classes with every
 consumer use bucketed by kind, disallowed first. Disallowed uses are frozen in
@@ -259,10 +274,9 @@ records the decrease. See `products/architecture.md` § Wiring couplings.
    - The rewrite is mechanical (import swap + call mapping) and fully checked by the
      verification chain; batching it only stretches the window in which master drifts
      under the branch.
-   - Core test fixtures that need product models: use `apps.get_model("<app_label>",
-"Model")` at runtime plus a `TYPE_CHECKING` import for annotations — tach ignores
-     type-only imports. Fixtures only: the same call in production code is a
-     ratcheted `get_model` crossing (see above).
+   - Core test fixtures that need product rows go through the facade's write
+     function or a product testing door, with a normal import — not
+     `apps.get_model` (see "Test-infrastructure coupling" above for why).
    - Compatibility shims exist to bridge between serial PRs — the one-pass shape rarely
      needs them. If one is unavoidable, it dies in the final cleanup PR, not "later".
    - Exception: callers with subtle behavior (transaction boundaries, write-path

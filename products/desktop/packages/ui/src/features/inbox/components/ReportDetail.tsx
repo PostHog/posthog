@@ -9,6 +9,7 @@ import { InboxDetailFrame } from "@posthog/ui/features/inbox/components/InboxDet
 import { InboxReportDetailGate } from "@posthog/ui/features/inbox/components/InboxReportDetailGate";
 import { ReportChatSidebar } from "@posthog/ui/features/inbox/components/ReportChatSidebar";
 import { ReportDetailActions } from "@posthog/ui/features/inbox/components/ReportDetailActions";
+import { ReportVerdictBanner } from "@posthog/ui/features/inbox/components/ReportVerdictBanner";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 import { useCallback, useEffect, useRef } from "react";
 
@@ -73,9 +74,11 @@ function ReportDetailContent({
   const setPendingQuote = useReportChatPanelStore((s) => s.setPendingQuote);
   const contentRef = useRef<HTMLDivElement>(null);
 
+  // Each report opens as a document. Conversation remains explicit through the action box.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset when the route changes to another report.
   useEffect(() => {
-    setChatOpen(true);
-  }, [setChatOpen]);
+    setChatOpen(false);
+  }, [report.id, setChatOpen]);
 
   const handleAsk = useCallback(
     (text: string) => {
@@ -95,6 +98,13 @@ function ReportDetailContent({
           fallbackTitle="Untitled report"
           primaryAction={
             <ReportDetailActions report={report} placement="header" />
+          }
+          aboveSummary={
+            <ReportVerdictBanner
+              key={report.id}
+              report={report}
+              initialEngagementOnly
+            />
           }
           summarySection={{ Icon: FileTextIcon, title: "Summary" }}
           footer={<ReportFeedbackFooter report={report} />}
