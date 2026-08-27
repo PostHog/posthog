@@ -169,6 +169,15 @@ describe('notebookAI', () => {
             responseNodeCount: 1,
             expectedRange: { responseNodeIndex: 2, responseNodeCount: 1 },
         },
+        {
+            change: 'inserting a response-equivalent block before the active response',
+            previousMarkdown: '# Notebook\n\n**Avery:** What is PostHog?\n\nAnswer still writing\n\nAfter the answer',
+            nextMarkdown:
+                '# Notebook\n\n**Avery:** What does PostHog do?\n\nAnswer still writing\n\nAnswer still writing\n\nAfter the answer',
+            responseNodeIndex: 2,
+            responseNodeCount: 1,
+            expectedRange: { responseNodeIndex: 3, responseNodeCount: 1 },
+        },
     ])('rebases the streamed AI response range after $change', (testCase) => {
         expect(
             rebaseNotebookAIResponseRange(
