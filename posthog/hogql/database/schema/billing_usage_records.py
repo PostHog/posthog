@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     FieldOrTable,
@@ -6,6 +8,9 @@ from posthog.hogql.database.models import (
     Table,
     UUIDDatabaseField,
 )
+
+if TYPE_CHECKING:
+    from posthog.hogql.context import HogQLContext
 
 
 class BillingUsageRecordsTable(Table):
@@ -55,8 +60,8 @@ class BillingUsageRecordsTable(Table):
         # row a merge would keep, which is the only thing a reader needed the version column for.
     }
 
-    def to_printed_clickhouse(self, context):
+    def to_printed_clickhouse(self, context: "HogQLContext") -> str:
         return "billing_usage_records"
 
-    def to_printed_hogql(self):
+    def to_printed_hogql(self) -> str:
         return "billing_usage_records"

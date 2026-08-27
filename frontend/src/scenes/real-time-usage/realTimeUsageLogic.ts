@@ -4,7 +4,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { ApiRequest } from 'lib/api'
 import { AppMetricsTimeSeriesResponse } from 'lib/components/AppMetrics/appMetricsLogic'
-import { type Dayjs, dayjs } from 'lib/dayjs'
+import { dayjs } from 'lib/dayjs'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
@@ -27,18 +27,20 @@ const RANGE_INTERVALS: Record<UsageRange, string> = {
     '30d': '30 DAY',
 }
 
-const RANGE_STEPS: Record<UsageRange, { amount: number; unit: 'hour' | 'day' }> = {
-    '1d': { amount: 24, unit: 'hour' },
-    '7d': { amount: 7, unit: 'day' },
-    '30d': { amount: 30, unit: 'day' },
+const RANGE_SECONDS: Record<UsageRange, number> = {
+    '1d': 24 * 60 * 60,
+    '7d': 7 * 24 * 60 * 60,
+    '30d': 30 * 24 * 60 * 60,
 }
 
-const UNIT_MINUTES = { minute: 1, hour: 60, day: 24 * 60 } as const
-
-const GRANULARITIES: Record<UsageGranularity, { bucket: string; amount: number; unit: keyof typeof UNIT_MINUTES }> = {
-    '5m': { bucket: 'toStartOfFiveMinutes(recorded_at)', amount: 5, unit: 'minute' },
-    hour: { bucket: "dateTrunc('hour', recorded_at)", amount: 1, unit: 'hour' },
-    day: { bucket: "dateTrunc('day', recorded_at)", amount: 1, unit: 'day' },
+// Buckets are cut by integer arithmetic on the Unix timestamp rather than by dateTrunc, so a bucket
+// is the same absolute instant for every project and for the browser. dateTrunc cuts on the team's
+// timezone, and the chart merges several projects into one axis, so its boundaries disagreed both
+// between projects and with the labels built here.
+const GRANULARITY_SECONDS: Record<UsageGranularity, number> = {
+    '5m': 5 * 60,
+    hour: 60 * 60,
+    day: 24 * 60 * 60,
 }
 
 // 289 points over 24 hours stays readable. The same buckets over 7 days would plot 2,017.
@@ -61,27 +63,19 @@ export function filtersFromParams(searchParams: Record<string, any>): UsageFilte
     return { range, granularity }
 }
 
-// dayjs has no five-minute unit, so floor the minutes by hand to match toStartOfFiveMinutes.
-function startOfBucket(time: Dayjs, granularity: UsageGranularity): Dayjs {
-    if (granularity === '5m') {
-        const minute = time.startOf('minute')
-        return minute.subtract(minute.minute() % GRANULARITIES['5m'].amount, 'minute')
-    }
-    return time.startOf(granularity)
-}
+// Bucket starts as Unix seconds, matching what the query returns.
+function bucketStarts(range: UsageRange, granularity: UsageGranularity): number[] {
+    const step = GRANULARITY_SECONDS[granularity]
+    const count = RANGE_SECONDS[range] / step + 1
+    const end = Math.floor(dayjs().unix() / step) * step
 
-function bucketLabels(range: UsageRange, granularity: UsageGranularity): string[] {
-    const { amount, unit } = GRANULARITIES[granularity]
-    const rangeStep = RANGE_STEPS[range]
-    const count = (rangeStep.amount * UNIT_MINUTES[rangeStep.unit]) / (amount * UNIT_MINUTES[unit]) + 1
-    const start = startOfBucket(dayjs().subtract(rangeStep.amount, rangeStep.unit), granularity)
-
-    return Array.from({ length: count }, (_, index) => start.add(index * amount, unit).format('YYYY-MM-DD HH:mm'))
+    return Array.from({ length: count }, (_, index) => end - (count - 1 - index) * step)
 }
 
 function usageQuery(range: UsageRange, granularity: UsageGranularity, timeSeries: boolean): string {
     const interval = RANGE_INTERVALS[range]
-    const bucket = GRANULARITIES[granularity].bucket
+    const step = GRANULARITY_SECONDS[granularity]
+    const bucket = `intDiv(toUnixTimestamp(recorded_at), ${step}) * ${step}`
     // Grouped by the table's sorting key so un-merged duplicates of one record collapse instead
     // of summing. HogQL rejects FINAL, and timestamp is monotonic per resend, so argMax on it
     // picks the same row a merge would keep.
@@ -111,7 +105,7 @@ function parseUsageData(
     granularity: UsageGranularity
 ): RealTimeUsageData {
     const rows = new Map<string, RealTimeUsageRow>()
-    const series = new Map<string, Map<string, number>>()
+    const series = new Map<string, Map<number, number>>()
 
     for (const response of responses) {
         for (const [producerId, usageKey, unit, quantity] of response.rows.results ?? []) {
@@ -126,23 +120,24 @@ function parseUsageData(
         }
 
         for (const [bucket, seriesName, quantity] of response.timeSeries.results ?? []) {
-            const normalizedBucket = dayjs(String(bucket)).format('YYYY-MM-DD HH:mm')
-            const values = series.get(String(seriesName)) ?? new Map<string, number>()
-            values.set(normalizedBucket, (values.get(normalizedBucket) ?? 0) + Number(quantity))
+            const bucketStart = Number(bucket)
+            const values = series.get(String(seriesName)) ?? new Map<number, number>()
+            values.set(bucketStart, (values.get(bucketStart) ?? 0) + Number(quantity))
             series.set(String(seriesName), values)
         }
     }
 
-    const labels = bucketLabels(range, granularity)
+    const starts = bucketStarts(range, granularity)
     return {
         rows: Array.from(rows.values()).sort(
             (a, b) => b.quantity - a.quantity || a.producerId.localeCompare(b.producerId)
         ),
         timeSeries: {
-            labels,
+            // Buckets are UTC-aligned, so label them in UTC rather than in the reader's timezone.
+            labels: starts.map((start) => dayjs.unix(start).utc().format('YYYY-MM-DD HH:mm')),
             series: Array.from(series.entries()).map(([name, values]) => ({
                 name,
-                values: labels.map((label) => values.get(label) ?? 0),
+                values: starts.map((start) => values.get(start) ?? 0),
             })),
         },
     }
