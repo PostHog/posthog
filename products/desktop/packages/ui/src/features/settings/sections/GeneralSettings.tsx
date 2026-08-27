@@ -389,7 +389,7 @@ export function GeneralSettings() {
             description={
               sendMessagesWith === "enter"
                 ? "Shift+Enter inserts a new line"
-                : undefined
+                : "Enter inserts a new line"
             }
           >
             <SettingsSegmented
