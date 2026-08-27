@@ -568,7 +568,7 @@ class TestErrorTracking(APIBaseTest):
         with (
             patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
             patch(
-                "products.error_tracking.backend.logic.lifecycle_events.start_alert_delivery_workflow"
+                "products.error_tracking.backend.temporal.alerts.dispatch.start_alert_delivery_workflow"
             ) as mock_dispatch,
             self.captureOnCommitCallbacks(execute=True),
         ):
