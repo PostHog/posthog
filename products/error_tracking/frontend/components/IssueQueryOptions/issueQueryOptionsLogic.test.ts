@@ -65,6 +65,15 @@ describe('issueQueryOptionsLogic', () => {
         expect(logic.values.status).toBe('resolved')
     })
 
+    it('applies a valid severity from the URL and clears an invalid one', () => {
+        const logic = mountLogic()
+        router.actions.push('/error_tracking', { severity: 'critical' })
+        expect(logic.values.severity).toBe('critical')
+
+        router.actions.push('/error_tracking', { severity: 'unknown' })
+        expect(logic.values.severity).toBeNull()
+    })
+
     // A malformed assignee reaches the query, which the backend rejects with a 400. It renders as
     // unset, and it's persisted, so the whole issues page keeps failing until it's manually cleared.
     const MALFORMED_ASSIGNEES = [
