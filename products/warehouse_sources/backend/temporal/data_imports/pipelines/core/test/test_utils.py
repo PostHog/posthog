@@ -1972,16 +1972,30 @@ class TestReconcileBatchToAccumulatedSchema:
     def test_nested_shapes_degrade_to_json_text_not_reshaped_structs(self):
         # pc.cast(struct → struct) "succeeds" by dropping unmatched fields and null-filling the
         # rest, silently emptying the column. A nested column whose shape changes between
-        # batches must render as JSON text instead.
+        # batches must render as JSON text instead — with nulls staying null, not becoming text.
         _, accumulated = reconcile_batch_to_accumulated_schema(pa.table({"f": [{"a": 1}]}), None)
 
-        result, accumulated = reconcile_batch_to_accumulated_schema(pa.table({"f": [{"b": "x"}]}), accumulated)
+        result, accumulated = reconcile_batch_to_accumulated_schema(pa.table({"f": [{"b": "x"}, None]}), accumulated)
 
         assert result.schema.field("f").type == pa.string()
-        [rendered] = result.column("f").to_pylist()
+        rendered, null_value = result.column("f").to_pylist()
         assert rendered is not None
         assert orjson.loads(rendered) == {"b": "x"}
+        assert null_value is None
         assert accumulated.field("f").type == pa.string()
+
+    def test_stringified_bytes_decode_as_text_and_nulls_stay_null(self):
+        # A binary flip against a non-string accumulated type has no Arrow promotion, so it
+        # degrades to text through the per-value renderer: bytes must decode (replacing invalid
+        # sequences) rather than render as Python reprs, and nulls must stay null.
+        _, accumulated = reconcile_batch_to_accumulated_schema(pa.table({"f": [1]}), None)
+
+        result, _ = reconcile_batch_to_accumulated_schema(
+            pa.table({"f": pa.array([b"caf\xc3\xa9", b"\xff", None], type=pa.binary())}), accumulated
+        )
+
+        assert result.schema.field("f").type == pa.string()
+        assert result.column("f").to_pylist() == ["café", "�", None]
 
     def test_protected_cursor_column_still_converges_castable_flips(self):
         # The known Intercom shape on the cursor itself: numeric text parses back to the
@@ -1993,6 +2007,26 @@ class TestReconcileBatchToAccumulatedSchema:
         )
 
         assert result.column("updated_at").to_pylist() == [1700000001]
+
+    def test_protected_cursor_column_widens_numerically_instead_of_raising(self):
+        # A cursor that outgrows the narrow integer type its first batch inferred must widen
+        # via Arrow's own promotion — and log the coercion — rather than fail the run.
+        logger = MagicMock()
+        _, accumulated = reconcile_batch_to_accumulated_schema(
+            pa.table({"updated_at": pa.array([1000], type=pa.int32())}), None
+        )
+
+        result, accumulated = reconcile_batch_to_accumulated_schema(
+            pa.table({"updated_at": pa.array([2**40], type=pa.int64())}),
+            accumulated,
+            logger=logger,
+            protected_columns={"updated_at"},
+        )
+
+        assert result.schema.field("updated_at").type == pa.int64()
+        assert result.column("updated_at").to_pylist() == [2**40]
+        assert accumulated.field("updated_at").type == pa.int64()
+        assert logger.warning.call_args.kwargs["resolution"] == "promoted"
 
     @pytest.mark.parametrize(
         "first,second",
@@ -2027,12 +2061,22 @@ class TestReconcileBatchToAccumulatedSchema:
 class TestUnifySchemasWithTextFallback:
     def test_unmergeable_field_resolves_to_text(self):
         # Batches written before a conflict keep their original type on disk, so the run's
-        # merged schema still sees both. Describing it as text beats failing the extraction.
+        # merged schema still sees both. Describing it as text beats failing the extraction —
+        # while columns the schemas agree on pass through untouched, with only the conflict
+        # resolved and logged.
+        logger = MagicMock()
+        struct = pa.struct([pa.field("x", pa.int64())])
         merged = unify_schemas_with_text_fallback(
-            [pa.schema([pa.field("f", pa.int64())]), pa.schema([pa.field("f", pa.string())])]
+            [
+                pa.schema([pa.field("f", pa.int64()), pa.field("s", struct)]),
+                pa.schema([pa.field("f", pa.string()), pa.field("s", struct)]),
+            ],
+            logger=logger,
         )
 
         assert merged.field("f").type == pa.string()
+        assert merged.field("s").type == struct
+        assert logger.warning.call_count == 1
 
     def test_mergeable_schemas_are_unchanged(self):
         merged = unify_schemas_with_text_fallback(
