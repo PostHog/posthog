@@ -349,6 +349,7 @@ class TestAssetSideLoading(BuildServiceBaseTest):
         key = f"{build.artifact_object_prefix}/assets/pixel.png"
         assert self.storage.objects[key] == PIXEL_PNG
         assert self.storage.extras[key]["ContentType"] == "image/png"
+        assert build.manifest is not None
         manifest_entry = next(asset for asset in build.manifest["assets"] if asset["path"] == "assets/pixel.png")
         assert manifest_entry["contentType"] == "image/png"
         assert manifest_entry["contentHash"] == PIXEL_SHA256
