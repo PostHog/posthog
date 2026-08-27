@@ -32,22 +32,27 @@ rules:
       languages: [python]
       severity: ERROR
       patterns:
-          # Both branches must scope to the same value: `$P` is bound twice on purpose. With two
-          # different values the OR is not equivalent to a COALESCE and the rewrite would change
-          # which rows come back.
+          # The OR has to be a direct argument to `filter()`. Under `exclude()`, or wrapped in `~`,
+          # the suggested rewrite inverts the result set, so those must not match. Both branches
+          # must also scope to the same value: `$P` is bound twice on purpose, because two
+          # different values do not mean what one COALESCE means.
           - pattern-either:
-                - pattern: Q(project_id=$P) | Q(project_id__isnull=True, team_id=$P)
-                - pattern: Q(project_id__isnull=True, team_id=$P) | Q(project_id=$P)
-                - pattern: models.Q(project_id=$P) | models.Q(project_id__isnull=True, team_id=$P)
-                - pattern: models.Q(project_id__isnull=True, team_id=$P) | models.Q(project_id=$P)
+                - pattern: $QS.filter(..., Q(project_id=$P) | Q(project_id__isnull=True, team_id=$P), ...)
+                - pattern: $QS.filter(..., Q(project_id__isnull=True, team_id=$P) | Q(project_id=$P), ...)
+                - pattern: $QS.filter(..., models.Q(project_id=$P) | models.Q(project_id__isnull=True, team_id=$P), ...)
+                - pattern: $QS.filter(..., models.Q(project_id__isnull=True, team_id=$P) | models.Q(project_id=$P), ...)
           # Only the models whose table actually carries the coalesce index. Other models have
-          # the same two columns without the index, where the rewrite buys nothing.
-          - pattern-either:
-                - pattern-inside: $MODEL.objects.$METHOD(...)
-                - pattern-inside: $MODEL.objects.$CHAIN(...).$METHOD(...)
-          - metavariable-regex:
-                metavariable: $MODEL
-                regex: ^(Enterprise)?(EventDefinition|PropertyDefinition|EventProperty|HostDefinition)$
+          # the same two columns without the index, where the rewrite buys nothing. Matching the
+          # receiver rather than an enclosing call keeps this working at any chain depth.
+          # `$MODEL` is bound inside the metavariable-pattern, so its regex has to be nested here
+          # too — an outer metavariable-regex never sees the binding and the rule matches nothing.
+          - metavariable-pattern:
+                metavariable: $QS
+                patterns:
+                    - pattern: <... $MODEL.objects ...>
+                    - metavariable-regex:
+                          metavariable: $MODEL
+                          regex: ^(Enterprise)?(EventDefinition|PropertyDefinition|EventProperty|HostDefinition)$
       paths:
           include:
               - common/**/*.py
