@@ -1,9 +1,9 @@
 import dataclasses
-from typing import Literal, Optional, TypedDict
+from typing import Final, Literal, Optional, TypedDict
 
 from posthog.temporal.common.errors import resolve_error_trace, unwrap_temporal_cause
 
-EXPORT_FAILURE_METADATA_KIND = "export_activity_failure"
+EXPORT_FAILURE_METADATA_KIND: Final[Literal["export_activity_failure"]] = "export_activity_failure"
 
 
 class ExportFailureMetadata(TypedDict):
