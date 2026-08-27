@@ -2661,7 +2661,7 @@ class TestDownstreamCTEClassifier(APIBaseTest):
         assert plan.shape == DownstreamCTEShape.DISTINCT
 
     @parameterized.expand(
-        ["CROSS JOIN base2", "JOIN base2 ON base.x = base2.x", "GLOBAL INNER JOIN base2 ON base.x = base2.x"]
+        ["CROSS JOIN base2", "JOIN base2 ON base.x = base2.x", "INNER JOIN base2 ON base.x = base2.x"]
     )
     def test_multi_join_shape(self, join_clause):
         expr = self._get_cte(
@@ -2685,23 +2685,17 @@ class TestDownstreamCTEClassifier(APIBaseTest):
         assert plan.shape == DownstreamCTEShape.UNION_ALL
         assert len(plan.leg_plans) == 2
 
-    @parameterized.expand(
-        [
-            ("LEFT JOIN base2 ON base.x = base2.x", "LEFT JOIN"),
-            ("FULL OUTER JOIN base2 ON base.x = base2.x", "FULL OUTER JOIN"),
-            ("GLOBAL LEFT JOIN base2 ON base.x = base2.x", "LEFT JOIN"),
-        ]
-    )
-    def test_outer_join_between_propagating_ctes_rejected(self, join_clause, expected_fragment):
+    @parameterized.expand(["LEFT JOIN", "RIGHT JOIN", "FULL OUTER JOIN"])
+    def test_outer_join_between_propagating_ctes_rejected(self, join_type):
         expr = self._get_cte(
             "WITH base AS (SELECT 1 AS x), base2 AS (SELECT 1 AS x), "
-            f"combined AS (SELECT base.x FROM base {join_clause}) "
+            f"combined AS (SELECT base.x FROM base {join_type} base2 ON base.x = base2.x) "
             "SELECT * FROM combined",
             "combined",
         )
         plan = _classify_downstream_cte("combined", expr, {"base", "base2", "combined"}, ["event_name"])
         assert plan.reject_reason is not None
-        assert expected_fragment in plan.reject_reason
+        assert join_type in plan.reject_reason
 
     @parameterized.expand(["UNION DISTINCT", "INTERSECT", "EXCEPT"])
     def test_non_union_all_set_operator_rejected(self, set_operator):

@@ -309,14 +309,14 @@ def analyze_variables_for_materialization(
     _detect_range_variables(result_vars, bucket_overrides=bucket_overrides)
 
     # Whole-query gates, in the order their messages should win. Each returns the reason
-    # the query as a whole can't be materialized, or None. Propagation planning also fills
-    # in each CTE-bound variable's downstream_plans as a side effect.
-    rejection = (
-        _reaggregation_rejection(ast_node, result_vars)
-        or _cte_join_rejection(ast_node, result_vars)
-        or _cte_propagation_rejection(ast_node, result_vars)
-        or _find_alias_conflict(ast_node, result_vars)
-    )
+    # the query as a whole can't be materialized, or None.
+    rejection = _reaggregation_rejection(ast_node, result_vars) or _cte_join_rejection(ast_node, result_vars)
+    if rejection is not None:
+        return False, rejection, []
+
+    # Kept out of the gate chain because it also writes each CTE-bound variable's
+    # downstream_plans, which the transformer later reads.
+    rejection = _plan_cte_propagation(ast_node, result_vars) or _find_alias_conflict(ast_node, result_vars)
     if rejection is not None:
         return False, rejection, []
 
@@ -474,7 +474,7 @@ def _cte_join_rejection(
     return None
 
 
-def _cte_propagation_rejection(
+def _plan_cte_propagation(
     ast_node: ast.SelectQuery | ast.SelectSetQuery, result_vars: list[MaterializableVariable]
 ) -> Optional[str]:
     """Fill in each CTE-bound variable's downstream plans, or return why they can't be built.
@@ -785,7 +785,12 @@ def _collect_propagating_sources_top_level(
 
 
 class _NestedPropagatingReferenceFinder(TraversingVisitor):
-    """Follow only FROM chains, so it reports propagating CTEs a subquery actually reads from."""
+    """Follow only FROM chains, so a propagating name used elsewhere does not count.
+
+    Unlike the other finders here, this one ignores nested ``WITH`` shadowing, so a local
+    CTE that reuses a propagating name is still reported. That over-rejects rather than
+    letting an unpropagated query through.
+    """
 
     def __init__(self, propagating: set[str]) -> None:
         super().__init__()
@@ -953,11 +958,11 @@ def _classify_union_cte(
 
     leg_plans: list[DownstreamCTEPlan] = []
     for i, leg in enumerate(cte_expr.select_queries()):
-        leg_plan, reject = _classify_union_leg(f"{cte_name}#leg{i}", leg, propagating, code_names)
-        if leg_plan is None:
+        leg_plan = _classify_union_leg(f"{cte_name}#leg{i}", leg, propagating, code_names)
+        if leg_plan.reject_reason:
             return _rejected_plan(
                 cte_name,
-                f"Variable propagation failed on UNION leg: {reject}",
+                f"Variable propagation failed on UNION leg: {leg_plan.reject_reason}",
                 DownstreamCTEShape.UNION_ALL,
             )
         leg_plans.append(leg_plan)
@@ -970,19 +975,20 @@ def _classify_union_leg(
     leg: ast.Expr,
     propagating: set[str],
     code_names: list[str],
-) -> tuple[Optional[DownstreamCTEPlan], Optional[str]]:
-    """Plan for one UNION leg, or the reason that leg blocks propagation."""
+) -> DownstreamCTEPlan:
+    """Plan for one UNION leg, or a plan carrying the reason that leg blocks propagation."""
     if not isinstance(leg, ast.SelectQuery):
-        return None, "nested set queries are not supported"
+        return _rejected_plan(leg_name, "nested set queries are not supported")
 
     leg_plan = _classify_downstream_cte(leg_name, leg, propagating, code_names)
     if leg_plan.reject_reason:
-        return None, leg_plan.reject_reason
-    # Backstop: a leg the transformer can't source the variable column from would silently
-    # emit rows without it, so refuse rather than produce a table missing the key.
+        return leg_plan
+    # Unreachable today: a SELECT leg with no source is already rejected one level down.
+    # Kept because a leg the transformer can't source the column from would silently emit
+    # rows without it, and that failure is invisible until the read-time filter drops data.
     if not leg_plan.propagating_sources and leg_plan.shape != DownstreamCTEShape.UNION_ALL:
-        return None, "leg has no propagating CTE source"
-    return leg_plan, None
+        return _rejected_plan(leg_name, "leg has no propagating CTE source")
+    return leg_plan
 
 
 def _propagating_sources_or_rejection(
