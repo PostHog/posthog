@@ -35,7 +35,7 @@ When the user asks for a comprehensive audit of both experiments and flags:
 1. Fetch all experiments via `experiment-list` and all flags via `feature-flag-get-all`.
 2. Run all experiment checks and all flag checks.
 3. Apply [recurring patterns](./references/synthesis-patterns.md) to identify patterns across multiple findings.
-4. If there are more than 5 entities with findings, output as a notebook artifact via `notebooks-create` for easier navigation. Otherwise report inline.
+4. If there are more than 5 entities with findings, write them to a notebook for easier navigation, using available notebook creation tools in the tool list. Otherwise report inline.
 
 ## Output format
 
