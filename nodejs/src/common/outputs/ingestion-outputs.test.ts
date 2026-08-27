@@ -131,11 +131,34 @@ describe('IngestionOutputs', () => {
             const failures = await outputs.checkTopics()
 
             expect(failures).toEqual(['events'])
+            // Pins the far boundary: three checks, not two and not four.
+            expect(producer.checkTopicExists).toHaveBeenCalledTimes(3)
         })
 
-        it('accepts a topic that is missing from metadata only briefly', async () => {
+        it.each([
+            ['recovers on the second check', 1, 2],
+            ['recovers on the last permitted check', 2, 3],
+        ])(
+            'accepts a topic missing from metadata only briefly, and %s',
+            async (_label, failuresBefore, expectedChecks) => {
+                const producer = createMockProducer()
+                for (let i = 0; i < failuresBefore; i++) {
+                    producer.checkTopicExists.mockRejectedValueOnce(new Error('Topic not found'))
+                }
+                const outputs = new IngestionOutputs({
+                    events: new SingleIngestionOutput('events', 'events', producer, 'test'),
+                })
+
+                const failures = await outputs.checkTopics(10000, 3, 0)
+
+                expect(failures).toEqual([])
+                expect(producer.checkTopicExists).toHaveBeenCalledTimes(expectedChecks)
+            }
+        )
+
+        it('retries only the output that failed, not the whole set', async () => {
             const producer = createMockProducer()
-            producer.checkTopicExists.mockRejectedValueOnce(new Error('Topic not found')).mockResolvedValue(undefined)
+            producer.checkTopicExists.mockRejectedValueOnce(new Error('Topic not found'))
             const outputs = new IngestionOutputs({
                 events: new SingleIngestionOutput('events', 'events', producer, 'test'),
                 ai_events: new SingleIngestionOutput('ai_events', 'ai_events', producer, 'test'),
@@ -144,7 +167,7 @@ describe('IngestionOutputs', () => {
             const failures = await outputs.checkTopics(10000, 3, 0)
 
             expect(failures).toEqual([])
-            // Only the output that failed is retried, not the whole set.
+            // Two outputs on the first attempt, then only the failed one.
             expect(producer.checkTopicExists).toHaveBeenCalledTimes(3)
         })
 
