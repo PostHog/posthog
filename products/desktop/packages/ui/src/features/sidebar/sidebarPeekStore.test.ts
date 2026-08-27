@@ -35,17 +35,19 @@ describe("sidebarPeekStore", () => {
     expect(isPeeked()).toBe(false);
   });
 
-  it("keeps the peek open while held, then closes once released", () => {
+  it("keeps the peek open while held, then closes with the requested delay", () => {
     beginSidebarPeek();
     holdSidebarPeek();
 
-    endSidebarPeek(0);
+    endSidebarPeek(200);
     vi.runAllTimers();
     expect(isPeeked()).toBe(true);
 
     releaseSidebarPeek();
-    endSidebarPeek(0);
-    vi.runAllTimers();
+    vi.advanceTimersByTime(199);
+    expect(isPeeked()).toBe(true);
+
+    vi.advanceTimersByTime(1);
     expect(isPeeked()).toBe(false);
   });
 
@@ -53,14 +55,13 @@ describe("sidebarPeekStore", () => {
     beginSidebarPeek();
     holdSidebarPeek();
     holdSidebarPeek();
+    endSidebarPeek(0);
 
     releaseSidebarPeek();
-    endSidebarPeek(0);
     vi.runAllTimers();
     expect(isPeeked()).toBe(true);
 
     releaseSidebarPeek();
-    endSidebarPeek(0);
     vi.runAllTimers();
     expect(isPeeked()).toBe(false);
   });
@@ -82,6 +83,10 @@ describe("sidebarPeekStore", () => {
 
     vi.advanceTimersByTime(200);
     expect(isPeeked()).toBe(true);
+
+    releaseSidebarPeek();
+    vi.runAllTimers();
+    expect(isPeeked()).toBe(true);
   });
 
   it("keeps the peek open until an asynchronous menu closes", async () => {
@@ -98,7 +103,6 @@ describe("sidebarPeekStore", () => {
 
     closeMenu?.();
     await result;
-    endSidebarPeek(0);
     vi.runAllTimers();
     expect(isPeeked()).toBe(false);
   });

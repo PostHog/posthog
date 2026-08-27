@@ -437,8 +437,6 @@ describe("ChannelItemRow", () => {
 
       fireEvent.keyDown(document, { key: "Escape" });
       act(() => vi.runAllTimers());
-      endSidebarPeek(0);
-      act(() => vi.runAllTimers());
 
       expect(useSidebarPeekStore.getState().peek).toBe(false);
     } finally {
