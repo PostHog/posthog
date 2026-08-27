@@ -355,9 +355,15 @@ describe('llmSkillLogic', () => {
             expect(logic.values.hasSkillLoadError).toBe(expected.loadError)
             expect(logic.values.breadcrumbs.at(-1)?.name).toBe('my-test-skill')
 
+            mockResolve.mockResolvedValue(resolveResponse(mockSkill))
+            mockFilesRetrieve.mockResolvedValue(MOCK_FILE)
             logic.actions.loadSkill()
             expect(logic.values.hasSkillLoadError).toBe(false)
-            await expectLogic(logic).toDispatchActions(['loadSkillFailure'])
+            await expectLogic(logic).toDispatchActions(['loadSkillSuccess'])
+
+            expect(logic.values.isSkillMissing).toBe(false)
+            expect(logic.values.isSkillAccessDenied).toBe(false)
+            expect(logic.values.hasSkillLoadError).toBe(false)
         })
     })
 })

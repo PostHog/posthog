@@ -401,13 +401,13 @@ export interface llmSkillLogicMeta {
         isNewSkill: (arg: any) => boolean
         skillName: (arg: SkillLogicProps) => string
         selectedVersion: (arg: SkillLogicProps) => number | null
-        isSkillAccessDenied: (skillLoadError: any) => boolean
-        hasSkillLoadError: (skillLoadError: any, isSkillAccessDenied: any) => boolean
+        isSkillAccessDenied: (skillLoadError: SkillLoadError | null) => boolean
+        hasSkillLoadError: (skillLoadError: SkillLoadError | null, isSkillAccessDenied: boolean) => boolean
         isSkillMissing: (
             skill: ResolvedLLMSkill | SkillFormValues | null,
             skillLoading: boolean,
             skillFetched: boolean,
-            skillLoadError: any
+            skillLoadError: SkillLoadError | null
         ) => boolean
         shouldDisplaySkeleton: (
             skill: ResolvedLLMSkill | SkillFormValues | null,
