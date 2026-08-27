@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { toParams } from 'lib/utils/url'
+import { ExperimentFlagKeyInput } from 'scenes/experiments/ExperimentFlagKeyInput'
 import { slugifyFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
 import { FLAGS_PER_PAGE, FeatureFlagsFilters } from 'scenes/feature-flags/featureFlagsLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -15,8 +16,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { Experiment, FeatureFlagType } from '~/types'
 
 import { experimentsLogic } from 'products/experiments/frontend/scenes/experimentsLogic'
-
-import { ExperimentFlagKeyInput } from './ExperimentFlagKeyInput'
 
 interface CopyExperimentToProjectModalProps {
     isOpen: boolean
@@ -74,6 +73,7 @@ export function CopyExperimentToProjectModal({
                 offset: filters.page ? (filters.page - 1) * FLAGS_PER_PAGE : 0,
                 eligible_for_experiment: true,
             }
+            // nosemgrep: prefer-codegen-api
             const data = await api.get(`api/projects/${projectId}/feature_flags/?${toParams(params)}`)
             setTargetFeatureFlags(data)
         } finally {
