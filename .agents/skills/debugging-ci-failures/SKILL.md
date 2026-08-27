@@ -11,7 +11,7 @@ description: >
   from engineering analytics), then guides read-only inspection, failure
   classification, smallest local reproduction with hogli, and safe reporting
   without rerunning CI or posting to GitHub. Running unattended as the
-  "Master-red diagnosis" Loop: see references/master-red-incident-loop.md.
+  "Master-red diagnosis" workflow: see references/master-red-incident.md.
 ---
 
 # Debugging PostHog CI failures

@@ -49,12 +49,6 @@ const STREAK_MAX_GAP_MINUTES = 180
 const RUN_INDEX_MAX_LAG_MINUTES = 180
 const STALE_PAGE_RETRIES = 2
 const STALE_PAGE_RETRY_DELAY_MS = 15000
-// Cloud agent ("loop") that diagnoses a fresh incident and answers in its Slack thread.
-// Project 2 owns the loop, the same project the links above point at. What the agent does is
-// .agents/skills/debugging-ci-failures/references/master-red-incident-loop.md, and setting the
-// loop up is master-red-loop-setup.md beside it.
-const LOOPS_API_BASE = 'https://us.posthog.com/api/projects/2/loops'
-const DIAGNOSIS_TIMEOUT_MS = 10000
 
 const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -284,77 +278,6 @@ async function findActiveIncident(slack, channel) {
         }
     }
     return null
-}
-
-// What the agent is told about the incident. Everything here reaches the run's prompt fenced as
-// data, never as instructions, so a commit message cannot steer it.
-function buildDiagnosisPayload({
-    channel,
-    threadTs,
-    repository,
-    since,
-    blocking,
-    commitStreakCount,
-    latestCommit,
-    allFailingRunsUrl,
-}) {
-    return {
-        slack: { channel, thread_ts: threadTs },
-        repository,
-        since,
-        failing_workflows: blocking.map((b) => ({
-            name: b.name,
-            workflow_file: b.workflow_file,
-            run_url: b.run_url,
-            red_for_minutes: b.redForMins,
-            consecutive_failures: b.consecutive_failures,
-        })),
-        red_commit_streak: commitStreakCount,
-        latest_commit: latestCommit,
-        all_failing_runs_url: allFailingRunsUrl,
-    }
-}
-
-// Fire the diagnosis loop against a just-opened incident, so the agent answers in the incident's
-// own thread while a human is still reading the alert. Best-effort by design: the alert is the
-// product here, so a loop that is unconfigured, disabled, rate-capped or unreachable must never
-// take the incident post down with it.
-//
-// The thread ts doubles as the idempotency key. A LoopFire dedups on it, so a retried job or a
-// second tick that races the same anchor reuses the first run instead of starting a rival one.
-async function fireDiagnosisLoop({ fetchImpl, core, threadTs, payload }) {
-    const loopId = process.env.DIAGNOSIS_LOOP_ID
-    const apiKey = process.env.POSTHOG_API_KEY
-    if (!loopId || !apiKey) {
-        core.info('Diagnosis loop not configured (DIAGNOSIS_LOOP_ID / POSTHOG_API_KEY): skipped')
-        return null
-    }
-    const doFetch = fetchImpl || fetch
-    try {
-        const res = await doFetch(`${LOOPS_API_BASE}/${loopId}/trigger/`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                // Project secret API key: a service credential, so the run executes as the loop's
-                // owner rather than under whoever pushed the breaking commit.
-                Authorization: `Bearer ${apiKey}`,
-                'Idempotency-Key': `master-red-${threadTs}`,
-            },
-            body: JSON.stringify(payload),
-            signal: AbortSignal.timeout(DIAGNOSIS_TIMEOUT_MS),
-        })
-        if (!res.ok) {
-            core.warning(`Diagnosis loop trigger returned ${res.status}`)
-            return null
-        }
-        const data = await res.json()
-        // `created: false` is a normal answer (deduped, rate-capped, loop disabled), not an error.
-        core.info(`Diagnosis loop fire: created=${data.created} reason=${data.reason || 'n/a'}`)
-        return data
-    } catch (err) {
-        core.warning(`Diagnosis loop trigger failed: ${err.message}`)
-        return null
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -593,23 +516,6 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
                 channel,
                 thread_ts: posted.ts,
                 text: buildThreadReply({ created: workflows, commitStarted: commitActive }),
-            })
-            // Only on open: one diagnosis per incident. A workflow that joins later shows up in the
-            // agent's own reading of master, and a second run would answer the same thread twice.
-            await fireDiagnosisLoop({
-                fetchImpl: _fetch,
-                core,
-                threadTs: posted.ts,
-                payload: buildDiagnosisPayload({
-                    channel,
-                    threadTs: posted.ts,
-                    repository: `${owner}/${repo}`,
-                    since,
-                    blocking,
-                    commitStreakCount: commitActive ? commitStreakCount : 0,
-                    latestCommit,
-                    allFailingRunsUrl,
-                }),
             })
             action = 'create'
         } else {
