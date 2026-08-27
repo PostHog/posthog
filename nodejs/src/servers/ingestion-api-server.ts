@@ -18,6 +18,7 @@ import { PersonHogClient } from '~/common/personhog/client'
 import { createIdentityClients } from '~/common/personhog/identity-clients'
 import { PersonHogPersonWriteRepository } from '~/common/personhog/personhog-person-write-repository'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
+import { UsageIngestionConfig, createEventUsageBatchFactory } from '~/common/usage-ingestion'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { EventIngestionRestrictionManagerComponent } from '~/common/utils/event-ingestion-restrictions'
@@ -113,6 +114,7 @@ export type IngestionApiServerConfig = BaseServerConfig &
     RedisConnectionsConfig &
     KafkaConsumerBaseConfig &
     PersonHogConfig &
+    UsageIngestionConfig &
     Pick<
         CommonConfig,
         | 'LOG_LEVEL'
@@ -480,6 +482,7 @@ export class IngestionApiServer implements NodeServer {
                 EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: this.config.EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS,
             },
             concurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
+            createEventUsageBatch: createEventUsageBatchFactory(this.config, 'events'),
         }
         const eventFilterManagerStarted = await new EventFilterManagerComponent(this.postgres).start()
         const featureFlagCalledDedupService = createFeatureFlagCalledDedupService(

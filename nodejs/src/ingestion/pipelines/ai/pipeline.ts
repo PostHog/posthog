@@ -92,7 +92,7 @@ export interface AiIngestionPipelineConfig {
     topHog: TopHogRegistry
     aiBlobStore: BlobStore | null
     aiBlobOffloadConfig: OffloadAiBlobsConfig
-    createEventUsageBatch?: () => UsageRecordBatch
+    createEventUsageBatch: () => UsageRecordBatch
 }
 
 interface AiIngestionPipelineInput {
@@ -140,7 +140,7 @@ export function createAiIngestionPipeline<
         topHog,
         aiBlobStore,
         aiBlobOffloadConfig,
-        createEventUsageBatch = () => new UsageRecordBatch(null, { unit: 'events', isTeamEnabled: () => false }),
+        createEventUsageBatch,
     } = config
 
     return (

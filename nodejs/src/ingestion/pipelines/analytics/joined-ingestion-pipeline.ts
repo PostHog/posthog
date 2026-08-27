@@ -83,7 +83,7 @@ export interface JoinedIngestionPipelineConfig {
      * (`ingestion_api_batch_capacity_rejections_total`).
      */
     concurrentBatches: number
-    createEventUsageBatch?: () => UsageRecordBatch
+    createEventUsageBatch: () => UsageRecordBatch
 }
 
 export interface JoinedIngestionPipelineDeps {
@@ -132,7 +132,7 @@ export function createJoinedIngestionPipeline<
         outputs,
         perDistinctIdOptions,
         concurrentBatches,
-        createEventUsageBatch = () => new UsageRecordBatch(null, { unit: 'events', isTeamEnabled: () => false }),
+        createEventUsageBatch,
     } = config
 
     const {
