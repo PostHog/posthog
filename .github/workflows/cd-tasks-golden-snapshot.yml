@@ -249,7 +249,7 @@ jobs:
         if: vars.HOG_TASKS_GOLDEN_ENABLED == 'true' && github.ref == 'refs/heads/master'
         name: Bake and promote the tasks golden snapshot
         runs-on: depot-ubuntu-24.04
-        timeout-minutes: 150 # 90m bake + smoke (cold restore) + buffer
+        timeout-minutes: 240 # worst case: 30m quiet-window guard + 30m cold create + ~90m setup + snapshot push + 30m smoke cold restore + buffer
         # Job-level permissions replace the workflow defaults, so re-declare the
         # contents/id-token the bake needs and add actions:read for the
         # quiet-deploy-window guard's Actions API query.

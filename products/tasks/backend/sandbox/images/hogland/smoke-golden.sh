@@ -220,11 +220,15 @@ if [[ -n "${HOG_HOST:-}" && -n "${HOG_TOKEN_COMMAND:-}" ]]; then
         # B), unlike the lowercase "bearer" GitHub's OIDC token endpoint wants in
         # HOG_TOKEN_COMMAND. A lowercase scheme here gets a 401, which the case
         # below treats as a hard failure.
-        http_code=$(curl -sS -o "$exec_out" -w '%{http_code}' \
+        # curl already prints "000" via -w on a connection failure, so append
+        # nothing on its non-zero exit — `|| echo 000` would concatenate to
+        # "000000" and never match the 000) fail-open arm below. --max-time caps
+        # a hung request so a wedged endpoint can't stall the job.
+        http_code=$(curl -sS --connect-timeout 10 --max-time 60 -o "$exec_out" -w '%{http_code}' \
             -X POST "$HOG_HOST/v1/hogboxes/$SMOKE_BOX_ID/exec" \
             -H "Authorization: Bearer $exec_token" \
             -H 'Content-Type: application/json' \
-            -d "$exec_body" 2>/dev/null || echo 000)
+            -d "$exec_body" 2>/dev/null || true)
         case "$http_code" in
             2*)
                 if grep -q 'golden-exec-ok' "$exec_out"; then

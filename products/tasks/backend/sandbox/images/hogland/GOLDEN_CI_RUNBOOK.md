@@ -121,7 +121,7 @@ For **each** cluster the workflow targets (dev, then prod-us):
 
 - **Variables** (Settings → Secrets and variables → Actions → Variables):
   - `HOG_TASKS_GOLDEN_ENABLED=true` — master arm. Until set, the whole job is a
-    no-op. Set it once the dev prerequisites (steps 1–4) exist.
+    no-op. Set it once the dev prerequisites (steps 1–5, including the tailnet route to the box VPC) exist.
   - `HOG_TASKS_GOLDEN_PROD_ENABLED=true` — second arm for prod-targeting
     clusters. The prod-us leg stays a no-op until this is set, so it does not
     fail nightly before its own principal + TrustMapping exist.
@@ -155,6 +155,23 @@ For **each** cluster the workflow targets (dev, then prod-us):
 - Nightly: the `schedule` cron fires daily but only bakes armed clusters,
   rendering from `master`.
 
+## Cleaning up leaked seed/smoke boxes
+
+The seed (`golden-seed-tasks`) and smoke (`golden-smoke-tasks`) boxes use an
+unregistered kind with no server-side TTL, so hogland never reaps them. The
+workflow's `always()` teardown deletes them on a normal cancel or failure — but
+it does **not** run if the runner itself dies (an infra kill, a spot reclaim),
+which leaks a 64 GiB box. The names are fixed, so a leak is at most one seed +
+one smoke per cluster (the next run pre-cleans them). After any run that ended
+abnormally, sweep them (dev/prod-us need the tailnet):
+
+```bash
+for n in golden-seed-tasks golden-smoke-tasks; do
+  id=$(hogland box list | jq -r --arg n "$n" 'map(select(.spec.name==$n)) | .[0].id // empty')
+  [ -n "$id" ] && hogland box delete "$id"
+done
+```
+
 ## Rollback
 
 Each successful bake stamps `posthog-tasks-default-YYYYMMDD`. To roll back, point
@@ -164,6 +181,12 @@ the live alias at a known-good archive:
 hogland snapshot resolve posthog-tasks-default-<YYYYMMDD> | jq -r .snapshot_id
 hogland snapshot alias <snapshot_id> posthog-tasks-default
 ```
+
+After hogland#426 the alias PUT is owner-scoped: only the alias's owner (the
+`svc-ci-*` principal that first promoted it) or an admin may repoint
+`posthog-tasks-default`, so a hand rollback runs as an admin or as svc-ci. See
+hogland's `docs/BUILD_TEST_DEPLOY.md` "Alias ownership" section for the adoption
+and recovery model.
 
 ## Adding prod-eu
 
@@ -254,7 +277,9 @@ the workflow (it is a no-op until armed), but referenced above:
 - **PostHog/hogland#414** — `github_oidc` TrustMapping cannot pin a `ref` (durable
   branch-dispatch fix, PR PostHog/hogland#424). Gates arming prod-us safely.
 - **PostHog/hogland#415** — alias namespace PUT/DELETE unprotected (durable fix PR
-  PostHog/hogland#426). Keep prod-us unarmed until fixed.
+  PostHog/hogland#426). With #426 merged, `svc-ci` adopts `posthog-tasks-default`
+  on its first PUT (a new alias is owned by its creator), so no extra
+  provisioning step — see hogland `docs/BUILD_TEST_DEPLOY.md` (Alias ownership).
 - **PostHog/hogland#416** — no `box exec` / `box cp` verb: `hogland box exec` does
   not exist today, so the smoke uses a raw `POST .../exec` (durable fix PR
   PostHog/hogland#425). Also covers the batch `/exec` timeout mismatch (advertises
