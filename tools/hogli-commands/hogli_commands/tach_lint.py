@@ -15,7 +15,7 @@ import subprocess
 import click
 
 # Every test spelling the repo uses. The interface pass sees all of them.
-TEST_CODE_EXCLUDES = "tests,test,**/test_*.py"
+TEST_CODE_EXCLUDES = "tests,test,**/test_*.py,**/*_test.py"
 
 PASSES: tuple[tuple[str, ...], ...] = (
     ("tach", "check", "--dependencies", "--exclude", TEST_CODE_EXCLUDES),
@@ -24,11 +24,12 @@ PASSES: tuple[tuple[str, ...], ...] = (
 
 
 def run_tach_passes() -> int:
-    exit_code = 0
+    failed = False
     for command in PASSES:
         click.echo("$ " + " ".join(command))
-        exit_code = max(exit_code, subprocess.run(command).returncode)
-    return exit_code
+        # A signal-killed pass returns a negative code; anything but zero is a failure.
+        failed = subprocess.run(command).returncode != 0 or failed
+    return 1 if failed else 0
 
 
 @click.command(
