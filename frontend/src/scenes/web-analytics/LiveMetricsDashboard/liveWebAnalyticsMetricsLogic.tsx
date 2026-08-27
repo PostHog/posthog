@@ -1411,9 +1411,6 @@ const loadBotQueryData = async ({
         filtersEnabled,
     })
 
-    // Aggregate per-minute first then re-group so the response is bounded by the
-    // number of minutes in the window (not by the bot-name cardinality). Without this
-    // the default HogQL row cap (100) silently truncates high-traffic projects.
     const botQuery: HogQLQuery = {
         kind: NodeKind.HogQLQuery,
         query: `SELECT
