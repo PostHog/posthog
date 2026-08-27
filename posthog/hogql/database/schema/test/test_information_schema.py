@@ -3,7 +3,7 @@ import uuid
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from django.apps import apps
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -248,12 +248,7 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
             ).results
             or []
         }
-        assert {
-            "posthog.ai_events",
-            "posthog.trace_spans",
-            "posthog.metrics",
-            "posthog.billing_usage_records",
-        }.issubset(names)
+        assert {"posthog.ai_events", "posthog.trace_spans", "posthog.metrics"}.issubset(names)
         assert "events" in names
         assert "posthog.events" not in names
 
@@ -270,19 +265,37 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         }
         assert {"trace_id", "span_id"}.issubset(columns)
 
-        usage_columns = {
-            row[0]
-            for row in execute_hogql_query(
-                "SELECT column_name FROM system.information_schema.columns "
-                "WHERE table_name = 'posthog.billing_usage_records'",
-                team=self.team,
-            ).results
-            or []
-        }
-        assert {"team_id", "producer_id", "usage_key", "quantity", "timestamp"}.issubset(usage_columns)
-        # inserted_at is the engine's version column and is withheld on purpose: it is absent from
-        # the sorting key, so a query that filtered on it would read the whole partition.
-        assert "inserted_at" not in usage_columns
+    def test_billing_usage_records_is_listed_only_for_allowlisted_teams(self):
+        # The table has no per-product access scope, so the allowlist is the only thing keeping it
+        # out of every other project's catalog.
+        def listed_tables() -> set[str]:
+            return {
+                row[0]
+                for row in execute_hogql_query(
+                    "SELECT table_name FROM system.information_schema.tables", team=self.team
+                ).results
+                or []
+            }
+
+        with override_settings(BILLING_USAGE_RECORDS_HOGQL_TEAM_IDS=set()):
+            assert "posthog.billing_usage_records" not in listed_tables()
+
+        with override_settings(BILLING_USAGE_RECORDS_HOGQL_TEAM_IDS={self.team.pk}):
+            assert "posthog.billing_usage_records" in listed_tables()
+
+            usage_columns = {
+                row[0]
+                for row in execute_hogql_query(
+                    "SELECT column_name FROM system.information_schema.columns "
+                    "WHERE table_name = 'posthog.billing_usage_records'",
+                    team=self.team,
+                ).results
+                or []
+            }
+            assert {"team_id", "producer_id", "usage_key", "quantity", "timestamp"}.issubset(usage_columns)
+            # inserted_at is the engine's version column and is withheld on purpose: it is absent from
+            # the sorting key, so a query that filtered on it would read the whole partition.
+            assert "inserted_at" not in usage_columns
 
     def test_access_scoped_system_tables_are_filtered(self):
         # Access-scoped system tables the caller can't reach must not leak into the catalog,

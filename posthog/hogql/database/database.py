@@ -14,6 +14,8 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from django.conf import settings
+
 import structlog
 from opentelemetry import trace
 from pydantic import BaseModel, ConfigDict
@@ -229,6 +231,7 @@ class HogQLDatabaseSources:
     is_managed_viewset_enabled: bool
     is_hogql_warehouse_access_control_enabled: bool
     is_data_quality_enabled: bool
+    is_billing_usage_records_enabled: bool
     # Userless internal contexts that must resolve every warehouse table/view; skips access control
     bypass_warehouse_access_control: bool
     direct_connection_metadata: dict[str, Any] | None
@@ -1718,6 +1721,7 @@ class Database(BaseModel):
             is_managed_viewset_enabled=is_managed_viewset_enabled,
             is_hogql_warehouse_access_control_enabled=is_hogql_warehouse_access_control_enabled,
             is_data_quality_enabled=data_quality_enabled,
+            is_billing_usage_records_enabled=team.pk in settings.BILLING_USAGE_RECORDS_HOGQL_TEAM_IDS,
             # Managed warehouse is a built-in project datastore and has no warehouse-object ACL surface.
             # Principals that skip warehouse access control by design:
             # - synthetic users (project-wide service tokens, bypass object-level RBAC)
@@ -1786,6 +1790,10 @@ class Database(BaseModel):
                 )
                 if info_schema is not None and hasattr(info_schema, "children"):
                     disable_data_quality(info_schema)
+            if not sources.is_billing_usage_records_enabled:
+                posthog_node = database.tables.children.get("posthog")
+                if posthog_node is not None:
+                    posthog_node.children.pop("billing_usage_records", None)
 
         with timings.measure("modifiers", emit_span=True):
             if not database._is_direct_query():
