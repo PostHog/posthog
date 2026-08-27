@@ -2621,6 +2621,16 @@ Diffed against: <https://raw.githubusercontent.com/e2b-dev/infra/main/spec/opena
 
 Note: E2B's public API is genuinely small (~20 GET-able paths, most of them template build plumbing or admin/api-key management). The source is static: E2B_ENDPOINTS in settings.py hardcodes /v2/sandboxes, /v2/templates and /snapshots with no dynamic discovery, and correctly uses the v2 sandbox listing (all states) rather than the running-only v1.
 
+## Easybill — gaps
+
+Today (7): `Customers`, `CustomerGroups`, `DocumentPayments`, `Documents`, `IncomingDocuments`, `Positions`, `Projects`
+
+Diffed against: <https://api.easybill.de/rest/v1/swagger.json>
+
+- [x] `incoming-documents (GET /rest/v1/incoming-documents)` — received supplier invoices and credit notes with extracted amounts, supplier, status and payments; the accounts-payable side of the accounting data (medium)
+
+Note: `/incoming-documents` is read-only and its only list filter is `created_at`, so it syncs full-refresh like `/customers` (a `created_at` cursor would miss later edits). The sub-resources `/incoming-documents/{id}/files` and `.../download` are file-download plumbing (binary/URLs), not warehouse-table material, so they were excluded rather than reported as gaps.
+
 ## Easypost — gaps
 
 Today (9): `addresses`, `batches`, `events`, `insurances`, `pickups`, `refunds`, `scan_forms`, `shipments`, `trackers`
@@ -3896,10 +3906,11 @@ Note: learn.hex.tech renders the reference client-side from Docusaurus; the oper
 
 ## HiBob — **thin**
 
-Today (2): `employees`, `tasks`
+Today (3): `employees`, `tasks`, `time_off_calendars`
 
 Diffed against: <https://apidocs.hibob.com/reference/get_tasks>
 
+- [x] `POST /timeoff/calendars/employees/search` — the holiday calendar resolved per employee (employment override or site default); fans out over employee ids, full refresh (medium)
 - [ ] `GET /bulk/people/lifecycle` — employee lifecycle state transitions (hire, promotion, termination) — the core HR history table (high)
 - [ ] `GET /bulk/people/employment` — employment history rows per employee (contract, manager, site changes) rather than only current state (high)
 - [ ] `GET /bulk/people/salaries` — compensation history, the headline HR analytics dataset (high)
@@ -6387,7 +6398,7 @@ Note: Persona's own repo note (products/warehouse_sources/backend/temporal/data_
 
 ## Personio — **thin**
 
-Today (3): `absence_periods`, `attendance_periods`, `persons`
+Today (5): `absence_periods`, `attendance_periods`, `cost_centers`, `persons`, `salary_bands`
 
 Diffed against: <https://developer.personio.de/llms.txt>
 
@@ -6395,7 +6406,8 @@ Diffed against: <https://developer.personio.de/llms.txt>
 - [ ] `GET /v2/absence-types` — lookup resolving the absence type on every absence period already synced (high)
 - [ ] `GET /v2/compensations` — salary, hourly, bonus and recurring compensation - the payroll dataset (high)
 - [ ] `GET /v2/org-units` — department/team hierarchy lookup for grouping persons, absences and attendance (high)
-- [ ] `GET /v2/cost-centers` — cost center lookup for allocating attendance and compensation to finance dimensions (medium)
+- [x] `GET /v2/cost-centers` — cost center lookup for allocating attendance and compensation to finance dimensions (medium)
+- [x] `GET /v2/salary-bands` — salary band ranges (min/max/mid, currency) and the workplaces they apply to (medium)
 - [ ] `GET /v2/legal-entities` — legal entity lookup for multi-entity headcount and payroll splits (medium)
 - [ ] `GET /v2/jobs` — job/position catalog referenced from employments (medium)
 - [ ] `GET /v2/compensations/types` — lookup resolving compensation type IDs on compensation rows (medium)
@@ -6404,7 +6416,7 @@ Diffed against: <https://developer.personio.de/llms.txt>
 - [ ] `GET /v2/recruiting/applications/{id}/stage-transitions` — stage transition history - exactly the state-change data needed for time-in-stage metrics (medium)
 - [ ] `GET /v2/recruiting/candidates` — candidate records joined to applications above (medium)
 
-Note: PERSONIO_ENDPOINTS in products/warehouse_sources/backend/temporal/data_imports/sources/personio/settings.py is a static 3-entry dict (/v2/persons, /v2/absence-periods, /v2/attendance-periods) - no dynamic discovery. The v2 API exposes roughly 20 listable resources, so this is a small fraction, and notably every organizational lookup that would let you group the synced persons and time data (org units, cost centers, legal entities, jobs) is missing. Exact paths confirmed from the individual reference .md pages. Recruiting endpoints are flagged beta by the vendor.
+Note: PERSONIO_ENDPOINTS in products/warehouse_sources/backend/temporal/data_imports/sources/personio/settings.py is a static 5-entry dict (/v2/persons, /v2/absence-periods, /v2/attendance-periods, /v2/salary-bands, /v2/cost-centers) - no dynamic discovery. The v2 API exposes roughly 20 listable resources, so this is still a small fraction, and other organizational lookups that would let you group the synced persons and time data (org units, legal entities, jobs) are still missing. Salary bands and cost centers are dimension lookups with no updated_at/created_at field, so they sync full-refresh only. Exact paths confirmed from the individual reference .md pages. Recruiting endpoints are flagged beta by the vendor.
 
 ## Pexels — gaps
 
@@ -7684,10 +7696,12 @@ Note: The public smartreach.io/api_docs page only documents campaigns + prospect
 
 ## Smartsheet — **thin**
 
-Today (6): `contacts`, `reports`, `sheets`, `templates`, `users`, `workspaces`
+Today (8): `contacts`, `report_columns`, `report_scope`, `reports`, `sheets`, `templates`, `users`, `workspaces`
 
 Diffed against: <https://developers.smartsheet.com/sitemap.xml>
 
+- [x] `GET /reports/{reportId}/columns` — the columns of every report (title, type, index), fanned out across all reports (announced Jul-09-2026)
+- [x] `GET /reports/{reportId}/scope` — each report's source sheets and workspaces, fanned out across all reports (announced Jul-09-2026)
 - [ ] `GET /sheets/{sheetId} (rows + cells)` — the actual row/cell data inside every sheet - today only sheet metadata is synced, so no sheet content is queryable (high)
 - [ ] `GET /sheets/{sheetId}/columns` — lookup resolving the column ids that every cell references, including picklist options (high)
 - [ ] `GET /events (list-events, list-filtered-events)` — the org-wide activity event stream - who changed what and when (high)
