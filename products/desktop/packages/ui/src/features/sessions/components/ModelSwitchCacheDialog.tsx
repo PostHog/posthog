@@ -53,6 +53,10 @@ export function ModelSwitchCacheDialog({
   const [activeAction, setActiveAction] = useState<ActiveAction>(null);
   const checkboxId = useId();
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
+  // Identifies the current dialog request. The parent can close and reopen this
+  // dialog for a different session without remounting it, so bump the token on
+  // each open to scope activeAction to one request.
+  const requestTokenRef = useRef(0);
   const estimatedInputCost = estimateUncachedInputCost(
     toModelId,
     contextTokens,
@@ -60,7 +64,15 @@ export function ModelSwitchCacheDialog({
   const busy = activeAction !== null;
 
   useEffect(() => {
-    if (open) setDontShowAgain(false);
+    if (open) {
+      setDontShowAgain(false);
+      // A controlled close leaves activeAction set (the parent drops the pending
+      // switch without remounting), so a reopened dialog would inherit the old
+      // busy state and lock its controls. Reset on open and invalidate any
+      // in-flight action so its finally cannot clear the new request's state.
+      setActiveAction(null);
+      requestTokenRef.current += 1;
+    }
   }, [open]);
 
   const rememberChoice = (): void => {
@@ -68,32 +80,35 @@ export function ModelSwitchCacheDialog({
   };
 
   const handleConfirm = async (): Promise<void> => {
+    const token = requestTokenRef.current;
     setActiveAction("switch");
     try {
       await onConfirm();
       rememberChoice();
     } finally {
-      setActiveAction(null);
+      if (requestTokenRef.current === token) setActiveAction(null);
     }
   };
 
   const handleCompactAndConfirm = async (): Promise<void> => {
     if (!onCompactAndConfirm) return;
+    const token = requestTokenRef.current;
     setActiveAction("compact");
     try {
       if (await onCompactAndConfirm()) rememberChoice();
     } finally {
-      setActiveAction(null);
+      if (requestTokenRef.current === token) setActiveAction(null);
     }
   };
 
   const handleCopyHandoffSummary = async (): Promise<void> => {
     if (!onCopyHandoffSummary) return;
+    const token = requestTokenRef.current;
     setActiveAction("copy_summary");
     try {
       await onCopyHandoffSummary();
     } finally {
-      setActiveAction(null);
+      if (requestTokenRef.current === token) setActiveAction(null);
     }
   };
 

@@ -27,4 +27,28 @@ describe("ModelSwitchCacheDialog", () => {
     expect(onCancel).toHaveBeenCalledOnce();
     expect(useSettingsStore.getState().warnOnMidSessionModelSwitch).toBe(true);
   });
+
+  it("does not inherit a prior action's busy state when reopened for a new switch", () => {
+    // The parent closes and reopens this dialog for another session without
+    // remounting it, so a switch left in flight must not lock the next dialog.
+    const onConfirm = vi.fn().mockReturnValue(new Promise<void>(() => {}));
+    const onCancel = vi.fn();
+    const props = {
+      fromModelLabel: "Claude Sonnet 5",
+      toModelId: "claude-opus-5",
+      toModelLabel: "Claude Opus 5",
+      onConfirm,
+      onCancel,
+    };
+    const { rerender } = render(<ModelSwitchCacheDialog open {...props} />);
+
+    // Start a switch that never resolves, then let the parent close the dialog.
+    fireEvent.click(screen.getByText("Switch now"));
+    rerender(<ModelSwitchCacheDialog open={false} {...props} />);
+    rerender(<ModelSwitchCacheDialog open {...props} />);
+
+    // The reopened dialog is dismissable: Cancel is enabled and fires.
+    fireEvent.click(screen.getByText("Cancel"));
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
 });
