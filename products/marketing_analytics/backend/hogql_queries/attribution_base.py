@@ -262,9 +262,15 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
                                     # Narrower than the range bounds above: a touchpoint before this
                                     # person's first conversion minus the window, or after their last
                                     # one, cannot be credited by any conversion they have.
+                                    #
+                                    # Bounds the session start, not the event timestamp, because that
+                                    # is the value stored as the touchpoint. A session that starts
+                                    # before the last conversion but whose pageview lands after it is
+                                    # still creditable.
                                     ast.CompareOperation(
                                         left=ast.Call(
-                                            name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])]
+                                            name="toUnixTimestamp",
+                                            args=[ast.Field(chain=["events", "session", "$start_timestamp"])],
                                         ),
                                         op=ast.CompareOperationOp.GtEq,
                                         right=ast.ArithmeticOperation(
@@ -275,7 +281,8 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
                                     ),
                                     ast.CompareOperation(
                                         left=ast.Call(
-                                            name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])]
+                                            name="toUnixTimestamp",
+                                            args=[ast.Field(chain=["events", "session", "$start_timestamp"])],
                                         ),
                                         op=ast.CompareOperationOp.LtEq,
                                         right=ast.Field(chain=["conv_bounds", "last_conversion"]),
