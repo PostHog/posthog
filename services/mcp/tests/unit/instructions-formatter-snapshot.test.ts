@@ -264,9 +264,12 @@ describe('InstructionsFormatter prompt snapshots', () => {
         const domains = domainsIn(rendered)
 
         expect(rendered.length).toBeLessThanOrEqual(MCP_INSTRUCTIONS_CHAR_BUDGET)
-        // Domains past the old cutoff point, i.e. the ones a truncated payload lost.
-        for (const domain of ['query', 'scout', 'session-recording', 'survey', 'web-analytics', 'workflows']) {
-            expect(domains).toContain(domain)
+        // Families past the old cutoff point must remain searchable after the index compacts.
+        const toolNames = Object.keys(getToolDefinitions())
+        for (const family of ['query', 'scout', 'session-recording', 'survey', 'web-analytics', 'workflows']) {
+            const familyTools = toolNames.filter((name) => name.startsWith(family))
+            expect(familyTools.length).toBeGreaterThan(0)
+            expect(familyTools.every((name) => domains.some((domain) => name.startsWith(domain)))).toBe(true)
         }
     })
 
