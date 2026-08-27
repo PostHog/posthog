@@ -159,6 +159,24 @@ class Subscription(ModelActivityMixin, models.Model):
         blank=True,
         related_name="subscriptions_dashboard_export",
     )
+    # AI-prompt subs only: the dashboard or insight the sub was created from, injected into the
+    # planner as grounding. It is not the exported resource, so resource_type stays derived from
+    # the relations above. SET_NULL because deleting the anchor should only degrade the report
+    # to project-wide, not delete the subscription.
+    anchor_dashboard = models.ForeignKey(
+        "dashboards.Dashboard",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="anchored_ai_subscriptions",
+    )
+    anchor_insight = models.ForeignKey(
+        "product_analytics.Insight",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="anchored_ai_subscriptions",
+    )
     integration = models.ForeignKey(
         "posthog.Integration",
         on_delete=models.SET_NULL,
