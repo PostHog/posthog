@@ -1,4 +1,5 @@
 import { Message } from 'node-rdkafka'
+import { Counter } from 'prom-client'
 import { z } from 'zod'
 
 import { KAFKA_COHORT_MEMBERSHIP_CHANGED, KAFKA_COHORT_RECONCILE_MARKERS } from '~/common/config/kafka-topics'
@@ -41,6 +42,11 @@ const startAtLatest = { ['auto.offset.reset' as keyof RdKafkaConsumerConfig]: 'l
 function membershipClusterId(): string {
     return String(getKafkaConfigFromEnv('CONSUMER')['metadata.broker.list'] ?? 'kafka:9092')
 }
+
+const offFormatVersions = new Counter({
+    name: 'cdp_cohort_membership_off_format_versions',
+    help: 'Membership changes whose version stamp broke the producer contract and was degraded to versionless',
+})
 
 // `origin` is a loose string, not an enum: nothing branches on it, and rejecting a value the
 // processor added later would throw the whole batch and crash-loop on redelivery.
@@ -306,7 +312,12 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
      * The version guard is what makes an at-least-once replay safe: offsets commit after the write,
      * so a crash replays a batch, and a stale reconcile row must not overwrite a newer live change
      * that was already applied. It is the same last-writer-wins rule ClickHouse applies to this
-     * data. A row with no version counts as the oldest.
+     * data. A stored row with no version counts as the oldest.
+     *
+     * An incoming change with no version cannot be ordered, but it is still a membership
+     * transition: it applies unconditionally (the pre-version behavior) while COALESCE keeps the
+     * row's existing stamp. Without both, `EXCLUDED.version >= version` evaluates to NULL against
+     * a versioned row and the change is silently dropped, leaving the member stuck.
      */
     private async upsertMembershipRows(tx: TransactionClient, changes: CohortMembershipChange[]): Promise<void> {
         const values: any[] = []
@@ -338,8 +349,10 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
                 DO UPDATE SET
                     in_cohort = EXCLUDED.in_cohort,
                     last_updated = CURRENT_TIMESTAMP,
-                    version = EXCLUDED.version
-                WHERE cohort_membership.version IS NULL OR EXCLUDED.version >= cohort_membership.version
+                    version = COALESCE(EXCLUDED.version, cohort_membership.version)
+                WHERE cohort_membership.version IS NULL
+                   OR EXCLUDED.version IS NULL
+                   OR EXCLUDED.version >= cohort_membership.version
             `,
             values,
             'batchUpsertCohortMembership'
@@ -479,11 +492,12 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
                 // A version is only usable in the producer's fixed-width format: it is compared
                 // lexicographically and bound into `::timestamp` casts. Rejecting the message
                 // would crash-loop the feed, so an off-format value degrades to "no version",
-                // which last-writer-wins treats as the oldest.
+                // which loses only the ordering: the membership transition itself still applies.
                 if (
                     cohortMembershipChange.last_updated &&
                     !PRODUCER_VERSION_FORMAT.test(cohortMembershipChange.last_updated)
                 ) {
+                    offFormatVersions.inc()
                     logger.warn('Dropping an off-format membership version', {
                         last_updated: cohortMembershipChange.last_updated,
                         team_id: cohortMembershipChange.team_id,

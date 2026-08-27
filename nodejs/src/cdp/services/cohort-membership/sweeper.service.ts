@@ -271,7 +271,17 @@ export class CohortMembershipSweeper {
     public async runOnce(): Promise<SweepCycleResult> {
         const result: SweepCycleResult = { swept: 0, rowsDeleted: 0, blocked: 0, abandoned: 0 }
 
-        await this.promoteMarkedRuns()
+        // Promotion talks to Kafka and its partial-metadata guard can fail permanently (a topic
+        // recreated with fewer partitions). Letting the throw abort the cycle would also skip the
+        // hygiene steps below, including the progress GC that eventually clears exactly that
+        // cause, so a promotion failure is contained to its own outcome.
+        try {
+            await this.promoteMarkedRuns()
+        } catch (error) {
+            sweepCycles.inc({ status: 'promote_error' })
+            logger.error('Failed to promote fully-marked reconcile runs', { error: String(error) })
+        }
+
         await this.kafka.refreshConsumerProgress()
         const progress = await this.readConsumerProgress()
 
@@ -680,6 +690,7 @@ export class CohortMembershipSweeper {
         }
 
         this.running = true
+        this.stopping = false
         this.loopPromise = this.sweepLoop()
         logger.info('CohortMembershipSweeper started', {
             intervalMs: this.config.COHORT_MEMBERSHIP_SWEEP_INTERVAL_MS,
