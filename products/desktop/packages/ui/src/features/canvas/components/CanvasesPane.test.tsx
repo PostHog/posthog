@@ -25,13 +25,19 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useDashboards", () => ({
   useAllCanvases: () => ({ dashboards: mocks.dashboards, isLoading: false }),
 }));
+vi.mock("@posthog/ui/features/canvas/hooks/useSelectedCanvasId", () => ({
+  useSelectedCanvasId: () => undefined,
+}));
 vi.mock("@posthog/ui/features/canvas/stores/canvasViewedStore", () => {
   const useCanvasViewedStore = Object.assign(
     (selector: (state: typeof mocks.viewedState) => unknown): unknown =>
       selector(mocks.viewedState),
     {
       getState: () => mocks.viewedState,
-      persist: { onFinishHydration: () => () => {} },
+      persist: {
+        hasHydrated: () => true,
+        onFinishHydration: () => () => {},
+      },
     },
   );
   return { useCanvasViewedStore };
@@ -40,7 +46,6 @@ vi.mock("@posthog/ui/shell/analytics", () => ({ track: mocks.track }));
 vi.mock("@tanstack/react-router", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@tanstack/react-router")>()),
   useNavigate: () => mocks.navigate,
-  useRouterState: () => undefined,
 }));
 
 import { CanvasesPane } from "./CanvasesPane";

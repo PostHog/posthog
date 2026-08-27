@@ -7,6 +7,29 @@ export type CanvasListGrouping = "none" | "space" | "date";
 export const DEFAULT_CANVAS_LIST_SORT: CanvasListSort = "recently_viewed";
 export const DEFAULT_CANVAS_LIST_GROUPING: CanvasListGrouping = "date";
 
+export interface CanvasListSettings {
+  spaceIds: readonly string[];
+  creatorUuids: readonly string[];
+  sort: CanvasListSort;
+  grouping: CanvasListGrouping;
+}
+
+export const DEFAULT_CANVAS_LIST_SETTINGS: CanvasListSettings = {
+  spaceIds: [],
+  creatorUuids: [],
+  sort: DEFAULT_CANVAS_LIST_SORT,
+  grouping: DEFAULT_CANVAS_LIST_GROUPING,
+};
+
+export function hasCustomizedCanvasList(settings: CanvasListSettings): boolean {
+  return (
+    settings.spaceIds.length > 0 ||
+    settings.creatorUuids.length > 0 ||
+    settings.sort !== DEFAULT_CANVAS_LIST_SORT ||
+    settings.grouping !== DEFAULT_CANVAS_LIST_GROUPING
+  );
+}
+
 export interface CanvasListSection {
   key: string;
   label: string | null;

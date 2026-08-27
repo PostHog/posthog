@@ -19,7 +19,6 @@ import {
   dashboardIdInput,
   dashboardRecordSchema,
   fileDashboardInput,
-  listAllCanvasesInput,
   listComponentsInput,
   listDashboardsInput,
   promoteCanvasInput,
@@ -60,10 +59,9 @@ export const dashboardsRouter = router({
         .listComponents(input),
     ),
   listAll: publicProcedure
-    .input(listAllCanvasesInput)
     .output(z.array(dashboardRecordSchema))
-    .query(({ ctx, input }) =>
-      ctx.container.get<IDashboardsService>(DASHBOARDS_SERVICE).listAll(input),
+    .query(({ ctx }) =>
+      ctx.container.get<IDashboardsService>(DASHBOARDS_SERVICE).listAll(),
     ),
   get: publicProcedure
     .input(dashboardIdInput)

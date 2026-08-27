@@ -12,6 +12,9 @@ vi.mock("@posthog/host-router/react", () => ({
   }),
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
+vi.mock("@posthog/ui/features/canvas/hooks/useSelectedCanvasId", () => ({
+  useSelectedCanvasId: () => useSelectedCanvasId(),
+}));
 
 const {
   useChannelTasks,
@@ -38,27 +41,13 @@ vi.mock("@tanstack/react-router", () => ({
   }: {
     select: (s: {
       location: { pathname: string };
-      matches: {
-        routeId: string;
-        fullPath: string;
-        search: Record<string, unknown>;
-      }[];
+      matches: { routeId: string }[];
     }) => unknown;
   }) => {
     const pathname = usePathname();
-    const selectedCanvasId = useSelectedCanvasId();
     return select({
       location: { pathname },
-      matches: [
-        {
-          routeId:
-            pathname === "/canvases"
-              ? "/_shell/canvases"
-              : "/spaces/$channelId/tasks/$taskId",
-          fullPath: pathname === "/canvases" ? "/canvases" : pathname,
-          search: pathname === "/canvases" ? { canvas: selectedCanvasId } : {},
-        },
-      ],
+      matches: [{ routeId: "/spaces/$channelId/tasks/$taskId" }],
     });
   },
 }));

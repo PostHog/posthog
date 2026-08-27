@@ -1,24 +1,29 @@
 import type { ReactNode } from "react";
 
-export interface CanvasFilterOption {
-  value: string;
+export interface CanvasFilterOption<Value extends string = string> {
+  value: Value;
   label: string;
   searchLabel?: string;
   icon?: ReactNode;
 }
 
+export interface CanvasMultiSelectOption
+  extends Omit<CanvasFilterOption, "value"> {
+  value: string | null;
+}
+
 function selectedOptions(
-  options: readonly CanvasFilterOption[],
+  options: readonly CanvasMultiSelectOption[],
   values: readonly string[],
-): CanvasFilterOption[] {
+): CanvasMultiSelectOption[] {
   const selectedValues = new Set(values);
   return options.filter(
-    (option) => option.value !== "" && selectedValues.has(option.value),
+    (option) => option.value !== null && selectedValues.has(option.value),
   );
 }
 
 export function summarizeSpaceSelection(
-  options: readonly CanvasFilterOption[],
+  options: readonly CanvasMultiSelectOption[],
   values: readonly string[],
 ): string {
   const selected = selectedOptions(options, values);
@@ -28,7 +33,7 @@ export function summarizeSpaceSelection(
 }
 
 export function summarizeCreatorSelection(
-  options: readonly CanvasFilterOption[],
+  options: readonly CanvasMultiSelectOption[],
   values: readonly string[],
 ): string {
   const selected = selectedOptions(options, values);

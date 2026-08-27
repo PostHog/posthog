@@ -15,6 +15,7 @@ import type { SourceProduct } from "@posthog/shared/types";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import {
   type ActivityInboxScope,
+  hasActiveActivityMenuFilters,
   useActivityFilterStore,
 } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import { useReportsInboxEnabled } from "@posthog/ui/features/feature-flags/useReportsInboxEnabled";
@@ -120,6 +121,9 @@ export function ActivityIncludeMenuSection(): ReactElement {
   const resetMenuFilters = useActivityFilterStore(
     (state) => state.resetMenuFilters,
   );
+  const filtersActive = useActivityFilterStore((state) =>
+    hasActiveActivityMenuFilters(state, authIdentity),
+  );
   const inboxAvailable = reportsInboxEnabled && authIdentity !== null;
   const sourceOptions = useInboxSourceFilterOptions(sourceProductFilter, {
     enabled: inboxAvailable && inboxEnabled,
@@ -132,17 +136,6 @@ export function ActivityIncludeMenuSection(): ReactElement {
     (option) =>
       option.field === sortField && option.direction === sortDirection,
   );
-  const filtersActive =
-    !mentionsEnabled ||
-    inboxEnabled ||
-    inboxScope !== "for-you" ||
-    sourceProductFilter.length > 0 ||
-    prFilter !== "all" ||
-    sortField !== "priority" ||
-    sortDirection !== "asc" ||
-    priorityFilter.length !== 1 ||
-    priorityFilter[0] !== "P1";
-
   return (
     <>
       <MenuLabel>Include</MenuLabel>

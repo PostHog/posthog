@@ -15,7 +15,7 @@ describe("buildCanvasCreatorOptions", () => {
       ),
     ).toEqual([
       { value: "me", label: "Me", searchLabel: "Georgiy Tarasov" },
-      { value: "", label: "Anyone" },
+      { value: null, label: "Anyone" },
       { value: "a", label: "Andy Vandervell" },
       { value: "b", label: "Brittany Joiner" },
     ]);

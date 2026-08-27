@@ -183,12 +183,9 @@ export class DashboardsService {
     return rows.map(toRecord);
   }
 
-  async listAll(input: { search?: string }): Promise<DashboardRecord[]> {
-    const search = input.search
-      ? `?search=${encodeURIComponent(input.search)}`
-      : "";
+  async listAll(): Promise<DashboardRecord[]> {
     const rows = await this.api.listPaginated<ApiCanvas>(
-      `canvases/${search}`,
+      "canvases/",
       "list all canvases",
       { limit: 500 },
     );

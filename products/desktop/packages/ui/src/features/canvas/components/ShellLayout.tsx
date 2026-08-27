@@ -41,6 +41,7 @@ import {
   useDashboard,
   useDashboardMutations,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
+import { useSelectedCanvasId } from "@posthog/ui/features/canvas/hooks/useSelectedCanvasId";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import {
   useDashboardEditStore,
@@ -347,14 +348,7 @@ function CanvasBreadcrumb({
 export function ShellLayout() {
   const spacesLayout = useChannelsLayout();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const selectedCanvasId = useRouterState({
-    select: (state) =>
-      (
-        state.matches.find((match) => match.fullPath === "/canvases")?.search as
-          | { canvas?: string }
-          | undefined
-      )?.canvas,
-  });
+  const selectedCanvasId = useSelectedCanvasId();
   const params = useParams({ strict: false });
 
   const channelId = params.channelId;

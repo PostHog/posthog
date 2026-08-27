@@ -1,8 +1,4 @@
-export interface CanvasCreatorOption {
-  value: string;
-  label: string;
-  searchLabel?: string;
-}
+import type { CanvasMultiSelectOption } from "@posthog/ui/features/canvas/components/canvasFilterSelection";
 
 interface CanvasCreator {
   createdByUuid?: string | null;
@@ -12,7 +8,7 @@ interface CanvasCreator {
 export function buildCanvasCreatorOptions(
   canvases: readonly CanvasCreator[],
   currentUser?: { uuid: string; name: string },
-): CanvasCreatorOption[] {
+): CanvasMultiSelectOption[] {
   const creatorsByUuid = new Map<string, string>();
   for (const canvas of canvases) {
     if (
@@ -38,7 +34,7 @@ export function buildCanvasCreatorOptions(
           },
         ]
       : []),
-    { value: "", label: "Anyone" },
+    { value: null, label: "Anyone" },
     ...otherCreators,
   ];
 }

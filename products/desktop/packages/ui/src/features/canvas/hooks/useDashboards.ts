@@ -64,15 +64,12 @@ export function useAllCanvases(): {
 } {
   const trpc = useHostTRPC();
   const { data, isLoading } = useQuery(
-    trpc.dashboards.listAll.queryOptions(
-      {},
-      {
-        gcTime: SPACE_QUERY_GC_TIME_MS,
-        meta: AUTH_SCOPED_QUERY_META,
-        refetchInterval: SPACE_QUERY_REFETCH_INTERVAL_MS,
-        staleTime: SPACE_QUERY_STALE_TIME_MS,
-      },
-    ),
+    trpc.dashboards.listAll.queryOptions(undefined, {
+      gcTime: SPACE_QUERY_GC_TIME_MS,
+      meta: AUTH_SCOPED_QUERY_META,
+      refetchInterval: SPACE_QUERY_REFETCH_INTERVAL_MS,
+      staleTime: SPACE_QUERY_STALE_TIME_MS,
+    }),
   );
   return { dashboards: data ?? [], isLoading };
 }

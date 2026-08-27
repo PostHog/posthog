@@ -1,8 +1,8 @@
-import type { CanvasFilterOption } from "@posthog/ui/features/canvas/components/canvasFilterSelection";
+import type { CanvasMultiSelectOption } from "@posthog/ui/features/canvas/components/canvasFilterSelection";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import type { Channel } from "@posthog/ui/features/canvas/hooks/useChannels";
 
-function optionForChannel(channel: Channel): CanvasFilterOption {
+function optionForChannel(channel: Channel): CanvasMultiSelectOption {
   const personal = channel.channelType === "personal";
   return {
     value: channel.id,
@@ -18,7 +18,7 @@ function optionForChannel(channel: Channel): CanvasFilterOption {
 
 export function buildCanvasSpaceOptions(
   channels: readonly Channel[],
-): CanvasFilterOption[] {
+): CanvasMultiSelectOption[] {
   const personal = channels.filter(
     (channel) => channel.channelType === "personal",
   );
@@ -27,7 +27,7 @@ export function buildCanvasSpaceOptions(
   );
   return [
     ...personal.map(optionForChannel),
-    { value: "", label: "Every space" },
+    { value: null, label: "Every space" },
     ...shared.map(optionForChannel),
   ];
 }

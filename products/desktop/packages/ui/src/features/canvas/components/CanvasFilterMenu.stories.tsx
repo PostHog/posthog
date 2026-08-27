@@ -1,9 +1,8 @@
 import { LockSimpleIcon } from "@phosphor-icons/react";
-import {
-  type CanvasListGrouping,
-  type CanvasListSort,
-  DEFAULT_CANVAS_LIST_GROUPING,
-  DEFAULT_CANVAS_LIST_SORT,
+import type {
+  CanvasListGrouping,
+  CanvasListSettings,
+  CanvasListSort,
 } from "@posthog/ui/features/canvas/components/canvasList";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { type ReactElement, useState } from "react";
@@ -16,12 +15,12 @@ const SPACE_OPTIONS = [
     label: "personal",
     icon: <LockSimpleIcon size={16} />,
   },
-  { value: "", label: "Every space" },
+  { value: null, label: "Every space" },
   { value: "engineering", label: "engineering" },
 ];
 
 const CREATOR_OPTIONS = [
-  { value: "", label: "Anyone" },
+  { value: null, label: "Anyone" },
   { value: "me", label: "Me" },
   { value: "ada", label: "Ada Lovelace" },
   { value: "grace", label: "Grace Hopper" },
@@ -51,36 +50,20 @@ function Harness({
   initialSort: CanvasListSort;
   initialGrouping: CanvasListGrouping;
 }): ReactElement {
-  const [spaceIds, setSpaceIds] = useState(initialSpaceIds);
-  const [creatorUuids, setCreatorUuids] = useState(initialCreatorUuids);
-  const [sort, setSort] = useState(initialSort);
-  const [grouping, setGrouping] = useState(initialGrouping);
-  const active =
-    spaceIds.length > 0 ||
-    creatorUuids.length > 0 ||
-    sort !== DEFAULT_CANVAS_LIST_SORT ||
-    grouping !== DEFAULT_CANVAS_LIST_GROUPING;
+  const [settings, setSettings] = useState<CanvasListSettings>({
+    spaceIds: initialSpaceIds,
+    creatorUuids: initialCreatorUuids,
+    sort: initialSort,
+    grouping: initialGrouping,
+  });
 
   return (
     <div className="flex justify-end p-2">
       <CanvasFilterMenu
         spaceOptions={SPACE_OPTIONS}
-        spaceIds={spaceIds}
-        onSpaceChange={setSpaceIds}
         creatorOptions={CREATOR_OPTIONS}
-        creatorUuids={creatorUuids}
-        onCreatorChange={setCreatorUuids}
-        sort={sort}
-        onSortChange={setSort}
-        grouping={grouping}
-        onGroupingChange={setGrouping}
-        onClear={() => {
-          setSpaceIds([]);
-          setCreatorUuids([]);
-          setSort(DEFAULT_CANVAS_LIST_SORT);
-          setGrouping(DEFAULT_CANVAS_LIST_GROUPING);
-        }}
-        active={active}
+        settings={settings}
+        onChange={setSettings}
       />
     </div>
   );
@@ -92,8 +75,8 @@ const meta: Meta<typeof Harness> = {
   args: {
     initialSpaceIds: [],
     initialCreatorUuids: [],
-    initialSort: DEFAULT_CANVAS_LIST_SORT,
-    initialGrouping: DEFAULT_CANVAS_LIST_GROUPING,
+    initialSort: "recently_viewed",
+    initialGrouping: "date",
   },
   decorators: [
     (Story): ReactElement => (

@@ -7,17 +7,10 @@ import {
   EmptyTitle,
 } from "@posthog/quill";
 import { WebsiteDashboard } from "@posthog/ui/features/canvas/components/WebsiteDashboard";
-import { useRouterState } from "@tanstack/react-router";
+import { useSelectedCanvasId } from "@posthog/ui/features/canvas/hooks/useSelectedCanvasId";
 
 export function CanvasesRoute() {
-  const canvasId = useRouterState({
-    select: (state) =>
-      (
-        state.matches.find((match) => match.fullPath === "/canvases")?.search as
-          | { canvas?: string }
-          | undefined
-      )?.canvas,
-  });
+  const canvasId = useSelectedCanvasId();
   if (canvasId) return <WebsiteDashboard dashboardId={canvasId} />;
   return (
     <div className="flex h-full items-center justify-center p-6">

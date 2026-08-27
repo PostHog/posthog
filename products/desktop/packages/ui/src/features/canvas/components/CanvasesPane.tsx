@@ -19,9 +19,8 @@ import { useMeQuery } from "@posthog/ui/features/auth/useMeQuery";
 import { CanvasFilterMenu } from "@posthog/ui/features/canvas/components/CanvasFilterMenu";
 import { buildCanvasCreatorOptions } from "@posthog/ui/features/canvas/components/canvasCreatorOptions";
 import {
-  type CanvasListGrouping,
-  type CanvasListSort,
-  DEFAULT_CANVAS_LIST_GROUPING,
+  type CanvasListSettings,
+  DEFAULT_CANVAS_LIST_SETTINGS,
   DEFAULT_CANVAS_LIST_SORT,
   filterCanvasList,
   groupCanvasList,
@@ -32,10 +31,11 @@ import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTe
 import { SidebarSearchHeader } from "@posthog/ui/features/canvas/components/SidebarSearchHeader";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useAllCanvases } from "@posthog/ui/features/canvas/hooks/useDashboards";
+import { useSelectedCanvasId } from "@posthog/ui/features/canvas/hooks/useSelectedCanvasId";
 import { useCanvasViewedStore } from "@posthog/ui/features/canvas/stores/canvasViewedStore";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import { track } from "@posthog/ui/shell/analytics";
-import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import {
   Fragment,
   type ReactElement,
@@ -53,20 +53,10 @@ export function CanvasesPane({
   const { channels } = useChannels();
   const { data: currentUser } = useMeQuery();
   const navigate = useNavigate();
-  const selectedId = useRouterState({
-    select: (state) =>
-      (
-        state.matches.find((match) => match.fullPath === "/canvases")?.search as
-          | { canvas?: string }
-          | undefined
-      )?.canvas,
-  });
+  const selectedId = useSelectedCanvasId();
   const [query, setQuery] = useState("");
-  const [spaceIds, setSpaceIds] = useState<string[]>([]);
-  const [creatorUuids, setCreatorUuids] = useState<string[]>([]);
-  const [sort, setSort] = useState<CanvasListSort>(DEFAULT_CANVAS_LIST_SORT);
-  const [grouping, setGrouping] = useState<CanvasListGrouping>(
-    DEFAULT_CANVAS_LIST_GROUPING,
+  const [settings, setSettings] = useState<CanvasListSettings>(
+    DEFAULT_CANVAS_LIST_SETTINGS,
   );
   const [recentlyViewedSortSnapshot, setRecentlyViewedSortSnapshot] = useState<
     Record<string, number>
@@ -80,13 +70,17 @@ export function CanvasesPane({
   useEffect(() => {
     if (selectedId) markCanvasViewed(selectedId, Date.now());
   }, [markCanvasViewed, selectedId]);
-  useEffect(
-    () =>
-      useCanvasViewedStore.persist.onFinishHydration((state) => {
-        setRecentlyViewedSortSnapshot({ ...state.lastViewedAtByCanvasId });
-      }),
-    [],
-  );
+  useEffect(() => {
+    if (useCanvasViewedStore.persist.hasHydrated()) {
+      setRecentlyViewedSortSnapshot({
+        ...useCanvasViewedStore.getState().lastViewedAtByCanvasId,
+      });
+      return;
+    }
+    return useCanvasViewedStore.persist.onFinishHydration((state) => {
+      setRecentlyViewedSortSnapshot({ ...state.lastViewedAtByCanvasId });
+    });
+  }, []);
   const channelNames = useMemo(
     () =>
       new Map(
@@ -114,42 +108,31 @@ export function CanvasesPane({
   const shown = useMemo(
     () =>
       sortCanvasList(
-        filterCanvasList(dashboards, { spaceIds, creatorUuids, query }),
-        sort,
+        filterCanvasList(dashboards, {
+          spaceIds: settings.spaceIds,
+          creatorUuids: settings.creatorUuids,
+          query,
+        }),
+        settings.sort,
         recentlyViewedSortSnapshot,
       ),
-    [
-      creatorUuids,
-      dashboards,
-      query,
-      recentlyViewedSortSnapshot,
-      sort,
-      spaceIds,
-    ],
+    [dashboards, query, recentlyViewedSortSnapshot, settings],
   );
   const sections = useMemo(
-    () => groupCanvasList(shown, grouping, channelNames),
-    [channelNames, grouping, shown],
+    () => groupCanvasList(shown, settings.grouping, channelNames),
+    [channelNames, settings.grouping, shown],
   );
   const optionValues = shown.map((canvas) => canvas.id);
-  const filtersActive =
-    spaceIds.length > 0 ||
-    creatorUuids.length > 0 ||
-    sort !== DEFAULT_CANVAS_LIST_SORT ||
-    grouping !== DEFAULT_CANVAS_LIST_GROUPING;
-  const changeSort = (nextSort: CanvasListSort): void => {
-    if (nextSort === DEFAULT_CANVAS_LIST_SORT) {
+  const changeSettings = (nextSettings: CanvasListSettings): void => {
+    if (
+      settings.sort !== DEFAULT_CANVAS_LIST_SORT &&
+      nextSettings.sort === DEFAULT_CANVAS_LIST_SORT
+    ) {
       setRecentlyViewedSortSnapshot({
         ...useCanvasViewedStore.getState().lastViewedAtByCanvasId,
       });
     }
-    setSort(nextSort);
-  };
-  const clearFilters = (): void => {
-    setSpaceIds([]);
-    setCreatorUuids([]);
-    changeSort(DEFAULT_CANVAS_LIST_SORT);
-    setGrouping(DEFAULT_CANVAS_LIST_GROUPING);
+    setSettings(nextSettings);
   };
   const open = (canvas: DashboardRecord): void => {
     track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
@@ -187,17 +170,9 @@ export function CanvasesPane({
           actions={
             <CanvasFilterMenu
               spaceOptions={spaceOptions}
-              spaceIds={spaceIds}
-              onSpaceChange={setSpaceIds}
               creatorOptions={creatorOptions}
-              creatorUuids={creatorUuids}
-              onCreatorChange={setCreatorUuids}
-              sort={sort}
-              onSortChange={changeSort}
-              grouping={grouping}
-              onGroupingChange={setGrouping}
-              onClear={clearFilters}
-              active={filtersActive}
+              settings={settings}
+              onChange={changeSettings}
             />
           }
         />

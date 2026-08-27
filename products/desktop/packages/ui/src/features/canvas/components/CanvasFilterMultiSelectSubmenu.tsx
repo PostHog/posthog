@@ -9,8 +9,10 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from "@posthog/quill";
-import type { CanvasFilterOption } from "@posthog/ui/features/canvas/components/canvasFilterSelection";
+import type { CanvasMultiSelectOption } from "@posthog/ui/features/canvas/components/canvasFilterSelection";
 import type { ReactElement, SyntheticEvent } from "react";
+
+const DEFAULT_OPTION_KEY = "__canvas_filter_default__";
 
 function stopPropagation(event: SyntheticEvent): void {
   event.stopPropagation();
@@ -27,7 +29,7 @@ export function CanvasFilterMultiSelectSubmenu({
 }: {
   label: string;
   summary: string;
-  options: readonly CanvasFilterOption[];
+  options: readonly CanvasMultiSelectOption[];
   values: readonly string[];
   onChange: (values: string[]) => void;
   searchPlaceholder: string;
@@ -35,18 +37,21 @@ export function CanvasFilterMultiSelectSubmenu({
 }): ReactElement {
   const selectedValues = new Set(values);
   const selectedOptions = options.filter(
-    (option) => option.value !== "" && selectedValues.has(option.value),
+    (option) => option.value !== null && selectedValues.has(option.value),
   );
-  const defaultOption = options.find((option) => option.value === "");
+  const defaultOption = options.find((option) => option.value === null);
   const comboboxValue =
     selectedOptions.length === 0 && defaultOption
       ? [defaultOption]
       : selectedOptions;
 
-  const updateSelection = (nextOptions: CanvasFilterOption[]): void => {
-    const nextValues = nextOptions.map((option) => option.value);
-    if (nextValues.includes("")) {
-      onChange(values.length === 0 ? nextValues.filter(Boolean) : []);
+  const updateSelection = (nextOptions: CanvasMultiSelectOption[]): void => {
+    const defaultSelected = nextOptions.some((option) => option.value === null);
+    const nextValues = nextOptions.flatMap((option) =>
+      option.value === null ? [] : [option.value],
+    );
+    if (defaultSelected) {
+      onChange(values.length === 0 ? nextValues : []);
       return;
     }
     onChange(nextValues);
@@ -68,7 +73,7 @@ export function CanvasFilterMultiSelectSubmenu({
         </span>
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent className="w-64 [&>div]:overflow-hidden [&>div]:p-0">
-        <Combobox<CanvasFilterOption, true>
+        <Combobox<CanvasMultiSelectOption, true>
           multiple
           autoHighlight
           items={options}
@@ -77,7 +82,7 @@ export function CanvasFilterMultiSelectSubmenu({
           itemToStringLabel={(option) =>
             `${option.label} ${option.searchLabel ?? ""}`
           }
-          itemToStringValue={(option) => option.value}
+          itemToStringValue={(option) => option.value ?? DEFAULT_OPTION_KEY}
         >
           <div className="p-1">
             <ComboboxInput
@@ -92,9 +97,9 @@ export function CanvasFilterMultiSelectSubmenu({
           </div>
           <ComboboxList className="group/combobox-list max-h-72 border-border border-t">
             <ComboboxCollection>
-              {(option: CanvasFilterOption) => (
+              {(option: CanvasMultiSelectOption) => (
                 <ComboboxItem
-                  key={option.value || "default"}
+                  key={option.value ?? "default"}
                   value={option}
                   className="ps-7"
                   onClick={stopPropagation}

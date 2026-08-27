@@ -36,7 +36,8 @@ describe("activityFilterStore", () => {
   });
 
   it("resets the menu filters without changing unread mode or other projects", async () => {
-    const { useActivityFilterStore } = await import("./activityFilterStore");
+    const { hasActiveActivityMenuFilters, useActivityFilterStore } =
+      await import("./activityFilterStore");
     const state = useActivityFilterStore.getState();
 
     state.setUnreadsOnly(true);
@@ -48,6 +49,9 @@ describe("activityFilterStore", () => {
     state.setInboxPrFilter("with_pr");
     state.setInboxSort("created_at", "desc");
     state.toggleInboxPriority("P2");
+    expect(
+      hasActiveActivityMenuFilters(useActivityFilterStore.getState(), "us:1"),
+    ).toBe(true);
     useActivityFilterStore.getState().resetMenuFilters("us:1");
 
     expect(useActivityFilterStore.getState()).toMatchObject({
@@ -61,5 +65,8 @@ describe("activityFilterStore", () => {
       inboxSortDirection: "asc",
       inboxPriorityFilter: ["P1"],
     });
+    expect(
+      hasActiveActivityMenuFilters(useActivityFilterStore.getState(), "us:1"),
+    ).toBe(false);
   });
 });

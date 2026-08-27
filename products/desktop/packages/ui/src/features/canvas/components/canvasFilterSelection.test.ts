@@ -5,7 +5,7 @@ import {
 } from "./canvasFilterSelection";
 
 const OPTIONS = [
-  { value: "", label: "Anyone" },
+  { value: null, label: "Anyone" },
   { value: "me", label: "Me" },
   { value: "ada", label: "Ada Lovelace" },
   { value: "grace", label: "Grace Hopper" },

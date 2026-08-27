@@ -9,6 +9,16 @@ import { persist } from "zustand/middleware";
 
 export type ActivityInboxScope = "for-you" | "entire-project";
 
+const DEFAULT_ACTIVITY_MENU_FILTERS = {
+  mentionsEnabled: true,
+  inboxScope: "for-you" as const,
+  inboxSourceProductFilter: [] as SourceProduct[],
+  inboxPrFilter: "all" as InboxPrFilter,
+  inboxSortField: "priority" as InboxSortField,
+  inboxSortDirection: "asc" as const,
+  inboxPriorityFilter: ["P1"] as SignalReportPriority[],
+};
+
 interface ActivityFilterStore {
   /** Show only activity that hasn't been read yet. */
   unreadsOnly: boolean;
@@ -36,20 +46,35 @@ interface ActivityFilterStore {
   resetMenuFilters: (authIdentity: string | null) => void;
 }
 
+export function hasActiveActivityMenuFilters(
+  state: ActivityFilterStore,
+  authIdentity: string | null,
+): boolean {
+  return (
+    state.mentionsEnabled !== DEFAULT_ACTIVITY_MENU_FILTERS.mentionsEnabled ||
+    (authIdentity
+      ? (state.inboxEnabledByAuthIdentity[authIdentity] ?? false)
+      : false) ||
+    state.inboxScope !== DEFAULT_ACTIVITY_MENU_FILTERS.inboxScope ||
+    state.inboxSourceProductFilter.length > 0 ||
+    state.inboxPrFilter !== DEFAULT_ACTIVITY_MENU_FILTERS.inboxPrFilter ||
+    state.inboxSortField !== DEFAULT_ACTIVITY_MENU_FILTERS.inboxSortField ||
+    state.inboxSortDirection !==
+      DEFAULT_ACTIVITY_MENU_FILTERS.inboxSortDirection ||
+    state.inboxPriorityFilter.length !== 1 ||
+    state.inboxPriorityFilter[0] !==
+      DEFAULT_ACTIVITY_MENU_FILTERS.inboxPriorityFilter[0]
+  );
+}
+
 // Per-device preference shared by the Activity popover and the Activity page, so
 // the filter you set on one is the filter you find on the other.
 export const useActivityFilterStore = create<ActivityFilterStore>()(
   persist(
     (set) => ({
       unreadsOnly: false,
-      mentionsEnabled: true,
       inboxEnabledByAuthIdentity: {},
-      inboxScope: "for-you",
-      inboxSourceProductFilter: [],
-      inboxPrFilter: "all",
-      inboxSortField: "priority",
-      inboxSortDirection: "asc",
-      inboxPriorityFilter: ["P1"],
+      ...DEFAULT_ACTIVITY_MENU_FILTERS,
       setUnreadsOnly: (unreadsOnly) => set({ unreadsOnly }),
       setMentionsEnabled: (mentionsEnabled) => set({ mentionsEnabled }),
       setInboxEnabled: (authIdentity, inboxEnabled) =>
@@ -82,19 +107,13 @@ export const useActivityFilterStore = create<ActivityFilterStore>()(
       clearInboxPriorityFilter: () => set({ inboxPriorityFilter: [] }),
       resetMenuFilters: (authIdentity) =>
         set((state) => ({
-          mentionsEnabled: true,
+          ...DEFAULT_ACTIVITY_MENU_FILTERS,
           inboxEnabledByAuthIdentity: authIdentity
             ? {
                 ...state.inboxEnabledByAuthIdentity,
                 [authIdentity]: false,
               }
             : state.inboxEnabledByAuthIdentity,
-          inboxScope: "for-you",
-          inboxSourceProductFilter: [],
-          inboxPrFilter: "all",
-          inboxSortField: "priority",
-          inboxSortDirection: "asc",
-          inboxPriorityFilter: ["P1"],
         })),
     }),
     {
