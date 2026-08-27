@@ -13,7 +13,7 @@
 import * as path from 'path'
 import { fileURLToPath } from 'url'
 
-import { buildInParallel } from '@posthog/esbuilder'
+import { buildInParallel, copySnappyWASMFile } from '@posthog/esbuilder'
 
 import { WORKER_ENTRIES } from '../workers.config.mjs'
 
@@ -25,6 +25,11 @@ const outDir =
     outdirFlagIndex === -1
         ? path.resolve(frontendDir, 'dist')
         : path.resolve(process.cwd(), process.argv[outdirFlagIndex + 1])
+
+// The decompression worker bundles snappy-wasm, which fetches snappy_bg.wasm next to the worker
+// script at runtime. Without it the worker reports ready, then fails every decompression, so
+// callers exercise a fallback path that production never reaches.
+copySnappyWASMFile(frontendDir, outDir)
 
 await buildInParallel(
     WORKER_ENTRIES.map(({ name, entryPoint, outfileName }) => ({
