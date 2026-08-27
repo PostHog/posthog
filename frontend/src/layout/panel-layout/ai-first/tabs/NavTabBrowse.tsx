@@ -15,20 +15,14 @@ import {
     IconHome,
     IconNotification,
     IconPencil,
-    IconSearch,
     IconStar,
 } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { commandLogic } from 'lib/components/Command/commandLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { RenderKeybind } from 'lib/components/Shortcuts/ShortcutMenu'
-import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -176,7 +170,6 @@ export function NavTabBrowse(): JSX.Element {
         activePanelIdentifierFromUrlAiFirst,
         pathname,
     } = useValues(panelLayoutLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
     const { recentItems, recentItemsLoading } = useValues(navRecentsLogic)
     const { isSidebarSectionShown, isSidebarItemShown, uiCustomizationEnabled } = useValues(uiCustomizationLogic)
@@ -185,8 +178,6 @@ export function NavTabBrowse(): JSX.Element {
     const { isEditMode, checkedTools } = useValues(editToolsLogic)
     const { enterEditMode, saveAndExitEditMode, toggleTool } = useActions(editToolsLogic)
     const { showConfigureHomeModal } = useActions(navigationLogic)
-    const { toggleCommand } = useActions(commandLogic)
-    const showToolsSearchRow = featureFlags[FEATURE_FLAGS.CMD_K_NAV_EXPERIMENT] === 'tools-row' && !isLayoutNavCollapsed
     const currentPath = removeProjectIdIfPresent(pathname)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
@@ -321,27 +312,6 @@ export function NavTabBrowse(): JSX.Element {
                                                 </>
                                             )}
                                         </ButtonPrimitive>
-                                        {item.identifier === 'Products' && showToolsSearchRow && (
-                                            <ButtonPrimitive
-                                                menuItem
-                                                className="group -outline-offset-2"
-                                                data-attr="nav-tools-search-row"
-                                                onClick={() => {
-                                                    posthog.capture('nav search clicked')
-                                                    toggleCommand('nav-tools-row')
-                                                }}
-                                            >
-                                                <span className="relative size-4 text-secondary group-hover:text-primary opacity-50 group-hover:opacity-100 transition-all duration-50">
-                                                    <IconSearch />
-                                                </span>
-                                                <span className="truncate text-secondary group-hover:text-primary">
-                                                    Search
-                                                </span>
-                                                <span className="ml-auto pr-1">
-                                                    <RenderKeybind keybind={[keyBinds.search]} minimal />
-                                                </span>
-                                            </ButtonPrimitive>
-                                        )}
                                     </Fragment>
                                 )
                             })}
