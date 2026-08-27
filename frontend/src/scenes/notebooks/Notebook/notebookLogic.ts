@@ -126,6 +126,7 @@ import {
     getNotebookVariableConflictNames,
     getNotebookVariableErrors,
     getRunnableNotebookVariables,
+    hasUnsavableNotebookVariableName,
     parseNotebookVariables,
 } from './notebookVariables'
 
@@ -1560,6 +1561,12 @@ export const notebookLogic = kea<notebookLogicType>([
                 return
             }
             await breakpoint(500)
+            // A row starts with a blank name, so "Add variable" alone would PATCH a name the API
+            // rejects with a 400. Hold the save in local state; the keystroke that completes the
+            // name carries it. The breakpoint above still cancels any earlier pending save.
+            if (hasUnsavableNotebookVariableName(values.variables)) {
+                return
+            }
             try {
                 const response = await api.notebooks.update(props.shortId, { variables: values.variables })
                 actions.receiveNotebookUpdate(response)

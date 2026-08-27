@@ -166,6 +166,15 @@ export function getNotebookVariableErrors(
     })
 }
 
+/**
+ * A name the API rejects with a 400 before it can save the rest. A blank or malformed name can
+ * never resolve in a cell, so a save that carries one only produces an error toast. Hold the
+ * save until every name is a plain identifier.
+ */
+export function hasUnsavableNotebookVariableName(variables: NotebookVariable[]): boolean {
+    return variables.some((variable) => !VALID_VARIABLE_NAME.test(variable.name))
+}
+
 /** Declarations that are safe to send to a run: named, valid, and unique. */
 export function getRunnableNotebookVariables(
     variables: NotebookVariable[],
