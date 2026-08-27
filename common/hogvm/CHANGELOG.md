@@ -3,12 +3,14 @@
 ## 2026-08-27 - 1.0.69
 
 The VM checks the argument count of a standard library function before it calls it. No bytecode
-operations changed. A call with too few or too many arguments now fails with
-`Function <name> requires at least/at most N arguments`, which the VM already did for a standard
-library function held in a variable. Before, only the variable form was checked, and a direct call
-went through with the wrong number of arguments.
+operations changed.
 
-Three functions accept argument counts that they always supported but that the VM refused:
+A call with too few or too many arguments fails with `Function <name> requires at least N arguments`
+or `Function <name> requires at most N arguments`. The VM applied this check only to a standard
+library function held in a variable. A direct call skipped it and ran with the wrong number of
+arguments.
+
+Three functions now accept argument counts that they always supported but that the VM refused:
 
 ```bash
 jsonStringify(value, indent)   # second argument indents the output
