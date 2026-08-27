@@ -309,7 +309,11 @@ function collapseClusters(items, statusFor) {
                 runner: group[0].runner,
                 selector: file,
                 cluster_size: group.length,
-                quarantined_member_count: group.filter((item) => statusFor(item)).length,
+                // 'flagged' members still fail CI, so only real suppressions count toward the fraction.
+                quarantined_member_count: group.filter((item) => {
+                    const status = statusFor(item)
+                    return status && status !== 'flagged'
+                }).length,
                 failed_run_count: group.reduce((sum, item) => sum + item.failed_run_count, 0),
                 // Members' PR sets can overlap, so the max is the provable floor rather than a sum.
                 failed_pr_count: Math.max(...group.map((item) => item.failed_pr_count)),

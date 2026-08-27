@@ -355,31 +355,35 @@ describe('weekly flaky report', () => {
     it('keeps a Trunk-quarantined test in the report and counts suppressed cluster members', async () => {
         const clustered = Array.from({ length: CLUSTER_MIN_TESTS }, (_, index) => ({
             runner: 'pytest',
+            // Two members parked via the quarantine file: suppressed whichever way TRUNK_* masking
+            // resolves, so the count holds without pinning the env. A Trunk-marked member with
+            // masking off is only 'flagged' and must not count as suppressed.
+            classification: index < 2 ? 'quarantined' : 'confirmed_flake',
             selector: `shared.py::test_${index}`,
-            failed_run_count: 2,
+            failed_run_count: index < 2 ? 0 : 2,
+            quarantined_failed_run_count: index < 2 ? 3 : 0,
             failed_pr_count: 1,
         }))
         const trunked = { runner: 'pytest', selector: 'masked.py::test_masked', failed_run_count: 9 }
-        const quarantined = new Set([trunked.selector, 'shared.py::test_0', 'shared.py::test_1'])
         const [{ candidates, statusFor }] = await buildRunnerReports(
             [{ runner: 'pytest', candidates: [...clustered, trunked] }],
             async () => () => ({ runsRescued: null, evidence: [] }),
             async () => (item) =>
-                quarantined.has(item.selector) ? { quarantinedAt: '2026-07-13T17:12:22.000Z' } : null
+                item.selector === trunked.selector ? { quarantinedAt: '2026-07-13T17:12:22.000Z' } : null
         )
 
         assert.deepEqual(
             candidates.map((candidate) => [candidate.selector, candidate.failed_run_count]),
             [
-                ['shared.py', 10],
                 ['masked.py::test_masked', 9],
+                ['shared.py', 6],
             ]
         )
-        // Truthy either way TRUNK_* masking resolves, so these hold without pinning the env.
-        assert.equal(statusFor(candidates[0]), `2/${CLUSTER_MIN_TESTS}`)
+        assert.equal(statusFor(candidates[1]), `2/${CLUSTER_MIN_TESTS}`)
+        // Truthy either way TRUNK_* masking resolves, so this holds without pinning the env.
         assert.ok(statusFor(trunked))
         const [clusterRow] = tableRows(
-            [candidates[0]],
+            [candidates[1]],
             () => ({ owner: 'team-devex', repoPath: null }),
             () => ({ runsRescued: null, evidence: [] }),
             statusFor
