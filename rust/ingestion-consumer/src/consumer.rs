@@ -102,7 +102,7 @@ pub struct IngestionConsumerOptions {
     pub eager_deferred_flush: bool,
 }
 
-/// The main consumer loop: reads from Kafka, routes messages by distinct_id
+/// The main consumer loop: reads from Kafka, routes messages by Kafka key
 /// via the health-aware Dispatcher, dispatches sub-batches to workers over
 /// HTTP, and commits offsets only after all workers ACK.
 pub struct IngestionConsumer {
@@ -399,7 +399,7 @@ impl IngestionConsumer {
 
         // Flush this batch's deferred groups (keys whose worker was draining/dead)
         // in order, re-routing them to healthy workers. Doing it here — serialized,
-        // oldest batch first — preserves per-distinct_id order across batches. The
+        // oldest batch first — preserves per-key order across batches. The
         // batch isn't committable until all its messages are accepted.
         self.flush_deferred(&batch_id, &mut processed).await?;
 
