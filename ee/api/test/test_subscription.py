@@ -8,10 +8,12 @@ from freezegun import freeze_time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
+from django.http import QueryDict
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.constants import SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY, AvailableFeature
@@ -45,10 +47,18 @@ from products.exports.backend.temporal.subscriptions.types import (
 )
 from products.product_analytics.backend.facade.models import Insight
 
+from ee.api.subscription import _validate_html_list_indices
 from ee.api.test.base import APILicensedTest
 from ee.tasks.subscriptions.slack_subscriptions import get_slack_integration_for_team
 from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
+
+
+def test_html_context_list_rejects_out_of_range_indices() -> None:
+    data = QueryDict("context_dashboards[25]=1")
+
+    with pytest.raises(ValidationError):
+        _validate_html_list_indices(data, "context_dashboards")
 
 
 class TestSubscriptionTemporal(APILicensedTest):

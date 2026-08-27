@@ -756,18 +756,24 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         addContext: ({ context }) => {
             const contexts = values.subscription.contexts ?? []
             const contextItems = values.subscription.context_items ?? []
-            if (contexts.some((current) => current.kind === context.kind && current.id === context.id)) {
+            const dashboardIds = values.subscription.context_dashboards ?? []
+            const insightIds = values.subscription.context_insights ?? []
+            const selectedContextIds = new Set([
+                ...dashboardIds.map((id) => `dashboard:${id}`),
+                ...insightIds.map((id) => `insight:${id}`),
+                ...contexts.map(({ kind, id }) => `${kind}:${id}`),
+            ])
+            if (selectedContextIds.has(`${context.kind}:${context.id}`)) {
                 return
             }
             // The picker stays open after a pick, so the disabled trigger alone cannot hold the cap.
-            if (contexts.length + contextItems.length >= MAX_CONTEXTS) {
+            if (selectedContextIds.size + contextItems.length >= MAX_CONTEXTS) {
                 return
             }
-            const nextContexts = [...contexts, context]
             actions.setSubscriptionValues({
-                contexts: nextContexts,
-                context_dashboards: nextContexts.filter(({ kind }) => kind === 'dashboard').map(({ id }) => id),
-                context_insights: nextContexts.filter(({ kind }) => kind === 'insight').map(({ id }) => id),
+                contexts: [...contexts, context],
+                context_dashboards: context.kind === 'dashboard' ? [...dashboardIds, context.id] : dashboardIds,
+                context_insights: context.kind === 'insight' ? [...insightIds, context.id] : insightIds,
             })
         },
         addContextEvent: ({ eventName }) => {
@@ -788,8 +794,14 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             )
             actions.setSubscriptionValues({
                 contexts: nextContexts,
-                context_dashboards: nextContexts.filter(({ kind }) => kind === 'dashboard').map(({ id }) => id),
-                context_insights: nextContexts.filter(({ kind }) => kind === 'insight').map(({ id }) => id),
+                context_dashboards:
+                    context.kind === 'dashboard'
+                        ? (values.subscription.context_dashboards ?? []).filter((id) => id !== context.id)
+                        : (values.subscription.context_dashboards ?? []),
+                context_insights:
+                    context.kind === 'insight'
+                        ? (values.subscription.context_insights ?? []).filter((id) => id !== context.id)
+                        : (values.subscription.context_insights ?? []),
             })
         },
         removeContextEvent: ({ eventName }) => {

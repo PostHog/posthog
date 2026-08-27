@@ -89,6 +89,28 @@ SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS = 600
 MAX_AI_REPORT_CONTEXTS = 25
 
 
+def _validate_html_list_indices(data: Any, field: str) -> None:
+    """Reject oversized HTML-form list indices before DRF materializes their values."""
+    indices: set[str] = set()
+    prefix = f"{field}["
+    max_index = str(MAX_AI_REPORT_CONTEXTS - 1)
+    for raw_key in data.keys():
+        key = str(raw_key)
+        if not key.startswith(prefix):
+            continue
+        index, delimiter, _ = key[len(prefix) :].partition("]")
+        if not delimiter or not index.isascii() or not index.isdecimal():
+            continue
+        normalized_index = index.lstrip("0") or "0"
+        if len(normalized_index) > len(max_index) or (
+            len(normalized_index) == len(max_index) and normalized_index > max_index
+        ):
+            raise ValidationError({field: [f"Select no more than {MAX_AI_REPORT_CONTEXTS} items."]})
+        indices.add(normalized_index)
+        if len(indices) > MAX_AI_REPORT_CONTEXTS:
+            raise ValidationError({field: [f"Select no more than {MAX_AI_REPORT_CONTEXTS} items."]})
+
+
 def _summary_quota_cache_key(organization_id) -> str:
     return f"subscription:summary_quota:org:{organization_id}"
 
@@ -526,6 +548,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # turn one validation error into thousands of database lookups.
         for field in ("context_dashboards", "context_insights", "context_items"):
             if hasattr(data, "getlist"):
+                _validate_html_list_indices(data, field)
                 value = data.getlist(field) or html.parse_html_list(data, prefix=field, default=[])
             else:
                 value = data.get(field) if hasattr(data, "get") else None

@@ -813,7 +813,7 @@ describe('subscriptionLogic', () => {
                 '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
                     resource_type: 'ai_prompt',
                     prompt: 'Weekly gains',
-                    context_dashboards: [9],
+                    context_dashboards: [9, 99],
                     context_insights: [12],
                     context_items: [{ kind: 'event', event_name: 'signed up' }],
                     contexts: [dashboardContext, insightContext],
@@ -834,7 +834,7 @@ describe('subscriptionLogic', () => {
         editLogic.actions.removeContextEvent('signed up')
         editLogic.actions.submitSubscription()
         await expectLogic(editLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
-        expect(capturedBody?.context_dashboards).toEqual([])
+        expect(capturedBody?.context_dashboards).toEqual([99])
         expect(capturedBody?.context_insights).toEqual([12])
         expect(capturedBody?.context_items).toEqual([])
         editLogic.unmount()

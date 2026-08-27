@@ -88,15 +88,16 @@ async def _load_snapshot(delivery_id: uuid.UUID) -> dict | None:
     return await _read()
 
 
-def _delivery_context_is_accessible(subscription: Subscription, delivery_id: uuid.UUID) -> bool:
+def _delivery_context_is_accessible(subscription: Subscription, delivery_id: uuid.UUID) -> bool | None:
     contexts = SubscriptionDeliveryContext.objects.for_team(subscription.team_id).filter(delivery_id=delivery_id)
     if not contexts.filter(
         kind=AI_REPORT_DELIVERY_CONTEXT_MARKER_KIND,
         identifier=AI_REPORT_DELIVERY_CONTEXT_MARKER_IDENTIFIER,
     ).exists():
-        # A generated report without provenance may be a mixed-deploy or failed-resolution retry.
-        # We cannot prove which resources shaped it, so do not send it after the generation phase.
-        return False
+        # An older generation worker does not record context provenance. We cannot prove which
+        # resources shaped its report, so do not send it; None keeps this deploy-transition case
+        # distinct from verified context access being revoked.
+        return None
 
     creator = subscription.created_by
     if creator is None:
@@ -473,7 +474,14 @@ async def _deliver_ai_subscription(
     context_is_accessible = await database_sync_to_async(_delivery_context_is_accessible, thread_sensitive=False)(
         subscription, delivery_id
     )
-    if not context_is_accessible:
+    if context_is_accessible is None:
+        # A rolling deploy can pair an old generator with this newer delivery activity. Retrying
+        # gives the fleet time to converge; after retries Temporal records a failed run but leaves
+        # the subscription enabled rather than permanently disabling a valid configuration.
+        raise ApplicationError(
+            f"AI report context provenance is unavailable for subscription {subscription.id} (delivery {delivery_id})"
+        )
+    if context_is_accessible is False:
         return await auto_disable_and_return(subscription, _AI_CONTEXT_ACCESS_REVOKED_DISABLE_REASON, recipient_results)
 
     chart_images = await database_sync_to_async(build_chart_image_urls, thread_sensitive=False)(
