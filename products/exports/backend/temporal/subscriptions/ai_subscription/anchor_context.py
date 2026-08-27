@@ -34,7 +34,7 @@ class AnchorContext(BaseModel):
 
     blob: str
     # Raw event names referenced by the anchor's queries. When any are valid for the project, they
-    # become the report's event scope; project-wide event selection is only the fallback.
+    # become the primary report scope; project selection may add separately labeled supporting evidence.
     event_names: list[str] = Field(default_factory=list)
     # Hash of both planner inputs (`blob` and `event_names`); frozen with the query plan so an
     # anchor content change forces a re-plan.

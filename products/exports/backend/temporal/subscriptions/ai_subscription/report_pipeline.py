@@ -329,7 +329,7 @@ async def generate_ai_report(
             failed_count=failed_count,
             total_steps=total_steps,
             relevant_events=spec.relevant_events,
-            context_events_only=spec.context_events_only,
+            context_event_names=spec.context_event_names,
             anchor_hash=anchor.content_hash if anchor else EMPTY_ANCHOR_HASH,
             anchor_unavailable=anchor_unavailable,
             trace_correlation_id=trace_correlation_id,
@@ -368,7 +368,7 @@ def _plan_to_freeze(
     failed_count: int,
     total_steps: int,
     relevant_events: Sequence[str],
-    context_events_only: bool,
+    context_event_names: Sequence[str],
     anchor_hash: str,
     anchor_unavailable: bool,
     trace_correlation_id: Optional[Union[int, str]],
@@ -413,15 +413,15 @@ def _plan_to_freeze(
         )
         return None
     # Versioned envelope: bumping AI_QUERY_PLAN_VERSION lazily re-plans every frozen subscription.
-    # relevant_events and context_events_only travel with the plan so the reuse path rebuilds the
-    # same property-aware event scope the planner and fixer rely on.
+    # relevant_events and context_event_names travel with the plan so the reuse path rebuilds the
+    # same primary-versus-supporting event scope the planner and fixer rely on.
     # anchor_hash is stored even for unanchored plans (as the empty hash) so an anchor added
     # later invalidates the plan on its first anchored delivery.
     return {
         "version": AI_QUERY_PLAN_VERSION,
         "plan": plan.model_dump(),
         "relevant_events": list(relevant_events),
-        "context_events_only": context_events_only,
+        "context_event_names": list(context_event_names),
         "anchor_hash": anchor_hash,
     }
 

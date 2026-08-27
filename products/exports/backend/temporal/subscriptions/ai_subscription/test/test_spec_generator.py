@@ -170,11 +170,11 @@ class TestSelectRelevantEvents(APIBaseTest):
 
     @patch(f"{_SG}.PINNED_EVENT_SCAN_LIMIT", 1)
     @patch(f"{_SG}.MaxChatOpenAI")
-    def test_valid_context_events_replace_project_selection_even_outside_recent_scan(
+    def test_valid_context_events_lead_supporting_selection_even_outside_recent_scan(
         self, mock_chat: MagicMock
     ) -> None:
-        # Context is the primary scope. Its valid event can be older than the recent-event scan, while
-        # an invalid name is still rejected because query definitions are user-editable JSON.
+        # Context remains primary even when its valid event is older than the recent-event scan. The
+        # selector may add verified project evidence, while an invalid context name is still rejected.
         EventDefinition.objects.create(team=self.team, name="project activity", last_seen_at=datetime.now(tz=UTC))
         EventDefinition.objects.create(team=self.team, name="context conversion", last_seen_at=None)
         mock_chat.return_value.with_structured_output.return_value.invoke.return_value = RelevantEvents(
@@ -188,8 +188,11 @@ class TestSelectRelevantEvents(APIBaseTest):
             extra_pinned=["context conversion", "fabricated event"],
         )
 
-        assert selected == ["context conversion"]
-        mock_chat.assert_not_called()
+        assert selected == ["context conversion", "project activity"]
+        (messages,) = mock_chat.return_value.with_structured_output.return_value.invoke.call_args.args
+        assert "<selected_context>" in messages[0][1]
+        assert "context conversion" in messages[0][1]
+        assert "{{{" not in messages[0][1]
 
     @patch(f"{_SG}.MaxChatOpenAI")
     def test_falls_back_to_project_selection_when_context_has_no_valid_events(self, mock_chat: MagicMock) -> None:
@@ -739,7 +742,7 @@ class TestContextBlob(APIBaseTest):
 
     @patch(f"{_SG}.get_group_types_for_project", return_value=[{"group_type": "workspace", "group_type_index": 0}])
     @patch(f"{_SG}._top_event_names", return_value=["unrelated project event"])
-    def test_context_event_scope_omits_project_events_but_keeps_explanatory_metadata(
+    def test_context_scope_omits_project_event_lists_but_keeps_supporting_metadata(
         self, mock_top: MagicMock, _mock_groups: object
     ) -> None:
         now = datetime.now(tz=UTC)
@@ -747,19 +750,22 @@ class TestContextBlob(APIBaseTest):
             team=self.team, name="dormant project event", last_seen_at=now - timedelta(days=45)
         )
         EventProperty.objects.create(team=self.team, event="context conversion", property="channel")
+        EventProperty.objects.create(team=self.team, event="release completed", property="version")
         PropertyDefinition.objects.create(team=self.team, name="plan", type=PropertyDefinition.Type.PERSON)
 
         blob = build_context_blob(
             self.team,
             _window(7),
-            relevant_events=["context conversion"],
+            relevant_events=["context conversion", "release completed"],
             anchor_blob="- Context insight:\n  - Insight: Conversion by channel",
-            context_events_only=True,
+            context_event_names=["context conversion"],
         )
 
         mock_top.assert_not_called()
         assert "Events from selected context: context conversion" in blob
+        assert "Supporting project events (explanatory evidence only): release completed" in blob
         assert "`context conversion` properties (use properties.<name>): channel" in blob
+        assert "`release completed` properties (use properties.<name>): version" in blob
         assert "Person properties" in blob
         assert "group_0 = workspace" in blob
         assert "Insight: Conversion by channel" in blob
@@ -1013,7 +1019,7 @@ class TestBuildFrozenPrompt(APIBaseTest):
         stored = {
             **self._stored_plan(),
             "anchor_hash": hashlib.sha256(blob.encode()).hexdigest(),
-            "context_events_only": True,
+            "context_event_names": ["context conversion"],
         }
 
         build_frozen_prompt(
@@ -1026,7 +1032,7 @@ class TestBuildFrozenPrompt(APIBaseTest):
         )
 
         assert mock_blob.call_args.kwargs["anchor_blob"] == blob
-        assert mock_blob.call_args.kwargs["context_events_only"] is True
+        assert mock_blob.call_args.kwargs["context_event_names"] == ["context conversion"]
 
     @patch(f"{_SG}.build_context_blob", return_value="blob")
     def test_rebuilds_property_aware_blob_from_stored_relevant_events(self, mock_blob: MagicMock) -> None:

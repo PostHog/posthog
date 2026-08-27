@@ -576,7 +576,7 @@ async def test_unfrozen_run_returns_plan_to_persist(
         "version": AI_QUERY_PLAN_VERSION,
         "plan": spec.plan.model_dump(),
         "relevant_events": ["export created"],
-        "context_events_only": False,
+        "context_event_names": [],
         "anchor_hash": EMPTY_ANCHOR_HASH,
     }
 
@@ -607,7 +607,7 @@ def test_plan_to_freeze_skips_when_anchor_unavailable() -> None:
         failed_count=0,
         total_steps=1,
         relevant_events=[],
-        context_events_only=False,
+        context_event_names=[],
         anchor_hash=EMPTY_ANCHOR_HASH,
         anchor_unavailable=True,
         trace_correlation_id=None,
@@ -643,7 +643,7 @@ def test_plan_to_freeze_requires_no_failures(total_steps: int, failed_count: int
         failed_count=failed_count,
         total_steps=total_steps,
         relevant_events=["export created"],
-        context_events_only=False,
+        context_event_names=[],
         anchor_hash=EMPTY_ANCHOR_HASH,
         anchor_unavailable=False,
         trace_correlation_id=None,
@@ -653,7 +653,7 @@ def test_plan_to_freeze_requires_no_failures(total_steps: int, failed_count: int
             "version": AI_QUERY_PLAN_VERSION,
             "plan": plan.model_dump(),
             "relevant_events": ["export created"],
-            "context_events_only": False,
+            "context_event_names": [],
             "anchor_hash": EMPTY_ANCHOR_HASH,
         }
     else:
