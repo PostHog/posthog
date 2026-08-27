@@ -1713,7 +1713,7 @@ class TestHogqlTableDescribeSettings:
         ):
             _ = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
 
-        assert client.describe_settings == {"distributed_product_mode": "allow"}
+        assert client.describe_settings == {"distributed_product_mode": "allow", "prefer_global_in_and_join": "0"}
         assert client.describe_query is not None and "globalIn(" not in client.describe_query
         assert client.arrow_query is not None and "globalIn(" in client.arrow_query
 

@@ -72,11 +72,11 @@ MB_100_IN_BYTES = 100 * 1000 * 1000
 # ClickHouse builds every GLOBAL IN subquery as a temporary table while it plans a query, and
 # DESCRIBE plans the query too, so the schema probe scans the source tables just to return column
 # types. The probe therefore prints a copy of the query with GLOBAL IN downgraded to plain IN and
-# runs with "allow", which stops the cluster profile (distributed_product_mode=global) from adding
-# GLOBAL back. Joins keep their GLOBAL prefix: the resolver adds it to events-to-S3 join chains to
-# work around a ClickHouse bug, not for cost. The materialization query itself is printed from the
-# untouched AST.
-DESCRIBE_QUERY_SETTINGS = {"distributed_product_mode": "allow"}
+# runs with the two settings that would add GLOBAL back pinned off (the cluster profile sets
+# distributed_product_mode=global). Joins keep their GLOBAL prefix: the resolver adds it to
+# events-to-S3 join chains to work around a ClickHouse bug, not for cost. The materialization query
+# itself is printed from the untouched AST.
+DESCRIBE_QUERY_SETTINGS = {"distributed_product_mode": "allow", "prefer_global_in_and_join": "0"}
 
 _LOCAL_COMPARE_OPS = {
     ast.CompareOperationOp.GlobalIn: ast.CompareOperationOp.In,
@@ -92,6 +92,13 @@ class _DowngradeGlobalIn(CloningVisitor):
         cloned = super().visit_compare_operation(node)
         cloned.op = _LOCAL_COMPARE_OPS.get(cloned.op, cloned.op)
         return cloned
+
+
+def _print_describe_variant(
+    prepared_query: ast.SelectQuery | ast.SelectSetQuery, context: HogQLContext, settings: HogQLGlobalSettings
+) -> str:
+    downgraded = _DowngradeGlobalIn().visit(prepared_query)
+    return print_prepared_ast(downgraded, context=context, dialect="clickhouse", settings=settings, stack=[])
 
 
 CLICKHOUSE_MAX_BLOCK_SIZE_ROWS = 50 * 1000
@@ -531,13 +538,7 @@ async def hogql_table(
     if prepared_hogql_query is None:
         raise EmptyHogQLResponseColumnsError()
 
-    printed = await database_sync_to_async_pool(print_prepared_ast)(
-        _DowngradeGlobalIn().visit(prepared_hogql_query),
-        context=context,
-        dialect="clickhouse",
-        settings=settings,
-        stack=[],
-    )
+    printed = await database_sync_to_async_pool(_print_describe_variant)(prepared_hogql_query, context, settings)
 
     table_describe_query = f"DESCRIBE TABLE ({printed}) FORMAT TabSeparatedRaw"
     arrow_type_conversion: dict[str, tuple[str, tuple[ast.Constant, ...]]] = {
