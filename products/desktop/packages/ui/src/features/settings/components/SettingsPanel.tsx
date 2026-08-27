@@ -332,10 +332,10 @@ function SettingsSearchInput({
   onSubmit: () => void;
 }) {
   return (
-    <div className="relative px-3 pt-1 pb-2">
+    <div className="relative px-3 py-2">
       <MagnifyingGlass
         size={13}
-        className="pointer-events-none absolute top-2.5 left-5 text-gray-9"
+        className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-5 text-gray-9"
       />
       <Input
         value={query}
