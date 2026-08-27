@@ -993,22 +993,16 @@ def _transition_signal_reports_for_pr(
         # attestation has to land there and not only on the run the webhook bound to.
         # Research, repo-selection and scout runs are excluded because a PR URL on one of them is a
         # PR the agent read while checking for in-flight work, not one it opened.
-        # Non-terminal first, for the same reason the pr_url leg of find_task_run orders that way:
-        # a resumed run shares its predecessor's PR, and only the live run can act on the merge.
+        # Newest run per task, matching get_latest_pr_url_by_task and get_merged_pr_task_ids
+        # run-for-run. Those two decide which run the badge reads, so any other ordering here can
+        # attest one run while the badge reads another, which is the bug this block exists to fix.
         report_task_runs = SignalReport.associated_task_runs_for_reports(
             report_ids=[str(report.id) for report in reports]
         )
         associated_task_ids = {run.task_id for runs in report_task_runs.values() for run in runs}
         surfaced_runs = (
             run_candidates.filter(pr_bearing_task_run_filter(), task_id__in=associated_task_ids)
-            .annotate(
-                terminal_rank=Case(
-                    When(status__in=_TERMINAL_RUN_STATUSES, then=Value(1)),
-                    default=Value(0),
-                    output_field=IntegerField(),
-                )
-            )
-            .order_by("task_id", "terminal_rank", "-created_at", "-id")
+            .order_by("task_id", "-created_at", "-id")
             .distinct("task_id")
         )
         for run in surfaced_runs:

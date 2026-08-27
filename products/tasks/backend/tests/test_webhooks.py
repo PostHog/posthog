@@ -1282,6 +1282,26 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_merge_attests_the_run_the_badge_reads(self, _mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        self.task_run.status = TaskRun.Status.IN_PROGRESS
+        self.task_run.save(update_fields=["status"])
+        newest_run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://github.com/posthog/posthog/pull/42"},
+        )
+
+        response = self._post_pr_webhook(action="closed", merged=True)
+
+        self.assertEqual(response.status_code, 200)
+        newest_run.refresh_from_db()
+        assert newest_run.output is not None
+        self.assertIs(newest_run.output.get("pr_merged"), True)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_merge_does_not_attest_a_run_that_only_read_the_pr(self, _mock_capture, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
         research_run = TaskRun.objects.create(
