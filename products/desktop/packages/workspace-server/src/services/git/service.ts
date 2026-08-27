@@ -3,7 +3,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import { execGh } from "@posthog/git/gh";
-import { readHandoffLocalGitState } from "@posthog/git/handoff";
 import { getGitOperationManager } from "@posthog/git/operation-manager";
 import {
   type DiffStats,
@@ -32,18 +31,13 @@ import {
   unstageFiles as gitUnstageFiles,
   isGitRepository,
 } from "@posthog/git/queries";
-import {
-  CreateBranchSaga,
-  ResetToDefaultBranchSaga,
-  SwitchBranchSaga,
-} from "@posthog/git/sagas/branch";
+import { CreateBranchSaga, SwitchBranchSaga } from "@posthog/git/sagas/branch";
 import { CleanWorkingTreeSaga } from "@posthog/git/sagas/clean";
 import { CloneSaga } from "@posthog/git/sagas/clone";
 import { CommitSaga } from "@posthog/git/sagas/commit";
 import { DiscardFileChangesSaga } from "@posthog/git/sagas/discard";
 import { PullSaga } from "@posthog/git/sagas/pull";
 import { PushSaga } from "@posthog/git/sagas/push";
-import { StashPushSaga } from "@posthog/git/sagas/stash";
 import { parseGithubUrl } from "@posthog/git/utils";
 import { TypedEventEmitter } from "@posthog/shared";
 import { injectable } from "inversify";
@@ -69,7 +63,6 @@ import type {
   GitStateSnapshot,
   GitStatusOutput,
   GitSyncStatus,
-  HandoffLocalGitState,
   MergePrOutput,
   OpenPrOutput,
   PrActionType,
@@ -1968,49 +1961,5 @@ export class GitService extends TypedEventEmitter<GitCloneEvents> {
     } catch {
       return [];
     }
-  }
-
-  async readHandoffLocalGitState(
-    directoryPath: string,
-  ): Promise<HandoffLocalGitState> {
-    return readHandoffLocalGitState(directoryPath);
-  }
-
-  async cleanupAfterCloudHandoff(
-    directoryPath: string,
-    branchName: string | null,
-  ): Promise<{
-    stashed: boolean;
-    switched: boolean;
-    defaultBranch: string | null;
-  }> {
-    let stashed = false;
-    const hasChanges =
-      (await this.getChangedFilesHead(directoryPath)).length > 0;
-
-    if (hasChanges) {
-      const label = branchName ?? "unknown";
-      const stashResult = await new StashPushSaga().run({
-        baseDir: directoryPath,
-        message: `posthog-code: handoff backup (${label})`,
-      });
-      if (!stashResult.success) {
-        return { stashed: false, switched: false, defaultBranch: null };
-      }
-      stashed = true;
-    }
-
-    const resetResult = await new ResetToDefaultBranchSaga().run({
-      baseDir: directoryPath,
-    });
-    if (!resetResult.success) {
-      return { stashed, switched: false, defaultBranch: null };
-    }
-
-    return {
-      stashed,
-      switched: resetResult.data.switched,
-      defaultBranch: resetResult.data.defaultBranch,
-    };
   }
 }

@@ -18,7 +18,7 @@ const {
     computeTargets,
     allKnownTargets,
     buildContext,
-    parseCargoLockCrates,
+    parseRustAffectedCrates,
     compileContractMatcher,
     compileWorkspaceMatcher,
     globToRegExp,
@@ -26,12 +26,10 @@ const {
     isTripwire,
     listIsolatedProducts,
     loadContractSurfaces,
-    parseCrateDependencies,
     parseCrateName,
     parsePytestIgnores,
     parseSemgrepLanguages,
     parseWorkspacePackageGlobs,
-    reverseClosure,
     semgrepDomain,
     tripwireDomain,
     ALL,
@@ -41,7 +39,6 @@ const {
     PROTO_TREES,
     PYTHON,
     REPO_ROOT,
-    RUNTIME_SPAWN_EDGES,
     RUST,
     UNIVERSAL,
 } = require('./trunk-impacted-targets')
@@ -56,12 +53,8 @@ const CONTEXT = {
         ['.semgrep/rules/devex/ts-rule.yaml', JAVASCRIPT],
         ['.semgrep/rules/devex/generic-rule.yaml', UNIVERSAL],
     ]),
-    rustGraph: {
-        dependsOn: new Map([
-            ['shared', []],
-            ['consumer', ['shared']],
-            ['unrelated', []],
-        ]),
+    rustInventory: {
+        crateNames: new Set(['shared', 'consumer', 'unrelated']),
         byDir: [
             { dir: 'consumer', name: 'consumer' },
             { dir: 'unrelated', name: 'unrelated' },
@@ -105,32 +98,24 @@ layer = "modules"
 }
 
 // PROTO_TREES names the crates that compile each tree, so the crate half of
-// this graph has to carry their real names. The dependent and the bystander are
-// synthetic, which is what keeps the closure assertions off the real crate
-// graph.
+// this inventory has to carry their real names. The dependent and the
+// bystander are synthetic, which is what keeps the assertions off the real
+// crate workspace.
+const PROTO_CRATES = [
+    'cymbal-proto',
+    'ingestion-worker-proto',
+    'kafka-assigner-proto',
+    'personhog-proto',
+    'personhog-consumer',
+    'prometheus-rw-proto',
+    'usage-ingestion-proto',
+    'unrelated',
+]
 const PROTO_CONTEXT = {
     ...CONTEXT,
-    rustGraph: {
-        dependsOn: new Map([
-            ['cymbal-proto', []],
-            ['ingestion-worker-proto', []],
-            ['kafka-assigner-proto', []],
-            ['personhog-proto', []],
-            ['personhog-consumer', ['personhog-proto']],
-            ['prometheus-rw-proto', []],
-            ['usage-ingestion-proto', []],
-            ['unrelated', []],
-        ]),
-        byDir: [
-            { dir: 'cymbal-proto', name: 'cymbal-proto' },
-            { dir: 'ingestion-worker-proto', name: 'ingestion-worker-proto' },
-            { dir: 'kafka-assigner-proto', name: 'kafka-assigner-proto' },
-            { dir: 'personhog-proto', name: 'personhog-proto' },
-            { dir: 'personhog-consumer', name: 'personhog-consumer' },
-            { dir: 'prometheus-rw-proto', name: 'prometheus-rw-proto' },
-            { dir: 'usage-ingestion-proto', name: 'usage-ingestion-proto' },
-            { dir: 'unrelated', name: 'unrelated' },
-        ],
+    rustInventory: {
+        crateNames: new Set(PROTO_CRATES),
+        byDir: PROTO_CRATES.map((name) => ({ dir: name, name })),
     },
 }
 
@@ -214,10 +199,14 @@ test('a lockfile claims its own toolchain rather than every lane', () => {
 
 // Every consumer of a proto commits the stubs generated from it, so the set is
 // enumerable rather than open-ended: tonic for the crate, and checked-in
-// personhog stubs for python and nodejs. The rust half is the crate that
-// compiles the tree plus the dependents the closure adds, not every crate.
+// personhog stubs for python and nodejs. The rust half is the determinator's
+// answer for the diff (the crate that compiles the tree plus its dependents),
+// not every crate.
 test('a proto claims the consumers that generate from it rather than every lane', () => {
-    const targets = computeTargets(['proto/personhog/types/v1/person.proto'], PROTO_CONTEXT)
+    const targets = computeTargets(['proto/personhog/types/v1/person.proto'], {
+        ...PROTO_CONTEXT,
+        rustAffectedCrates: ['personhog-proto', 'personhog-consumer'],
+    })
     for (const target of [
         'py:core',
         'py:product:alpha',
@@ -244,12 +233,20 @@ test('a proto claims the consumers that generate from it rather than every lane'
 // The narrowing the per-tree table buys: a tree nothing outside rust/ generates
 // from used to serialize against every python lane in the repo.
 test('a proto tree with no stubs outside rust claims neither python nor nodejs', () => {
-    assert.deepEqual(computeTargets(['proto/cymbal/resolution/v1/resolution.proto'], PROTO_CONTEXT), [
-        'rust:crate:cymbal-proto',
-    ])
-    assert.deepEqual(computeTargets(['proto/kafka_assigner/v1/service.proto'], PROTO_CONTEXT), [
-        'rust:crate:kafka-assigner-proto',
-    ])
+    assert.deepEqual(
+        computeTargets(['proto/cymbal/resolution/v1/resolution.proto'], {
+            ...PROTO_CONTEXT,
+            rustAffectedCrates: ['cymbal-proto'],
+        }),
+        ['rust:crate:cymbal-proto']
+    )
+    assert.deepEqual(
+        computeTargets(['proto/kafka_assigner/v1/service.proto'], {
+            ...PROTO_CONTEXT,
+            rustAffectedCrates: ['kafka-assigner-proto'],
+        }),
+        ['rust:crate:kafka-assigner-proto']
+    )
 })
 
 // buf's lint and breaking-change settings sit at the root and govern every
@@ -279,9 +276,9 @@ test('an undeclared proto tree or a renamed proto crate widens', () => {
 
     const renamed = {
         ...PROTO_CONTEXT,
-        rustGraph: {
-            ...PROTO_CONTEXT.rustGraph,
-            dependsOn: new Map([...PROTO_CONTEXT.rustGraph.dependsOn].filter(([crate]) => crate !== 'personhog-proto')),
+        rustInventory: {
+            ...PROTO_CONTEXT.rustInventory,
+            crateNames: new Set([...PROTO_CONTEXT.rustInventory.crateNames].filter((c) => c !== 'personhog-proto')),
         },
     }
     assert.deepEqual(computeTargets(['proto/personhog/types/v1/person.proto'], renamed), allKnownTargets(renamed))
@@ -978,7 +975,7 @@ test('every target the rules can emit appears in the enumerated universe', () =>
 // every crate or service has to fall back to the sentinel rather than upload a
 // set that is missing lanes.
 test('an incomplete context falls back to the ALL sentinel', () => {
-    assert.equal(allKnownTargets({ ...CONTEXT, rustGraph: null }), null)
+    assert.equal(allKnownTargets({ ...CONTEXT, rustInventory: null }), null)
     assert.equal(allKnownTargets({ ...CONTEXT, services: null }), null)
     assert.equal(computeTargets(['some-new-toplevel/thing.go'], { ...CONTEXT, services: null }), ALL)
 })
@@ -1078,16 +1075,44 @@ test('globs match across directories only through **', () => {
     assert.equal(globToRegExp('pnpm-lock.yaml').test('nested/pnpm-lock.yaml'), false)
 })
 
-test('a changed rust crate pulls in the crates that depend on it', () => {
-    assert.deepEqual(computeTargets(['rust/shared/src/lib.rs'], CONTEXT), ['rust:crate:consumer', 'rust:crate:shared'])
-    // A leaf crate must not drag in its own dependencies, only its dependents.
-    assert.deepEqual(computeTargets(['rust/consumer/src/main.rs'], CONTEXT), ['rust:crate:consumer'])
-    assert.deepEqual(computeTargets(['rust/unrelated/src/main.rs'], CONTEXT), ['rust:crate:unrelated'])
+// The determinator's answer is the affected set (the changed crates plus
+// their dependents), so it is used as it stands rather than closed over again.
+// The script holds no crate dependency edges of its own.
+test('a rust change takes its crate set from the determinator answer', () => {
+    assert.deepEqual(
+        computeTargets(['rust/shared/src/lib.rs'], { ...CONTEXT, rustAffectedCrates: ['consumer', 'shared'] }),
+        ['rust:crate:consumer', 'rust:crate:shared']
+    )
+    assert.deepEqual(
+        computeTargets(['rust/unrelated/src/main.rs'], { ...CONTEXT, rustAffectedCrates: ['unrelated'] }),
+        ['rust:crate:unrelated']
+    )
 })
 
-test('an unresolvable rust crate graph reports every crate instead of narrowing', () => {
-    const noGraph = { ...CONTEXT, rustGraph: null }
-    assert.equal(computeTargets(['rust/shared/src/lib.rs'], noGraph), ALL)
+// Without the answer the script cannot name the dependents of the changed
+// crate, and a set missing a dependent is the direction that breaks master.
+test('a rust change without a determinator answer claims every crate', () => {
+    assert.deepEqual(computeTargets(['rust/shared/src/lib.rs'], CONTEXT), [
+        'rust:crate:consumer',
+        'rust:crate:shared',
+        'rust:crate:unrelated',
+    ])
+})
+
+// An answer that omits a crate the changed paths sit in means the determinator
+// and this script disagree about the workspace, and a lane list built from
+// half of that disagreement could be the narrow half.
+test('an answer that omits a seeded crate widens to every crate', () => {
+    assert.deepEqual(computeTargets(['rust/consumer/src/main.rs'], { ...CONTEXT, rustAffectedCrates: ['shared'] }), [
+        'rust:crate:consumer',
+        'rust:crate:shared',
+        'rust:crate:unrelated',
+    ])
+})
+
+test('an unresolvable rust crate inventory reports every crate instead of narrowing', () => {
+    const noInventory = { ...CONTEXT, rustInventory: null }
+    assert.equal(computeTargets(['rust/shared/src/lib.rs'], noInventory), ALL)
 })
 
 test('a rust path outside every known crate widens', () => {
@@ -1100,19 +1125,33 @@ test('a rust path outside every known crate widens', () => {
 test('a crate that builds an npm package claims the lanes importing it', () => {
     const bindingContext = {
         ...CONTEXT,
-        rustGraph: { ...CONTEXT.rustGraph, nativeBindings: new Set(['consumer']) },
+        rustInventory: { ...CONTEXT.rustInventory, nativeBindings: new Set(['consumer']) },
     }
-    // Reached through the closure rather than directly: `shared` is not itself a
-    // binding, but what it compiles into ships inside one.
-    const viaDependency = computeTargets(['rust/shared/src/lib.rs'], bindingContext)
+    // Reached through the answer's closure rather than directly: `shared` is
+    // not itself a binding, but what it compiles into ships inside one.
+    const viaDependency = computeTargets(['rust/shared/src/lib.rs'], {
+        ...bindingContext,
+        rustAffectedCrates: ['consumer', 'shared'],
+    })
     assert.equal(viaDependency.includes('node:ingestion'), true)
 
-    const direct = computeTargets(['rust/consumer/src/lib.rs'], bindingContext)
+    const direct = computeTargets(['rust/consumer/src/lib.rs'], {
+        ...bindingContext,
+        rustAffectedCrates: ['consumer'],
+    })
     assert.equal(direct.includes('node:ingestion'), true)
 
     // A crate no binding depends on keeps its own lane.
-    const unrelated = computeTargets(['rust/unrelated/src/main.rs'], bindingContext)
+    const unrelated = computeTargets(['rust/unrelated/src/main.rs'], {
+        ...bindingContext,
+        rustAffectedCrates: ['unrelated'],
+    })
     assert.deepEqual(unrelated, ['rust:crate:unrelated'])
+
+    // The every-crate fallback covers the bindings, so it reaches their
+    // consumers too.
+    const widened = computeTargets(['rust/shared/src/lib.rs'], bindingContext)
+    assert.equal(widened.includes('node:ingestion'), true)
 })
 
 // The cargo lockfile, the manifest, and the sqlx offline data resolve nothing
@@ -1123,7 +1162,7 @@ test('a crate that builds an npm package claims the lanes importing it', () => {
 test('the cargo workspace tripwires claim the rust lanes rather than every lane', () => {
     const bindingContext = {
         ...CONTEXT,
-        rustGraph: { ...CONTEXT.rustGraph, nativeBindings: new Set(['consumer']) },
+        rustInventory: { ...CONTEXT.rustInventory, nativeBindings: new Set(['consumer']) },
     }
     for (const file of ['rust/Cargo.lock', 'rust/Cargo.toml', 'rust/.sqlx/query-0a1b.json']) {
         const targets = computeTargets([file], bindingContext)
@@ -1139,11 +1178,11 @@ test('the cargo workspace tripwires claim the rust lanes rather than every lane'
     }
 })
 
-// The seeds are the crates the determinator named; computeTargets owns the
-// closure over them. Without it, a resolution change in a crate every other
-// crate depends on would claim one lane.
-test('a narrowed lockfile change still claims the dependents of the crates it named', () => {
-    const targets = computeTargets(['rust/Cargo.lock'], { ...CONTEXT, cargoLockCrates: ['shared'] })
+// The determinator's answer already holds the dependents of the crates the
+// resolution moved, so the lockfile takes it as it stands. Without it, a
+// lockfile touch claims every crate (the case above this one pins).
+test('a narrowed lockfile change claims the crates the determinator named', () => {
+    const targets = computeTargets(['rust/Cargo.lock'], { ...CONTEXT, rustAffectedCrates: ['consumer', 'shared'] })
     assert.deepEqual(
         targets.filter((target) => target.startsWith('rust:crate:')),
         ['rust:crate:consumer', 'rust:crate:shared']
@@ -1155,7 +1194,7 @@ test('a narrowed lockfile change still claims the dependents of the crates it na
 // lockfile-only change set would otherwise reach the empty-set guard and widen
 // past the rust lanes entirely. This pins the fallback against that.
 test('a determinator answer naming no crate claims every crate, not every lane', () => {
-    const targets = computeTargets(['rust/Cargo.lock'], { ...CONTEXT, cargoLockCrates: [] })
+    const targets = computeTargets(['rust/Cargo.lock'], { ...CONTEXT, rustAffectedCrates: [] })
     assert.deepEqual(
         targets.filter((target) => target.startsWith('rust:crate:')),
         ['rust:crate:consumer', 'rust:crate:shared', 'rust:crate:unrelated']
@@ -1173,21 +1212,21 @@ test('an unusable determinator answer reads as unknown', () => {
         ['output that is not JSON', 'shared,consumer'],
         ['JSON that is not a list', '{"crates":["shared"]}'],
         ['a list holding something other than a name', '["shared", 7]'],
-        ['a crate the graph does not hold', '["shared", "ghost"]'],
+        ['a crate the inventory does not hold', '["shared", "ghost"]'],
     ]) {
-        assert.equal(parseCargoLockCrates(raw, CONTEXT.rustGraph), null, `${name} should read as unknown`)
+        assert.equal(parseRustAffectedCrates(raw, CONTEXT.rustInventory), null, `${name} should read as unknown`)
     }
 })
 
-test('a determinator answer the graph agrees with is used as it stands', () => {
-    assert.deepEqual(parseCargoLockCrates('["shared"]', CONTEXT.rustGraph), ['shared'])
+test('a determinator answer the inventory agrees with is used as it stands', () => {
+    assert.deepEqual(parseRustAffectedCrates('["shared"]', CONTEXT.rustInventory), ['shared'])
 })
 
-// The determinator's workspace and this script's crate graph are built from the
-// same manifests by different code, so a name in one and not the other means one
-// of them is wrong. Reads the real graph, which is the only place that can drift.
-test('the crate graph holds every crate the determinator can name', () => {
-    const { rustGraph } = buildContext(REPO_ROOT)
+// The determinator's workspace and this script's crate inventory are built from
+// the same manifests by different code, so a name in one and not the other means
+// one of them is wrong. Reads the real repo, which is the only place that can drift.
+test('the crate inventory holds every crate the determinator can name', () => {
+    const { rustInventory } = buildContext(REPO_ROOT)
     const members = fs
         .readFileSync(path.join(REPO_ROOT, 'rust/Cargo.toml'), 'utf8')
         .split(/^\s*\[/m)
@@ -1196,31 +1235,8 @@ test('the crate graph holds every crate the determinator can name', () => {
         .split(',')
         .map((entry) => entry.trim().replace(/^"|"$/g, ''))
         .filter(Boolean)
-    const missing = members.filter((dir) => !rustGraph.byDir.some((crate) => crate.dir === dir))
-    assert.deepEqual(missing, [], 'these workspace members are absent from the crate graph')
-})
-
-// The two lists below are the same rule written twice, once for the merge queue
-// and once for CI's selective builds. Nothing but this test stops them drifting,
-// and the failure is silent in both directions: an edge the queue drops lets two
-// conflicting PRs merge in parallel.
-test('the runtime spawn edges match the determinator package rules', () => {
-    const rulesToml = fs.readFileSync(path.join(REPO_ROOT, 'rust/affected-services/determinator-rules.toml'), 'utf8')
-    const names = (block, key) => {
-        const match = block.match(new RegExp(`${key}\\s*=\\s*\\[([^\\]]*)\\]`))
-        return match ? [...match[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]).sort() : []
-    }
-    const packageRules = rulesToml
-        .split(/^\s*\[\[package-rule\]\]\s*$/m)
-        .slice(1)
-        .map((block) => ({ onAffected: names(block, 'on-affected'), markChanged: names(block, 'mark-changed') }))
-
-    const fromScript = [...RUNTIME_SPAWN_EDGES]
-        .map(([spawner, spawned]) => ({ onAffected: [...spawned].sort(), markChanged: [spawner] }))
-        .sort((a, b) => a.markChanged[0].localeCompare(b.markChanged[0]))
-    const fromRules = packageRules.sort((a, b) => a.markChanged[0].localeCompare(b.markChanged[0]))
-
-    assert.deepEqual(fromScript, fromRules)
+    const missing = members.filter((dir) => !rustInventory.byDir.some((crate) => crate.dir === dir))
+    assert.deepEqual(missing, [], 'these workspace members are absent from the crate inventory')
 })
 
 // The consumer lanes are declared rather than derived, so a second dependent
@@ -1378,76 +1394,6 @@ test('rust migration sets claim the suites that read their schema', () => {
         'rust:crate:shared',
         'rust:crate:unrelated',
     ])
-})
-
-test('reverseClosure walks transitively and excludes unrelated nodes', () => {
-    const graph = new Map([
-        ['base', []],
-        ['mid', ['base']],
-        ['top', ['mid']],
-        ['island', []],
-    ])
-    assert.deepEqual(reverseClosure(['base'], graph).sort(), ['base', 'mid', 'top'])
-    assert.deepEqual(reverseClosure(['island'], graph), ['island'])
-})
-
-// Guards the prost14 = { package = "prost" } shape: treating any renamed
-// dependency as unparseable knocked out the whole rust graph, collapsing every
-// rust PR into ALL.
-test('renamed dependencies resolve to the real crate without failing the graph', () => {
-    const crateNames = new Set(['shared', 'consumer'])
-    const toml = `
-[package]
-name = "consumer"
-
-[dependencies]
-prost14 = { package = "prost", version = "0.14" }
-aliased = { package = "shared", path = "../shared" }
-shared.workspace = true
-serde = "1"
-`
-    assert.deepEqual(parseCrateDependencies(toml, crateNames).sort(), ['shared'])
-})
-
-// Cargo spells dependency sections four ways. The [dependencies.<name>] form
-// carries the name in the header, and reading only body keys silently dropped
-// the edge (rust/personhog-stateright depends on personhog-coordination this
-// way), which let a shared crate and its dependent get disjoint targets and
-// merge in parallel.
-test('dependency sections are parsed in every header form Cargo allows', () => {
-    const crateNames = new Set(['shared', 'other', 'renamed-crate'])
-    const cases = [
-        ['plain table', '[dependencies]\nshared = { path = "../shared" }\n', ['shared']],
-        ['dev table', '[dev-dependencies]\nshared.workspace = true\n', ['shared']],
-        ['build table', '[build-dependencies]\nshared = "1"\n', ['shared']],
-        ['dependency-per-table', '[dependencies.shared]\npath = "../shared"\nversion = "0.1"\n', ['shared']],
-        ['dev dependency-per-table', '[dev-dependencies.other]\npath = "../other"\n', ['other']],
-        [
-            'target-scoped table',
-            '[target.\'cfg(not(target_env = "msvc"))\'.dependencies]\nshared = { version = "1" }\n',
-            ['shared'],
-        ],
-        [
-            'dependency-per-table with a rename',
-            '[dependencies.alias]\npackage = "renamed-crate"\npath = "../renamed-crate"\n',
-            ['renamed-crate'],
-        ],
-        // The workspace table declares versions for every member, not this
-        // crate's own edges.
-        ['workspace table excluded', '[workspace.dependencies]\nshared = { path = "shared" }\n', []],
-    ]
-    for (const [label, toml, expected] of cases) {
-        assert.deepEqual(parseCrateDependencies(toml, crateNames).sort(), expected, label)
-    }
-})
-
-// Attribute keys inside a [dependencies.<name>] table would be read as
-// dependency names if the body were scanned, inventing an edge to any crate
-// that happens to share a name with a Cargo attribute.
-test('attributes inside a dependency-per-table are not read as crate names', () => {
-    const crateNames = new Set(['shared', 'path', 'features'])
-    const toml = '[dependencies.shared]\npath = "../shared"\nfeatures = ["a"]\n'
-    assert.deepEqual(parseCrateDependencies(toml, crateNames), ['shared'])
 })
 
 test('an isolated product change stays narrow and names its tach dependents', () => {
@@ -1902,7 +1848,10 @@ test('a change set of nothing but markdown reports the prose lane', () => {
 // touched a markdown file, even with their code in unrelated trees. The prose
 // lane must not reintroduce that by riding along with real lanes.
 test('markdown alongside code contributes no lane of its own', () => {
-    assert.deepEqual(computeTargets(['rust/unrelated/src/main.rs', 'README.md'], CONTEXT), ['rust:crate:unrelated'])
+    assert.deepEqual(
+        computeTargets(['rust/unrelated/src/main.rs', 'README.md'], { ...CONTEXT, rustAffectedCrates: ['unrelated'] }),
+        ['rust:crate:unrelated']
+    )
 })
 
 // hogli build:skills zips products/*/skills/* (which ci-agent-skills.yml

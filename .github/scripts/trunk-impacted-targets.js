@@ -15,7 +15,7 @@
 // The intersection Trunk computes is identical, but the uploaded list says
 // which lanes the PR claimed, so the telemetry can compare it against the lanes
 // the PR should have claimed. "ALL" is kept for the cases where the set cannot
-// be built at all — an unreadable crate graph or services/ listing here, and a
+// be built at all — an unreadable crate inventory or services/ listing here, and a
 // failed diff in the workflow, which never reaches this script. That is a
 // different statement from "everything": it means "unknown".
 //
@@ -138,8 +138,9 @@ const PROTO = 'proto'
 const SEMGREP = 'semgrep'
 
 // rust/Cargo.lock, answered by the cargo determinator rather than by the path.
-// Its own domain because the answer is a crate list rather than a fixed set of
-// lanes, and it degrades to RUST when that list is absent.
+// Its own domain because the file names no crate directory to seed from, so
+// its radius is whatever the determinator's answer says the resolution change
+// moved, degrading to every crate when that answer is absent.
 const CARGO_LOCK = 'cargo-lock'
 
 // The nodejs lane on its own, for files whose only reader is the ingestion
@@ -1400,11 +1401,11 @@ function touchesContractSurface(product, file, contractSurfaces) {
     return matcher(relativePath)
 }
 
-// --- Rust crate graph ---
+// --- Rust crate inventory ---
 
 // Discovers workspace crates as (directory, crate name) pairs. Crate names can
 // differ from directory names, and file paths only carry the directory, so both
-// are needed to translate a changed path into a graph node.
+// are needed to translate a changed path into a crate.
 function discoverRustCrates(repoRoot) {
     const crates = []
     const walk = (dir, depth) => {
@@ -1423,13 +1424,12 @@ function discoverRustCrates(repoRoot) {
                 if (!relative) {
                     continue
                 }
-                const text = fs.readFileSync(full, 'utf8')
-                const name = parseCrateName(text)
+                const name = parseCrateName(fs.readFileSync(full, 'utf8'))
                 if (name) {
                     // A package.json beside the Cargo.toml means the crate also
                     // builds an npm package, so its lane extends past rust/.
                     const publishesNpmPackage = fs.existsSync(path.join(dir, 'package.json'))
-                    crates.push({ dir: relative, name, text, publishesNpmPackage })
+                    crates.push({ dir: relative, name, publishesNpmPackage })
                 }
             }
         }
@@ -1447,166 +1447,37 @@ function parseCrateName(tomlText) {
     return match ? match[1] : null
 }
 
-// Collects the intra-workspace crates a Cargo.toml depends on. Dependencies
-// declared as `foo.workspace = true` resolve through the workspace table to the
-// same crate name, so matching on the dependency key covers both that form and
-// a direct path dependency.
+// The dependency edges between crates deliberately live elsewhere:
+// rust/affected-services, the determinator ci-rust.yml selects tests with,
+// is the sole authority on which crates a change set affects, and its answer
+// reaches this script through RUST_AFFECTED_CRATES. The inventory only names
+// the crates: it maps a changed path to the crate holding it, enumerates the
+// full set a widening claims, and flags the crates that also publish npm
+// packages.
 //
-// A `package = "..."` key renames the dependency, so the real crate is that
-// value rather than the key. Most uses point at an external crate under a
-// version-suffixed alias (prost14 = { package = "prost" }), which contributes
-// no intra-workspace edge, but resolving through it is what keeps a renamed
-// workspace crate from being dropped.
-// Classifies a section header, returning null when it carries no dependencies.
-// Cargo spells dependency sections four ways, and the ones where the dependency
-// name lives in the header rather than in a body key are easy to miss:
-//
-//   [dependencies]                                  -> body keys are the names
-//   [dev-dependencies] / [build-dependencies]       -> body keys are the names
-//   [target.'cfg(...)'.dependencies]                -> body keys are the names
-//   [dependencies.<name>]                           -> the header carries the name
-//
-// `[workspace.dependencies]` is excluded: it declares versions for the whole
-// workspace rather than this crate's own edges.
-function dependencySectionName(header) {
-    if (header.startsWith('workspace.')) {
-        return null
-    }
-    const match = header.match(/(?:^|\.)(?:dev-|build-)?dependencies(?:\.(.+))?$/)
-    if (!match) {
-        return null
-    }
-    return { named: match[1] ? match[1].replace(/^["']|["']$/g, '') : null }
-}
-
-function parseCrateDependencies(tomlText, crateNames) {
-    const deps = new Set()
-    const sections = tomlText.split(/^\s*\[/m)
-    for (const section of sections) {
-        const header = section.split(']')[0]
-        const dependencySection = dependencySectionName(header)
-        if (!dependencySection) {
-            continue
-        }
-        const body = section.slice(section.indexOf(']') + 1)
-
-        // In a [dependencies.<name>] table the body holds attributes (path,
-        // version, features), not dependency names, so scanning its keys would
-        // both miss the real edge and risk matching an attribute that happens
-        // to share a crate name.
-        if (dependencySection.named) {
-            const renamed = body.match(/^\s*package\s*=\s*"([^"]+)"/m)
-            const name = renamed ? renamed[1] : dependencySection.named
-            if (crateNames.has(name)) {
-                deps.add(name)
-            }
-            continue
-        }
-
-        for (const line of body.split('\n')) {
-            const stripped = line.replace(/#.*$/, '').trim()
-            if (!stripped) {
-                continue
-            }
-            const renamed = stripped.match(/\bpackage\s*=\s*"([^"]+)"/)
-            if (renamed) {
-                if (crateNames.has(renamed[1])) {
-                    deps.add(renamed[1])
-                }
-                continue
-            }
-            const match = stripped.match(/^([A-Za-z0-9_-]+)\s*(?:\.[A-Za-z-]+)?\s*=/)
-            if (match && crateNames.has(match[1])) {
-                deps.add(match[1])
-            }
-        }
-    }
-    return [...deps]
-}
-
-// Dependencies no Cargo.toml declares, because they are not compile-time edges:
-// the key crate spawns the listed ones as binaries at run time. The cargo graph
-// cannot see that, so the reverse closure would stop short of the spawner and
-// leave it free to merge in parallel with a change to a service it executes.
-//
-// Mirrors the [[package-rule]] on-affected block in
-// rust/affected-services/determinator-rules.toml, which exists for this same
-// blind spot on the CI side. The two lists have to be changed together, which a
-// test asserts, and loadRustGraph gives up the whole graph rather than dropping
-// an edge if a crate named here stops existing.
-const RUNTIME_SPAWN_EDGES = new Map([
-    [
-        'personhog-test-harness',
-        ['personhog-replica', 'personhog-router', 'personhog-leader', 'personhog-writer', 'personhog-identity'],
-    ],
-])
-
-// Returns null when the crate graph can't be built. Callers must treat null as
-// "unknown dependents" and widen to every target, never as "no dependents".
-// Widening past the rust lanes is deliberate: without the graph the script
-// cannot tell which crate a rust path belongs to either, so the rust targets
-// alone would not be a superset of what the change can break.
-function loadRustGraph(repoRoot) {
+// Returns null when the inventory can't be built. Callers must treat null as
+// "unknown crates" and widen to every target, never as "no crates". Widening
+// past the rust lanes is deliberate: without the inventory the script cannot
+// tell which crate a rust path belongs to either, so the rust targets alone
+// would not be a superset of what the change can break.
+function loadRustInventory(repoRoot) {
     try {
         const crates = discoverRustCrates(repoRoot)
         if (crates.length === 0) {
             return null
         }
         const crateNames = new Set(crates.map((crate) => crate.name))
-        const dependsOn = new Map()
-        for (const crate of crates) {
-            dependsOn.set(crate.name, parseCrateDependencies(crate.text, crateNames))
-        }
-        // A crate renamed out from under the runtime map would otherwise drop
-        // its edge silently, which is the under-reporting direction, so an
-        // unresolvable entry gives up the whole graph instead.
-        for (const [spawner, spawned] of RUNTIME_SPAWN_EDGES) {
-            const unknown = [spawner, ...spawned].filter((crate) => !crateNames.has(crate))
-            if (unknown.length > 0) {
-                console.error(
-                    `Runtime spawn edges name crates that no longer exist (${unknown.join(', ')}); ` +
-                        'widening to every target until RUNTIME_SPAWN_EDGES is updated'
-                )
-                return null
-            }
-            dependsOn.set(spawner, [...new Set([...dependsOn.get(spawner), ...spawned])])
-        }
         const nativeBindings = new Set(crates.filter((crate) => crate.publishesNpmPackage).map((crate) => crate.name))
         // Longest directory first so rust/common/hogvm resolves to its own crate
         // rather than to rust/common.
         const byDir = crates
             .map((crate) => ({ dir: crate.dir, name: crate.name }))
             .sort((a, b) => b.dir.length - a.dir.length)
-        return { dependsOn, byDir, nativeBindings }
+        return { crateNames, byDir, nativeBindings }
     } catch (error) {
-        console.error(`Rust crate graph unavailable (${error.message}); widening to every target`)
+        console.error(`Rust crate inventory unavailable (${error.message}); widening to every target`)
         return null
     }
-}
-
-function reverseClosure(seeds, dependsOn) {
-    const reverse = new Map()
-    for (const [node, deps] of dependsOn) {
-        for (const dep of deps) {
-            if (!reverse.has(dep)) {
-                reverse.set(dep, [])
-            }
-            reverse.get(dep).push(node)
-        }
-    }
-    const reached = new Set(seeds)
-    const queue = [...seeds]
-    while (queue.length > 0) {
-        const current = queue.shift()
-        for (const dependent of reverse.get(current) || []) {
-            if (reached.has(dependent)) {
-                continue
-            }
-            reached.add(dependent)
-            queue.push(dependent)
-        }
-    }
-    return [...reached]
 }
 
 // --- Target computation ---
@@ -1614,6 +1485,12 @@ function reverseClosure(seeds, dependsOn) {
 const pyProduct = (product) => `py:product:${product}`
 const feProduct = (product) => `fe:product:${product}`
 const rustCrate = (crate) => `rust:crate:${crate}`
+
+// Internal sentinel for a file whose crate radius only the determinator's
+// answer can state, because the path names no crate directory to seed from
+// (rust/Cargo.lock). Consumed by the determinator resolution at the end of
+// computeTargets and never uploaded.
+const RUST_DETERMINATOR = 'rust:determinator'
 
 // The lanes that import a native module built from the cargo workspace.
 // nodejs/package.json is the only dependent of the two binding packages
@@ -1636,8 +1513,8 @@ const NATIVE_BINDING_CONSUMER_LANES = ['node:ingestion']
 // dynamic parts (products, services, crates) are read rather than listed for
 // that reason, and a missing one returns null so the caller falls back to ALL.
 function allKnownTargets(context) {
-    const { products, services, rustGraph } = context
-    if (!rustGraph || !services) {
+    const { products, services, rustInventory } = context
+    if (!rustInventory || !services) {
         return null
     }
     const targets = new Set([
@@ -1667,7 +1544,7 @@ function allKnownTargets(context) {
             targets.add(target)
         }
     }
-    for (const crate of rustGraph.dependsOn.keys()) {
+    for (const crate of rustInventory.crateNames) {
         targets.add(rustCrate(crate))
     }
     // "ALL" overlapped the prose lane too, so a docs PR serialized behind a
@@ -1751,33 +1628,24 @@ function addProductSurfaceLanes(targets, context) {
 }
 
 function addRustLanes(targets, context) {
-    if (!context.rustGraph) {
+    if (!context.rustInventory) {
         return false
     }
-    for (const crate of context.rustGraph.dependsOn.keys()) {
+    for (const crate of context.rustInventory.crateNames) {
         targets.add(rustCrate(crate))
     }
     return true
 }
 
-// The crates the determinator says the change set moved, or every crate when it
-// could not say. computeTargets runs its reverse closure over whatever lands
-// here, so these are seeds rather than a finished answer.
-//
-// An answer naming no crate is a real verdict on a lockfile edit that moved no
-// resolution, but claiming nothing for it costs more than it saves. A change set
-// of only rust/Cargo.lock would then reach computeTargets' empty-set guard,
-// which reads a target-less set as a path no rule claimed and widens to every
-// lane in the repo — worse than the every-crate fallback, for a case rare enough
-// not to be worth the lanes.
+// rust/Cargo.lock sits in no crate directory, so its radius is whatever the
+// determinator's answer says the resolution change moved. The sentinel defers
+// to that answer, which the resolution at the end of computeTargets reads,
+// falling back to every crate when it is missing, empty, or in disagreement.
 function addCargoLockLanes(targets, context) {
-    const crates = context.cargoLockCrates
-    if (!crates || crates.length === 0) {
-        return addRustLanes(targets, context)
+    if (!context.rustInventory) {
+        return false
     }
-    for (const crate of crates) {
-        targets.add(rustCrate(crate))
-    }
+    targets.add(RUST_DETERMINATOR)
     return true
 }
 
@@ -1901,14 +1769,14 @@ function addProtoLanes(targets, context, file) {
         segments[0] !== 'proto' || segments.length === 2
             ? [...PROTO_TREES.keys()]
             : [segments[1]].filter((tree) => PROTO_TREES.has(tree))
-    if (trees.length === 0 || !context.rustGraph) {
+    if (trees.length === 0 || !context.rustInventory) {
         return false
     }
     for (const tree of trees) {
         const { crates, domains } = PROTO_TREES.get(tree)
         // A crate renamed out from under the table would drop the rust half
         // silently, which is the under-reporting direction.
-        if (crates.some((crate) => !context.rustGraph.dependsOn.has(crate))) {
+        if (crates.some((crate) => !context.rustInventory.crateNames.has(crate))) {
             console.error(
                 `No crate named for proto tree ${tree}; widening to every target until PROTO_TREES is updated`
             )
@@ -2010,7 +1878,7 @@ function computeTargets(changedFiles, context) {
     const {
         products,
         isolatedProducts,
-        rustGraph,
+        rustInventory,
         tachGraph,
         contractSurfaces = new Map(),
         productWorkspaces = new Map(),
@@ -2159,11 +2027,11 @@ function computeTargets(changedFiles, context) {
             return everything(context)
         }
         if (top === 'rust') {
-            if (!rustGraph) {
+            if (!rustInventory) {
                 targets.add('rust:unresolved')
                 continue
             }
-            const crate = rustGraph.byDir.find(
+            const crate = rustInventory.byDir.find(
                 (entry) => file.startsWith(`rust/${entry.dir}/`) || file === `rust/${entry.dir}`
             )
             if (crate) {
@@ -2277,19 +2145,38 @@ function computeTargets(changedFiles, context) {
         }
     }
 
-    if (rustGraph && [...targets].some((target) => target.startsWith('rust:crate:'))) {
-        const seeds = [...targets]
-            .filter((target) => target.startsWith('rust:crate:'))
-            .map((target) => target.slice('rust:crate:'.length))
-        const affectedCrates = reverseClosure(seeds, rustGraph.dependsOn)
+    // The rust:crate: targets accumulated above are seeds: the crates the
+    // changed paths sit in, plus the ones the proto and workspace rules named.
+    // The dependency closure over them is the determinator's answer, the same
+    // rust/affected-services run ci-rust.yml selects tests with, delivered
+    // through RUST_AFFECTED_CRATES. This script holds no crate dependency
+    // edges of its own, so a missing answer widens to every crate, and so does
+    // an answer that omits a seed, which means the determinator and this
+    // script disagree about the workspace. An answer naming no crate widens
+    // too: it is a real verdict on a lockfile edit that moved no resolution,
+    // but claiming nothing for it would reach the empty-set guard below and
+    // widen past the rust lanes entirely.
+    const needsDeterminator = targets.delete(RUST_DETERMINATOR)
+    const rustSeeds = [...targets]
+        .filter((target) => target.startsWith('rust:crate:'))
+        .map((target) => target.slice('rust:crate:'.length))
+    if (needsDeterminator || rustSeeds.length > 0) {
+        if (!rustInventory) {
+            return everything(context)
+        }
+        const answer = context.rustAffectedCrates
+        const affectedCrates =
+            answer && answer.length > 0 && rustSeeds.every((seed) => answer.includes(seed))
+                ? answer
+                : [...rustInventory.crateNames]
         for (const crate of affectedCrates) {
             targets.add(rustCrate(crate))
         }
         // A crate that also builds an npm package compiles into a native module
-        // the JS workspace imports, so the closure does not end at rust/. The
+        // the JS workspace imports, so the radius does not end at rust/. The
         // dependents are found through package.json rather than Cargo.toml,
-        // which is why the crate graph alone stops one edge short.
-        const bindings = rustGraph.nativeBindings || new Set()
+        // which is why the determinator's answer alone stops one edge short.
+        const bindings = rustInventory.nativeBindings || new Set()
         if (affectedCrates.some((crate) => bindings.has(crate))) {
             for (const target of NATIVE_BINDING_CONSUMER_LANES) {
                 targets.add(target)
@@ -2299,8 +2186,8 @@ function computeTargets(changedFiles, context) {
 
     if (targets.has('rust:unresolved')) {
         targets.delete('rust:unresolved')
-        if (rustGraph) {
-            for (const crate of rustGraph.dependsOn.keys()) {
+        if (rustInventory) {
+            for (const crate of rustInventory.crateNames) {
                 targets.add(rustCrate(crate))
             }
         } else {
@@ -2372,39 +2259,41 @@ function listServices(repoRoot) {
     }
 }
 
-// The crate list rust-compute-affected produced for this diff, as a JSON array.
-// The workflow only runs the determinator when the change set holds
-// rust/Cargo.lock, so on every other PR this is unset and never read.
-const CARGO_LOCK_CRATES_ENV = 'CARGO_LOCK_CRATES'
+// The crate list rust-compute-affected produced for this diff, as a JSON
+// array. It is the determinator's affected set (the changed crates plus the
+// closure of their dependents, with the runtime spawn edges its rules
+// declare), so it arrives as a finished answer rather than as seeds to close
+// over. The workflow only runs the determinator when the change set touches
+// rust/ or proto/, so on every other PR this is unset and never read.
+const RUST_AFFECTED_CRATES_ENV = 'RUST_AFFECTED_CRATES'
 
-// Returns null for unknown, which the caller widens on. The determinator answers
-// for the whole diff rather than for the lockfile alone, so this is a superset
-// of the lockfile's own contribution — the safe direction, and the union with
-// the path rules is what lands either way.
+// Returns null for unknown, which the caller widens on. The determinator
+// answers for the whole diff rather than for the rust paths alone, so this is
+// a superset of their own contribution, which is the safe direction.
 //
-// A name the crate graph does not know means the two disagree about the
+// A name the crate inventory does not know means the two disagree about the
 // workspace, and a disagreement resolves to unknown rather than to a lane list
 // built from half of it.
-function parseCargoLockCrates(raw, rustGraph) {
-    if (!rustGraph || !raw) {
+function parseRustAffectedCrates(raw, rustInventory) {
+    if (!rustInventory || !raw) {
         return null
     }
     let crates
     try {
         crates = JSON.parse(raw)
     } catch (error) {
-        console.error(`${CARGO_LOCK_CRATES_ENV} is not JSON (${error.message}); a lockfile change claims every crate`)
+        console.error(`${RUST_AFFECTED_CRATES_ENV} is not JSON (${error.message}); a rust change claims every crate`)
         return null
     }
     if (!Array.isArray(crates) || crates.some((crate) => typeof crate !== 'string')) {
-        console.error(`${CARGO_LOCK_CRATES_ENV} is not a list of crate names; a lockfile change claims every crate`)
+        console.error(`${RUST_AFFECTED_CRATES_ENV} is not a list of crate names; a rust change claims every crate`)
         return null
     }
-    const unknown = crates.filter((crate) => !rustGraph.dependsOn.has(crate))
+    const unknown = crates.filter((crate) => !rustInventory.crateNames.has(crate))
     if (unknown.length > 0) {
         console.error(
-            `The determinator named crates the graph does not hold (${unknown.join(', ')}); ` +
-                'a lockfile change claims every crate'
+            `The determinator named crates the inventory does not hold (${unknown.join(', ')}); ` +
+                'a rust change claims every crate'
         )
         return null
     }
@@ -2414,11 +2303,11 @@ function parseCargoLockCrates(raw, rustGraph) {
 function buildContext(repoRoot) {
     const products = listProducts(repoRoot)
     const tachGraph = loadTachGraph(repoRoot)
-    const rustGraph = loadRustGraph(repoRoot)
+    const rustInventory = loadRustInventory(repoRoot)
     const contractSurfaces = loadContractSurfaces(repoRoot, products)
     return {
         products,
-        cargoLockCrates: parseCargoLockCrates(process.env[CARGO_LOCK_CRATES_ENV], rustGraph),
+        rustAffectedCrates: parseRustAffectedCrates(process.env[RUST_AFFECTED_CRATES_ENV], rustInventory),
         services: listServices(repoRoot),
         isolatedProducts: listIsolatedProducts(repoRoot, products, contractSurfaces),
         contractSurfaces,
@@ -2426,7 +2315,7 @@ function buildContext(repoRoot) {
         backendDetachedProducts: loadBackendDetachedProducts(repoRoot, products, tachGraph),
         tachDeclaredProducts: listTachDeclaredProducts(products, tachGraph),
         semgrepDomains: loadSemgrepDomains(repoRoot),
-        rustGraph,
+        rustInventory,
         tachGraph,
     }
 }
@@ -2442,16 +2331,14 @@ module.exports = {
     isTripwire,
     listIsolatedProducts,
     loadContractSurfaces,
-    parseCrateDependencies,
     parseCrateName,
     parsePytestIgnores,
     parseSemgrepLanguages,
     parseWorkspacePackageGlobs,
-    reverseClosure,
     semgrepDomain,
     stripJsonComments,
     tripwireDomain,
-    parseCargoLockCrates,
+    parseRustAffectedCrates,
     ALL,
     CARGO_LOCK,
     CLI_ARTIFACTS,
@@ -2466,7 +2353,6 @@ module.exports = {
     PROTO_TREES,
     PYTHON,
     REPO_ROOT,
-    RUNTIME_SPAWN_EDGES,
     RUST,
     UNIVERSAL,
 }
