@@ -199,10 +199,12 @@ export interface experimentMetricsLogicActions {
                 | 'auto_refresh'
                 | 'cold_run'
                 | 'config_change'
+                | 'experiment_config_change'
                 | 'experiment_launch'
                 | 'experiment_stop'
                 | 'experiment_update'
                 | 'manual'
+                | 'metric_config_change'
                 | 'stale_refresh'
         }
     ) => {
@@ -220,10 +222,12 @@ export interface experimentMetricsLogicActions {
                 | 'auto_refresh'
                 | 'cold_run'
                 | 'config_change'
+                | 'experiment_config_change'
                 | 'experiment_launch'
                 | 'experiment_stop'
                 | 'experiment_update'
                 | 'manual'
+                | 'metric_config_change'
                 | 'stale_refresh'
                 | undefined
         }
@@ -660,7 +664,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                         recalculation.status === RECALCULATION_STATUSES.completed &&
                         recalculation.completed_metrics + recalculation.failed_metrics < recalculation.total_metrics
                     ) {
-                        actions.triggerRecalculation('config_change')
+                        actions.triggerRecalculation('metric_config_change')
                         return
                     }
                 } catch (error: any) {

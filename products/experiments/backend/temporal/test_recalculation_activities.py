@@ -94,8 +94,10 @@ class TestRecalculationActivities(BaseTest):
             team=self.team, created_by=self.user, feature_flag=self._flag(flag_key), name="exp"
         )
 
-    def _recalc(self, exp: Experiment) -> ExperimentMetricsRecalculation:
-        return ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp)
+    def _recalc(
+        self, exp: Experiment, trigger: str = ExperimentMetricsRecalculation.Trigger.MANUAL
+    ) -> ExperimentMetricsRecalculation:
+        return ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, trigger=trigger)
 
     def _attach_saved_metric(self, exp: Experiment, uuid: str, metric_type: str) -> None:
         saved = ExperimentSavedMetric.objects.create(
@@ -334,6 +336,94 @@ class TestRecalculationActivities(BaseTest):
             assert recalc.query_to == now + timedelta(days=end_date_offset_days)
         else:
             assert recalc.query_to == now
+
+    @parameterized.expand(
+        [
+            # trigger, expect_reuse: only a metric-scoped change reuses the prior completed window.
+            (ExperimentMetricsRecalculation.Trigger.METRIC_CONFIG_CHANGE, True),
+            (ExperimentMetricsRecalculation.Trigger.EXPERIMENT_CONFIG_CHANGE, False),
+            (ExperimentMetricsRecalculation.Trigger.MANUAL, False),
+            (ExperimentMetricsRecalculation.Trigger.AUTO_REFRESH, False),
+        ]
+    )
+    @freeze_time("2026-06-23T05:00:00Z")
+    def test_mark_started_reuses_prior_window_only_for_metric_config_change(self, trigger: str, expect_reuse: bool):
+        # A running experiment has no end_date, so advancing triggers pin now while metric_config_change copies
+        # the latest completed run's query_to — the signal that keeps unchanged metrics on the cache.
+        now = timezone.now()
+        prior_window = now - timedelta(hours=6)
+        exp = self._experiment(flag_key=f"reuse-{trigger}")
+        ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status=ExperimentMetricsRecalculation.Status.COMPLETED,
+            query_to=prior_window,
+            completed_at=prior_window,
+        )
+        recalc = self._recalc(exp, trigger=trigger)
+
+        _update(
+            RecalculationProgressUpdate(
+                recalculation_id=str(recalc.id),
+                status="in_progress",
+                total_metrics=1,
+                metric_uuids=["m1"],
+                mark_started=True,
+            )
+        )
+
+        recalc.refresh_from_db()
+        assert recalc.query_to == (prior_window if expect_reuse else now)
+
+    @freeze_time("2026-06-23T05:00:00Z")
+    def test_mark_started_metric_config_change_clamps_to_end_date_when_stopped(self):
+        # A stopped experiment has a fixed window: even metric_config_change resolves to end_date, so a stale
+        # prior window (recorded before the stop) can never push the recompute window past end_date.
+        now = timezone.now()
+        exp = self._experiment(flag_key="reuse-stopped")
+        exp.end_date = now - timedelta(days=2)
+        exp.save(update_fields=["end_date"])
+        ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status=ExperimentMetricsRecalculation.Status.COMPLETED,
+            query_to=now - timedelta(days=1),
+            completed_at=now - timedelta(days=1),
+        )
+        recalc = self._recalc(exp, trigger=ExperimentMetricsRecalculation.Trigger.METRIC_CONFIG_CHANGE)
+
+        _update(
+            RecalculationProgressUpdate(
+                recalculation_id=str(recalc.id),
+                status="in_progress",
+                total_metrics=1,
+                metric_uuids=["m1"],
+                mark_started=True,
+            )
+        )
+
+        recalc.refresh_from_db()
+        assert recalc.query_to == exp.end_date
+
+    @freeze_time("2026-06-23T05:00:00Z")
+    def test_mark_started_metric_config_change_advances_when_no_prior_window(self):
+        # First metric-scoped run: nothing to reuse, so it falls back to now rather than leaving query_to unset.
+        now = timezone.now()
+        exp = self._experiment(flag_key="reuse-no-prior")
+        recalc = self._recalc(exp, trigger=ExperimentMetricsRecalculation.Trigger.METRIC_CONFIG_CHANGE)
+
+        _update(
+            RecalculationProgressUpdate(
+                recalculation_id=str(recalc.id),
+                status="in_progress",
+                total_metrics=1,
+                metric_uuids=["m1"],
+                mark_started=True,
+            )
+        )
+
+        recalc.refresh_from_db()
+        assert recalc.query_to == now
 
     def test_mark_completed_is_first_write_wins_on_retry(self):
         # Symmetric to mark_started: a retried finish activity must not re-stamp completed_at.

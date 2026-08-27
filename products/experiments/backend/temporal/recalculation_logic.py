@@ -172,6 +172,33 @@ def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentM
 # Progress (start / finish only — per-metric progress is folded into the calc step)
 # ---------------------------------------------------------------------------
 
+# Triggers that keep the prior window so unchanged metrics hit the (experiment, metric, query_to, fingerprint)
+# cache and only new or changed metrics recompute. Every other trigger advances the window to now.
+_REUSE_WINDOW_TRIGGERS = frozenset({ExperimentMetricsRecalculation.Trigger.METRIC_CONFIG_CHANGE})
+
+
+def _resolve_query_to(experiment: Experiment, trigger: str | None) -> datetime:
+    """Window end for a starting run: reuse the latest completed run's for metric-scoped changes, else advance.
+
+    A stopped experiment has a fixed window (experiment_window_end always returns end_date), so reuse is moot
+    and we skip the lookup. archived is orthogonal: it never affects the window, which reads only end_date.
+    """
+    now = timezone.now()
+    if experiment.is_stopped or trigger not in _REUSE_WINDOW_TRIGGERS:
+        return experiment_window_end(experiment, now)
+
+    latest_query_to = (
+        ExperimentMetricsRecalculation.objects.filter(
+            experiment=experiment,
+            status=ExperimentMetricsRecalculation.Status.COMPLETED,
+            query_to__isnull=False,
+        )
+        .order_by("-query_to")
+        .values_list("query_to", flat=True)
+        .first()
+    )
+    return experiment_window_end(experiment, latest_query_to if latest_query_to is not None else now)
+
 
 @database_sync_to_async_pool
 def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> str | None:
@@ -193,7 +220,7 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
         # calc activities still in flight from the prior attempt).
         if update.mark_started:
             experiment = Experiment.objects.get(id=state.experiment_id)
-            proposed_query_to = experiment_window_end(experiment, timezone.now())
+            proposed_query_to = _resolve_query_to(experiment, state.trigger)
 
             won = (
                 ExperimentMetricsRecalculation.objects.filter(
