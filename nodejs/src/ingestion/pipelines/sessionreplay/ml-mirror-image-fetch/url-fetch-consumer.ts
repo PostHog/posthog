@@ -61,7 +61,7 @@ export class UrlFetchConsumer {
         let registrableDomainCount = 0
         let originCandidateCounts: number[] = []
         let registrableDomainCandidateCounts: number[] = []
-        ImageFetchConsumerMetrics.startBatch()
+        const activeBatchId = ImageFetchConsumerMetrics.startBatch()
 
         try {
             for (const message of messages) {
@@ -163,7 +163,7 @@ export class UrlFetchConsumer {
             }
             await this.parkRejectedRecords(rejectedRecords, drops)
         } finally {
-            ImageFetchConsumerMetrics.finishBatch()
+            ImageFetchConsumerMetrics.finishBatch(activeBatchId)
             this.recordMetrics(
                 drops,
                 dedupedInBatch,
