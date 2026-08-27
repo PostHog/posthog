@@ -117,7 +117,11 @@ def _summary_quota_cache_key(organization_id) -> str:
 
 
 def _log_subscription_context_changes(
-    subscription: Subscription, user, old_context_ids: dict[str, set[int]], new_context_ids: dict[str, set[int]]
+    subscription: Subscription,
+    user,
+    old_context_ids: dict[str, set[int]],
+    new_context_ids: dict[str, set[int]],
+    was_impersonated: bool,
 ) -> None:
     """Record M2M report-grounding changes with the request actor.
 
@@ -129,8 +133,10 @@ def _log_subscription_context_changes(
             type="Subscription",
             field=field,
             action="changed",
-            before=sorted(old_ids),
-            after=sorted(new_context_ids[field]),
+            # Context IDs may no longer be visible to the actor. The field name is enough to
+            # preserve an audit trail without turning this log into an identifier disclosure path.
+            before=None,
+            after=None,
         )
         for field, old_ids in old_context_ids.items()
         if old_ids != new_context_ids[field]
@@ -146,7 +152,7 @@ def _log_subscription_context_changes(
             scope="Subscription",
             activity="updated",
             detail=Detail(name=subscription.display_name, changes=changes),
-            was_impersonated=get_was_impersonated(),
+            was_impersonated=was_impersonated,
         )
     except Exception as exc:
         capture_exception(exc)
@@ -1093,6 +1099,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 "context_dashboards": set(instance.context_dashboards.values_list("id", flat=True)),
                 "context_insights": set(instance.context_insights.values_list("id", flat=True)),
             },
+            get_was_impersonated(),
         )
 
         # Bust the org-wide active-summary count cache so the next quota
@@ -1211,7 +1218,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         with attribute_subscription_saves(analytics_props):
             instance = super().update(instance, validated_data)
-        _log_subscription_context_changes(instance, request.user, old_context_ids, new_context_ids)
+        _log_subscription_context_changes(
+            instance, request.user, old_context_ids, new_context_ids, get_was_impersonated()
+        )
         _invalidate_summary_quota_cache(instance.team.organization_id)
 
         # Apply the M2M whenever the field is in the payload — including an empty list, which clears it.
@@ -1703,10 +1712,13 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         )
 
     def _can_recover_context_access(self, subscription: Subscription) -> bool:
-        return (
-            subscription.created_by_id == self.request.user.id
-            and not self._can_view_subscription(subscription, include_anchors=True)
-            and self._can_view_subscription(subscription, include_anchors=False)
+        return subscription.created_by_id == self.request.user.id and (
+            subscription.context_dashboards.filter(deleted=True).exists()
+            or subscription.context_insights.filter(deleted=True).exists()
+            or (
+                not self._can_view_subscription(subscription, include_anchors=True)
+                and self._can_view_subscription(subscription, include_anchors=False)
+            )
         )
 
     def _validate_context_recovery_update(self, subscription: Subscription, data) -> None:

@@ -2738,7 +2738,15 @@ class TestAISubscriptionAPI(APILicensedTest):
         dashboard.deleted = True
         dashboard.save(update_fields=["deleted"])
         retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}")
+        assert retrieved.status_code == status.HTTP_200_OK, retrieved.json()
         assert retrieved.json()["contexts"] == []
+        assert retrieved.json()["context_recovery"] is True
+
+        cleared = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}", {"context_dashboards": []}
+        )
+        assert cleared.status_code == status.HTTP_200_OK, cleared.json()
+        assert cleared.json()["context_recovery"] is False
 
     def test_cannot_add_a_deleted_dashboard_as_context(self, *mocks: MagicMock):
         self._enable_ai()

@@ -251,6 +251,8 @@ function EditSubscriptionForm({
     onDelete,
 }: EditSubscriptionProps): JSX.Element {
     const dashboardId = dashboard?.id
+    const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
+    const aiSubscriptionContextsEnabled = useFeatureFlag(FEATURE_FLAGS.SUBSCRIPTION_AI_CONTEXT)
     const logicProps = {
         id,
         insightShortId,
@@ -258,6 +260,7 @@ function EditSubscriptionForm({
         insightName,
         dashboardId,
         dashboardName: dashboard?.name,
+        contextEnabled: Boolean(aiSubscriptionContextsEnabled),
     }
     const logic = subscriptionLogic(logicProps)
     const subscriptionslogic = subscriptionsLogic({
@@ -294,8 +297,6 @@ function EditSubscriptionForm({
     const { deleteSubscription } = useActions(subscriptionslogic)
     const { slackIntegrations, integrations } = useValues(integrationsLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
-    const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
-    const aiSubscriptionContextsEnabled = useFeatureFlag(FEATURE_FLAGS.SUBSCRIPTION_AI_CONTEXT)
 
     const emailDisabled = !preflight?.email_service_available
     const isAiPrompt = subscription?.resource_type === SubscriptionResourceTypes.AiPrompt

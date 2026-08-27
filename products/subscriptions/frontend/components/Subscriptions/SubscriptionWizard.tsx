@@ -100,6 +100,7 @@ export function SubscriptionWizard({
     dashboard,
     onCancel,
 }: SubscriptionWizardProps): JSX.Element {
+    const aiSubscriptionContextsEnabled = useFeatureFlag(FEATURE_FLAGS.SUBSCRIPTION_AI_CONTEXT)
     const logicProps = {
         id: 'new' as const,
         insightShortId,
@@ -108,6 +109,7 @@ export function SubscriptionWizard({
         dashboardName: dashboard?.name,
         insightName,
         creationSource: 'wizard' as const,
+        contextEnabled: Boolean(aiSubscriptionContextsEnabled),
     }
     const subscriptionFormLogic = subscriptionLogic(logicProps)
     const [currentStep, setStep] = useState<SubscriptionWizardStep>(SubscriptionWizardStep.Content)
@@ -122,7 +124,6 @@ export function SubscriptionWizard({
     const { preflight } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
-    const aiSubscriptionContextsEnabled = useFeatureFlag(FEATURE_FLAGS.SUBSCRIPTION_AI_CONTEXT)
 
     if (subscriptionLoading || !subscriptionInitialized) {
         return <SubscriptionFormSkeleton />

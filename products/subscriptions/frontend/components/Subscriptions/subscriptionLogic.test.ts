@@ -783,6 +783,22 @@ describe('subscriptionLogic', () => {
         dashboardAiLogic.unmount()
     })
 
+    it('does not preselect page context when the context rollout is disabled', async () => {
+        const dashboardAiLogic = subscriptionLogic({
+            dashboardId: 9,
+            dashboardName: 'Growth',
+            id: 'new',
+            contextEnabled: false,
+        })
+        dashboardAiLogic.mount()
+        router.actions.push('/subscriptions/new')
+        await expectLogic(dashboardAiLogic).toFinishListeners()
+
+        expect(dashboardAiLogic.values.subscription.context_dashboards).toEqual([])
+        expect(dashboardAiLogic.values.subscription.contexts).toEqual([])
+        dashboardAiLogic.unmount()
+    })
+
     it('caps combined context at 25 when the picker stays open', async () => {
         const capLogic = subscriptionLogic({ id: 'new' })
         capLogic.mount()
