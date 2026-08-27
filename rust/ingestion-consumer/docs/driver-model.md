@@ -531,8 +531,12 @@ task commit_monitor {
 // One long-lived task. Sole owner of everything transport-shaped — including every
 // key's send state; mutation is plain &mut, and its select! is its only await point.
 struct WorkerBatcher {
-    keys: Map<RoutingKey, KeyState>,         // created on first group, evicted when empty
-    ready: Deque<RoutingKey>,                // keys with queued work and nothing outstanding
+    keys: Map<RoutingKey, KeyState>,         // the state: created on first group, evicted
+                                             //   when empty; unbounded cardinality
+    ready: Deque<RoutingKey>,                // the run-queue: an index over `keys` so
+                                             //   dispatch is O(runnable), FIFO for cross-
+                                             //   key fairness; membership mirrored by the
+                                             //   key's in_ready bit — never derived twice
     draining: Map<Partition, usize>,         // revocations mid-drain (§4.5): how many of
                                              //   the partition's keys are still outstanding
     bins: Map<WorkerId, Bin>,                // bin: ordered groups, events/bytes, affinities
@@ -551,8 +555,18 @@ struct WorkerBatcher {
 struct KeyState {
     queue: FifoQueue<Group>,                 // the key's send order — §2.5's cascade rule,
     outstanding: bool,                       //   as a structure; exactly one request may
-    pin: Option<WorkerId>,                   //   carry a key's work at a time (asserted at
-}                                            //   settle); the pin is locality, not order
+    in_ready: bool,                          //   carry a key's work at a time (asserted at
+    pin: Option<WorkerId>,                   //   settle); the pin is locality, not order
+}                                            // in_ready flips together with deque
+                                             //   membership — a key can't be queued twice
+
+fn make_ready(key) {                         // the ONLY way into the deque: flag and
+    let k = keys[key];                       //   membership flip together, so entries are
+    if !k.in_ready && !k.outstanding && !k.queue.is_empty() {    //   unique by construction
+        k.in_ready = true;
+        ready.push(key)
+    }
+}
 
 task worker_batcher {
     loop {
@@ -575,10 +589,9 @@ task worker_batcher {
 }
 
 fn admit(group) {                            // one demuxed group joins its key's queue
-    let k = keys.entry(group.key).or_create();
-    k.queue.push_back(group);
-    if !k.outstanding { ready.push(group.key) }
-}
+    keys.entry(group.key).or_create().queue.push_back(group);
+    make_ready(group.key)                    // no-op if already queued, parked, or
+}                                            //   outstanding — the guard decides
 
 fn settle(w, outcome, groups) {              // one resolved request, key by key
     for (key, run) in groups.by_key() {
@@ -594,7 +607,7 @@ fn settle(w, outcome, groups) {              // one resolved request, key by key
             Ack     => k.pin = Some(w),      // locality for the next placement
             Failure => { k.queue.push_front(run); k.pin = None }   // order intact
         }
-        if !k.queue.is_empty() { ready.push(key) }
+        if !k.queue.is_empty() { make_ready(key) }
         else if outcome == Ack { keys.evict(key) }
     }
     if outcome == Ack { completions.send(Completed(groups)) }      // the ledgers' feed;
@@ -605,10 +618,11 @@ fn settle(w, outcome, groups) {              // one resolved request, key by key
 
 fn dispatch() {                              // the batcher's own algorithm (§4.3): one
     retry_at = None;                         //   pass over the ready keys
-    for key in take(ready) {
-        let k = keys[key];
+    for key in take(ready) {                 // take() swaps the deque out, so re-parking
+        let Some(k) = keys.get(key) else { continue };   //   pushes into a fresh one;
+        k.in_ready = false;                  //   a purged partition's stale ids drop here
         match router.place(k.pin, &bins) {
-            None    => { ready.push(key); retry_at.arm_if_unarmed(PARK_RETRY) }  // parked:
+            None    => { make_ready(key); retry_at.arm_if_unarmed(PARK_RETRY) }  // parked:
             Some(w) => {                                     //   re-tried on the next wake
                 bins[w].take(k.queue, up_to: T);     // a contiguous, in-order run — a hot
                 k.outstanding = true;                //   key may fill the whole request
@@ -805,7 +819,7 @@ The consumer's vocabulary has to survive three audiences at once: this crate, th
 | `partition manager` | the domain side's root: assignment lifecycle + the offset ledgers | — |
 | `release` | the loop's hand-off of a filled accumulator to the batcher | the ship-a-version sense |
 | `worker batcher` | the transport-side task: key states, placement, bins, streams | — |
-| `key state` | the batcher's per-key send state: queue · outstanding · pin | key *driver* — retired with the domain-side version |
+| `key state` | the batcher's per-key send state: queue · outstanding · in_ready · pin | key *driver* — retired with the domain-side version |
 | `outstanding` | a key has exactly one request's worth of work out (§2.5's sense) | in-flight, for this |
 | `admit` / `dispatch` / `settle` | the batcher's three phases: queue in, place + fire, resolve | — |
 | `completion` | one ACKed request's groups, forwarded to the loop for the ledgers | request result — failures never cross the seam |
