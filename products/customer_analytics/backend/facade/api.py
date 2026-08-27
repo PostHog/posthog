@@ -1883,6 +1883,31 @@ def _start_person_backfill_if_enabled(source: CustomPropertySource) -> None:
     transaction.on_commit(lambda: _start_backfill(team_id, binding, "backfill"))
 
 
+def _stamp_profile_source_provenance(source: CustomPropertySource, binding: "WarehouseBinding") -> None:
+    """Apply the source's current mapping metadata without waiting for a value-hash change."""
+    from products.warehouse_sources.backend.facade.person_property_provenance import (  # noqa: PLC0415
+        stamp_person_property_provenance,
+    )
+
+    column_property_map = source.column_property_map or {}
+    column_descriptions = source.column_descriptions or {}
+    property_descriptions = {
+        column_property_map[column]: description
+        for column, description in column_descriptions.items()
+        if column in column_property_map and description
+    }
+    stamp_person_property_provenance(
+        team_id=source.team_id,
+        binding=binding,
+        source_id=str(source.id),
+        definition_id=str(source.definition_id),
+        target=source.definition.target_type,
+        group_type_index=source.definition.group_type_index,
+        property_names=column_property_map.values(),
+        property_descriptions=property_descriptions,
+    )
+
+
 def _triggerable_profile_binding(team_id: int, source_id: str) -> "WarehouseBinding | None":
     """The warehouse object to act on for a person/group-property trigger, or None when the source isn't
     a valid, flag-enabled warehouse-profile source (→ the view returns 400)."""
@@ -2192,10 +2217,14 @@ def update_custom_property_source(
                 source.column_descriptions, set(validated_map)
             )
     reenabling = fields.get("is_enabled") is True and not source.is_enabled
-    columns_changed = any(
-        attr in fields and fields[attr] != getattr(source, attr)
-        for attr in ("source_column", "key_column", "column_property_map")
+    mapping_changed = "column_property_map" in fields and fields["column_property_map"] != source.column_property_map
+    descriptions_changed = (
+        "column_descriptions" in fields and fields["column_descriptions"] != source.column_descriptions
     )
+    columns_changed = any(
+        attr in fields and fields[attr] != getattr(source, attr) for attr in ("source_column", "key_column")
+    )
+    columns_changed = columns_changed or mapping_changed
     # Profile mapping fields always require editor access to the bound warehouse object, including while
     # disabled. Existing re-enable/column changes require it when they will trigger a backfill.
     will_be_enabled = fields.get("is_enabled", source.is_enabled) is True
@@ -2208,6 +2237,8 @@ def update_custom_property_source(
         source.consecutive_failures = 0
         source.last_sync_error = None
     source.save()
+    if binding is not None and (mapping_changed or descriptions_changed):
+        _stamp_profile_source_provenance(source, binding)
     # Only re-sync on a change that affects what gets written — not on every (possibly no-op) PATCH.
     if reenabling or columns_changed:
         _enqueue_sync_if_enabled(source)

@@ -8,6 +8,8 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models import PropertyDefinition
+
 from products.customer_analytics.backend.facade import api
 from products.customer_analytics.backend.models import CustomPropertySource, CustomPropertySyncRun, TargetType
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
@@ -246,9 +248,17 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         start_backfill.assert_not_called()
 
     @patch("products.customer_analytics.backend.facade.api._start_person_backfill_if_enabled")
-    def test_update_person_descriptions_does_not_start_a_backfill(self, start_backfill):
-        source = self._create(user_access_control=self._uac(allowed=True))
+    def test_update_person_descriptions_stamps_and_clears_provenance_without_a_backfill(self, start_backfill):
+        source = self._create(
+            column_descriptions={"plan": "Old description"}, user_access_control=self._uac(allowed=True)
+        )
         start_backfill.reset_mock()
+        definition = PropertyDefinition.objects.create(
+            team=self.team,
+            name="plan_tier",
+            type=PropertyDefinition.Type.PERSON,
+            warehouse_origin={"description": "Old description"},
+        )
 
         view = api.update_custom_property_source(
             team_id=self.team.id,
@@ -258,6 +268,22 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         )
 
         assert view is not None and view.column_descriptions == {"plan": "Plan tier"}
+        definition.refresh_from_db()
+        assert definition.warehouse_origin is not None
+        assert definition.warehouse_origin["custom_property_source_id"] == str(source.id)
+        assert definition.warehouse_origin["description"] == "Plan tier"
+
+        cleared = api.update_custom_property_source(
+            team_id=self.team.id,
+            source_id=source.id,
+            fields={"column_descriptions": None},
+            user_access_control=self._uac(allowed=True),
+        )
+
+        assert cleared is not None and cleared.column_descriptions == {}
+        definition.refresh_from_db()
+        assert definition.warehouse_origin is not None
+        assert "description" not in definition.warehouse_origin
         start_backfill.assert_not_called()
 
     @patch("products.customer_analytics.backend.facade.api._start_person_backfill_if_enabled")

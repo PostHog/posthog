@@ -38,13 +38,14 @@ import pyarrow.parquet as pq
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES
-from posthog.models import PropertyDefinition, Team
+from posthog.models import Team
 from posthog.models.group.util import get_groups_by_identifiers
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.sync import database_sync_to_async
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
+from products.warehouse_sources.backend.facade.person_property_provenance import stamp_person_property_provenance
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     PersonPropertySyncRunRecord,
@@ -408,34 +409,18 @@ def _stamp_provenance(
     team_id: int, binding: WarehouseBinding, source: PersonPropertySyncSource, property_names: list[str]
 ) -> None:
     # UPDATE-only on purpose: definitions are created by ingestion's propdef upsert when the $set /
-    # $groupidentify lands, so a brand-new property may not have a row yet on the first sync — the next
-    # sync's stamp catches it. Never inserting means this can't race that upsert.
-    origin: dict[str, str] = {
-        "source_id": str(source.definition_id),
-        "custom_property_source_id": str(source.source_id),
-        "binding_kind": binding.kind,
-        "binding_id": binding.id,
-    }
-    # Kept for schema bindings: rows stamped before views were supported carry this key, so dropping
-    # it would leave two stamps of the same schema describing it differently.
-    if not binding.is_saved_query:
-        origin["schema_id"] = binding.id
-    query = PropertyDefinition.objects.filter(team_id=team_id)
-    if source.target == _GROUP_TARGET:
-        # Group propdefs are keyed per group type, so the index predicate is mandatory.
-        query = query.filter(type=PropertyDefinition.Type.GROUP, group_type_index=source.group_type_index)
-    else:
-        query = query.filter(type=PropertyDefinition.Type.PERSON)
-
-    # Properties given a description carry it inside their provenance, so stamp those one at a time;
-    # the rest share the base origin and go in a single bulk update.
-    descriptions = source.property_descriptions or {}
-    described = [name for name in property_names if descriptions.get(name)]
-    plain = [name for name in property_names if not descriptions.get(name)]
-    if plain:
-        query.filter(name__in=plain).update(warehouse_origin=origin)
-    for name in described:
-        query.filter(name=name).update(warehouse_origin={**origin, "description": descriptions[name]})
+    # $groupidentify lands, so a brand-new property may not have a row yet on the first sync. Keeping
+    # the write in the warehouse facade also lets a description-only API update reuse the same owner.
+    stamp_person_property_provenance(
+        team_id=team_id,
+        binding=binding,
+        source_id=str(source.source_id),
+        definition_id=str(source.definition_id),
+        target=source.target,
+        group_type_index=source.group_type_index,
+        property_names=property_names,
+        property_descriptions=source.property_descriptions or {},
+    )
 
 
 # --- orchestration -----------------------------------------------------------------------
