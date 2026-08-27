@@ -38,9 +38,11 @@ Measured locally: two identical batches landing in separate parts read as 6 rows
 | `batch-exports`     | `batch_export_rows`                                               | rows           | the BatchExportRun ID                                                                           | batch exports worker               |
 | `replay-vision`     | `replay_vision_credits`                                           | credits        | the observation ID                                                                              | replay vision worker               |
 | `logs`              | `logs_bytes`, `logs_records`                                      | bytes, records | fresh UUIDv7 per flush                                                                          | logs ingestion server              |
-| `apm`               | `apm_bytes`, `apm_spans`                                          | bytes, records | fresh UUIDv7 per flush                                                                          | traces ingestion server            |
+| `apm-traces`        | `apm_traces_bytes`, `apm_traces_spans`                            | bytes, records | fresh UUIDv7 per flush                                                                          | traces ingestion server            |
 | `session-replay`    | `session_replay_recordings`, `mobile_replay_recordings`           | recordings     | the session ID                                                                                  | session replay consumer            |
 | `ingestion`         | `enhanced_person_events`                                          | events         | `{day}:{sha256 of event, distinct_id, uuid}`                                                    | ingestion consumers, ingestion API |
+
+APM names its producer and meters for the signal they carry, not for the product, so metrics get their own names alongside traces rather than inheriting a bare `apm_` prefix that already means spans.
 
 Every producer reads the same four env vars, and each one is its own deployment, so one name still rolls out per producer from that service's own config.
 

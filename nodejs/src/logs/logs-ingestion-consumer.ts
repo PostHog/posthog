@@ -1067,7 +1067,7 @@ export class LogsIngestionConsumer {
             if (retentionMetric) {
                 this.queueUsageMetric(teamId, retentionMetric, stats.bytesAllowed)
             }
-            const source = this.appSource === 'traces' ? 'apm' : 'logs'
+            const source = this.appSource === 'traces' ? 'apm_traces' : 'logs'
             // These records are per-flush aggregates, not one per billed thing, so there is no
             // stable identity to reproduce. A fresh ID per flush is what keeps two pods flushing
             // the same team from colliding and collapsing one flush's quantity away.
@@ -1075,7 +1075,7 @@ export class LogsIngestionConsumer {
             this.deps.usageBatch.add(teamId, `${source}_bytes`, flushId, stats.bytesAllowed, 'bytes')
             this.deps.usageBatch.add(
                 teamId,
-                source === 'apm' ? 'apm_spans' : 'logs_records',
+                source === 'apm_traces' ? 'apm_traces_spans' : 'logs_records',
                 flushId,
                 stats.recordsAllowed,
                 'records'

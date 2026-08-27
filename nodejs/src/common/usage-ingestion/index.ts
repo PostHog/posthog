@@ -21,7 +21,7 @@ export type UsageReportSite =
     | 'cdp'
     | 'surveys'
     | 'logs'
-    | 'apm'
+    | 'apm_traces'
     | 'session_replay'
     | 'enhanced_persons'
 
@@ -32,7 +32,7 @@ const PRODUCER_IDS = {
     cdp: 'cdp',
     surveys: 'ingestion',
     logs: 'logs',
-    apm: 'apm',
+    apm_traces: 'apm-traces',
     session_replay: 'session-replay',
     enhanced_persons: 'ingestion',
 } as const

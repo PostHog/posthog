@@ -113,7 +113,7 @@ export class IngestionTracesServer implements NodeServer {
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []
 
         serviceLoaders.push(async () => {
-            const usageBatch = new UsageRecordBatch(createUsageIngestionClient(this.config, 'apm'), {
+            const usageBatch = new UsageRecordBatch(createUsageIngestionClient(this.config, 'apm_traces'), {
                 unit: 'bytes',
                 isTeamEnabled: usageReportTeamMatcher(this.config),
             })
