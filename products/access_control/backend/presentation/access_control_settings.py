@@ -33,6 +33,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import PropertyDefinition
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
+from posthog.permissions import get_authenticator_scoped_team_ids
 from posthog.scopes import INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
 
 from products.access_control.backend.facade.resolution_preview import build_resolution_preview
@@ -304,12 +305,16 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             raise exceptions.PermissionDenied("Only organization admins can view the resolution preview.")
 
         # Organization-wide: every project with rules that the requester administers. An org
-        # admin sees them all; a project admin sees only their own projects.
-        ruled_team_ids = AccessControl.objects.filter(team__organization_id=team.organization_id).values_list(
-            "team_id", flat=True
+        # admin sees them all; a project admin sees only their own projects. A credential
+        # scoped to specific projects never reaches beyond them.
+        ruled_team_ids = set(
+            AccessControl.objects.filter(team__organization_id=team.organization_id).values_list("team_id", flat=True)
         )
+        scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
+        if scoped_team_ids is not None:
+            ruled_team_ids &= set(scoped_team_ids)
         visible_teams: list[tuple[Team, UserAccessControl]] = []
-        for candidate in Team.objects.filter(organization_id=team.organization_id, id__in=set(ruled_team_ids)).order_by(
+        for candidate in Team.objects.filter(organization_id=team.organization_id, id__in=ruled_team_ids).order_by(
             "id"
         ):
             candidate_access = (

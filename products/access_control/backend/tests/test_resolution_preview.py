@@ -3,7 +3,9 @@ import pytest
 from rest_framework import status
 
 from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.facade.resolution_preview import build_resolution_preview
 from products.access_control.backend.models.access_control import AccessControl
@@ -233,3 +235,26 @@ class TestResolutionPreviewAPI(BaseUserAccessControlTest):
         data = response.json()
         assert data["summary"]["total"] == 2
         assert {change["project_name"] for change in data["changes"]} == {self.team.name, "Second project"}
+
+    def test_project_scoped_credential_stays_within_its_projects(self):
+        self.membership.level = OrganizationMembership.Level.ADMIN
+        self.membership.save()
+        other_team = Team.objects.create(organization=self.organization, name="Second project")
+        other_dashboard = Dashboard.objects.create(team=other_team, created_by=self.other_user, name="Other KPIs")
+        AccessControl.objects.create(
+            team=other_team, resource="dashboard", resource_id=str(other_dashboard.id), access_level="viewer"
+        )
+        AccessControl.objects.create(team=other_team, resource="dashboard", resource_id=None, access_level="editor")
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="scoped", user=self.user, secure_value=hash_key_value(key), scoped_teams=[self.team.id], scopes=["*"]
+        )
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/access_control_resolution_preview",
+            headers={"authorization": f"Bearer {key}"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert {change["project_name"] for change in response.json()["changes"]} == {self.team.name}
