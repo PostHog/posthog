@@ -302,7 +302,7 @@ def _align_to_interval(timestamp: dt.datetime, interval: str, *, tzinfo: ZoneInf
     # or lengthened by a DST transition then keeps both grids on the same
     # boundaries.
     step = _interval_step(interval)
-    return midnight.astimezone(dt.UTC) + (local - midnight) // step * step
+    return midnight.astimezone(dt.UTC) + (local.astimezone(dt.UTC) - midnight.astimezone(dt.UTC)) // step * step
 
 
 # Prometheus's default lookback delta. One interval step on its own is not
