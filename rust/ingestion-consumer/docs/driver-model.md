@@ -149,15 +149,15 @@ The hierarchy follows containment in the *data*: a partition contains per-key me
 
 Below the consumer loop the tree has exactly two sides — the **domain side** (partition manager down to key drivers) and the **transport side** (the worker batcher and everything under it, with the result stream as its outlet) — and the seam between them is two channels of plain values: **accumulators** of releases go down, **request results** come back up (§4.7). The loop carries the buffer across the seam: at each tick it obtains an accumulator from its factory, lends it down the cascade (`&mut` — no locking anywhere), and releases it to the batcher when the cascade returns; the release is the hand-off's only coordination. The domain side owns nothing transport-shaped at all — not a channel, not even the buffer — and because the transport runs as its own task, placement and packing overlap the loop's next cascade.
 
-- **Consumer loop** — polls rdkafka, applies backpressure (§4.4), drains the result stream, watches assignment events, and hands each of them to the partition manager; a producing tick is three steps — obtain an accumulator, run the cascade, release what accumulated — and between events it sleeps until the earliest deadline any component owns. Deliberately not a *driver* — it owns no unit's state (§8). With the transport behind the accumulator hand-off and every firing trigger event-driven inside the batcher (§4.3), it is a pure event pump: it owns nothing partition- or worker-shaped and knows no timer kinds.
-- **Partition manager** — the domain side's root. Owns the partition drivers and their lifecycle: partition assigned ⇒ create a driver; revoked ⇒ tear it down wholesale, with its key drivers and pending state (the rebalance unit and the component unit coincide). Owns the domain's only clock, the stall-sweep cadence — and nothing transport-shaped: it fills the accumulator it is *lent* (a test just reads the buffer back). Distributes work: demuxes each poll to its partition drivers, routes each request result's groups back to the partition driver that owns them, discards results whose assignment epoch is dead, and collects every release its drivers hand up into the lent buffer. Everything it passes down and collects up is a value.
+- **Consumer loop** — polls rdkafka, applies backpressure (§4.4), drains the result stream, watches assignment events, and hands each of them to the partition manager; a producing tick is three steps — obtain an accumulator, run the cascade, release what accumulated. Deliberately not a *driver* — it owns no unit's state (§8). With the transport behind the accumulator hand-off and every firing trigger event-driven inside the batcher (§4.3), it is a pure event pump: it owns nothing partition- or worker-shaped, and its one clock is an anonymous housekeeping tick for the two jobs that must run when no events arrive (commits, stall checks).
+- **Partition manager** — the domain side's root. Owns the partition drivers and their lifecycle: partition assigned ⇒ create a driver; revoked ⇒ tear it down wholesale, with its key drivers and pending state (the rebalance unit and the component unit coincide). Owns nothing transport-shaped and no clock of its own — the loop's housekeeping tick drives its stall checks, and it fills the accumulator it is *lent* (a test just reads the buffer back). Distributes work: demuxes each poll to its partition drivers, routes each request result's groups back to the partition driver that owns them, discards results whose assignment epoch is dead, and collects every release its drivers hand up into the lent buffer. Everything it passes down and collects up is a value.
 - **Partition driver** — splits its messages by routing key into groups and hands them to key drivers; owns the **offset ledger**: the set of pending offsets and the highest contiguous completed offset (the **frontier**), which is what gets committed, on a cadence. Contiguity becomes *constructive* — the ledger computes exactly the committable frontier — instead of a property to verify after the fact.
 - **Key driver** — a passive state machine (a struct in a map, not a task; key cardinality is unbounded): a FIFO of groups, **at most one group released at a time** (binned, parked, or in flight), the rest queued behind it. On ACK: report offsets to the partition ledger, remember which worker served it (the sticky pin), release the next group. On failure: take the group back at queue head and release it again in the same cascade — re-placement, not waiting, is the response, because retry pacing lives in the transport (§2.9, §4.5). It names a *preference*, never a worker — placement is the batcher's. Created on first group, evicted when idle and empty.
 - **Accumulator factory** — the loop's supply of per-tick buffers, and the holder of the batcher's send side. `obtain()` hands the loop a buffer at the start of a producing tick; `release(acc)` sends a non-empty one to the batcher whole, by value — the hand-off's only coordination — and recycles an empty one. The domain never sees the factory: it is lent the buffer, never the machinery.
 - **Worker batcher** — the transport side, whole, as one background task. Each received accumulator is placed (router + pins-as-preferences, §4.3), binned per worker, and fired as target-sized requests down the ordered streams; each runner resolution frees its stream, is forwarded to the result stream, and refills the stream from its bin at once. A release no worker can take is **parked** inside the batcher and re-placed on its next wake (§4.5) — nothing is ever handed back. It never calls a driver. The packer and the §2.10 size defense sit below it, as do the stream runners: one task per worker — connect, greet with the assignment epoch, transmit, await ACKs, depth 1 — and the transport classifier, §2.9 unchanged (backpressure vs fault vs non-retriable, backpressure excluded from passive health).
 - **Result stream** — the transport's outlet: one **request result** at a time — every group a resolved request carried, with its outcome — and nothing else escapes. The batcher forwards each resolution the moment it arrives; the loop drains it and feeds the partition manager.
 - **Commit manager** — on the commit cadence, reads each partition driver's frontier, issues one batched manual commit, and refunds the budget for the retired work. The §2.3 verification rides here unchanged: the commit sentinel as a cheap assert, the commit monitor because librdkafka still drops async commit results.
-- **Budget** — the `B` accounting (charged at poll, refunded at commit and at revoke teardown). There is no timer service: the design has two standing clocks — the stall sweep in the partition manager, the commit cadence in the commit manager; the loop just sleeps until the earlier `next_deadline()` — plus the batcher's park-retry, armed only while an unroutable pool leaves releases parked (§4.5). Key drivers own no deadlines at all: retry pacing is transport-level, so unbounded key cardinality meets no per-key timer anywhere.
+- **Budget** — the `B` accounting (charged at poll, refunded at commit and at revoke teardown). The design has exactly two clocks: the loop's single housekeeping tick — driving the commit cadence and the stall checks, the two jobs that must run even when no events arrive — and the batcher's park-retry, armed only while an unroutable pool leaves releases parked (§4.5). Key drivers own no deadlines at all: retry pacing is transport-level, so unbounded key cardinality meets no per-key timer anywhere.
 
 ### 4.2 Two tasks, synchronous cascades
 
@@ -165,7 +165,7 @@ State transitions split across two single-threaded tasks — the domain's on the
 
 1. **Poll delivered** — the loop obtains an accumulator and lends it down with the poll: the partition manager demuxes to partition drivers → key drivers enqueue and hand back released groups → the manager collects them into the buffer. The cascade returns; the loop releases the accumulator to the batcher.
 2. **Request resolved** — the loop drains one **request result**, obtains an accumulator, and hands both to the partition manager: ACK ⇒ ledgers update, key drivers advance, their next groups accumulate; failure ⇒ groups go back to their key drivers' queue heads and re-release into the same buffer (§4.5). The loop releases it the same way.
-3. **Deadline reached** — the loop sleeps until the earlier of the two standing deadlines, then wakes both owners: the partition manager runs its stall sweep, the commit manager its cadence. A wake with nothing due is a no-op.
+3. **Housekeeping tick** — the loop's one clock, at the commit cadence: the commit manager commits the advanced frontiers, and the partition drivers' stall deadlines are checked. Both jobs exist because they must run when *no* events arrive — commits must land at low traffic to keep the replay window small, and a stall watchdog by definition fires on the absence of progress.
 
 And the batcher's:
 
@@ -206,7 +206,7 @@ Concurrency then self-clocks. Fast workers: ACKs return quickly, frontiers advan
 - **Send failure (fault)**: the request result returns the request's groups whole; the partition manager hands each back to its key driver, which puts it back at queue head and re-releases it in the same cascade — placement re-picks against current health. No domain backoff: the transport already retried transient faults with its own backoff below the model (§2.9), and passive health has already marked the failing worker, so waiting again in the key driver would be double pacing. This replaces `defer_failed` + re-stash + both flush paths' retry pacing with one local rule. The order argument is trivial: the key's queue *is* the order, and nothing for that key was in flight behind the failure (depth-1 streams, one-release key drivers).
 - **Draining/dead worker**: the registry is unchanged; the *consequence* becomes local. A key whose sticky worker is draining simply gets re-placed at its next release — nothing of the key's is in flight at that moment, so re-routing cannot reorder. The cascade rule is the queue: newer groups are behind older ones by construction. No stash, no batch-sequence bookkeeping, no outstanding-count subtlety.
 - **Unroutable pool**: placement finds no healthy worker — the release **parks** in the batcher, which re-tries placement on every wake: each arriving accumulator, each resolution's refill, and a park-retry deadline armed only while something is parked (the backstop when both go quiet). Waiting for a routable pool is transport state, so both the parking and its pacing live in the transport — the domain never arms a timer for it, and nothing is handed back. Unlike the stash, parked carries no ordering: at most one release per key (a parked release is still that key's one-out), cross-key order free. The partition frontiers stall; the watchdog below bounds it.
-- **Stall watchdog**: per-partition — a frontier stuck for the timeout while work is pending fails the process, replaying that exposure (≤ B). Today's `deferred_flush_timeout` semantics, at the granularity where a wedge actually lives; the sweep runs on the partition manager's own cadence, the domain's only clock. A wedged key stalls *its partition's* frontier while healthy partitions keep committing — today it stalls every partition on the pod.
+- **Stall watchdog**: per-partition — a frontier stuck for the timeout while work is pending fails the process, replaying that exposure (≤ B). Today's `deferred_flush_timeout` semantics, at the granularity where a wedge actually lives; the check runs on the loop's housekeeping tick — a watchdog cannot be event-driven, since what it detects is the absence of events. A wedged key stalls *its partition's* frontier while healthy partitions keep committing — today it stalls every partition on the pod.
 - **Rebalance**: revoke tears down the partition driver via the partition manager; in-flight requests containing its groups resolve and their results are discarded there by epoch; the assignment-epoch stamp (from #85238) keeps worker-side sentinels re-baselined. No batch-scoped state cuts across the revocation.
 
 ### 4.6 CPU concurrency
@@ -257,6 +257,7 @@ struct ConsumerLoop {
     partitions: PartitionManager,            // the domain side: assignments + distribution
     accumulators: AccumulatorFactory,        // per-tick buffers + the batcher's send side
     results: ResultStream,                   // the transport's outlet: resolved requests
+    tick: Interval,                          // COMMIT_INTERVAL — one housekeeping cadence
     budget: Budget,                          // uncommitted events+bytes — the B gate (§4.4)
     commits: CommitManager,                  // frontiers → one batched commit; owns its cadence
     kafka: KafkaConsumer,                    // rdkafka client: poll, commits, rebalance events
@@ -272,11 +273,10 @@ loop {
             accumulators.release(acc);       // successors and re-releases, off to the batcher
         }
 
-        _ = sleep_until(min(partitions.next_deadline(),  // components own their deadlines;
-                            commits.next_deadline())) => {   //   the loop knows only when
-            partitions.wake(now);            //   the earliest is due — a wake with nothing
-            commits.wake(now);               //   due is a no-op
-        }
+        _ = tick.next() => {                 // the loop's one clock — the jobs that must
+            commits.tick();                  //   run when no events arrive: commit the
+            partitions.check_stalls();       //   advanced frontiers, check the per-
+        }                                    //   partition stall deadlines (§4.5)
 
         msgs = kafka.recv(), if budget.used < B => {
             // the gate is rdkafka pause/resume, not an unpolled consumer: polling must
@@ -320,12 +320,10 @@ fn release(acc) {                            // the one coordination point with 
 **Partition manager — assignments and work distribution.** The domain side's root: the only component that maps a group back to the state that must act on it. It fills the accumulator it is lent; the drivers below hand releases up as return values.
 
 ```rust
-// Loop-owned. Owns every partition driver and the domain's one clock (the stall
-// sweep); nothing transport-shaped. Passes values down, collects releases into the
-// buffer it is lent.
+// Loop-owned. Owns every partition driver; nothing transport-shaped, and no clock
+// of its own. Passes values down, collects releases into the buffer it is lent.
 struct PartitionManager {
     partitions: Map<Partition, PartitionDriver>,
-    sweep_at: Deadline,
 }
 
 fn assign(p, epoch) { partitions.insert(p, PartitionDriver::new(epoch)) }
@@ -347,12 +345,8 @@ fn apply(result, acc) {                      // one request result, distributed
     }
 }
 
-fn next_deadline() -> Deadline { sweep_at }
-
-fn wake(now) {                               // the stall sweep — the domain's only clock;
-    if now < sweep_at { return }             //   it produces no releases, so no accumulator
-    for p in partitions { p.check_stall() }
-    sweep_at = now + SWEEP_INTERVAL;
+fn check_stalls() {                          // driven by the loop's housekeeping tick;
+    for p in partitions { p.check_stall() }  //   produces no releases, so no accumulator
 }
 ```
 
@@ -399,11 +393,8 @@ fn check_stall() {
 **Commit manager — frontiers to one batched commit.** The §2.3 verification rides here unchanged.
 
 ```rust
-// The consumer loop's `commits` field; owns its own cadence deadline — wake(now)
-// runs tick() when due. tick() is synchronous and never blocks the loop.
-fn next_deadline() -> Deadline { next_tick }
-fn wake(now) { if now >= next_tick { tick(); next_tick = now + COMMIT_INTERVAL } }
-
+// The consumer loop's `commits` field; tick() runs synchronously on the loop's
+// housekeeping tick and never blocks it.
 fn tick() {
     let batch = partitions.filter(frontier advanced).map(|p| (p, p.frontier + 1));
     kafka.commit(batch);                     // manual, async, fire-and-forget: never blocks
@@ -603,7 +594,7 @@ fn classify(outcome) {                       // the transport classifier, §2.9 
 }
 ```
 
-What is *not* here is the point: no stash, no batch-sequence bookkeeping, no fences or `FenceGuard`, no eager reconciliation, no completion serialization, no per-key timers (the clocks: the stall sweep, the commit cadence, and the batcher's park-retry while anything is parked) — and no locks: today's `PinTable` mutex and its lock-ordering discipline have no successor, because nothing is shared to lock. The order argument is visible as four structural facts — one origination site (`try_fire`), at most one released group per key anywhere in the system, capacity-1 request channels, and two tasks that each finish one cascade before taking the next event. And the coupling argument is a fifth: the sides exchange only accumulators down and request results up, plain values on FIFO channels — so neither side can observe, or corrupt, the other mid-transition, and the transport has no path to a driver even to misuse.
+What is *not* here is the point: no stash, no batch-sequence bookkeeping, no fences or `FenceGuard`, no eager reconciliation, no completion serialization, no per-key timers (the clocks: the loop's one housekeeping tick and the batcher's park-retry while anything is parked) — and no locks: today's `PinTable` mutex and its lock-ordering discipline have no successor, because nothing is shared to lock. The order argument is visible as four structural facts — one origination site (`try_fire`), at most one released group per key anywhere in the system, capacity-1 request channels, and two tasks that each finish one cascade before taking the next event. And the coupling argument is a fifth: the sides exchange only accumulators down and request results up, plain values on FIFO channels — so neither side can observe, or corrupt, the other mid-transition, and the transport has no path to a driver even to misuse.
 
 ## 5. Construct-by-construct disposition
 
@@ -616,7 +607,7 @@ What is *not* here is the point: no stash, no batch-sequence bookkeeping, no fen
 | Commit monitor (2.3) | Kept as-is (librdkafka async-commit blindness is unchanged) |
 | Sticky pins (2.4) | The key driver's current-worker field; eviction = driver eviction |
 | Stash + cascade rule (2.5) | The key driver's FIFO; the cascade is the queue |
-| Completion-time flush (2.6) | Retired; commit gate → ledger, retry pacing → transport backoff + parked releases, watchdog → per-partition stall sweep |
+| Completion-time flush (2.6) | Retired; commit gate → ledger, retry pacing → transport backoff + parked releases, watchdog → per-partition stall deadline |
 | Eager flush + its accounting (2.7) | Becomes the *only* drain mechanism (resolution cascade + stream refill); `eager_pending`/`eager_accepted`/`take_eager_accepted` deleted |
 | Worker-stream ledger + fences (2.8) | Depth-1 streams + single-threaded origination; ordered stream kept, fences and consecutive-prefix resolution deleted |
 | 503/backoff/backpressure classification (2.9) | Unchanged |
