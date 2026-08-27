@@ -487,6 +487,28 @@ class TestSurvey(APIBaseTest):
 
         assert (str(survey.id) in payload_ids) is expected_in_payload
 
+    def test_sdk_payload_orders_surveys_by_launch_date(self) -> None:
+        # SDKs break display ties by payload order, so it must be deterministic: oldest launch first.
+        launch_dates = [
+            datetime(2026, 1, 3, tzinfo=UTC),
+            datetime(2026, 1, 1, tzinfo=UTC),
+            datetime(2026, 1, 2, tzinfo=UTC),
+        ]
+        surveys = [
+            Survey.objects.create(
+                team=self.team,
+                name=f"Ordered survey {i}",
+                type="popover",
+                start_date=start_date,
+                questions=[{"type": "open", "id": "q1", "question": "How are you?"}],
+            )
+            for i, start_date in enumerate(launch_dates)
+        ]
+
+        payload_ids = [str(item["id"]) for item in get_surveys_response(self.team)["surveys"]]
+
+        assert payload_ids == [str(surveys[1].id), str(surveys[2].id), str(surveys[0].id)]
+
     def test_sdk_payload_strips_non_runtime_question_fields(self) -> None:
         self.team.survey_config = {"appearance": {"backgroundColor": "black"}}
         self.team.save(update_fields=["survey_config"])
