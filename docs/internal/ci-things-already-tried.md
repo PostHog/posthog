@@ -195,6 +195,21 @@ _Also asked as:_ Docker Hub rate limit in CI, unauthenticated pull limit, DOCKER
 
 ## CI orchestration
 
+### Move CI from the Depot runners to Blacksmith
+
+**Verdict: rejected** · Apr 2026 to May 2026 · [#54559](https://github.com/PostHog/posthog/pull/54559), removed by [#57991](https://github.com/PostHog/posthog/pull/57991)
+
+The trial did not do a direct exchange. It ran a Blacksmith shadow of most compute jobs on the same commit, behind the `BLACKSMITH_SHADOW_ENABLED` variable. Each shadow used `continue-on-error`, and no shadow was a required check.
+
+The comparison was not conclusive. Some jobs looked much slower on the shadow runner. The step-level data showed a difference in the cache state between the two providers, not a difference in compute speed. The trial also ran for approximately 16 hours, which is too short for the jobs whose medians were close.
+
+The team kept Depot. [#57991](https://github.com/PostHog/posthog/pull/57991) removed the shadow workflow and the matrix branches.
+It kept `.github/scripts/compare-ci-runners.py` and marked the file as legacy. That script produced the numbers of the trial.
+
+If you propose this again, equalize the caches first. Otherwise the next trial measures the cache plumbing again, not the runners.
+
+_Also asked as:_ change CI provider, Blacksmith, cheaper runners, are the Depot runners slow
+
 ### Skip Storybook and E2E for snapshot-only commits from the bot
 
 **Verdict: reverted** · Mar 2026 · [#49997](https://github.com/PostHog/posthog/pull/49997), reverted by [#51212](https://github.com/PostHog/posthog/pull/51212)
@@ -278,6 +293,48 @@ The change is complete now. The dev stack and CI use SeaweedFS for both S3-compa
 This entry is evidence that a migration can be correct after several failures.
 
 _Also asked as:_ remove MinIO, SeaweedFS, replace the object storage container
+
+## Django performance
+
+[docs/internal/django-startup-time.md](django-startup-time.md) is the deep source for this area. It has a Traps section that records the failure modes of each mechanism.
+The entries below give the proposals that people repeat.
+
+### Squash the Django migration history
+
+**Verdict: rejected** · Feb 2026 to Mar 2026 · [#48267](https://github.com/PostHog/posthog/pull/48267)
+
+The PR added a squash planner, a policy for opaque operations, and 65 squashed migrations across the historical range. A zero-to-head migration on a fresh database was successful, and the schema comparison found no structural difference.
+
+The problem is the value. The PR reports that the effect on the timing was small and noisy. The work to resolve each blocker is large, and the reviews are difficult.
+
+The migration replay in CI is a real cost. A different change must decrease it.
+
+_Also asked as:_ squash the migrations, compress the migration history, why are there so many migrations, speed up the migration replay
+
+### Build the generated pydantic schema lazily with `defer_build`
+
+**Verdict: reverted** · [docs/internal/django-startup-time.md](django-startup-time.md)
+
+This removed approximately 400 ms of core-schema construction from each `django.setup()`. The round-trip tests were all successful.
+
+Two problems stopped it. First, the deferred builds move to the first `/query` of each web worker after a deploy. A warm-up loop for those builds measured approximately 2.5 times more expensive than the eager construction.
+Second, the query runners construct the response models directly. This does no validation, so it does not start the lazy build. `model_dump()` then sends a mock serializer into pydantic-core and raises `TypeError: 'MockValSer' object cannot be converted to 'SchemaSerializer'`. This is a 500 error in any process.
+
+A different solution removed the cost. `django.setup()` no longer imports `posthog.schema` at all.
+
+_Also asked as:_ `defer_build`, make the schema import lazy, pydantic model build is slow at startup
+
+### Replace pydantic in the generated schema with plain dataclasses
+
+**Verdict: not viable today**
+
+`posthog/schema.py` has more than 1,000 generated classes. `hogli build:schema` generates the file from the TypeScript types with pydantic tooling.
+More than 250 files call `model_validate`, and the API layer depends on this validation. Thus a change of the model library is not a local change.
+
+The import cost is solved. `posthog.schema` costs approximately 2 seconds to import, but `django.setup()` no longer loads it. The enums also moved to `posthog.schema_enums`, which imports in approximately 20 ms.
+Import a model from `posthog.schema` inside the method that uses it. Take the enums from `posthog.schema_enums`.
+
+_Also asked as:_ remove pydantic, use dataclasses for the schema, the schema import is slow, why is `posthog.schema` so big
 
 ## Product isolation
 
