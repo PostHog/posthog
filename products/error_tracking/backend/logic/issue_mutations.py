@@ -19,6 +19,14 @@ from posthog.tasks.email import send_error_tracking_issue_assigned
 from products.access_control.backend.models.role import Role
 from products.cohorts.backend.models.cohort import Cohort
 from products.error_tracking.backend.logic import ErrorTrackingIssueNotFoundError, get_issue
+from products.error_tracking.backend.logic.lifecycle_events import (
+    ISSUE_ASSIGNED_EVENT,
+    ISSUE_MERGED_EVENT,
+    STATUS_CHANGE_EVENTS,
+    assignee_property,
+    produce_issue_lifecycle_event_on_commit,
+    status_label,
+)
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
@@ -143,20 +151,83 @@ def update_issue(
     if state_updated:
         sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=team_id)
 
+    if status_updated and status_after in STATUS_CHANGE_EVENTS:
+        produce_issue_lifecycle_event_on_commit(
+            event=STATUS_CHANGE_EVENTS[status_after],
+            issue=issue,
+            user=user,
+            extra_properties={"previous_status": status_label(status_before)},
+        )
+
     return issue
 
 
-def merge_issues(team_id: int, issue_id: UUID, source_ids: list[str]) -> ErrorTrackingIssueMergeResult:
-    issue = _get_issue(team_id, issue_id)
+def merge_issues(
+    team_id: int, issue_id: UUID, source_ids: list[str], *, user: User, was_impersonated: bool
+) -> ErrorTrackingIssueMergeResult:
+    issue = _get_issue(team_id, issue_id, select_related=("team__organization",))
     # Make sure we don't delete the issue being merged into (defensive of frontend bugs)
     ids = [x for x in source_ids if x != str(issue.id)]
-    return issue.merge(issue_ids=ids)
+    result = issue.merge(issue_ids=ids)
+
+    if result == ErrorTrackingIssueMergeResult.MERGED:
+        log_activity(
+            organization_id=issue.team.organization_id,
+            team_id=team_id,
+            user=user,
+            was_impersonated=was_impersonated,
+            item_id=str(issue.id),
+            scope="ErrorTrackingIssue",
+            activity="merged",
+            detail=Detail(
+                name=issue.name,
+                changes=[
+                    Change(type="ErrorTrackingIssue", field="merged_issue_ids", after=ids, action="merged"),
+                ],
+            ),
+        )
+        # `ids` are the requested sources; a source that vanished mid-merge may still be
+        # listed here, which is harmless for consumers reacting to merged-away issues.
+        produce_issue_lifecycle_event_on_commit(
+            event=ISSUE_MERGED_EVENT,
+            issue=issue,
+            user=user,
+            extra_properties={"merged_issue_ids": ids},
+        )
+
+    return result
 
 
-def split_issue(team_id: int, issue_id: UUID, fingerprints: list[dict]) -> list[UUID]:
-    issue = _get_issue(team_id, issue_id)
+def split_issue(
+    team_id: int, issue_id: UUID, fingerprints: list[dict], *, user: User, was_impersonated: bool
+) -> list[UUID]:
+    issue = _get_issue(team_id, issue_id, select_related=("team__organization",))
     new_issues = issue.split(fingerprints=fingerprints)
-    return [new_issue.id for new_issue in new_issues]
+    new_issue_ids = [new_issue.id for new_issue in new_issues]
+
+    if new_issues:
+        log_activity(
+            organization_id=issue.team.organization_id,
+            team_id=team_id,
+            user=user,
+            was_impersonated=was_impersonated,
+            item_id=str(issue.id),
+            scope="ErrorTrackingIssue",
+            activity="split",
+            detail=Detail(
+                name=issue.name,
+                changes=[
+                    Change(
+                        type="ErrorTrackingIssue",
+                        field="split_issue_ids",
+                        after=[str(new_issue_id) for new_issue_id in new_issue_ids],
+                        action="split",
+                    ),
+                ],
+            ),
+        )
+
+    return new_issue_ids
 
 
 def set_issue_cohort(team_id: int, issue_id: UUID, cohort_id: int) -> None:
@@ -227,6 +298,14 @@ def bulk_update_issues(
                         ],
                     ),
                 )
+                if new_status in STATUS_CHANGE_EVENTS:
+                    produce_issue_lifecycle_event_on_commit(
+                        event=STATUS_CHANGE_EVENTS[new_status],
+                        issue=issue,
+                        user=user,
+                        status=new_status,
+                        extra_properties={"previous_status": status_label(issue.status)},
+                    )
             if changed_issue_ids:
                 ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=changed_issue_ids).update(
                     status=new_status, state_updated_at=timezone.now()
@@ -291,6 +370,13 @@ def _assign_one(
             assignment=assignment_after,
             assignee=assignee,
             assigner=user,
+        )
+
+        produce_issue_lifecycle_event_on_commit(
+            event=ISSUE_ASSIGNED_EVENT,
+            issue=issue,
+            user=user,
+            extra_properties={"assignee": assignee_property(assignee)},
         )
     else:
         if assignment_before is None:

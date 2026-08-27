@@ -273,7 +273,13 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     def merge(self, request: ValidatedRequest, *args: object, pk: object = None, **kwargs: object) -> Response:
         ids = [str(issue_id) for issue_id in request.validated_data["ids"]]
         try:
-            merge_result = issues_facade.merge_issues(self.team.id, UUID(str(pk)), ids)
+            merge_result = issues_facade.merge_issues(
+                self.team.id,
+                UUID(str(pk)),
+                ids,
+                user=request.user,
+                was_impersonated=is_impersonated(request),
+            )
         except IssueNotFoundError:
             raise NotFound("Issue not found")
         if merge_result == issues_facade.ErrorTrackingIssueMergeResult.STALE_ISSUES:
@@ -290,7 +296,13 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     def split(self, request: ValidatedRequest, *args: object, pk: object = None, **kwargs: object) -> Response:
         fingerprints = request.validated_data["fingerprints"]
         try:
-            new_issue_ids = issues_facade.split_issue(self.team.id, UUID(str(pk)), fingerprints)
+            new_issue_ids = issues_facade.split_issue(
+                self.team.id,
+                UUID(str(pk)),
+                fingerprints,
+                user=request.user,
+                was_impersonated=is_impersonated(request),
+            )
         except IssueNotFoundError:
             raise NotFound("Issue not found")
         return Response({"success": True, "new_issue_ids": [str(i) for i in new_issue_ids]})
