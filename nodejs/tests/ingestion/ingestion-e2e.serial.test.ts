@@ -1,3 +1,4 @@
+// Serial until the startup topic check tolerates a transient metadata gap (see the follow-up PR).
 import { DateTime } from 'luxon'
 
 import { createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
