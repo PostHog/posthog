@@ -285,11 +285,10 @@ loop {
         msgs = kafka.recv(), if budget.used < B => {
             // the gate is rdkafka pause/resume, not an unpolled consumer: polling must
             // continue for rebalance callbacks and max.poll.interval liveness at B
-            budget.charge(msgs);
             let mut acc = accumulators.obtain();
-            partitions.accept(msgs, &mut acc);       // the Kafka batch dissolves here
-            accumulators.release(acc);
-        }
+            budget.charge(partitions.accept(msgs, &mut acc));    // the Kafka batch
+            accumulators.release(acc);       //   dissolves here; the charge comes back
+        }                                    //   from the same ledger that will refund it
 
         ev = kafka.rebalance() => {          // surfaces via the same client, serialized
             match ev {                       //   with every other arm: no teardown race
@@ -348,10 +347,10 @@ fn drained(p) -> DrainHarvest {              // the drain's end (§4.5): remove 
     DrainHarvest { p, frontier, dropped }
 }
 
-fn accept(msgs, acc) {                       // one poll, demuxed to its partitions
-    for (p, part) in msgs.by_partition() {
-        partitions[p].accept(part, acc)
-    }
+fn accept(msgs, acc) -> Charge {             // one poll, demuxed to its partitions;
+    msgs.by_partition()                      //   returns the poll's debit for B
+        .map(|(p, part)| partitions[p].accept(part, acc))
+        .sum()
 }
 
 fn complete(completed) -> Vec<Advance> {     // one ACKed request's groups, distributed;
@@ -375,11 +374,12 @@ struct PartitionDriver {
     revoking: bool,                          // drain in progress (§4.5): completions still
 }                                            //   land; the stall check stands down
 
-fn accept(msgs, acc) {                       // one poll's messages for this partition
-    ledger.add_pending(msgs);
+fn accept(msgs, acc) -> Charge {             // one poll's messages for this partition
+    let charge = ledger.add_pending(msgs);
     for group in msgs.by_routing_key() {     // offset order preserved; groups stamped:
         acc.push(group)                      //   affinity = partition, epoch. No gating —
     }                                        //   per-key order is the batcher's (§4.3)
+    charge
 }
 
 fn complete(group) -> Option<Advance> {      // one ACKed group — the record of what landed
@@ -414,11 +414,12 @@ struct Slot {
     charge: Charge,                          // this message's events+bytes — for retired,
 }                                            //   the drain's dropped, and nothing else
 
-fn add_pending(msgs) {                       // in offset order, so appending keeps the
+fn add_pending(msgs) -> Charge {             // in offset order, so appending keeps the
     for m in msgs {                          //   ring dense — no map, no search
         slots.push_back(Slot { done: false, charge: m.charge })
     }
-}
+    msgs.charge()                            // the debit for B — measured by the same
+}                                            //   slots that later retire or drop (§8.2)
 
 fn complete(offsets) -> Option<(Offset, Charge)> {
     for o in offsets {                       // a group's offsets are any subset of the
