@@ -623,8 +623,13 @@ class TestLoginAPI(APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
             self.assertNotIn("email", response.json())
 
-        # Events never get reported
-        mock_capture.assert_not_called()
+        # A failed login against a known account is reported and attached to that account.
+        mock_capture.assert_any_call(
+            distinct_id=self.user.distinct_id,
+            event="user login failed",
+            properties={"failure_reason": "invalid_credentials", "account_exists": True},
+            groups={"instance": ANY},
+        )
 
     @patch("posthoganalytics.capture")
     def test_user_cant_login_with_incorrect_email(self, mock_capture):
@@ -640,8 +645,17 @@ class TestLoginAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertNotIn("email", response.json())
 
-        # Events never get reported
-        mock_capture.assert_not_called()
+        # A failed login against an unknown email is reported without creating a person profile.
+        mock_capture.assert_called_once_with(
+            distinct_id=ANY,
+            event="user login failed",
+            properties={
+                "failure_reason": "invalid_credentials",
+                "account_exists": False,
+                "$process_person_profile": False,
+            },
+            groups={"instance": ANY},
+        )
 
     def test_cant_login_without_required_attributes(self):
         required_attributes = ["email", "password"]
@@ -1826,7 +1840,14 @@ class TestPasswordResetAPI(APIBaseTest):
                 "project": str(self.team.uuid),
             },
         )
-        self.assertEqual(mock_capture.call_count, 2)
+        # The rejected login with the old password reports a failed login against the known account.
+        mock_capture.assert_any_call(
+            distinct_id=self.user.distinct_id,
+            event="user login failed",
+            properties={"failure_reason": "invalid_credentials", "account_exists": True},
+            groups={"instance": ANY},
+        )
+        self.assertEqual(mock_capture.call_count, 3)
 
     def test_cant_set_short_password(self):
         token = password_reset_token_generator.make_token(self.user)
