@@ -2022,7 +2022,7 @@ export const getTasksRunsClearConversationCreateUrl = (projectId: string, taskId
 }
 
 /**
- * Record a `/clear` boundary in a finished run's log so the next run in the chain starts with an empty conversation. Its checkpoints, artifacts, and visible history are unaffected. Only for a finished run: an active one has an agent that owns the clear, so send `/clear` to it as an ordinary message instead.
+ * Record a `/clear` boundary in a finished run's log so the next run in the chain starts with an empty conversation. Its artifacts and visible history are unaffected. Only for a finished run: an active one has an agent that owns the clear, so send `/clear` to it as an ordinary message instead.
  * @summary Clear conversation history
  */
 export const tasksRunsClearConversationCreate = async (

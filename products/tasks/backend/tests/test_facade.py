@@ -328,7 +328,12 @@ class TestFacadeReadsAndMappers(TestCase):
 
     def test_resume_in_cloud_rejects_invalid_origin(self):
         task = self._make_task(origin_product="automation")
-        run = task.create_run(environment=TaskRun.Environment.LOCAL)
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            environment=TaskRun.Environment.CLOUD,
+            status=TaskRun.Status.COMPLETED,
+        )
 
         outcome, resumed_run, _ = facade.resume_task_run_in_cloud(
             run.id,
@@ -340,7 +345,7 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(outcome, "invalid_origin")
         self.assertIsNone(resumed_run)
         run.refresh_from_db()
-        self.assertEqual(run.environment, TaskRun.Environment.LOCAL)
+        self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
 
     def test_task_exists_and_visibility(self):
         task = self._make_task()

@@ -1995,7 +1995,7 @@ class TaskRun(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     # When the run last entered QUEUED. `created_at` can't stand in for it because
-    # `prepare_for_cloud_handoff` re-queues an existing run without resetting it, and
+    # `prepare_for_cloud_resume` re-queues an existing run without resetting it, and
     # `updated_at` can't either because any unrelated write to a still-queued run would
     # move it. Null on rows queued before this field existed; readers fall back to
     # `created_at`, which is exact for a run that was only ever queued once.
@@ -2078,11 +2078,11 @@ class TaskRun(models.Model):
             task_created_by_id=self.task.created_by_id,
         )
 
-    def prepare_for_cloud_handoff(self) -> None:
+    def prepare_for_cloud_resume(self) -> None:
         """
-        Restart this run in the cloud, resuming from its existing log/checkpoints.
+        Restart this cloud run from its existing log and sandbox snapshot.
 
-        The `handoff_resumed` flag tells the workflow and sandbox provisioning
+        The `same_run_resume` flag tells the workflow and sandbox provisioning
         to treat this as a resume of the same run (skip initial prompt, hydrate
         from the existing log) without overloading `resume_from_run_id`, which
         means "continue from a different run".
@@ -2097,7 +2097,7 @@ class TaskRun(models.Model):
         prior_snapshot_external_id = state.get("snapshot_external_id")
         prior_snapshot_kind = state.get("snapshot_kind")
         prior_snapshot_mount_path = state.get("snapshot_mount_path")
-        state["handoff_resumed"] = True
+        state["same_run_resume"] = True
         state["mode"] = "interactive"
         state.pop("pending_user_message", None)
         state.pop("pending_user_artifact_ids", None)
@@ -2107,14 +2107,14 @@ class TaskRun(models.Model):
         state.pop("sandbox_url", None)
         state.pop("sandbox_jwt_kid", None)
         state.pop("sandbox_connect_token", None)
-        # Drop the provider stamp too: the handed-off run re-resolves its backend from
+        # Drop the provider stamp because the resumed run re-resolves its backend from
         # scratch, so a stale `hogland` must not survive to outrank the EU guard, the
         # Modal-only fallbacks, or the flag kill switch on the next context resolution.
         state.pop("sandbox_backend", None)
         self.state = state
 
         logger.info(
-            "prepare_for_cloud_handoff",
+            "prepare_for_cloud_resume",
             run_id=str(self.id),
             task_id=str(self.task_id),
             prior_snapshot_external_id=prior_snapshot_external_id,
@@ -2628,7 +2628,7 @@ class TaskRun(models.Model):
         clear it would cost a whole run, so the marker is written straight to the log.
         Resume reads a chain's logs concatenated and rebuilds only the turns after the
         marker, so the next run continues the task with an empty conversation while its
-        checkpoints, artifacts, and visible history stay intact.
+        artifacts and visible history stay intact.
 
         The `/clear` message is recorded ahead of the marker, matching the agent, so the
         transcript shows what the user typed and rehydration drops it with everything

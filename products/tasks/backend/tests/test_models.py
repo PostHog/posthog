@@ -875,7 +875,7 @@ class TestTaskRun(TestCase):
         self.assertEqual(state["pending_user_message_id"] == existing_id, keeps_id)
 
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
-    def test_prepare_for_cloud_handoff_clears_stale_sandbox_routing(self, _publish):
+    def test_prepare_for_cloud_resume_clears_stale_sandbox_routing(self, _publish):
         run = TaskRun.objects.create(
             task=self.task,
             team=self.team,
@@ -892,19 +892,19 @@ class TestTaskRun(TestCase):
             },
         )
 
-        run.prepare_for_cloud_handoff()
+        run.prepare_for_cloud_resume()
 
         self.assertNotIn("sandbox_id", run.state)
         self.assertNotIn("sandbox_url", run.state)
         self.assertNotIn("sandbox_jwt_kid", run.state)
         self.assertNotIn("sandbox_connect_token", run.state)
-        # The provider stamp must not survive; a stale `hogland` would otherwise outrank
-        # the EU guard and Modal-only fallbacks when the handed-off run re-resolves.
+        # The provider stamp must not survive because a stale `hogland` would outrank
+        # the EU guard and Modal-only fallbacks when the resumed run re-resolves.
         self.assertNotIn("sandbox_backend", run.state)
         self.assertNotIn("pending_user_message", run.state)
         self.assertNotIn("pending_user_artifact_ids", run.state)
         self.assertEqual(run.state["snapshot_external_id"], "snapshot-1")
-        self.assertTrue(run.state["handoff_resumed"])
+        self.assertTrue(run.state["same_run_resume"])
 
     def test_s3_prefixes_keep_existing_logs_and_artifact_paths(self):
         run = TaskRun.objects.create(
