@@ -12,6 +12,7 @@ from rest_framework.response import Response
 
 from posthog.api.documentation import _FallbackSerializer, extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
@@ -88,7 +89,16 @@ class FixHogQLViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ).invoke({})
         except Exception as e:
             logger.exception("fix_hogql_query_failed", trace_id=trace_id, team_id=self.team.id)
-            message = FIXER_NOT_CONFIGURED_MESSAGE if _is_missing_credentials_error(e) else FIXER_FAILED_MESSAGE
+            if _is_missing_credentials_error(e):
+                # A self-hosted instance without LLM credentials is a setup task, not a fault, so it
+                # stays out of error tracking. That suppression is the reason this case is handled here.
+                message = FIXER_NOT_CONFIGURED_MESSAGE
+            else:
+                # Any other failure can be a genuine defect, for example a schema build error, a
+                # database error, or a bug in the tool body. The Response returned below never enters
+                # DRF's exception path, so report it here to keep it in error tracking.
+                message = FIXER_FAILED_MESSAGE
+                capture_exception(e, {"team_id": self.team.id, "user_id": user.id})
             return Response({"trace_id": trace_id, "error": message}, status=status.HTTP_400_BAD_REQUEST)
 
         if result is None or (isinstance(result, str) and len(result) == 0):
