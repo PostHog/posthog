@@ -393,7 +393,7 @@ def _cancellation_key(team_id: int, generation_id: UUID) -> str:
 
 def _dispatch_widget_generation(job_id: UUID, team_id: int) -> None:
     try:
-        start_widget_generation_workflow(str(job_id))
+        start_widget_generation_workflow(str(job_id), team_id)
     except Exception:
         logger.exception("notebook_widget_generation_dispatch_failed", extra={"job_id": str(job_id)})
         _mark_job_failed(
@@ -403,9 +403,9 @@ def _dispatch_widget_generation(job_id: UUID, team_id: int) -> None:
         )
 
 
-def _get_existing_generation_job(generation_id: UUID) -> GeneratedWidgetGenerationJob | None:
+def _get_existing_generation_job(team_id: int, generation_id: UUID) -> GeneratedWidgetGenerationJob | None:
     return (
-        GeneratedWidgetGenerationJob.objects.unscoped()
+        GeneratedWidgetGenerationJob.objects.for_team(team_id)
         .select_related("instance", "instance__notebook")
         .filter(id=generation_id)
         .first()
@@ -471,7 +471,7 @@ def start_widget_generation(
             "Approve AI data processing in organization settings before generating widgets.",
             "ai_data_processing_not_approved",
         )
-    existing_job = _get_existing_generation_job(generation_id)
+    existing_job = _get_existing_generation_job(notebook.team_id, generation_id)
     if existing_job is not None:
         _validate_generation_retry(
             job=existing_job,
@@ -504,7 +504,7 @@ def start_widget_generation(
             .select_related("widget", "widget__current_version")
             .get(id=instance.id)
         )
-        existing_job = _get_existing_generation_job(generation_id)
+        existing_job = _get_existing_generation_job(notebook.team_id, generation_id)
         if existing_job is not None:
             _validate_generation_retry(
                 job=existing_job,
@@ -665,8 +665,8 @@ def _mark_job_failed(job_id: UUID, team_id: int, error: WidgetError) -> None:
     )
 
 
-def fail_widget_generation_job(job_id: UUID) -> None:
-    job = GeneratedWidgetGenerationJob.objects.unscoped().only("id", "team_id").filter(id=job_id).first()
+def fail_widget_generation_job(job_id: UUID, team_id: int) -> None:
+    job = GeneratedWidgetGenerationJob.objects.for_team(team_id).only("id", "team_id").filter(id=job_id).first()
     if job is not None:
         _mark_job_failed(
             job.id,
@@ -675,7 +675,7 @@ def fail_widget_generation_job(job_id: UUID) -> None:
         )
 
 
-def run_widget_generation_job(job_id: UUID) -> None:
+def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
     from products.canvas.backend import (  # noqa: PLC0415 — keeps Canvas and object storage off worker registration
         notebook_integration as canvas_facade,
     )
@@ -688,7 +688,7 @@ def run_widget_generation_job(job_id: UUID) -> None:
 
     with transaction.atomic():
         job = (
-            GeneratedWidgetGenerationJob.objects.unscoped()
+            GeneratedWidgetGenerationJob.objects.for_team(team_id)
             .select_for_update(of=("self",))
             .select_related(
                 "team",

@@ -773,7 +773,7 @@ class TestWidgetData(APIBaseTest):
         assert result.active_job.id == generation_id
         assert job.base_version is None
         assert job.operation == GeneratedWidgetVersion.Operation.INITIAL
-        start_workflow.assert_called_once_with(str(generation_id))
+        start_workflow.assert_called_once_with(str(generation_id), self.team.id)
 
     def test_dispatch_failure_marks_the_job_failed(self) -> None:
         generation_id = uuid4()
@@ -864,7 +864,7 @@ class TestWidgetData(APIBaseTest):
 
         assert result.active_job is not None
         assert result.active_job.id == job.id
-        start_workflow.assert_called_once_with(str(generation_id))
+        start_workflow.assert_called_once_with(str(generation_id), self.team.id)
         assert GeneratedWidgetGenerationJob.objects.for_team(self.team.id).filter(id=generation_id).count() == 1
 
         with self.assertRaises(WidgetError) as error:
@@ -961,7 +961,7 @@ class TestWidgetData(APIBaseTest):
             "products.notebooks.backend.widget_generation.generate_widget_source",
             side_effect=WidgetSourceGenerationError("Generation failed"),
         ) as generate:
-            run_widget_generation_job(job.id)
+            run_widget_generation_job(job.id, self.team.id)
 
         job.refresh_from_db()
         generate.assert_called_once()
@@ -987,7 +987,7 @@ class TestWidgetData(APIBaseTest):
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
 
         with patch("products.notebooks.backend.widget_generation.generate_widget_source") as generate:
-            run_widget_generation_job(job.id)
+            run_widget_generation_job(job.id, self.team.id)
 
         job.refresh_from_db()
         generate.assert_not_called()

@@ -10,6 +10,7 @@ from posthog.temporal.common.client import sync_connect
 
 from products.notebooks.backend.temporal.frame_materialize import FrameMaterializeInputs
 from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput
+from products.notebooks.backend.temporal.widget_generation import WidgetGenerationInput
 
 
 @async_to_sync
@@ -40,13 +41,14 @@ def start_frame_materialize_workflow(inputs: FrameMaterializeInputs) -> None:
     )
 
 
-def start_widget_generation_workflow(job_id: str) -> None:
+def start_widget_generation_workflow(job_id: str, team_id: int) -> None:
+    inputs = WidgetGenerationInput(job_id=job_id, team_id=team_id)
     try:
         _start_workflow(
             sync_connect(),
             "notebook-widget-generate",
             f"notebook-widget-generate-{job_id}",
-            job_id,
+            inputs,
         )
     except WorkflowAlreadyStartedError:
         pass
