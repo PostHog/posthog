@@ -37,6 +37,7 @@ import {
 } from './metrics'
 
 const DEFAULT_BATCH_TIMEOUT_MS = 500
+const MAX_TARGET_PARTITIONS_PER_BATCH = 4
 const STATISTICS_INTERVAL_MS = 5000
 const LOOP_STALL_THRESHOLD_MS_DEFAULT = 60_000
 // auto.offset.reset is a topic-level property and which config form librdkafka honors varies by
@@ -144,8 +145,14 @@ export class KafkaConsumerV2 {
 
         this.fetchBatchSize = config.fetchBatchSize ?? defaultConfig.CONSUMER_BATCH_SIZE
         this.targetPartitionsPerBatch = config.targetPartitionsPerBatch ?? 1
-        if (!Number.isInteger(this.targetPartitionsPerBatch) || this.targetPartitionsPerBatch < 1) {
-            throw new Error('targetPartitionsPerBatch must be a positive integer')
+        if (
+            !Number.isSafeInteger(this.targetPartitionsPerBatch) ||
+            this.targetPartitionsPerBatch < 1 ||
+            this.targetPartitionsPerBatch > MAX_TARGET_PARTITIONS_PER_BATCH
+        ) {
+            throw new Error(
+                `targetPartitionsPerBatch must be an integer between 1 and ${MAX_TARGET_PARTITIONS_PER_BATCH}`
+            )
         }
         this.batchTimeoutMs = this.config.batchTimeoutMs ?? DEFAULT_BATCH_TIMEOUT_MS
         this.maxBackgroundTasks = defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
@@ -365,9 +372,14 @@ export class KafkaConsumerV2 {
         }
         addRepresentedPartitions(messages)
 
-        let remainingPolls = this.targetPartitionsPerBatch - representedPartitions.size
+        const assignedPartitionCount = this.rdKafkaConsumer.assignments().length
+        const effectivePartitionTarget = Math.min(
+            this.targetPartitionsPerBatch,
+            Math.max(assignedPartitionCount, representedPartitions.size)
+        )
+        let remainingPolls = effectivePartitionTarget - representedPartitions.size
         let pollCount = 1
-        while (remainingPolls > 0 && representedPartitions.size < this.targetPartitionsPerBatch) {
+        while (remainingPolls > 0 && representedPartitions.size < effectivePartitionTarget) {
             const pausedPartitions = [...representedPartitions.values()]
             this.rdKafkaConsumer.pause(pausedPartitions)
             let nextBatch: Message[]
