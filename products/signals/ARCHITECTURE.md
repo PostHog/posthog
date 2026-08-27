@@ -1120,6 +1120,7 @@ Runs inside `maybe_autostart_implementation_task()` in `backend/auto_start.py`, 
 - Report has a `priority_judgment`
 - Report has suggested reviewers
 - No legacy `SignalReportTask` implementation row exists for the report (checked inside a `select_for_update` on the report row, so concurrent evaluations can't double-start)
+- No sibling report on the team is already being implemented for the same fix (see Sibling fix dedup below)
 
 **User selection** via `_resolve_autostart_assignee()` in `backend/auto_start.py`:
 
@@ -1136,6 +1137,16 @@ Runs inside `maybe_autostart_implementation_task()` in `backend/auto_start.py`, 
 1. `Task.create_and_run(origin_product=SIGNAL_REPORT, ...)`
 2. `record_implementation_task` writes the legacy `SignalReportTask` implementation gate row (in the same transaction) and appends an `implementation` `task_run` artefact
 3. Errors are caught and logged but do not fail the report workflow
+
+### Sibling fix dedup
+
+`already_addressed` only sees what the research agent's own `gh pr list` sweep found, so two reports on one root cause can both reach auto-start and open competing PRs. Grouping cannot prevent it: the signals are genuinely different, and the overlap only appears in the `signal_finding` artefacts research writes afterwards.
+
+`sibling_overlap.find_sibling_with_same_fix()` (`backend/sibling_overlap.py`) is the deterministic check, run from `maybe_autostart_implementation_task()`. It is pure Postgres over existing artefacts — no LLM call.
+
+- **Candidates:** `ready` / `resolved` reports on the same team created in the last `SIBLING_LOOKBACK_DAYS` (30), which already have a signals `implementation` task run. The started-implementation requirement is what stops two overlapping reports from deferring to each other and neither shipping.
+- **Overlap:** a shared causative commit (compared on the first 7 characters, so short and full SHAs match) beats a shared primary code path. A report's primary paths are the first entry of each finding, plus any path every finding repeats — supporting files are excluded.
+- **On overlap:** no implementation task starts. A `note` artefact records why no PR opened, and a `related_to` artefact links the two reports (symmetric, so the implementing report shows what deferred to it). The note carries the sibling's PR URL when it has one. Both writes are skipped if the link already exists, so re-evaluation does not duplicate them.
 
 ### Priority Rank
 

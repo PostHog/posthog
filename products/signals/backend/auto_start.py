@@ -39,6 +39,7 @@ from products.signals.backend.report_generation.research import (
 )
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.sibling_overlap import find_sibling_with_same_fix, record_sibling_fix_skip
 from products.signals.backend.signal_metadata import (
     SignalSourceReference,
     fetch_source_products_for_reports,
@@ -596,6 +597,10 @@ async def maybe_autostart_implementation_task(
     `_create_implementation_task_if_absent`, so concurrent evaluations
     (reviewer-edit hook, pipeline, custom agent) can't double-start.
 
+    Also skipped when a sibling report on the team is already being implemented for the same fix
+    (`sibling_overlap.find_sibling_with_same_fix`) — the per-report gate above can't see that,
+    since the duplication is between two distinct reports rather than within one.
+
     Suggested reviewers no longer gate the pipeline path: an immediately-actionable report
     whose reviewers don't resolve to a connected-GitHub member (or has none) still auto-starts
     under the member who enabled signals for the team (see `_resolve_autostart_fallback_user`),
@@ -667,6 +672,25 @@ async def maybe_autostart_implementation_task(
             report_id=report_id,
             team_id=team_id,
             reason="org over self-driving credits quota",
+        )
+        return
+
+    # Grouping happens before research, so two reports can be genuinely different signals and still
+    # resolve to one fix. `already_addressed` is meant to catch that, but it comes from the research
+    # agent's own `gh pr list` sweep, which has missed a sibling still on its way to a PR. Comparing
+    # the findings the pipeline already wrote is the deterministic version of the same question.
+    sibling = await database_sync_to_async(find_sibling_with_same_fix, thread_sensitive=False)(
+        team_id=team_id, report_id=report_id
+    )
+    if sibling is not None:
+        logger.info(
+            "self-driving auto-start skipped",
+            report_id=report_id,
+            team_id=team_id,
+            reason=f"sibling report already targets the same fix: {sibling.report_id}",
+        )
+        await database_sync_to_async(record_sibling_fix_skip, thread_sensitive=False)(
+            team_id=team_id, report_id=report_id, sibling=sibling
         )
         return
 
