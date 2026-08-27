@@ -4,6 +4,12 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import {
+    getExperimentStatus,
+    hasEnded,
+    isExperimentExposureFrozen,
+    isExperimentPaused,
+} from 'scenes/experiments/experimentStatus'
 import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
@@ -13,13 +19,9 @@ import { Experiment, ExperimentStatus, ExperimentsTabs, FeatureFlagType } from '
 
 import {
     experimentsLogic,
-    getExperimentStatus,
     getExperimentStatusColor,
     getExperimentStatusLabel,
-    hasEnded,
-    isExperimentExposureFrozen,
-    isExperimentPaused,
-} from './experimentsLogic'
+} from 'products/experiments/frontend/scenes/experimentsLogic'
 
 const createMockExperiment = (overrides: any = {}): Experiment =>
     ({
@@ -88,6 +90,8 @@ describe('experimentsLogic', () => {
             expect(api.get).toHaveBeenCalledWith(expect.stringContaining('search=test'))
         })
 
+        // we use expectLogic for assertions
+        // eslint-disable-next-line jest/expect-expect
         it('resets filters to defaults', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setFeatureFlagModalFilters({ search: 'test' })
@@ -217,6 +221,8 @@ describe('experimentsLogic', () => {
             expect(mockReplace).toHaveBeenLastCalledWith(expect.not.stringContaining('ff_page'))
         })
 
+        // we use expectLogic for assertions
+        // eslint-disable-next-line jest/expect-expect
         it('constructs API params correctly', async () => {
             logic.actions.setFeatureFlagModalFilters({
                 search: 'test',
