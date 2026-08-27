@@ -111,7 +111,7 @@ function SettingsPageHeader({
         bordered ? "shrink-0 border-border border-b px-6 py-4" : ""
       }`}
     >
-      {icon && <span className="text-gray-10">{icon}</span>}
+      {icon && <span className="text-muted-foreground">{icon}</span>}
       <span className="font-medium text-lg leading-6.5">{title}</span>
     </div>
   );

@@ -65,7 +65,7 @@ export const GeneralPage: Story = {
             >
               <div className="flex items-center gap-5">
                 <div className="flex flex-col items-start gap-1">
-                  <span className="text-[10px] text-gray-9 uppercase tracking-wide">
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
                     Local
                   </span>
                   <SettingsSegmented
@@ -79,7 +79,7 @@ export const GeneralPage: Story = {
                   />
                 </div>
                 <div className="flex flex-col items-start gap-1">
-                  <span className="text-[10px] text-gray-9 uppercase tracking-wide">
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
                     Cloud
                   </span>
                   <SettingsSegmented
@@ -148,7 +148,7 @@ export const GeneralPage: Story = {
               label={
                 <span className="inline-flex items-baseline gap-2">
                   Version
-                  <span className="font-mono font-normal text-[12px] text-gray-11">
+                  <span className="font-mono font-normal text-[12px] text-muted-foreground">
                     0.61.61
                   </span>
                 </span>

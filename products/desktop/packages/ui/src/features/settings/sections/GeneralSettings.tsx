@@ -336,7 +336,7 @@ export function GeneralSettings() {
           >
             <div className="flex items-center gap-5">
               <div className="flex flex-col items-start gap-1">
-                <span className="text-[10px] text-gray-9 uppercase tracking-wide">
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
                   Local
                 </span>
                 <SettingsSegmented
@@ -351,7 +351,7 @@ export function GeneralSettings() {
                 />
               </div>
               <div className="flex flex-col items-start gap-1">
-                <span className="text-[10px] text-gray-9 uppercase tracking-wide">
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
                   Cloud
                 </span>
                 <SettingsSegmented

@@ -234,7 +234,7 @@ export function PlanUsageContent({
               {cloudComputeEnabled && hasUsageMix && (
                 <UsageMix components={components} />
               )}
-              <Text className="text-[12px] text-gray-10">
+              <Text className="text-[12px] text-muted-foreground">
                 Usage reporting may be delayed by 15–20 minutes.
               </Text>
             </Flex>
@@ -277,7 +277,7 @@ function UsageMix({
       p="4"
       className="rounded-(--radius-3) border border-border bg-card"
     >
-      <Text className="font-medium text-[13px] text-gray-12">Usage mix</Text>
+      <Text className="font-medium text-[13px] text-foreground">Usage mix</Text>
       <div
         role="img"
         aria-label={`${roundedTokenPercent}% tokens and ${totalUsd > 0 ? 100 - roundedTokenPercent : 0}% cloud compute`}
@@ -307,7 +307,7 @@ function UsageMix({
           value={formatUsdAmount(computeUsd)}
         />
       </Flex>
-      <Text className="text-[12px] text-gray-10">
+      <Text className="text-[12px] text-muted-foreground">
         Compute resources: {computeDetails}
       </Text>
     </Flex>
@@ -355,7 +355,7 @@ function MixLegend({
       <span className={`size-2 rounded-full ${color}`} />
       <Text className="text-[13px]">
         <strong>{percent}%</strong> {label}
-        <span className="text-gray-10"> · {value}</span>
+        <span className="text-muted-foreground"> · {value}</span>
       </Text>
     </Flex>
   );

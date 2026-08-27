@@ -17,7 +17,7 @@ interface SettingsSegmentedProps {
 
 // Quill toggles sink 2px when pressed, which reads as misalignment inside a settings row.
 export const settingsToggleItemClassName =
-  "h-6 translate-y-0 px-2.5 text-[12px] text-gray-11 shadow-none data-[pressed]:translate-y-0 data-[pressed]:border-(--accent-9) data-[pressed]:bg-(--accent-3) data-[pressed]:text-(--accent-11) data-[pressed]:shadow-none";
+  "h-6 translate-y-0 px-2.5 text-[12px] text-muted-foreground shadow-none data-[pressed]:translate-y-0 data-[pressed]:border-(--accent-9) data-[pressed]:bg-(--accent-3) data-[pressed]:text-(--accent-11) data-[pressed]:shadow-none";
 
 /**
  * Single-select segmented control for settings with two or three options,

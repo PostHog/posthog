@@ -100,10 +100,10 @@ export function PersonalGithubInstallationsSection() {
               <GithubLogoIcon size={20} />
             </div>
             <div className="flex flex-col gap-0.5">
-              <span className="font-medium text-[13px] text-gray-12 leading-snug">
+              <span className="font-medium text-[13px] text-foreground leading-snug">
                 No GitHub account linked yet
               </span>
-              <span className="text-[12px] text-gray-10 leading-snug">
+              <span className="text-[12px] text-muted-foreground leading-snug">
                 Connect one so agents can open pull requests as you.
               </span>
             </div>

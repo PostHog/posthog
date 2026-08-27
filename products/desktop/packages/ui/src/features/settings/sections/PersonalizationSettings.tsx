@@ -78,7 +78,7 @@ export function PersonalizationSettingsView({
           />
           {syncFromFile ? (
             synced && (
-              <span className="text-right text-[12px] text-gray-10">
+              <span className="text-right text-[12px] text-muted-foreground">
                 Using{" "}
                 <span className="font-mono text-[11px]">
                   {synced.displayPath}
@@ -88,7 +88,7 @@ export function PersonalizationSettingsView({
               </span>
             )
           ) : (
-            <span className="text-right text-[12px] text-gray-10 tabular-nums">
+            <span className="text-right text-[12px] text-muted-foreground tabular-nums">
               {instructions.length}/{MAX_INSTRUCTIONS_LENGTH}
             </span>
           )}

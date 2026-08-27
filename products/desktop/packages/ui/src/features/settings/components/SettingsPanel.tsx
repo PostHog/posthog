@@ -207,7 +207,7 @@ export function SettingsPanel({
 
         <button
           type="button"
-          className="mt-2 flex cursor-pointer items-center gap-2 border-0 bg-transparent px-3 py-2 text-left text-[13px] text-gray-11 transition-colors hover:bg-fill-hover"
+          className="mt-2 flex cursor-pointer items-center gap-2 border-0 bg-transparent px-3 py-2 text-left text-[13px] text-foreground transition-colors hover:bg-fill-hover"
           onClick={close}
         >
           <ArrowLeft size={14} />
@@ -239,7 +239,7 @@ export function SettingsPanel({
             <div className="flex flex-col gap-3 py-2">
               {sidebarGroups.map((group) => (
                 <div key={group.label}>
-                  <MenuLabel className="px-3 pb-1 text-gray-9">
+                  <MenuLabel className="px-3 pb-1 text-muted-foreground">
                     {group.label}
                   </MenuLabel>
                   {group.items.map((item) => {
@@ -263,7 +263,7 @@ export function SettingsPanel({
           <button
             type="button"
             disabled={logoutMutation.isPending}
-            className="flex cursor-pointer items-center gap-2 border-0 border-border border-t bg-transparent px-3 py-2.5 text-left font-mono text-[12px] text-gray-9 transition-colors hover:bg-fill-hover hover:text-gray-11 disabled:pointer-events-none disabled:opacity-50"
+            className="flex cursor-pointer items-center gap-2 border-0 border-border border-t bg-transparent px-3 py-2.5 text-left font-mono text-[12px] text-muted-foreground transition-colors hover:bg-fill-hover hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
             onClick={() => {
               close();
               logoutMutation.mutate();
@@ -362,7 +362,7 @@ function SettingsSearchResults({
 }) {
   if (results.length === 0) {
     return (
-      <p className="m-0 px-3 py-2 text-[12.5px] text-gray-10">
+      <p className="m-0 px-3 py-2 text-[12.5px] text-muted-foreground">
         No settings match. Try another word, like "sound" or "theme".
       </p>
     );
@@ -377,10 +377,10 @@ function SettingsSearchResults({
           className="flex w-full cursor-pointer items-center justify-between gap-2 border-0 bg-transparent px-3 py-1.5 text-left transition-colors hover:bg-fill-hover"
           onClick={() => onSelect(result.category)}
         >
-          <span className="min-w-0 truncate text-[13px] text-gray-12">
+          <span className="min-w-0 truncate text-[13px] text-foreground">
             {result.label}
           </span>
-          <span className="shrink-0 text-[11px] text-gray-9">
+          <span className="shrink-0 text-[11px] text-muted-foreground">
             {SETTINGS_PAGE_LABELS[result.category]}
           </span>
         </button>
@@ -399,15 +399,17 @@ function SidebarNavItem({ item, isActive, onClick }: SidebarNavItemProps) {
   return (
     <button
       type="button"
-      className="flex w-full cursor-pointer items-center justify-between gap-2 border-0 bg-transparent px-3 py-1.5 text-left text-[13px] text-gray-11 transition-colors hover:bg-fill-hover data-[active]:bg-fill-selected data-[active]:text-gray-12"
+      className="flex w-full cursor-pointer items-center justify-between gap-2 border-0 bg-transparent px-3 py-1.5 text-left text-[13px] text-foreground transition-colors hover:bg-fill-hover data-[active]:bg-fill-selected"
       data-active={isActive || undefined}
       onClick={onClick}
     >
       <span className="flex items-center gap-2">
-        <span className="text-gray-10">{item.icon}</span>
+        <span className="text-muted-foreground">{item.icon}</span>
         <span>{SETTINGS_PAGE_LABELS[item.id]}</span>
       </span>
-      {item.hasChevron && <CaretRight size={12} className="text-gray-9" />}
+      {item.hasChevron && (
+        <CaretRight size={12} className="text-muted-foreground" />
+      )}
     </button>
   );
 }

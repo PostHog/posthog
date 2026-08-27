@@ -404,7 +404,7 @@ export function NotificationsSettings() {
                     step={1}
                     className="w-[120px]"
                   />
-                  <span className="w-8 text-right text-[12px] text-gray-10 tabular-nums">
+                  <span className="w-8 text-right text-[12px] text-muted-foreground tabular-nums">
                     {completionVolume}%
                   </span>
                 </div>
@@ -718,7 +718,7 @@ function CustomSoundRow({
           if (event.key === "Enter") event.currentTarget.blur();
         }}
       />
-      <span className="text-[11px] text-gray-9 tabular-nums">
+      <span className="text-[11px] text-muted-foreground tabular-nums">
         {formatDurationSeconds(sound.durationMs)}
       </span>
       <Tooltip content={`Play ${sound.name}`}>

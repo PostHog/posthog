@@ -38,7 +38,7 @@ export function GitHubSettings() {
         <button
           type="button"
           onClick={() => void openUrlInBrowser(GITHUB_DOCS_URL)}
-          className="ml-auto inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-gray-10 text-xs no-underline hover:text-gray-12"
+          className="ml-auto inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-muted-foreground text-xs no-underline hover:text-foreground"
         >
           Learn about the GitHub integration
           <ArrowSquareOutIcon size={11} />

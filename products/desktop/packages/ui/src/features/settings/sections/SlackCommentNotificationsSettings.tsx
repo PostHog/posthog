@@ -85,7 +85,7 @@ export function SlackCommentNotificationsSettings() {
           }
         >
           {linked ? (
-            <span className="text-[12px] text-gray-10">Linked</span>
+            <span className="text-[12px] text-muted-foreground">Linked</span>
           ) : (
             <Button
               size="sm"

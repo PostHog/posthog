@@ -81,10 +81,10 @@ export function SlackWorkspaceConnection({
   return (
     <div className="flex min-h-11 items-center justify-between gap-6 rounded-(--radius-3) border border-border bg-card px-3.5 py-2">
       <div className="flex min-w-0 flex-col gap-0.5 py-0.5">
-        <span className="font-medium text-[13px] text-gray-12 leading-snug">
+        <span className="font-medium text-[13px] text-foreground leading-snug">
           No Slack workspace connected yet
         </span>
-        <span className="text-[12px] text-gray-10 leading-snug">
+        <span className="text-[12px] text-muted-foreground leading-snug">
           Connect a workspace so reports can post to channels and reviewers get
           pinged.
         </span>
@@ -162,11 +162,11 @@ function SlackWorkspaceRow({ integration }: { integration: Integration }) {
             <SlackLogoIcon size={24} />
           </div>
           <div className="flex min-w-0 flex-col gap-0.5">
-            <span className="truncate font-medium text-[13px] text-gray-12 leading-snug">
+            <span className="truncate font-medium text-[13px] text-foreground leading-snug">
               {workspaceName}
             </span>
             {createdAt ? (
-              <span className="truncate text-[12px] text-gray-10 leading-snug">
+              <span className="truncate text-[12px] text-muted-foreground leading-snug">
                 Connected {formatRelativeTimeLong(createdAt)}
               </span>
             ) : null}

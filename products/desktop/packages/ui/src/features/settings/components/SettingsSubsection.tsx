@@ -29,12 +29,12 @@ export function SettingsSubsection({
       <Flex align="start" justify="between" gap="4" wrap="wrap">
         <Flex direction="column" gap="1">
           <Flex align="center" gap="2" wrap="wrap">
-            <Text className="font-semibold text-[13px] text-gray-12">
+            <Text className="font-semibold text-[13px] text-foreground">
               {title}
             </Text>
           </Flex>
           {description ? (
-            <Text className="max-w-2xl text-[12.5px] text-gray-11 leading-snug">
+            <Text className="max-w-2xl text-[12.5px] text-muted-foreground leading-snug">
               {description}
             </Text>
           ) : null}
