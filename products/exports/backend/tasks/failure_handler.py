@@ -31,7 +31,13 @@ from posthog.errors import (
     CHQueryErrorUnknownTable,
     CHQueryErrorUnsupportedMethod,
 )
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQuerySizeExceeded, ClickHouseQueryTimeOut
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQuerySizeExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.storage.object_storage import ObjectStorageError
 
 # =============================================================================
@@ -218,6 +224,14 @@ SYSTEM_ERROR_NAMES = frozenset(cls.__name__ for cls in EXCEPTIONS_TO_RETRY)
 # covered here without needing the class itself.
 TIMEOUT_ERROR_NAMES = frozenset(cls.__name__ for cls in TIMEOUT_ERRORS) | {"TimeoutException"}
 
+# Capacity saturation, not a fault in the query itself: query-scheduling limits and server-wide or
+# per-user memory pressure. posthog.errors.classify_query_error groups the same three as
+# RATE_LIMITED, so keep this set aligned — otherwise a single capacity incident splits across the
+# query and transient_dependency categories instead of aggregating under query_capacity.
+QUERY_CAPACITY_ERROR_NAMES = frozenset(
+    cls.__name__ for cls in (ConcurrencyLimitExceeded, ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded)
+)
+
 
 def _is_playwright_timeout(exception: BaseException) -> bool:
     # playwright is a heavy import (browser automation), only needed by the actual image-export
@@ -296,7 +310,7 @@ def export_slo_failure_details(exception: Exception | str) -> dict[str, str | bo
             "failure_retryable": exception_type != ExportCancelled.__name__,
         }
 
-    if exception_type == ConcurrencyLimitExceeded.__name__:
+    if exception_type in QUERY_CAPACITY_ERROR_NAMES:
         return {
             "failure_category": SLO_FAILURE_CATEGORY_QUERY_CAPACITY,
             "failure_component": SLO_FAILURE_COMPONENT_QUERY,

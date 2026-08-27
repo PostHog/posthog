@@ -5,6 +5,8 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded
+
 from products.exports.backend.tasks.failure_handler import (
     FAILURE_TYPE_SYSTEM,
     FAILURE_TYPE_TIMEOUT_GENERATION,
@@ -123,6 +125,24 @@ class TestExportSloFailureDetails(TestCase):
             ),
             ("render_timeout", "TimeoutError", SLO_FAILURE_CATEGORY_RENDERER_TIMEOUT, "browserless", True),
             ("query_capacity", "ConcurrencyLimitExceeded", SLO_FAILURE_CATEGORY_QUERY_CAPACITY, "query", True),
+            # ClickHouse capacity errors share the query_capacity category — classify_query_error groups
+            # the same three as RATE_LIMITED. The instance path is what the export activity feeds in, and
+            # ClickHouseClusterMemoryLimitExceeded subclasses a user-query error, so without an explicit
+            # capacity check it would fall through to the query (user) or transient_dependency buckets.
+            (
+                "query_capacity_at_capacity_instance",
+                ClickHouseAtCapacity(),
+                SLO_FAILURE_CATEGORY_QUERY_CAPACITY,
+                "query",
+                True,
+            ),
+            (
+                "query_capacity_cluster_memory_instance",
+                ClickHouseClusterMemoryLimitExceeded(),
+                SLO_FAILURE_CATEGORY_QUERY_CAPACITY,
+                "query",
+                True,
+            ),
             ("storage", "CHQueryErrorS3Error", SLO_FAILURE_CATEGORY_STORAGE, "object_storage", True),
             ("unknown", "RuntimeError", SLO_FAILURE_CATEGORY_APPLICATION, "exporter", False),
         ]
