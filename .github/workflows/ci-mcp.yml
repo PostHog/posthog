@@ -41,6 +41,9 @@ jobs:
             mcp: ${{ steps.filter.outputs.mcp || 'true' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
 
             # MCP integration tests boot the full PostHog backend (Django web server,
             # Celery worker, migrations, demo data), so the filter stays broad: any
@@ -97,6 +100,7 @@ jobs:
                         - 'posthog/user_scripts/latest_user_defined_function.xml'
                         # Composite actions used by the workflow
                         - '.github/actions/commit-snapshots/**'
+                        - '.github/actions/setup-protoc/**'
                         # hogli db setup (db:restore-test-db). Scoped to the
                         # modules that command actually imports — framework,
                         # manifest, boot modules, db_schema — so unrelated hogli
@@ -414,6 +418,9 @@ jobs:
                   toolchain: 1.91.1
                   components: cargo
 
+            - name: Install protoc
+              uses: ./.github/actions/setup-protoc
+
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
@@ -423,6 +430,11 @@ jobs:
 
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
+
+            # feature-flags depends on usage-ingestion-proto, whose build script
+            # compiles .proto files and needs protoc on PATH.
+            - name: Install protoc
+              uses: ./.github/actions/setup-protoc
 
             - name: Build Rust flags service
               working-directory: rust

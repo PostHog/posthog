@@ -2,7 +2,10 @@ import { LemonTag } from '@posthog/lemon-ui'
 
 import { ExperimentStatus } from '~/types'
 
-import { getExperimentStatusColor, getExperimentStatusLabel } from '../experimentsLogic'
+import {
+    getExperimentStatusColor,
+    getExperimentStatusLabel,
+} from '../../../../../products/experiments/frontend/scenes/experimentsLogic'
 
 export function StatusTag({ status }: { status: ExperimentStatus }): JSX.Element {
     return (
