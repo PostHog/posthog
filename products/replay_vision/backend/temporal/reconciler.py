@@ -61,7 +61,24 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: ReconcileScannerSchedulesInputs) -> ReconcileScannerSchedulesResult:
-        # Best-effort and first: a schedule-sync failure below must not starve the reapers, and vice versa.
+        if workflow.patched("sync-schedules-before-reapers-2026-08"):
+            # Schedule sync goes first because it is the only phase a user feels: an enabled scanner
+            # that never gets a sweep schedule silently never scans. The reapers only settle rows that
+            # are already wrong, so a skipped pass costs one tick. The reapers' combined start-to-close
+            # budget is larger than the workflow execution timeout, so running them first lets one slow
+            # reaper starve the sync on every tick.
+            result, systemic_failure = await self._sync_schedules()
+            await self._run_reapers()
+        else:
+            await self._run_reapers()
+            result, systemic_failure = await self._sync_schedules()
+        if systemic_failure is not None:
+            raise systemic_failure
+        return result
+
+    async def _run_reapers(self) -> None:
+        # Each reaper is best-effort and isolated: one failure must not stop the others, and none of
+        # them may stop schedule sync.
         try:
             await self._run_reaper(
                 reap_orphaned_observations_activity,
@@ -95,6 +112,9 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
             except Exception:
                 workflow.logger.exception("replay_vision.reap_backfill_schedules_failed")
 
+    async def _sync_schedules(self) -> tuple[ReconcileScannerSchedulesResult, ApplicationError | None]:
+        """Converge per-scanner schedules with the table. Returns the result plus a systemic failure to
+        raise once the rest of the tick is done."""
         # A scanner toggled between the two listings recovers on the next tick.
         enabled_entries, existing_entries = await asyncio.gather(
             workflow.execute_activity(
@@ -157,8 +177,8 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
         attempted = len(to_upsert) + len(to_delete)
         succeeded = len(result.upserted) + len(result.deleted)
         if attempted > 0 and succeeded == 0:
-            raise ApplicationError(f"reconciler: all {attempted} fan-out activities failed")
-        return result
+            return result, ApplicationError(f"reconciler: all {attempted} fan-out activities failed")
+        return result, None
 
     async def _run_reaper(
         self,
