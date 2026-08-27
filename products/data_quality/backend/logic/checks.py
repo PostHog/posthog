@@ -6,6 +6,7 @@ here waits on a warehouse query.
 """
 
 import asyncio
+from collections.abc import Iterable
 from dataclasses import asdict
 from datetime import UTC, datetime
 from typing import Any
@@ -24,7 +25,7 @@ from posthog.temporal.common.client import sync_connect
 
 from ..facade.contracts import CHECK_SUITE_WORKFLOW_NAME
 from ..facade.enums import SubjectHealth, SubjectStatus, SubjectType, SuiteRunStatus, SuiteRunTrigger
-from ..models import DataQualityCheck, DataQualitySuiteRun
+from ..models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from .compiler import related_subject_ref
 from .errors import DuplicateDefinitionError, NameConflictError, SubjectUnresolvableError
 from .exceptions import CheckNameConflict
@@ -297,6 +298,37 @@ def checks_for_subject(
     # A soft-deleted check's past runs still sit in the aggregate counts of suites it ran in, so
     # authorization over a *historical* suite has to see it too, even though it no longer runs.
     return queryset if include_deleted else queryset.filter(deleted=False)
+
+
+@frozen
+class RunRecording:
+    """What a run recorded about the subjects it read, for judging the row it is denormalized onto."""
+
+    check_type: str
+    referenced_subjects: list | None
+
+
+def latest_run_recordings(team_id: int, check_ids: Iterable[UUID]) -> dict[UUID, RunRecording]:
+    """What each of these checks last read, keyed by check. One query; a check never run is absent.
+
+    A check row is not purely a definition: its ``last_status`` and ``last_run_at`` come from this
+    run, so they report on whatever it read. Authorizing the row on the definition alone would serve
+    that verdict about a subject the caller was denied, once the definition stops naming it.
+    """
+    ids = list(check_ids)
+    if not ids:
+        return {}
+    latest = (
+        DataQualityCheckRun.objects.for_team(team_id)
+        .filter(quality_check_id__in=ids)
+        .order_by("quality_check_id", "-created_at")
+        .distinct("quality_check_id")
+        .values_list("quality_check_id", "check_type", "referenced_subjects")
+    )
+    return {
+        check_id: RunRecording(check_type=check_type, referenced_subjects=referenced)
+        for check_id, check_type, referenced in latest
+    }
 
 
 def subject_health(team_id: int, subject_type: str, subject_uuid: str | UUID) -> SubjectHealth:

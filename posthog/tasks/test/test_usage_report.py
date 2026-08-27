@@ -1179,19 +1179,32 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
     def test_usage_report_replay(self) -> None:
         _setup_replay_data(self.team.pk, include_mobile_replay=False)
 
+        # `$snapshot_source` reaches ClickHouse unvalidated, so anything that is not mobile has to
+        # land on the web meter. An equality on 'web' here would bill this session under neither.
+        timestamp = now() - relativedelta(hours=12)
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="unrecognized-snapshot-source",
+            distinct_id=str(uuid4()),
+            first_timestamp=timestamp,
+            last_timestamp=timestamp + timedelta(seconds=1),
+            snapshot_source="not-a-real-source",
+            size=10,
+        )
+
         period = get_previous_day()
 
         all_reports = _get_all_usage_data_as_team_rows(period.start, period.end)
         report = _get_team_report(all_reports, self.team)
 
-        assert report.recording_count_in_period == 5
+        assert report.recording_count_in_period == 6
         assert report.mobile_recording_count_in_period == 0
         assert report.zero_duration_recording_count_in_period == 0
 
         org_reports: dict[str, OrgReport] = {}
         _add_team_report_to_org_reports(org_reports, self.team, report, period.start)
 
-        assert org_reports[str(self.organization.id)].recording_count_in_period == 5
+        assert org_reports[str(self.organization.id)].recording_count_in_period == 6
         assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 0
         assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 0
 
@@ -1228,13 +1241,14 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
         # but we do split them out of the daily usage since that field is used
         assert report.recording_count_in_period == 5
         assert report.mobile_recording_count_in_period == 1
-        assert report.mobile_billable_recording_count_in_period == 0
+        # Reports no library at all, and still bills: the client decides what to send here.
+        assert report.mobile_billable_recording_count_in_period == 1
         org_reports: dict[str, OrgReport] = {}
         _add_team_report_to_org_reports(org_reports, self.team, report, period.start)
 
         assert org_reports[str(self.organization.id)].recording_count_in_period == 5
         assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 1
-        assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 0
+        assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 1
 
     @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
     def test_usage_report_replay_with_billable_mobile(self) -> None:
@@ -1276,17 +1290,49 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
         all_reports = _get_all_usage_data_as_team_rows(period.start, period.end)
         report = _get_team_report(all_reports, self.team)
 
-        # Regular mobile recordings (non-billable) + billable ones
         assert report.recording_count_in_period == 5  # web recordings
-        assert report.mobile_recording_count_in_period == 4  # 1 non-billable + 2 billable + 1 from _setup_replay_data
-        assert report.mobile_billable_recording_count_in_period == 2  # iOS and Android recordings
+        assert report.mobile_recording_count_in_period == 4
+        # All four bill, the one naming a library we do not ship included: `$lib` is whatever the
+        # caller sent, so letting it decide leaves a session no meter charges for.
+        assert report.mobile_billable_recording_count_in_period == 4
 
         org_reports: dict[str, OrgReport] = {}
         _add_team_report_to_org_reports(org_reports, self.team, report, period.start)
 
         assert org_reports[str(self.organization.id)].recording_count_in_period == 5
         assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 4
-        assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 2
+        assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 4
+
+    @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
+    def test_usage_report_replay_bills_every_recording_exactly_once(self) -> None:
+        # `$snapshot_source` and `$lib` arrive from the client and are never validated, so the two
+        # billed meters have to partition every recording between them. A combination that matched
+        # neither would be a recording anyone could ask for and not be charged for.
+        crafted = [
+            ("plain-web", "web", "web"),
+            ("mobile-shipped-sdk", "mobile", "posthog-ios"),
+            ("mobile-unshipped-sdk", "mobile", "posthog-unity"),
+            ("mobile-invented-sdk", "mobile", "not-a-real-sdk"),
+            ("invented-source", "not-a-real-source", "web"),
+        ]
+        timestamp = now() - relativedelta(hours=12)
+        for session_id, snapshot_source, snapshot_library in crafted:
+            produce_replay_summary(
+                team_id=self.team.pk,
+                session_id=session_id,
+                distinct_id=str(uuid4()),
+                first_timestamp=timestamp,
+                last_timestamp=timestamp + timedelta(seconds=1),
+                snapshot_source=snapshot_source,
+                snapshot_library=snapshot_library,
+                size=10,
+            )
+
+        period = get_previous_day()
+        report = _get_team_report(_get_all_usage_data_as_team_rows(period.start, period.end), self.team)
+
+        billed = report.recording_count_in_period + report.mobile_billable_recording_count_in_period
+        assert billed == len(crafted)
 
     @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
     def test_usage_report_replay_excludes_deleted_recordings(self) -> None:

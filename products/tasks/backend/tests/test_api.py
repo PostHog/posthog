@@ -5360,6 +5360,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "snapshot_external_id": "im-real",
                 "snapshot_kind": "directory",
                 "snapshot_mount_path": "/tmp",
+                "same_run_resume": True,
+                "same_run_resume_idle": False,
+                "handoff_resumed": True,
+                "handoff_resume_idle": False,
                 "workflow_id": "wf-real",
                 "pending_dispatch": {"workflow_id_prefix": "review-real", "create_pr": True},
                 "pending_external_followups": pending_external_followups,
@@ -5382,7 +5386,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         # credential-propagation target at a sandbox they control, inflate the run's compute /
         # lifetime to provision an oversized, long-lived sandbox, turn the run into a wizard run
         # (which would mint a write-scoped wizard token into the sandbox), change rollout
-        # decisions, change Modal resume snapshot metadata, repoint the run at another
+        # decisions, change resume state or snapshot metadata, repoint the run at another
         # team's Temporal workflow, or steer an orphan re-dispatch (workflow ID prefix / MCP
         # scopes) via pending_dispatch, or repoint the run at a costlier model (which for a run
         # routed to an unbilled gateway product is free spend). Nor can a caller stamp a
@@ -5407,6 +5411,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "snapshot_external_id": "im-attacker",
                     "snapshot_kind": "directory",
                     "snapshot_mount_path": "/tmp/workspace",
+                    "same_run_resume": False,
+                    "same_run_resume_idle": True,
+                    "handoff_resumed": False,
+                    "handoff_resume_idle": True,
                     "workflow_id": "wf-another-teams-workflow",
                     "pending_dispatch": {"workflow_id_prefix": "attacker", "posthog_mcp_scopes": ["*"]},
                     "pending_external_followups": [
@@ -5456,6 +5464,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["snapshot_external_id"] == "im-real"
         assert run.state["snapshot_kind"] == "directory"
         assert run.state["snapshot_mount_path"] == "/tmp"
+        assert run.state["same_run_resume"] is True
+        assert run.state["same_run_resume_idle"] is False
+        assert run.state["handoff_resumed"] is True
+        assert run.state["handoff_resume_idle"] is False
         assert run.state["workflow_id"] == "wf-real"
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
         assert run.state["pending_external_followups"] == pending_external_followups
@@ -5489,6 +5501,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "snapshot_external_id",
                     "snapshot_kind",
                     "snapshot_mount_path",
+                    "same_run_resume",
+                    "same_run_resume_idle",
+                    "handoff_resumed",
+                    "handoff_resume_idle",
                     "workflow_id",
                     "pending_dispatch",
                     "pending_external_followups",
@@ -5517,6 +5533,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["snapshot_external_id"] == "im-real"  # protected key survives removal
         assert run.state["snapshot_kind"] == "directory"  # protected key survives removal
         assert run.state["snapshot_mount_path"] == "/tmp"  # protected key survives removal
+        assert run.state["same_run_resume"] is True
+        assert run.state["same_run_resume_idle"] is False
+        assert run.state["handoff_resumed"] is True
+        assert run.state["handoff_resume_idle"] is False
         assert run.state["workflow_id"] == "wf-real"  # protected key survives removal
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
         assert run.state["pending_external_followups"] == pending_external_followups
@@ -5564,7 +5584,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run = TaskRun.objects.create(
             task=task,
             team=self.team,
-            environment=TaskRun.Environment.LOCAL,
+            environment=TaskRun.Environment.CLOUD,
             status=TaskRun.Status.COMPLETED,
             state={"pr_authorship_mode": "bot"},
         )
@@ -5579,12 +5599,32 @@ class TestTaskRunAPI(BaseTaskAPITest):
         mock_resume.assert_called_once_with(str(run.id), run.workflow_id)
 
     @patch("products.tasks.backend.temporal.client.resume_task_in_cloud_workflow")
+    def test_resume_in_cloud_rejects_local_run(self, mock_resume):
+        task = self.create_task(runtime=Task.Runtime.PI)
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            environment=TaskRun.Environment.LOCAL,
+            status=TaskRun.Status.COMPLETED,
+            state={"pr_authorship_mode": "bot"},
+        )
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/resume_in_cloud/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "Only cloud runs can be resumed in cloud")
+        run.refresh_from_db()
+        self.assertEqual(run.environment, TaskRun.Environment.LOCAL)
+        self.assertEqual(run.status, TaskRun.Status.COMPLETED)
+        mock_resume.assert_not_called()
+
+    @patch("products.tasks.backend.temporal.client.resume_task_in_cloud_workflow")
     def test_resume_in_cloud_rejects_user_authorship_without_github_identity_when_no_repo(self, mock_resume):
         task = self.create_task(created_by=self.user)
         run = TaskRun.objects.create(
             task=task,
             team=self.team,
-            environment=TaskRun.Environment.LOCAL,
+            environment=TaskRun.Environment.CLOUD,
             status=TaskRun.Status.COMPLETED,
             state={"pr_authorship_mode": "user"},
         )
@@ -5594,7 +5634,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["code"], "github_authorization_required")
         run.refresh_from_db()
-        self.assertEqual(run.environment, TaskRun.Environment.LOCAL)
+        self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
         self.assertEqual(run.status, TaskRun.Status.COMPLETED)
         mock_resume.assert_not_called()
 
@@ -5605,7 +5645,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run = TaskRun.objects.create(
             task=task,
             team=self.team,
-            environment=TaskRun.Environment.LOCAL,
+            environment=TaskRun.Environment.CLOUD,
             status=TaskRun.Status.COMPLETED,
             state={"pr_authorship_mode": "user"},
         )
@@ -5627,7 +5667,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run = TaskRun.objects.create(
             task=task,
             team=self.team,
-            environment=TaskRun.Environment.LOCAL,
+            environment=TaskRun.Environment.CLOUD,
             status=TaskRun.Status.COMPLETED,
             state={"pr_authorship_mode": "user"},
         )
@@ -7568,12 +7608,12 @@ class TestTaskRunAPI(BaseTaskAPITest):
     def test_download_artifact_walks_resume_chain(self, mock_read_bytes):
         """A resumed run can download an artifact owned by the run it was forked from.
 
-        Cloud→cloud resume creates a new TaskRun with state.resume_from_run_id pointing
-        to the prior run; the prior run owns the git checkpoint pack/index artifacts.
+        Cloud-to-cloud resume creates a new TaskRun with state.resume_from_run_id pointing
+        to the prior run, which can own artifacts referenced by the resumed conversation.
         """
-        mock_read_bytes.return_value = b"prior run pack bytes"
+        mock_read_bytes.return_value = b"prior run context"
         task = self.create_task()
-        prior_storage_path = "tasks/artifacts/team_1/task_x/run_prior/abc_pack.pack"
+        prior_storage_path = "tasks/artifacts/team_1/task_x/run_prior/context.json"
 
         prior_run = TaskRun.objects.create(
             task=task,
@@ -7582,9 +7622,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
             artifacts=[
                 {
                     "id": uuid.uuid4().hex,
-                    "name": "checkpoint.pack",
+                    "name": "context.json",
                     "type": "artifact",
-                    "content_type": "application/x-git-packed-objects",
+                    "content_type": "application/json",
                     "storage_path": prior_storage_path,
                 }
             ],
@@ -7604,7 +7644,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.content, b"prior run pack bytes")
+        self.assertEqual(response.content, b"prior run context")
         mock_read_bytes.assert_called_once_with(prior_storage_path, missing_ok=True)
 
     def test_find_artifact_in_resume_chain_direct_hit(self):
@@ -7779,10 +7819,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
             (
                 "chained_returns_ancestors_first",
                 True,  # has_ancestor
-                {"a": '{"notification":{"method":"_posthog/git_checkpoint","params":{"checkpointId":"ckpt-A"}}}\n'},
+                {"a": '{"notification":{"method":"_posthog/legacy_event","params":{"source":"ancestor"}}}\n'},
                 '{"notification":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message"}}}}\n',
                 [
-                    '{"notification":{"method":"_posthog/git_checkpoint","params":{"checkpointId":"ckpt-A"}}}',
+                    '{"notification":{"method":"_posthog/legacy_event","params":{"source":"ancestor"}}}',
                     '{"notification":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message"}}}}',
                 ],
             ),
@@ -12388,7 +12428,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
         run = TaskRun.objects.create(
             task=task,
             team=self.team,
-            environment=TaskRun.Environment.LOCAL,
+            environment=TaskRun.Environment.CLOUD,
             status=TaskRun.Status.COMPLETED,
             state={"pr_authorship_mode": "bot"},
         )
@@ -12522,7 +12562,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
         run = TaskRun.objects.create(
             task=task,
             team=self.team,
-            environment=TaskRun.Environment.LOCAL,
+            environment=TaskRun.Environment.CLOUD,
             status=TaskRun.Status.COMPLETED,
         )
 
@@ -12575,7 +12615,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
         run = TaskRun.objects.create(
             task=task,
             team=self.team,
-            environment=TaskRun.Environment.LOCAL,
+            environment=TaskRun.Environment.CLOUD,
             status=TaskRun.Status.COMPLETED,
         )
 

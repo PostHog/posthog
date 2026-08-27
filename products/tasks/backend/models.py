@@ -2,8 +2,6 @@ import os
 import re
 import json
 import uuid
-import string
-import secrets
 from collections.abc import Callable, Iterable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, Optional
@@ -22,7 +20,7 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, connection, models, transaction
+from django.db import connection, models, transaction
 from django.db.models.fields.json import KeyTransform
 from django.utils import timezone as django_timezone
 
@@ -1997,7 +1995,7 @@ class TaskRun(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     # When the run last entered QUEUED. `created_at` can't stand in for it because
-    # `prepare_for_cloud_handoff` re-queues an existing run without resetting it, and
+    # `prepare_for_cloud_resume` re-queues an existing run without resetting it, and
     # `updated_at` can't either because any unrelated write to a still-queued run would
     # move it. Null on rows queued before this field existed; readers fall back to
     # `created_at`, which is exact for a run that was only ever queued once.
@@ -2080,11 +2078,11 @@ class TaskRun(models.Model):
             task_created_by_id=self.task.created_by_id,
         )
 
-    def prepare_for_cloud_handoff(self) -> None:
+    def prepare_for_cloud_resume(self) -> None:
         """
-        Restart this run in the cloud, resuming from its existing log/checkpoints.
+        Restart this cloud run from its existing log and sandbox snapshot.
 
-        The `handoff_resumed` flag tells the workflow and sandbox provisioning
+        The `same_run_resume` flag tells the workflow and sandbox provisioning
         to treat this as a resume of the same run (skip initial prompt, hydrate
         from the existing log) without overloading `resume_from_run_id`, which
         means "continue from a different run".
@@ -2099,7 +2097,7 @@ class TaskRun(models.Model):
         prior_snapshot_external_id = state.get("snapshot_external_id")
         prior_snapshot_kind = state.get("snapshot_kind")
         prior_snapshot_mount_path = state.get("snapshot_mount_path")
-        state["handoff_resumed"] = True
+        state["same_run_resume"] = True
         state["mode"] = "interactive"
         state.pop("pending_user_message", None)
         state.pop("pending_user_artifact_ids", None)
@@ -2109,14 +2107,14 @@ class TaskRun(models.Model):
         state.pop("sandbox_url", None)
         state.pop("sandbox_jwt_kid", None)
         state.pop("sandbox_connect_token", None)
-        # Drop the provider stamp too: the handed-off run re-resolves its backend from
+        # Drop the provider stamp because the resumed run re-resolves its backend from
         # scratch, so a stale `hogland` must not survive to outrank the EU guard, the
         # Modal-only fallbacks, or the flag kill switch on the next context resolution.
         state.pop("sandbox_backend", None)
         self.state = state
 
         logger.info(
-            "prepare_for_cloud_handoff",
+            "prepare_for_cloud_resume",
             run_id=str(self.id),
             task_id=str(self.task_id),
             prior_snapshot_external_id=prior_snapshot_external_id,
@@ -2630,7 +2628,7 @@ class TaskRun(models.Model):
         clear it would cost a whole run, so the marker is written straight to the log.
         Resume reads a chain's logs concatenated and rebuilds only the turns after the
         marker, so the next run continues the task with an empty conversation while its
-        checkpoints, artifacts, and visible history stay intact.
+        artifacts and visible history stay intact.
 
         The `/clear` message is recorded ahead of the marker, matching the agent, so the
         transcript shows what the user typed and rehydration drops it with everything
@@ -3444,79 +3442,6 @@ class SandboxCustomImage(TeamScopedRootMixin):
     def modal_publish_name(self) -> str:
         # One stable tag per image — Modal has no image-deletion API, so per-version tags would accumulate.
         return f"posthog-sandbox-custom-{self.team_id}-{self.id.hex}:latest"
-
-
-class CodeInviteQuerySet(models.QuerySet["CodeInvite"]):
-    def unexpired(self, at: datetime | None = None) -> "CodeInviteQuerySet":
-        at = at or django_timezone.now()
-        return self.filter(models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=at))
-
-    def expire(self, at: datetime | None = None) -> int:
-        at = at or django_timezone.now()
-        return self.unexpired(at).update(expires_at=at)
-
-
-class CodeInvite(UUIDModel):
-    """Invite codes for PostHog Desktop access."""
-
-    objects = CodeInviteQuerySet.as_manager()
-
-    code = models.CharField(max_length=50, unique=True, db_index=True, blank=True)
-    max_redemptions = models.PositiveIntegerField(default=1, help_text="Maximum number of redemptions. 0 = unlimited.")
-    redemption_count = models.PositiveIntegerField(default=0)
-    is_active = models.BooleanField(default=True)
-    expires_at = models.DateTimeField(null=True, blank=True, help_text="Optional expiration date.")
-    description = models.TextField(blank=True, help_text="Internal admin note.")
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="created_code_invites"
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        db_table = "posthog_code_invite"
-
-    def __str__(self):
-        return self.code
-
-    def save(self, *args, **kwargs):
-        if not self.code:
-            alphabet = string.ascii_uppercase + string.digits
-            for attempt in range(10):
-                self.code = "".join(secrets.choice(alphabet) for _ in range(8))
-                try:
-                    with transaction.atomic():
-                        return super().save(*args, **kwargs)
-                except IntegrityError:
-                    if attempt == 9:
-                        raise
-            return
-        super().save(*args, **kwargs)
-
-    @property
-    def is_redeemable(self) -> bool:
-        if not self.is_active:
-            return False
-        if self.expires_at and self.expires_at <= django_timezone.now():
-            return False
-        if self.max_redemptions > 0 and self.redemption_count >= self.max_redemptions:
-            return False
-        return True
-
-
-class CodeInviteRedemption(UUIDModel):
-    """Tracks each redemption of a PostHog Desktop invite."""
-
-    invite_code = models.ForeignKey(CodeInvite, on_delete=models.CASCADE, related_name="redemptions")
-    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE)
-    organization = models.ForeignKey("posthog.Organization", on_delete=models.SET_NULL, null=True, blank=True)
-    redeemed_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        db_table = "posthog_code_invite_redemption"
-        unique_together = [("invite_code", "user")]
-
-    def __str__(self):
-        return f"{self.user} redeemed {self.invite_code}"
 
 
 class DesktopBetaTermsAcceptance(models.Model):

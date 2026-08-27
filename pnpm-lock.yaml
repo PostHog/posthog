@@ -1694,8 +1694,8 @@ importers:
         specifier: ^8.6.0
         version: 8.11.0
       posthog-node:
-        specifier: 5.51.2
-        version: 5.51.2(rxjs@7.8.1)
+        specifier: 5.51.3
+        version: 5.51.3(rxjs@7.8.1)
       pretty-bytes:
         specifier: ^5.6.0
         version: 5.6.0
@@ -4935,7 +4935,7 @@ importers:
         version: link:../../packages/llm-normalizer
       '@posthog/mcp-analytics':
         specifier: npm:@posthog/mcp@0.10.2
-        version: '@posthog/mcp@0.10.2(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.51.2(rxjs@7.8.1))'
+        version: '@posthog/mcp@0.10.2(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.51.3(rxjs@7.8.1))'
       '@posthog/quill':
         specifier: workspace:*
         version: link:../../packages/quill/packages/quill
@@ -4973,8 +4973,8 @@ importers:
         specifier: 4.10.4
         version: 4.10.4
       posthog-node:
-        specifier: ^5.51.2
-        version: 5.51.2(rxjs@7.8.1)
+        specifier: ^5.51.3
+        version: 5.51.3(rxjs@7.8.1)
       prom-client:
         specifier: ^14.2.0
         version: 14.2.0
@@ -10222,6 +10222,9 @@ packages:
   '@posthog/core@1.48.11':
     resolution: {integrity: sha512-fvKbxGaUM8RuCDB1jdhSqAHYjk42INfJDWT1KVezn74sCrfnr1YaUafxzmcS+87D5FzbA2tu7IT0GQRV2WkkRg==}
 
+  '@posthog/core@1.48.12':
+    resolution: {integrity: sha512-W/5d6QQD67Dq/Hhzg3lSG7fIXhbiiYGa/YwAoFI9iXKXDpaZkTmwDsEJAGPgTb2eb3lbLHXgGftuWGF2K6lU3g==}
+
   '@posthog/core@1.48.8':
     resolution: {integrity: sha512-LAOBOjMQrQmgcbZxnubl74l2GQd5OWqxCJJ8mzcWdZRWbfO6Y/A6E3fqWjDtm68hY4LxC/bbopG60cxZW8cfWw==}
 
@@ -10288,6 +10291,9 @@ packages:
 
   '@posthog/types@1.406.2':
     resolution: {integrity: sha512-RNNoKD7+ZD2v5uzIDp1SOKK1CseZ+YgNPRYCoPlVKuu+wTB/Tb41JCprMjX9E24gPcsdDg8B47dsEsmO0nwEfw==}
+
+  '@posthog/types@1.407.0':
+    resolution: {integrity: sha512-7J/aFVi7JWFt/ekGVsMFvkTcADoE9MTNf1N9cpBSMUQ/SPLiBjbg386Fzk5OlgWG/u5OemBy4wlgD7YebqeppQ==}
 
   '@protobufjs/aspromise@1.1.2':
     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
@@ -19848,8 +19854,8 @@ packages:
       react:
         optional: true
 
-  posthog-node@5.51.2:
-    resolution: {integrity: sha512-K+aQnqyHEtx2O5YmjxByh3WnXXMsrAisW0hNSXwejM4v7cngrbqoA6rZevMSyaXNqx9xhBedTxz0orb1Xwxyew==}
+  posthog-node@5.51.3:
+    resolution: {integrity: sha512-11bPNCIAec9cjVdaX6vllYTtGviIX6k/qdF3IXG5dbbmXalym91nmkFy9npalSv8DQi8jcbEkhVz3AD7qrhaww==}
     engines: {node: ^20.20.0 || >=22.22.0}
     peerDependencies:
       rxjs: ^7.0.0
@@ -29791,6 +29797,10 @@ snapshots:
     dependencies:
       '@posthog/types': 1.406.2
 
+  '@posthog/core@1.48.12':
+    dependencies:
+      '@posthog/types': 1.407.0
+
   '@posthog/core@1.48.8':
     dependencies:
       '@posthog/types': 1.405.1
@@ -29823,11 +29833,11 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@posthog/mcp@0.10.2(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.51.2(rxjs@7.8.1))':
+  '@posthog/mcp@0.10.2(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.51.3(rxjs@7.8.1))':
     dependencies:
       '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
       '@posthog/core': 1.46.3
-      posthog-node: 5.51.2(rxjs@7.8.1)
+      posthog-node: 5.51.3(rxjs@7.8.1)
 
   '@posthog/react@1.10.5(@types/react@18.3.27)(posthog-js@1.420.0(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)':
     dependencies:
@@ -29850,6 +29860,8 @@ snapshots:
   '@posthog/types@1.405.1': {}
 
   '@posthog/types@1.406.2': {}
+
+  '@posthog/types@1.407.0': {}
 
   '@protobufjs/aspromise@1.1.2': {}
 
@@ -42073,9 +42085,9 @@ snapshots:
       '@types/react': 18.3.27
       react: 18.3.1
 
-  posthog-node@5.51.2(rxjs@7.8.1):
+  posthog-node@5.51.3(rxjs@7.8.1):
     dependencies:
-      '@posthog/core': 1.48.11
+      '@posthog/core': 1.48.12
     optionalDependencies:
       rxjs: 7.8.1
 
