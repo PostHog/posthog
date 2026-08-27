@@ -1652,8 +1652,8 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            # A connected correction becomes the report's newest repo_selection artefact, so a
-            # restore re-researches against it; an unconnected one is recorded on the dismissal
+            # A connected correction becomes the report's newest repo_selection artefact, so the
+            # next research run targets it; an unconnected one is recorded on the dismissal
             # only, because research cannot clone a repository the team has not connected.
             ("connected_repo_appends_corrected_selection", True),
             ("unconnected_repo_records_dismissal_only", False),

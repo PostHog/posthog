@@ -894,7 +894,8 @@ And on the read side, `scout-notes-list` withholds `report_dismissal` notes from
 
 **Wrong-repo dismissals.** The `wrong_repo` reason code carries an optional `corrected_repository` (`owner/repo`, refused with any other reason).
 The dismissal artefact denormalizes `selected_repository` (the report's latest `repo_selection` at dismissal time) next to the correction, so a selection mistake is one self-contained record.
-When the corrected repository is currently connected to the team, the state action also appends it as a user-attributed `repo_selection` artefact — latest-wins, so restoring the report re-researches against the corrected repository instead of repeating the rejected pick.
+When the corrected repository is currently connected to the team, the state action also appends it as a user-attributed `repo_selection` artefact, latest-wins.
+Restoring the report does not itself re-research; the appended selection means the report's next research run, once new signals re-promote it, targets the corrected repository instead of repeating the rejected pick.
 The appended selection carries `autostart_eligible=False`: a correction names the repo a person would target, never PR intent, so it must not outrank an earlier selection's False stamp on the autostart path.
 An unconnected correction stays on the dismissal artefact only, because research cannot clone a repository the team has not connected.
 These records feed back into selection: `repo_corrections.wrong_repo_corrections_block` renders the team's recent wrong-repo dismissals (newest first, one per report and one per distinct selected→corrected lesson, so a bulk dismissal cannot flood the block; capped) and `select_repository_for_team` passes the block into the selection agent's prompt on every signals-side selection — see Repository Selection.

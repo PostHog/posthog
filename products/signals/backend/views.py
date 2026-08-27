@@ -2040,11 +2040,12 @@ class SignalReportViewSet(
     def _append_corrected_repo_selection(self, report: SignalReport, corrected_repository: str) -> None:
         """Persist a wrong-repo correction as the report's newest repo_selection artefact.
 
-        repo_selection resolves latest-wins, so a later restore re-researches against the corrected
-        repository instead of repeating the selection the dismisser just rejected. Only written when
-        the repository is currently connected: research clones through the team integration, and an
-        unconnected repository would turn a restore into a guaranteed clone failure. The correction
-        itself is still recorded on the dismissal artefact either way.
+        repo_selection resolves latest-wins, so the report's next research run (once new signals
+        re-promote it) targets the corrected repository instead of repeating the selection the
+        dismisser just rejected; restore itself does not re-research. Only written when the
+        repository is currently connected: research clones through the team integration, and an
+        unconnected repository would turn that next research run into a guaranteed clone failure.
+        The correction itself is still recorded on the dismissal artefact either way.
         """
         if corrected_repository not in self._connected_repositories():
             return
