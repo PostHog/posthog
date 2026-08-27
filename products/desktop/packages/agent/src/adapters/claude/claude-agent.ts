@@ -597,7 +597,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       this.session.activeTurn !== null || this.session.turnQueue.length > 0;
 
     const isSteer = isSteerMeta(params._meta);
-    if (hasInFlightTurns && isSteer) {
+    if (hasInFlightTurns && isSteer && !this.session.compacting) {
       // Fold into the running turn (promptToClaude tagged it priority:"now");
       // the benign end_turn is ignored by clients, which key off _meta.steer.
       const owner =
@@ -754,13 +754,6 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       cache_read_input_tokens: 0,
       cache_creation_input_tokens: 0,
     };
-    // Tracks whether we're inside a compaction. The SDK emits the terminal
-    // `status` (compact_result success/failed) twice for a single failed
-    // compaction, and the two messages are indistinguishable, so we report the
-    // outcome only while a compaction is in progress, then clear this. A fresh
-    // `compacting` status sets it again, so every distinct compaction (e.g.
-    // repeated auto-compactions in a long turn) is still shown.
-    let compactionInProgress = false;
     let stopReason: PromptResponse["stopReason"] = "end_turn";
 
     // Read live: model switches reset session.lastContextWindowSize.
@@ -831,7 +824,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         cache_read_input_tokens: 0,
         cache_creation_input_tokens: 0,
       };
-      compactionInProgress = false;
+      session.compacting = false;
       stopReason = "end_turn";
       // sessionResources is intentionally NOT reset — the products list
       // accumulates across the whole session and is deduped, not per-turn.
@@ -1047,18 +1040,18 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               // The SDK signals manual `/compact` completion with a status
               // message carrying `compact_result`, not the `compact_boundary`
               // message (which only fires when there's content to compact).
-              // Gate the user-facing outcome on `compactionInProgress` to
+              // Gate the user-facing outcome on `session.compacting` to
               // dedupe the duplicate terminal status the SDK emits for failed
               // compactions.
               if (message.status === "compacting") {
-                compactionInProgress = true;
+                session.compacting = true;
                 // Fall through to handleSystemMessage so the COMPACTING
                 // extNotification still fires.
               } else if (
                 message.compact_result === "success" &&
-                compactionInProgress
+                session.compacting
               ) {
-                compactionInProgress = false;
+                session.compacting = false;
                 await this.client.sessionUpdate({
                   sessionId,
                   update: {
@@ -1083,9 +1076,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                 break;
               } else if (
                 message.compact_result === "failed" &&
-                compactionInProgress
+                session.compacting
               ) {
-                compactionInProgress = false;
+                session.compacting = false;
                 // A failed compaction never emits a `compact_boundary`, so emit a
                 // structured failure status: the renderer clears the "Compacting…"
                 // spinner and reports the outcome as its own status row (a separator
