@@ -30,9 +30,12 @@ The worker cannot do better today even if it wanted to:
 
 Invert who enforces time.
 The worker gets a per-sub-batch **budget**, sized by the consumer and carried on every request — the consumer owns budget policy end to end; the worker enforces what it is sent and has no sizing config of its own.
-The consumer sizes it so the worker acks well before the watchdog fires.
-When the budget expires, the framework stops _starting_ work: events the budget cut off complete as a new result type, `TIMEOUT`; events the order gate refuses to even feed (see below) complete as `REJECTED`; and the ack carries per-message dispositions so the consumer redelivers only the unfinished remainder.
-The watchdog stays as what it should be: a dead-worker detector.
+The budget carries two deadlines.
+At the **soft** deadline the framework stops _starting_ work: events the budget cut off complete as a new result type, `TIMEOUT`, in-flight steps are allowed to finish, and the batch returns when they do.
+At the **hard** deadline the framework stops _waiting_: still-running elements resolve `TIMEOUT` immediately, the batch settles and acks, and the stranded continuations become tracked zombies (§ soft and hard deadlines).
+Events the order gate refuses to even feed (see below) complete as `REJECTED`.
+The ack carries per-message dispositions so the consumer redelivers only the unfinished remainder.
+The consumer sizes soft < hard < watchdog, and the watchdog stays as what it should be: a dead-worker detector.
 
 The extension slots for this already exist:
 
@@ -42,21 +45,23 @@ The extension slots for this already exist:
 
 ### Cancellation is cooperative, at framework checkpoints
 
-JavaScript cannot preempt a running `await`, and racing a timer against a stateful step leaves a zombie continuation that later mutates shared stores — the same duplication problem, moved in-process.
-So the framework never kills work; it stops dispatching it.
+JavaScript cannot preempt a running `await`, so the framework never kills work.
+At the soft deadline it stops dispatching work; at the hard deadline it stops waiting for it.
 All checkpoints live in framework code; no existing step changes.
 
 ```text
-server reads SubBatch frame             stamp armedAt + budget_ms into the feed context
+server reads SubBatch frame             stamp armedAt + both budgets into the feed context
   feed(batch, ctx)                      pipeline mints the budget from its constructor
-                                        factory, deadline anchored at armedAt — so the
+                                        factory, deadlines anchored at armedAt — so the
                                         admission wait counts
     beforeBatch hooks                   cheap, always run
-    per-element chain
-      ◆ StepPipeline.process            exhausted? → timeout, skip the step
-      ◆ chunk steps                     pre-mark exhausted elements timeout, run the rest
+    per-element chain                   raced against the hard deadline
+      ◆ StepPipeline.process            soft-exhausted? → timeout, skip the step
+      ◆ chunk steps                     pre-mark soft-exhausted elements timeout, run the rest
       ◆ withStepRetry / withChunkRetry  signal fired? stop retrying → timeout
     concurrentlyPerGroup                per-key order gate → reject stale elements unfed
+    hard deadline fires?                stop waiting: in-flight elements → timeout,
+                                        continuations move to the zombie registry
     handleResults                       timeout/rejected: metric only, no produce
     afterBatch flush                    always runs; commits completed events' writes
   ack PARTIAL { accepted, timed_out: [indices], rejected: [indices] }
@@ -79,6 +84,27 @@ The consumer needs the distinction for the escalation ladder, and the metrics ne
 An unacked element still emits a result, so `BatchingPipeline`'s count invariant holds untouched: N messages in, N results out, `afterBatch` flush still runs for the events that did finish.
 An event cancelled mid-chain (after person processing, before Kafka emit) is redelivered and reprocessed from the top — the at-least-once semantics the pipeline already has, narrowed from whole fenced worker streams to the unfinished remainder.
 
+### Soft and hard deadlines
+
+The soft deadline is the cooperative mechanism above: stop starting, let in-flight steps finish, return when they do.
+It introduces no duplication — a soft-timed-out element is not running anywhere when its redelivery processes.
+Its weakness is the tail: the batch cannot return before the slowest in-flight step does, and a step wedged on a dependency with no client timeout underneath holds the ack until the consumer's watchdog fences the whole stream.
+
+The hard deadline bounds that tail.
+When it fires, the framework stops waiting: still-running elements resolve `TIMEOUT` immediately, `afterBatch` flushes what completed, the ack goes out, and the admission slot is released.
+The stranded continuations are not killed — JavaScript cannot — they move to a **zombie registry**, keyed by `messageId`:
+
+- A zombie's late result is swallowed and counted, never acked and never fed to `handleResults`.
+  This is what makes settling early safe where a per-step `Promise.race` (alternatives, below) was not: an orphaned resolution finds a registry entry instead of poisoning the pipeline as an unknown `messageId`.
+- Batch-scoped store views stay alive until their zombies drain, but are **sealed** at settle: a zombie write after seal is dropped with a counter — correct, because the element was reported timed out and redelivery reprocesses it from the top.
+- Zombies are capped.
+  At the cap the worker stops admitting (`BUSY` backpressure), so a hung dependency becomes visible backpressure and a draining gauge instead of unbounded memory growth.
+
+The honest cost: a zombie may still complete the side effects of its current step (a person write, an in-flight HTTP call) while the consumer redelivers the same event to another worker.
+That is exactly the duplication the watchdog path produces today — narrowed from the whole un-acked tail to the straggler elements, and without fencing the stream.
+The ladder is: **soft** (cooperative, no duplication) → **hard** (bounded per-straggler duplication, ack preserved, slot released) → **watchdog** (stream fence, whole-tail replay, dead worker).
+Each rung should fire an order of magnitude less often than the one below it; the consumer sizes all three.
+
 ## Framework interface
 
 ### Budget object and results
@@ -86,12 +112,14 @@ An event cancelled mid-chain (after person processing, before Kafka emit) is red
 ```ts
 // framework/batch-budget.ts
 export class BatchBudget {
-    static deadline(at: number, opts?: { enforce?: boolean }): BatchBudget
-    static unlimited(): BatchBudget          // the neutral element: never expires
+    static deadlines(softAt: number, hardAt: number | null, opts?: { enforce?: boolean }): BatchBudget
+    static unlimited(): BatchBudget          // the neutral element: neither deadline exists
 
-    readonly signal: AbortSignal             // fires at the deadline or explicit abort()
+    readonly signal: AbortSignal             // fires at the SOFT deadline or explicit abort();
+                                             //   the only deadline steps ever see
+    readonly hardAt: number | null           // framework-internal: feed() races settle on it
     readonly enforce: boolean                // false = shadow mode: metrics only
-    get remainingMs(): number                // Infinity when unlimited
+    get remainingMs(): number                // to the soft deadline; Infinity when unlimited
     get exhausted(): boolean
     abort(reason?: string): void             // e.g. stream died, stop feeding its work
 }
@@ -122,7 +150,7 @@ Pipelines with no time policy (tests, the non-gRPC pipelines) pass `unlimitedBud
 
 `feedSerialized` calls the factory once per fed batch and stamps the minted budget into each element's context next to `messageId`.
 Sub-contexts created by `fanOut` and `filterMap` copy it the way they copy `debugContext`.
-The factory receives the feed context, and the gRPC factory is a pure function of the wire: `budget_ms == 0 → unlimited()`, else a deadline at `armedAt + budget_ms`, with `armedAt` stamped by the server at frame read — so time parked in the admission queue counts against the budget even though the object is minted at feed.
+The factory receives the feed context, and the gRPC factory is a pure function of the wire: each of `soft_budget_ms` / `hard_budget_ms` maps to `0 → no deadline`, else `armedAt + budget`, with `armedAt` stamped by the server at frame read — so time parked in the admission queue counts against both deadlines even though the object is minted at feed.
 There is no worker-side sizing knob for it to consult: budget policy belongs to the consumer.
 Result handling treats the unacked results as a no-op (metric, no produce); ingestion-warning handling and TopHog gain both new result labels.
 
@@ -157,8 +185,8 @@ export interface CompletedSubBatch {
 }
 ```
 
-`WorkerIngestServer` stamps `armedAt` and the frame's `budget_ms` into the feed context when it reads the frame — before the admission wait — and races the admission wait against the same deadline.
-One shared helper computes `armedAt + budget_ms` for both the server's admission race and the pipeline's budget factory — no worker-side cap enters the arithmetic.
+`WorkerIngestServer` stamps `armedAt` and the frame's budgets into the feed context when it reads the frame — before the admission wait — and races the admission wait against the soft deadline.
+One shared helper computes `armedAt + budget` for both the server's admission race and the pipeline's budget factory — no worker-side cap enters the arithmetic.
 A sub-batch whose deadline passes while parked in the FIFO admission queue is acked `PARTIAL` with every message timed out, without ever being fed: nothing entered the pipeline, so no worker state exists, and the consumer redelivers through the deferral path.
 The ordinary path acks after `settled` resolves: `PARTIAL` when either list is non-empty, `OK` otherwise.
 
@@ -192,11 +220,13 @@ That over-cancels but needs no per-key state; the in-flight window is small.
 ```proto
 message SubBatch {
   // ...existing fields...
-  // Time allowance for processing this sub-batch, milliseconds. The worker
-  // derives its budget from this field alone; it has no sizing config of its
-  // own. 0 = unlimited — which is also what a consumer predating this field
-  // sends, so compatibility is automatic.
-  uint64 budget_ms = 6;
+  // Time allowances for processing this sub-batch, milliseconds. The worker
+  // derives its budget from these fields alone; it has no sizing config of its
+  // own. 0 = unlimited — which is also what a consumer predating the fields
+  // sends, so compatibility is automatic. When both are set, the worker
+  // requires hard_budget_ms >= soft_budget_ms; a violation is a protocol error.
+  uint64 soft_budget_ms = 6;
+  uint64 hard_budget_ms = 7;
 }
 
 enum SubBatchStatus {
@@ -216,7 +246,7 @@ message SubBatchAck {
 }
 ```
 
-`budget_ms` is a relative allowance rather than an absolute deadline, so clock skew is irrelevant; time spent on the wire and in HTTP/2 buffers stays invisible to the worker, which is why the consumer sizes the budget well under the watchdog (see rollout) and the watchdog remains the backstop.
+Both budgets are relative allowances rather than absolute deadlines, so clock skew is irrelevant; time spent on the wire and in HTTP/2 buffers stays invisible to the worker, which is why the consumer sizes both well under the watchdog (see rollout) and the watchdog remains the backstop.
 
 Compatibility is already designed in: a consumer that predates `PARTIAL` treats it like `BUSY` — fence the worker stream in order as retriable and replay the tail — so a budget-enabled worker never corrupts an old consumer, it just wastes the partial progress.
 
@@ -229,20 +259,21 @@ The consumer must never derive acceptance from the lists without that validation
 This is the largest piece outside the framework.
 The stash, the cascade rule, and the ordered flush are reused as-is, but everything between the ack and the stash needs real work:
 
-- Regenerate the proto; stamp `budget_ms` on each `SubBatch` from new config (suggested: `INGESTION_WORKER_SUB_BATCH_BUDGET_MS`, default 0 = unlimited, today's semantics; when set, sized at roughly half `INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS`). This is the system's only budget-sizing knob.
+- Regenerate the proto; stamp both budgets on each `SubBatch` from new config (suggested: `INGESTION_WORKER_SUB_BATCH_SOFT_BUDGET_MS` / `_HARD_BUDGET_MS`, each default 0 = unlimited, today's semantics; when set, soft ≈ 0.5 × and hard ≈ 0.75 × `INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS`). These are the system's only budget-sizing knobs.
 - **A per-message reply shape.** The transport reply today is all-or-nothing (`Accepted { accepted, messages }`), and a sub-batch the transport split into size-bounded chunks acks per chunk — the transport must remap each chunk's `timed_out` and `rejected` indices back to sub-batch positions and merge the chunk dispositions into one resolution.
 - **A mixed resolve path.** Today a sub-batch resolves fully (release keys, advance counts) or fails fully (`defer_failed` stashes everything). Partial acceptance needs a resolve that releases completed messages and stashes the rest while preserving the dispatcher's outstanding-count invariants (the count nets to unchanged for stashed keys and never dips to zero mid-handoff).
 - **Per-key acked watermarks computed from completed messages only.** The order sentinel advances a key's watermark using the key's maximum offset in the sub-batch; on a partial ack that would advance past unprocessed offsets and flag the redelivery as a resend-after-ack violation. The watermark must come from the completed subset.
-- **An escalation ladder for events that never fit the budget.** Such an event would otherwise redeliver forever — the deferral path has no attempt cap — with each round ending in the flush-stall bail and a process restart, the watchdog fully masked. Stash entries produced by partial acks carry an attempt count; after N budget-limited attempts the message resends with `budget_ms = 0` (unlimited), degrading to exactly today's semantics (full watchdog window, fence on overrun) for that message alone, with a counter so the pathological event is visible instead of masked.
-  Only `timed_out` occurrences increment the count — a `rejected` message was never attempted, and counting it would let a hot key's gate rejections spuriously escalate its neighbors to `budget_ms = 0`.
+- **An escalation ladder for events that never fit the budget.** Such an event would otherwise redeliver forever — the deferral path has no attempt cap — with each round ending in the flush-stall bail and a process restart, the watchdog fully masked. Stash entries produced by partial acks carry an attempt count; after N budget-limited attempts the message resends with both budgets 0 (unlimited), degrading to exactly today's semantics (full watchdog window, fence on overrun) for that message alone, with a counter so the pathological event is visible instead of masked.
+  Only `timed_out` occurrences increment the count — a `rejected` message was never attempted, and counting it would let a hot key's gate rejections spuriously escalate its neighbors to unbudgeted resends.
   This is why the wire distinguishes the two lists at all.
 - Offset commit accounting is unchanged in kind: partially accepted sub-batches hold commits exactly the way deferred groups do today, just for fewer messages.
 
 ## What this deliberately does not do
 
 - **No forced preemption.**
-  Worst case is budget + in-flight step tail + afterBatch flush + settled barrier, not an exact cutoff.
-  A genuinely hung await (no client timeout underneath) still falls to the ack watchdog, as today.
+  JavaScript cannot cancel a running `await`; the hard deadline forces the _return_, never the step — the stranded continuation genuinely keeps running as a zombie.
+  With hard unset, worst case is soft + in-flight step tail + afterBatch flush + settled barrier; with hard set, the settle is bounded but the zombie's remaining side effects are not.
+  A genuinely hung await falls to the zombie cap's backpressure, and ultimately to the ack watchdog, as today.
 - **afterBatch flush is not skippable.**
   It commits completed events' person/group writes and ClickHouse rows; its duration must fit inside the margin between budget and watchdog.
 - **No hard per-step timeouts.**
@@ -258,6 +289,7 @@ The stash, the cascade rule, and the ordered flush are reused as-is, but everyth
 - Timeout results by last step and rejected results by key (existing `ingestion_pipeline_result` counter gains both label values) — timeouts indict slow steps, rejections indict hot keys.
 - Overrun histogram — time from budget expiry to batch completion; this is the tail the checkpoints cannot cut, and the input for choosing which steps adopt the signal.
 - Order-gate metrics — routing keys gated, stale elements gated, clears by window-drain vs offset vs TTL.
+- Hard-settle metrics — hard deadlines fired, zombies outstanding (gauge), zombie late results swallowed, writes dropped after store seal, admissions refused at the zombie cap.
 - Consumer side — partial acks, messages redelivered after partial, budget-exempt escalations.
 
 Shadow mode (`enforce: false`) records all of the above without changing any result, so budgets can run in production before the first cancelled event.
@@ -270,15 +302,19 @@ Shadow mode (`enforce: false`) records all of the above without changing any res
    Inert without budgets.
 3. **Wire + worker** — proto fields, `PARTIAL` acks in `WorkerIngestServer`, dispositions in `GrpcStreamIngestDriver`, and the wire-driven budget factory; the worker's only budget knob is the shadow/enforce rollout flag (gating, not sizing).
    Run shadow in production; read the overrun and would-have-cancelled metrics.
-4. **Consumer** — proto regen, `budget_ms` stamping, the per-message reply shape with chunk index remapping, the mixed resolve path, completed-only watermarks, the escalation ladder, and e2e coverage in `grpc_transport_test.rs` and the integration harness.
-   Enable end to end, budget ≈ 0.5 × watchdog.
+4. **Consumer** — proto regen, budget stamping (soft only at first; hard stays 0), the per-message reply shape with chunk index remapping, the mixed resolve path, completed-only watermarks, the escalation ladder, and e2e coverage in `grpc_transport_test.rs` and the integration harness.
+   Enable end to end, soft ≈ 0.5 × watchdog.
 5. **Step adoption** — thread `StepContext.signal` into the steps the overrun metrics indict (person merge internals, hog transformer fetches); derive per-call deadlines from `remainingMs()`.
+6. **Hard deadline** — the settle race, zombie registry, store sealing, and zombie-cap backpressure; enable by setting `hard_budget_ms` ≈ 0.75 × watchdog once soft-mode metrics show a real straggler tail that step adoption did not cut.
+   Last deliberately: every element the hard deadline saves is one the soft path plus semantic step deadlines failed to.
 
 ## Alternatives considered
 
-- **Hard abort via `Promise.race` per step** — rejected.
+- **Hard abort via `Promise.race` per step** — rejected in that form.
   The losing promise keeps running with batch-bound store views; its late completion corrupts `BatchingPipeline` bookkeeping (unknown `messageId` → poisoned pipeline → server suicide) and recreates concurrent double-processing inside one process.
-- **Respond partial but let the batch keep running in the background** — rejected for the same reason: the admission slot leaks and the original problem returns in-process.
+  The hard deadline keeps the race but moves it to the one place it is safe — batch settle — with a zombie registry to receive late resolutions and sealed stores to drop late writes.
+- **Respond partial and let the whole batch keep running in the background** — rejected: the admission slot leaks and the original problem returns in-process wholesale.
+  The hard deadline differs on both counts: the soft deadline already stopped dispatch, so only mid-await stragglers survive settle, and the zombie cap converts pileup into backpressure instead of a leak.
 - **Rely on the watchdog fence alone (status quo)** — rejected: fencing replays the whole un-acked tail while the worker keeps working, which is the duplication and contention this proposal removes.
 - **Absolute deadlines on the wire instead of `budget_ms`** — rejected: clock skew between consumer and worker turns into silent budget errors; a relative allowance armed at frame read is skew-free, and the watchdog already covers wire-time blindness.
 - **Cancel only at sub-batch boundaries (no mid-batch checkpoints)** — rejected: a single slow event would still pin the whole sub-batch until it finishes, which under a 60 s watchdog is precisely the current failure mode.
