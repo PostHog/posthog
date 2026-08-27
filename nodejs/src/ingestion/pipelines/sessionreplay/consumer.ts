@@ -334,8 +334,14 @@ export class SessionRecordingIngester {
         })
         await this.batchLock(async () => {
             logger.info('🔁', 'blob_ingester_consumer_v2 - flushing batch', { batchSize: this.currentBatch.size })
-            await instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () => this.currentBatch.flush())
-            await this.usageBatch.flush()
+            // Billing has nothing to wait on the batch for, and a usage outage must not stop lag
+            // reporting or the batch reset — so it goes out alongside and swallows its own failure.
+            await Promise.all([
+                instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () => this.currentBatch.flush()),
+                this.usageBatch.flush().catch((error) => {
+                    logger.warn('⚠️', 'blob_ingester_consumer_v2 - usage flush failed', { error })
+                }),
+            ])
             // The flush committed the batch's offsets, so its data is now durably ingested — report lag.
             // Skipped if the flush above threw, so a failed flush records no premature lag sample.
             this.lagReporter.flush()

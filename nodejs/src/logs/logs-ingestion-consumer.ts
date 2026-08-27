@@ -1082,13 +1082,16 @@ export class LogsIngestionConsumer {
             )
         }
 
-        // Best-effort: don't let metric failures block ingestion
-        try {
-            await this.appMetricsAggregator.flush()
-            await this.deps.usageBatch.flush()
-        } catch (error) {
-            logger.error('🔴', 'Failed to emit usage metrics - billing data may be lost', { error })
-        }
+        // Best-effort, and independent of each other: neither failing may block ingestion or skip
+        // the other, and nothing downstream reads either result, so they go out together.
+        await Promise.all([
+            this.appMetricsAggregator.flush().catch((error) => {
+                logger.error('🔴', 'Failed to emit usage metrics - billing data may be lost', { error })
+            }),
+            this.deps.usageBatch.flush().catch((error) => {
+                logger.error('🔴', 'Failed to emit usage records - billing data may be lost', { error })
+            }),
+        ])
     }
 
     private queueUsageMetric(teamId: number, metricName: string, count: number): void {

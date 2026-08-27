@@ -16,16 +16,33 @@ type SessionUsageInput = {
 // and a mobile one under separate meters, so a mobile session is never both.
 const BILLABLE_MOBILE_LIBRARIES = new Set(['posthog-ios', 'posthog-android', 'posthog-react-native', 'posthog-flutter'])
 
+/**
+ * The meter the report would bill this session under, or null for neither. `snapshot_source` is
+ * client-supplied, and the report matches `web` and `mobile` exactly, so an unrecognized value
+ * belongs to no meter — reading anything non-mobile as web would bill what the report does not.
+ *
+ * Both meters read the first message processed for the session. The report instead reads the
+ * earliest snapshot's metadata, so the two disagree if one session's messages disagree with each
+ * other about their source or library, which no single client does.
+ */
+function billableMeter(snapshotSource: string | null, snapshotLibrary: string | null): string | null {
+    if ((snapshotSource || 'web') === 'web') {
+        return 'session_replay_recordings'
+    }
+    if (snapshotSource === 'mobile' && BILLABLE_MOBILE_LIBRARIES.has(snapshotLibrary || '')) {
+        return 'mobile_replay_recordings'
+    }
+    return null
+}
+
 export function createRecordSessionUsageStep<T extends SessionUsageInput>(
     usageBatch?: UsageRecordBatch
 ): ProcessingStep<Recordable<T>, Recordable<T>> {
     return function recordSessionUsage(value): Promise<PipelineResult<Recordable<T>>> {
         if (value.isNewSession) {
-            const snapshotSource = value.parsedMessage.snapshot_source || 'web'
-            if (snapshotSource !== 'mobile') {
-                usageBatch?.add(value.team.teamId, 'session_replay_recordings', value.headers.session_id)
-            } else if (BILLABLE_MOBILE_LIBRARIES.has(value.parsedMessage.snapshot_library || '')) {
-                usageBatch?.add(value.team.teamId, 'mobile_replay_recordings', value.headers.session_id)
+            const meter = billableMeter(value.parsedMessage.snapshot_source, value.parsedMessage.snapshot_library)
+            if (meter) {
+                usageBatch?.add(value.team.teamId, meter, value.headers.session_id)
             }
         }
         return Promise.resolve(ok(value))

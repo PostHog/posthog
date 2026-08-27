@@ -1,7 +1,19 @@
+import { DateTime } from 'luxon'
+
 import { UsageIngestionClient, UsageRecordInput } from '~/common/usage-ingestion/client'
 import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 
+import { ParsedMessageData } from './kafka/types'
+import { Recordable, SessionReplayHeaders } from './pipeline-types'
 import { createRecordSessionUsageStep } from './session-usage-step'
+import { TeamForReplay } from './teams/types'
+
+type SessionUsageValue = Recordable<{
+    team: TeamForReplay
+    headers: SessionReplayHeaders
+    parsedMessage: ParsedMessageData
+    isNewSession: boolean
+}>
 
 describe('createRecordSessionUsageStep', () => {
     let ingested: UsageRecordInput[]
@@ -18,18 +30,41 @@ describe('createRecordSessionUsageStep', () => {
         usageBatch = new UsageRecordBatch(client, { unit: 'recordings', isTeamEnabled: () => true })
     })
 
+    function buildValue(
+        snapshotSource: string | null,
+        snapshotLibrary: string | null,
+        isNewSession: boolean
+    ): SessionUsageValue {
+        return {
+            team: { teamId: 42, consoleLogIngestionEnabled: false, aiTrainingOptedIn: false },
+            headers: { token: 'token', session_id: 'session-1', distinct_id: 'distinct-1' },
+            parsedMessage: {
+                distinct_id: 'distinct-1',
+                session_id: 'session-1',
+                token: 'token',
+                eventsByWindowId: { window1: [] },
+                eventsRange: { start: DateTime.fromMillis(0), end: DateTime.fromMillis(0) },
+                snapshot_source: snapshotSource,
+                snapshot_library: snapshotLibrary,
+                metadata: { partition: 0, topic: 'test-topic', rawSize: 0, offset: 0, timestamp: 0 },
+            },
+            isNewSession,
+            status: 'allowed',
+            sessionKey: {
+                plaintextKey: Buffer.alloc(0),
+                encryptedKey: Buffer.alloc(0),
+                sessionState: 'ciphertext',
+            },
+        }
+    }
+
     async function record(
         snapshotSource: string | null,
         snapshotLibrary: string | null,
         isNewSession = true
     ): Promise<string[]> {
         const step = createRecordSessionUsageStep(usageBatch)
-        await step({
-            team: { teamId: 42 },
-            headers: { session_id: 'session-1' },
-            parsedMessage: { snapshot_source: snapshotSource, snapshot_library: snapshotLibrary },
-            isNewSession,
-        } as any)
+        await step(buildValue(snapshotSource, snapshotLibrary, isNewSession))
 
         await usageBatch.flush()
         return ingested.map((record) => record.usageKey)
@@ -43,6 +78,8 @@ describe('createRecordSessionUsageStep', () => {
         // The report bills mobile replay only from its own SDKs, so anything else is neither meter.
         ['mobile', 'posthog-python', []],
         ['mobile', null, []],
+        // The report matches 'web' exactly, so a source it does not know bills nowhere either.
+        ['desktop', 'posthog-js', []],
     ])('bills a %s session from %s under %j', async (source, library, expectedUsageKeys) => {
         expect(await record(source, library)).toEqual(expectedUsageKeys)
     })
