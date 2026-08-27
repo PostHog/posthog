@@ -383,22 +383,63 @@ fn accept(msgs, acc) {                       // one poll's messages for this par
 }
 
 fn complete(group) -> Option<Advance> {      // one ACKed group — the record of what landed
-    ledger.complete(group.offsets);
-    ledger.advance_frontier().map(|advance| {        // highest contiguous completed offset;
-        stall_deadline = now + STALL_TIMEOUT;        //   `retired` = the newly contiguous
-        advance                                      //   span's events+bytes
+    ledger.complete(group.offsets).map(|(frontier, retired)| {
+        stall_deadline = now + STALL_TIMEOUT;
+        Advance { partition: group.partition, frontier, retired }
     })
 }
 
 fn drained(self) -> (Offset, Charge) {       // consumed at the drain's end (§4.5): the
-    (ledger.frontier, ledger.pending_charge())       //   final frontier to commit, and the
-}                                            //   charge of what never completed
+    (ledger.frontier(), ledger.pending_charge())     //   final frontier to commit, and the
+}                                            //   charge the frontier never walked over
 
 fn check_stall() {
     if !revoking && ledger.has_pending() && now > stall_deadline {
         fail_process()                       // replay ≤ B; this partition's wedge only (§4.5)
     }
 }
+```
+
+**Offset ledger — contiguity as a structure.** Today the committable point is emergent — oldest-first completion plus the all-accepted check, verified after the fact by the commit sentinel (§2.2–§2.3). Here it is constructed: polls deliver a partition's offsets in order, so the ledger is a dense ring over one contiguous offset range, and every operation is O(1) amortized per message. Its length is the partition's share of uncommitted work, bounded by the `B` gate.
+
+```rust
+// Owned by its partition driver; knows offsets and charges, nothing else.
+struct OffsetLedger {
+    base: Offset,                            // the offset of slots[0] — one past the frontier
+    slots: Ring<Slot>,                       // one per delivered offset, in offset order
+}
+
+struct Slot {
+    done: bool,
+    charge: Charge,                          // this message's events+bytes — for retired,
+}                                            //   the drain's dropped, and nothing else
+
+fn add_pending(msgs) {                       // in offset order, so appending keeps the
+    for m in msgs {                          //   ring dense — no map, no search
+        slots.push_back(Slot { done: false, charge: m.charge })
+    }
+}
+
+fn complete(offsets) -> Option<(Offset, Charge)> {
+    for o in offsets {                       // a group's offsets are any subset of the
+        slots[o - base].done = true          //   ring (keys interleave in the partition):
+    }                                        //   index arithmetic, O(1) per offset
+    let mut retired = 0;                     // then pop the done prefix in the same call —
+    while slots.front().is_done() {          //   marking and advancing are never separate
+        retired += slots.pop_front().charge; //   steps; what the frontier walked over is
+        base += 1;                           //   exactly the newly committable span
+    }
+    (retired > 0).then(|| (base - 1, retired))
+}
+
+fn frontier() -> Offset { base - 1 }         // highest contiguous completed offset (§8)
+
+fn has_pending() -> bool { !slots.is_empty() }       // the stall watchdog's predicate
+
+fn pending_charge() -> Charge {              // the drain's dropped (§4.5): everything the
+    slots.map(|s| s.charge).sum()            //   frontier never walked over — including
+}                                            //   done work stranded above a gap, which was
+                                             //   never refunded and replays like the rest
 ```
 
 **Commit manager — the commit policy, whole.** Advances in on every progress event, commits out on its own algorithm; the drain's final offset through `begin_revoke`/`finish_revoke`. The §2.3 verification rides inside unchanged.
