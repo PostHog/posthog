@@ -33,7 +33,8 @@ class AnchorContext(BaseModel):
     """Prebuilt grounding for an anchored AI subscription, resolved ORM-side in one sync hop."""
 
     blob: str
-    # Raw event names referenced by the anchor's queries, pinned into event selection.
+    # Raw event names referenced by the anchor's queries. When any are valid for the project, they
+    # become the report's event scope; project-wide event selection is only the fallback.
     event_names: list[str] = Field(default_factory=list)
     # Hash of both planner inputs (`blob` and `event_names`); frozen with the query plan so an
     # anchor content change forces a re-plan.

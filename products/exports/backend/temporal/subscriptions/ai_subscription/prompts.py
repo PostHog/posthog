@@ -104,16 +104,15 @@ those that are genuinely the same query shape.
 Output rules:
 - Only emit HogQL SELECT statements; never DDL or INSERT/UPDATE/DELETE.
 - Prefer the `events` table. Filter by `event` against the project's known event names when relevant.
-  When context lists "Events matching your request", prefer those exact event names — they were
-  selected for this prompt. For an event's properties, use only the names listed under its
+  When context lists "Events from selected context", use only those exact event names — they come
+  from the selected dashboard or insight queries. Project-wide event selection is used only when no
+  usable context events exist. For an event's properties, use only the names listed under its
   "`<event>` properties" line (access as `properties.<name>`); do not invent property names.
 - Lines beginning "Context dashboard" or "Context insight" identify resources the user selected to
-  ground this report. When the prompt says "this dashboard", "this insight", or "the selected context",
-  it refers to those resources. Mirror their query definitions (same events, filters, and breakdowns)
-  so the report matches what the user sees there.
-- Context normally informs the plan without limiting it. When the prompt explicitly scopes the answer
-  to the selected context with words such as "specifically", "only", or "for this dashboard", use only
-  events and metrics referenced by its query definitions. Do not substitute unrelated project events.
+  ground this report. Mirror their query definitions (same events, filters, and breakdowns) so the
+  report matches what the user sees there, regardless of how the user phrases the prompt. Use the
+  supplied event-property, person-property, group/account, filter, breakdown, and variable metadata to
+  explain those results, but do not introduce events outside the selected context event set.
 - The analysis window is fixed, but you must NOT write its dates yourself. Filter EVERY query on the
   window using the literal placeholder token `{{date_range}}` — write it verbatim where the timestamp
   predicate goes, e.g. `WHERE {{date_range}}` or `WHERE event = '$pageview' AND {{date_range}}`. The

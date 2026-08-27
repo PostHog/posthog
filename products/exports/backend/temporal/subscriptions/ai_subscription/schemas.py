@@ -89,6 +89,9 @@ class EnrichedPromptSpec(BaseModel):
     # Raw event names whose per-event property schema is folded into context_blob. Persisted in the
     # frozen envelope so the reuse path can rebuild the same property-aware blob the fixer needs.
     relevant_events: list[str] = Field(default_factory=list)
+    # True when selected dashboard/insight queries supplied the event set. Persisted with frozen plans
+    # so reuse keeps project-wide event suggestions out while retaining explanatory property metadata.
+    context_events_only: bool = False
 
 
 class HogQLFix(BaseModel):
