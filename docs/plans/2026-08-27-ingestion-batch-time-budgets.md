@@ -46,8 +46,10 @@ So the framework never kills work; it stops dispatching it.
 All checkpoints live in framework code; no existing step changes.
 
 ```text
-server reads SubBatch frame             arm BatchBudget (admission wait counts)
-  feed(batch, ctx, { budget })          stamp budget into each element's context
+server reads SubBatch frame             stamp armedAt + budget_ms into the feed context
+  feed(batch, ctx)                      pipeline mints the budget from its constructor
+                                        factory, deadline anchored at armedAt — so the
+                                        admission wait counts
     beforeBatch hooks                   cheap, always run
     per-element chain
       ◆ StepPipeline.process            exhausted? → incomplete, skip the step
@@ -80,8 +82,8 @@ An event cancelled mid-chain (after person processing, before Kafka emit) is red
 ```ts
 // framework/batch-budget.ts
 export class BatchBudget {
-    static timeout(ms: number, opts?: { enforce?: boolean }): BatchBudget
-    static unlimited(): BatchBudget          // default everywhere; zero behavior change
+    static deadline(at: number, opts?: { enforce?: boolean }): BatchBudget
+    static unlimited(): BatchBudget          // the neutral element: never expires
 
     readonly signal: AbortSignal             // fires at the deadline or explicit abort()
     readonly enforce: boolean                // false = shadow mode: metrics only
@@ -90,21 +92,32 @@ export class BatchBudget {
     abort(reason?: string): void             // e.g. stream died, stop feeding its work
 }
 
+// One budget per fed batch, minted by the pipeline from its constructor factory.
+export type BatchBudgetFactory<CFeed> = (batchContext: CFeed) => BatchBudget
+export const unlimitedBudgetFactory: BatchBudgetFactory<unknown>
+
 // framework/results.ts
 export enum PipelineResultType { OK, DLQ, DROP, REDIRECT, INCOMPLETE }
 export function incomplete<T>(reason: string): PipelineResult<T>
 export function isIncompleteResult(...)
 ```
 
-### Feed plumbing
+### Budget plumbing: a mandatory constructor factory
 
 ```ts
-// batching-pipeline.ts — third parameter alongside the existing CFeed context
-feed(elements, batchContext: CFeed, options?: { budget?: BatchBudget }): Promise<FeedResult>
+// batching-pipeline.ts — feed() is unchanged; the budget policy is a required
+// constructor option, so callers never construct or thread budgets per call
+new BatchingPipeline(..., { budgetFactory: BatchBudgetFactory<CFeed> })
+feed(elements, batchContext: CFeed): Promise<FeedResult>
 ```
 
-`feedSerialized` stamps the budget into each element's context next to `messageId`.
+The factory is **mandatory**, and can be mandatory precisely because `unlimited()` exists: there is no "no budget" state, only the unlimited budget.
+The framework therefore carries no optional-budget branches — every element context always holds a budget; an unlimited one has a signal that never fires and `remainingMs() = Infinity`.
+Pipelines with no time policy (tests, the non-gRPC pipelines) pass `unlimitedBudgetFactory`.
+
+`feedSerialized` calls the factory once per fed batch and stamps the minted budget into each element's context next to `messageId`.
 Sub-contexts created by `fanOut` and `filterMap` copy it the way they copy `debugContext`.
+The factory receives the feed context, and the analytics factory anchors its deadline at the `armedAt` the server stamped at frame read — so time parked in the admission queue counts against the budget even though the object is minted at feed.
 Result handling treats incomplete as a no-op (metric, no produce); ingestion-warning handling and TopHog gain the new result label.
 
 ### Steps: backward-compatible opt-in
@@ -137,8 +150,9 @@ export interface CompletedSubBatch {
 }
 ```
 
-`WorkerIngestServer` creates the `BatchBudget` when it reads the frame — before the admission wait — and races the admission wait against it.
-A sub-batch whose budget expires while parked in the FIFO admission queue is acked `PARTIAL` with every message incomplete, without ever being fed: nothing entered the pipeline, so no worker state exists, and the consumer redelivers through the deferral path.
+`WorkerIngestServer` stamps `armedAt` and the frame's `budget_ms` into the feed context when it reads the frame — before the admission wait — and races the admission wait against the same deadline.
+One shared helper computes `armedAt + min(budget_ms, cap)` for both the server's admission race and the pipeline's budget factory, so the sizing policy lives once.
+A sub-batch whose deadline passes while parked in the FIFO admission queue is acked `PARTIAL` with every message incomplete, without ever being fed: nothing entered the pipeline, so no worker state exists, and the consumer redelivers through the deferral path.
 The ordinary path acks after `settled` resolves: `PARTIAL` when `incomplete` is non-empty, `OK` otherwise.
 
 ## The ordering hazard, and the order gate
@@ -236,8 +250,8 @@ Shadow mode (`enforce: false`) records all of the above without changing any res
 
 ## Rollout
 
-1. **Framework** — `INCOMPLETE`, `BatchBudget`, feed plumbing, the three checkpoints, retry integration, metrics, shadow mode, a framework docs chapter, and stall-investigation cases for the count invariant and within-batch prefix property under budgets.
-   Default `unlimited()`: zero behavior change.
+1. **Framework** — `INCOMPLETE`, `BatchBudget`, the mandatory constructor factory, the three checkpoints, retry integration, metrics, shadow mode, a framework docs chapter, and stall-investigation cases for the count invariant and within-batch prefix property under budgets.
+   Every existing constructor passes `unlimitedBudgetFactory`: zero behavior change, and no optional-budget code path ever exists.
 2. **Order gate** — the gate/clear mechanism in `ConcurrentlyGroupingChunkPipeline` behind the sequence-extractor option, plus fuzz tests.
    Inert without budgets.
 3. **Wire + worker** — proto fields, `PARTIAL` acks in `WorkerIngestServer`, dispositions in `GrpcStreamIngestDriver`, worker-side cap config.
