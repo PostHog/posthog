@@ -192,6 +192,7 @@ interface ConditionHeaderProps {
     getFlagKey: (flagId: string) => string
     onDuplicate: () => void
     onRemove: () => void
+    onRename: (description: string) => void
 }
 
 function ConditionHeader({
@@ -204,11 +205,15 @@ function ConditionHeader({
     getFlagKey,
     onDuplicate,
     onRemove,
+    onRename,
 }: ConditionHeaderProps): JSX.Element {
-    // Use description if available, otherwise summarize the filters
-    const summary =
-        group.description ||
-        summarizeProperties(group.properties || [], aggregationTargetName, getDistinctIdName, getFlagKey)
+    // The title edits the description. When empty, show the filter summary as a hint.
+    const propertiesSummary = summarizeProperties(
+        group.properties || [],
+        aggregationTargetName,
+        getDistinctIdName,
+        getFlagKey
+    )
     const rollout = group.rollout_percentage ?? 100
 
     const actualCount =
@@ -222,7 +227,27 @@ function ConditionHeader({
         <div className="flex items-center justify-between w-full gap-2">
             <div className="flex items-center gap-2 min-w-0">
                 <span className="font-medium text-xs bg-bg-light rounded px-1.5 py-0.5 shrink-0">{index + 1}</span>
-                <span className="text-sm break-all">{summary}</span>
+                {/* Editing the name must not toggle the panel, so stop clicks and keys from reaching the header */}
+                <span
+                    className="min-w-0 text-sm"
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => e.stopPropagation()}
+                >
+                    <EditableField
+                        name="condition-set-name"
+                        value={group.description || ''}
+                        placeholder={propertiesSummary}
+                        onSave={onRename}
+                        saveOnBlur
+                        maxLength={600}
+                        clickToEdit
+                        compactButtons="xsmall"
+                        compactIcon
+                        showEditIconOnHover
+                        editingIndication="underlined"
+                        data-attr={`condition-set-${index}-title`}
+                    />
+                </span>
             </div>
             <div className="flex items-center gap-2 shrink-0">
                 <span className="text-sm text-muted mr-2 tabular-nums">
@@ -559,6 +584,9 @@ const ConditionContent = ({
                                 getFlagKey={getFlagKey}
                                 onDuplicate={onDuplicate}
                                 onRemove={onRemove}
+                                onRename={(description) =>
+                                    updateConditionSet(index, undefined, undefined, undefined, description)
+                                }
                             />
                             <span className="ml-2">
                                 {openConditions.includes(`condition-${group.sort_key!}`) ? (

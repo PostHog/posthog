@@ -116,6 +116,7 @@ const PlanCard = ({
 
     return (
         <div
+            data-attr={`billing-product-addon-${addon.type}`}
             className={clsx(
                 'flex flex-col gap-3 p-5 rounded bg-surface-secondary',
                 (addon.subscribed || isOnTrial) && 'ring-1 ring-accent'
