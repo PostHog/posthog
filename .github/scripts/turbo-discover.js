@@ -40,26 +40,45 @@ const { analyzeSchemaImpact, readBaseSchema } = require('./schema-impact')
 const { loadContractSurfaces } = require('./trunk-impacted-targets')
 
 // --- Product shard sizing (same Amdahl shape as Django below) ---
-// Each product is atomic for packing, but unlike Django the test pool isn't
-// fungible across products — bin-pack products into target-sized shards, and
-// multi-shard split any single product that overflows on its own.
+// The test pool is not fungible across products, so a product is the unit of
+// work: bin-pack products into target-sized jobs, and multi-shard split any
+// single product that overflows on its own. A job runs what it holds
+// sequentially, so its wall is the sum of its parts, not the max.
 // One flat wall-clock target for every test shard, Django and products alike.
 // Predictability is the point: a dev who kicks off CI knows what a shard costs
 // without knowing which segment it is. Sizing solves wall = overhead + work/n
 // for n, so the target is a promise about the PR lane (where the overheads below
 // are fitted); master pays extra overhead (full migration replay) on top.
-// A full run's wall is discovery plus the slowest of its shards, and with many
-// shards packed to one target the slowest lands a few minutes above it, so a
-// 12-minute shard target puts a full PR run near 15 minutes end to end.
+// A full run's wall is the pre-shard preamble plus the slowest of its shards.
+// The preamble (discovery, matrix build, runner start) measures ~5.5 min and the
+// slowest shard lands above the target by the imbalance margin below, so a
+// 12-minute shard target puts a full PR run near 19 minutes end to end.
 const TARGET_WALL_SECONDS = 12 * 60
 // Per-product cost within a runner: turbo dispatch, pytest collection, Django
 // init. First product pays ~45s, subsequent ~15s; use 60s as a conservative
 // average that also absorbs the amortized portion of runner startup.
 const PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS = 60
-// Headroom for run-to-run variance when deciding how much fits in a bucket. Was
-// 2x originally because pytest-split data was noisy under Django Core's shared
-// session; the outlier-based merge produces cleaner numbers now.
-const PRODUCT_SAFETY_FACTOR = 1.3
+// Headroom on a packed bucket. A bucket runs its products sequentially, so its
+// wall is the sum of its parts — there is no mean-versus-max gap to cover here,
+// and this only absorbs error in the recorded durations. Was one shared 1.3 with
+// the split factor below, which marked up every small product by 30% against a
+// budget of TARGET minus PRODUCT_JOB_BASE_OVERHEAD_SECONDS and bought extra
+// buckets, each paying that base overhead again.
+const PRODUCT_BUCKET_SAFETY_FACTOR = 1.1
+// Headroom on a split product. Sizing solves for the MEAN shard, but a run's
+// wall is the MAX shard, and this is the only thing bridging the two. The gap
+// grows with the split count: the max is an order statistic over more shards,
+// and the product's own intra-split skew rides on top. Measured max/mean at p90
+// over PR runs; interpolated between the points and clamped outside them.
+// A per-product ratio read back from JUnit would beat a table keyed on n alone,
+// because the skew is a property of the suite. That needs per-test wall times,
+// which call-only durations cannot give (see PRODUCTS_SCALED_MARKER).
+const SPLIT_IMBALANCE_BY_SHARDS = [
+    [2, 1.12],
+    [4, 1.2],
+    [6, 1.23],
+    [9, 1.32],
+]
 // Fitted per-shard overhead for a split product job. Two measured parts, from
 // run 32717208712: the job base (docker stack, deps, turbo dispatch) is
 // mean(job wall - JUnit suite time), 247-413s across 12 bucket jobs (median
@@ -96,10 +115,13 @@ const PRODUCTS_RUNNING_TEMPORAL_IN_JOB = new Set([
     'tasks',
     'warehouse-sources',
 ])
-// Products that always get their own matrix entry instead of being packed with
-// others — isolates a flaky/hang-prone product so it can't cancel bucket-mates
-// at the job timeout. Trade-off: a dedicated runner.
-const DEDICATED_BUCKET_PRODUCTS = new Set(['batch-exports'])
+// Products that always get their own matrix entry instead of sharing one —
+// isolates a flaky/hang-prone product so it can't cancel job-mates at the job
+// timeout. Trade-off: a dedicated runner. Empty today: batch-exports was listed
+// for an async-fixture teardown hang, and it now runs at the median product
+// failure rate with no job near the timeout. Add a product here when its wall
+// runs close enough to the job timeout that a hang is a realistic outcome.
+const DEDICATED_BUCKET_PRODUCTS = new Set()
 
 // --- Staleness detection for .test_durations ---
 // When a product's test files on disk significantly outnumber what .test_durations
@@ -723,23 +745,27 @@ function resolveProductSizing(product, durations, productsScaled = false) {
 
 function productEffectiveCost(product, durations, productsScaled = false) {
     const { work } = resolveProductSizing(product, durations, productsScaled)
-    return work * PRODUCT_SAFETY_FACTOR + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
+    return work * PRODUCT_BUCKET_SAFETY_FACTOR + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
 }
 
-// First-fit-decreasing bin packing into TARGET-sized shards. Sorts products by
+// First-fit-decreasing bin packing into TARGET-sized jobs. Sorts products by
 // effective cost descending so the largest products land first and small ones
-// fill the gaps. Each bucket caps at the wall target minus the base overhead the
-// job pays once, so the effective costs only compete for the remaining budget.
-function packProducts(products, durations, productsScaled = false) {
+// fill the gaps. Each job caps at the wall target minus the base overhead it
+// pays once, so the effective costs only compete for the remaining budget.
+// `seedJobs` are jobs that already hold work — a split product's last shard —
+// and they sit first so their leftover budget is used before a new runner is
+// started. A seed carries its own base overhead, which is a large product's
+// session cost rather than the packed-bucket base.
+function packProducts(products, durations, productsScaled = false, seedJobs = []) {
     const items = products
         .map((product) => ({ product, cost: productEffectiveCost(product, durations, productsScaled) }))
         .sort((a, b) => b.cost - a.cost)
 
-    const buckets = []
+    const buckets = [...seedJobs]
     for (const { product, cost } of items) {
         let placed = false
         for (const bucket of buckets) {
-            if (bucket.cost + cost <= TARGET_WALL_SECONDS - PRODUCT_JOB_BASE_OVERHEAD_SECONDS) {
+            if (bucket.cost + cost <= TARGET_WALL_SECONDS - bucket.baseOverhead) {
                 bucket.products.push(product)
                 bucket.cost += cost
                 placed = true
@@ -747,7 +773,13 @@ function packProducts(products, durations, productsScaled = false) {
             }
         }
         if (!placed) {
-            buckets.push({ products: [product], cost })
+            buckets.push({
+                label: null,
+                legs: [],
+                products: [product],
+                cost,
+                baseOverhead: PRODUCT_JOB_BASE_OVERHEAD_SECONDS,
+            })
         }
     }
     return buckets
@@ -831,6 +863,44 @@ function calculateShards(totalWorkSeconds, overheadSeconds, minShards = DJANGO_M
     const budget = Math.max(TARGET_WALL_SECONDS - overheadSeconds, overheadSeconds / 2, 1)
     const shards = Math.ceil(totalWorkSeconds / budget)
     return Math.max(minShards, Math.min(DJANGO_MAX_SHARDS, shards))
+}
+
+// Interpolates SPLIT_IMBALANCE_BY_SHARDS, clamped at both ends. One shard is not
+// a split, so it carries no imbalance.
+function splitImbalanceFactor(shards) {
+    if (shards <= 1) {
+        return 1
+    }
+    const first = SPLIT_IMBALANCE_BY_SHARDS[0]
+    const last = SPLIT_IMBALANCE_BY_SHARDS[SPLIT_IMBALANCE_BY_SHARDS.length - 1]
+    if (shards <= first[0]) {
+        return first[1]
+    }
+    for (let i = 1; i < SPLIT_IMBALANCE_BY_SHARDS.length; i++) {
+        const [prevShards, prevFactor] = SPLIT_IMBALANCE_BY_SHARDS[i - 1]
+        const [nextShards, nextFactor] = SPLIT_IMBALANCE_BY_SHARDS[i]
+        if (shards <= nextShards) {
+            const span = (shards - prevShards) / (nextShards - prevShards)
+            return prevFactor + (nextFactor - prevFactor) * span
+        }
+    }
+    return last[1]
+}
+
+// The imbalance margin depends on the shard count, which depends on the margin.
+// Iterate to the fixed point, seeding at no margin so a product that fits whole
+// is never split into two by its own headroom. Both sides only rise, so the
+// sequence is monotone and settles in a pass or two.
+function productSplitShards(workSeconds) {
+    let shards = calculateShards(workSeconds, PRODUCT_JOB_OVERHEAD_SECONDS, 1)
+    for (let pass = 0; pass < 3; pass++) {
+        const next = calculateShards(workSeconds * splitImbalanceFactor(shards), PRODUCT_JOB_OVERHEAD_SECONDS, 1)
+        if (next === shards) {
+            break
+        }
+        shards = next
+    }
+    return shards
 }
 
 // Selector segment key -> Django matrix segment name.
@@ -989,6 +1059,7 @@ function buildDjangoShards(durations, ranNodeIds = {}) {
 function buildMatrix(products, durations, productsScaled = false) {
     const matrix = []
     const packable = []
+    const fillableJobs = []
 
     // Split a product across multiple shards with the same rule Django uses:
     // enough shards that each lands at the shared wall target. The safety
@@ -1008,7 +1079,7 @@ function buildMatrix(products, durations, productsScaled = false) {
             )
         }
 
-        const shards = calculateShards(work * PRODUCT_SAFETY_FACTOR, PRODUCT_JOB_OVERHEAD_SECONDS, 1)
+        const shards = productSplitShards(work)
         if (shards > 1) {
             console.error(`  ${product}: ${(work / 60).toFixed(1)} min work → split across ${shards} shards`)
             const filters = `--filter=@posthog/products-${product}`
@@ -1017,34 +1088,49 @@ function buildMatrix(products, durations, productsScaled = false) {
             // optimally. The greedy rule in duration_based_chunks lets every shard
             // overrun the per-shard average, which on skewed suites starves trailing
             // shards down to zero tests (pytest exit 5, "no tests collected").
+            const shardCost = (work * splitImbalanceFactor(shards)) / shards
             for (let i = 1; i <= shards; i++) {
-                matrix.push({
-                    group: `${product} (${i}/${shards})`,
+                const leg = {
                     filters,
                     pytest_args: `-- --splits ${shards} --group ${i} --splitting-algorithm optimal_chunks`,
-                })
+                }
+                // ceil() rounds the split short and optimal_chunks cuts in order, so
+                // the last shard is reliably the lightest. Offer its leftover budget
+                // to the packer rather than starting another runner for that work.
+                if (i === shards && !DEDICATED_BUCKET_PRODUCTS.has(product)) {
+                    fillableJobs.push({
+                        label: `${product} (${i}/${shards})`,
+                        legs: [leg],
+                        products: [],
+                        cost: shardCost,
+                        baseOverhead: PRODUCT_JOB_OVERHEAD_SECONDS,
+                    })
+                } else {
+                    matrix.push({ group: `${product} (${i}/${shards})`, legs: [leg] })
+                }
             }
         } else if (DEDICATED_BUCKET_PRODUCTS.has(product)) {
-            console.error(`  ${product}: ${(work / 60).toFixed(1)} min work → dedicated bucket (never packed)`)
+            console.error(`  ${product}: ${(work / 60).toFixed(1)} min work → dedicated job (never shared)`)
             matrix.push({
                 group: product,
-                filters: `--filter=@posthog/products-${product}`,
-                pytest_args: '',
+                legs: [{ filters: `--filter=@posthog/products-${product}`, pytest_args: '' }],
             })
         } else {
             packable.push(product)
         }
     }
 
-    for (const bucket of packProducts(packable, durations, productsScaled)) {
-        console.error(
-            `  bucket (${(bucket.cost / 60).toFixed(1)} min effective): ${bucket.products.join(', ')}`
-        )
-        matrix.push({
-            group: bucket.products.join(', '),
-            filters: bucket.products.map((p) => `--filter=@posthog/products-${p}`).join(' '),
-            pytest_args: '',
-        })
+    for (const bucket of packProducts(packable, durations, productsScaled, fillableJobs)) {
+        const group = [bucket.label, ...bucket.products].filter(Boolean).join(', ')
+        console.error(`  job (${(bucket.cost / 60).toFixed(1)} min effective): ${group}`)
+        const legs = [...bucket.legs]
+        if (bucket.products.length > 0) {
+            legs.push({
+                filters: bucket.products.map((p) => `--filter=@posthog/products-${p}`).join(' '),
+                pytest_args: '',
+            })
+        }
+        matrix.push({ group, legs })
     }
 
     return matrix
@@ -1062,7 +1148,10 @@ module.exports = {
     resolveProductSizing,
     buildMatrix,
     PRODUCT_JOB_OVERHEAD_SECONDS,
-    PRODUCT_SAFETY_FACTOR,
+    PRODUCT_BUCKET_SAFETY_FACTOR,
+    SPLIT_IMBALANCE_BY_SHARDS,
+    splitImbalanceFactor,
+    productSplitShards,
     PRODUCTS_SCALED_MARKER,
     TARGET_WALL_SECONDS,
     DJANGO_OVERHEAD_SECONDS_BY_SEGMENT,

@@ -7,7 +7,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { pruneDeadDurations, getSegmentDuration, calculateShards, resolveProductSizing, buildMatrix, PRODUCT_JOB_OVERHEAD_SECONDS, PRODUCT_SAFETY_FACTOR, TARGET_WALL_SECONDS } = require('./turbo-discover.js')
+const { pruneDeadDurations, getSegmentDuration, calculateShards, resolveProductSizing, buildMatrix, productSplitShards, splitImbalanceFactor, PRODUCT_JOB_OVERHEAD_SECONDS, TARGET_WALL_SECONDS } = require('./turbo-discover.js')
 
 // A path that exists in every checkout, so the existence check is deterministic.
 const LIVE_FILE = '.github/scripts/turbo-discover.js'
@@ -95,8 +95,8 @@ test('buildMatrix splits a product to the shared wall target', () => {
 
     const matrix = buildMatrix(['big-one'], union, true)
 
-    // 2000s of work, with the safety factor, over a (target - overhead) budget per shard.
-    assert.equal(matrix.length, Math.ceil((2000 * PRODUCT_SAFETY_FACTOR) / (TARGET_WALL_SECONDS - O)))
+    // 2000s of work, with the imbalance margin, over a (target - overhead) budget.
+    assert.equal(matrix.length, productSplitShards(2000))
     assert.match(matrix[0].group, /^big-one \(1\/\d+\)$/)
 })
 
@@ -107,5 +107,52 @@ test('buildMatrix leaves a small product packed', () => {
 
     assert.equal(matrix.length, 1)
     assert.equal(matrix[0].group, 'small-one')
-    assert.equal(matrix[0].pytest_args, '')
+    assert.deepEqual(matrix[0].legs, [{ filters: '--filter=@posthog/products-small-one', pytest_args: '' }])
+})
+
+test('splitImbalanceFactor rises with the split count and never marks up a single shard', () => {
+    assert.equal(splitImbalanceFactor(1), 1)
+    assert.ok(splitImbalanceFactor(2) < splitImbalanceFactor(6))
+    assert.ok(splitImbalanceFactor(6) < splitImbalanceFactor(9))
+    // Clamped, not extrapolated, past the measured range.
+    assert.equal(splitImbalanceFactor(40), splitImbalanceFactor(9))
+})
+
+test('a product that fits one shard is packed, not split by its own margin', () => {
+    // 300s of work sits under the (target - overhead) budget, so the margin must
+    // not be what pushes it over into a two-way split.
+    const union = {}
+    for (let i = 0; i < 10; i++) {
+        union[`products/mid_one/backend/test_${i}.py::test_${i}`] = 30
+    }
+
+    assert.ok(300 <= TARGET_WALL_SECONDS - PRODUCT_JOB_OVERHEAD_SECONDS)
+    assert.equal(productSplitShards(300), 1)
+
+    const matrix = buildMatrix(['mid-one'], union, true)
+
+    assert.equal(matrix.length, 1)
+    assert.equal(matrix[0].group, 'mid-one')
+})
+
+test("a split product's last shard absorbs a small product without leaking split flags", () => {
+    const union = {}
+    for (let i = 0; i < 11; i++) {
+        union[`products/big_one/backend/test_${i}.py::test_${i}`] = 30
+    }
+    union['products/small_one/backend/test_s.py::test_s'] = 60
+
+    assert.equal(productSplitShards(330), 2)
+
+    const matrix = buildMatrix(['big-one', 'small-one'], union, true)
+
+    // Two jobs, not three: small-one rides along in the lighter second shard.
+    assert.equal(matrix.length, 2)
+    const shared = matrix.find((entry) => entry.group.includes('small-one'))
+    assert.equal(shared.group, 'big-one (2/2), small-one')
+    assert.equal(shared.legs.length, 2)
+    assert.match(shared.legs[0].pytest_args, /--splits 2 --group 2/)
+    // The whole product runs in its own leg, so it never sees --splits/--group.
+    assert.equal(shared.legs[1].filters, '--filter=@posthog/products-small-one')
+    assert.equal(shared.legs[1].pytest_args, '')
 })
