@@ -27,8 +27,10 @@ from rest_framework.serializers import BaseSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
+from posthog.models import User
 from posthog.models.integration import Integration
 
+from products.replay_vision.backend.api import vision_actions_shim
 from products.replay_vision.backend.api.delivery import archive_delivery, provision_delivery
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_process_vision_action_workflow
@@ -641,7 +643,13 @@ class RunActionResponseSerializer(serializers.Serializer):
     )
 )
 class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    """CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations."""
+    """CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+
+    Once an organization is on the `replay-vision-alerts` flag, this surface is a compatibility
+    shim over the new alerts and scouts systems (see `vision_actions_shim`): the request and
+    response contract stays exactly as documented here, but nothing reads or writes VisionAction
+    rows anymore. The runs endpoints keep serving the pre-migration run history.
+    """
 
     # Deliberately NOT an AccessControlViewSetMixin: vision_action inherits its access level
     # from replay_scanner (see RESOURCE_INHERITANCE_MAP) so the product is configured via a
@@ -669,6 +677,49 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "session_recording", required_level="viewer"
         ):
             raise PermissionDenied("Configuring a Replay Vision action requires session_recording read access.")
+
+    def _serves_new_systems(self) -> bool:
+        # One switch for the whole surface, shared with the UI: while the org is flagged onto the
+        # new alerts product, the legacy contract is served from the new systems.
+        from posthog.ph_client import feature_enabled_or_false
+
+        user = self.request.user
+        return feature_enabled_or_false(
+            "replay-vision-alerts",
+            getattr(user, "distinct_id", str(getattr(user, "id", "server"))),
+            groups={"organization": str(self.team.organization_id)},
+            send_feature_flag_events=False,
+        )
+
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if self._serves_new_systems():
+            scanner_id = request.query_params.get("scanner")
+            actions = vision_actions_shim.list_actions(self.team, [scanner_id] if scanner_id else None)
+            return Response({"count": len(actions), "next": None, "previous": None, "results": actions})
+        return super().list(request, *args, **kwargs)
+
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if self._serves_new_systems():
+            return Response(vision_actions_shim.retrieve_action(self.team, self.kwargs["pk"]))
+        return super().retrieve(request, *args, **kwargs)
+
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if self._serves_new_systems():
+            return Response(
+                vision_actions_shim.create_action(self.team, cast(User, request.user), request.data), status=201
+            )
+        return super().create(request, *args, **kwargs)
+
+    def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if self._serves_new_systems():
+            return Response(vision_actions_shim.update_action(self.team, self.kwargs["pk"], request.data))
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if self._serves_new_systems():
+            vision_actions_shim.destroy_action(self.team, self.kwargs["pk"])
+            return Response(status=204)
+        return super().destroy(request, *args, **kwargs)
 
     def safely_get_object(self, queryset: QuerySet[VisionAction]) -> VisionAction:
         action = get_object_or_404(queryset, pk=self.kwargs["pk"])
