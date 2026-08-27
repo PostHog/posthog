@@ -921,6 +921,26 @@ def _pull_request_identity(pr_url: str) -> tuple[str, int] | None:
     return parsed.repository.lower(), parsed.number
 
 
+def _pr_url_lookup_values(pr_url: str) -> list[str]:
+    """The ``output.pr_url`` strings that can stand for ``pr_url``.
+
+    ``output.pr_url`` is caller-supplied: the agent server PATCHes it onto the run, so it can hold
+    a valid but noncanonical form of the URL GitHub sends as ``html_url``. The variants are
+    enumerated rather than matched with a prefix or a normalizing scan so the lookup stays on the
+    partial index ``task_run_output_pr_url_idx``. A prefix match cannot use that index, and this
+    lookup runs on every closed-PR delivery, including the many for PRs no run ever opened.
+    """
+    parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
+    if parsed is None:
+        return [pr_url]
+    values = {pr_url}
+    for host in ("github.com", "www.github.com"):
+        for repository in (parsed.repository, parsed.repository.lower()):
+            base = f"https://{host}/{repository}/pull/{parsed.number}"
+            values.update((base, f"{base}/"))
+    return sorted(values)
+
+
 def _signal_reports_for_pr_runs(pr_url: str, runs: list[TaskRun]) -> list[SignalReport]:
     if not runs:
         return []
@@ -960,29 +980,10 @@ def _transition_signal_reports_for_pr(
     Kept tolerant: a single bad transition should not fail the whole webhook, since GitHub retries
     5xx responses and we've already acknowledged the PR event.
     """
-    run_candidates = TaskRun.objects.filter(output__pr_url=pr_url)
+    run_candidates = TaskRun.objects.filter(output__pr_url__in=_pr_url_lookup_values(pr_url))
     if team_ids:
         run_candidates = run_candidates.filter(team_id__in=team_ids)
-    candidate_runs = list(run_candidates)
-    reports = _signal_reports_for_pr_runs(pr_url, candidate_runs)
-
-    if not reports:
-        parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
-        if parsed is None:
-            return
-        pr_path = f"{parsed.owner}/{parsed.repo}/pull/{parsed.number}"
-        normalized_candidates = TaskRun.objects.filter(
-            Q(output__pr_url__istartswith=f"https://github.com/{pr_path}")
-            | Q(output__pr_url__istartswith=f"https://www.github.com/{pr_path}")
-        )
-        if team_ids:
-            normalized_candidates = normalized_candidates.filter(team_id__in=team_ids)
-        candidate_runs = [
-            run
-            for run in normalized_candidates
-            if _pull_request_identity((run.output or {}).get("pr_url", "")) == _pull_request_identity(pr_url)
-        ]
-        reports = _signal_reports_for_pr_runs(pr_url, candidate_runs)
+    reports = _signal_reports_for_pr_runs(pr_url, list(run_candidates))
 
     if record_merge and reports:
         report_task_runs = SignalReport.associated_task_runs_for_reports(

@@ -1280,11 +1280,18 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         self.report.refresh_from_db()
         self.assertEqual(self.report.status, SignalReport.Status.READY)
 
+    @parameterized.expand(
+        [
+            ("trailing_slash", "https://github.com/posthog/posthog/pull/42/"),
+            ("www_host", "https://www.github.com/posthog/posthog/pull/42"),
+            ("www_host_trailing_slash", "https://www.github.com/posthog/posthog/pull/42/"),
+        ]
+    )
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
-    def test_pr_url_variants_match_the_webhook_pr(self, _mock_capture, mock_get_secret):
+    def test_pr_url_variants_match_the_webhook_pr(self, _name, stored_pr_url, _mock_capture, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
-        self.task_run.output = {"pr_url": "https://www.github.com/PostHog/PostHog/pull/42/files?diff=split"}
+        self.task_run.output = {"pr_url": stored_pr_url}
         self.task_run.save(update_fields=["output"])
 
         response = self._post_pr_webhook(action="closed", merged=True)
