@@ -23,6 +23,10 @@ import { FetchRunner } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image
 import { KafkaFrontierDeadLetterSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/frontier-dead-letter-sink'
 import { FrontierPublisher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/frontier-publisher'
 import { HostBudget } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/host-budget'
+import {
+    ImageFetchBatchJoiner,
+    assertImageFetchBatchTarget,
+} from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetch-batch-joiner'
 import { HttpImageFetcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetcher'
 import { OriginRequestScheduler } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/origin-request-scheduler'
 import { assertUrlPolicyLoaded } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/politeness-key'
@@ -30,6 +34,7 @@ import { UrlFetchConsumer } from '~/ingestion/pipelines/sessionreplay/ml-mirror-
 import { createWebBotAuthRequestSigner } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/web-bot-auth'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
 import { INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
+import { HealthCheckResultOk } from '~/types'
 
 import { CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 import {
@@ -141,17 +146,18 @@ export function buildFetchRunner(
     )
 }
 
-export function buildImageFetchConsumerConfig(
+export function buildImageFetchConsumerConfigs(
     config: IngestionSessionReplayMlMirrorServerConfig
-): KafkaConsumerV2Config {
-    return {
+): KafkaConsumerV2Config[] {
+    const targetBatchCount = config.SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH
+    assertImageFetchBatchTarget(targetBatchCount)
+    return Array.from({ length: targetBatchCount }, () => ({
         topic: KAFKA_SESSION_REPLAY_IMAGE_FETCH,
         groupId: config.SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID,
         autoCommit: true,
         autoOffsetStore: true,
         fetchBatchSize: config.SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE,
-        targetPartitionsPerBatch: config.SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH,
-    }
+    }))
 }
 
 /**
@@ -240,18 +246,37 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
         )
         logger.info('🌐', 'ml_image_fetch_started', { dryRun })
 
+        const consumerConfigs = buildImageFetchConsumerConfigs(this.config)
+        const batchJoiner = new ImageFetchBatchJoiner(consumerConfigs.length, (messages) =>
+            fetchConsumer.handleBatch(messages, Date.now())
+        )
         const maximumRecordBytes = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES + 64 * 1024
-        const consumer = new KafkaConsumerV2(buildImageFetchConsumerConfig(this.config), {
-            'fetch.message.max.bytes': maximumRecordBytes,
-            'max.partition.fetch.bytes': maximumRecordBytes,
-        })
-        await consumer.connect((messages) => fetchConsumer.handleBatch(messages, Date.now()))
+        const consumers = consumerConfigs.map(
+            (consumerConfig) =>
+                new KafkaConsumerV2(consumerConfig, {
+                    'fetch.message.max.bytes': maximumRecordBytes,
+                    'max.partition.fetch.bytes': maximumRecordBytes,
+                })
+        )
 
         this.lifecycle.services.push({
             id: 'session-replay-ml-image-fetch',
-            onShutdown: () => consumer.disconnect(),
-            healthcheck: () => consumer.isHealthy(),
+            onShutdown: async () => {
+                await Promise.all(consumers.map((consumer) => consumer.disconnect()))
+            },
+            healthcheck: () => {
+                for (const consumer of consumers) {
+                    const health = consumer.isHealthy()
+                    if (health.isError()) {
+                        return health
+                    }
+                }
+                return new HealthCheckResultOk()
+            },
         })
+        await Promise.all(
+            consumers.map((consumer) => consumer.connect((messages) => batchJoiner.handleBatch(messages)))
+        )
     }
 
     private getCleanupResources(): CleanupResources {

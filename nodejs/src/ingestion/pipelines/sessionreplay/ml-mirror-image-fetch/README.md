@@ -299,7 +299,7 @@ Removing an eligible entry cannot permit an earlier request.
 
 This rule lets later Kafka records add domain and origin diversity when the current pass cannot use enough pod capacity. A job can receive this zero-wait diversity deferral once. A previously deferred job proceeds normally, subject to the pass deadline. This bound prevents a persistent dominant origin or one long run from creating a fast republish cycle without progress.
 
-**5.20** One fetch pass tries to combine record batches from the configured number of Kafka partitions. The target must be from one to four and defaults to two. The consumer does not poll beyond its current assignments. After the first poll, it pauses represented partitions before it polls for another partition. If no other partition has a batch ready, the consumer processes the available batch.
+**5.20** Each worker creates one Kafka group member for each configured target partition. Group assignments do not overlap, so ready group members supply batches from different partitions. The worker joins their batches into one fetch pass. The target must be from one to four and defaults to two. The worker starts the fetch pass when all target batches arrive or the join window ends. If fewer batches arrive, the worker processes the available batches.
 
 ### 6. Smokescreen
 

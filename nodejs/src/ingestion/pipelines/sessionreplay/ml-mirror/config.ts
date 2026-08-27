@@ -85,7 +85,7 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_FETCH_DLQ_TOPIC: string
     SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID: string
     SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE: number
-    /** Target number of Kafka partitions represented in each fetch pass. */
+    /** Kafka group members per image-fetch worker. Their batches join into one fetch pass. */
     SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: number
     AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TABLE: string
     /** Bounds one DynamoDB request so an unavailable store cannot hold the poll loop. */

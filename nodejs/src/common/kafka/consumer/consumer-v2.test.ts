@@ -98,8 +98,6 @@ describe('KafkaConsumerV2', () => {
             incrementalAssign: jest.fn(),
             assign: jest.fn(),
             unassign: jest.fn(),
-            pause: jest.fn(),
-            resume: jest.fn(),
             rebalanceProtocol: jest.fn().mockReturnValue('COOPERATIVE'),
         }
 
@@ -139,7 +137,6 @@ describe('KafkaConsumerV2', () => {
         onPartitionsRevoked?: (assignments: { topic: string; partition: number }[]) => Promise<void>
     ) => {
         await consumer.connect(eachBatch, onPartitionsRevoked)
-        mockRdKafka.assignments.mockReturnValue(partitions)
         registeredRebalanceCb!({ code: CODES.ERRORS.ERR__ASSIGN_PARTITIONS } as any, partitions)
         // The loop is currently inside the IDLE keepalive consume(1, cb). Release it with
         // an empty batch so the loop processes ASSIGN and arms a fresh consume() in CONSUMING.
@@ -158,15 +155,6 @@ describe('KafkaConsumerV2', () => {
             consumeCallback = undefined
             cb(null, [])
         }
-    }
-
-    const takeConsumeCallback = (): ((error: Error | null, messages: Message[]) => void) => {
-        if (!consumeCallback) {
-            throw new Error('no Kafka consume callback is pending')
-        }
-        const callback = consumeCallback
-        consumeCallback = undefined
-        return callback
     }
 
     const fireRevoke = (partitions = [{ topic: 'test-topic', partition: 0 }]) => {
@@ -219,80 +207,6 @@ describe('KafkaConsumerV2', () => {
         expect(eachBatch).toHaveBeenCalledWith([createMessage({ offset: 1, partition: 0 })])
         expect(mockRdKafka.offsetsStore).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 0, offset: 2 }])
     })
-
-    it.each([
-        ['combines a second partition', 2, [[createMessage({ offset: 2, partition: 1 })]]],
-        ['uses the first partition when the second poll is empty', 2, [[]]],
-        [
-            'combines four configured partitions',
-            4,
-            [
-                [createMessage({ offset: 2, partition: 1 })],
-                [createMessage({ offset: 3, partition: 2 })],
-                [createMessage({ offset: 4, partition: 3 })],
-            ],
-        ],
-    ] as Array<[string, number, Message[][]]>)('%s', async (_name, targetPartitionsPerBatch, additionalBatches) => {
-        consumer = new KafkaConsumerV2({
-            groupId: 'test-group-two-partitions',
-            topic: 'test-topic',
-            targetPartitionsPerBatch,
-        })
-        mockRdKafka = jest.mocked((consumer as any).rdKafkaConsumer)
-        const eachBatch = jest.fn(() => Promise.resolve({}))
-        await startConsuming(
-            eachBatch,
-            Array.from({ length: targetPartitionsPerBatch }, (_, partition) => ({ topic: 'test-topic', partition }))
-        )
-
-        const firstBatch = [createMessage({ offset: 1, partition: 0 })]
-        const expectedBatch = [...firstBatch, ...additionalBatches.flat()]
-        const firstPollCallback = takeConsumeCallback()
-        firstPollCallback(null, firstBatch)
-        await delay(2)
-
-        expect(eachBatch).not.toHaveBeenCalled()
-        expect(mockRdKafka.pause).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 0 }])
-
-        let previousPollCallback = firstPollCallback
-        for (const [index, batch] of additionalBatches.entries()) {
-            expect(mockRdKafka.pause).toHaveBeenCalledTimes(index + 1)
-            const pollCallback = takeConsumeCallback()
-            expect(pollCallback).not.toBe(previousPollCallback)
-            pollCallback(null, batch)
-            previousPollCallback = pollCallback
-            await delay(2)
-        }
-
-        expect(mockRdKafka.resume).toHaveBeenCalledTimes(additionalBatches.length)
-        expect(eachBatch).toHaveBeenCalledWith(expectedBatch)
-    })
-
-    it('uses the available batch without polling when it owns fewer partitions than the target', async () => {
-        consumer = new KafkaConsumerV2({
-            groupId: 'test-group-one-partition',
-            topic: 'test-topic',
-            targetPartitionsPerBatch: 2,
-        })
-        mockRdKafka = jest.mocked((consumer as any).rdKafkaConsumer)
-        const eachBatch = jest.fn(() => Promise.resolve({}))
-        await startConsuming(eachBatch)
-
-        takeConsumeCallback()(null, [createMessage({ offset: 1, partition: 0 })])
-        await delay(2)
-
-        expect(mockRdKafka.pause).not.toHaveBeenCalled()
-        expect(eachBatch).toHaveBeenCalledWith([createMessage({ offset: 1, partition: 0 })])
-    })
-
-    it.each([0, -1, 1.5, 5, Number.NaN, Number.MAX_SAFE_INTEGER + 1])(
-        'refuses invalid targetPartitionsPerBatch %p',
-        (targetPartitionsPerBatch) => {
-            expect(
-                () => new KafkaConsumerV2({ groupId: 'test-group', topic: 'test-topic', targetPartitionsPerBatch })
-            ).toThrow('targetPartitionsPerBatch must be an integer between 1 and 4')
-        }
-    )
 
     it('Backpressure: pushing > maxBackgroundTasks blocks until oldest settles', async () => {
         ;(consumer as any).maxBackgroundTasks = 2

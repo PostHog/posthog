@@ -37,7 +37,6 @@ import {
 } from './metrics'
 
 const DEFAULT_BATCH_TIMEOUT_MS = 500
-const MAX_TARGET_PARTITIONS_PER_BATCH = 4
 const STATISTICS_INTERVAL_MS = 5000
 const LOOP_STALL_THRESHOLD_MS_DEFAULT = 60_000
 // auto.offset.reset is a topic-level property and which config form librdkafka honors varies by
@@ -54,7 +53,6 @@ export type KafkaConsumerV2Config = {
     autoCommit?: boolean
     enablePartitionEof?: boolean
     fetchBatchSize?: number
-    targetPartitionsPerBatch?: number
 }
 
 export type RdKafkaConsumerOverrides = Omit<
@@ -72,11 +70,6 @@ type RebalanceEvent =
 
 type TaskEntry = {
     settled: Promise<void>
-}
-
-type FetchedMessages = {
-    messages: Message[]
-    pollCount: number
 }
 
 const partitionKey = (tp: { topic: string; partition: number }): string => `${tp.topic}/${tp.partition}`
@@ -119,7 +112,6 @@ export class KafkaConsumerV2 {
 
     // Tunables (resolved at construction)
     private fetchBatchSize: number
-    private targetPartitionsPerBatch: number
     private batchTimeoutMs: number
     private maxBackgroundTasks: number
     private backgroundTaskTimeoutMs: number
@@ -144,16 +136,6 @@ export class KafkaConsumerV2 {
             .substring(2, 8)}`
 
         this.fetchBatchSize = config.fetchBatchSize ?? defaultConfig.CONSUMER_BATCH_SIZE
-        this.targetPartitionsPerBatch = config.targetPartitionsPerBatch ?? 1
-        if (
-            !Number.isSafeInteger(this.targetPartitionsPerBatch) ||
-            this.targetPartitionsPerBatch < 1 ||
-            this.targetPartitionsPerBatch > MAX_TARGET_PARTITIONS_PER_BATCH
-        ) {
-            throw new Error(
-                `targetPartitionsPerBatch must be an integer between 1 and ${MAX_TARGET_PARTITIONS_PER_BATCH}`
-            )
-        }
         this.batchTimeoutMs = this.config.batchTimeoutMs ?? DEFAULT_BATCH_TIMEOUT_MS
         this.maxBackgroundTasks = defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
         this.backgroundTaskTimeoutMs = defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_MS
@@ -323,13 +305,14 @@ export class KafkaConsumerV2 {
     }
 
     private async fetchAndDispatch(eachBatch: EachBatch): Promise<void> {
-        const { messages, pollCount } = await this.fetchMessages()
+        const messages = await retryIfRetriable(() =>
+            promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(this.fetchBatchSize, cb))
+        )
 
+        consumerPolls.labels(this.config.topic, this.config.groupId).inc()
         consumerBatchSize.observe(messages.length)
         consumerBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
-        consumerBatchUtilization
-            .labels({ groupId: this.config.groupId })
-            .set(messages.length / (this.fetchBatchSize * pollCount))
+        consumerBatchUtilization.labels({ groupId: this.config.groupId }).set(messages.length / this.fetchBatchSize)
 
         if (messages.length === 0 && !this.config.callEachBatchWhenEmpty) {
             return
@@ -353,58 +336,6 @@ export class KafkaConsumerV2 {
         const offsets = findOffsetsToCommit(messages)
         this.trackTask(result, offsets)
         await this.applyBackpressure()
-    }
-
-    private async fetchMessages(): Promise<FetchedMessages> {
-        const messages = await this.pollBatch()
-        if (messages.length === 0 || this.targetPartitionsPerBatch === 1) {
-            return { messages, pollCount: 1 }
-        }
-
-        const representedPartitions = new Map<string, Assignment>()
-        const addRepresentedPartitions = (batch: Message[]): void => {
-            for (const message of batch) {
-                representedPartitions.set(partitionKey(message), {
-                    topic: message.topic,
-                    partition: message.partition,
-                })
-            }
-        }
-        addRepresentedPartitions(messages)
-
-        const assignedPartitionCount = this.rdKafkaConsumer.assignments().length
-        const effectivePartitionTarget = Math.min(
-            this.targetPartitionsPerBatch,
-            Math.max(assignedPartitionCount, representedPartitions.size)
-        )
-        let remainingPolls = effectivePartitionTarget - representedPartitions.size
-        let pollCount = 1
-        while (remainingPolls > 0 && representedPartitions.size < effectivePartitionTarget) {
-            const pausedPartitions = [...representedPartitions.values()]
-            this.rdKafkaConsumer.pause(pausedPartitions)
-            let nextBatch: Message[]
-            try {
-                nextBatch = await this.pollBatch()
-                pollCount++
-            } finally {
-                this.rdKafkaConsumer.resume(pausedPartitions)
-            }
-            if (nextBatch.length === 0) {
-                break
-            }
-            messages.push(...nextBatch)
-            addRepresentedPartitions(nextBatch)
-            remainingPolls--
-        }
-        return { messages, pollCount }
-    }
-
-    private async pollBatch(): Promise<Message[]> {
-        const messages = await retryIfRetriable(() =>
-            promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(this.fetchBatchSize, cb))
-        )
-        consumerPolls.labels(this.config.topic, this.config.groupId).inc()
-        return messages
     }
 
     private trackTask(result: EachBatchResult, offsets: TopicPartitionOffset[]): void {
