@@ -178,8 +178,10 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
     )
     useEffect(() => () => observerRef.current?.disconnect(), [])
 
-    // Skeleton while a tab we know is non-empty loads its first page.
-    const showSkeleton = !isLoaded && (reportsResponseLoading || (count ?? 0) > 0)
+    // Skeleton until the first response lands. Before the count or list request resolves `count` is
+    // null, and an empty `reports` can't be told apart from a still-loading tab — so gate on
+    // `count !== 0` to keep the empty state from flashing before `ensureLoaded()` starts the request.
+    const showSkeleton = !isLoaded && (reportsResponseLoading || count !== 0)
 
     return (
         <div className="@container mx-auto max-w-4xl flex flex-col gap-4 px-6 py-4">
