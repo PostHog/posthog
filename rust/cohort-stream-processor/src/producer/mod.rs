@@ -40,7 +40,7 @@ pub use merge::{
 };
 pub use seed::{CaptureSeedTileSink, KafkaSeedTileSink, NoopSeedTileSink, SeedTileSink};
 
-/// One per-cohort membership change on `cohort_membership_changed`.
+/// One per-cohort membership change on the membership output topic.
 ///
 /// `origin`/`run_id` are additive and absent on the live path, so live emissions stay
 /// byte-identical to the pre-field contract.

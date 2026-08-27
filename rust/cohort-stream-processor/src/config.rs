@@ -306,9 +306,11 @@ pub struct Config {
     #[envconfig(from = "HOSTNAME")]
     pub pod_hostname: Option<String>,
 
-    /// The output topic for membership changes. Live data, not a shadow: the CDP consumer reads
-    /// this topic and a produce failure here means data loss.
-    #[envconfig(default = "cohort_membership_changed")]
+    /// The output topic for membership changes. The default stays on the shadow topic so a code
+    /// deploy cannot flip production; the cut-over to `cohort_membership_changed` is a config-only
+    /// change. Most produce-failure paths hold or reschedule the offset for replay, but the sweep
+    /// stage 2 and merge paths drop at-most-once because their state is already committed.
+    #[envconfig(default = "cohort_membership_changed_shadow")]
     pub cohort_membership_changed_topic: String,
 
     /// Reconcile completion markers ride their own topic: the membership topic's consumers reject
@@ -1110,7 +1112,7 @@ mod tests {
             kafka_session_timeout_ms: 60000,
             pod_name: None,
             pod_hostname: None,
-            cohort_membership_changed_topic: "cohort_membership_changed".to_string(),
+            cohort_membership_changed_topic: "cohort_membership_changed_shadow".to_string(),
             cohort_reconcile_markers_topic: "cohort_reconcile_markers".to_string(),
             reconcile_marker_message_timeout_ms: 1000,
             kafka_producer_partitioner: "murmur2_random".to_string(),

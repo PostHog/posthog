@@ -229,16 +229,32 @@ describe('CdpCohortMembershipConsumer', () => {
             expect(change.run_id).toBe(runId)
         })
 
-        it('should leave origin and run_id undefined on a live transition', () => {
+        it('should carry an unknown origin through parsing without rejecting the batch', () => {
+            const runId = new UUIDT().toString()
             const message = createKafkaMessage(
-                createCohortMembershipEvent({ person_id: personId1, cohort_id: 456, team_id: 1 }),
+                createCohortMembershipEvent({
+                    person_id: personId1,
+                    cohort_id: 456,
+                    team_id: 1,
+                    status: 'entered',
+                    origin: 'snapshot',
+                    run_id: runId,
+                }),
                 { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: 0 }
             )
 
+            // A future origin the consumer does not know must still parse. A strict enum would throw
+            // the whole batch and crash-loop the feed.
             const [change] = consumer['_parseAndValidateBatch']([message])
 
-            expect(change.origin).toBeUndefined()
-            expect(change.run_id).toBeUndefined()
+            expect(change.origin).toBe('snapshot')
+            expect(change.run_id).toBe(runId)
+            expect(change).toMatchObject({
+                person_id: personId1,
+                cohort_id: 456,
+                team_id: 1,
+                status: 'entered',
+            })
         })
 
         it('should reject entire batch when invalid messages are present', async () => {

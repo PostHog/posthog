@@ -15,21 +15,24 @@ import { CdpConsumerBase, CdpConsumerBaseConfig, CdpConsumerBaseDeps } from './c
 // transitions. `z.object` drops unknown keys, so any field the consumer must read has to be
 // declared here.
 //
-// Origin handling:
-// - absent: a live membership transition. Upsert the row.
-// - `seed`: the initial snapshot of a backfill run. Upsert the row.
-// - `reconcile`: a replay from a backfill run that reconciles drift. Upsert the row.
+// `origin` is a tolerant string, not a strict enum, because the consumer upserts the same way for
+// every origin and never branches on the value. A strict enum would reject an origin it does not
+// know, and rejection throws the whole batch: `_parseAndValidateBatch` re-throws to the consumer
+// loop, the service shuts down, and because offsets store only after a successful batch the
+// message redelivers on restart into a crash loop. The Rust `ChangeOrigin` enum is additive (new
+// origins land with their producers), so a processor deploy can emit an origin this consumer has
+// not seen. Known values today: `seed` (initial backfill snapshot), `reconcile` (backfill drift
+// replay), absent (live transition).
 //
-// All three origins upsert the same way today. `run_id` identifies the backfill run and is
-// carried for the mark-and-sweep deletion work, which uses it to delete rows a completed run
-// did not re-assert.
+// `run_id` identifies the backfill run and is carried for the mark-and-sweep deletion work, which
+// uses it to delete rows a completed run did not re-assert.
 const CohortMembershipChangeSchema = z.object({
     person_id: z.guid(),
     cohort_id: z.number(),
     team_id: z.number(),
     status: z.enum(['entered', 'left']),
     last_updated: z.string().optional(),
-    origin: z.enum(['seed', 'reconcile']).optional(),
+    origin: z.string().optional(),
     run_id: z.guid().optional(),
 })
 
