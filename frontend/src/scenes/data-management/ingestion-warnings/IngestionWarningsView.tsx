@@ -297,6 +297,27 @@ export const WARNING_TYPE_RENDERER = {
             </>
         )
     },
+    high_volume_distinct_id: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            distinctId?: string
+            distinctIdCount?: number
+        }
+        return (
+            <>
+                Rate limit reached, so these events were ingested with person profile processing turned off. No
+                events were dropped.
+                {details.distinctId ? (
+                    <>
+                        {' '}
+                        Offending distinct_id:{' '}
+                        <Link to={urls.personByDistinctId(details.distinctId)}>{details.distinctId}</Link>.
+                    </>
+                ) : details.distinctIdCount ? (
+                    <> Affected {details.distinctIdCount} distinct IDs in this batch.</>
+                ) : null}
+            </>
+        )
+    },
     schema_validation_failed: function Render(warning: IngestionWarning): JSX.Element {
         const details = warning.details as {
             eventUuid: string
