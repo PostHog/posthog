@@ -99,6 +99,17 @@ class GoogleAdsIntegration:
                 integration_id=self.integration.id,
             )
             raise GoogleAdsTemporarilyUnavailable()
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+            # _google_ads_request retries a timeout or connection error too, so reaching here means every
+            # attempt failed to reach Google. It is transient like a 5xx, so surface the same 503 instead
+            # of letting it reach the view as an unhandled 500. These exceptions carry no response, so log
+            # the error text rather than a status code.
+            logger.warning(
+                "GoogleAdsIntegration: Google Ads unreachable listing conversion actions",
+                error=str(e),
+                integration_id=self.integration.id,
+            )
+            raise GoogleAdsTemporarilyUnavailable()
 
         if response.status_code == 401:
             logger.warning(

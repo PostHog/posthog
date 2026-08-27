@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase, override_settings
 
 import requests
+from parameterized import parameterized
 
 from posthog.models.integration import GoogleAdsIntegration, Integration
 from posthog.models.integration.google_ads import GoogleAdsTemporarilyUnavailable
@@ -177,14 +178,28 @@ class TestGoogleAdsConversionActionRetries(SimpleTestCase):
 
         assert actions[0]["results"][0]["conversionAction"]["id"] == "1"
 
+    @parameterized.expand(
+        [
+            # Every transient type _google_ads_request retries must, once exhausted, surface the retry-me
+            # message rather than a 500. A timeout or connection error carries no response, so it took a
+            # separate handler from the 5xx case; both must land on the same friendly error.
+            ("persistent_503", lambda: MagicMock(status_code=503, text="UNAVAILABLE"), False),
+            ("persistent_timeout", lambda: requests.exceptions.ReadTimeout("read timed out"), True),
+            ("persistent_connection_error", lambda: requests.exceptions.ConnectionError("refused"), True),
+        ]
+    )
     @override_settings(GOOGLE_ADS_DEVELOPER_TOKEN="dev_token")
     @patch("tenacity.nap.time.sleep")
     @patch("posthog.models.integration.google_ads.requests.request")
-    def test_conversion_actions_raises_friendly_error_after_repeated_503(self, mock_request, mock_sleep):
-        # A persistent 503 must surface a retry-me message rather than a 500 "internal error", and it must
-        # stop after the bounded retries rather than loop forever. The retry-me error is a 503, not a 400
-        # validation error, so callers and monitoring read it as a transient failure.
-        mock_request.return_value = MagicMock(status_code=503, text="UNAVAILABLE")
+    def test_conversion_actions_raises_friendly_error_after_repeated_transient_failure(
+        self, _name, make_outcome, is_exception, mock_request, mock_sleep
+    ):
+        # The retry-me error is a 503, not a 400 validation error, so callers and monitoring read it as a
+        # transient failure, and the retries stay bounded rather than looping forever.
+        if is_exception:
+            mock_request.side_effect = make_outcome()
+        else:
+            mock_request.return_value = make_outcome()
 
         with pytest.raises(GoogleAdsTemporarilyUnavailable, match="temporarily unavailable"):
             GoogleAdsIntegration(self._integration()).list_google_ads_conversion_actions("6501924158")
