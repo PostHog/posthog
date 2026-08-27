@@ -29,6 +29,7 @@ from .coder import (
     DEFAULT_REGION,
     DEFAULT_TEMPLATE,
     DOTFILES_URI_PARAMETER,
+    EXPECTED_TAILNET,
     GIT_EMAIL_PARAMETER,
     GIT_NAME_PARAMETER,
     GIT_SIGNING_KEY_SECRET,
@@ -43,6 +44,7 @@ from .coder import (
     coder_ssh_alias_configured,
     create_task,
     create_workspace,
+    current_tailnet_name,
     delete_user_secret,
     delete_workspace,
     ensure_coder_authenticated,
@@ -113,7 +115,9 @@ _POSTHOG_COMMIT_SIGNING_HANDBOOK_URL = "https://posthog.com/handbook/engineering
 # fails at the reachability check.
 _TAILNET_POLICY_URL = "https://github.com/PostHog/posthog-cloud-infra/blob/main/tailnet-policy.hujson"
 _TAILNET_ACCESS_PREREQ = (
-    "Devbox access needs your email in `group:engineering` in "
+    f"Devbox access needs you on the `{EXPECTED_TAILNET}` tailnet (not dev / "
+    "prod-us / prod-eu / internal — those are for CI runners and subnet "
+    "routers), with your email in `group:engineering` in "
     "posthog-cloud-infra/tailnet-policy.hujson.\n"
     f"    Not granted yet? Add yourself via PR: {_TAILNET_POLICY_URL}"
 )
@@ -735,6 +739,12 @@ def devbox_doctor() -> None:
     click.echo()
 
     _doctor_check("Tailscale connected", tailscale_connected())
+
+    # Being on a per-environment tailnet looks identical to "connected" but
+    # routes nowhere near a devbox, and nothing prompts you about it after the
+    # first sign-in — so name the active tailnet on its own line.
+    tailnet = current_tailnet_name()
+    _doctor_check(f"Tailnet is {EXPECTED_TAILNET} (found: {tailnet or 'unknown'})", tailnet == EXPECTED_TAILNET)
 
     reachable = coder_reachable()
     _doctor_check("Coder control plane reachable", reachable)
