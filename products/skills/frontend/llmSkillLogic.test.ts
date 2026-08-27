@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import { ApiError } from '~/lib/api-error'
+import { ApiError, NetworkError } from '~/lib/api-error'
 import { initKeaTests } from '~/test/init'
 
 import {
@@ -319,28 +319,45 @@ describe('llmSkillLogic', () => {
         beforeEach(() => {
             jest.clearAllMocks()
             initKeaTests()
-            mockFilesRetrieve.mockResolvedValue(MOCK_FILE)
         })
 
         afterEach(() => {
             logic?.unmount()
         })
 
-        // Only a 404 proves the skill isn't there. Treating every failure as "not found" tells a user
-        // who lacks access, or who hit a server error, that a skill they may well own does not exist.
         it.each([
-            [404, true, null],
-            [403, false, 403],
-            [500, false, 500],
-        ])('reports a %i as missing=%s', async (status, missing, errorStatus) => {
-            mockResolve.mockRejectedValue(new ApiError('Request failed', status))
+            ['a 404', new ApiError('Not found', 404), { missing: true, accessDenied: false, loadError: false }],
+            [
+                'a permission-denied 403',
+                new ApiError('Forbidden', 403, undefined, { code: 'permission_denied' }),
+                { missing: false, accessDenied: true, loadError: false },
+            ],
+            [
+                'a 403 that is not about object access',
+                new ApiError('Forbidden', 403),
+                { missing: false, accessDenied: false, loadError: true },
+            ],
+            ['a 500', new ApiError('Server error', 500), { missing: false, accessDenied: false, loadError: true }],
+            [
+                'a dropped connection',
+                new NetworkError('network'),
+                { missing: false, accessDenied: false, loadError: true },
+            ],
+        ])('resolves %s to its own state', async (_label, error, expected) => {
+            mockResolve.mockRejectedValue(error)
 
             logic = llmSkillLogic({ skillName: 'my-test-skill' })
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadSkillFailure'])
 
-            expect(logic.values.isSkillMissing).toBe(missing)
-            expect(logic.values.skillLoadErrorStatus).toBe(errorStatus)
+            expect(logic.values.isSkillMissing).toBe(expected.missing)
+            expect(logic.values.isSkillAccessDenied).toBe(expected.accessDenied)
+            expect(logic.values.hasSkillLoadError).toBe(expected.loadError)
+            expect(logic.values.breadcrumbs.at(-1)?.name).toBe('my-test-skill')
+
+            logic.actions.loadSkill()
+            expect(logic.values.hasSkillLoadError).toBe(false)
+            await expectLogic(logic).toDispatchActions(['loadSkillFailure'])
         })
     })
 })

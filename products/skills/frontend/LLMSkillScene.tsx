@@ -16,6 +16,7 @@ import {
 import { LemonBanner, LemonButton, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
@@ -82,7 +83,9 @@ export function LLMSkillScene(): JSX.Element {
         isSkillFormDirty,
         nextVersion,
         skillName,
-        skillLoadErrorStatus,
+        selectedVersion,
+        isSkillAccessDenied,
+        hasSkillLoadError,
     } = useValues(llmSkillLogic)
     const { searchParams } = useValues(router)
 
@@ -108,12 +111,14 @@ export function LLMSkillScene(): JSX.Element {
         )
     }
 
-    if (skillLoadErrorStatus !== null) {
+    if (isSkillAccessDenied) {
+        return <AccessDenied object="skill" />
+    }
+
+    if (hasSkillLoadError) {
         return (
             <LemonBanner type="error" action={{ children: 'Try again', onClick: loadSkill }}>
-                {skillLoadErrorStatus === 403
-                    ? "You don't have access to this skill. Ask an admin of your organization to give you access."
-                    : "Couldn't load this skill. Try again, and if it keeps happening contact support."}
+                Couldn't load this skill. Try again, and if it keeps happening contact support.
             </LemonBanner>
         )
     }
@@ -123,10 +128,12 @@ export function LLMSkillScene(): JSX.Element {
             <NotFound
                 object="skill"
                 caption={
-                    searchParams.version ? (
+                    // The resolve endpoint returns the same 404 for a missing skill and a missing
+                    // version, so the caption can only name what the URL asks for.
+                    selectedVersion !== null ? (
                         <>
-                            This skill has no version {searchParams.version}.{' '}
-                            <Link to={urls.skill(skillName)}>View the latest version</Link>, or{' '}
+                            This link points to version {selectedVersion}.{' '}
+                            <Link to={urls.skill(skillName)}>Try the latest version</Link>, or{' '}
                             <Link to={urls.skills()}>browse all skills</Link>.
                         </>
                     ) : (

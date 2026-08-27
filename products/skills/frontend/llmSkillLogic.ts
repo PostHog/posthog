@@ -17,6 +17,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 
 import { ApiConfig, ApiError } from '~/lib/api'
+import { isAccessDeniedError } from '~/lib/api-error'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from '~/scenes/urls'
 import { Breadcrumb } from '~/types'
@@ -124,6 +125,12 @@ export interface PublishConflict {
     latestVersion: number | null
 }
 
+export interface SkillLoadError {
+    /** Undefined when the request never reached the server: a `NetworkError` carries no status. */
+    status: number | undefined
+    code: string | null
+}
+
 // Sorted by path so a reorder that ends up byte-identical on the server is not presented as a change.
 function sortSkillFilesByPath(files: SkillFormFileValues[]): SkillFormFileValues[] {
     return [...files].sort((a, b) => a.path.localeCompare(b.path))
@@ -202,12 +209,14 @@ export interface llmSkillLogicValues {
     }>
     downloadingZip: boolean
     fileContentsLoading: boolean
+    hasSkillLoadError: boolean
     isDiffVisible: boolean
     isEditMode: boolean
     isHistoricalVersion: boolean
     isNewSkill: boolean
     isOutlineExpanded: boolean
     isPublishReviewOpen: boolean
+    isSkillAccessDenied: boolean
     isSkillFormDirty: boolean
     isSkillFormSubmitting: boolean
     isSkillFormValid: boolean
@@ -220,6 +229,7 @@ export interface llmSkillLogicValues {
     ownersEditing: boolean
     publishConflict: PublishConflict | null
     savingOwners: boolean
+    selectedVersion: number | null
     shouldDisplaySkeleton: boolean
     showSkillFormErrors: boolean
     skill: ResolvedLLMSkill | SkillFormValues | null
@@ -234,8 +244,7 @@ export interface llmSkillLogicValues {
     skillFormTouched: boolean
     skillFormTouches: Record<string, boolean>
     skillFormValidationErrors: DeepPartialMap<SkillFormValues, ValidationErrorType>
-    skillLoadErrorStatus: number | null
-    skillLoadStatus: number | null
+    skillLoadError: SkillLoadError | null
     skillLoading: boolean
     skillName: string
     skillOwners: readonly UserBasicApi[]
@@ -391,12 +400,14 @@ export interface llmSkillLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isNewSkill: (arg: any) => boolean
         skillName: (arg: SkillLogicProps) => string
-        skillLoadErrorStatus: (skillLoadStatus: number | null) => number | null
+        selectedVersion: (arg: SkillLogicProps) => number | null
+        isSkillAccessDenied: (skillLoadError: any) => boolean
+        hasSkillLoadError: (skillLoadError: any, isSkillAccessDenied: any) => boolean
         isSkillMissing: (
             skill: ResolvedLLMSkill | SkillFormValues | null,
             skillLoading: boolean,
             skillFetched: boolean,
-            skillLoadErrorStatus: number | null
+            skillLoadError: any
         ) => boolean
         shouldDisplaySkeleton: (
             skill: ResolvedLLMSkill | SkillFormValues | null,
@@ -407,7 +418,7 @@ export interface llmSkillLogicMeta {
         isHistoricalVersion: (skill: ResolvedLLMSkill | SkillFormValues | null) => boolean
         breadcrumbs: (
             skill: ResolvedLLMSkill | SkillFormValues | null,
-            skillName: any,
+            skillName: string,
             searchParams: Record<string, any>
         ) => Breadcrumb[]
         isViewMode: (mode: SkillMode, arg: any) => boolean
@@ -487,12 +498,15 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                 loadSkillFailure: () => true,
             },
         ],
-        skillLoadStatus: [
-            null as number | null,
+        skillLoadError: [
+            null as SkillLoadError | null,
             {
                 loadSkill: () => null,
                 loadSkillSuccess: () => null,
-                loadSkillFailure: (_, { errorObject }) => errorObject?.status ?? null,
+                loadSkillFailure: (_, { errorObject }) => ({
+                    status: errorObject?.status,
+                    code: errorObject?.code ?? null,
+                }),
             },
         ],
         versionsLoading: [
@@ -767,23 +781,38 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
             (props: SkillLogicProps): string => props.skillName,
         ],
 
-        // A 404 is the only failure that proves the skill isn't there. Every other status (no access,
-        // server error, network drop) leaves the question open, so it gets its own state rather than
-        // telling the user a skill they may well own does not exist.
-        skillLoadErrorStatus: [
-            (s) => [s.skillLoadStatus],
-            (skillLoadStatus: number | null): number | null =>
-                skillLoadStatus !== null && skillLoadStatus !== 404 ? skillLoadStatus : null,
+        selectedVersion: [
+            () => [(_: unknown, props: SkillLogicProps) => props],
+            (props: SkillLogicProps): number | null => props.selectedVersion ?? null,
         ],
 
+        isSkillAccessDenied: [
+            (s) => [s.skillLoadError],
+            (skillLoadError: SkillLoadError | null): boolean =>
+                skillLoadError !== null && isAccessDeniedError(skillLoadError),
+        ],
+
+        hasSkillLoadError: [
+            (s) => [s.skillLoadError, s.isSkillAccessDenied],
+            (skillLoadError: SkillLoadError | null, isSkillAccessDenied: boolean): boolean =>
+                skillLoadError !== null && skillLoadError.status !== 404 && !isSkillAccessDenied,
+        ],
+
+        // A 404 is the only failure that proves the skill isn't there. Every other failure (no access,
+        // a server error, a request that never left the browser) leaves the question open, so it gets
+        // its own state rather than telling the user a skill they may well own does not exist.
         isSkillMissing: [
-            (s) => [s.skill, s.skillLoading, s.skillFetched, s.skillLoadErrorStatus],
+            (s) => [s.skill, s.skillLoading, s.skillFetched, s.skillLoadError],
             (
                 skill: ResolvedLLMSkill | SkillFormValues | null,
                 skillLoading: boolean,
                 skillFetched: boolean,
-                skillLoadErrorStatus: number | null
-            ) => skillFetched && !skillLoading && skill === null && skillLoadErrorStatus === null,
+                skillLoadError: SkillLoadError | null
+            ) =>
+                skillFetched &&
+                !skillLoading &&
+                skill === null &&
+                (skillLoadError === null || skillLoadError.status === 404),
         ],
 
         shouldDisplaySkeleton: [
