@@ -385,6 +385,12 @@ def fetch_app_metric_daily_totals_by_team(
 
     Days rather than a single total, because "sent at least X on each of N days" cannot be told
     apart from one burst of the same size once the window is summed.
+
+    Called without team_ids, the daily tier sweep scans the whole fleet. The result is bounded per
+    team, at most one row per metric name per day, but it grows linearly with the number of sending
+    teams because app_source alone does not prune the app_metrics2 primary key. This is affordable at
+    the current scale and runs on the LONG_RUNNING queue. If the sending fleet grows large, batch by
+    team or aggregate to one row per team here.
     """
     clickhouse_kwargs: dict[str, Any] = {
         "app_source": app_source,
