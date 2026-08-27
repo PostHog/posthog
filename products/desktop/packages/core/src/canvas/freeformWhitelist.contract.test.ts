@@ -1,6 +1,9 @@
-import { CANVAS_PLATFORM_MANIFEST } from "@posthog/shared";
+import {
+  CANVAS_PLATFORM_MANIFEST,
+  CANVAS_SDK_SPECIFIER,
+} from "@posthog/shared";
 import { describe, expect, it } from "vitest";
-import { FREEFORM_WHITELIST } from "./freeformWhitelist";
+import { checkFreeformImports, FREEFORM_WHITELIST } from "./freeformWhitelist";
 
 function isSubpathSpecifier(name: string): boolean {
   const segments = name.split("/");
@@ -23,6 +26,19 @@ describe("freeform whitelist ↔ platform dependency registry", () => {
       ),
     );
     expect(whitelist).toEqual(registry);
+  });
+
+  // The canvas SDK has no import-map entry (the sandbox and builder inline it),
+  // so it must be admitted by BOTH the client import check and the vendored
+  // platform contract — one without the other means a canvas that previews
+  // fails to publish, or the reverse.
+  it("admits the canvas SDK specifier on both sides", () => {
+    expect(CANVAS_PLATFORM_MANIFEST.allowedImportSpecifiers).toContain(
+      CANVAS_SDK_SPECIFIER,
+    );
+    expect(
+      checkFreeformImports(`import { ph } from "${CANVAS_SDK_SPECIFIER}";`).ok,
+    ).toBe(true);
   });
 
   it("covers every whitelisted subpath specifier with a runtime import", () => {

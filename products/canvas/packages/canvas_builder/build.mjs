@@ -16,6 +16,12 @@ const admitted = Object.fromEntries(
 )
 const runtimeImports = contract.runtimeImports
 const csp = contract.csp
+// `@posthog/canvas-sdk` is platform-provided, not an npm dependency: the bare
+// import is inlined from this source at build time (the preview sandbox does
+// the same from its vendored copy), and its version is governed by the
+// project-wide canvasSdkVersion rather than a per-dependency pin.
+const canvasSdkSpecifier = '@posthog/canvas-sdk'
+const canvasSdkModule = readFileSync(new URL('./canvas-sdk.mjs', import.meta.url), 'utf8')
 const builderDirectory = path.dirname(fileURLToPath(import.meta.url))
 const builderRequire = createRequire(import.meta.url)
 const htmlTag = /<(script|link)\b[^>]*>/gi
@@ -336,7 +342,10 @@ async function buildPlatformStyles(project) {
 
 function validate(project) {
     const diagnostics = []
-    if (project.canvasSdkVersion !== '0.1.0') {
+    // Sources persist the SDK version they were authored against, so every
+    // version ever scaffolded must keep building — the list only grows.
+    const supportedSdkVersions = contract.supportedSdkVersions ?? [contract.canvasSdkVersion]
+    if (!supportedSdkVersions.includes(project.canvasSdkVersion)) {
         diagnostics.push(diagnostic('unsupported_sdk', 'Canvas SDK version is unavailable'))
     }
     for (const [name, version] of Object.entries(project.dependencies ?? {})) {
@@ -374,6 +383,9 @@ async function bundleEntry(project, entry) {
                 if (!['canvas', 'canvas-worker'].includes(args.namespace)) {
                     return undefined
                 }
+                if (args.path === canvasSdkSpecifier) {
+                    return { path: canvasSdkSpecifier, namespace: 'canvas-sdk' }
+                }
                 if (args.path.startsWith('.') || args.path.startsWith('/')) {
                     const workerImport = args.path.endsWith('?worker')
                     const requestedPath = workerImport ? args.path.slice(0, -7) : args.path
@@ -400,6 +412,10 @@ async function bundleEntry(project, entry) {
                     pluginData: { platformDependency: true },
                 })
             })
+            pluginBuild.onLoad({ filter: /.*/, namespace: 'canvas-sdk' }, () => ({
+                contents: canvasSdkModule,
+                loader: 'js',
+            }))
             pluginBuild.onLoad({ filter: /.*/, namespace: 'canvas' }, (args) => ({
                 contents: files[args.path],
                 loader: loader(args.path),

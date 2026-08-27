@@ -1,3 +1,5 @@
+import { CANVAS_SDK_SPECIFIER } from "@posthog/shared";
+
 // The package whitelist for freeform-React canvases (Q16: curated, PostHog-
 // anchored). Every entry is a package the agent may import; anything else is
 // rejected by the static check below. Keep this list SMALL — each entry is
@@ -124,8 +126,13 @@ export const FREEFORM_POSTHOG_JS_URL = `${ESM}/posthog-js@1.205.0`;
 // Names the agent is allowed to import. Subpath imports (e.g. "dayjs/plugin/x")
 // are allowed when their package root is whitelisted AND the exact subpath is
 // listed; we keep it strict (exact-match only) so a subpath can't smuggle in an
-// unreviewed entry point.
-const ALLOWED_SPECIFIERS = new Set(FREEFORM_WHITELIST.map((e) => e.name));
+// unreviewed entry point. The canvas SDK is platform-provided (the sandbox
+// rewrites its import to a blob module; the builder inlines it), so it is
+// allowed here without an import-map entry.
+const ALLOWED_SPECIFIERS = new Set([
+  ...FREEFORM_WHITELIST.map((e) => e.name),
+  CANVAS_SDK_SPECIFIER,
+]);
 
 // The import map handed to the iframe so bare specifiers resolve to the pinned
 // modules. Edit mode -> esm.sh; view mode (Phase 2) will pass self-hosted URLs.

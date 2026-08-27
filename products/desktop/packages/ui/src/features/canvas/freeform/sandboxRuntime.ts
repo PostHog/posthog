@@ -7,6 +7,10 @@ import {
 } from "@posthog/core/canvas/freeformWhitelist";
 import { resolveTextCommentAnchor } from "@posthog/core/comments/anchors";
 import {
+  CANVAS_SDK_MODULE_SOURCE,
+  CANVAS_SDK_SPECIFIER,
+} from "@posthog/shared";
+import {
   commentActionAnchorRect,
   installSelectionSettleGate,
 } from "@posthog/ui/features/sessions/components/selectionCommentAction";
@@ -170,6 +174,23 @@ export function resolveExternalAnchorUrl(target: unknown): string | null {
   }
 }
 
+// Points a module specifier node at the platform SDK module instead of the
+// bare "@posthog/canvas-sdk" name, which has no import-map entry (the module is
+// platform-provided, not CDN-hosted). Interpolated into the sandbox bootstrap;
+// exported for tests. Clearing `extra` matters: Babel prints a StringLiteral's
+// stale raw text over its updated value.
+export function rewriteCanvasSdkImportSource(
+  node: { source?: { value?: unknown; extra?: unknown } | null },
+  specifier: string,
+  sdkModuleUrl: string,
+): void {
+  const source = node.source;
+  if (source && source.value === specifier) {
+    source.value = sdkModuleUrl;
+    source.extra = undefined;
+  }
+}
+
 export function isInteractiveCanvasCommentTarget(target: unknown): boolean {
   return (
     target instanceof Element &&
@@ -221,6 +242,27 @@ export function buildSandboxDocument(
         pending.set(id, { resolve, reject });
         post({ type: "data-request", id, method, payload });
       });
+    // The "@posthog/canvas-sdk" module, served from a blob so the import works
+    // offline and identically to the built tier (where the builder inlines the
+    // same source). It reads window.ph, which is defined below before any
+    // canvas code runs.
+    const sdkModuleUrl = URL.createObjectURL(
+      new Blob([${JSON.stringify(CANVAS_SDK_MODULE_SOURCE)}], { type: "text/javascript" }),
+    );
+    const rewriteCanvasSdkImportSource = ${rewriteCanvasSdkImportSource.toString()};
+    const canvasSdkImportsPlugin = () => ({
+      visitor: {
+        ImportDeclaration(path) {
+          rewriteCanvasSdkImportSource(path.node, ${JSON.stringify(CANVAS_SDK_SPECIFIER)}, sdkModuleUrl);
+        },
+        ExportNamedDeclaration(path) {
+          rewriteCanvasSdkImportSource(path.node, ${JSON.stringify(CANVAS_SDK_SPECIFIER)}, sdkModuleUrl);
+        },
+        ExportAllDeclaration(path) {
+          rewriteCanvasSdkImportSource(path.node, ${JSON.stringify(CANVAS_SDK_SPECIFIER)}, sdkModuleUrl);
+        },
+      },
+    });
     // posthog-js runs IN here (the only way replay records the app's DOM). It is
     // booted by init when analytics config is present; until then capture falls
     // back to the host-mediated path.
@@ -577,7 +619,7 @@ export function buildSandboxDocument(
       try {
         const out = Babel.transform(code, {
           filename: "canvas.tsx",
-          plugins: [jsxUnicodeEscapesPlugin],
+          plugins: [jsxUnicodeEscapesPlugin, canvasSdkImportsPlugin],
           presets: [
             ["react", { runtime: "automatic" }],
             ["typescript", { isTSX: true, allExtensions: true, onlyRemoveTypeImports: true }],

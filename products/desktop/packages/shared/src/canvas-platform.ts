@@ -4,7 +4,8 @@
 // legacy import map (freeformWhitelist) is contract-tested against the same
 // pins. When the server manifest changes, update this constant to match.
 export const CANVAS_PLATFORM_MANIFEST = {
-  canvasSdkVersion: "0.1.0",
+  canvasSdkVersion: "0.2.0",
+  supportedSdkVersions: ["0.1.0", "0.2.0"],
   dependencies: {
     react: {
       version: "19.0.0",
@@ -67,6 +68,7 @@ export const CANVAS_PLATFORM_MANIFEST = {
     "react-dom/client": "https://esm.sh/react-dom@19.0.0/client?external=react",
   },
   allowedImportSpecifiers: [
+    "@posthog/canvas-sdk",
     "react",
     "react-dom",
     "react-dom/client",
@@ -95,3 +97,17 @@ export const CANVAS_PLATFORM_MANIFEST = {
     maxArtifactTotalBytes: 12582912,
   },
 } as const;
+
+// The platform-provided canvas SDK: `import { ph } from "@posthog/canvas-sdk"`.
+// Not a CDN dependency — the cloud builder inlines the module at build time and
+// the preview sandbox rewrites the import to a blob module, so it has no
+// import-map entry or per-dependency version pin (the project-wide
+// canvasSdkVersion governs it).
+export const CANVAS_SDK_SPECIFIER = "@posthog/canvas-sdk";
+
+// Vendored from products/canvas/packages/canvas_builder/canvas-sdk.mjs (the
+// builder's inlined copy), comments elided. When that file changes, update
+// this constant to match — same convention as the manifest above.
+export const CANVAS_SDK_MODULE_SOURCE = `export const ph = globalThis.ph
+export default globalThis.ph
+`;

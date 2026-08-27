@@ -1,6 +1,7 @@
 {
     "$comment": "Single source of truth for the canvas platform contract. Loaded by build.mjs (bundling), the Python validator/build service (products/canvas/backend/source.py), and the artifact origin's CSP (products/canvas/backend/presentation/artifacts.py). The desktop app's freeform whitelist is asserted against this file by a contract test.",
-    "canvasSdkVersion": "0.1.0",
+    "canvasSdkVersion": "0.2.0",
+    "supportedSdkVersions": ["0.1.0", "0.2.0"],
     "dependencies": {
         "react": { "version": "19.0.0", "url": "https://esm.sh/react@19.0.0" },
         "react-dom": { "version": "19.0.0", "url": "https://esm.sh/react-dom@19.0.0?external=react" },
@@ -36,6 +37,7 @@
         "react-dom/client": "https://esm.sh/react-dom@19.0.0/client?external=react"
     },
     "allowedImportSpecifiers": [
+        "@posthog/canvas-sdk",
         "react",
         "react-dom",
         "react-dom/client",

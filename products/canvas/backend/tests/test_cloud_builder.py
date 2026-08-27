@@ -108,6 +108,42 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertEqual(result["status"], "ready", result["diagnostics"])
         validate_builder_output(result)
 
+    def test_bundles_the_canvas_sdk_import_inline(self) -> None:
+        payload = synthetic_source_project(
+            'import React from "react"; import { ph } from "@posthog/canvas-sdk"; '
+            "export default function Canvas() { return <div>{typeof ph}</div> }"
+        )
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        validate_builder_output(result)
+        javascript = "\n".join(file["content"] for file in result["files"] if file["path"].endswith(".js"))
+        self.assertIn("globalThis.ph", javascript)
+
+    def test_builds_sources_persisted_before_the_sdk_version_bump(self) -> None:
+        # Stored sources keep the canvasSdkVersion they were scaffolded with, so
+        # every version the platform ever issued must keep building.
+        payload = {
+            **synthetic_source_project('import React from "react"; export default () => <div>old</div>'),
+            "canvasSdkVersion": "0.1.0",
+        }
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+
+    def test_rejects_an_unsupported_sdk_version(self) -> None:
+        payload = {
+            **synthetic_source_project('import React from "react"; export default () => <div/>'),
+            "canvasSdkVersion": "0.0.1",
+        }
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual([entry["code"] for entry in result["diagnostics"]], ["unsupported_sdk"])
+
     def test_runtime_uses_the_document_bound_message_port(self) -> None:
         result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
 

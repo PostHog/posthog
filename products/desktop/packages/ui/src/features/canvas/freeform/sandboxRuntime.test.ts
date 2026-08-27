@@ -4,6 +4,7 @@ import {
   decodeJsxUnicodeEscapes,
   isInteractiveCanvasCommentTarget,
   resolveExternalAnchorUrl,
+  rewriteCanvasSdkImportSource,
 } from "./sandboxRuntime";
 
 function clickTarget(html: string, selector: string): Element {
@@ -66,6 +67,18 @@ describe("buildSandboxDocument", () => {
     expect(html).toContain("jsxUnicodeEscapesPlugin");
   });
 
+  // Without the rewrite plugin in Babel's plugin list, an
+  // `import ... from "@posthog/canvas-sdk"` previews as an unresolvable bare
+  // specifier (it has no import-map entry) while the published build works.
+  it("inlines the canvas SDK module and its import rewrite into the bootstrap", () => {
+    const html = buildSandboxDocument();
+    expect(html).toContain("export const ph = globalThis.ph");
+    expect(html).toContain(
+      "const rewriteCanvasSdkImportSource = function rewriteCanvasSdkImportSource(",
+    );
+    expect(html).toContain("[jsxUnicodeEscapesPlugin, canvasSdkImportsPlugin]");
+  });
+
   it("inlines the external-anchor resolver into the bootstrap", () => {
     const html = buildSandboxDocument();
     expect(html).toContain(
@@ -104,6 +117,32 @@ describe("buildSandboxDocument", () => {
       ).toBe(expected);
     },
   );
+});
+
+describe("rewriteCanvasSdkImportSource", () => {
+  const SDK = "@posthog/canvas-sdk";
+  const SDK_URL = "blob:sdk-module";
+
+  it.each([
+    {
+      name: "rewrites the SDK specifier and drops the stale raw text",
+      node: { source: { value: SDK, extra: { raw: `"${SDK}"` } } },
+      expected: { source: { value: SDK_URL, extra: undefined } },
+    },
+    {
+      name: "leaves other specifiers untouched",
+      node: { source: { value: "react", extra: { raw: '"react"' } } },
+      expected: { source: { value: "react", extra: { raw: '"react"' } } },
+    },
+    {
+      name: "tolerates a sourceless export declaration",
+      node: { source: null },
+      expected: { source: null },
+    },
+  ])("$name", ({ node, expected }) => {
+    rewriteCanvasSdkImportSource(node, SDK, SDK_URL);
+    expect(node).toEqual(expected);
+  });
 });
 
 describe("resolveExternalAnchorUrl", () => {
