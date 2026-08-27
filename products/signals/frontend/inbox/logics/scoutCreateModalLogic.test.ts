@@ -204,6 +204,9 @@ describe('scoutCreateModalLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.scoutCreateForm.config.mcp_gateway_server_ids).toEqual(['github-id', 'linear-id'])
+        // The default selection must not mark the untouched form as changed, or the modal would block
+        // the first overlay-close click and warn of unsaved input that does not exist.
+        expect(logic.values.scoutCreateFormChanged).toBe(false)
 
         // A caller that chose specific servers keeps that choice.
         const prefilled = scoutCreateModalLogic({

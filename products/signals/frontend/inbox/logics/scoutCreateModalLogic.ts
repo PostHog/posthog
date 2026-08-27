@@ -324,10 +324,18 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
                 return
             }
             actions.markMcpServersDefaulted()
-            actions.setScoutCreateFormValue(
-                'config.mcp_gateway_server_ids',
-                teamScoutServers.map((server) => server.id)
-            )
+            const mcpGatewayServerIds = teamScoutServers.map((server) => server.id)
+            if (values.scoutCreateFormChanged) {
+                // The user edited the form before the servers loaded, so keep the changed flag.
+                actions.setScoutCreateFormValue('config.mcp_gateway_server_ids', mcpGatewayServerIds)
+                return
+            }
+            // Apply the default through a reset so the pre-selection keeps the form pristine. A form
+            // marked changed blocks the overlay-close click and shows a false "unsaved input" warning.
+            actions.resetScoutCreateForm({
+                ...values.scoutCreateForm,
+                config: { ...values.scoutCreateForm.config, mcp_gateway_server_ids: mcpGatewayServerIds },
+            })
         },
     })),
     listeners(({ actions, values }) => ({
