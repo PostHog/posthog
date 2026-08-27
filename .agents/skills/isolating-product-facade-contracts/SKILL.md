@@ -5,6 +5,8 @@ description: Plan and execute product isolation migrations to a facade plus cont
 
 # Isolating a product with facade and contracts
 
+Before you choose a product to isolate, check [things already tried](../../../docs/internal/ci-things-already-tried.md). It records which product was the first candidate, and why the field test moved to another one.
+
 Use this skill to migrate an existing product to the isolated architecture used by Visual review.
 Optimize for short calendar exposure, not small diffs: authoring is cheap and the verification
 chain catches mechanical breakage, while human review latency and a fast-moving master are the
