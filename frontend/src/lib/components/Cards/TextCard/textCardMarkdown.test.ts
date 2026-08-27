@@ -220,6 +220,18 @@ describe('textCardMarkdown', () => {
         expect(textCardConverter.markdownToDoc(markdown)).toEqual(doc)
     })
 
+    it('keeps the target href when a linked code span label is a URL', () => {
+        // `[`https://label.example`](https://target.example)` already parses to a single code+link
+        // node; promoting it again used to append a second link mark and rewrite the href to the label URL.
+        const markdown = '[`https://label.example`](https://target.example)'
+        const doc = textCardConverter.markdownToDoc(markdown)
+        const textNode = doc.content?.[0]?.content?.[0]
+
+        expect(textNode?.marks?.filter((m) => m.type === 'link')).toHaveLength(1)
+        expect(textNode?.marks?.find((m) => m.type === 'link')?.attrs?.href).toBe('https://target.example')
+        expect(textCardConverter.docToMarkdown(doc)).toBe('[`https://label.example`](https://target.example)')
+    })
+
     it('leaves an ordinary code span untouched', () => {
         const doc = textCardConverter.markdownToDoc('`SELECT * FROM events`')
         const textNode = doc.content?.[0]?.content?.[0]

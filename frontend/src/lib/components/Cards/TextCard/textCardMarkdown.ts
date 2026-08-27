@@ -81,6 +81,10 @@ function isCodeMarked(node: JSONContent): boolean {
     return node.type === 'text' && !!node.marks?.some((mark) => mark.type === 'code')
 }
 
+function hasLinkMark(node: JSONContent): boolean {
+    return !!node.marks?.some((mark) => mark.type === 'link')
+}
+
 // Ask the parser for the exact `link` mark it emits for a given href, so we match its attrs.
 function linkMarkForHref(converter: TiptapMarkdownConverter, href: string): Mark | null {
     const doc = converter.markdownToDoc(`[link](${href})`)
@@ -90,7 +94,10 @@ function linkMarkForHref(converter: TiptapMarkdownConverter, href: string): Mark
 
 function promoteCodeSpanLinks(converter: TiptapMarkdownConverter, doc: JSONContent): JSONContent {
     const visit = (node: JSONContent): JSONContent => {
-        if (isCodeMarked(node) && node.text) {
+        // Skip a code span the parser already linked (the `[`label`](url)` case). Promoting it again
+        // appends a second link mark, and when the label is itself a URL the serializer then writes
+        // the label URL back as the href, silently replacing the author's target.
+        if (isCodeMarked(node) && !hasLinkMark(node) && node.text) {
             const match = CODE_SPAN_LINK_RE.exec(node.text)
             const [label, href] = match
                 ? [match[1], match[2]]
