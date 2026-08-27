@@ -5989,9 +5989,9 @@ snapshots:
     scenes-app-customer-analytics-dashboard--feature-request-details--light:
         hash: v1.k794b7964.8cd0d06dbe8fa12d819f9324d191d3ec9a0741b51acf19ac6490b99aecc1dda7.k0bCKYz1oUdVTINzDzlFA4ZUmefNVOBoQx7Y3KADYxI
     scenes-app-customer-analytics-dashboard--feature-requests--dark:
-        hash: v1.k794b7964.7be52019660fbab890fc0f3f1b211da1f47f1ce3517bf8ab17ff878e7207ed10.0WoT72thDYV6wPco9Qz69ZH6Ct7X_s0Q7ZZAVRHuHLc
+        hash: v1.k794b7964.cdb1e78cc03a73305759adfda8ec4e46998a7c9826d48596f540585080cdd9e2.uvLopYXQLlmpCnN6udMWmzalGd8gZ1YL_iGj4DT4cAc
     scenes-app-customer-analytics-dashboard--feature-requests--light:
-        hash: v1.k794b7964.fef6240d6f3c9a2226a5057828a0aa305e7484c6c9af2740b2591128113e4799.FN-fTAAIJzAnLUVPWxgiOLCfVGh6eoDxZT0Mimp80DI
+        hash: v1.k794b7964.ba307e2230619101a34e74e9fbb306b713754f9c7dd45743f9b86b03ab4cc8a3.-8EFaV1ED8lyqJEH6a0YK7QkmfR2YRI_Z2BO_I3Dsmw
     scenes-app-customer-analytics-dashboard--gated-with-feature-toggle--dark:
         hash: v1.k794b7964.731394bccab76141d6dc494f99dd56cc85e18b3f787977f8edd5c1a50c5564c8.9z2bNOo-dAM0tEyxcqStccQSV7X6iHbKnJdqAgvNapU
     scenes-app-customer-analytics-dashboard--gated-with-feature-toggle--light:
