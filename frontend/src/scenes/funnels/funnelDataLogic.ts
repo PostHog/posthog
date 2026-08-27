@@ -195,8 +195,10 @@ function isFunnelsQueryOrLegacyFilter(
  * Cached results carry the step names from the run that produced them, so a step renamed since then
  * renders under its old label. Mirrors `_apply_funnels_custom_names` in `query_runner.py`, which the
  * stored-result path bypasses: the query wins in both directions, and a cleared name blanks the label.
- * Only `custom_name` is taken from the query — `name` stays backend-owned, since actions resolve theirs
- * live. Unordered funnels are exempt because they label steps by position rather than by series.
+ * A `name` differing from the step's raw label is a rename applied via the query editor or API, so it
+ * counts too — a widening `_apply_funnels_custom_names` does not yet share. Steps whose label the
+ * backend resolves live are exempt, as are steps the node no longer describes, since the result's
+ * label is stale. Unordered funnels are exempt because they label steps by position, not by series.
  */
 function applyQueryStepCustomNames(
     steps: FunnelStepWithNestedBreakdown[],
@@ -213,7 +215,14 @@ function applyQueryStepCustomNames(
             return step
         }
 
-        const customName = node.custom_name || null
+        // Actions resolve their name from the database at query time, in a group too, so a stored one
+        // can be stale. So can any name on a step the node no longer describes.
+        const resolvesNameLive =
+            node.kind === NodeKind.ActionsNode ||
+            (node.kind === NodeKind.GroupNode && node.nodes.some((n) => n.kind === NodeKind.ActionsNode))
+        const describesStep = node.kind !== NodeKind.EventsNode || step.action_id === (node.event ?? null)
+        const queryName = resolvesNameLive || !describesStep ? null : (node.name ?? null)
+        const customName = node.custom_name || (queryName !== step.name ? queryName : null)
         // Nested rows are breakdown or compare variants of the same step, so they take the parent's
         // name. Their own `order` can hold a breakdown rank, which is not a series index.
         const nested = step.nested_breakdown?.map((row) =>
