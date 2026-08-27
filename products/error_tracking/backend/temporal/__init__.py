@@ -1,6 +1,11 @@
+from products.error_tracking.backend.temporal.alerts import (
+    ACTIVITIES as ALERT_ACTIVITIES,
+    WORKFLOWS as ALERT_WORKFLOWS,
+    ErrorTrackingAlertDeliveryWorkflow,
+)
 from products.error_tracking.backend.temporal.lifecycle import (
-    ACTIVITIES as LIFECYCLE_ACTIVITIES,
-    WORKFLOWS as LIFECYCLE_WORKFLOWS,
+    ACTIVITIES as _LIFECYCLE_ONLY_ACTIVITIES,
+    WORKFLOWS as _LIFECYCLE_ONLY_WORKFLOWS,
     ErrorTrackingIssueCreatedWorkflow,
     ErrorTrackingIssueReopenedWorkflow,
     ErrorTrackingIssueSpikingWorkflow,
@@ -32,6 +37,11 @@ from products.error_tracking.backend.temporal.weekly_digest import (
     send_org_digest_activity,
 )
 
+# Alert delivery runs on the lifecycle task queue: it is started by the lifecycle
+# activities and by Django mutations, and the queue's workers are already deployed.
+LIFECYCLE_WORKFLOWS = _LIFECYCLE_ONLY_WORKFLOWS + ALERT_WORKFLOWS
+LIFECYCLE_ACTIVITIES = _LIFECYCLE_ONLY_ACTIVITIES + ALERT_ACTIVITIES
+
 WORKFLOWS = SYMBOL_SET_WORKFLOWS + SPIKE_EVENT_WORKFLOWS + RECOMMENDATIONS_REFRESH_WORKFLOWS + WEEKLY_DIGEST_WORKFLOWS
 ACTIVITIES = (
     SYMBOL_SET_ACTIVITIES + SPIKE_EVENT_ACTIVITIES + RECOMMENDATIONS_REFRESH_ACTIVITIES + WEEKLY_DIGEST_ACTIVITIES
@@ -42,6 +52,7 @@ __all__ = [
     "LIFECYCLE_ACTIVITIES",
     "LIFECYCLE_WORKFLOWS",
     "WORKFLOWS",
+    "ErrorTrackingAlertDeliveryWorkflow",
     "ErrorTrackingIssueCreatedWorkflow",
     "ErrorTrackingIssueReopenedWorkflow",
     "ErrorTrackingIssueSpikingWorkflow",
