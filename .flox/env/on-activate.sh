@@ -394,11 +394,7 @@ fi
 _GREPTILE_VERSION="3.4.1"
 _GREPTILE_STORE="$HOME/.config/posthog/tools/greptile/$_GREPTILE_VERSION"
 _GREPTILE_BIN="$_GREPTILE_STORE/node_modules/.bin/greptile"
-# The stamp is not named `.complete`: stores stamped with that name predate the
-# sandbox write-deny, so their contents can include files a sandboxed
-# dependency planted. The new name makes every such store fail the stamp check
-# and rebuild once from a clean slate under the deny.
-_GREPTILE_STAMP="$_GREPTILE_STORE/.complete-v2"
+_GREPTILE_STAMP="$_GREPTILE_STORE/.complete"
 _GREPTILE_CACHE="$_GREPTILE_STORE/.npm-cache"
 
 _install_greptile() {
