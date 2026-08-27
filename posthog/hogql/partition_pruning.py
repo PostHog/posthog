@@ -143,7 +143,7 @@ def _collect_scans(
                     UnprunedEventsScan(
                         start=table.start,
                         end=table.end,
-                        bound_edits=_bound_edits(node, join.alias),
+                        bound_edits=_bound_edits(node, join),
                     )
                 )
         elif isinstance(table, ast.SelectQuery | ast.SelectSetQuery):
@@ -157,20 +157,24 @@ def _collect_scans(
         _collect_scans(subquery, bounded=bounded_here, capped=False, shadowed=shadowed, scans=scans)
 
 
-def _bound_edits(query: ast.SelectQuery, table_alias: str | None) -> tuple[QueryTextEdit, ...]:
+def _bound_edits(query: ast.SelectQuery, events_join: ast.JoinExpr) -> tuple[QueryTextEdit, ...]:
     """Edits that add a timestamp bound to `query`, or nothing when the shape makes that ambiguous."""
-    column = f"{table_alias}.timestamp" if table_alias else "timestamp"
-    predicate = f"{column} > {_BOUND_EXPRESSION}"
+    predicate = f"{_timestamp_column(query, events_join)} > {_BOUND_EXPRESSION}"
+
+    join_type = (events_join.join_type or "").upper()
+    if join_type.startswith("LEFT"):
+        # The join null-extends the events columns for every unmatched row, and a WHERE predicate
+        # discards those rows because NULL > x is never true. That turns the LEFT JOIN into an inner
+        # join and drops rows the reader asked to keep. The ON clause narrows the scan instead.
+        return _conjunct_edits(events_join.constraint, predicate)
+
+    # A RIGHT or FULL join can null-extend the events rows from elsewhere in the chain, and working
+    # out which side survives is more than this analysis knows. Those shapes get no fix.
+    if _chain_has_right_or_full_join(query.select_from):
+        return ()
 
     if query.where is not None:
-        if query.where.start is None or query.where.end is None:
-            return ()
-        # The existing condition gets parentheses because appending `AND x` to `a OR b` binds to `b`
-        # alone, which changes which rows match.
-        return (
-            QueryTextEdit(start=query.where.start, end=query.where.start, text="("),
-            QueryTextEdit(start=query.where.end, end=query.where.end, text=f") AND {predicate}"),
-        )
+        return _conjunct_edits_for_expr(query.where, predicate)
 
     # PREWHERE and ARRAY JOIN sit between the FROM clause and the WHERE clause, so a WHERE written at
     # the insertion point below would land in front of them.
@@ -181,6 +185,43 @@ def _bound_edits(query: ast.SelectQuery, table_alias: str | None) -> tuple[Query
     if insert_at is None:
         return ()
     return (QueryTextEdit(start=insert_at, end=insert_at, text=f" WHERE {predicate}"),)
+
+
+def _timestamp_column(query: ast.SelectQuery, events_join: ast.JoinExpr) -> str:
+    """How to name the events timestamp so it stays unambiguous next to any joined table."""
+    if events_join.alias:
+        return f"{events_join.alias}.timestamp"
+    if query.select_from is not None and query.select_from.next_join is not None:
+        return f"{EVENTS_TABLE_NAME}.timestamp"
+    return "timestamp"
+
+
+def _conjunct_edits(constraint: ast.JoinConstraint | None, predicate: str) -> tuple[QueryTextEdit, ...]:
+    # USING lists columns rather than a condition, so there is nothing to add a conjunct to.
+    if constraint is None or constraint.constraint_type != "ON":
+        return ()
+    return _conjunct_edits_for_expr(constraint.expr, predicate)
+
+
+def _conjunct_edits_for_expr(expr: ast.Expr, predicate: str) -> tuple[QueryTextEdit, ...]:
+    """Add `predicate` to `expr` as a conjunct, parenthesizing what is already there."""
+    if expr.start is None or expr.end is None:
+        return ()
+    # The existing condition gets parentheses because appending `AND x` to `a OR b` binds to `b`
+    # alone, which changes which rows match.
+    return (
+        QueryTextEdit(start=expr.start, end=expr.start, text="("),
+        QueryTextEdit(start=expr.end, end=expr.end, text=f") AND {predicate}"),
+    )
+
+
+def _chain_has_right_or_full_join(join: ast.JoinExpr | None) -> bool:
+    while join is not None:
+        join_type = (join.join_type or "").upper()
+        if join_type.startswith("RIGHT") or join_type.startswith("FULL"):
+            return True
+        join = join.next_join
+    return False
 
 
 def _join_chain_end(join: ast.JoinExpr | None) -> int | None:

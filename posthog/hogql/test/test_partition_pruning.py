@@ -97,6 +97,39 @@ class TestUnprunedScanQuickFix(SimpleTestCase):
                 "SELECT count() FROM (SELECT * FROM events WHERE timestamp > now() - INTERVAL 30 DAY)",
             ),
             ("prewhere has no unambiguous insertion point", "SELECT count() FROM events PREWHERE event = 'x'", None),
+            (
+                "left join writes into the on clause, not the where",
+                "SELECT count() FROM persons LEFT JOIN events ON persons.id = events.person_id",
+                "SELECT count() FROM persons LEFT JOIN events"
+                " ON (persons.id = events.person_id) AND events.timestamp > now() - INTERVAL 30 DAY",
+            ),
+            (
+                "left join uses the alias",
+                "SELECT count() FROM persons LEFT JOIN events e ON persons.id = e.person_id",
+                "SELECT count() FROM persons LEFT JOIN events e"
+                " ON (persons.id = e.person_id) AND e.timestamp > now() - INTERVAL 30 DAY",
+            ),
+            (
+                "inner join takes the where and qualifies the column",
+                "SELECT count() FROM persons JOIN events ON persons.id = events.person_id",
+                "SELECT count() FROM persons JOIN events ON persons.id = events.person_id"
+                " WHERE events.timestamp > now() - INTERVAL 30 DAY",
+            ),
+            (
+                "using lists columns, so no conjunct fits",
+                "SELECT count() FROM persons LEFT JOIN events USING person_id",
+                None,
+            ),
+            (
+                "right join leaves which side survives unclear",
+                "SELECT count() FROM persons RIGHT JOIN events ON persons.id = events.person_id",
+                None,
+            ),
+            (
+                "full join leaves which side survives unclear",
+                "SELECT count() FROM persons FULL OUTER JOIN events ON persons.id = events.person_id",
+                None,
+            ),
         ]
     )
     def test_quick_fix_edits(self, _name: str, query: str, expected: str | None) -> None:
