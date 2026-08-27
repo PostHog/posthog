@@ -1008,7 +1008,16 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
         manifest=manifest,
         diagnostics=diagnostics,
     ):
-        object_storage.delete_objects(uploaded_keys)
+        # A lost race can mean another attempt of this SAME build finalized READY first
+        # (its lease lapsed mid-upload and a redelivery overtook it). The artifact prefix
+        # is deterministic per build id, so the winner's manifest references exactly these
+        # keys — deleting them would break the ready build. Only clean up when the build
+        # ended in a non-ready state (cancelled or superseded by a newer version).
+        current_status = (
+            CanvasBuild.objects.for_team(build.team_id).filter(id=build.id).values_list("status", flat=True).first()
+        )
+        if current_status != CanvasBuild.STATUS_READY:
+            object_storage.delete_objects(uploaded_keys)
         CANVAS_BUILD_OUTCOMES.labels(outcome="failed", code="superseded_during_build").inc()
         return
     CANVAS_BUILD_OUTCOMES.labels(outcome="ready", code="").inc()
