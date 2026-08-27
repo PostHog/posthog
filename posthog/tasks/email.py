@@ -37,6 +37,7 @@ from posthog.models.comment import Comment
 from posthog.models.comment.utils import DESKTOP_COMMENT_SCOPES, build_comment_item_url
 from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.organization_notification_lock import (
+    GovernedSetting,
     effective_notification_settings,
     notification_locks_for_users,
     pipeline_lock_for_team,
@@ -216,7 +217,7 @@ def should_send_notification(
     user: User,
     notification_type: NotificationSettingType,
     team_id: Optional[int] = None,
-    locks: Optional[dict[tuple[str, str], bool]] = None,
+    locks: Optional[dict[GovernedSetting, bool]] = None,
 ) -> bool:
     """
     Determines if a notification should be sent to a user based on their notification settings.
@@ -295,7 +296,7 @@ def should_send_pipeline_error_notification(
     failure_rate: float = 1.0,
     pipeline_id: Optional[str] = None,
     team_id: Optional[int] = None,
-    locks: Optional[dict[tuple[str, str], bool]] = None,
+    locks: Optional[dict[GovernedSetting, bool]] = None,
 ) -> bool:
     """
     Determines if a data pipeline error notification should be sent to a user.

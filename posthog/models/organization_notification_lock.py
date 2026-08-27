@@ -4,6 +4,7 @@ from uuid import UUID
 
 from django.db import models
 
+from posthog.dataclasses import frozen
 from posthog.models.utils import UUIDModel
 
 # What an organization may enforce, mapped to what a rule's scope ID means. An allowlist, so
@@ -27,9 +28,22 @@ LOCKABLE_NOTIFICATION_SETTINGS: dict[str, str] = {
 PROJECT_RESOLVED_SETTINGS = frozenset({"pipeline_notifications_disabled"})
 
 
+# nosemgrep: tuple-return-prefer-dataclass -- Django's `choices` contract is (value, label) pairs.
 def lockable_setting_choices() -> list[tuple[str, str]]:
     # Callable so growing the allowlist doesn't generate a no-op migration.
     return [(setting, setting) for setting in sorted(LOCKABLE_NOTIFICATION_SETTINGS)]
+
+
+@frozen
+class GovernedSetting:
+    """Which setting a rule decides, and what it applies to.
+
+    Both parts are strings, so a bare tuple lets a caller swap them and silently match nothing,
+    which would read as "no rule" and quietly stop enforcing one.
+    """
+
+    setting: str
+    scope_id: str
 
 
 class OrganizationMemberNotificationLock(UUIDModel):
@@ -82,7 +96,7 @@ class OrganizationMemberNotificationLock(UUIDModel):
 
 def notification_locks_for_users(
     user_ids: Collection[int], organization_id: str | UUID | None = None
-) -> dict[int, dict[tuple[str, str], bool]]:
+) -> dict[int, dict[GovernedSetting, bool]]:
     """Rules in force for each user, keyed by (setting, scope_id).
 
     Pass `organization_id` when resolving rules for a notification one organization is sending, so
@@ -98,14 +112,14 @@ def notification_locks_for_users(
         queryset = queryset.filter(organization_id=organization_id)
     locks = queryset.values("organization_membership__user_id", "setting", "scope_id", "locked_value")
 
-    by_user: dict[int, dict[tuple[str, str], bool]] = defaultdict(dict)
+    by_user: dict[int, dict[GovernedSetting, bool]] = defaultdict(dict)
     for lock in locks:
-        key = (lock["setting"], lock["scope_id"] or "")
+        key = GovernedSetting(setting=lock["setting"], scope_id=lock["scope_id"] or "")
         by_user[lock["organization_membership__user_id"]][key] = lock["locked_value"]
     return dict(by_user)
 
 
-def effective_notification_settings(user, locks: dict[tuple[str, str], bool] | None = None) -> dict:
+def effective_notification_settings(user, locks: dict[GovernedSetting, bool] | None = None) -> dict:
     """This user's settings once their organization's rules apply.
 
     Pass `locks` when resolving many users, so a fan-out does not run one query per member.
@@ -115,26 +129,26 @@ def effective_notification_settings(user, locks: dict[tuple[str, str], bool] | N
     return apply_notification_locks(user.notification_settings, locks)
 
 
-def apply_notification_locks(settings: dict, locks: dict[tuple[str, str], bool]) -> dict:
+def apply_notification_locks(settings: dict, locks: dict[GovernedSetting, bool]) -> dict:
     """Stored settings with the organization's rules laid over the top, leaving the stored ones intact."""
     if not locks:
         return settings
 
     merged = dict(settings)
-    for (setting, scope_id), value in locks.items():
-        if setting in PROJECT_RESOLVED_SETTINGS:
+    for governed, value in locks.items():
+        if governed.setting in PROJECT_RESOLVED_SETTINGS:
             continue
-        if not scope_id:
-            merged[setting] = value
+        if not governed.scope_id:
+            merged[governed.setting] = value
             continue
-        scoped = dict(merged.get(setting) or {})
-        scoped[scope_id] = value
-        merged[setting] = scoped
+        scoped = dict(merged.get(governed.setting) or {})
+        scoped[governed.scope_id] = value
+        merged[governed.setting] = scoped
     return merged
 
 
-def pipeline_lock_for_team(locks: dict[tuple[str, str], bool], team_id: int | None) -> bool | None:
+def pipeline_lock_for_team(locks: dict[GovernedSetting, bool], team_id: int | None) -> bool | None:
     """The value an organization enforces for a project's pipeline failure emails, if any."""
     if team_id is None:
         return None
-    return locks.get(("pipeline_notifications_disabled", str(team_id)))
+    return locks.get(GovernedSetting(setting="pipeline_notifications_disabled", scope_id=str(team_id)))

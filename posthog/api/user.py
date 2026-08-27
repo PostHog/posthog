@@ -105,7 +105,7 @@ from posthog.models.oauth import OAuthGrant, find_oauth_refresh_token, has_live_
 from posthog.models.onboarding_delegation import cancel_pending_delegation, clear_delegation_state
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
-from posthog.models.organization_notification_lock import notification_locks_for_users
+from posthog.models.organization_notification_lock import GovernedSetting, notification_locks_for_users
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import (
     NOTIFICATION_DEFAULTS,
@@ -177,14 +177,15 @@ def _reject_locked_notification_settings(user: User, incoming: Notifications, cu
             blocked = [
                 scope_id
                 for scope_id, scoped_value in value.items()
-                if (key, str(scope_id)) in locks and stored.get(scope_id) != scoped_value
+                if GovernedSetting(setting=key, scope_id=str(scope_id)) in locks
+                and stored.get(scope_id) != scoped_value
             ]
             if blocked:
                 raise serializers.ValidationError(
                     f"{key} is set by your organization for {', '.join(sorted(blocked))} and cannot be changed here",
                     code="permission_denied",
                 )
-        elif (key, "") in locks and current.get(key) != value:
+        elif GovernedSetting(setting=key, scope_id="") in locks and current.get(key) != value:
             raise serializers.ValidationError(
                 f"{key} is set by your organization and cannot be changed here",
                 code="permission_denied",
@@ -575,8 +576,8 @@ class UserSerializer(serializers.ModelSerializer):
             return []
         locks = notification_locks_for_users([instance.id]).get(instance.id, {})
         return [
-            {"setting": setting, "scope_id": scope_id, "locked_value": value}
-            for (setting, scope_id), value in sorted(locks.items())
+            {"setting": governed.setting, "scope_id": governed.scope_id, "locked_value": value}
+            for governed, value in sorted(locks.items(), key=lambda item: (item[0].setting, item[0].scope_id))
         ]
 
     @extend_schema_field(PendingInviteSerializer(many=True))
