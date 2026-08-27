@@ -269,10 +269,11 @@ loop {
                 partitions.complete(groups)  //   a callback; ledgers advance, and nothing
             }                                //   else: completions produce no new work
             Drained(p) => {                  // the drain's end (§4.5), riding behind p's
-                commits.commit(kafka, partitions.final_frontier(p));   //   last completion:
-                budget.refund(partitions.teardown(p));   //   final commit, refund what
-                kafka.unassign(p)            //   never completed, and only now hand the
-            }                                //   partition back
+                let batch = partitions.drained(p);   //   last completion: one final
+                budget.refund(batch.retired);        //   harvest, shaped exactly like
+                commits.commit(kafka, batch);        //   the tick's — refund, commit,
+                kafka.unassign(p)                    //   and only now hand the
+            }                                        //   partition back
         }
 
         _ = tick.next() => {                 // the loop's one clock — the jobs that must
@@ -342,11 +343,11 @@ fn assign(p, epoch) { partitions.insert(p, PartitionDriver::new(epoch)) }
 fn revoking(p) { partitions[p].revoking = true }  // drain begun (§4.5): the ledger stays
                                                   //   to absorb in-flight completions
 
-fn final_frontier(p) -> CommitBatch { [(p, partitions[p].frontier + 1)] }
-
-fn teardown(p) -> Refund {                   // Drained arrived: drop the driver; what was
-    partitions.remove(p).refund()            //   never completed refunds here and replays
-}                                            //   on the partition's next owner
+fn drained(p) -> CommitBatch {               // the drain's end (§4.5): remove the driver
+    let d = partitions.remove(p);            //   and harvest it one last time — its
+    [(p, d.frontier + 1)]                    //   frontier to commit, and everything it
+}                                            //   still held charged as `retired`; what
+                                             //   never completed replays on the next owner
 
 fn accept(msgs, acc) {                       // one poll, demuxed to its partitions
     for (p, part) in msgs.by_partition() {
