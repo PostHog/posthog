@@ -208,6 +208,18 @@ requests[w]   mpsc, capacity 1          loop → runner w    depth 1 *is* the ca
 health        snapshot (ArcSwap-style)  probes → place()   the only cross-task shared read
 ```
 
+Both channel families are created in one place, so every later use has a declaration:
+
+```text
+// Startup: the one resolutions channel; the event loop keeps the receive side.
+let (resolutions_tx, resolutions) = mpsc::channel(RESOLUTIONS_BOUND);   // ≥ pool size
+
+// On registry discovery of worker w (torn down when the worker is reaped):
+let (requests_tx, requests_rx) = mpsc::channel(1);      // capacity 1 *is* stream depth 1
+batcher.requests.insert(w, requests_tx);                // the side try_fire sends on
+spawn(stream_runner(w, requests_rx, resolutions_tx.clone()));
+```
+
 There is no `Mutex`, no `Arc`'d mutable state, and no atomic in the model: every struct below is owned by the event loop and mutated under plain `&mut`, so lock ordering stops being a concept. The loop has exactly one await point (its `select!`); the runners block only on their own channel and their own socket.
 
 **Consumer driver — the event loop.** Backpressure is the *absence of the poll branch*, not a check inside it.
@@ -219,6 +231,8 @@ struct ConsumerDriver {
     batcher: WorkerBatcher,                  // includes per-stream busy flags — the loop's
     timers: BinaryHeap<(Deadline, Timer)>,   //   own bookkeeping, never shared with runners
     budget: Budget,                          // uncommitted events+bytes — the B gate (§4.4)
+    commits: CommitManager,                  // frontiers → one batched commit; tick() below
+    kafka: KafkaConsumer,                    // rdkafka client: poll, commits, rebalance events
 }
 
 loop {
@@ -291,7 +305,7 @@ fn check_stall() {
 **Commit manager — frontiers to one batched commit.** The §2.3 verification rides here unchanged.
 
 ```text
-// Loop-owned; tick() runs synchronously on the commit cadence.
+// The consumer driver's `commits` field; tick() runs synchronously on the commit cadence.
 fn tick() {
     let batch = partitions.filter(frontier advanced).map(|p| (p, p.frontier + 1));
     kafka.commit(batch);                     // manual, async, fire-and-forget: never blocks
@@ -359,6 +373,7 @@ struct WorkerBatcher {
     bins: Map<WorkerId, Bin>,                // bin: ordered groups, events/bytes, affinities
     busy: Map<WorkerId, bool>,
     touched: Set<WorkerId>,                  // streams touched by the current demux cycle
+    requests: Map<WorkerId, Sender<Request>>, // send side per runner (see wiring above)
 }
 
 fn add(w, group) {                           // called by key drivers' try_release
@@ -424,12 +439,12 @@ fn place(key) -> Option<WorkerId> {
 ```text
 // One long-lived task per worker. Owns its connection; shares only the two channels,
 // and both hand data over by value.
-task stream_runner(w) {
+task stream_runner(w, requests: Receiver<Request>, resolutions: Sender<Resolution>) {
     loop {
         connect_and_greet(epoch).await;      // BLOCKS (its own socket); on failure:
                                              //   backoff, then reconnect
         while connected {
-            let request = requests[w].recv().await;  // BLOCKS — the depth-1 wait lives
+            let request = requests.recv().await;     // BLOCKS — the depth-1 wait lives
                                                      //   here, in the runner, not the loop
             encode_and_transmit(request).await;      // CPU + I/O off the loop (§4.6 leaves)
             let outcome = select! { ack | stream_error | ack_timeout }.await;
