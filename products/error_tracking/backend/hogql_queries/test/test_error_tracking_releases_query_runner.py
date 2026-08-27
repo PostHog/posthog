@@ -12,6 +12,7 @@ from posthog.schema import (
 )
 
 from products.error_tracking.backend.hogql_queries.error_tracking_releases_query_runner import (
+    MAX_RELEASES,
     MAX_RESOLUTION,
     ErrorTrackingReleasesQueryRunner,
     version_tuple,
@@ -164,6 +165,27 @@ class TestErrorTrackingReleasesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert 1 <= len(runner.bucket_starts) <= max_bucket_count
+
+    def test_caps_max_releases(self) -> None:
+        runner = ErrorTrackingReleasesQueryRunner(
+            team=self.team,
+            query=ErrorTrackingReleasesQuery(
+                kind="ErrorTrackingReleasesQuery",
+                issueId=ISSUE_ID,
+                dateRange=DateRange(date_from="2024-01-01T00:00:00Z", date_to="2024-01-08T00:00:00Z"),
+                resolution=7,
+                maxReleases=10**6,
+            ),
+        )
+        bucket = runner.bucket_starts[-1]
+        rows = [("com.example.ios", str(i), None, [(bucket, 1)], 1) for i in range(MAX_RELEASES + 1)]
+
+        response = runner.fold(rows)
+
+        assert len(response.results) == MAX_RELEASES
+        assert response.other_release_count == 1
+        assert response.other is not None
+        assert response.other.counts == [0, 0, 0, 0, 0, 0, 1]
 
     def test_rejects_malformed_issue_id(self) -> None:
         with self.assertRaises(ValidationError):

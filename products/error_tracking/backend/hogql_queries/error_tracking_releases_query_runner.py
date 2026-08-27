@@ -25,9 +25,11 @@ from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQu
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import validate_uuid_param
 
 DEFAULT_RESOLUTION = 40
-# Caps the per-release `counts` lists the fold allocates, whatever date range the request spans.
+# Caps the `counts` lists in the response, whatever date range the request spans.
 MAX_RESOLUTION = 1000
 DEFAULT_MAX_RELEASES = 5
+# Matches the stacked chart's request. With MAX_RESOLUTION, it bounds a response at a million counts.
+MAX_RELEASES = 1000
 MIN_BUCKET_SECONDS = 60
 # Rows the query hands back for folding. Past this, the lowest-volume releases are dropped, so the
 # fold undercounts `other` but every returned series stays exact.
@@ -43,15 +45,16 @@ ReleaseKey = tuple[str | None, str | None, str | None]
 class _Accumulator:
     """Per-release occurrence counts while the query rows are folded into the response."""
 
-    def __init__(self, key: ReleaseKey, bucket_count: int) -> None:
+    def __init__(self, key: ReleaseKey) -> None:
         self.key = key
-        self.counts = [0] * bucket_count
+        # Sparse, so the thousands of releases that fold into `other` never allocate a full bucket grid.
+        self.counts: dict[int, int] = {}
         self.total = 0
         self.first_index = -1
         self.last_index = -1
 
     def add(self, index: int, count: int) -> None:
-        self.counts[index] += count
+        self.counts[index] = self.counts.get(index, 0) + count
         self.total += count
         if self.first_index == -1 or index < self.first_index:
             self.first_index = index
@@ -225,25 +228,25 @@ class ErrorTrackingReleasesQueryRunner(
             if selected_namespace is not None and namespace != selected_namespace:
                 continue
             if not namespace and not version:
-                unattributed = unattributed or _Accumulator((None, None, None), bucket_count)
+                unattributed = unattributed or _Accumulator((None, None, None))
                 target = unattributed
             else:
                 key: ReleaseKey = (namespace, version, build)
-                target = releases.setdefault(key, _Accumulator(key, bucket_count))
+                target = releases.setdefault(key, _Accumulator(key))
             for index, count in in_range:
                 target.add(index, count)
 
         ordered = sorted(releases.values(), key=self.sort_key(), reverse=True)
-        max_releases = max(0, self.query.maxReleases if self.query.maxReleases is not None else DEFAULT_MAX_RELEASES)
+        requested = self.query.maxReleases if self.query.maxReleases is not None else DEFAULT_MAX_RELEASES
+        max_releases = min(MAX_RELEASES, max(0, requested))
         visible, hidden = ordered[:max_releases], ordered[max_releases:]
 
         other: _Accumulator | None = None
         if hidden:
-            other = _Accumulator((None, None, None), bucket_count)
+            other = _Accumulator((None, None, None))
             for release in hidden:
-                for index, count in enumerate(release.counts):
-                    if count:
-                        other.add(index, count)
+                for index, count in release.counts.items():
+                    other.add(index, count)
 
         total = sum(release.total for release in ordered) + (unattributed.total if unattributed else 0)
         return ErrorTrackingReleasesQueryResponse(
@@ -288,7 +291,7 @@ class ErrorTrackingReleasesQueryRunner(
 
     def series(self, release: _Accumulator) -> ErrorTrackingReleaseSeries:
         return ErrorTrackingReleaseSeries(
-            counts=release.counts,
+            counts=[release.counts.get(index, 0) for index in range(len(self.bucket_starts))],
             total=release.total,
             first_seen=self.bucket_iso(release.first_index) if release.first_index >= 0 else None,
             last_seen=self.bucket_iso(release.last_index) if release.last_index >= 0 else None,
