@@ -35,31 +35,64 @@ def _timeout_seconds() -> float:
     return float(os.environ.get("USAGE_INGESTION_TIMEOUT_MS", "5000")) / 1000
 
 
+def _to_send(records: Iterable[UsageRecord]) -> tuple[list[UsageRecord], str]:
+    return (
+        [record for record in records if team_is_enabled(record.team_id)],
+        os.environ.get("USAGE_INGESTION_ADDR", ""),
+    )
+
+
+def _request(records: list[UsageRecord]) -> service_pb2.IngestBillingUsageRequest:
+    return service_pb2.IngestBillingUsageRequest(
+        records=[
+            service_pb2.BillingUsageRecord(
+                record_id=record.record_id,
+                producer_id=record.producer_id,
+                team_id=record.team_id,
+                usage_key=record.usage_key,
+                unit=record.unit,
+                quantity=record.quantity,
+                timestamp_ms=record.timestamp_ms,
+            )
+            for record in records
+        ]
+    )
+
+
+# Every producer calls these after committing work of its own, and the nightly report is still
+# the billing source of truth, so a record is worth less than the caller it runs in. Nothing
+# escapes either function — not a bad address, not an unencodable field, not an RPC error.
+# Building the request sits inside the try for that reason.
+
+
 def report_usage(records: Iterable[UsageRecord], *, site: str) -> None:
-    enabled = [record for record in records if team_is_enabled(record.team_id)]
-    address = os.environ.get("USAGE_INGESTION_ADDR", "")
+    enabled, address = _to_send(records)
     if not enabled or not address:
         return
 
-    # Every producer calls this after committing work of its own, and the nightly report is
-    # still the billing source of truth, so a record is worth less than the caller it runs in.
-    # Nothing here escapes — not a bad address, not an unencodable field, not an RPC error.
     try:
-        request = service_pb2.IngestBillingUsageRequest(
-            records=[
-                service_pb2.BillingUsageRecord(
-                    record_id=record.record_id,
-                    producer_id=record.producer_id,
-                    team_id=record.team_id,
-                    usage_key=record.usage_key,
-                    unit=record.unit,
-                    quantity=record.quantity,
-                    timestamp_ms=record.timestamp_ms,
-                )
-                for record in enabled
-            ]
-        )
         with grpc.insecure_channel(address) as channel:
-            service_pb2_grpc.UsageIngestionStub(channel).IngestBillingUsage(request, timeout=_timeout_seconds())
+            service_pb2_grpc.UsageIngestionStub(channel).IngestBillingUsage(
+                _request(enabled), timeout=_timeout_seconds()
+            )
+    except Exception:
+        logger.warning("usage_ingestion_report_failed", site=site, records=len(enabled), exc_info=True)
+
+
+async def areport_usage(records: Iterable[UsageRecord], *, site: str) -> None:
+    """Async variant, for producers already on an event loop.
+
+    Prefer this to `asyncio.to_thread(report_usage, ...)`: that borrows a worker from the default
+    executor, which a hot loop of `to_thread` calls has exhausted before.
+    """
+    enabled, address = _to_send(records)
+    if not enabled or not address:
+        return
+
+    try:
+        async with grpc.aio.insecure_channel(address) as channel:
+            await service_pb2_grpc.UsageIngestionStub(channel).IngestBillingUsage(
+                _request(enabled), timeout=_timeout_seconds()
+            )
     except Exception:
         logger.warning("usage_ingestion_report_failed", site=site, records=len(enabled), exc_info=True)

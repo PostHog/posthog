@@ -25,7 +25,7 @@ from posthog.tasks.email import get_members_to_notify_for_pipeline_error, send_b
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
-from posthog.usage_ingestion.client import UsageRecord, report_usage
+from posthog.usage_ingestion.client import UsageRecord, areport_usage
 
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.batch_exports.backend.service import (
@@ -697,8 +697,7 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         and batch_export_run.records_completed
         and _is_billable(batch_export_run)
     ):
-        await asyncio.to_thread(
-            report_usage,
+        await areport_usage(
             [
                 UsageRecord(
                     record_id=str(batch_export_run.id),

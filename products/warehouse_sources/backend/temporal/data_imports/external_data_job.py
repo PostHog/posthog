@@ -1,7 +1,6 @@
 import re
 import json
 import typing
-import asyncio
 import datetime as dt
 import dataclasses
 
@@ -26,7 +25,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.schedule import trigger_schedule_buffer_one
 from posthog.temporal.common.utils import APP_DB_ERROR_PREFIX, READ_ONLY_TRANSACTION_PHRASE
 from posthog.temporal.utils import CDPProducerWorkflowInputs, ExternalDataWorkflowInputs
-from posthog.usage_ingestion.client import UsageRecord, report_usage
+from posthog.usage_ingestion.client import UsageRecord, areport_usage
 from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.facade.api import (
@@ -425,8 +424,7 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         billed = billed_usage_for_job(completed_job) if completed_job else None
         if completed_job and billed:
             usage_key, rows = billed
-            await asyncio.to_thread(
-                report_usage,
+            await areport_usage(
                 [
                     UsageRecord(
                         record_id=str(completed_job.id),
