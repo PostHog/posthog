@@ -15,12 +15,15 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import ExpressionField, LazyJoin, Table
 from posthog.hogql.errors import QueryError, TableAccessDeniedError
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.auth import ProjectSecretAPIKeyUser
 from posthog.models import OrganizationMembership, TaggedItem, User
 from posthog.models.organization import AvailableFeature
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.conversations.backend.models import EmailThread, EmailThreadAccountLink
@@ -108,7 +111,9 @@ class TestAccountCommunicationHogqlAccess(SimpleTestCase):
     def test_ticket_access_is_required(self, _name, resolver, table_name) -> None:
         access_control = Mock()
         access_control.check_access_level_for_resource.return_value = False
-        context = HogQLContext(database=Mock(user_access_control=access_control))
+        database = Mock(user_access_control=access_control)
+        database.is_table_access_denied.return_value = False
+        context = HogQLContext(database=database)
         join_to_add = Mock(fields_accessed={"count": ["count"]})
 
         with self.assertRaises(TableAccessDeniedError) as error:
@@ -116,6 +121,27 @@ class TestAccountCommunicationHogqlAccess(SimpleTestCase):
 
         assert error.exception.table_name == table_name
         access_control.check_access_level_for_resource.assert_called_once_with("ticket", "viewer")
+
+
+class TestAccountCommunicationHogqlProjectSecretKey(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @parameterized.expand(
+        [
+            ("email_threads", account_email_threads_join),
+            ("support_tickets", account_support_tickets_join),
+        ]
+    )
+    def test_ticket_scoped_key_can_resolve_communication_join(self, _name, resolver) -> None:
+        key = ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="account-communication-access",
+            secure_value="sha256$" + "f" * 64,
+            scopes=["account:read", "ticket:read"],
+        )
+        context = HogQLContext(database=Database.create_for(team=self.team, user=ProjectSecretAPIKeyUser(key)))
+
+        resolver(Mock(fields_accessed={"count": ["count"]}), context, Mock())
 
 
 class TestAccountCommunicationHogqlIsolation(NonAtomicBaseTest):

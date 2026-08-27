@@ -560,9 +560,11 @@ def _account_email_threads_select() -> ast.SelectQuery | ast.SelectSetQuery:
 
 def _require_ticket_access(context: HogQLContext, table_name: str) -> None:
     database = context.database
-    if database is None or database.user_access_control is None:
+    if database is None or database.is_table_access_denied("system.support_tickets"):
         raise TableAccessDeniedError(table_name)
-    if not database.user_access_control.check_access_level_for_resource("ticket", "viewer"):
+    if database.user_access_control and not database.user_access_control.check_access_level_for_resource(
+        "ticket", "viewer"
+    ):
         raise TableAccessDeniedError(table_name)
 
 

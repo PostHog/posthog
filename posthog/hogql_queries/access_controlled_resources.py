@@ -61,7 +61,7 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
     from posthog.hogql.database.schema.system import access_controlled_system_tables  # noqa: PLC0415
     from posthog.hogql.errors import BaseHogQLError  # noqa: PLC0415
     from posthog.hogql.metadata import get_table_names  # noqa: PLC0415
-    from posthog.hogql.parser import parse_select  # noqa: PLC0415
+    from posthog.hogql.parser import parse_expr, parse_select  # noqa: PLC0415
     from posthog.hogql.visitor import GetFieldsTraverser  # noqa: PLC0415
 
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -81,16 +81,14 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
             expressions.append(filter_expression)
         try:
             fields = [
-                field
-                for expression in expressions
-                for field in GetFieldsTraverser(parse_select(f"SELECT {expression}")).fields
+                field for expression in expressions for field in GetFieldsTraverser(parse_expr(expression)).fields
             ]
         except BaseHogQLError:
             return None
-        scopes = {"account"}
+        account_scopes = {"account"}
         if any(any(str(segment) in _ACCOUNT_COMMUNICATION_LAZY_FIELDS for segment in field.chain) for field in fields):
-            scopes.add("ticket")
-        return _with_fallback_parents(scopes)
+            account_scopes.add("ticket")
+        return _with_fallback_parents(account_scopes)
 
     # Raw HogQL is the only query that references system.* and warehouse tables by name
     if getattr(query, "kind", None) == "HogQLQuery":

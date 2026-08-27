@@ -765,12 +765,22 @@ def _create_account_channel_summary(team: Team, label: str):
 
 
 def _create_account_email_thread(team: Team, label: str):
+    Account = apps.get_model("customer_analytics", "Account")
     EmailThread = apps.get_model("conversations", "EmailThread")
-    return EmailThread.objects.for_team(team.id).create(
+    EmailThreadAccountLink = apps.get_model("conversations", "EmailThreadAccountLink")
+    account = Account.objects.unscoped().create(team=team, name=f"account_{label}")
+    thread = EmailThread.objects.for_team(team.id).create(
         team=team,
         canonical_thread_key=f"thread_{label}",
         subject=f"subject_{label}",
     )
+    EmailThreadAccountLink.objects.for_team(team.id).create(
+        team=team,
+        thread=thread,
+        account_id=str(account.id),
+        match_source="known_email",
+    )
+    return thread
 
 
 def _create_account_email_thread_link(team: Team, label: str):
