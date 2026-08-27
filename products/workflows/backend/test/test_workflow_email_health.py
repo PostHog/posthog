@@ -25,7 +25,12 @@ AUTO_PAUSE_ON = {"WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED": True}
 class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
-        self.now = timezone.now()
+        # Pinned late in the hour so every seed these tests place (down to 40 minutes back) lands
+        # in one clock hour. app_metrics2 buckets its sort key by hour, so that is the arrangement
+        # most likely to collapse two seeds into a single row and lose one of the timestamps.
+        # Keeping the date today, rather than an absolute one, avoids drifting out of any window.
+        self.now = timezone.now().replace(minute=50, second=0, microsecond=0)
+        self._seed_count = 0
         self.flow = HogFlow.objects.create(name="Welcome email", team=self.team)
 
     def _seed(
@@ -38,6 +43,11 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         at: datetime | None = None,
     ) -> None:
         timestamp = at or self.now - timedelta(minutes=5)
+        # app_metrics2 keys rows on (…, instance_id, toStartOfHour(timestamp), …), so two seeds in
+        # the same clock hour would collapse into one row and keep just one of the timestamps.
+        # A distinct instance per call keeps them separate whatever time the suite runs at.
+        self._seed_count += 1
+        instance_id = f"instance-{self._seed_count}"
         for metric_name, count in (
             ("email_sent", sent),
             ("email_blocked", complaints),
@@ -48,6 +58,7 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
                     team_id=self.team.pk,
                     app_source="hog_flow",
                     app_source_id=source_id or str(self.flow.id),
+                    instance_id=instance_id,
                     metric_kind="email",
                     metric_name=metric_name,
                     count=count,
