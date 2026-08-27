@@ -13,7 +13,7 @@ BASE_URL = "https://api.fourthwall.com"
 PAGE_SIZE = 100
 
 
-@dataclass
+@dataclass  # nosemgrep: prefer-frozen-dataclasses -- pre-existing; new field shifts the backlog finding into diff
 class FourthwallEndpointConfig:
     name: str
     # Path below `/open-api/{version}`; the version segment comes from the source's pin.
