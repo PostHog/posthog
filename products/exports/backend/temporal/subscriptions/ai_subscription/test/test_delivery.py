@@ -14,6 +14,7 @@ from products.exports.backend.models.subscription import Subscription, Subscript
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     CHART_IMAGE_URL_TTL,
     SLACK_MRKDWN_SECTION_LIMIT,
+    SubscriptionReportContext,
     _build_ai_slack_message,
     _last_scheduled_report_cutoff,
     _persist_ai_query_plan,
@@ -536,10 +537,17 @@ class TestFreezePlanPersistence:
         sub.ai_query_plan = ai_query_plan
         return sub
 
-    def _context(self, sub: MagicMock) -> tuple[MagicMock, MagicMock, ReportWindow, dict | None, None, bool]:
+    def _context(self, sub: MagicMock) -> SubscriptionReportContext:
         end = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
         window = ReportWindow(start=end - timedelta(days=1), end=end)
-        return MagicMock(), MagicMock(), window, sub.ai_query_plan, None, False
+        return SubscriptionReportContext(
+            team=MagicMock(),
+            user=MagicMock(),
+            window=window,
+            ai_query_plan=sub.ai_query_plan,
+            anchor=None,
+            anchor_unavailable=False,
+        )
 
     async def test_first_run_persists_freshly_generated_plan(self) -> None:
         sub = self._subscription(ai_query_plan=None)

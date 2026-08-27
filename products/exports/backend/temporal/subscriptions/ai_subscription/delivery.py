@@ -9,6 +9,7 @@ from markdown_it import MarkdownIt
 from markdown_to_mrkdwn import SlackMarkdownConverter
 from slack_sdk.errors import SlackApiError
 
+from posthog.dataclasses import frozen
 from posthog.email import EmailMessage, raise_if_delivery_rejected
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.markdown_safety import strip_external_links_markdown
@@ -148,9 +149,21 @@ def _last_scheduled_report_cutoff(subscription: Subscription) -> datetime | None
         return None
 
 
-def _resolve_subscription_context(
-    subscription: Subscription,
-) -> tuple[Team, User | None, ReportWindow, dict | None, AnchorContext | None, bool]:
+@frozen
+class SubscriptionReportContext:
+    """Everything the generation path needs from the ORM, resolved in one sync hop."""
+
+    team: Team
+    user: User | None
+    window: ReportWindow
+    ai_query_plan: dict | None
+    anchor: AnchorContext | None
+    # True when the subscription has an anchor that failed to resolve this run, as opposed to
+    # having no anchor at all. Keeps a frozen plan from being invalidated by a transient failure.
+    anchor_unavailable: bool
+
+
+def _resolve_subscription_context(subscription: Subscription) -> SubscriptionReportContext:
     # team/created_by are FK relations and the last-delivery lookup hits the DB; resolving the window
     # here keeps all ORM access (and the timezone math) off the event loop in one sync hop. The frozen
     # plan (if any) and the anchor context are read here too so the generation path stays free of
@@ -178,7 +191,14 @@ def _resolve_subscription_context(
         # Already logged at the raise site. This run proceeds ungrounded; the frozen plan is kept.
         anchor = None
         anchor_unavailable = True
-    return team, subscription.created_by, window, subscription.ai_query_plan, anchor, anchor_unavailable
+    return SubscriptionReportContext(
+        team=team,
+        user=subscription.created_by,
+        window=window,
+        ai_query_plan=subscription.ai_query_plan,
+        anchor=anchor,
+        anchor_unavailable=anchor_unavailable,
+    )
 
 
 def _persist_ai_query_plan(subscription_id: int, team_id: int, prompt: str | None, plan: dict) -> None:
@@ -189,21 +209,19 @@ def _persist_ai_query_plan(subscription_id: int, team_id: int, prompt: str | Non
 
 
 async def build_ai_subscription_report(subscription: Subscription) -> AiReportResult:
-    team, user, window, ai_query_plan, anchor, anchor_unavailable = await database_sync_to_async(
-        _resolve_subscription_context, thread_sensitive=False
-    )(subscription)
+    context = await database_sync_to_async(_resolve_subscription_context, thread_sensitive=False)(subscription)
     # created_by is FK SET_NULL; the pipeline requires a non-None user
-    if user is None:
+    if context.user is None:
         raise PromptRejectedError("AI subscription has no creator (created_by deleted); cannot deliver.")
 
     result = await generate_ai_report(
-        team=team,
-        user=user,
+        team=context.team,
+        user=context.user,
         prompt=subscription.prompt,
-        window=window,
-        ai_query_plan=ai_query_plan,
-        anchor=anchor,
-        anchor_unavailable=anchor_unavailable,
+        window=context.window,
+        ai_query_plan=context.ai_query_plan,
+        anchor=context.anchor,
+        anchor_unavailable=context.anchor_unavailable,
         trace_correlation_id=subscription.id,
     )
 
