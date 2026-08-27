@@ -54,6 +54,26 @@ describe("finish tool", () => {
       expected: false,
     },
     {
+      name: "workflow-origin background cloud run",
+      ctx: { cwd: "/repo", requestFinish },
+      meta: {
+        environment: "cloud",
+        background: true,
+        taskOriginProduct: "workflow",
+      },
+      expected: false,
+    },
+    {
+      name: "non-workflow-origin background cloud run",
+      ctx: { cwd: "/repo", requestFinish },
+      meta: {
+        environment: "cloud",
+        background: true,
+        taskOriginProduct: "user_created",
+      },
+      expected: true,
+    },
+    {
       name: "no gate meta",
       ctx: { cwd: "/repo", requestFinish },
       meta: undefined,

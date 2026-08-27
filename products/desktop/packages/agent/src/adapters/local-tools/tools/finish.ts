@@ -88,9 +88,15 @@ export const finishTool = defineLocalTool({
   description: FINISH_TOOL_DESCRIPTION,
   schema: finishSchema,
   alwaysLoad: true,
+  // Workflow-origin runs are excluded: they reply into the Slack thread that
+  // triggered them, and that relay only fires after the turn ends. `finish`
+  // marks the run terminal mid-turn, which makes the backend drop the relay
+  // (relay_task_run_message skips terminal runs), so the reply is lost every
+  // time. Those runs end via their short inactivity timeout instead.
   isEnabled: (ctx, meta) =>
     meta?.environment === "cloud" &&
     meta?.background === true &&
+    meta?.taskOriginProduct !== "workflow" &&
     resolveRequestFinish(ctx) !== undefined,
   handler: async (ctx, args): Promise<LocalToolResult> => {
     const requestFinish = resolveRequestFinish(ctx);
