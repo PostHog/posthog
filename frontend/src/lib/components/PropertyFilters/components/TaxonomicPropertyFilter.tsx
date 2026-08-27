@@ -36,17 +36,11 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import {
-    AnyPropertyFilter,
-    FilterLogicalOperator,
-    GroupTypeIndex,
-    PropertyDefinitionType,
-    PropertyFilterType,
-} from '~/types'
+import { AnyPropertyFilter, GroupTypeIndex, PropertyDefinitionType, PropertyFilterType } from '~/types'
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
-import { OperandTag } from './OperandTag'
+import { PropertyFilterRowOperator } from './PropertyFilterRowOperator'
 import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
 
 export const DEFAULT_TAXONOMIC_GROUP_TYPES = [
@@ -369,35 +363,16 @@ export function TaxonomicPropertyFilter({
                         'TaxonomicPropertyFilter__row--or-filtering': orFiltering,
                         'TaxonomicPropertyFilter__row--showing-operators': showOperatorValueSelect,
                         'TaxonomicPropertyFilter__row--editable': editable,
+                        'TaxonomicPropertyFilter__row--empty': !filter?.key,
                     })}
                 >
                     {hasRowOperator && (
-                        <div className="TaxonomicPropertyFilter__row-operator">
-                            {orFiltering ? (
-                                <>
-                                    {propertyGroupType && index !== 0 && filter?.key && (
-                                        <div className="flex items-center">
-                                            {propertyGroupType === FilterLogicalOperator.And ? (
-                                                <OperandTag operand="and" />
-                                            ) : (
-                                                <OperandTag operand="or" />
-                                            )}
-                                        </div>
-                                    )}
-                                </>
-                            ) : (
-                                <div className="flex items-center gap-1">
-                                    {index === 0 ? (
-                                        <>
-                                            <span className="TaxonomicPropertyFilter__row-arrow">&#8627;</span>
-                                            <span>where</span>
-                                        </>
-                                    ) : (
-                                        <OperandTag operand="and" />
-                                    )}
-                                </div>
-                            )}
-                        </div>
+                        <PropertyFilterRowOperator
+                            index={index}
+                            orFiltering={orFiltering}
+                            propertyGroupType={propertyGroupType}
+                            hasKey={!!filter?.key}
+                        />
                     )}
                     <div
                         className={clsx('TaxonomicPropertyFilter__row-items', {

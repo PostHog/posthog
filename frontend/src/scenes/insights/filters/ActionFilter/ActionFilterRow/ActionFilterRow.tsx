@@ -8,11 +8,11 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback } from 'react'
 
-import { IconCopy, IconFilter, IconGroupIntersect, IconPencil, IconPlusSmall, IconTrash } from '@posthog/icons'
+import { IconCopy, IconFilter, IconGroupIntersect, IconPencil, IconTrash } from '@posthog/icons'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import { AddBehavioralFilterButton } from 'lib/components/PropertyFilters/components/AddBehavioralFilterButton'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { newBehavioralFilter } from 'lib/components/PropertyFilters/utils'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
@@ -744,19 +744,16 @@ export function ActionFilterRow({
                         hogQLGlobals={hogQLGlobals}
                         operatorAllowlist={operatorAllowlist}
                         triggerVariant="input"
+                        framedRows={behavioralFiltersEnabled}
+                        // Shortened to sit beside "Performed" as a matching pair
+                        addText={behavioralFiltersEnabled ? 'Filter' : undefined}
                         addFilterSuffix={
                             behavioralFiltersEnabled
                                 ? (addFilter) => (
-                                      <LemonButton
+                                      <AddBehavioralFilterButton
                                           data-attr={`${index}-${value}-${typeKey}-add-behavioral-filter`}
-                                          type="secondary"
-                                          size="small"
-                                          icon={<IconPlusSmall />}
-                                          sideIcon={null}
-                                          onClick={() => addFilter(newBehavioralFilter())}
-                                      >
-                                          Performed
-                                      </LemonButton>
+                                          onAdd={addFilter}
+                                      />
                                   )
                                 : null
                         }

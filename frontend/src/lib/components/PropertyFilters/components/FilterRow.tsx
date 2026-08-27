@@ -73,7 +73,11 @@ export const FilterRow = React.memo(function FilterRow({
     return (
         <>
             <div
-                className={clsx('property-filter-row flex items-center flex-nowrap deprecated-space-x-2 max-w-full', {
+                className={clsx('property-filter-row flex items-center max-w-full', {
+                    // A suffix puts two buttons on this row, which have to wrap rather than
+                    // overflow once the panel is narrow. space-x can't wrap; gap can.
+                    'flex-wrap gap-2': !!suffix,
+                    'flex-nowrap deprecated-space-x-2': !suffix,
                     'grow sm:grow-0': isValid,
                     'grow-0': !isValid,
                     'wrap-filters': !disablePopover,

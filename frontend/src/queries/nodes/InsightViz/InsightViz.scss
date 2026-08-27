@@ -67,6 +67,32 @@
                         flex-basis: 100%;
                     }
                 }
+
+                // Series rows hold their "where" gutter alongside the controls for longer than
+                // the denser inline-events list, collapsing only once the remaining column is
+                // too narrow to fit two controls side by side.
+                @container editor-panel (max-width: 400px) {
+                    .ActionFilterRow-filters .TaxonomicPropertyFilter__row {
+                        flex-wrap: wrap;
+                    }
+
+                    .ActionFilterRow-filters .TaxonomicPropertyFilter__row-items {
+                        flex-basis: 100%;
+                    }
+
+                    // On its own line the gutter has nothing to align to, so drop its fixed
+                    // width and row height and let the label sit flush with the controls
+                    .ActionFilterRow-filters .TaxonomicPropertyFilter__row-operator {
+                        justify-content: flex-start;
+                        width: auto;
+                        height: auto;
+                    }
+
+                    // An empty gutter here would still take a wrapped line, offsetting the row
+                    .ActionFilterRow-filters .TaxonomicPropertyFilter__row-operator--empty {
+                        display: none;
+                    }
+                }
             }
 
             &:not(.EditorFiltersWrapper--panels) {

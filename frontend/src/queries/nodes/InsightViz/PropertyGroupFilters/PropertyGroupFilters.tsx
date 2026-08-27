@@ -7,8 +7,9 @@ import React from 'react'
 import { IconCopy, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
+import { AddBehavioralFilterButton } from 'lib/components/PropertyFilters/components/AddBehavioralFilterButton'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { isPropertyGroupFilterLike, newBehavioralFilter } from 'lib/components/PropertyFilters/utils'
+import { isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -175,20 +176,14 @@ export function PropertyGroupFilters({
                                                         logicalRowDivider={behavioralFiltersEnabled}
                                                         hasRowOperator={!behavioralFiltersEnabled}
                                                         addFilterDivider={behavioralFiltersEnabled}
+                                                        framedRows={behavioralFiltersEnabled}
                                                         addFilterSuffix={
                                                             behavioralFiltersEnabled
                                                                 ? (addFilter) => (
-                                                                      <LemonButton
+                                                                      <AddBehavioralFilterButton
                                                                           data-attr={`${pageKey}-add-behavioral-filter`}
-                                                                          type="secondary"
-                                                                          icon={<IconPlusSmall />}
-                                                                          sideIcon={null}
-                                                                          onClick={() =>
-                                                                              addFilter(newBehavioralFilter())
-                                                                          }
-                                                                      >
-                                                                          Performed
-                                                                      </LemonButton>
+                                                                          onAdd={addFilter}
+                                                                      />
                                                                   )
                                                                 : null
                                                         }

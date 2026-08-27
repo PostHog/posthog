@@ -35,3 +35,27 @@
         }
     }
 }
+
+// Frames each filter's controls the way a filter group frames its contents, so a multi-line
+// condition reads as one unit. The horizontal bleed keeps the controls' own width unchanged,
+// so framing them makes nothing wrap earlier.
+.PropertyFilters--framed-rows {
+    // The trailing add-filter row holds a button, not a condition, so it takes no frame
+    .TaxonomicPropertyFilter__row:not(.TaxonomicPropertyFilter__row--empty) {
+        .TaxonomicPropertyFilter__row-items {
+            padding: 0.375rem;
+            margin: 0 -0.375rem;
+            background-color: var(--color-bg-primary);
+            border: 1px solid var(--color-border-primary);
+            border-radius: var(--radius);
+        }
+
+        // A group already paints the surrounding grey, so its rows invert to stay visible
+        .property-group &,
+        .property-group--framed & {
+            .TaxonomicPropertyFilter__row-items {
+                background-color: var(--color-bg-surface-primary);
+            }
+        }
+    }
+}

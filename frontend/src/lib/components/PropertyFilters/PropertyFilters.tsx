@@ -1,9 +1,11 @@
 import './PropertyFilters.scss'
 
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
 import { BehavioralPropertyFilterRow } from 'lib/components/PropertyFilters/components/BehavioralPropertyFilterRow'
+import { PropertyFilterRowOperator } from 'lib/components/PropertyFilters/components/PropertyFilterRowOperator'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import { isBehavioralPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import {
@@ -80,6 +82,8 @@ export interface PropertyFiltersProps {
      * logic, so the caller doesn't have to rebuild the list from possibly-stale props. */
     addFilterSuffix?: ((addFilter: (property: AnyPropertyFilter) => void) => JSX.Element) | null
     addFilterDivider?: boolean
+    /** Frames each row's controls on a tinted panel, so a filter spanning several lines reads as one unit. */
+    framedRows?: boolean
 }
 
 export function PropertyFilters({
@@ -126,6 +130,7 @@ export function PropertyFilters({
     showRemoveButton = true,
     addFilterSuffix,
     addFilterDivider = false,
+    framedRows = false,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew, filterIds, filterIdsWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -140,7 +145,7 @@ export function PropertyFilters({
     useOnMountEffect(() => setAllowOpenOnInsert(true))
 
     return (
-        <div className="PropertyFilters">
+        <div className={clsx('PropertyFilters', framedRows && 'PropertyFilters--framed-rows')}>
             {showNestedArrow && !disablePopover && (
                 <div className="PropertyFilters__prefix">
                     <>&#8627;</>
@@ -177,12 +182,27 @@ export function PropertyFilters({
                                     editable={editable}
                                     filterComponent={(onComplete) =>
                                         isBehavioralPropertyFilter(item) ? (
-                                            <BehavioralPropertyFilterRow
-                                                filter={item}
-                                                onChange={(filter) => setFilter(index, filter)}
-                                                editable={editable}
-                                                size={buttonSize}
-                                            />
+                                            // Same row scaffolding as a taxonomic filter, so both kinds share
+                                            // one gutter and line up. w-full/min-w-0 stands in for the
+                                            // .TaxonomicPropertyFilter wrapper the other branch gets.
+                                            <div className="TaxonomicPropertyFilter__row w-full min-w-0">
+                                                {hasRowOperator && (
+                                                    <PropertyFilterRowOperator
+                                                        index={index}
+                                                        orFiltering={orFiltering}
+                                                        propertyGroupType={propertyGroupType}
+                                                        hasKey={!!item.key}
+                                                    />
+                                                )}
+                                                <div className="TaxonomicPropertyFilter__row-items">
+                                                    <BehavioralPropertyFilterRow
+                                                        filter={item}
+                                                        onChange={(filter) => setFilter(index, filter)}
+                                                        editable={editable}
+                                                        size={buttonSize}
+                                                    />
+                                                </div>
+                                            </div>
                                         ) : (
                                             <TaxonomicPropertyFilter
                                                 pageKey={pageKey}

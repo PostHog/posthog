@@ -250,12 +250,12 @@ export function isBehavioralPropertyFilter(filter?: AnyFilterLike | null): filte
     return filter?.type === PropertyFilterType.Behavioral
 }
 
-export function newBehavioralFilter(): BehavioralPropertyFilter {
+export function newBehavioralFilter(key: string, eventType: 'events' | 'actions'): BehavioralPropertyFilter {
     return {
         type: PropertyFilterType.Behavioral,
         value: BehavioralEventType.PerformEvent,
-        key: '$pageview',
-        event_type: 'events',
+        key,
+        event_type: eventType,
         time_value: 30,
         time_interval: TimeUnitType.Day,
     }
