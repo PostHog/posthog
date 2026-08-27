@@ -435,6 +435,7 @@ the row lists both.
 | logz_io                          | HTTP                        | requests                                                        | ✅                          |
 | loop_returns                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | loops                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| lovable                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | luma                             | HTTP                        | requests                                                        | ✅                          |
 | mailchimp                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | marketo                          | HTTP                        | requests                                                        | ✅                          |
@@ -706,6 +707,7 @@ the row lists both.
 | tremendous                       | HTTP                        | requests                                                        | ✅                          |
 | trigger_dev                      | HTTP                        | requests                                                        | ✅                          |
 | trunk_io                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| trino                            | HTTP (vendor SDK)           | trino                                                           | ✅                          |
 | tvmaze                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | twelve_data                      | HTTP                        | requests                                                        | ✅                          |
 | twelve_labs                      | HTTP                        | requests                                                        | ✅                          |
@@ -1159,7 +1161,6 @@ doesn't conflict with concurrent PRs.
 - logrocket
 - lokalise
 - looker
-- lovable
 - m3ter
 - mailtrap
 - mantle

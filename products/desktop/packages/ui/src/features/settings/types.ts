@@ -11,7 +11,6 @@ export type SettingsCategory =
   | "skills"
   | "mcp-servers"
   | "personalization"
-  | "sidebar"
   | "terminal"
   | "harness"
   | "shortcuts"
@@ -35,7 +34,6 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
   "skills",
   "mcp-servers",
   "personalization",
-  "sidebar",
   "terminal",
   "harness",
   "shortcuts",
@@ -67,7 +65,6 @@ export const SETTINGS_PAGE_LABELS: Record<SettingsCategory, string> = {
   skills: "Skills",
   "mcp-servers": "MCP servers",
   personalization: "Personalization",
-  sidebar: "Sidebar",
   terminal: "Terminal",
   harness: "Harness",
   shortcuts: "Shortcuts",
