@@ -376,7 +376,11 @@ export function NotificationsSettings() {
           </SettingsCardRow>
 
           {customSounds.length > 0 && (
-            <SettingsCardRow label="Custom sounds" stacked>
+            <SettingsCardRow
+              label="Custom sounds"
+              description="Your own sound files, available in the completion sound list."
+              stacked
+            >
               <div className="flex w-full flex-col gap-1.5">
                 {customSounds.map((sound) => (
                   <CustomSoundRow
@@ -393,7 +397,10 @@ export function NotificationsSettings() {
 
           {completionSound !== "none" && (
             <>
-              <SettingsCardRow label="Volume">
+              <SettingsCardRow
+                label="Volume"
+                description="How loud alert sounds play."
+              >
                 <div className="flex items-center gap-3">
                   <Slider
                     aria-label="Sound volume"
@@ -555,7 +562,6 @@ function VoiceSection() {
                 value={speakAbout}
                 onValueChange={handleSpeakAboutChange}
                 aria-label="Speak about"
-                className="gap-1"
               >
                 <ToggleGroupItem
                   value="needs_input"
@@ -584,7 +590,10 @@ function VoiceSection() {
               </ToggleGroup>
             </SettingsCardRow>
 
-            <SettingsCardRow label="When to speak">
+            <SettingsCardRow
+              label="When to speak"
+              description="Which sessions get spoken narration."
+            >
               <SettingsSelect
                 ariaLabel="When to speak"
                 value={spokenFocusMode}

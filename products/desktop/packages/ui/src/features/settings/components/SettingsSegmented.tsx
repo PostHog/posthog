@@ -1,4 +1,4 @@
-import { cn, ToggleGroup, ToggleGroupItem } from "@posthog/quill";
+import { ToggleGroup, ToggleGroupItem } from "@posthog/quill";
 import type { ReactNode } from "react";
 
 export interface SettingsSegmentedOption {
@@ -40,7 +40,7 @@ export function SettingsSegmented({
       }}
       aria-label={ariaLabel}
       disabled={disabled}
-      className={cn("gap-1", className)}
+      className={className}
     >
       {options.map((option) => (
         <ToggleGroupItem
