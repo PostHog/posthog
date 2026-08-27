@@ -11,12 +11,18 @@ from asgiref.sync import sync_to_async
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2, KAFKA_CDP_INTERNAL_EVENTS
 from posthog.models import Organization, Team
 
-from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
+from products.batch_exports.backend.models.batch_export import (
+    BatchExport,
+    BatchExportDestination,
+    BatchExportOnDemand,
+    BatchExportRun,
+)
 from products.batch_exports.backend.service import delete_batch_export, sync_batch_export
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
     OverBillingLimitError,
     StartBatchExportRunInputs,
+    _is_billable,
     finish_batch_export_run,
     start_batch_export_run,
 )
@@ -588,3 +594,24 @@ async def test_start_batch_export_run_produces_failed_billing_internal_event(act
     }
 
     assert len(get_produced_app_metrics_payloads(mocked_try_produce)) == 1
+
+
+@pytest.mark.parametrize("on_demand", [False, True])
+@pytest.mark.parametrize(
+    "destination_type,deleted,billable",
+    [
+        (BatchExportDestination.Destination.S3, False, True),
+        (BatchExportDestination.Destination.HTTP, False, False),
+        (BatchExportDestination.Destination.WORKFLOWS, False, False),
+        (BatchExportDestination.Destination.S3, True, False),
+    ],
+)
+def test_usage_is_reported_only_for_what_the_nightly_report_bills(destination_type, deleted, billable, on_demand):
+    destination = BatchExportDestination(type=destination_type)
+    run = BatchExportRun()
+    if on_demand:
+        run.batch_export_on_demand = BatchExportOnDemand(destination=destination, deleted=deleted)
+    else:
+        run.batch_export = BatchExport(destination=destination, deleted=deleted)
+
+    assert _is_billable(run) is billable

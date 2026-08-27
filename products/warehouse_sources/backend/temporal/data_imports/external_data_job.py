@@ -1,6 +1,7 @@
 import re
 import json
 import typing
+import asyncio
 import datetime as dt
 import dataclasses
 
@@ -25,6 +26,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.schedule import trigger_schedule_buffer_one
 from posthog.temporal.common.utils import APP_DB_ERROR_PREFIX, READ_ONLY_TRANSACTION_PHRASE
 from posthog.temporal.utils import CDPProducerWorkflowInputs, ExternalDataWorkflowInputs
+from posthog.usage_ingestion.client import UsageRecord, report_usage
 from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.facade.api import (
@@ -410,6 +412,35 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                 "classified": has_non_retryable_error,
             },
         )
+
+    if inputs.status == ExternalDataJob.Status.COMPLETED:
+        # TODO: this bills more than `get_teams_with_rows_synced_in_period` does, in two ways.
+        # It reports nothing while `begin` sits inside the warehouse free period, and it moves a
+        # job whose source was created within seven days of the period end onto
+        # `free_historical_rows_synced` instead. Both are period-relative, and a collector only
+        # knows the moment the job finished, so mirroring them needs a decision on what the
+        # equivalent is at write time rather than a straight port of the filter.
+        #
+        # The status above is already written, so a job we cannot read back bills nothing
+        # rather than failing the finalization and retrying the whole activity.
+        completed_job = await database_sync_to_async_pool(
+            ExternalDataJob.objects.filter(team_id=inputs.team_id, id=job_id).first
+        )()
+        if completed_job and completed_job.billable and completed_job.rows_synced:
+            await asyncio.to_thread(
+                report_usage,
+                [
+                    UsageRecord(
+                        record_id=str(completed_job.id),
+                        producer_id="warehouse-sources",
+                        team_id=completed_job.team_id,
+                        usage_key="warehouse_rows_synced",
+                        unit="rows",
+                        quantity=completed_job.rows_synced,
+                    )
+                ],
+                site="warehouse_rows",
+            )
 
     logger.info(
         f"Updated external data job with for external data source {job_id} to status {inputs.status}",

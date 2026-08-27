@@ -9,6 +9,7 @@ import posthoganalytics
 from temporalio import activity
 
 from posthog.settings import SITE_URL
+from posthog.usage_ingestion.client import UsageRecord, report_usage
 
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
@@ -168,6 +169,19 @@ def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) 
     record_observation("succeeded", inputs.scanner_type)
     record_observation_e2e(inputs.scanner_type, (timezone.now() - obs["created_at"]).total_seconds())
     if receipt_created:
+        report_usage(
+            [
+                UsageRecord(
+                    record_id=str(inputs.observation_id),
+                    producer_id="replay-vision",
+                    team_id=obs["team_id"],
+                    usage_key="replay_vision_credits",
+                    unit="credits",
+                    quantity=credits,
+                )
+            ],
+            site="replay_vision",
+        )
         # Gate on the receipt so a lost-result retry can't double count the burn rate.
         record_credits_consumed(inputs.scanner_type, model, credits)
     logger.info(
