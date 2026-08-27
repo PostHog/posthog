@@ -367,6 +367,10 @@ CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION: bool = get_from_env(
 )
 
 CLICKHOUSE_LOGS_CLUSTER: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER", "posthog_single_shard")
+# The name the logs cluster answers to from the ingestion-events nodes, which host the logs Kafka
+# table and the Distributed front that writes into it. Cloud names it the same from both sides, so it
+# defaults to CLICKHOUSE_LOGS_CLUSTER; the local multinode stack does not, and sets this explicitly.
+CLICKHOUSE_LOGS_WRITE_CLUSTER: str = os.getenv("CLICKHOUSE_LOGS_WRITE_CLUSTER", CLICKHOUSE_LOGS_CLUSTER)
 CLICKHOUSE_LOGS_CLUSTER_HOST: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_HOST", "localhost")
 CLICKHOUSE_LOGS_CLUSTER_PORT: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_PORT", "9000")
 CLICKHOUSE_LOGS_CLUSTER_USER: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_USER", "default")

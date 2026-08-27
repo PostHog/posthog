@@ -32,6 +32,22 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `sessions` - sessions
+     * * `tool_calls` - tool_calls
+     * * `user_identity` - user_identity
+     * * `trace_structure` - trace_structure
+     */
+    export type AIObservabilityInstrumentationCheckEnum = typeof AIObservabilityInstrumentationCheckEnum[keyof typeof AIObservabilityInstrumentationCheckEnum];
+
+
+    export const AIObservabilityInstrumentationCheckEnum = {
+      Sessions: 'sessions',
+      ToolCalls: 'tool_calls',
+      UserIdentity: 'user_identity',
+      TraceStructure: 'trace_structure',
+    } as const;
+
+    /**
      * * `since_last_sent` - Since last report
      * * `last_n_days` - Last N days
      * * `days_ago_range` - Between X and Y days ago
@@ -45135,6 +45151,69 @@ export namespace Schemas {
     }
 
     /**
+     * Counts this check was graded from, over the same window. Which counts appear depends on the check.
+     */
+    export type InstrumentationCheckStats = {[key: string]: number};
+
+    /**
+     * * `ok` - ok
+     * * `warning` - warning
+     * * `pending` - pending
+     * * `dismissed` - dismissed
+     */
+    export type InstrumentationCheckStatusEnum = typeof InstrumentationCheckStatusEnum[keyof typeof InstrumentationCheckStatusEnum];
+
+
+    export const InstrumentationCheckStatusEnum = {
+      Ok: 'ok',
+      Warning: 'warning',
+      Pending: 'pending',
+      Dismissed: 'dismissed',
+    } as const;
+
+    export interface InstrumentationCheck {
+      /** Identifier of the check. Stable across statuses, so a surface can key its own copy off it.
+       *
+       * * `sessions` - sessions
+       * * `tool_calls` - tool_calls
+       * * `user_identity` - user_identity
+       * * `trace_structure` - trace_structure */
+      key: AIObservabilityInstrumentationCheckEnum;
+      /** How the check graded: 'ok' when the instrumentation is present, 'warning' when it is absent, 'pending' when the project has too little traffic to judge, and 'dismissed' when someone on the team marked the check as not applicable.
+       *
+       * * `ok` - ok
+       * * `warning` - warning
+       * * `pending` - pending
+       * * `dismissed` - dismissed */
+      status: InstrumentationCheckStatusEnum;
+      /** Short label for the check, the same for every status. */
+      title: string;
+      /** Sentence explaining what the counts mean and, for a warning, what to send. A dismissed check keeps the sentence its counts earned. */
+      detail: string;
+      /** Documentation page covering how to send the missing instrumentation. */
+      docs_url: string;
+      /** Counts this check was graded from, over the same window. Which counts appear depends on the check. */
+      stats: InstrumentationCheckStats;
+    }
+
+    export interface InstrumentationCheckAction {
+      /** Key of the check to dismiss or restore.
+       *
+       * * `sessions` - sessions
+       * * `tool_calls` - tool_calls
+       * * `user_identity` - user_identity
+       * * `trace_structure` - trace_structure */
+      check: AIObservabilityInstrumentationCheckEnum;
+    }
+
+    export interface InstrumentationChecklist {
+      /** Length in days of the event window the checks were graded over. */
+      window_days: number;
+      /** Every check, graded. Checks are always all returned, including the ones that pass. */
+      checks: InstrumentationCheck[];
+    }
+
+    /**
      * * `anthropic` - Anthropic
      * * `apns` - Apple Push
      * * `aws-redshift` - Aws Redshift
@@ -54700,16 +54779,22 @@ export namespace Schemas {
     }
 
     /**
-     * List response for sandbox environments (subset of fields).
+     * A sandbox environment, as returned by list, detail, create and update.
      */
     export interface SandboxEnvironmentDTO {
       id: string;
       name: string;
       network_access_level: string;
       allowed_domains?: string[];
+      include_default_domains: boolean;
       repositories?: string[];
+      /** Whether any environment variables are set on this environment. */
+      has_environment_variables?: boolean;
+      /** Names of the environment variables that are set, sorted. Values are write-only and never returned. */
+      environment_variable_keys?: string[];
       private: boolean;
       internal: boolean;
+      effective_domains?: string[];
       created_by?: TaskUserBasicInfo | null;
       /** @nullable */
       created_at?: string | null;
