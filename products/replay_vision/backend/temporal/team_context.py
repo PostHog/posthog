@@ -12,10 +12,10 @@ from functools import cache
 from typing import Any
 
 from posthog.llm.semantic_enrichment import get_team_business_context
-from posthog.models import Team
-from posthog.settings import EE_AVAILABLE
 
-from products.event_definitions.backend.models import effective_project_id_expr
+# Re-exported by core: `products.replay_vision` may not depend on `products.event_definitions` directly.
+from posthog.models import Team, effective_project_id_expr
+from posthog.settings import EE_AVAILABLE
 
 # CoreMemory.text is model-capped at 10k chars; cap lower since the preamble is resent on every scan step.
 _MAX_PRODUCT_CONTEXT_LEN = 4000
