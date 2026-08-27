@@ -87,6 +87,21 @@ function placementToSideAlign(placement: Placement): { side: Side; align: Align 
     return { side, align }
 }
 
+// Subscribes to the router only while it is mounted. Rendered only for an open, uncontrolled
+// tooltip, so closed, controlled, and title-less tooltips do not re-render on every URL change.
+// The trigger can re-render during a navigation without a mouseleave, which would otherwise leave
+// such a tooltip stuck open over the new page until a reload.
+function DismissOnRouteChange({ setOpen }: { setOpen: (open: boolean) => void }): null {
+    const { currentLocation } = useValues(router)
+    const openedAtPathname = useRef(currentLocation.pathname)
+    useEffect(() => {
+        if (openedAtPathname.current !== currentLocation.pathname) {
+            setOpen(false)
+        }
+    }, [currentLocation.pathname, setOpen])
+    return null
+}
+
 export function Tooltip({
     children,
     title,
@@ -107,9 +122,7 @@ export function Tooltip({
     const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
     const [shouldRenderPortal, setShouldRenderPortal] = useState(false)
     const floatingContainer = useFloatingContainer()
-    const { currentLocation } = useValues(router)
     const triggerRef = useRef<HTMLButtonElement>(null)
-    const lastPathname = useRef(currentLocation.pathname)
 
     const open = controlledOpen ?? uncontrolledOpen
 
@@ -146,18 +159,6 @@ export function Tooltip({
         window.addEventListener('scroll', handleScroll, { capture: true, passive: true })
         return () => window.removeEventListener('scroll', handleScroll, { capture: true })
     }, [open, controlledOpen])
-
-    // Dismiss on navigation. The trigger can re-render during a navigation without a mouseleave,
-    // which leaves an uncontrolled tooltip open over the new page until a reload.
-    useEffect(() => {
-        if (lastPathname.current === currentLocation.pathname) {
-            return
-        }
-        lastPathname.current = currentLocation.pathname
-        if (controlledOpen === undefined) {
-            setUncontrolledOpen(false)
-        }
-    }, [currentLocation.pathname, controlledOpen])
 
     // Dismiss when the trigger stops being visible, for example when its panel is hidden without a
     // navigation. The portaled popup stays mounted, so nothing else closes it.
@@ -204,6 +205,7 @@ export function Tooltip({
 
     return (
         <BaseTooltip.Root open={open} onOpenChange={handleOpenChange} disableHoverablePopup={!isInteractive}>
+            {open && controlledOpen === undefined && <DismissOnRouteChange setOpen={setUncontrolledOpen} />}
             <BaseTooltip.Trigger
                 ref={triggerRef}
                 delay={delayMs}
