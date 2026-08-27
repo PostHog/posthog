@@ -53,6 +53,7 @@ export interface notificationGovernanceLogicValues {
     affectedMemberCount: number
     changesToSave: OrganizationNotificationLockChangeApi[]
     listViews: Record<string, ListView>
+    loadFailed: boolean
     memberListFor: (list: string) => MemberListView
     members: OrganizationNotificationMemberApi[] | null
     membersLoading: boolean
@@ -225,6 +226,14 @@ export const notificationGovernanceLogic = kea<notificationGovernanceLogicType>(
                     ...state,
                     [list]: { query: state[list]?.query ?? '', page },
                 }),
+            },
+        ],
+        loadFailed: [
+            false,
+            {
+                loadMembers: () => false,
+                loadMembersSuccess: () => false,
+                loadMembersFailure: () => true,
             },
         ],
         savingChanges: [

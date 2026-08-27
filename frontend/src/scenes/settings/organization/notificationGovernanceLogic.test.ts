@@ -14,7 +14,6 @@ const MEMBERS = [
         email: 'ada@example.com',
         organization_membership_level: 1,
         editable: true,
-        notification_settings: {},
         locks: [],
     },
     {
@@ -25,7 +24,6 @@ const MEMBERS = [
         email: 'grace@example.com',
         organization_membership_level: 15,
         editable: false,
-        notification_settings: {},
         locks: [],
     },
 ]

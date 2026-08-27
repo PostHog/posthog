@@ -46,7 +46,6 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                         email: 'ada@example.com',
                         organization_membership_level: 1,
                         editable: true,
-                        notification_settings: {},
                         locks: [
                             {
                                 setting: 'pipeline_notifications_disabled',
@@ -63,7 +62,6 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                         email: 'grace@example.com',
                         organization_membership_level: 15,
                         editable: false,
-                        notification_settings: {},
                         locks: [],
                     },
                 ],

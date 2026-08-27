@@ -9,8 +9,21 @@ import { NotificationConceptRow } from './NotificationConceptRow'
 import { notificationGovernanceLogic } from './notificationGovernanceLogic'
 
 export function NotificationGovernanceSetting(): JSX.Element {
-    const { members, pendingChangeCount, affectedMemberCount, savingChanges } = useValues(notificationGovernanceLogic)
-    const { discardChanges, saveChanges } = useActions(notificationGovernanceLogic)
+    const { members, pendingChangeCount, affectedMemberCount, savingChanges, loadFailed } =
+        useValues(notificationGovernanceLogic)
+    const { discardChanges, saveChanges, loadMembers } = useActions(notificationGovernanceLogic)
+
+    if (loadFailed) {
+        return (
+            <LemonBanner
+                type="error"
+                action={{ children: 'Try again', onClick: loadMembers }}
+                data-attr="notification-governance-load-failed"
+            >
+                Couldn't load your members. Try again, and if it keeps happening contact support.
+            </LemonBanner>
+        )
+    }
 
     if (members === null) {
         return (
