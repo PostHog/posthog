@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 from hogli.cli import cli
+from hogli_commands import review
 
 runner = CliRunner()
 
@@ -90,6 +91,53 @@ class TestReview:
             # A planted binary must never execute, not even as an auth probe.
             assert mock_run.call_args_list == []
             assert "flox" in result.output
+
+    @patch("hogli_commands.review.subprocess.run")
+    def test_darwin_executes_the_resolved_path_not_the_symlink(
+        self, mock_run: MagicMock, greptile_on_path: MagicMock, tmp_path: Path
+    ) -> None:
+        link = tmp_path / "greptile"
+        link.symlink_to(_BINARY)
+        greptile_on_path.return_value = str(link)
+        mock_run.side_effect = _fake_greptile(status=0)
+        with patch("hogli_commands.review.sys.platform", "darwin"):
+            result = runner.invoke(cli, ["review"])
+        assert result.exit_code == 0
+        greptile_calls = [call.args[0] for call in mock_run.call_args_list if call.args[0][0] != "git"]
+        assert greptile_calls
+        # The writable symlink can be repointed after validation; only the
+        # canonical write-denied path may reach exec.
+        assert all(cmd[0] == _BINARY for cmd in greptile_calls)
+
+    @pytest.mark.parametrize(
+        "node_path,expected_exit",
+        [
+            ("/opt/homebrew/bin/node", 0),
+            ("/Users/dev/posthog/.flox/cache/venv/bin/node", 1),
+        ],
+    )
+    @patch("hogli_commands.review.subprocess.run")
+    def test_darwin_pins_path_to_a_trusted_node(
+        self,
+        mock_run: MagicMock,
+        greptile_on_path: MagicMock,
+        node_path: str,
+        expected_exit: int,
+    ) -> None:
+        greptile_on_path.side_effect = lambda name: {"greptile": _BINARY, "node": node_path}[name]
+        mock_run.side_effect = _fake_greptile(status=0)
+        with patch("hogli_commands.review.sys.platform", "darwin"):
+            result = runner.invoke(cli, ["review"])
+        assert result.exit_code == expected_exit
+        if expected_exit == 0:
+            assert mock_run.call_args_list
+            # greptile's shebang resolves node from PATH, so every subprocess
+            # must get the pinned PATH: the trusted node's dir, then only
+            # write-denied and system dirs.
+            pinned = ":".join([str(Path(node_path).resolve().parent), *review._TRUSTED_PATH_DIRS])
+            assert all(call.kwargs["env"]["PATH"] == pinned for call in mock_run.call_args_list)
+        else:
+            assert mock_run.call_args_list == []
 
     @patch("hogli_commands.review.subprocess.run")
     def test_signed_out_exits_ex_config_without_starting_a_review(self, mock_run: MagicMock) -> None:

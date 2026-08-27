@@ -394,7 +394,11 @@ fi
 _GREPTILE_VERSION="3.4.1"
 _GREPTILE_STORE="$HOME/.config/posthog/tools/greptile/$_GREPTILE_VERSION"
 _GREPTILE_BIN="$_GREPTILE_STORE/node_modules/.bin/greptile"
-_GREPTILE_STAMP="$_GREPTILE_STORE/.complete"
+# The stamp is not named `.complete`: stores stamped with that name predate the
+# sandbox write-deny, so their contents can include files a sandboxed
+# dependency planted. The new name makes every such store fail the stamp check
+# and rebuild once from a clean slate under the deny.
+_GREPTILE_STAMP="$_GREPTILE_STORE/.complete-v2"
 _GREPTILE_CACHE="$_GREPTILE_STORE/.npm-cache"
 
 _install_greptile() {
@@ -414,6 +418,12 @@ _install_greptile() {
   [[ "$npm_bin" == /nix/store/* && "$flock_bin" == /nix/store/* ]] || return 1
   local PATH="/usr/bin:/bin"
   mkdir -p "$_GREPTILE_STORE" || return 1
+  # A lock file planted as a symlink while the store was still sandbox-writable
+  # would make the `9>` redirection below truncate the symlink's target with
+  # the developer's own account. The write-deny keeps a new one from appearing.
+  if [[ -L "$_GREPTILE_STORE/.install.lock" ]]; then
+    rm -f "$_GREPTILE_STORE/.install.lock" || return 1
+  fi
   (
     # The store is shared across checkouts, so serialize concurrent
     # activations (fresh worktrees) installing the same version.
@@ -421,9 +431,10 @@ _install_greptile() {
     if [[ ! -x "$_GREPTILE_BIN" || ! -f "$_GREPTILE_STAMP" ]]; then
       cd "$_GREPTILE_STORE" || exit 1
       # Rebuild from a clean slate: npm trusts an existing node_modules tree,
-      # so leftovers from an interrupted install (or from before the store was
-      # write-denied) must not survive into the published result.
-      rm -rf node_modules package-lock.json "$_GREPTILE_CACHE" || exit 1
+      # and a store from before the write-deny can hold planted files, such as
+      # a package.json or .npmrc symlink the writes below would follow. Remove
+      # every entry except the lock this subshell holds open.
+      find . -mindepth 1 -maxdepth 1 ! -name .install.lock -exec rm -rf {} + || exit 1
       echo '{}' > package.json || exit 1
       NPM_CONFIG_USERCONFIG=/dev/null "$npm_bin" install --cache "$_GREPTILE_CACHE" \
         --ignore-scripts --no-fund --no-audit "greptile@$_GREPTILE_VERSION" || exit 1

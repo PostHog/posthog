@@ -30,6 +30,7 @@ reviewing-before-pr skill covers where this sits in the PR-opening flow.
 
 from __future__ import annotations
 
+import os
 import sys
 import shutil
 import subprocess
@@ -67,16 +68,26 @@ _TRUSTED_INSTALL_ROOTS: tuple[Path, ...] = (
     Path("/nix/store"),
 )
 
+# greptile's shebang is `#!/usr/bin/env node`, and it spawns git, so its
+# subprocesses resolve executables from PATH at execution time. Give them a
+# PATH of write-denied and system dirs only, so a binary planted in the
+# sandbox-writable venv bin (first on the activated shell's PATH) cannot run.
+_TRUSTED_PATH_DIRS = (
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin",
+)
 
-def _untrusted_location(binary: str) -> Path | None:
-    # The sandbox only exists on macOS; elsewhere the check would just break
-    # legitimate installs (an npm prefix under $HOME) for no protection.
-    if sys.platform != "darwin":
-        return None
-    resolved = Path(binary).resolve()
+
+def _trusted_location(path: str) -> Path | None:
+    """The canonical path when it sits in a write-denied install location, else None."""
+    resolved = Path(path).resolve()
     if any(resolved.is_relative_to(root) for root in _TRUSTED_INSTALL_ROOTS):
-        return None
-    return resolved
+        return resolved
+    return None
 
 
 _SIGNIN_HINT = (
@@ -99,35 +110,37 @@ _PROBE_TIMEOUT_SECONDS = 60
 _CHECK_COMMIT_LIMIT = 20
 
 
-def _probe(cmd: list[str]) -> subprocess.CompletedProcess[str] | None:
+def _probe(cmd: list[str], env: dict[str, str] | None) -> subprocess.CompletedProcess[str] | None:
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=_PROBE_TIMEOUT_SECONDS)
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=_PROBE_TIMEOUT_SECONDS, env=env)
     except (OSError, subprocess.SubprocessError):
         return None
 
 
-def _signed_in(binary: str) -> bool:
+def _signed_in(binary: str, env: dict[str, str] | None) -> bool:
     """False only on Greptile's explicit signed-out error; any other ``config``
     failure falls through to the review call, which reports the real problem.
     The string match is forced: greptile exits 1 for signed-out and for
     ordinary failures alike."""
-    result = _probe([binary, "config"])
+    result = _probe([binary, "config"], env)
     return result is None or result.returncode == 0 or "not signed in" not in (result.stdout + result.stderr).lower()
 
 
-def _branch_commits(base: str | None) -> list[str]:
+def _branch_commits(base: str | None, env: dict[str, str] | None) -> list[str]:
     # Match change_detection's base convention: origin/master, then master for
     # clones without the remote ref.
     for ref in [base] if base is not None else ["origin/master", "master"]:
-        result = _probe(["git", "-C", str(REPO_ROOT), "rev-list", f"--max-count={_CHECK_COMMIT_LIMIT}", f"{ref}..HEAD"])
+        result = _probe(
+            ["git", "-C", str(REPO_ROOT), "rev-list", f"--max-count={_CHECK_COMMIT_LIMIT}", f"{ref}..HEAD"], env
+        )
         if result is not None and result.returncode == 0:
             return result.stdout.split() or ["HEAD"]
     return ["HEAD"]
 
 
-def check(binary: str, base: str | None) -> int:
-    for commit in _branch_commits(base):
-        status = _probe([binary, "review", "status", "--commit", commit])
+def check(binary: str, base: str | None, env: dict[str, str] | None) -> int:
+    for commit in _branch_commits(base, env):
+        status = _probe([binary, "review", "status", "--commit", commit], env)
         if status is None:
             # A hung or broken probe would hang or break for every commit too.
             break
@@ -147,24 +160,44 @@ def run(branch: str | None, instructions: str | None, force: bool, do_check: boo
     if binary is None:
         click.secho(f"Greptile CLI not found. {_INSTALL_HINT}", fg="red", err=True)
         return 1
-    untrusted = _untrusted_location(binary)
-    if untrusted is not None:
-        click.secho(
-            f"Not running greptile from {untrusted}: only write-protected install locations are trusted "
-            "(the PostHog tool store, Homebrew, or the Nix store). "
-            "Re-enter the flox environment to reinstall it, or use `brew install greptileai/tap/greptile`, then re-run.",
-            fg="red",
-            err=True,
-        )
-        return 1
-    if not _signed_in(binary):
+    env: dict[str, str] | None = None
+    # The dev sandbox only exists on macOS; elsewhere these checks would just
+    # break legitimate installs (an npm prefix under $HOME) for no protection.
+    if sys.platform == "darwin":
+        trusted = _trusted_location(binary)
+        if trusted is None:
+            click.secho(
+                f"Not running greptile from {Path(binary).resolve()}: only write-protected install locations "
+                "are trusted (the PostHog tool store, Homebrew, or the Nix store). "
+                "Re-enter the flox environment to reinstall it, or use `brew install greptileai/tap/greptile`, "
+                "then re-run.",
+                fg="red",
+                err=True,
+            )
+            return 1
+        # Execute the canonical path, not the PATH entry which() found: that
+        # entry is usually the sandbox-writable venv symlink, which a sandboxed
+        # process could repoint between this validation and the exec.
+        binary = str(trusted)
+        node = shutil.which("node")
+        node_dir = None if node is None else _trusted_location(node)
+        if node_dir is None:
+            click.secho(
+                "node was not found in a write-protected location, and greptile runs on node. "
+                "Re-enter the flox environment, then re-run.",
+                fg="red",
+                err=True,
+            )
+            return 1
+        env = {**os.environ, "PATH": ":".join([str(node_dir.parent), *_TRUSTED_PATH_DIRS])}
+    if not _signed_in(binary, env):
         click.secho(f"Not signed in to Greptile. {_SIGNIN_HINT}", fg="yellow", err=True)
         return EX_CONFIG
     if do_check:
-        return check(binary, branch)
+        return check(binary, branch, env)
 
     if not force:
-        status = _probe([binary, "review", "status", "--commit", "HEAD"])
+        status = _probe([binary, "review", "status", "--commit", "HEAD"], env)
         if status is not None and status.returncode == _STATUS_COMPLETED:
             click.secho(
                 "HEAD already has a completed review. Showing it. Pass --force to start a new one.",
@@ -175,7 +208,7 @@ def run(branch: str | None, instructions: str | None, force: bool, do_check: boo
             return 0
         if status is not None and status.returncode == _STATUS_RUNNING:
             click.secho("A review for this branch is still running. Resuming it.", fg="cyan", err=True)
-            return subprocess.run([binary, "review", "--resume"]).returncode
+            return subprocess.run([binary, "review", "--resume"], env=env).returncode
 
     cmd = [binary, "review"]
     if branch is not None:
@@ -183,7 +216,7 @@ def run(branch: str | None, instructions: str | None, force: bool, do_check: boo
     if instructions is not None:
         cmd += ["--instructions", instructions]
     # Inherit stdio so Greptile's own progress and interactive review view work.
-    return subprocess.run(cmd).returncode
+    return subprocess.run(cmd, env=env).returncode
 
 
 @click.command(
