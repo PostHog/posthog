@@ -72,7 +72,40 @@ const trackCostOutcome = (totalCost: number): void => {
     }
 }
 
+// Every token count the cost calculators read. Presence is what matters, not
+// value: `0` is a usage report that says the model consumed nothing, while an
+// absent property means the provider never reported usage at all.
+const TOKEN_COUNT_PROPERTIES = [
+    '$ai_input_tokens',
+    '$ai_output_tokens',
+    '$ai_text_output_tokens',
+    '$ai_reasoning_tokens',
+    '$ai_cache_read_input_tokens',
+    '$ai_cache_creation_input_tokens',
+    '$ai_cache_creation_5m_input_tokens',
+    '$ai_cache_creation_1h_input_tokens',
+    '$ai_audio_input_tokens',
+    '$ai_audio_output_tokens',
+    '$ai_image_input_tokens',
+    '$ai_image_output_tokens',
+    '$ai_cache_read_audio_tokens',
+] as const
+
+const hasAnyTokenCount = (properties: Properties): boolean => {
+    return TOKEN_COUNT_PROPERTIES.some((key) => finiteNumberOrUndefined(properties[key]) !== undefined)
+}
+
 const setCostsOnEvent = (event: EventWithProperties, cost: ResolvedModelCost): void => {
+    // A rate multiplied by no usage is 0, which reads as "this call was free"
+    // rather than "we never learned what this call used". The two are different
+    // facts, and only one of them is true here — an aborted stream is billed for
+    // the tokens it consumed, we just never received the count. Leave the cost
+    // properties unset so downstream can say it does not know.
+    if (!hasAnyTokenCount(event.properties)) {
+        aiCostTotalOutcomeCounter.labels({ outcome: 'unknown' }).inc()
+        return
+    }
+
     const inputCost = calculateInputCost(event, cost)
     const outputCost = calculateOutputCost(event, cost)
     const requestCost = calculateRequestCost(event, cost)

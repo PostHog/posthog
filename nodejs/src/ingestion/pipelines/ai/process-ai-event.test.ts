@@ -470,13 +470,15 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_total_cost_usd).toBeGreaterThan(0)
         })
 
-        it('handles missing token counts', () => {
+        // This pair is the point of the distinction: absent token counts and zero
+        // token counts describe different calls, so they must not price the same.
+        it('records no cost when token counts are absent', () => {
             delete event.properties!.$ai_input_tokens
             delete event.properties!.$ai_output_tokens
             const result = processAiEvent(event)
-            expect(result.properties!.$ai_total_cost_usd).toBe(0)
-            expect(result.properties!.$ai_input_cost_usd).toBe(0)
-            expect(result.properties!.$ai_output_cost_usd).toBe(0)
+            expect(result.properties!.$ai_total_cost_usd).toBeUndefined()
+            expect(result.properties!.$ai_input_cost_usd).toBeUndefined()
+            expect(result.properties!.$ai_output_cost_usd).toBeUndefined()
         })
 
         it('handles zero token counts', () => {
