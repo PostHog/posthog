@@ -77,11 +77,13 @@ from products.tasks.backend.constants import (
     PR_LOOP_ENABLED_STATE_KEY,
     PR_STATES as PR_STATES,  # re-exported for presentation
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
+    SERVER_OWNED_RESUME_STATE_KEYS,
     TASK_ANALYSIS_FEATURE_FLAG,
     TASK_ANALYSIS_INSIGHTS_STATE_KEY,
     TASK_SESSION_MAX_SIZE_BYTES,
     get_required_model_flag,
     is_blocked_sandbox_env_key,
+    is_same_run_resume_state,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.feature_flags import get_model_access_error, is_workflow_dispatch_shadow_enabled
@@ -1101,7 +1103,7 @@ def filter_uncovered_workflow_dispatch_run_ids(candidate_ids: list[UUID]) -> lis
         run = runs.get(run_id)
         state = run.state if run and isinstance(run.state, dict) else {}
         has_legacy_intent = bool(state.get("pending_dispatch"))
-        awaiting_restart_rollout = bool(state.get("handoff_resumed"))
+        awaiting_restart_rollout = is_same_run_resume_state(state)
         if run_id not in dispatch_run_ids and not has_legacy_intent and not awaiting_restart_rollout:
             WORKFLOW_DISPATCH_MISSING_INTENT_TOTAL.inc()
             logger.warning(
@@ -1221,9 +1223,9 @@ def collect_task_run_state_metrics(
     parent origin_product) so no ORM leaks across the boundary.
 
     A QUEUED run's age counts from ``queued_at``, not from row creation:
-    ``prepare_for_cloud_handoff`` re-queues an existing run without resetting ``created_at``,
-    so a desktop-to-cloud handoff would otherwise report the whole prior run's lifetime as
-    queue wait. Rows queued before ``queued_at`` existed fall back to ``created_at``, which is
+    ``prepare_for_cloud_resume`` re-queues an existing run without resetting ``created_at``,
+    so a cloud restart would otherwise report the whole prior run's lifetime as queue wait.
+    Rows queued before ``queued_at`` existed fall back to ``created_at``, which is
     exact for a run that was only ever queued once. Every other non-terminal status counts
     from creation, where elapsed lifetime is the useful age.
     """
@@ -1393,9 +1395,8 @@ def recent_wizard_cloud_run_times(user_id: int, since: datetime) -> list[datetim
 
     The filter trusts only PATCH-immutable markers: ``created_by`` (set at creation) and the
     protected ``wizard_config`` state key that only ``create_wizard_cloud_run`` stamps (see
-    ``_PROTECTED_RUN_STATE_KEYS``). Mutable fields like the run's ``environment`` are
-    deliberately NOT filtered — a run PATCHed from cloud to local must keep consuming quota,
-    or flipping it would launder sandbox boots out of the limits.
+    ``_PROTECTED_RUN_STATE_KEYS``). The environment is not part of the quota identity because
+    these immutable markers already identify every wizard cloud run.
 
     Deliberately user-scoped across teams: the throttle is per user, and a user can run the
     wizard on projects in different teams. Returns only timestamps, no run data.
@@ -1557,9 +1558,8 @@ def complete_idle_local_task_run(run_id: str | UUID) -> bool:
     noise, not signal.
 
     Compare-and-set claim (like ``claim_and_fail_stale_run``): the conditional update flips the
-    run only while it is still QUEUED *and* local, so a run that left the queue — or was handed
-    off to cloud (handoff keeps status QUEUED) — between the candidate scan and this call is
-    skipped rather than terminalized under its just-dispatched workflow. The winner finalizes
+    run only while it is still QUEUED *and* local, so a run that left the queue between the
+    candidate scan and this call is skipped. The winner finalizes
     via ``mark_completed`` (``completed_at``, stream + analytics). Intentionally cross-team
     (janitor sweep).
     """
@@ -2043,6 +2043,8 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 #     a caller could otherwise force the VM runtime while the feature flag or custom-image gate is off.
 #   - snapshot_external_id / snapshot_kind / snapshot_mount_path control which Modal image is
 #     restored on resume and where directory snapshots are mounted.
+#   - same-run resume markers control whether provisioning reloads the current run's logs and
+#     starts the sandbox idle. Legacy marker names remain protected during rollout.
 #   - workflow_id is the run's Temporal workflow address (``TaskRun.workflow_id`` prefers it over
 #     the derived id); a caller could otherwise repoint their run at another team's workflow and
 #     signal or terminate-and-restart it.
@@ -2086,6 +2088,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "snapshot_external_id",
         "snapshot_kind",
         "snapshot_mount_path",
+        *SERVER_OWNED_RESUME_STATE_KEYS,
         "workflow_id",
         "pending_dispatch",
         # Written once at loop fire time; seeding copies these storage paths into the
@@ -2580,7 +2583,6 @@ def update_task_run(
         if only_if_non_terminal and run.is_terminal:
             return _task_run_detail_to_dto(run)
         old_status = run.status
-        old_environment = run.environment
         old_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
         old_commit_head = _commit_push_head_sha(run.output)
 
@@ -2675,10 +2677,6 @@ def update_task_run(
             )
 
             notify_task_run_cancelled(run)
-    new_environment = validated_data.get("environment")
-    if new_environment == "local" and old_environment == TaskRun.Environment.CLOUD:
-        signal_workflow_completion(run.id, "cancelled", "handoff")
-
     new_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
     if new_pr_url and new_pr_url != old_pr_url:
         _refresh_self_driving_quota_for_pr(run, old_pr_url)
@@ -4676,7 +4674,8 @@ def resume_task_run_in_cloud(
     """Resume a run in a cloud sandbox, terminating any prior workflow.
 
     Returns ``(outcome, run_dto, debug_use_modal)``. ``outcome`` is one of: ``"not_found"``,
-    ``"already_active"`` (400), ``"ownership_changed"`` (400), ``"invalid_origin"`` (400), ``"auth_error:<detail>"``
+    ``"already_active"`` (400), ``"not_cloud"`` (400), ``"ownership_changed"`` (400), ``"invalid_origin"`` (400),
+    ``"auth_error:<detail>"``
     (400, GitHub auth), ``"workflow_failed"`` (502), or ``"resumed"`` (run_dto set).
     Mirrors ``TaskRunViewSet.resume_in_cloud``.
     """
@@ -4729,11 +4728,13 @@ def resume_task_run_in_cloud(
         )
         if not run.matches_task_ownership(task):
             return "ownership_changed", None, None
+        if run.environment != TaskRun.Environment.CLOUD:
+            return "not_cloud", None, None
 
         if task.origin_product not in Task.OriginProduct.values:
             return "invalid_origin", None, None
 
-        is_cloud_active = run.environment == TaskRun.Environment.CLOUD and run.status in (
+        is_cloud_active = run.status in (
             TaskRun.Status.QUEUED,
             TaskRun.Status.IN_PROGRESS,
         )
@@ -4762,7 +4763,7 @@ def resume_task_run_in_cloud(
         prior_completed_at = run.completed_at
         prior_queued_at = run.queued_at
         prior_state = dict(run.state or {})
-        run.prepare_for_cloud_handoff()
+        run.prepare_for_cloud_resume()
 
         if restart_dispatch_enabled:
             snapshot = RestartSnapshot(
@@ -4792,7 +4793,7 @@ def resume_task_run_in_cloud(
             raise RuntimeError("Failed to reset task run event stream")
         resume_task_in_cloud_workflow(str(run.id), run.workflow_id)
     except Exception as e:
-        logger.exception("Failed to trigger handoff workflow", extra={"task_run_id": str(run.id), "error": str(e)})
+        logger.exception("Failed to trigger resume workflow", extra={"task_run_id": str(run.id), "error": str(e)})
         with transaction.atomic():
             run = TaskRun.objects.select_for_update().get(pk=run.pk)
             run.status = prior_status
@@ -8606,8 +8607,8 @@ def post_comment_thread_update(*, team_id: int, comment_id: UUID) -> None:
 def _announce_agent_artifact_uploads(run: TaskRun, new_entries: list[dict], manifest: list[dict]) -> None:
     """Announce files the agent delivered as task outputs.
 
-    The manifest also holds internal state such as git handoff checkpoints and skill
-    bundles. Those files support the run but are not deliverables for the timeline.
+    The manifest also holds internal state such as skill bundles. Those files support the
+    run but are not deliverables for the timeline.
     Manifest entries carry no version, so same-named output entries determine whether
     an upload created or revised a file. The artifact id deduplicates retried uploads.
     """
