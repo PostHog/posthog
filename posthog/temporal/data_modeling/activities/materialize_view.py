@@ -69,11 +69,13 @@ LOGGER = get_logger(__name__)
 
 MB_100_IN_BYTES = 100 * 1000 * 1000
 
-# ClickHouse builds every GLOBAL IN/JOIN subquery as a temporary table while it plans a query, and
+# ClickHouse builds every GLOBAL IN subquery as a temporary table while it plans a query, and
 # DESCRIBE plans the query too, so the schema probe scans the source tables just to return column
-# types. The probe therefore prints a copy of the query with GLOBAL downgraded to plain IN/JOIN and
+# types. The probe therefore prints a copy of the query with GLOBAL IN downgraded to plain IN and
 # runs with "allow", which stops the cluster profile (distributed_product_mode=global) from adding
-# GLOBAL back. The materialization query itself is printed from the untouched AST.
+# GLOBAL back. Joins keep their GLOBAL prefix: the resolver adds it to events-to-S3 join chains to
+# work around a ClickHouse bug, not for cost. The materialization query itself is printed from the
+# untouched AST.
 DESCRIBE_QUERY_SETTINGS = {"distributed_product_mode": "allow"}
 
 _LOCAL_COMPARE_OPS = {
@@ -82,19 +84,13 @@ _LOCAL_COMPARE_OPS = {
 }
 
 
-class _DowngradeGlobalSubqueries(CloningVisitor):
+class _DowngradeGlobalIn(CloningVisitor):
     def __init__(self) -> None:
         super().__init__(clear_types=False, clear_locations=False)
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> ast.CompareOperation:
         cloned = super().visit_compare_operation(node)
         cloned.op = _LOCAL_COMPARE_OPS.get(cloned.op, cloned.op)
-        return cloned
-
-    def visit_join_expr(self, node: ast.JoinExpr) -> ast.JoinExpr:
-        cloned = super().visit_join_expr(node)
-        if cloned.join_type is not None and cloned.join_type.startswith("GLOBAL "):
-            cloned.join_type = cloned.join_type.removeprefix("GLOBAL ")
         return cloned
 
 
@@ -536,7 +532,7 @@ async def hogql_table(
         raise EmptyHogQLResponseColumnsError()
 
     printed = await database_sync_to_async_pool(print_prepared_ast)(
-        _DowngradeGlobalSubqueries().visit(prepared_hogql_query),
+        _DowngradeGlobalIn().visit(prepared_hogql_query),
         context=context,
         dialect="clickhouse",
         settings=settings,
