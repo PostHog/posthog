@@ -127,7 +127,7 @@ class TestShouldForwardPendingUserMessage:
             # Resume runs already replay the original prompt — forwarding would
             # double up. Both resume markers must short-circuit.
             ({"mode": "background", "resume_from_run_id": "prev"}, False),
-            ({"mode": "background", "handoff_resumed": True}, False),
+            ({"mode": "background", "same_run_resume": True}, False),
         ],
     )
     def test_forwards_only_in_background_and_not_on_resume(self, state: dict, expected: bool):
@@ -738,6 +738,19 @@ class TestPersistSandboxId:
 
 
 class TestRun:
+    async def test_relay_detected_sandbox_loss_marks_sandbox_gone(self, monkeypatch, silent_workflow_logger):
+        workflow = ExecuteSandboxWorkflow()
+        workflow._context = _build_context()
+        execute_activity_mock = AsyncMock(return_value=True)
+        monkeypatch.setattr(execute_sandbox_workflow_module.workflow, "execute_activity", execute_activity_mock)
+
+        await workflow._relay_sandbox_events(
+            StartAgentServerOutput(sandbox_url="https://sandbox.example", connect_token="token"),
+            "sandbox-123",
+        )
+
+        assert workflow._sandbox_gone is True
+
     async def test_credential_refresh_exit_marks_sandbox_gone(self, monkeypatch, silent_workflow_logger):
         workflow = ExecuteSandboxWorkflow()
         workflow._context = _build_context()

@@ -70,7 +70,11 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
     get_or_create_datawarehouse_credential,
 )
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import (
+    DataWarehouseTableFormat,
+    ExternalDataSourceStatus,
+    ExternalDataSourceType,
+)
 
 FIXTURE_DIR = Path(__file__).parents[3] / "fixtures"
 
@@ -1091,7 +1095,7 @@ class Command(BaseCommand):
                 team=team,
                 source_id=SEED_SOURCE_ID,
                 connection_id=SEED_SOURCE_ID,
-                status=ExternalDataSource.Status.COMPLETED,
+                status=ExternalDataSourceStatus.COMPLETED,
                 source_type=ExternalDataSourceType.GITHUB,
                 prefix=prefix,
                 job_inputs={"repository": SEED_REPOSITORY},
@@ -1137,7 +1141,7 @@ class Command(BaseCommand):
                 "Use a different --prefix (or another team) to seed fixture data."
             )
         if existing is not None:
-            existing.format = DataWarehouseTable.TableFormat.CSVWithNames
+            existing.format = DataWarehouseTableFormat.CSVWithNames
             existing.url_pattern = url_pattern
             existing.credential = credential
             existing.external_data_source = source
@@ -1145,13 +1149,17 @@ class Command(BaseCommand):
             existing.options = {**(existing.options or {}), "csv_allow_double_quotes": True}
             existing.deleted = False
             existing.deleted_at = None
-            existing.save()
+            # url_pattern is computed above from team/table_name, not request input, and credential
+            # is a real value from get_or_create_datawarehouse_credential (never None) - but the
+            # guard reads the row's prior DB state, so a stale credential-less row would still trip
+            # it without this declared explicitly.
+            existing.save(internally_computed_url_pattern=True)
             table = existing
         else:
             table = DataWarehouseTable.objects.create(
                 team=team,
                 name=table_name,
-                format=DataWarehouseTable.TableFormat.CSVWithNames,
+                format=DataWarehouseTableFormat.CSVWithNames,
                 url_pattern=url_pattern,
                 credential=credential,
                 external_data_source=source,

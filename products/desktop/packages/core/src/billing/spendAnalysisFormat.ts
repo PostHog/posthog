@@ -1,10 +1,31 @@
-import type { SpendAnalysisDayRow } from "./spendAnalysisTypes";
+import type {
+  SpendAnalysisDayModelRow,
+  SpendAnalysisDayRow,
+  SpendAnalysisFilledDay,
+} from "./spendAnalysisTypes";
 
 export function formatUsd(amount: number): string {
   if (amount === 0) return "$0";
   if (amount < 0.01) return "<$0.01";
   if (amount < 100) return `$${amount.toFixed(2)}`;
   return `$${Math.round(amount).toLocaleString()}`;
+}
+
+/**
+ * USD for the spend-limit surfaces. Whole-dollar amounts drop the cents so a
+ * set line reads as "$20" rather than "$20.00"; `exactCents` keeps cents on
+ * amounts under $1,000 so a running total reads as measured, not rounded.
+ */
+export function formatUsdCompact(
+  value: number,
+  options: { exactCents?: boolean } = {},
+): string {
+  if (options.exactCents) {
+    if (value >= 1000) return `$${Math.round(value).toLocaleString("en-US")}`;
+    return `$${value.toFixed(2)}`;
+  }
+  if (Number.isInteger(value)) return `$${value.toLocaleString()}`;
+  return formatUsd(value);
 }
 
 export function formatTokens(n: number): string {
@@ -40,18 +61,19 @@ export function formatWindow(fromIso: string, toIso: string): string {
 const DAY_MS = 86_400_000;
 const MAX_FILLED_DAYS = 100;
 
-export interface SpendAnalysisFilledDay {
-  day: string;
-  event_count: number;
-  cost_usd: number;
-}
-
 export function fillSpendDays(
   items: SpendAnalysisDayRow[],
   fromIso: string,
   toIso: string,
+  byDayModel: SpendAnalysisDayModelRow[] = [],
 ): SpendAnalysisFilledDay[] {
   const byDay = new Map(items.map((row) => [row.day, row]));
+  const modelsByDay = new Map<string, SpendAnalysisDayModelRow[]>();
+  for (const row of byDayModel) {
+    const rows = modelsByDay.get(row.day) ?? [];
+    rows.push(row);
+    modelsByDay.set(row.day, rows);
+  }
   const from = new Date(fromIso);
   const start = Date.UTC(
     from.getUTCFullYear(),
@@ -71,6 +93,9 @@ export function fillSpendDays(
       day,
       event_count: row?.event_count ?? 0,
       cost_usd: row?.cost_usd ?? 0,
+      input_tokens: row?.input_tokens ?? 0,
+      output_tokens: row?.output_tokens ?? 0,
+      models: modelsByDay.get(day) ?? [],
     });
   }
   return filled;

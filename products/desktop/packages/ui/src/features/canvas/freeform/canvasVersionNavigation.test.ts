@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   canvasVersionNavigation,
+  freshReadyDraftId,
   shouldClearCanvasBrowse,
 } from "./canvasVersionNavigation";
 
@@ -113,20 +114,65 @@ describe("canvasVersionNavigation", () => {
   });
 });
 
-describe("shouldClearCanvasBrowse", () => {
+// Guards the auto-open contract: a draft opens exactly once, when its build
+// first turns ready, and never for drafts that were already built (mount) or
+// still building.
+describe("freshReadyDraftId", () => {
+  const seen = new Set(["d-old"]);
+
   it.each([
-    ["no browse", null, false, VERSIONS, false],
-    ["browse still in the list", "v2", false, VERSIONS, false],
-    ["browse pruned from the list", "vX", false, VERSIONS, true],
-    ["still loading is not absence", "vX", true, VERSIONS, false],
-    ["empty list is not absence", "vX", false, [], false],
+    [
+      "newly ready draft",
+      [{ versionId: "d-new", buildStatus: "ready" }],
+      "d-new",
+    ],
+    [
+      "already-seen ready draft",
+      [{ versionId: "d-old", buildStatus: "ready" }],
+      null,
+    ],
+    [
+      "draft still building",
+      [{ versionId: "d-new", buildStatus: "building" }],
+      null,
+    ],
+    [
+      "newest fresh draft wins (list is newest first)",
+      [
+        { versionId: "d-new", buildStatus: "ready" },
+        { versionId: "d-older", buildStatus: "ready" },
+      ],
+      "d-new",
+    ],
+  ] as const)("%s → %s", (_name, drafts, expected) => {
+    expect(freshReadyDraftId(seen, [...drafts])).toBe(expected);
+  });
+});
+
+describe("shouldClearCanvasBrowse", () => {
+  const VERSION_IDS = VERSIONS.map((v) => v.id);
+
+  it.each([
+    ["no browse", null, false, VERSION_IDS, false],
+    ["browse still in the list", "v2", false, VERSION_IDS, false],
+    ["browse pruned from the list", "vX", false, VERSION_IDS, true],
+    ["still loading is not absence", "vX", true, VERSION_IDS, false],
+    ["empty targets is not absence", "vX", false, [], false],
+    // A staged draft is a valid target even though it is not a published version.
+    [
+      "draft is a valid target",
+      "draft-1",
+      false,
+      [...VERSION_IDS, "draft-1"],
+      false,
+    ],
   ] as const)(
     "%s → %s",
-    (_name, browseVersionId, versionsLoading, versions, expected) => {
+    (_name, browseVersionId, loading, browseTargetIds, expected) => {
       expect(
         shouldClearCanvasBrowse({
-          versions: [...versions],
-          versionsLoading,
+          browseTargetIds: [...browseTargetIds],
+          loading,
           browseVersionId,
         }),
       ).toBe(expected);

@@ -34,7 +34,7 @@ import { sendCommentToSlackLogic } from './sendCommentToSlackLogic'
 
 // Comments that came in from a synced Slack thread have no PostHog author; their Slack identity
 // rides in item_context.
-function getCommentAuthorName(comment: CommentType): string {
+export function getCommentAuthorName(comment: CommentType): string {
     if (comment.created_by) {
         return comment.created_by.first_name ?? 'Unknown user'
     }
@@ -137,7 +137,7 @@ const CommentBottomRow = ({ comment }: { comment: CommentType }): JSX.Element | 
 }
 
 const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element => {
-    const { editingComment, commentsLoading, editingCommentRichContentEditor, isEditingCommentEmpty } =
+    const { editingComment, isSavingEditedComment, editingCommentRichContentEditor, isEditingCommentEmpty } =
         useValues(commentsLogic)
     const {
         setEditingComment,
@@ -163,7 +163,7 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
                     }
                 }}
                 onPressCmdEnter={persistEditedComment}
-                disabled={commentsLoading}
+                disabled={isSavingEditedComment}
             />
             <div className="flex justify-end items-center gap-2">
                 <LemonButton
@@ -173,7 +173,7 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
                         setEditingComment(null)
                         setEditingCommentRichContentEditor(null)
                     }}
-                    disabled={commentsLoading}
+                    disabled={isSavingEditedComment}
                 >
                     Cancel
                 </LemonButton>
@@ -181,7 +181,7 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
                     type="primary"
                     size="small"
                     onClick={persistEditedComment}
-                    disabledReason={isEditingCommentEmpty ? 'No message' : commentsLoading ? 'Saving...' : null}
+                    disabledReason={isEditingCommentEmpty ? 'No message' : isSavingEditedComment ? 'Saving...' : null}
                     sideIcon={<KeyboardShortcut command enter />}
                 >
                     Save

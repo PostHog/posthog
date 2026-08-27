@@ -124,7 +124,7 @@ def propose_certification(
     else:
         target_saved_query = _resolve_saved_query(team, saved_query_id, view_name)
 
-    certifications = TableCertification.objects.for_team(team.id, canonical=True)
+    certifications = TableCertification.objects.for_team(team.id)
     existing = certifications.filter(table=target_table, saved_query=target_saved_query).first()
     if existing is not None:
         raise _duplicate_target_conflict(existing)
@@ -186,7 +186,7 @@ def revoke_certification(cert: TableCertification, user: Optional[User], request
 def certifications_for_team(team: Team) -> QuerySet[TableCertification]:
     """Certifications whose target is not soft-deleted, newest first."""
     return (
-        TableCertification.objects.for_team(team.id, canonical=True)
+        TableCertification.objects.for_team(team.id)
         .exclude(table__deleted=True)
         .exclude(table__external_data_source__deleted=True)
         .exclude(saved_query__deleted=True)

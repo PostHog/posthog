@@ -17,8 +17,8 @@ use http::HeaderMap;
 use http_body_util::BodyExt;
 use personhog_coordination::routing_table::StashHandler;
 use personhog_proto::personhog::types::v1::{
-    GetPersonRequest, GetPersonResponse, UpdatePersonPropertiesRequest,
-    UpdatePersonPropertiesResponse,
+    FoldPersonDocumentRequest, FoldPersonDocumentResponse, GetPersonRequest, GetPersonResponse,
+    Person, SealedSourceSnapshot, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
 use personhog_router::backend::{LeaderBackend, LeaderBackendConfig, StashTable};
 use personhog_router::stash_handler::RouterStashHandler;
@@ -85,7 +85,7 @@ fn mk_request(team_id: i64, person_id: i64, set_email: &str) -> UpdatePersonProp
 
 /// Encode a typed request into a gRPC length-prefixed frame, as a client
 /// would send it over the wire.
-fn encode_frame(req: &UpdatePersonPropertiesRequest) -> Bytes {
+fn encode_frame<T: Message>(req: &T) -> Bytes {
     let encoded = req.encode_to_vec();
     let mut buf = Vec::with_capacity(5 + encoded.len());
     buf.push(0); // not compressed
@@ -516,6 +516,49 @@ async fn stash_wait_exceeded_returns_unavailable() {
         code,
         Code::Unavailable,
         "past-deadline drained requests must surface as UNAVAILABLE"
+    );
+}
+
+/// A semantic refusal — the leader's fail-closed verification rejection,
+/// FAILED_PRECONDITION marked by metadata — is a final answer, not a
+/// routing race: the router must deliver it to the caller unchanged
+/// instead of bouncing it into a retriable UNAVAILABLE the saga would
+/// loop on forever.
+#[tokio::test]
+async fn a_semantic_refusal_passes_through_instead_of_bouncing() {
+    let person = create_test_person();
+    let leader_addr = start_test_leader(TestLeaderService::new().with_person(person.clone())).await;
+    let stash = StashTable::with_bounds(usize::MAX, usize::MAX);
+    let backend = make_backend(leader_addr, stash).await;
+
+    let partition = backend.partition_for_person(person.team_id, person.id);
+    let req = FoldPersonDocumentRequest {
+        team_id: person.team_id,
+        person_id: person.id,
+        sealed_snapshots: vec![SealedSourceSnapshot {
+            person: Some(Person::default()),
+            ordinal: 0,
+        }],
+        event_set: b"{}".to_vec(),
+        event_set_once: b"{}".to_vec(),
+        op_id: "0192b4a0-0000-7000-8000-000000000000".to_string(),
+    };
+    let (response, _call_ms) = backend
+        .forward_or_stash(
+            "FoldPersonDocument",
+            partition,
+            (person.team_id, person.id),
+            HeaderMap::new(),
+            encode_frame(&req),
+        )
+        .await;
+    let code = decode_response::<FoldPersonDocumentResponse>(response)
+        .await
+        .expect_err("the refusal must surface as an error");
+    assert_eq!(
+        code,
+        Code::FailedPrecondition,
+        "a marked refusal is delivered, not bounced into UNAVAILABLE"
     );
 }
 

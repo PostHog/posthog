@@ -14,11 +14,14 @@ from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    MISSING_PRIMARY_KEYS_ERROR,
     MissingPrimaryKeysException,
     align_incoming_decimals_to_delta,
     first_per_pk_table,
     normalize_column_name,
+    raise_on_nullability_drift,
     realign_decimal_buffers,
+    relax_batch_nullability,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.evolution import evolve_delta_schema
@@ -292,6 +295,11 @@ class DeltaWriter:
         # freshly allocated by pyarrow and so inherit safe alignment.
         data = realign_decimal_buffers(data)
 
+        # A source can declare a column NOT NULL and still send nulls in it, and every delta path
+        # below refuses such a batch. Correct the claim first, which also creates a new table with
+        # nullability that matches its data (see relax_batch_nullability).
+        data = relax_batch_nullability(data)
+
         delta_table = await self._table.get_delta_table()
 
         if delta_table:
@@ -350,6 +358,18 @@ class DeltaWriter:
                 if n in py_table_column_names:
                     normalized_primary_keys.append(n)
 
+            if not normalized_primary_keys:
+                # None of the configured primary key columns survived into this batch (e.g. a stale
+                # persisted key name that no longer matches the source's columns). Left unguarded, the
+                # unpartitioned path below joins an empty predicate_ops into "" and hands delta-rs an
+                # empty predicate, which its SQL parser rejects with an opaque "Expected: an expression,
+                # found: EOF" — and the partitioned path would merge on partition alone, matching rows
+                # that were never actually the same record. Fail clearly instead of either.
+                raise MissingPrimaryKeysException(
+                    f"{MISSING_PRIMARY_KEYS_ERROR}: none of {list(primary_keys)!r} were found in the "
+                    f"synced data (columns: {py_table_column_names!r})"
+                )
+
             predicate_ops = _merge_predicate_ops(normalized_primary_keys)
 
             # Phase 2 canary: try deltalite for the real merge. On success the delta-rs MERGE (and the
@@ -362,6 +382,13 @@ class DeltaWriter:
                 use_partitioning=use_partitioning,
                 commit_metadata=commit_metadata,
             )
+
+            if not deltalite_wrote:
+                # A batch with nulls in a column the table declares non-nullable: deltalite relaxes
+                # the column to nullable in the table metadata and writes, but the delta-rs MERGE
+                # cannot relax in place and would silently write the nulls under a schema that
+                # denies them. Guard only the fallback path with the reset signal.
+                raise_on_nullability_drift(data, delta_table.schema())
 
             if not deltalite_wrote and use_partitioning:
                 predicate_ops.append(f"source.{PARTITION_KEY} = target.{PARTITION_KEY}")

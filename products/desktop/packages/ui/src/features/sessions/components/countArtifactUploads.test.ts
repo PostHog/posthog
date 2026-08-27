@@ -1,6 +1,9 @@
 import type { AcpMessage } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
-import { createArtifactUploadTracker } from "./countArtifactUploads";
+import {
+  countCompletedArtifactUploads,
+  createArtifactUploadTracker,
+} from "./countArtifactUploads";
 
 function toolCallEvent(
   sessionUpdate: "tool_call" | "tool_call_update",
@@ -63,21 +66,20 @@ describe("createArtifactUploadTracker", () => {
   });
 
   it("counts each upload separately", () => {
-    const tracker = createArtifactUploadTracker();
+    const events = [
+      toolCallEvent("tool_call", { toolCallId: "c1", toolName: UPLOAD }),
+      toolCallEvent("tool_call_update", {
+        toolCallId: "c1",
+        status: "completed",
+      }),
+      toolCallEvent("tool_call", { toolCallId: "c2", toolName: UPLOAD }),
+      toolCallEvent("tool_call_update", {
+        toolCallId: "c2",
+        status: "completed",
+      }),
+    ];
 
-    expect(
-      tracker.update([
-        toolCallEvent("tool_call", { toolCallId: "c1", toolName: UPLOAD }),
-        toolCallEvent("tool_call_update", {
-          toolCallId: "c1",
-          status: "completed",
-        }),
-        toolCallEvent("tool_call", { toolCallId: "c2", toolName: UPLOAD }),
-        toolCallEvent("tool_call_update", {
-          toolCallId: "c2",
-          status: "completed",
-        }),
-      ]),
-    ).toBe(2);
+    expect(createArtifactUploadTracker().update(events)).toBe(2);
+    expect(countCompletedArtifactUploads(events)).toBe(2);
   });
 });

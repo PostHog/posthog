@@ -1,4 +1,5 @@
 import uuid
+import contextlib
 from datetime import timedelta
 from typing import Any
 
@@ -7,6 +8,7 @@ from posthog.test.base import APIBaseTest
 from unittest import mock
 
 from django.conf import settings
+from django.test import SimpleTestCase
 from django.test.client import Client as HttpClient
 
 import psycopg
@@ -14,7 +16,7 @@ import pytest_asyncio
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from rest_framework import status
-from temporalio.service import RPCError
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
@@ -36,6 +38,7 @@ from products.warehouse_sources.backend.facade.models import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.presentation.views.external_data_schema import schema_display_status
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     VersionDeprecation,
     WebhookCreationResult,
@@ -2992,7 +2995,7 @@ class TestCancelExternalDataSchema(APIBaseTest):
         "products.warehouse_sources.backend.presentation.views.external_data_schema.cancel_external_data_workflow"
     )
     def test_cancel_v3_succeeds_when_cancel_rpc_fails(self, _case, rpc_status_name, mock_cancel, _mock_finish):
-        from temporalio.service import RPCError, RPCStatusCode
+        from temporalio.service import RPCError
 
         from products.warehouse_sources.backend.facade.models import ExternalDataJob
 
@@ -3041,7 +3044,7 @@ class TestCancelExternalDataSchema(APIBaseTest):
         # A workflow that was terminated (not cancelled) never runs the cleanup that writes the
         # terminal status, so the cancel RPC comes back NOT_FOUND. Without recovery the job and
         # schema would stay stuck on Running forever and the schema could never be synced again.
-        from temporalio.service import RPCError, RPCStatusCode
+        from temporalio.service import RPCError
 
         from products.warehouse_sources.backend.facade.models import ExternalDataJob
 
@@ -3066,7 +3069,7 @@ class TestCancelExternalDataSchema(APIBaseTest):
     def test_cancel_legacy_pipeline_returns_400_on_transient_rpc_error(self, mock_cancel):
         # A transient RPC failure against a possibly-live workflow must not mark the job Failed -
         # the workflow still owns the terminal status, so leave it Running and surface the error.
-        from temporalio.service import RPCError, RPCStatusCode
+        from temporalio.service import RPCError
 
         from products.warehouse_sources.backend.facade.models import ExternalDataJob
 
@@ -3105,6 +3108,95 @@ class TestCancelExternalDataSchema(APIBaseTest):
         assert response.status_code == 400
         assert response.json()["detail"] == "No running sync to cancel."
         mock_cancel.assert_not_called()
+
+    @parameterized.expand(
+        [
+            # A trigger that never started a run leaves Running with no job at all.
+            ("no_job", None, ExternalDataSchema.Status.FAILED, None),
+            # A failed run whose schema repaint was lost leaves Running over a Failed job.
+            ("failed_job", "Failed", ExternalDataSchema.Status.FAILED, "the source broke"),
+            ("completed_job", "Completed", ExternalDataSchema.Status.COMPLETED, None),
+        ]
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.cancel_external_data_workflow"
+    )
+    def test_cancel_corrects_stale_running_schema(
+        self, _case, job_status, expected_schema_status, job_error, mock_cancel
+    ):
+        # A schema stuck reporting Running with no running job used to 400 on cancel, leaving the
+        # user no way to clear the stale status. Cancel must correct it instead.
+        from products.warehouse_sources.backend.facade.models import ExternalDataJob
+
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.RUNNING,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+        if job_status is not None:
+            ExternalDataJob.objects.create(
+                team=self.team,
+                pipeline=source,
+                schema=schema,
+                status=job_status,
+                latest_error=job_error,
+                workflow_id="test-workflow-id",
+                pipeline_version=ExternalDataJob.PipelineVersion.V3,
+            )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/cancel/",
+        )
+
+        assert response.status_code == 200
+        mock_cancel.assert_not_called()
+
+        schema.refresh_from_db()
+        assert schema.status == expected_schema_status
+        if job_error is not None:
+            assert schema.latest_error == job_error
+
+
+class TestTriggerFailureDoesNotPaintRunning(APIBaseTest):
+    def _create_schema(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+        )
+        return ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.FAILED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+    @parameterized.expand([("reload",), ("resync",)])
+    @mock.patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+    )
+    def test_schema_not_marked_running_when_trigger_fails(self, endpoint, mock_trigger):
+        # Painting Running when no workflow started leaves the schema stuck on Running forever
+        # (nothing finalizes it) and blocks cancel with "No running sync to cancel."
+        from temporalio.service import RPCError
+
+        schema = self._create_schema()
+        mock_trigger.side_effect = RPCError("temporal unavailable", RPCStatusCode.UNAVAILABLE, b"")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/{endpoint}/",
+        )
+
+        assert response.status_code == 400
+
+        schema.refresh_from_db()
+        assert schema.status == ExternalDataSchema.Status.FAILED
 
 
 class TestExternalDataSchemaAPIKeyScopes(APIBaseTest):
@@ -3249,6 +3341,7 @@ class TestSyncTypeConfigLostUpdateProtection(APIBaseTest):
                 "cdc_table_mode": "consolidated",
                 "cdc_last_log_position": "0/100",
                 "primary_key_columns": ["id"],
+                "schema_metadata": {"columns": [{"name": "id", "data_type": "integer", "is_nullable": False}]},
             },
         )
 
@@ -3379,12 +3472,11 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["available_columns"] == []
 
-    def test_available_columns_falls_back_to_synced_table_when_metadata_missing(self):
-        # `schema_metadata` is empty whenever it hasn't been reconciled (non-SQL sources, or SQL schemas
-        # discovered/added after the last reload). available_columns must then fall back to the synced
-        # table's columns — otherwise the Descriptions UI shows no columns (even when annotations exist)
-        # and users can't edit them. Internal plumbing columns (`_dlt_id`, …) stay hidden.
-        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+    def test_available_columns_falls_back_to_synced_table_for_pipeline_projected_source(self):
+        # Non-SQL sources match selections against dlt-normalized Arrow columns, so the synced
+        # table remains a safe fallback when observed source metadata is unavailable. Internal
+        # plumbing columns (`_dlt_id`, …) stay hidden.
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.HUBSPOT)
         table = DataWarehouseTable.objects.create(
             name="billing_customer",
             format="DeltaS3Wrapper",
@@ -3414,6 +3506,69 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
             {"name": "balance", "data_type": "Int64", "is_nullable": True},
             {"name": "id", "data_type": "String", "is_nullable": False},
         ]
+
+    def test_available_columns_fallback_preserves_descriptions_for_source_projection(self):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        table = DataWarehouseTable.objects.create(
+            name="billing_customer",
+            format="DeltaS3Wrapper",
+            team=self.team,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"account_id": {"clickhouse": "String"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="billing_customer",
+            team=self.team,
+            source=source,
+            table=table,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/")
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["available_columns"] == [
+            {"name": "account_id", "data_type": "String", "is_nullable": False}
+        ]
+        assert response.json()["source_column_metadata_available"] is False
+
+    def test_enabled_columns_rejected_without_source_metadata_for_source_projection(self):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        schema = ExternalDataSchema.objects.create(name="customers", team=self.team, source=source)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"enabled_columns": ["account_id"]},
+        )
+
+        assert response.status_code == 400
+        assert "Pull new schemas" in str(response.json())
+
+    def test_unchanged_enabled_columns_do_not_block_unrelated_update_without_source_metadata(self):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        schema = ExternalDataSchema.objects.create(
+            name="customers", team=self.team, source=source, enabled_columns=["account_id"], should_sync=True
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"enabled_columns": ["account_id"], "should_sync": False},
+        )
+
+        assert response.status_code == 200, response.json()
+        schema.refresh_from_db()
+        assert schema.should_sync is False
+
+    def test_empty_enabled_columns_allowed_without_source_metadata(self):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        schema = ExternalDataSchema.objects.create(name="customers", team=self.team, source=source)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}", data={"enabled_columns": []}
+        )
+
+        assert response.status_code == 200, response.json()
 
     @parameterized.expand(
         [
@@ -3769,3 +3924,122 @@ class TestExternalDataSchemaApiVersionOverride(APIBaseTest):
             "sunset_at": None,
             "default_version": StripeSource.default_version,
         }
+
+
+class TestFanoutParentSelection(APIBaseTest):
+    """Fan-out parents and children are selected independently.
+
+    Warehouse parent reuse is an optimization the run-time gate applies when it can, so the
+    API constrains nothing here: no selection is refused and no parent is enabled as a side
+    effect. Deliberately not in TestExternalDataSchema: its autouse fixture needs a live
+    Temporal server, while every Temporal touchpoint here is behind a mock.
+    """
+
+    def _create_sentry_fanout_pair(self, parent_sync_type, child_should_sync=False, parent_should_sync=False):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.SENTRY,
+            job_inputs={"auth_token": "token", "organization_slug": "acme"},
+        )
+        parent = ExternalDataSchema.objects.create(
+            name="issues",
+            team=self.team,
+            source=source,
+            should_sync=parent_should_sync,
+            sync_type=parent_sync_type,
+        )
+        child = ExternalDataSchema.objects.create(
+            name="issue_events",
+            team=self.team,
+            source=source,
+            should_sync=child_should_sync,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+        return source, parent, child
+
+    def _temporal_patches(self):
+        return (
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+            ),
+            mock.patch("products.data_warehouse.backend.facade.api.external_data_workflow_exists", return_value=False),
+            mock.patch("products.data_warehouse.backend.facade.api.sync_external_data_job_workflow"),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.pause_external_data_schedule"
+            ),
+            mock.patch("products.data_warehouse.backend.facade.api.pause_external_data_schedule"),
+        )
+
+    def _patch_schema(self, schema_id, data):
+        with contextlib.ExitStack() as stack:
+            for p in self._temporal_patches():
+                stack.enter_context(p)
+            return self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema_id}",
+                data=data,
+            )
+
+    @parameterized.expand(
+        [
+            ("unconfigured_parent", None, False),
+            ("disabled_parent", ExternalDataSchema.SyncType.INCREMENTAL, False),
+            ("append_parent", ExternalDataSchema.SyncType.APPEND, True),
+            ("enabled_parent", ExternalDataSchema.SyncType.INCREMENTAL, True),
+        ]
+    )
+    def test_enabling_child_never_blocks_on_or_touches_its_parent(self, _name, parent_sync_type, parent_should_sync):
+        # These are the configurations teams already run, so enabling the child has to keep
+        # working. The parent must come out byte-identical either way: enabling one bills its
+        # rows, and even a redundant write would churn its Temporal schedule.
+        _, parent, child = self._create_sentry_fanout_pair(
+            parent_sync_type=parent_sync_type, parent_should_sync=parent_should_sync
+        )
+        parent_updated_at = parent.updated_at
+
+        response = self._patch_schema(child.id, {"should_sync": True})
+
+        assert response.status_code == 200, response.json()
+        child.refresh_from_db()
+        assert child.should_sync is True
+        parent.refresh_from_db()
+        assert parent.should_sync is parent_should_sync
+        assert parent.updated_at == parent_updated_at
+
+    @parameterized.expand([("disable",), ("delete",)])
+    def test_parent_stays_editable_while_a_child_syncs_from_it(self, action):
+        # The child degrades to the parent-API path instead of stranding, so neither write is
+        # protected against.
+        _, parent, _child = self._create_sentry_fanout_pair(
+            parent_sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            parent_should_sync=True,
+            child_should_sync=True,
+        )
+
+        if action == "disable":
+            response = self._patch_schema(parent.id, {"should_sync": False})
+            assert response.status_code == 200, response.json()
+            parent.refresh_from_db()
+            assert parent.should_sync is False
+        else:
+            with contextlib.ExitStack() as stack:
+                for p in self._temporal_patches():
+                    stack.enter_context(p)
+                response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_schemas/{parent.id}")
+            assert response.status_code == 204
+
+
+class TestSchemaDisplayStatus(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (ExternalDataSchema.Status.BILLING_LIMIT_REACHED, "Billing limits"),
+            (ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW, "Billing limits too low"),
+            (ExternalDataSchema.Status.RUNNING, ExternalDataSchema.Status.RUNNING),
+            (None, None),
+        ]
+    )
+    def test_maps_billing_statuses_to_labels(self, raw_status, expected):
+        assert schema_display_status(ExternalDataSchema(status=raw_status)) == expected

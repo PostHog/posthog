@@ -32,6 +32,37 @@ export function latestActivityByChannel(
 }
 
 /**
+ * The fields this module needs off a task to place it. Structural, so the full
+ * `Task` DTO and anything narrower both satisfy it.
+ */
+export interface ChannelScopedTask {
+  id: string;
+  /** Backend channel UUID; absent for a task filed nowhere. */
+  channel?: string | null;
+}
+
+/**
+ * How many sessions each channel holds that the caller counts — the number
+ * behind a space row's dots.
+ *
+ * What counts is the caller's to decide, because the answer is the sidebar's
+ * status vocabulary and that lives in the UI. This owns only the grouping: one
+ * pass, tasks filed nowhere skipped, channels with none left out rather than
+ * carrying a zero.
+ */
+export function countSessionsByChannel<T extends ChannelScopedTask>(
+  tasks: readonly T[],
+  counts: (task: T) => boolean,
+): Map<string, number> {
+  const byChannel = new Map<string, number>();
+  for (const task of tasks) {
+    if (!task.channel || !counts(task)) continue;
+    byChannel.set(task.channel, (byChannel.get(task.channel) ?? 0) + 1);
+  }
+  return byChannel;
+}
+
+/**
  * Channel ids whose newest activity postdates the viewer's last visit. A
  * channel never visited is unread as soon as it has any activity.
  */

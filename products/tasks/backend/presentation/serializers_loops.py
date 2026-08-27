@@ -27,12 +27,14 @@ from products.tasks.backend.facade.run_config import (
     PUBLIC_REASONING_EFFORTS,
     RuntimeAdapter,
     get_default_model_for_runtime_adapter,
+    get_model_access_error,
     get_models_for_runtime_adapter,
     get_reasoning_effort_error,
 )
 from products.tasks.backend.presentation.serializers import (
     TASK_RUN_SKILL_BUNDLE_FORMAT_CHOICES,
     TASK_RUN_SKILL_SOURCE_CHOICES,
+    request_distinct_id,
 )
 
 
@@ -546,6 +548,10 @@ class LoopWriteSerializer(serializers.Serializer):
                 raise serializers.ValidationError(
                     {"model": f"'{model}' is not a supported model for runtime_adapter '{runtime_adapter}'."}
                 )
+
+        model_access_error = get_model_access_error(model, distinct_id=request_distinct_id(self.context))
+        if model_access_error is not None:
+            raise serializers.ValidationError({"model": model_access_error})
 
         reasoning_effort = attrs.get("reasoning_effort")
         if runtime_adapter is not None and reasoning_effort is not None:

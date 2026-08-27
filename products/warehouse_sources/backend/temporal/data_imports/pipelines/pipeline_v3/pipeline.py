@@ -138,7 +138,13 @@ class PipelineV3(Generic[ResumableData]):
         self._table = models.table
         # xmin reads deltas and upserts on the primary key, so it writes incrementally too — never
         # as a full_refresh overwrite, which would wipe earlier data on the second (delta-only) sync.
-        self._is_incremental = models.schema.is_incremental or models.schema.is_webhook or models.schema.is_xmin
+        # Same for a change stream, which only ever carries the rows that changed.
+        self._is_incremental = (
+            models.schema.is_incremental
+            or models.schema.is_webhook
+            or models.schema.is_xmin
+            or source_response.cdc_write_mode is not None
+        )
 
         self._delta_table_ref = DeltaTableRef(self._resource_name, self._job, self._logger)
 
@@ -151,7 +157,9 @@ class PipelineV3(Generic[ResumableData]):
         self._attempt = attempt
 
         sync_type: SyncTypeLiteral = "full_refresh"
-        if self._schema.is_incremental or self._schema.is_webhook or self._schema.is_xmin:
+        if source_response.cdc_write_mode is not None:
+            sync_type = "cdc"
+        elif self._schema.is_incremental or self._schema.is_webhook or self._schema.is_xmin:
             sync_type = "incremental"
         elif self._schema.is_append:
             sync_type = "append"
@@ -198,6 +206,7 @@ class PipelineV3(Generic[ResumableData]):
             run_uuid=self._s3_batch_writer.get_run_uuid(),
             logger=self._logger,
             primary_keys=self._resource.primary_keys,
+            cdc_write_mode=self._resource.cdc_write_mode,
             is_resume=is_resume,
             partition_count=partition_count,
             partition_size=partition_size,
@@ -212,6 +221,11 @@ class PipelineV3(Generic[ResumableData]):
         self._resumable_source_manager = resumable_source_manager
         # A source can shrink the batcher chunk (e.g. document sources with large rows) so the
         # source->Arrow conversion doesn't materialise an oversized table; None falls back to defaults.
+        # Arrow coalescing keeps a driver's fetch size (e.g. a SQL cursor's 10k-row Arrow tables)
+        # from becoming the queue's batch granularity, but it delays when a yielded table is
+        # persisted, so it must stay off for sources that treat yield as durable: resumable
+        # sources checkpoint resume state right after yielding, and the webhook path deletes its
+        # staged S3 files right after yielding.
         self._batcher = Batcher(
             self._logger,
             chunk_size=source_response.chunk_size,
@@ -219,6 +233,8 @@ class PipelineV3(Generic[ResumableData]):
             source_type=self._source.source_type if self._source else None,
             team_id=self._job.team_id,
             schema_name=self._schema.name,
+            coalesce_tables=resumable_source_manager is None and not self._schema.is_webhook,
+            primary_keys=self._resource.primary_keys,
         )
         self._internal_schema = HogQLSchema()
         self._sinks = build_pipeline_sinks(
@@ -266,7 +282,15 @@ class PipelineV3(Generic[ResumableData]):
         try:
             await self._sinks.clear()
 
-            await reset_rows_synced_if_needed(self._job, self._is_incremental, self._reset_pipeline, should_resume)
+            # v3 stages the incremental cursor until job completion, so a retried attempt
+            # re-extracts from batch 0 and the previous attempt's count must not be kept.
+            await reset_rows_synced_if_needed(
+                self._job,
+                self._is_incremental,
+                self._reset_pipeline,
+                should_resume,
+                incremental_cursor_staged=True,
+            )
 
             validate_incremental_sync(
                 self._is_incremental,

@@ -11,8 +11,24 @@ class SCIMProvisionedUserInline(admin.TabularInline):
 
     model = SCIMProvisionedUser
     extra = 0
-    fields = ("organization_domain", "identity_provider", "username", "active", "created_at")
-    readonly_fields = ("organization_domain", "identity_provider", "username", "active", "created_at")
+    # Both FKs stay in readonly_fields so the change page renders them as plain text instead of a
+    # <select> that loads every config and domain per row.
+    fields = (
+        "identity_provider_config",
+        "organization_domain",
+        "identity_provider",
+        "username",
+        "active",
+        "created_at",
+    )
+    readonly_fields = (
+        "identity_provider_config",
+        "organization_domain",
+        "identity_provider",
+        "username",
+        "active",
+        "created_at",
+    )
     can_delete = True
     show_change_link = False
     verbose_name = "SCIM provisioned user"

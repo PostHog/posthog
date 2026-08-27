@@ -1,9 +1,10 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { initKeaTests } from '~/test/init'
-import { SidePanelTab } from '~/types'
+import { AppContext, SidePanelTab } from '~/types'
 
 import {
     CONVERSATIONS_MESSAGE_MAX_LENGTH,
@@ -18,6 +19,13 @@ import * as SupportModal from './SupportModal'
 const openSupportModal = jest.spyOn(SupportModal, 'openSupportModal').mockImplementation(() => {})
 
 describe('supportLogic', () => {
+    const conversationsMock = (sendMessage: jest.Mock): void => {
+        ;(posthog as any).conversations = { isAvailable: () => true, sendMessage }
+    }
+
+    const sendFailures = (): unknown[][] =>
+        (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === 'support ticket send blocked')
+
     describe('openSupportForm modal vs side panel target', () => {
         let logic: ReturnType<typeof supportLogic.build>
 
@@ -67,6 +75,74 @@ describe('supportLogic', () => {
         })
     })
 
+    describe('support panel URL hash lifecycle', () => {
+        let logic: ReturnType<typeof supportLogic.build>
+
+        beforeEach(() => {
+            localStorage.clear()
+            window.history.replaceState(null, '', '/')
+            initKeaTests()
+            sidePanelStateLogic.mount()
+            logic = supportLogic.build()
+            logic.mount()
+            openSupportModal.mockClear()
+        })
+
+        afterEach(() => {
+            logic?.unmount()
+        })
+
+        it('does not write the panel hash when the form opens as a modal', async () => {
+            router.actions.push('/login', { next: '/home' })
+
+            await expectLogic(logic, () => {
+                logic.actions.openSupportForm({ kind: 'support', target: 'modal' })
+            }).toFinishAllListeners()
+
+            expect(router.values.hashParams['panel']).toBeUndefined()
+        })
+
+        it('clears a support deep-link hash on close when no side panel owns it', async () => {
+            router.actions.push('/login', { next: '/home' }, { panel: 'support:support:false' })
+
+            await expectLogic(logic, () => {
+                logic.actions.openSupportForm({ kind: 'support', target: 'modal' })
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.closeSupportForm()
+            }).toFinishAllListeners()
+
+            expect(router.values.hashParams['panel']).toBeUndefined()
+            expect(router.values.location.pathname).toBe('/login')
+            expect(router.values.searchParams).toEqual({ next: '/home' })
+        })
+
+        it('clears the legacy supportModal hash on close when no side panel owns it', async () => {
+            router.actions.push('/login', {}, { supportModal: 'support' })
+
+            await expectLogic(logic, () => {
+                logic.actions.openSupportForm({ kind: 'support', target: 'modal' })
+                logic.actions.closeSupportForm()
+            }).toFinishAllListeners()
+
+            expect(router.values.hashParams['supportModal']).toBeUndefined()
+            expect(router.values.hashParams['panel']).toBeUndefined()
+        })
+
+        it('leaves the panel hash alone on close when the side panel is available', async () => {
+            sidePanelStateLogic.actions.setSidePanelAvailable(true)
+            router.actions.push('/project/1/home', {}, { panel: 'support:support:false' })
+
+            await expectLogic(logic, () => {
+                logic.actions.openSupportForm({ kind: 'support', target: 'sidePanel' })
+                logic.actions.closeSupportForm()
+            }).toFinishAllListeners()
+
+            expect(String(router.values.hashParams['panel'])).toContain('support')
+        })
+    })
+
     describe('submitSupportTicket', () => {
         const FORM_FIELDS: SupportFormFields = {
             name: 'Max',
@@ -78,15 +154,8 @@ describe('supportLogic', () => {
 
         let logic: ReturnType<typeof supportLogic.build>
 
-        const conversationsMock = (sendMessage: jest.Mock): void => {
-            ;(posthog as any).conversations = { isAvailable: () => true, sendMessage }
-        }
-
         const aiTicketCaptures = (): unknown[][] =>
             (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === 'posthog_ai_support_ticket_created')
-
-        const sendFailures = (): unknown[][] =>
-            (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === 'support ticket send blocked')
 
         beforeEach(() => {
             ;(posthog.capture as jest.Mock).mockClear()
@@ -262,6 +331,90 @@ describe('supportLogic', () => {
             await logic.asyncActions.submitSupportTicket(FORM_FIELDS)
 
             expect(aiTicketCaptures()).toHaveLength(0)
+        })
+    })
+
+    // Nobody is signed in on /login or /reset, so the form asks for an address, and it is the only
+    // route back to whoever filed the ticket. An unusable one still files it but orphans it: replies
+    // to a widget ticket are in-app only, and restore-by-email matches anonymous_traits.email, so a
+    // first name in that field leaves the person no way back once the browser session is gone.
+    describe('email validation when logged out', () => {
+        let logic: ReturnType<typeof supportLogic.build>
+
+        const LOGGED_OUT_FIELDS: SupportFormFields = {
+            name: 'Jane',
+            email: 'jane@example.com',
+            kind: 'support',
+            billing_issue: false,
+            message: 'Help!',
+        }
+
+        beforeEach(() => {
+            ;(posthog.capture as jest.Mock).mockClear()
+            // initKeaTests bootstraps a user, which would leave the guard unreachable
+            window.POSTHOG_APP_CONTEXT = { current_user: null } as unknown as AppContext
+            initKeaTests()
+            logic = supportLogic.build()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic?.unmount()
+            delete (posthog as any).conversations
+            // Clear so the next test gets initKeaTests' usual bootstrapped user
+            delete window.POSTHOG_APP_CONTEXT
+        })
+
+        it.each([
+            ['a first name', 'Jane'],
+            ['an address with no TLD to deliver to', 'jane@localhost'],
+        ])('blocks the form submit and says why for %s', async (_case, email) => {
+            const sendMessage = jest.fn().mockResolvedValue({ ticket_id: 't1' })
+            conversationsMock(sendMessage)
+            logic.actions.setSendSupportRequestValues({ ...LOGGED_OUT_FIELDS, email })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitSendSupportRequest()
+            }).toFinishAllListeners()
+
+            expect(logic.values.sendSupportRequestErrors.email).toBe('Please enter a valid email address')
+            expect(sendMessage).not.toHaveBeenCalled()
+        })
+
+        // Over-blocking would be the worse regression: it would take away the only support channel
+        // someone locked out of their account has. Pasted addresses often carry stray whitespace,
+        // so those must pass too — trimmed, since restore-by-email matches the stored value exactly.
+        it.each([
+            ['a real address', 'jane@example.com'],
+            ['a real address pasted with whitespace', ' jane@example.com '],
+        ])('still files the ticket for %s, sending it trimmed', async (_case, email) => {
+            const sendMessage = jest.fn().mockResolvedValue({ ticket_id: 't1' })
+            conversationsMock(sendMessage)
+            logic.actions.setSendSupportRequestValues({ ...LOGGED_OUT_FIELDS, email })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitSendSupportRequest()
+            }).toFinishAllListeners()
+
+            expect(logic.values.sendSupportRequestErrors.email).toBeUndefined()
+            expect(sendMessage).toHaveBeenCalledWith('Help!', { name: 'Jane', email: 'jane@example.com' }, true)
+        })
+
+        // The PostHog AI handovers submit through a plain onClick rather than a form submit, so they
+        // never run the validator above — the address has to be checked on the path every caller shares
+        it.each([
+            ['a malformed address', 'Jane'],
+            ['no address at all', ''],
+        ])('files no ticket when a caller bypasses the form with %s', async (_case, email) => {
+            const sendMessage = jest.fn().mockResolvedValue({ ticket_id: 't1' })
+            conversationsMock(sendMessage)
+
+            await logic.asyncActions.submitSupportTicket({ ...LOGGED_OUT_FIELDS, email })
+
+            expect(sendMessage).not.toHaveBeenCalled()
+            expect(logic.values.lastSubmittedTicketId).toBeNull()
+            expect(sendFailures()).toHaveLength(1)
+            expect(sendFailures()[0][1]).toMatchObject({ reason: 'invalid_email' })
         })
     })
 })

@@ -5,6 +5,7 @@ import {
 } from "@posthog/agent/adapters/claude/mcp/tool-metadata";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import type { McpServerConnection, McpToolPolicy } from "@posthog/shared";
+import { POSTHOG_PROJECT_ID_HEADER } from "@posthog/shared/posthog-property-headers";
 import { inject, injectable } from "inversify";
 import type { AuthProxyService } from "../auth-proxy/auth-proxy";
 import { AUTH_PROXY_SERVICE } from "../auth-proxy/identifiers";
@@ -134,7 +135,7 @@ export class AgentAuthAdapter {
       url: proxiedPosthogUrl,
       headers: [
         {
-          name: "x-posthog-project-id",
+          name: POSTHOG_PROJECT_ID_HEADER,
           value: String(credentials.projectId),
         },
         { name: "x-posthog-mcp-version", value: "2" },
@@ -153,6 +154,7 @@ export class AgentAuthAdapter {
       const proxiedUrl = this.mcpProxy.register(
         `installation-${installation.id}`,
         installation.proxy_url,
+        { credentialOwner: "installation" },
       );
       const server: McpServerConnection = {
         name,
@@ -198,6 +200,14 @@ export class AgentAuthAdapter {
     } catch {
       return null;
     }
+  }
+
+  authenticatedFetch(input: string, init?: RequestInit): Promise<Response> {
+    return this.authService.authenticatedFetch(fetch, input, init);
+  }
+
+  gatewayProjectId(): number | null {
+    return this.authService.getState().currentProjectId;
   }
 
   async configureProcessEnv({

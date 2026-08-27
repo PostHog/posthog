@@ -18,13 +18,18 @@ from posthog.test.base import (
 )
 from unittest import mock
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
 import posthog.models.person.deletion
+from posthog.api.person import tag_client_query_id
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import get_query_tag_value, reset_query_tags
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Person, PropertyDefinition, Team
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
@@ -85,6 +90,104 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
 
+    @staticmethod
+    def _persons_list_slo_events(capture: mock.MagicMock) -> list[dict]:
+        return [
+            call.kwargs["properties"]
+            for call in capture.call_args_list
+            if call.kwargs["event"] == "slo_operation_completed"
+            and call.kwargs["properties"]["operation"] == "persons_list"
+        ]
+
+    @parameterized.expand(
+        [
+            ("partial search", "?search=another@gm", True, False, "clickhouse", "person"),
+            ("no search", "", False, False, "clickhouse", "person"),
+            ("exact identifier", "?search=someone@gmail.com", True, False, "exact_identifier", None),
+            ("client query id", "?search=another@gm&client_query_id=abc-123", True, True, "clickhouse", "person"),
+        ]
+    )
+    def test_person_list_emits_slo_event(
+        self,
+        _name: str,
+        query: str,
+        expected_has_search: bool,
+        expected_has_client_query_id: bool,
+        expected_answered_by: str,
+        expected_actor_type: Optional[str],
+    ) -> None:
+        _create_person(
+            team=self.team,
+            distinct_ids=["someone@gmail.com"],
+            properties={"email": "another@gmail.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        with mock.patch("posthog.slo.events.posthoganalytics.capture") as capture:
+            response = self.client.get(f"/api/person/{query}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        completed = self._persons_list_slo_events(capture)
+        self.assertEqual(len(completed), 1)
+        self.assertEqual(completed[0]["has_search"], expected_has_search)
+        self.assertEqual(completed[0]["has_client_query_id"], expected_has_client_query_id)
+        self.assertEqual(completed[0]["answered_by"], expected_answered_by)
+        self.assertEqual(completed[0]["outcome"], "success")
+        self.assertEqual(completed[0]["result_count"], 1)
+        self.assertGreater(completed[0]["duration_ms"], 0)
+        # Only the ClickHouse path runs the actors query runner, which is what tags the actor type.
+        self.assertEqual(completed[0].get("actor_type"), expected_actor_type)
+
+    def test_cancelled_search_is_marked_on_the_slo_event(self) -> None:
+        with (
+            mock.patch(
+                "posthog.hogql_queries.actors_query_runner.ActorsQueryRunner.calculate",
+                side_effect=ServerException("Query was cancelled", code=394),
+            ),
+            mock.patch("posthog.slo.events.posthoganalytics.capture") as capture,
+        ):
+            response = self.client.get("/api/person/?search=someone&client_query_id=abc-123")
+        self.assertEqual(response.status_code, 499)
+
+        completed = self._persons_list_slo_events(capture)
+        self.assertEqual(len(completed), 1)
+        self.assertTrue(completed[0]["cancelled"])
+        # Returning is not an error, so the operation still reports success. `cancelled` is what
+        # keeps an abandoned search from reading as a fast one in the latency percentiles.
+        self.assertEqual(completed[0]["outcome"], "success")
+
+    @parameterized.expand(
+        [
+            ("accepts a uuid", "5d92fb51-5088-45e8-91b2-843aef3d69bd", status.HTTP_200_OK),
+            ("rejects an over long id", "a" * 129, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_search_with_client_query_id(self, _name: str, client_query_id: str, expected_status: int) -> None:
+        response = self.client.get(f"/api/person/?search=someone&client_query_id={client_query_id}")
+        self.assertEqual(response.status_code, expected_status)
+
+    @parameterized.expand(
+        [
+            ("actors query", "posthog.hogql_queries.actors_query_runner.ActorsQueryRunner.calculate", ""),
+            ("total count query", "posthog.hogql.query.execute_hogql_query", "&include_total=true"),
+        ]
+    )
+    def test_search_answers_499_when_the_query_was_cancelled(
+        self, _name: str, patch_target: str, extra_params: str
+    ) -> None:
+        with mock.patch(patch_target, side_effect=ServerException("Query was cancelled", code=394)):
+            response = self.client.get(f"/api/person/?search=someone{extra_params}")
+        self.assertEqual(response.status_code, 499)
+
+    def test_search_still_fails_on_a_query_error_that_is_not_a_cancellation(self) -> None:
+        with mock.patch(
+            "posthog.hogql_queries.actors_query_runner.ActorsQueryRunner.calculate",
+            side_effect=ServerException("Boom", code=999),
+        ):
+            response = self.client.get("/api/person/?search=someone")
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
     @snapshot_clickhouse_queries
     def test_search_person_id(self) -> None:
@@ -97,6 +200,58 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/person/?search={person.uuid}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
+
+    def test_search_by_exact_identifier_skips_clickhouse(self) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["someone@gmail.com"],
+            properties={"email": "someone@gmail.com"},
+            immediate=True,
+        )
+        anonymous_distinct_id = "0198f3c1-6c2a-7a5b-9d41-9a1b2c3d4e5f"
+        anonymous = _create_person(
+            team=self.team,
+            distinct_ids=[anonymous_distinct_id],
+            properties={"email": "another@gmail.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        # `limit=1` fills the page with the single match, so a page-full paginator would offer a
+        # second page. Following it would leave the fast path and run the ClickHouse search for
+        # results that cannot exist.
+        for url, expected in [
+            (f"/api/person/?search={person.uuid}&limit=1", person),
+            ("/api/person/?search=someone@gmail.com&limit=1", person),
+            (f"/api/person/?search={anonymous_distinct_id}&limit=1", anonymous),
+            ("/api/person/?distinct_id=someone@gmail.com&limit=1", person),
+        ]:
+            with self.subTest(url=url), self.capture_select_queries() as clickhouse_queries:
+                response = self.client.get(url)
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual([result["id"] for result in response.json()["results"]], [str(expected.uuid)])
+                self.assertIsNone(response.json()["next"])
+            self.assertEqual(clickhouse_queries, [])
+
+    def test_search_by_exact_identifier_still_applies_other_filters(self) -> None:
+        _create_person(
+            team=self.team,
+            distinct_ids=["someone@gmail.com"],
+            properties={"email": "someone@gmail.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        other_email = json.dumps(
+            [{"key": "email", "value": "another@gmail.com", "operator": "exact", "type": "person"}]
+        )
+        response = self.client.get(f"/api/person/?search=someone@gmail.com&properties={other_email}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], [])
+
+        response = self.client.get("/api/person/?search=someone@gmail.com&offset=1")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], [])
 
     @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
     @snapshot_clickhouse_queries
@@ -2157,6 +2312,32 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
         self.assertNotIn(distinct_ids[200], results)
+
+
+class TestTagClientQueryId(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        reset_query_tags()
+
+    @parameterized.expand(
+        [
+            ("uuid", "5d92fb51-5088-45e8-91b2-843aef3d69bd"),
+            ("underscores", "req_1_alice"),
+            ("at the length limit", "a" * 128),
+        ]
+    )
+    def test_names_the_clickhouse_query(self, _name: str, client_query_id: str) -> None:
+        tag_client_query_id(client_query_id)
+        self.assertEqual(get_query_tag_value("client_query_id"), client_query_id)
+
+    def test_ignores_a_missing_id(self) -> None:
+        tag_client_query_id(None)
+        self.assertIsNone(get_query_tag_value("client_query_id"))
+
+    def test_rejects_an_id_past_the_length_limit(self) -> None:
+        with self.assertRaises(ValidationError):
+            tag_client_query_id("a" * 129)
+        self.assertIsNone(get_query_tag_value("client_query_id"))
 
 
 class TestPersonFromClickhouse(TestPerson):

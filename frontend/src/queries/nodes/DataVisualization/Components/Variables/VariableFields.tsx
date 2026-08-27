@@ -13,6 +13,7 @@ import { dayjs } from 'lib/dayjs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { cn } from 'lib/utils/css-classes'
 import {
     POSTHOG_WAREHOUSE,
     connectionSelectorLogic,
@@ -352,12 +353,21 @@ const RELATIVE_DATE_UNITS: Array<{ value: RelativeDateUnit; label: string }> = [
     { value: 'y', label: 'years' },
 ]
 
-export const DateField = ({ variable, updateVariable }: DirectFieldProps<DateVariable>): JSX.Element => {
+export const DateField = ({
+    variable,
+    updateVariable,
+    onApply,
+    className,
+}: DirectFieldProps<DateVariable> & {
+    /** Called when the calendar's own Apply button is pressed, so a caller can treat it as the commit. */
+    onApply?: (value: string) => void
+    className?: string
+}): JSX.Element => {
     const isRelative = isRelativeDateValue(variable.default_value)
     const relativeValue = parseRelativeDateValue(variable.default_value) ?? { amount: 0, unit: 'd' as RelativeDateUnit }
 
     return (
-        <div className="flex flex-col gap-2">
+        <div className={cn('flex flex-col gap-2', className)}>
             <LemonSegmentedButton
                 className="w-full"
                 value={isRelative ? 'relative' : 'fixed'}
@@ -403,7 +413,10 @@ export const DateField = ({ variable, updateVariable }: DirectFieldProps<DateVar
                 <VariableCalendar
                     value={dayjs(variable.default_value)}
                     rawValue={variable.default_value}
-                    updateVariable={(date) => updateVariable({ ...variable, default_value: date })}
+                    updateVariable={(date) => {
+                        updateVariable({ ...variable, default_value: date })
+                        onApply?.(date)
+                    }}
                 />
             )}
             {isRelative && (

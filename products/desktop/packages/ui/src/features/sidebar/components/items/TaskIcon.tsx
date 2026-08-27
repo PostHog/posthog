@@ -11,12 +11,13 @@ import {
   GitPullRequest,
   HandPalm,
   Lifebuoy,
+  MagnifyingGlass,
   Pause,
   PushPin,
-  Robot,
   SlackLogo,
   WarningCircle,
 } from "@phosphor-icons/react";
+import type { RunMode } from "@posthog/core/sidebar/buildSidebarData";
 import type { WorkspaceMode } from "@posthog/shared";
 import {
   isTerminalStatus,
@@ -49,7 +50,7 @@ const ORIGIN_PRODUCT_META: Record<string, OriginProductMeta> = {
   session_summaries: { Icon: FilmSlate, label: "Session summary" },
   error_tracking: { Icon: Bug, label: "Error tracking" },
   eval_clusters: { Icon: Flask, label: "Evals" },
-  automation: { Icon: Robot, label: "Automation" },
+  task_analysis: { Icon: MagnifyingGlass, label: "Task analysis" },
 };
 
 export function getOriginProductMeta(
@@ -274,6 +275,8 @@ export interface TaskIconProps {
   isSuspended?: boolean;
   needsPermission?: boolean;
   taskRunStatus?: TaskRunStatus;
+  /** Whether anyone follows this run. Only a background run's status claims work. */
+  runMode?: RunMode;
   originProduct?: string;
   /** Pre-built URL to the originating Slack thread (read from
    * `task.latest_run.state.slack_thread_url`). When set, the Slack icon
@@ -309,7 +312,7 @@ export function TaskIcon({
 
   if (needsPermission) {
     return (
-      <Tooltip content="Needs permission" side="right">
+      <Tooltip content="Needs your input" side="right">
         <span className="flex items-center justify-center">
           <HandPalm size={size} color="var(--blue-11)" />
         </span>

@@ -22,7 +22,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openweathe
     parse_locations,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.openweather.settings import OPENWEATHER_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.openweather.settings import (
+    API_VERSION_2_5,
+    API_VERSION_3_0,
+    OPENWEATHER_ENDPOINTS,
+    endpoints_for_version,
+)
+
+# (version, endpoint) pairs across every supported version, so the request-path dispatch is
+# exercised for each.
+_ALL_VERSIONED_ENDPOINTS = [
+    (version, endpoint) for version in (API_VERSION_2_5, API_VERSION_3_0) for endpoint in endpoints_for_version(version)
+]
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.openweather.openweather"
 
@@ -153,6 +164,25 @@ class TestNormalizeRows:
         assert rows[0]["main"] == {"aqi": 2}
         assert rows[0]["dt_iso"] == "2024-06-23T16:00:00+00:00"
 
+    def test_onecall_current_object_yields_single_row(self):
+        # One Call 3.0 nests the current snapshot as an object (not a list); it must become one row.
+        endpoints = endpoints_for_version(API_VERSION_3_0)
+        response = {"lat": 51.51, "lon": -0.13, "current": {"dt": 1719158400, "temp": 280}}
+        rows = _normalize_rows(endpoints["current"], response, Location(51.5, -0.12, "London"))
+
+        assert len(rows) == 1
+        assert rows[0]["temp"] == 280
+        assert rows[0]["lat"] == 51.5 and rows[0]["lon"] == -0.12
+        assert rows[0]["dt_iso"] == "2024-06-23T16:00:00+00:00"
+
+    def test_onecall_daily_list_rows(self):
+        endpoints = endpoints_for_version(API_VERSION_3_0)
+        response = {"daily": [{"dt": 1719158400, "temp": {"day": 280}}, {"dt": 1719244800, "temp": {"day": 281}}]}
+        rows = _normalize_rows(endpoints["daily"], response, Location(51.5, -0.12, None))
+
+        assert [row["dt"] for row in rows] == [1719158400, 1719244800]
+        assert all(row["lat"] == 51.5 and row["lon"] == -0.12 for row in rows)
+
     def test_row_without_dt_raises(self):
         # `dt` is part of the primary key; a row missing it must fail loudly, not yield a null key.
         response = {"main": {"temp": 280}}
@@ -224,13 +254,13 @@ class TestValidateCredentials:
         with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
             mock_session.return_value.get.return_value = _response(status)
 
-            is_valid, _ = validate_credentials("test-key", "51.5,-0.12")
+            is_valid, _ = validate_credentials("test-key", "51.5,-0.12", API_VERSION_2_5)
 
         assert is_valid is expected_valid
 
     def test_malformed_locations_is_invalid_without_request(self):
         with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            is_valid, message = validate_credentials("test-key", "not-a-location")
+            is_valid, message = validate_credentials("test-key", "not-a-location", API_VERSION_2_5)
 
         assert is_valid is False
         assert message is not None
@@ -240,20 +270,28 @@ class TestValidateCredentials:
         with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
             mock_session.return_value.get.side_effect = Exception("boom")
 
-            is_valid, message = validate_credentials("test-key", "51.5,-0.12")
+            is_valid, message = validate_credentials("test-key", "51.5,-0.12", API_VERSION_2_5)
 
         assert is_valid is False
         assert message is not None
 
-    def test_probes_current_weather_with_first_location(self):
+    @pytest.mark.parametrize(
+        "api_version, expected_path",
+        [
+            (API_VERSION_2_5, "/data/2.5/weather"),
+            (API_VERSION_3_0, "/data/3.0/onecall"),
+        ],
+    )
+    def test_probes_version_endpoint_with_first_location(self, api_version, expected_path):
+        # The probe must hit the version's own product so an unsubscribed key fails here, not at sync.
         with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
             mock_session.return_value.get.return_value = _response(200)
 
-            validate_credentials("test-key", "51.5,-0.12,London\n40.7,-74.0")
+            validate_credentials("test-key", "51.5,-0.12,London\n40.7,-74.0", api_version)
 
             called_url = mock_session.return_value.get.call_args[0][0]
 
-        assert called_url.startswith(f"{OPENWEATHER_BASE_URL}/data/2.5/weather?")
+        assert called_url.startswith(f"{OPENWEATHER_BASE_URL}{expected_path}?")
         assert "lat=51.5" in called_url
 
 
@@ -266,7 +304,7 @@ class TestGetRows:
                 _response(200, {"dt": 2, "main": {"temp": 290}}),
             ]
 
-            batches = list(get_rows("test-key", "current_weather", locations, structlog.get_logger()))
+            batches = list(get_rows("test-key", "current_weather", locations, structlog.get_logger(), API_VERSION_2_5))
 
             called_urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
 
@@ -280,15 +318,30 @@ class TestGetRows:
         with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
             mock_session.return_value.get.return_value = _response(200, {"list": []})
 
-            batches = list(get_rows("test-key", "forecast", [Location(51.5, -0.12, None)], structlog.get_logger()))
+            batches = list(
+                get_rows("test-key", "forecast", [Location(51.5, -0.12, None)], structlog.get_logger(), API_VERSION_2_5)
+            )
 
         assert batches == []
 
+    def test_onecall_requests_the_3_0_path(self):
+        # A 3.0-pinned source must hit `/data/3.0/onecall`, not the 2.5 paths.
+        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+            mock_session.return_value.get.return_value = _response(200, {"current": {"dt": 1, "temp": 280}})
+
+            list(
+                get_rows("test-key", "current", [Location(51.5, -0.12, None)], structlog.get_logger(), API_VERSION_3_0)
+            )
+
+            called_url = mock_session.return_value.get.call_args[0][0]
+
+        assert called_url.startswith(f"{OPENWEATHER_BASE_URL}/data/3.0/onecall?")
+
 
 class TestOpenWeatherSource:
-    @pytest.mark.parametrize("endpoint", list(OPENWEATHER_ENDPOINTS))
-    def test_source_response_shape(self, endpoint):
-        response = openweather_source("test-key", endpoint, "51.5,-0.12,London", structlog.get_logger())
+    @pytest.mark.parametrize("api_version, endpoint", _ALL_VERSIONED_ENDPOINTS)
+    def test_source_response_shape(self, api_version, endpoint):
+        response = openweather_source("test-key", endpoint, "51.5,-0.12,London", structlog.get_logger(), api_version)
 
         assert response.name == endpoint
         assert response.primary_keys == ["lat", "lon", "dt"]
@@ -298,4 +351,8 @@ class TestOpenWeatherSource:
 
     def test_invalid_locations_raise(self):
         with pytest.raises(ValueError):
-            openweather_source("test-key", "current_weather", "garbage", structlog.get_logger())
+            openweather_source("test-key", "current_weather", "garbage", structlog.get_logger(), API_VERSION_2_5)
+
+    def test_unsupported_version_raises(self):
+        with pytest.raises(ValueError, match="Unsupported OpenWeather API version"):
+            openweather_source("test-key", "current_weather", "51.5,-0.12", structlog.get_logger(), "9.9")
