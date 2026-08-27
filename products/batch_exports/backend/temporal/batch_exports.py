@@ -692,24 +692,29 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         **update_params,
     )
 
-    if (
-        batch_export_run.status == BatchExportRun.Status.COMPLETED
-        and batch_export_run.records_completed
-        and _is_billable(batch_export_run)
-    ):
-        await areport_usage(
-            [
-                UsageRecord(
-                    record_id=str(batch_export_run.id),
-                    producer_id="batch-exports",
-                    team_id=inputs.team_id,
-                    usage_key="batch_export_rows",
-                    unit="rows",
-                    quantity=batch_export_run.records_completed,
-                )
-            ],
-            site="batch_exports",
-        )
+    # The run is already written, so nothing here may fail the activity — not the destination
+    # lookup `_is_billable` walks, not the report itself.
+    try:
+        if (
+            batch_export_run.status == BatchExportRun.Status.COMPLETED
+            and batch_export_run.records_completed
+            and _is_billable(batch_export_run)
+        ):
+            await areport_usage(
+                [
+                    UsageRecord(
+                        record_id=str(batch_export_run.id),
+                        producer_id="batch-exports",
+                        team_id=inputs.team_id,
+                        usage_key="batch_export_rows",
+                        unit="rows",
+                        quantity=batch_export_run.records_completed,
+                    )
+                ],
+                site="batch_exports",
+            )
+    except Exception:
+        LOGGER.exception("batch_export_run.usage_collection_failed", batch_export_run_id=inputs.id)
 
     if batch_export_run.status == BatchExportRun.Status.FAILED_RETRYABLE:
         # We should never get here as we do not have a retry limit.

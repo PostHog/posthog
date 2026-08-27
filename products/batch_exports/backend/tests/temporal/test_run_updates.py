@@ -200,7 +200,8 @@ async def test_start_batch_export_run_does_not_check_billing_limit(activity_envi
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_finish_batch_export_run(activity_environment, team, batch_export):
+@pytest.mark.parametrize("usage_collection_raises", [False, True])
+async def test_finish_batch_export_run(activity_environment, team, batch_export, usage_collection_raises):
     """Test the export_run_status activity."""
     start = dt.datetime(2023, 4, 24, tzinfo=dt.UTC)
     end = dt.datetime(2023, 4, 25, tzinfo=dt.UTC)
@@ -225,7 +226,13 @@ async def test_finish_batch_export_run(activity_environment, team, batch_export)
         status="Completed",
         team_id=inputs.team_id,
     )
-    await activity_environment.run(finish_batch_export_run, finish_inputs)
+    # Usage is collected after the run is written, so a collector that raises must not cost the
+    # run its Completed status and send the whole export round again.
+    with unittest.mock.patch(
+        "products.batch_exports.backend.temporal.batch_exports._is_billable",
+        side_effect=RuntimeError("boom") if usage_collection_raises else _is_billable,
+    ):
+        await activity_environment.run(finish_batch_export_run, finish_inputs)
 
     runs = BatchExportRun.objects.filter(id=run_id)
     run = await sync_to_async(runs.first)()
