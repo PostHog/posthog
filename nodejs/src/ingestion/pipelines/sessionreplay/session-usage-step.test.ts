@@ -80,8 +80,8 @@ describe('createRecordSessionUsageStep', () => {
         // The report bills mobile replay only from its own SDKs, so anything else is neither meter.
         ['mobile', 'posthog-python', []],
         ['mobile', null, []],
-        // The report matches 'web' exactly, so a source it does not know bills nowhere either.
-        ['desktop', 'posthog-js', []],
+        // Nothing validates the source, so anything but 'mobile' bills as web rather than for free.
+        ['desktop', 'posthog-js', ['session_replay_recordings']],
     ])('bills a %s session from %s under %j', async (source, library, expectedUsageKeys) => {
         expect(await record(source, library)).toEqual(expectedUsageKeys)
     })

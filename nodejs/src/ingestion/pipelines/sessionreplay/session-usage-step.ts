@@ -18,22 +18,21 @@ type SessionUsageInput = {
 const BILLABLE_MOBILE_LIBRARIES = new Set(['posthog-ios', 'posthog-android', 'posthog-react-native', 'posthog-flutter'])
 
 /**
- * The meter the report would bill this session under, or null for neither. `snapshot_source` is
- * client-supplied, and the report matches `web` and `mobile` exactly, so an unrecognized value
- * belongs to no meter — reading anything non-mobile as web would bill what the report does not.
+ * The meter this session bills under, or null for neither.
+ *
+ * Web is the default rather than a third exact match on `snapshot_source`. Nothing between the SDK
+ * and here validates that field, so matching `web` exactly would let any other string buy a free
+ * recording. The report does match it exactly, which is a hole on its side, not a contract to copy.
  *
  * Both meters read the first message processed for the session. The report instead reads the
  * earliest snapshot's metadata, so the two disagree if one session's messages disagree with each
  * other about their source or library, which no single client does.
  */
 function billableMeter(snapshotSource: string | null, snapshotLibrary: string | null): string | null {
-    if ((snapshotSource || 'web') === 'web') {
+    if (snapshotSource !== 'mobile') {
         return 'session_replay_recordings'
     }
-    if (snapshotSource === 'mobile' && BILLABLE_MOBILE_LIBRARIES.has(snapshotLibrary || '')) {
-        return 'mobile_replay_recordings'
-    }
-    return null
+    return BILLABLE_MOBILE_LIBRARIES.has(snapshotLibrary || '') ? 'mobile_replay_recordings' : null
 }
 
 export function createRecordSessionUsageStep<T extends SessionUsageInput>(
