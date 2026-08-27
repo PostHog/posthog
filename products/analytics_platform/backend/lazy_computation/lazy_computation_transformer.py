@@ -9,6 +9,7 @@ from posthog.hogql.helpers.timestamp_visitor import is_simple_timestamp_field_ex
 from posthog.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
+from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -213,27 +214,30 @@ def _combine_and(exprs: list[ast.Expr]) -> Optional[ast.Expr]:
     return ast.And(exprs=exprs)
 
 
-def _extract_bound(
-    compare_expr: ast.CompareOperation, context: HogQLContext
-) -> tuple[Optional[datetime], Optional[datetime]]:
-    """Return (start, end) contributed by one timestamp comparison. Both None if it is not one."""
+@frozen
+class _TimestampBound:
+    """One side of a timestamp range: the start or the end bound."""
+
+    is_start: bool
+    value: datetime
+
+
+def _extract_bound(compare_expr: ast.CompareOperation, context: HogQLContext) -> Optional[_TimestampBound]:
+    """Return the start or end bound contributed by one timestamp comparison, or None."""
     # timestamp <op> constant
     if _is_timestamp_or_start_of_day_timestamp(compare_expr.left, context):
         value = _extract_datetime_constant(compare_expr.right, context)
-        if compare_expr.op in _LOWER_BOUND_OPS:
-            return value, None
-        if compare_expr.op in _UPPER_BOUND_OPS:
-            return None, value
-
+        is_start = compare_expr.op in _LOWER_BOUND_OPS
     # constant <op> timestamp (bounds reverse)
     elif _is_timestamp_or_start_of_day_timestamp(compare_expr.right, context):
         value = _extract_datetime_constant(compare_expr.left, context)
-        if compare_expr.op in _UPPER_BOUND_OPS:
-            return value, None
-        if compare_expr.op in _LOWER_BOUND_OPS:
-            return None, value
+        is_start = compare_expr.op in _UPPER_BOUND_OPS
+    else:
+        return None
 
-    return None, None
+    if value is None or compare_expr.op not in _LOWER_BOUND_OPS + _UPPER_BOUND_OPS:
+        return None
+    return _TimestampBound(is_start=is_start, value=value)
 
 
 def _extract_timestamp_range(where_exprs: list[ast.Expr], context: HogQLContext) -> Optional[tuple[datetime, datetime]]:
@@ -252,9 +256,13 @@ def _extract_timestamp_range(where_exprs: list[ast.Expr], context: HogQLContext)
         if compare_expr is None:
             continue
 
-        start, end = _extract_bound(compare_expr, context)
-        start_dt = start or start_dt
-        end_dt = end or end_dt
+        bound = _extract_bound(compare_expr, context)
+        if bound is None:
+            continue
+        if bound.is_start:
+            start_dt = bound.value
+        else:
+            end_dt = bound.value
 
     # Require both bounds
     if not start_dt or not end_dt:
