@@ -39,7 +39,8 @@ then dies in the rendered canvas. Declare:
 - `capabilities.posthog.captureEvents` — every event name it passes to `ph.capture`.
 - `capabilities.posthog.inlineQueries: true` — when it calls `ph.query` at all.
 - `capabilities.posthog.agentRequests: true` — when it calls `ph.agent.request`.
-- `capabilities.network.origins` — each exact HTTPS origin used by `fetch` or `XMLHttpRequest`.
+- `capabilities.network.origins` — each exact HTTPS origin used by `fetch`, `XMLHttpRequest`, or an
+  external image, font, media file, or frame. Remote scripts and styles remain blocked.
   Do not include paths, credentials, queries, fragments, or wildcards. The host must be public:
   loopback and private IPs, single-label names like `intranet`, and the `.local`, `.localhost`,
   `.internal`, and `.home.arpa` suffixes are all rejected, so a local dev host such as

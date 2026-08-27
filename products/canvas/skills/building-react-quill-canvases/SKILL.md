@@ -26,9 +26,10 @@ also admits ten optional libraries for specialized work. Read
 [references/platform-libraries.md](references/platform-libraries.md) before choosing one.
 
 Other bare imports, dynamic `import()`, `require()`, `<script>` tags, and remote code fail
-validation. Direct `fetch()` requires an exact HTTPS origin in `capabilities.network.origins`,
-and works only in the **published** canvas — the edit-mode preview blocks all direct network
-access regardless of declaration, so verify origin-fetching code after publishing, not in preview.
+validation. Direct network requests and external images, fonts, media, or frames require an exact
+HTTPS origin in `capabilities.network.origins`. They work only in the **published** canvas — the
+edit-mode preview blocks direct network access regardless of declaration. Remote scripts and styles
+remain blocked, so bundle those with the canvas.
 
 ## Quill component rules
 
