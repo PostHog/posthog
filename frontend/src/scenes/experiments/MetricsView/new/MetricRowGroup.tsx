@@ -13,6 +13,7 @@ import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
+import { isLaunched } from 'scenes/experiments/experimentStatus'
 import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
 import { MetricBreakdownError } from 'scenes/experiments/MetricBreakdowns/MetricBreakdownError'
 import { MetricBreakdowns } from 'scenes/experiments/MetricBreakdowns/MetricBreakdowns'
@@ -27,7 +28,6 @@ import {
 import { NodeKind } from '~/queries/schema/schema-general'
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import { experimentMetricsLogic } from '~/scenes/experiments/experimentMetricsLogic'
-import { isLaunched } from '~/scenes/experiments/experimentsLogic'
 import { useColumnWidthSync } from '~/scenes/experiments/MetricsView/hooks/useColumnWidthSync'
 import { ChartEmptyState } from '~/scenes/experiments/MetricsView/shared/ChartEmptyState'
 import { SkeletonResultCells } from '~/scenes/experiments/MetricsView/shared/ChartLoadingSkeleton'
@@ -783,7 +783,7 @@ export function MetricRowGroup({
                 >
                     {/* Metric column: real header spanning every variant row, stays interactive while loading */}
                     <td
-                        className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
+                        className={`group/metric-cell w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
                             !isLastMetric ? 'border-b' : ''
                         } ${bg}`}
                         rowSpan={skeletonVariantKeys.length}
@@ -861,7 +861,7 @@ export function MetricRowGroup({
                 >
                     {/* Metric column - always visible */}
                     <td
-                        className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
+                        className={`group/metric-cell w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
                             !isLastMetric ? 'border-b' : ''
                         } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
                         // eslint-disable-next-line react/forbid-dom-props
@@ -977,7 +977,7 @@ export function MetricRowGroup({
             >
                 {/* Metric column - with rowspan */}
                 <td
-                    className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${!isLastMetric ? 'border-b' : ''} ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                    className={`group/metric-cell w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${!isLastMetric ? 'border-b' : ''} ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
                     rowSpan={variantResults.length + 1}
                     // eslint-disable-next-line react/forbid-dom-props
                     style={totalRowsHeightStyle}

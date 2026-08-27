@@ -55,10 +55,11 @@ from posthog.models.utils import (
 )
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import verify_passkey_authentication_response
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 class WebAuthnAuthenticationResponse(TypedDict):
@@ -484,8 +485,7 @@ class JwtAuthentication(authentication.BaseAuthentication):
 
     keyword = "Bearer"
 
-    @classmethod
-    def authenticate(cls, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         with tracer.start_as_current_span("posthog.auth.jwt"):
             if "authorization" in request.headers:
                 authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.headers["authorization"])
@@ -495,6 +495,8 @@ class JwtAuthentication(authentication.BaseAuthentication):
                         info = decode_jwt(token, PosthogJwtAudience.IMPERSONATED_USER)
                         user = User.objects.get(pk=info["id"])
                         return (user, None)
+                    except AuthenticationFailed:
+                        raise
                     except jwt.DecodeError:
                         # If it doesn't look like a JWT then we allow the PersonalAPIKeyAuthentication to have a go
                         return None
@@ -958,6 +960,84 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
         return self.keyword
 
 
+def _decode_delegated_user_token(request: Union[HttpRequest, Request]) -> dict[str, Any] | None:
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        return None
+    authorization_match = re.match(r"^Bearer\s+(\S.+)$", authorization)
+    if not authorization_match:
+        return None
+    try:
+        return decode_jwt(authorization_match.group(1).strip(), PosthogJwtAudience.DELEGATED_USER)
+    except (jwt.DecodeError, jwt.InvalidAudienceError):
+        return None
+    except jwt.InvalidTokenError as error:
+        raise AuthenticationFailed(detail="Token invalid.") from error
+
+
+class DelegatedPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        claims = _decode_delegated_user_token(request)
+        if claims is None:
+            return None
+        personal_api_key_id = claims.get("personal_api_key_id")
+        if not personal_api_key_id:
+            return None
+        try:
+            personal_api_key = PersonalAPIKey.objects.select_related("user").get(
+                id=personal_api_key_id,
+                user_id=claims["id"],
+                user__is_active=True,
+            )
+        except (KeyError, PersonalAPIKey.DoesNotExist) as error:
+            raise AuthenticationFailed(detail="Source personal API key is no longer valid.") from error
+
+        self.personal_api_key = personal_api_key
+        tag_authentication(
+            user_id=personal_api_key.user.pk,
+            team_id=personal_api_key.user.current_team_id,
+            access_method=AccessMethod.PERSONAL_API_KEY,
+            api_key_mask=personal_api_key.mask_value,
+            api_key_label=personal_api_key.label,
+        )
+        if activity_storage.is_request_scoped():
+            activity_storage.set_user(personal_api_key.user)
+        return personal_api_key.user, None
+
+
+class DelegatedOAuthAccessTokenAuthentication(OAuthAccessTokenAuthentication):
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        claims = _decode_delegated_user_token(request)
+        if claims is None:
+            return None
+        oauth_access_token_id = claims.get("oauth_access_token_id")
+        if not oauth_access_token_id:
+            return None
+        try:
+            access_token = OAuthAccessToken.objects.select_related("user", "application").get(
+                id=oauth_access_token_id,
+                user_id=claims["id"],
+                user__is_active=True,
+                application__isnull=False,
+                expires__gt=timezone.now(),
+            )
+        except (KeyError, OAuthAccessToken.DoesNotExist) as error:
+            raise AuthenticationFailed(detail="Source OAuth access token is no longer valid.") from error
+
+        self._enforce_toolbar_access(access_token)
+        self.access_token = access_token
+        tag_authentication(
+            user_id=access_token.user.pk,
+            team_id=access_token.user.current_team_id,
+            access_method=AccessMethod.OAUTH,
+        )
+        if activity_storage.is_request_scoped():
+            activity_storage.set_user(access_token.user)
+            if access_token.impersonated_by_id is not None:
+                activity_storage.set_was_impersonated(True)
+        return access_token.user, None
+
+
 class WidgetAuthentication(authentication.BaseAuthentication):
     """
     Authenticate widget requests via conversations_settings.widget_public_token.
@@ -1395,3 +1475,27 @@ class WebhookSignatureAuthentication(authentication.BaseAuthentication):
 
     def authenticate_header(self, request: Request) -> str:
         return "WebhookSignature"
+
+
+# services/mcp sends this user agent on its API calls (USER_AGENT in its
+# oauth-constants.ts). The two runtimes cannot share one constant, so this value
+# mirrors that one. If they diverge, this check stops matching MCP traffic and the
+# read-only policy stops applying. A client controls its own user agent. The match applies MCP
+# policy to the normal MCP pathway only. It does not stop a hostile key holder.
+# The same credential keeps its full scopes under a different user agent. A future
+# change can reduce the credential's scopes when the token is created.
+MCP_USER_AGENT_MARKER = "posthog/mcp-server"
+
+
+def is_mcp_request(request: Union[HttpRequest, Request]) -> bool:
+    """Returns True when a token-authenticated request comes through the MCP server."""
+    authenticator = getattr(request, "successful_authenticator", None)
+    # Every user-delegated scoped-token type the MCP server can authenticate with. ID-JAG
+    # (XAA) tokens are served from the same OAuth token endpoint and carry scopes, so a
+    # write on that pathway must be classified as MCP like a personal key or OAuth token.
+    if isinstance(
+        authenticator,
+        PersonalAPIKeyAuthentication | OAuthAccessTokenAuthentication | IDJagAccessTokenAuthentication,
+    ):
+        return MCP_USER_AGENT_MARKER in (request.headers.get("User-Agent") or "")
+    return False

@@ -17,6 +17,7 @@ from posthog.models import Integration, Organization, OrganizationMembership, Te
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import SignalTeamConfig
 from products.tasks.backend.facade import (
     api as facade,
@@ -33,8 +34,6 @@ from products.tasks.backend.models import (
     TaskWorkflowDispatch,
 )
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PLACEHOLDER, build_wizard_pr_agent_prompt
-
-from ee.models.rbac.access_control import AccessControl
 
 FACADE_MODULES = [
     "products.tasks.backend.facade.api",
@@ -200,6 +199,40 @@ class TestTaskHandoffConcurrency(TransactionTestCase):
         self.assertEqual(self.task.created_by_id, self.recipient.id)
 
 
+class TestBootstrapTaskRun(TestCase):
+    def test_invalid_cloud_origin_returns_validation_error(self) -> None:
+        organization = Organization.objects.create(name="Legacy task org")
+        team = Team.objects.create(organization=organization, name="Legacy task team")
+        user = User.objects.create(email="legacy-task@example.com")
+        task = Task.objects.create(
+            team=team,
+            created_by=user,
+            title="Legacy task",
+            description="Run later",
+            origin_product="automation",
+        )
+
+        result = facade.bootstrap_task_run(
+            task.id,
+            team.id,
+            user.id,
+            validated_data={"environment": TaskRun.Environment.CLOUD},
+        )
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(
+            result.error,
+            contracts.TaskRunValidationError(
+                kind="validation_error",
+                code="invalid_input",
+                detail="This task uses an unsupported origin. Start it locally or create a new task to run it in the cloud.",
+                attr="origin_product",
+            ),
+        )
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
+
+
 class TestFacadeReadsAndMappers(TestCase):
     organization: ClassVar[Organization]
     team: ClassVar[Team]
@@ -222,6 +255,28 @@ class TestFacadeReadsAndMappers(TestCase):
         }
         defaults.update(kwargs)
         return Task.objects.create(**defaults)
+
+    @parameterized.expand([("the_sandbox", True), ("a_human_reader", False)])
+    def test_run_detail_serves_the_boot_prompt_to_the_sandbox_only(self, _name, include_agent_state):
+        # The agent reads initial_prompt_override off this payload to build its first
+        # message; dropping it strips it silently and the run falls back to
+        # task.description. But it embeds the triggering event wholesale (for a Slack
+        # trigger, a private channel's content) and workflow tasks are team-readable,
+        # so human readers must not receive it.
+        task = self._make_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.QUEUED,
+            state={"initial_prompt_override": "framed prompt", "sandbox_jwt_kid": "secret"},
+        )
+
+        detail = facade.get_task_run_detail(run.id, task.id, self.team.id, include_agent_state=include_agent_state)
+
+        assert detail is not None
+        expected = "framed prompt" if include_agent_state else None
+        assert detail.state.get("initial_prompt_override") == expected
+        assert "sandbox_jwt_kid" not in detail.state
 
     def test_get_task_run_maps_all_fields(self):
         task = self._make_task()
@@ -271,6 +326,27 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(outcome, "ownership_changed")
         self.assertIsNone(resumed_run)
 
+    def test_resume_in_cloud_rejects_invalid_origin(self):
+        task = self._make_task(origin_product="automation")
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            environment=TaskRun.Environment.CLOUD,
+            status=TaskRun.Status.COMPLETED,
+        )
+
+        outcome, resumed_run, _ = facade.resume_task_run_in_cloud(
+            run.id,
+            task.id,
+            self.team.id,
+            self.user.id,
+        )
+
+        self.assertEqual(outcome, "invalid_origin")
+        self.assertIsNone(resumed_run)
+        run.refresh_from_db()
+        self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
+
     def test_task_exists_and_visibility(self):
         task = self._make_task()
         self.assertTrue(facade.task_exists(task.id, self.team.id))
@@ -279,6 +355,24 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertTrue(facade.is_task_controllable_by_user(task.id, self.user.id))
         other_user = User.objects.create(email="other@test.com", distinct_id="other")
         self.assertFalse(facade.is_task_controllable_by_user(task.id, other_user.id))
+
+    def test_task_control_runtime_and_origin_uses_control_predicate(self):
+        task = self._make_task(origin_product=Task.OriginProduct.POSTHOG_AI, runtime=Task.Runtime.PI)
+        self.assertEqual(
+            facade.task_control_runtime_and_origin(task.id, self.team.id, self.user.id),
+            facade.ControlVisibleTask(
+                runtime=Task.Runtime.PI.value, origin_product=Task.OriginProduct.POSTHOG_AI.value
+            ),
+        )
+
+        # An experiments task is readable across the team but only its creator may drive it, so the
+        # warm gate must use the control predicate, not the read predicate.
+        other_user = User.objects.create(email="control-origin@test.com", distinct_id="control-origin")
+        experiments_task = self._make_task(origin_product=Task.OriginProduct.EXPERIMENTS)
+        self.assertIsNotNone(facade.get_task_detail(experiments_task.id, self.team.id, other_user.id))
+        self.assertIsNone(facade.task_control_runtime_and_origin(experiments_task.id, self.team.id, other_user.id))
+
+        self.assertIsNone(facade.task_control_runtime_and_origin(uuid4(), self.team.id, self.user.id))
 
     def _make_wizard_run(self, task: Task, status: TaskRun.Status, **kwargs) -> TaskRun:
         # A genuine server-started wizard run carries the markers create_wizard_cloud_run stamps:
@@ -715,6 +809,24 @@ class TestFacadeReadsAndMappers(TestCase):
 
         assert result is not None and result.error is None
         self.assertIsNone(task.runs.get().branch)
+
+    def test_run_task_returns_validation_error_for_invalid_cloud_origin(self):
+        task = self._make_task(origin_product="automation")
+
+        result = facade.run_task(task.id, self.team.id, self.user.id, validated_data={})
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(
+            result.error,
+            contracts.TaskValidationError(
+                kind="validation_error",
+                code="invalid_input",
+                detail="This task uses an unsupported origin. Start it locally or create a new task to run it in the cloud.",
+                attr="origin_product",
+            ),
+        )
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
 
     def test_stale_queued_created_at_hard_cap(self):
         task = self._make_task()

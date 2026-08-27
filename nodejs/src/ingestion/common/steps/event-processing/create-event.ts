@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { MAX_GROUP_TYPES_PER_TEAM } from '~/common/groups/group-type-manager'
@@ -98,7 +99,7 @@ export function createEvent(
         project_id: projectId,
         distinct_id: distinctId,
         elements_chain: elementsChain,
-        created_at: null,
+        created_at: DateTime.utc(),
         captured_at: capturedAt,
         person_id: personId,
         person_properties: eventPersonProperties,

@@ -1,17 +1,13 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
+import { customFacetsLogic } from './customFacetsLogic'
 import { Facet, FacetOption } from './Facet'
+import { facetFilterTarget, facetSelection } from './facetFilters'
 import { facetRailLogic } from './facetRailLogic'
-import {
-    FacetConfig,
-    FacetFilterKey,
-    logFilterExclusions,
-    mergeSelectedIntoOptions,
-    resourceAttributeSelection,
-} from './facets'
+import { FacetConfig, customFacetIdentity, mergeSelectedIntoOptions } from './facets'
 import { facetValuesLogic } from './facetValuesLogic'
 
 export interface RailFacetProps {
@@ -30,44 +26,62 @@ export function RailFacet({ id, facet, hidden }: RailFacetProps): JSX.Element | 
     const logicProps = useMemo(() => ({ id, facet }), [id, facet])
     const { facetValues, facetValuesLoading, facetSearch, collapsed } = useValues(facetValuesLogic(logicProps))
     const { setFacetSearch } = useActions(facetValuesLogic(logicProps))
-    const { severityLevels, serviceNames, filterGroup } = useValues(logsViewerFiltersLogic({ id }))
+    const { filterGroup } = useValues(logsViewerFiltersLogic({ id }))
     const { toggleFacetValue, toggleFacetCollapsed } = useActions(facetRailLogic({ id }))
+    const { removeCustomFacet } = useActions(customFacetsLogic)
+    const { entriesLoading } = useValues(customFacetsLogic)
+    const removeDisabledReason = entriesLoading ? 'Custom facets are updating' : undefined
+
+    const { source } = facet
+    // Everything the value rows are built from is memoized: Facet feeds them to a virtualized list
+    // through one useMemo, so a fresh array or callback identity here re-renders every visible row in
+    // every mounted facet on any filter or count change.
+    // Both polarities come from the facet's own filters in the group, which is also what the chips
+    // bar renders, so a checkbox can't show a state the filter bar contradicts.
+    const { included: selected, excluded } = useMemo(
+        () => facetSelection(filterGroup, facetFilterTarget(source)),
+        [filterGroup, source]
+    )
+    // Values + counts come from the cross-filtered endpoint.
+    const fetched: FacetOption[] = useMemo(
+        () => facetValues.map((r) => ({ value: r.value, label: r.value, count: r.count })),
+        [facetValues]
+    )
+    // Fixed value set from config, counts overlaid. Missing values render as a dimmed 0.
+    const fixedOptions: FacetOption[] = useMemo(() => {
+        const countByValue = new Map(fetched.map((option) => [option.value, option.count]))
+        return (facet.fixedOptions ?? []).map((option) => ({
+            ...option,
+            count: countByValue.get(option.value) ?? 0,
+        }))
+    }, [fetched, facet.fixedOptions])
+    // Dynamic facet: the fetched values, plus any selected or excluded value the endpoint didn't
+    // return (zero matches in scope, or below the top-N cutoff) so an active filter — e.g. from an
+    // old saved-view URL — is always visible and removable.
+    const dynamicOptions: FacetOption[] = useMemo(
+        () => mergeSelectedIntoOptions(fetched, [...selected, ...excluded], facet.searchable ? facetSearch : undefined),
+        [fetched, selected, excluded, facet.searchable, facetSearch]
+    )
+    const onToggle = useCallback((value: string): void => toggleFacetValue(source, value), [toggleFacetValue, source])
+    const onToggleCollapsed = useCallback(
+        (): void => toggleFacetCollapsed(facet.key),
+        [toggleFacetCollapsed, facet.key]
+    )
+    // Only custom facets carry an identity; curated facets get no remove control.
+    const onRemove = useMemo(() => {
+        const customIdentity = customFacetIdentity(facet)
+        return customIdentity ? (): void => removeCustomFacet(customIdentity.key, customIdentity.sourceType) : undefined
+    }, [facet, removeCustomFacet])
 
     if (hidden) {
         return null
     }
 
-    const { source } = facet
-    const selectedByKey: Record<FacetFilterKey, string[]> = {
-        severityLevels: severityLevels ?? [],
-        serviceNames: serviceNames ?? [],
-    }
-    // Selection: column facets read includes from their dedicated filter field and exclusions
-    // from the is_not log filter under their exclusionKey (when they have one);
-    // resource-attribute facets read their log_resource_attribute filters, both polarities.
-    const { included: selected, excluded } =
-        source.type === 'resourceAttribute'
-            ? resourceAttributeSelection(filterGroup, source.key)
-            : {
-                  included: selectedByKey[source.filterKey],
-                  excluded: source.exclusionKey ? logFilterExclusions(filterGroup, source.exclusionKey) : [],
-              }
-    // Values + counts come from the cross-filtered endpoint.
-    const fetched: FacetOption[] = facetValues.map((r) => ({ value: r.value, label: r.value, count: r.count }))
-    const onToggle = (value: string): void => toggleFacetValue(source, value)
-    const onToggleCollapsed = (): void => toggleFacetCollapsed(facet.key)
-
     if (facet.kind === 'fixed') {
-        // Fixed value set from config, counts overlaid. Missing values render as a dimmed 0.
-        const countByValue = new Map(fetched.map((option) => [option.value, option.count]))
-        const options: FacetOption[] = (facet.fixedOptions ?? []).map((option) => ({
-            ...option,
-            count: countByValue.get(option.value) ?? 0,
-        }))
         return (
             <Facet
                 title={facet.title}
-                options={options}
+                options={fixedOptions}
                 selected={selected}
                 excluded={excluded}
                 onToggle={onToggle}
@@ -75,21 +89,16 @@ export function RailFacet({ id, facet, hidden }: RailFacetProps): JSX.Element | 
                 collapsed={collapsed}
                 onToggleCollapsed={onToggleCollapsed}
                 dimZeroCounts
+                onRemove={onRemove}
+                removeDisabledReason={removeDisabledReason}
             />
         )
     }
 
-    // Dynamic facet: values + counts come from the cross-filtered endpoint, plus any selected or
-    // excluded values it didn't return (zero matches in scope, or below the top-N cutoff) so an
-    // active filter — e.g. from an old saved-view URL — is always visible and removable.
     return (
         <Facet
             title={facet.title}
-            options={mergeSelectedIntoOptions(
-                fetched,
-                [...selected, ...excluded],
-                facet.searchable ? facetSearch : undefined
-            )}
+            options={dynamicOptions}
             selected={selected}
             excluded={excluded}
             onToggle={onToggle}
@@ -101,6 +110,8 @@ export function RailFacet({ id, facet, hidden }: RailFacetProps): JSX.Element | 
             collapsed={collapsed}
             onToggleCollapsed={onToggleCollapsed}
             maxHeight={facet.maxHeight}
+            onRemove={onRemove}
+            removeDisabledReason={removeDisabledReason}
         />
     )
 }

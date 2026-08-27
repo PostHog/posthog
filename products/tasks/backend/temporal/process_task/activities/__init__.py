@@ -33,6 +33,7 @@ from .provision_sandbox import (
     inject_fresh_tokens_on_resume,
     invalidate_resume_snapshot,
     prepare_sandbox_for_repository,
+    restore_sandbox_connection_state,
 )
 from .read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
 from .record_peer_message_outcome import (
@@ -70,6 +71,14 @@ from .start_agent_server import (
     mark_repo_ready,
     start_agent_server,
 )
+from .start_dev_stack_preview import (
+    StartDevStackPreviewInput,
+    StartDevStackPreviewOutput,
+    WaitDevStackPreviewInput,
+    WaitDevStackPreviewOutput,
+    start_dev_stack_preview,
+    wait_dev_stack_preview,
+)
 from .track_workflow_event import TrackWorkflowEventInput, track_workflow_event
 from .update_task_run_status import UpdateTaskRunStatusInput, update_task_run_status
 
@@ -92,6 +101,10 @@ __all__ = [
     "InjectFreshTokensOnResumeInput",
     "InvalidateResumeSnapshotInput",
     "PostSlackUpdateInput",
+    "StartDevStackPreviewInput",
+    "StartDevStackPreviewOutput",
+    "WaitDevStackPreviewInput",
+    "WaitDevStackPreviewOutput",
     "PrepareSandboxForRepositoryInput",
     "PrepareSandboxForRepositoryOutput",
     "ReadSandboxLogsInput",
@@ -133,8 +146,11 @@ __all__ = [
     "get_sandbox_for_repository",
     "get_task_processing_context",
     "inject_fresh_tokens_on_resume",
+    "restore_sandbox_connection_state",
     "invalidate_resume_snapshot",
     "post_slack_update",
+    "start_dev_stack_preview",
+    "wait_dev_stack_preview",
     "prepare_sandbox_for_repository",
     "read_sandbox_logs",
     "refresh_sandbox_credentials",

@@ -11,11 +11,8 @@ from posthog.schema import (
     FunnelsQuery,
     IntervalType,
     LifecycleQuery,
-    PathsFilter,
-    PathsQuery,
     RetentionFilter,
     RetentionQuery,
-    StickinessQuery,
     TrendsQuery,
 )
 
@@ -30,10 +27,10 @@ from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQuer
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models import Team
 
-from products.product_analytics.backend.facade.queries import PathsQueryRunner, StickinessQueryRunner
-
 _TIME_SERIES = [EventsNode(event="$pageview")]
 
+# Only core-owned runners belong here. Product-owned runners (paths, stickiness) cover the
+# same dashboard-filter behavior in their own product tests.
 # Runners whose query model carries an `interval` field.
 INTERVAL_QUERY_RUNNERS: list[tuple[str, Callable[[Team], QueryRunner]]] = [
     (
@@ -43,12 +40,6 @@ INTERVAL_QUERY_RUNNERS: list[tuple[str, Callable[[Team], QueryRunner]]] = [
     (
         "funnels",
         lambda team: FunnelsQueryRunner(query=FunnelsQuery(series=_TIME_SERIES), team=team),
-    ),
-    (
-        "stickiness",
-        lambda team: StickinessQueryRunner(
-            query=StickinessQuery(series=_TIME_SERIES, interval=IntervalType.DAY), team=team
-        ),
     ),
     (
         "lifecycle",
@@ -63,10 +54,6 @@ NON_INTERVAL_QUERY_RUNNERS: list[tuple[str, Callable[[Team], QueryRunner]]] = [
     (
         "retention",
         lambda team: RetentionQueryRunner(query=RetentionQuery(retentionFilter=RetentionFilter()), team=team),
-    ),
-    (
-        "paths",
-        lambda team: PathsQueryRunner(query=PathsQuery(pathsFilter=PathsFilter()), team=team),
     ),
 ]
 
