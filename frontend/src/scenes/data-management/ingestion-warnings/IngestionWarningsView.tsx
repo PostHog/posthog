@@ -85,6 +85,29 @@ export const WARNING_TYPE_TO_DOCS_ANCHOR: Record<string, string> = {
     high_volume_distinct_id: 'skipped-person-profile-processing-for-a-high-volume-distinct-id',
 }
 
+type HighVolumeOffender = { distinctId: string } | { distinctIdCount: number } | null
+
+/**
+ * Decide what a high_volume_distinct_id warning should name as the offender.
+ *
+ * `details` rides on a publicly ingestible event, so it is untrusted. Capture sends a
+ * `distinctId` only when the batch had a single hot key; for multi-key batches it sends just
+ * `distinctIdCount`, and the consumer then backfills `distinctId` with the envelope's
+ * `distinct_id`, which is the project token, not an offending user. So only trust `distinctId`
+ * when the count shows a single key, and otherwise report the count.
+ */
+export function resolveHighVolumeOffender(details: Record<string, any>): HighVolumeOffender {
+    const distinctId = typeof details.distinctId === 'string' ? details.distinctId : null
+    const distinctIdCount = typeof details.distinctIdCount === 'number' ? details.distinctIdCount : null
+    if (distinctId && (distinctIdCount === null || distinctIdCount <= 1)) {
+        return { distinctId }
+    }
+    if (distinctIdCount !== null) {
+        return { distinctIdCount }
+    }
+    return null
+}
+
 export const WARNING_TYPE_RENDERER = {
     cannot_merge_already_identified: function Render(warning: IngestionWarning): JSX.Element {
         const details = warning.details as {
@@ -298,26 +321,19 @@ export const WARNING_TYPE_RENDERER = {
         )
     },
     high_volume_distinct_id: function Render(warning: IngestionWarning): JSX.Element {
-        const details = warning.details as {
-            distinctId?: string
-            distinctIdCount?: number
-        }
-        // details rides on a publicly ingestible event, so treat it as untrusted: only render a
-        // distinct_id that is actually a string and a count that is actually a number. An object
-        // in either field would otherwise become a React child and crash the page.
-        const distinctId = typeof details.distinctId === 'string' ? details.distinctId : null
-        const distinctIdCount = typeof details.distinctIdCount === 'number' ? details.distinctIdCount : null
+        const offender = resolveHighVolumeOffender(warning.details)
         return (
             <>
                 Rate limit reached, so these events were ingested with person profile processing turned off. No events
                 were dropped.
-                {distinctId ? (
+                {offender && 'distinctId' in offender ? (
                     <>
                         {' '}
-                        Offending distinct_id: <Link to={urls.personByDistinctId(distinctId)}>{distinctId}</Link>.
+                        Offending distinct_id:{' '}
+                        <Link to={urls.personByDistinctId(offender.distinctId)}>{offender.distinctId}</Link>.
                     </>
-                ) : distinctIdCount ? (
-                    <> Affected {distinctIdCount} distinct IDs in this batch.</>
+                ) : offender ? (
+                    <> Affected {offender.distinctIdCount} distinct IDs in this batch.</>
                 ) : null}
             </>
         )
