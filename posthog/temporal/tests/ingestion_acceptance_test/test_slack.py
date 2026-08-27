@@ -1,10 +1,16 @@
+from urllib.parse import unquote
+
 import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.temporal.ingestion_acceptance_test.config import Config
-from posthog.temporal.ingestion_acceptance_test.results import TestResult, TestSuiteResult
+from posthog.temporal.ingestion_acceptance_test.results import CapturedEventRef, TestResult, TestSuiteResult
 from posthog.temporal.ingestion_acceptance_test.runner import RunningTestSnapshot
-from posthog.temporal.ingestion_acceptance_test.slack import send_slack_notification, send_slack_timeout_notification
+from posthog.temporal.ingestion_acceptance_test.slack import (
+    RunContext,
+    send_slack_notification,
+    send_slack_timeout_notification,
+)
 
 
 @pytest.fixture
@@ -164,11 +170,127 @@ class TestSendSlackNotification:
         payload = mock_post.call_args[1]["json"]
         blocks = payload["blocks"]
 
-        context_blocks = [b for b in blocks if b.get("type") == "context"]
-        all_text = " ".join(str(b) for b in context_blocks)
+        all_text = " ".join(str(b) for b in blocks)
 
-        assert "test_failing" in all_text
+        assert "test_file.py" in all_text
         assert "AssertionError" in all_text
+
+    @pytest.mark.parametrize(
+        "error_type, error_message, expected_class, expected_severity",
+        [
+            ("SocketTimeoutError", "Code: 209. (ch-offline:9440)", "connection_error", "warning"),
+            ("AssertionError", "Event abc-123 not found within 3600s timeout", "event_missing", "critical"),
+            ("AssertionError", "Person A not found within time budget", "person_missing", "critical"),
+            ("AssertionError", "Expected name='a', got 'b'", "assertion", "critical"),
+        ],
+        ids=["connection_error", "event_missing", "person_missing", "assertion"],
+    )
+    @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
+    def test_payload_carries_failure_class_and_alert_metadata(
+        self,
+        mock_post: MagicMock,
+        config: Config,
+        error_type: str,
+        error_message: str,
+        expected_class: str,
+        expected_severity: str,
+    ) -> None:
+        mock_post.return_value.raise_for_status = MagicMock()
+        result = TestSuiteResult(
+            results=[
+                TestResult(
+                    test_name="test_x",
+                    test_file="acceptance_test_x::TestX::test_x",
+                    status="failed" if error_type == "AssertionError" else "error",
+                    duration_seconds=1.0,
+                    error_message=error_message,
+                    error_details={"type": error_type, "traceback": "..."},
+                    captured_events=[CapturedEventRef(uuid="abc-123", event="$test", distinct_id="did-1")],
+                )
+            ],
+            total_duration_seconds=1.0,
+            environment={},
+            timestamp="2024-01-01T00:00:00Z",
+        )
+
+        send_slack_notification(config, result)
+
+        blocks = mock_post.call_args[1]["json"]["blocks"]
+        sections = [b["text"]["text"] for b in blocks if b.get("type") == "section"]
+        failed_block = next(t for t in sections if "acceptance_test_x::TestX::test_x" in t)
+        assert f"Failure class: `{expected_class}`" in failed_block
+        assert f"{error_type}: {error_message}" in failed_block
+        assert "uuid `abc-123` distinct_id `did-1`" in failed_block
+
+        metadata_block = next(t for t in sections if t.startswith("Environment:"))
+        assert "Environment: dev" in metadata_block
+        assert f"Severity: {expected_severity}" in metadata_block
+        assert f"Failure class: {expected_class}" in metadata_block
+
+    @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
+    def test_suite_failure_class_is_the_most_serious_one(self, mock_post: MagicMock, config: Config) -> None:
+        mock_post.return_value.raise_for_status = MagicMock()
+        result = TestSuiteResult(
+            results=[
+                TestResult(
+                    test_name="a",
+                    test_file="a",
+                    status="error",
+                    duration_seconds=1.0,
+                    error_message="Code: 209.",
+                    error_details={"type": "SocketTimeoutError"},
+                ),
+                TestResult(
+                    test_name="b",
+                    test_file="b",
+                    status="failed",
+                    duration_seconds=1.0,
+                    error_message="Event x not found within 3600s timeout",
+                    error_details={"type": "AssertionError"},
+                ),
+            ],
+            total_duration_seconds=1.0,
+            environment={},
+            timestamp="2024-01-01T00:00:00Z",
+        )
+
+        send_slack_notification(config, result)
+
+        blocks = mock_post.call_args[1]["json"]["blocks"]
+        metadata_block = next(
+            b["text"]["text"] for b in blocks if b["type"] == "section" and "Severity:" in b["text"]["text"]
+        )
+        assert "Failure class: event_missing" in metadata_block
+        assert "Severity: critical" in metadata_block
+
+    @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
+    def test_links_to_temporal_run_loki_and_runbook(
+        self, mock_post: MagicMock, failing_result: TestSuiteResult
+    ) -> None:
+        mock_post.return_value.raise_for_status = MagicMock()
+        config = Config(
+            api_host="https://us.posthog.com",
+            project_api_key="phc_test_key",
+            team_id=12345,
+            slack_webhook_url="https://hooks.slack.com/services/T00/B00/XXX",
+            runbook_url="https://runbooks.posthog.com/services/ingestion/acceptance-test-failure",
+        )
+        run_context = RunContext(
+            workflow_id="wf-1",
+            workflow_run_id="run-1",
+            namespace="ns.abc",
+            temporal_ui_host="https://cloud.temporal.io",
+        )
+
+        send_slack_notification(config, failing_result, run_context=run_context)
+
+        blocks = mock_post.call_args[1]["json"]["blocks"]
+        links_text = blocks[-1]["elements"][0]["text"]
+        assert "<https://cloud.temporal.io/namespaces/ns.abc/workflows/wf-1/run-1/history|Temporal run>" in links_text
+        assert "https://grafana.prod-us.posthog.dev/explore?left=" in links_text
+        assert "temporal-worker-general-purpose" in unquote(links_text)
+        assert "<https://runbooks.posthog.com/services/ingestion/acceptance-test-failure|Runbook>" in links_text
+        assert "Environment: prod-us" in " ".join(str(b) for b in blocks)
 
     @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
     def test_does_nothing_when_no_webhook_url(self, mock_post: MagicMock, failing_result: TestSuiteResult) -> None:
@@ -219,6 +341,9 @@ class TestSendSlackTimeoutNotification:
         assert "12345" in context_text
         assert "3600s" in context_text
         assert "phc_test_k..." in context_text
+        all_text = " ".join(str(b) for b in payload["blocks"])
+        assert "Environment: dev" in all_text
+        assert "Severity: warning" in all_text
 
     @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
     def test_does_nothing_when_no_webhook_url(self, mock_post: MagicMock) -> None:
