@@ -6387,7 +6387,7 @@ Note: Persona's own repo note (products/warehouse_sources/backend/temporal/data_
 
 ## Personio — **thin**
 
-Today (3): `absence_periods`, `attendance_periods`, `persons`
+Today (5): `absence_periods`, `attendance_periods`, `cost_centers`, `persons`, `salary_bands`
 
 Diffed against: <https://developer.personio.de/llms.txt>
 
@@ -6395,7 +6395,8 @@ Diffed against: <https://developer.personio.de/llms.txt>
 - [ ] `GET /v2/absence-types` — lookup resolving the absence type on every absence period already synced (high)
 - [ ] `GET /v2/compensations` — salary, hourly, bonus and recurring compensation - the payroll dataset (high)
 - [ ] `GET /v2/org-units` — department/team hierarchy lookup for grouping persons, absences and attendance (high)
-- [ ] `GET /v2/cost-centers` — cost center lookup for allocating attendance and compensation to finance dimensions (medium)
+- [x] `GET /v2/cost-centers` — cost center lookup for allocating attendance and compensation to finance dimensions (medium)
+- [x] `GET /v2/salary-bands` — salary band ranges (min/max/mid, currency) and the workplaces they apply to (medium)
 - [ ] `GET /v2/legal-entities` — legal entity lookup for multi-entity headcount and payroll splits (medium)
 - [ ] `GET /v2/jobs` — job/position catalog referenced from employments (medium)
 - [ ] `GET /v2/compensations/types` — lookup resolving compensation type IDs on compensation rows (medium)
@@ -6404,7 +6405,7 @@ Diffed against: <https://developer.personio.de/llms.txt>
 - [ ] `GET /v2/recruiting/applications/{id}/stage-transitions` — stage transition history - exactly the state-change data needed for time-in-stage metrics (medium)
 - [ ] `GET /v2/recruiting/candidates` — candidate records joined to applications above (medium)
 
-Note: PERSONIO_ENDPOINTS in products/warehouse_sources/backend/temporal/data_imports/sources/personio/settings.py is a static 3-entry dict (/v2/persons, /v2/absence-periods, /v2/attendance-periods) - no dynamic discovery. The v2 API exposes roughly 20 listable resources, so this is a small fraction, and notably every organizational lookup that would let you group the synced persons and time data (org units, cost centers, legal entities, jobs) is missing. Exact paths confirmed from the individual reference .md pages. Recruiting endpoints are flagged beta by the vendor.
+Note: PERSONIO_ENDPOINTS in products/warehouse_sources/backend/temporal/data_imports/sources/personio/settings.py is a static 5-entry dict (/v2/persons, /v2/absence-periods, /v2/attendance-periods, /v2/salary-bands, /v2/cost-centers) - no dynamic discovery. The v2 API exposes roughly 20 listable resources, so this is still a small fraction, and other organizational lookups that would let you group the synced persons and time data (org units, legal entities, jobs) are still missing. Salary bands and cost centers are dimension lookups with no updated_at/created_at field, so they sync full-refresh only. Exact paths confirmed from the individual reference .md pages. Recruiting endpoints are flagged beta by the vendor.
 
 ## Pexels — gaps
 
