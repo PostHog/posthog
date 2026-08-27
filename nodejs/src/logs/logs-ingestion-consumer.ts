@@ -72,7 +72,7 @@ export interface LogsIngestionConsumerDeps {
      * directly.
      */
     outputs: IngestionOutputs<LogsOutput | LogsDlqOutput | AppMetricsOutput>
-    usageBatch?: UsageRecordBatch
+    usageBatch: UsageRecordBatch
 }
 
 /** Ingestion default when `logs_settings.retention_days` is unset; must be in `TeamSerializer.VALID_RETENTION_DAYS`. */
@@ -1072,8 +1072,8 @@ export class LogsIngestionConsumer {
             // stable identity to reproduce. A fresh ID per flush is what keeps two pods flushing
             // the same team from colliding and collapsing one flush's quantity away.
             const flushId = new UUID7().toString()
-            this.deps.usageBatch?.add(teamId, `${source}_bytes`, flushId, stats.bytesAllowed, 'bytes')
-            this.deps.usageBatch?.add(
+            this.deps.usageBatch.add(teamId, `${source}_bytes`, flushId, stats.bytesAllowed, 'bytes')
+            this.deps.usageBatch.add(
                 teamId,
                 source === 'apm' ? 'apm_spans' : 'logs_records',
                 flushId,
@@ -1085,7 +1085,7 @@ export class LogsIngestionConsumer {
         // Best-effort: don't let metric failures block ingestion
         try {
             await this.appMetricsAggregator.flush()
-            await this.deps.usageBatch?.flush()
+            await this.deps.usageBatch.flush()
         } catch (error) {
             logger.error('🔴', 'Failed to emit usage metrics - billing data may be lost', { error })
         }
