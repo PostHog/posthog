@@ -123,6 +123,15 @@ class AnchorContentChangedError(StoredPlanInvalidError):
     pass
 
 
+class StoredPlanVersionChangedError(StoredPlanInvalidError):
+    """The frozen plan predates the current `AI_QUERY_PLAN_VERSION`. Same self-heal as any invalid
+    stored plan, but this is the deliberate invalidation a version bump performs, so it fires once per
+    stale subscription on the next delivery. The caller logs it without reporting an exception, so a
+    routine bump does not flood error tracking (and does not bury genuine malformed-plan defects)."""
+
+    pass
+
+
 @frozen
 class _RelevantEventSelection:
     context_events: tuple[str, ...] = ()
@@ -741,7 +750,7 @@ def build_frozen_prompt(
     """
     cleaned = sanitize_prompt(prompt)
     if ai_query_plan.get("version") != AI_QUERY_PLAN_VERSION:
-        raise StoredPlanInvalidError("Stored query plan version is stale.")
+        raise StoredPlanVersionChangedError("Stored query plan version is stale.")
     # A plan answers the anchor content it was built against. Anchor changed (tiles added, anchor
     # deleted, queries edited) means the plan is stale the same way a stale version is. Envelopes
     # written before anchors existed carry no key and read as EMPTY_ANCHOR_HASH, so unanchored
