@@ -1,5 +1,5 @@
 import { useMountedLogic, useValues } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import { LemonSkeleton, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
@@ -66,27 +66,37 @@ export function InboxTabBar({
     onboarding?: boolean
 }): JSX.Element {
     const { activeTab, isStaff } = useValues(inboxSceneLogic)
+    // Read the current query string reactively so the tab links carry the active filters (scope,
+    // source, priority, sort, search). A tab link that drops them navigates to a bare inbox URL, and
+    // `inboxFiltersLogic` then races to rewrite the filters back — which can swallow the tab switch.
+    const { searchParams, hashParams } = useValues(router)
+    const tabLink = (key: InboxTabKey): string => combineUrl(urls.inbox(key), searchParams, hashParams).url
 
     const visibleTabKeys = INBOX_TAB_KEYS.filter(
         (key) => (key !== 'config' || showConfigTab) && (!isStaffOnlyTabKey(key) || isStaff)
     )
 
-    const realTabs = visibleTabKeys.map((key) => ({
-        key,
-        label: (
-            <span className="flex items-center gap-1.5">
-                <span>{INBOX_TAB_LABEL[key]}</span>
-                {isFlatListTabKey(key) && <FlatTabCount tabKey={key} />}
-                {INBOX_TAB_TAG[key] && (
-                    <LemonTag type={INBOX_TAB_TAG[key] === 'Alpha' ? 'warning' : 'completion'} size="small">
-                        {INBOX_TAB_TAG[key]}
-                    </LemonTag>
-                )}
-            </span>
-        ),
-        disabledReason: onboarding ? 'Set up self-driving to open your inbox' : undefined,
-        content: <></>,
-    }))
+    const realTabs = visibleTabKeys.map((key) => {
+        const disabledReason = onboarding ? 'Set up self-driving to open your inbox' : undefined
+        return {
+            key,
+            label: (
+                <span className="flex items-center gap-1.5">
+                    <span>{INBOX_TAB_LABEL[key]}</span>
+                    {isFlatListTabKey(key) && <FlatTabCount tabKey={key} />}
+                    {INBOX_TAB_TAG[key] && (
+                        <LemonTag type={INBOX_TAB_TAG[key] === 'Alpha' ? 'warning' : 'completion'} size="small">
+                            {INBOX_TAB_TAG[key]}
+                        </LemonTag>
+                    )}
+                </span>
+            ),
+            disabledReason,
+            // A real anchor carries the filters and supports middle-click and open-in-new-tab.
+            link: disabledReason ? undefined : tabLink(key),
+            content: <></>,
+        }
+    })
 
     const tabs = onboarding
         ? [{ key: WELCOME_TAB_KEY as InboxTabBarKey, label: <span>Welcome</span>, content: <></> }, ...realTabs]
@@ -102,11 +112,9 @@ export function InboxTabBar({
             // Hide LemonTabs' own bottom border + margin so the single full-width border lives on the
             // scene header row; the active-tab slider then sits directly on that one border.
             barClassName="before:hidden mb-0"
-            onChange={(key) => {
-                if (key !== WELCOME_TAB_KEY) {
-                    router.actions.push(urls.inbox(key))
-                }
-            }}
+            // No onChange: each real tab is an anchor (`link`) that owns navigation on both click and
+            // keyboard activation. A push here would fire a second, identical navigation on the same
+            // click, and kea-router writes a duplicate history entry for it — so Back would stay put.
             tabs={tabs}
         />
     )
