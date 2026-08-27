@@ -1657,6 +1657,8 @@ export interface TaskRunDetailDTOApi {
     updated_at?: string | null
     /** @nullable */
     completed_at?: string | null
+    /** True when this run's sandbox serves a dev stack preview, so clients can offer the preview link. Open it through the run's `preview/` endpoint, which mints a fresh access token on every request. */
+    preview_available?: boolean
 }
 
 export interface SlackThreadReferenceDTOApi {
@@ -3132,16 +3134,6 @@ export const RunStatusEnumApi = {
     Cancelled: 'cancelled',
 } as const
 
-/**
- * * `local` - local
- */
-export type TaskRunUpdateEnvironmentEnumApi =
-    (typeof TaskRunUpdateEnvironmentEnumApi)[keyof typeof TaskRunUpdateEnvironmentEnumApi]
-
-export const TaskRunUpdateEnvironmentEnumApi = {
-    Local: 'local',
-} as const
-
 export interface PatchedTaskRunUpdateApi {
     /** Current execution status
      *
@@ -3175,10 +3167,6 @@ export interface PatchedTaskRunUpdateApi {
      * @nullable
      */
     error_message?: string | null
-    /** Transition a cloud run to local. Use the resume_in_cloud action to move a run into cloud.
-     *
-     * * `local` - local */
-    environment?: TaskRunUpdateEnvironmentEnumApi
 }
 
 /**
