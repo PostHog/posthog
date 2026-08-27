@@ -8,10 +8,10 @@ intent metric.
 """
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from django.db import IntegrityError, transaction
-from django.db.models import Exists, OuterRef, Q, QuerySet
+from django.db.models import Exists, Max, OuterRef, Q, QuerySet
 
 import structlog
 
@@ -28,6 +28,7 @@ from products.growth.backend.product_push.cadence import (
     campaign_ends_at,
     is_cooldown_over,
     is_grace_period_over,
+    is_retry_eligible,
 )
 from products.growth.backend.product_push.selection import Selection, select_next_product
 
@@ -49,6 +50,18 @@ class CloseBatchResult:
     evaluated: int = 0
     adopted: int = 0
     skipped: int = 0
+
+
+@dataclass(kw_only=True)
+class ScheduleBatchResult:
+    orgs_processed: int = 0
+    scheduled: int = 0
+    queued_behind_active: int = 0
+    already_pending: int = 0
+    already_adopted: int = 0
+    in_retry_cooldown: int = 0
+    conflicts: int = 0
+    would_schedule: int = 0  # dry-run only
 
 
 @dataclass(kw_only=True)
@@ -243,6 +256,89 @@ def start_campaigns_for_org_batch(
     return result
 
 
+def schedule_campaigns_for_org_batch(
+    organization_ids: list[str],
+    product_key: str,
+    now: datetime,
+    *,
+    scheduled_for: date | None = None,
+    reason_text: str | None = None,
+    skip_recently_pushed: bool = True,
+    dry_run: bool = False,
+) -> ScheduleBatchResult:
+    """Queue a TAM push of one product for each org in the batch.
+
+    The campaign lands as SCHEDULED, so the daily sweep starts it once the org has
+    no active campaign. A dated `scheduled_for` makes it a pin, which overrides the
+    signup grace period and the between-campaigns cooldown; leave it unset to let
+    the normal cadence decide when the push goes out.
+
+    Re-running with the same org list is a no-op: an org that already holds a
+    scheduled or active campaign for the product is counted and left alone.
+    """
+    result = ScheduleBatchResult()
+    scheduled_rows: list[tuple[ProductPushCampaign, str]] = []
+
+    organizations = Organization.objects.filter(id__in=organization_ids).only("id", "created_at")
+
+    for organization in organizations:
+        result.orgs_processed += 1
+
+        history = list(
+            ProductPushCampaign.objects.filter(organization=organization, product_key=product_key).values_list(
+                "status", "ended_at"
+            )
+        )
+        if any(
+            status in (ProductPushCampaign.Status.SCHEDULED, ProductPushCampaign.Status.ACTIVE) for status, _ in history
+        ):
+            result.already_pending += 1
+            continue
+        if any(status == ProductPushCampaign.Status.ADOPTED for status, _ in history):
+            result.already_adopted += 1
+            continue
+        if skip_recently_pushed and any(
+            ended_at is not None and not is_retry_eligible(ended_at, now) for _, ended_at in history
+        ):
+            result.in_retry_cooldown += 1
+            continue
+
+        has_active_campaign = ProductPushCampaign.objects.filter(
+            organization=organization, status=ProductPushCampaign.Status.ACTIVE
+        ).exists()
+
+        if dry_run:
+            result.would_schedule += 1
+            logger.info(
+                "product_push_campaign_would_schedule",
+                organization_id=str(organization.id),
+                product_key=product_key,
+                scheduled_for=str(scheduled_for) if scheduled_for else None,
+                behind_active_campaign=has_active_campaign,
+            )
+            continue
+
+        campaign = _schedule_campaign(organization, product_key, scheduled_for=scheduled_for, reason_text=reason_text)
+        if campaign is None:
+            result.conflicts += 1
+            continue
+
+        result.scheduled += 1
+        if has_active_campaign:
+            result.queued_behind_active += 1
+        scheduled_rows.append((campaign, "scheduled"))
+        logger.info(
+            "product_push_campaign_scheduled",
+            campaign_id=str(campaign.id),
+            organization_id=str(organization.id),
+            product_key=product_key,
+            behind_active_campaign=has_active_campaign,
+        )
+
+    _capture_campaign_events(scheduled_rows)
+    return result
+
+
 def cancel_campaigns(campaign_ids: list[str], now: datetime) -> int:
     """Cancel SCHEDULED or ACTIVE campaigns (admin action). Returns the count cancelled."""
     cancelled: list[tuple[ProductPushCampaign, str]] = []
@@ -315,6 +411,37 @@ def _start_campaign(organization: Organization, selection: Selection, now: datet
     except IntegrityError:
         # Another worker started a campaign for this org concurrently — the partial
         # unique constraint makes this a no-op rather than a duplicate push.
+        return None
+
+
+def _schedule_campaign(
+    organization: Organization,
+    product_key: str,
+    *,
+    scheduled_for: date | None,
+    reason_text: str | None,
+) -> ProductPushCampaign | None:
+    """Queue a TAM campaign behind whatever the org already has scheduled."""
+    try:
+        with transaction.atomic():
+            last_position = (
+                ProductPushCampaign.objects.filter(
+                    organization=organization, status=ProductPushCampaign.Status.SCHEDULED
+                ).aggregate(last=Max("position"))["last"]
+                or 0
+            )
+            return ProductPushCampaign.objects.create(
+                organization=organization,
+                product_key=product_key,
+                status=ProductPushCampaign.Status.SCHEDULED,
+                source=ProductPushCampaign.Source.TAM,
+                position=last_position + 1,
+                scheduled_for=scheduled_for,
+                reason_text=reason_text,
+            )
+    except IntegrityError:
+        # A concurrent run queued the same product for this org — the partial unique
+        # constraint keeps the org on one pending push instead of two.
         return None
 
 

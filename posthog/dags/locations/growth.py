@@ -2,6 +2,7 @@ import dagster
 
 from products.growth.dags import (
     ai_enrichment,
+    bulk_product_push,
     github_sdk_versions,
     identity_matching,
     oauth,
@@ -22,6 +23,8 @@ jobs = [
     user_product_list.sync_cross_sell_products_monthly_job,
     team_production_event_activation.detect_first_team_production_event_job,
     product_push_campaigns.product_push_campaigns_job,
+    # Manual-run only: growth names the organizations and the product per run.
+    bulk_product_push.bulk_product_push_job,
 ]
 schedules = [
     oauth.oauth_clear_expired_oauth_tokens_schedule,
