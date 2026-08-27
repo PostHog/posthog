@@ -76,6 +76,42 @@ class TestBuildResolutionPreview(BaseUserAccessControlTest):
         assert change.subject.type == "member"
         assert (change.current.level, change.proposed.level) == ("editor", "none")
 
+    def test_member_row_on_one_object_adds_no_records_for_other_objects(self):
+        # The everyone record already describes objects the member holds no rule on; a
+        # per-member copy of it would repeat the same change once per rule-holding member
+        other_dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, name="Ops KPIs")
+        self._create_access_control(resource="dashboard", resource_id=str(self.dashboard.id), access_level="viewer")
+        self._create_access_control(resource="dashboard", access_level="editor")
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(other_dashboard.id),
+            access_level="editor",
+            organization_member=self.other_membership,
+        )
+
+        changes = self._changes()
+
+        assert [(change.subject.type, change.object_id) for change in changes] == [("everyone", str(self.dashboard.id))]
+
+    def test_parent_resource_row_is_compared_against_child_objects(self):
+        # Resolution consults the parent resource (session_recording) for playlist objects, so
+        # a member whose only rule sits there can still resolve a playlist differently
+        from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
+
+        playlist = SessionRecordingPlaylist.objects.create(team=self.team, created_by=self.user, name="Bug hunts")
+        self._create_access_control(
+            resource="session_recording_playlist", resource_id=str(playlist.id), access_level="none"
+        )
+        self._create_access_control(
+            resource="session_recording", access_level="editor", organization_member=self.other_membership
+        )
+
+        changes = self._changes()
+
+        member_changes = [change for change in changes if change.subject.type == "member"]
+        assert [(change.scope, change.object_id) for change in member_changes] == [("object", str(playlist.id))]
+        assert (member_changes[0].current.level, member_changes[0].proposed.level) == ("editor", "none")
+
     def test_creator_pairs_are_skipped(self):
         # Creators keep the highest level under both ladders, so their override never applies
         dashboard = Dashboard.objects.create(team=self.team, created_by=self.other_user)

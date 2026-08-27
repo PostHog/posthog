@@ -24,6 +24,8 @@ from posthog.scopes import APIScopeObject
 
 from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
 from products.access_control.backend.facade.user_access_control import (
+    RESOURCE_FALLBACK_MAP,
+    RESOURCE_INHERITANCE_MAP,
     RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS,
     ResolvedAccess,
     UserAccessControl,
@@ -323,9 +325,11 @@ def build_resolution_preview(team: Team, user_access_control: UserAccessControl)
                 subject.access.resolve_most_specific_resource_access(cast(APIScopeObject, resource)),
             )
 
-    # Object scope: objects that have rules. A subject is compared only against objects of a
-    # resource it has any row for, which keeps the pair count near the rule count instead of
-    # subjects x objects.
+    # Object scope: objects that have rules. A named subject resolves an object differently
+    # from the everyone subject only through its explicit rows: on the object itself, at the
+    # resource level, or on a parent resource the ladders consult (RESOURCE_INHERITANCE_MAP /
+    # RESOURCE_FALLBACK_MAP). Anything narrower drops real changes; anything wider repeats the
+    # everyone record once per subject.
     object_ids_by_resource: dict[str, list[str]] = {}
     for row in rows:
         if row.resource_id is not None:
@@ -338,13 +342,29 @@ def build_resolution_preview(team: Team, user_access_control: UserAccessControl)
 
     for resource, object_ids in object_ids_by_resource.items():
         objects = _load_objects(team, resource, object_ids)
-        relevant = _relevant_subject_keys(rows_by_resource.get(resource, []))
-        relevant.add(("everyone",))  # the object default vs resource level case names no subject
+        explicit_keys_by_object: dict[str, set[tuple]] = {}
+        resource_wide_keys: set[tuple] = set()
+        for row in rows_by_resource.get(resource, []):
+            if _subject_key(row) == ("everyone",):
+                continue
+            if row.resource_id is None:
+                resource_wide_keys.add(_subject_key(row))
+            else:
+                explicit_keys_by_object.setdefault(row.resource_id, set()).add(_subject_key(row))
+        for parent in {RESOURCE_INHERITANCE_MAP.get(resource), RESOURCE_FALLBACK_MAP.get(resource)} - {None}:
+            resource_wide_keys |= {
+                _subject_key(row)
+                for row in rows_by_resource.get(cast(str, parent), [])
+                if _subject_key(row) != ("everyone",)
+            }
         for subject in subjects:
             key = ("everyone",) if subject.ref.type == "everyone" else (subject.ref.type, subject.ref.id)
-            if key not in relevant:
-                continue
+            # The everyone subject is always compared: the object default vs resource level
+            # case names no subject
+            subject_is_resource_wide = key == ("everyone",) or key in resource_wide_keys
             for object_id in object_ids:
+                if not subject_is_resource_wide and key not in explicit_keys_by_object.get(object_id, set()):
+                    continue
                 loaded = objects.get(object_id)
                 if loaded is None:
                     continue
