@@ -2361,6 +2361,13 @@ class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
         assert res.status_code == status.HTTP_200_OK, res.json()
         assert [(r["id"], r["name"]) for r in res.json()["results"]] == [(str(insight.id), "Weekly signups")]
 
+        # Notebook URLs carry a short_id too
+        res = self.client.get(
+            f"/api/projects/@current/access_control_object_search?resource=notebook&id={notebook.short_id}"
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert [(r["id"], r["name"]) for r in res.json()["results"]] == [(str(notebook.id), "Q3 planning")]
+
         res = self.client.get("/api/projects/@current/access_control_object_search?resource=webhook")
         assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
 

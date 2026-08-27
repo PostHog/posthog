@@ -108,9 +108,10 @@ export const OBJECT_RULE_RESOURCE_CONFIG: Partial<Record<APIScopeObject, ObjectR
         url: (rule) => urls.dataWarehouseSource(`managed-${rule.resource_id}`),
         parseUrl: (path) => /^\/data-management\/sources\/managed-([0-9a-f-]{36})(?:[/?#]|$)/.exec(path)?.[1] ?? null,
     },
-    // Notebook URLs address short_ids, which the backend resolves alongside the name; the search
-    // endpoint has no short_id lookup for notebooks, so pasted notebook URLs are not parsed
-    notebook: { url: (rule) => (rule.short_id ? urls.notebook(rule.short_id) : null) },
+    notebook: {
+        url: (rule) => (rule.short_id ? urls.notebook(rule.short_id) : null),
+        parseUrl: (path) => /^\/notebooks\/([A-Za-z0-9]+)(?:[/?#]|$)/.exec(path)?.[1] ?? null,
+    },
 }
 
 /** A link to open the object, null for types without a URL or whose short_id is missing. */

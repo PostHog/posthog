@@ -690,8 +690,8 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
 
         Works for every resource the defaults endpoint lists in object_rule_resources, with the same
         display names the rules list shows. Returns pks, the identifier stored on rules and taken by
-        access_control_object_rules; `?id=` also accepts an insight short_id, since insight URLs
-        carry those.
+        access_control_object_rules; `?id=` also accepts a short_id for models that have one
+        (insights, notebooks), since their URLs carry those.
         """
         team = cast(Team, self.team)  # type: ignore
         user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
@@ -733,7 +733,9 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                 ]
             else:
                 if lookup:
-                    qs = qs.filter(pk=lookup)
+                    # Models with a short_id (notebooks) link by it, so a pasted URL carries one
+                    by_short_id = not lookup.isdigit() and _model_has_field(display.model, "short_id")
+                    qs = qs.filter(short_id=lookup) if by_short_id else qs.filter(pk=lookup)
                 elif search:
                     # name_field comes from _display_model's code-defined maps, never from the
                     # request, and search is only a value
