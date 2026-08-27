@@ -102,12 +102,10 @@ const PRODUCTS_RUNNING_TEMPORAL_IN_JOB = new Set([
     'tasks',
     'warehouse-sources',
 ])
-// Products that always get their own matrix entry instead of sharing one —
-// isolates a flaky/hang-prone product so it can't cancel job-mates at the job
-// timeout. Trade-off: a dedicated runner. Empty today: batch-exports was listed
-// for an async-fixture teardown hang, and it now runs at the median product
-// failure rate with no job near the timeout. Add a product here when its wall
-// runs close enough to the job timeout that a hang is a realistic outcome.
+// Products that always get their own matrix entry instead of sharing one, so a
+// hang cannot cancel job-mates when the job timeout fires. The cost is a
+// dedicated runner, so a product belongs here only while its wall runs close
+// enough to the job timeout that a hang is a realistic outcome.
 const DEDICATED_BUCKET_PRODUCTS = new Set()
 
 // --- Staleness detection for .test_durations ---
@@ -908,6 +906,11 @@ function calculateShards(totalWorkSeconds, overheadSeconds, minShards = DJANGO_M
 // so n = ceil(lightWork / (budget - maxLight)). That denominator is at least
 // half the budget, so it cannot collapse.
 //
+// The cuts are contiguous, so a heavy test sitting between light ones divides
+// the light run rather than lifting out of it. H heavy tests leave at most H + 1
+// light runs, and each run rounds up on its own, so the light side can cost H
+// shards beyond its own bound. Charge that whenever any light work exists.
+//
 // Reading the distribution rather than a fitted ratio ties the sizing to the
 // map: a suite of heavy tests gets the shards they force, an evenly grained one
 // gets none it does not need, and no constant carries a past map's error.
@@ -921,7 +924,8 @@ function productSplitShards(shape) {
         return 1
     }
     const lightShards = lightWork > 0 ? Math.ceil(lightWork / (budget - maxLight)) : 0
-    return Math.max(2, Math.min(DJANGO_MAX_SHARDS, heavyCount + lightShards))
+    const fragmentation = lightWork > 0 ? heavyCount : 0
+    return Math.max(2, Math.min(DJANGO_MAX_SHARDS, heavyCount + lightShards + fragmentation))
 }
 
 // Selector segment key -> Django matrix segment name.

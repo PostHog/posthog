@@ -140,8 +140,16 @@ test('tests above half the budget each hold a shard of their own', () => {
     // Ten tests this size cannot pair, so no count below ten holds the budget,
     // however the total work divides.
     assert.equal(productSplitShards({ work: heavy * 10, heavyCount: 10, lightWork: 0, maxLight: 0 }), 10)
-    // One heavy test and a sliver takes two, not a shard per second of remainder.
-    assert.equal(productSplitShards({ work: budget + 1, heavyCount: 1, lightWork: 1, maxLight: 1 }), 2)
+    // One heavy test and a sliver stays bounded rather than asking for a shard per
+    // second of remainder. Three, not two: the cuts are contiguous, so light work
+    // on both sides of the heavy test cannot be gathered into one chunk.
+    assert.equal(productSplitShards({ work: budget + 1, heavyCount: 1, lightWork: 1, maxLight: 1 }), 3)
+})
+
+test('a heavy test between light ones splits the light run', () => {
+    // Ordered [53, 301, 133] against a 320s budget: either contiguous cut leaves a
+    // 354s or 434s chunk, so two shards cannot hold the budget however it is cut.
+    assert.equal(productSplitShards({ work: 487, heavyCount: 1, lightWork: 186, maxLight: 133 }), 3)
 })
 
 test('a product that fits one shard is packed, not split by its own margin', () => {
