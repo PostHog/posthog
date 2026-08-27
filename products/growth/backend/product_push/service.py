@@ -15,6 +15,7 @@ from django.db.models import Exists, Max, OuterRef, Q, QuerySet
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization
@@ -58,7 +59,7 @@ class CloseBatchResult:
     skipped: int = 0
 
 
-@dataclass(kw_only=True)
+@frozen(frozen=False)  # counters accumulate while the batch is processed
 class CustomProductPushBatchResult:
     orgs_processed: int = 0
     created: int = 0

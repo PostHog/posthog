@@ -21,7 +21,6 @@ that already holds a scheduled or active campaign for the product is counted and
 skipped.
 """
 
-from dataclasses import dataclass
 from datetime import UTC, date, datetime, time
 
 from django.conf import settings
@@ -32,6 +31,7 @@ import pydantic
 
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.dags.common import JobOwners, dagster_tags
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization
 from posthog.schema_enums import ProductKey
@@ -57,7 +57,7 @@ _BATCH_OP_RETRY_POLICY = dagster.RetryPolicy(
 )
 
 
-@dataclass(kw_only=True)
+@frozen
 class CustomProductPushBatchSpec:
     organization_ids: list[str]
     product_key: str
