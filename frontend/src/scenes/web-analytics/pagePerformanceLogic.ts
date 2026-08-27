@@ -309,8 +309,7 @@ export const parsePagePerformanceOverviewResponse = (
 /** Aligns the human and crawler series onto one bucket axis — either query can miss a bucket entirely. */
 export const mergePagePerformanceSeries = (
     human: ParsedOverviewResponse,
-    crawler: ParsedOverviewResponse,
-    bucketSize: PagePerformanceBucket
+    crawler: ParsedOverviewResponse
 ): OverviewSeriesPoint[] => {
     const byBucket = new Map<number, OverviewSeriesPoint>()
 
@@ -321,7 +320,7 @@ export const mergePagePerformanceSeries = (
             return existing
         }
         const point: OverviewSeriesPoint = {
-            label: formatBucketLabel(bucket, bucketSize),
+            label: bucket.toISOString(),
             visitors: 0,
             google: 0,
             llm: 0,
@@ -375,16 +374,6 @@ const BUCKET_HOGQL_FN: Record<PagePerformanceBucket, string> = {
     day: 'toStartOfDay',
     week: 'toStartOfWeek',
 }
-
-const BUCKET_LABEL_FORMAT: Record<PagePerformanceBucket, string> = {
-    hour: 'MMM D, HH:mm',
-    day: 'MMM D',
-    week: 'MMM D',
-}
-
-// The bucket is parsed with `dayjs.tz(..., timezone)`, so it already carries the target offset.
-const formatBucketLabel = (bucket: dayjs.Dayjs, bucketSize: PagePerformanceBucket): string =>
-    bucket.format(BUCKET_LABEL_FORMAT[bucketSize])
 
 export interface MetricCellValue {
     current: number
@@ -1248,7 +1237,7 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
                         performQuery(overviewNode(values.overviewCrawlerQuery), { signal }),
                     ])
                     breakpoint()
-                    const { window: dateWindow, bucketSize } = values
+                    const { window: dateWindow } = values
                     const human = parsePagePerformanceOverviewResponse(
                         humanResponse.columns,
                         humanResponse.results,
@@ -1271,7 +1260,7 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
                             crawlsPrevious: crawler.totals.crawls_previous ?? 0,
                             pages: human.totals.pages ?? 0,
                         },
-                        mergePagePerformanceSeries(human, crawler, bucketSize)
+                        mergePagePerformanceSeries(human, crawler)
                     )
                 } catch (error) {
                     if (isCancellation(error)) {
