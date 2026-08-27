@@ -7,6 +7,7 @@ from products.signals.backend.report_generation.open_prs import OpenSelfDrivingP
 from products.signals.backend.report_generation.research import (
     SignalFinding,
     _render_signal_for_research,
+    build_actionability_prompt,
     build_initial_research_prompt,
     build_report_presentation_prompt,
     build_signal_investigation_prompt,
@@ -133,6 +134,17 @@ class TestBuildInitialResearchPrompt:
             assert pr.report_title in prompt
             assert f"posthog/fix-{i}" in prompt
             assert pr.code_paths[0] in prompt
+
+    # The actionability verdict is a later turn, so it restates the pointer at the moment
+    # `already_addressed` is actually decided. It must track whether a block was rendered at all:
+    # pointing the agent at a section the prompt never carried is the failure the initial-prompt
+    # case above already guards.
+    @pytest.mark.parametrize("has_open_self_driving_prs", [False, True])
+    def test_actionability_prompt_points_at_the_block_only_when_it_exists(self, has_open_self_driving_prs):
+        prompt = build_actionability_prompt(1, has_open_self_driving_prs=has_open_self_driving_prs)
+
+        assert ("## Pull requests PostHog already opened" in prompt) == has_open_self_driving_prs
+        assert "`already_addressed` is broader than" in prompt
 
     @pytest.mark.parametrize("has_previous_finding", [False, True])
     def test_uses_stable_finding_response_envelope(self, has_previous_finding):
