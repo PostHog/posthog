@@ -33,7 +33,13 @@ FROZEN_NOW = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
 
 
 def _trace(
-    trace_id: str, *, cost: float, latency: float, event_count: int = 1, created_at: datetime | None = None
+    trace_id: str,
+    *,
+    cost: float,
+    latency: float,
+    event_count: int = 1,
+    created_at: datetime | None = None,
+    user_message: str = "hi",
 ) -> LLMTrace:
     return LLMTrace.model_validate(
         {
@@ -49,7 +55,7 @@ def _trace(
                         "event": "$ai_generation",
                         "createdAt": datetime.now(UTC).isoformat(),
                         "properties": {
-                            "$ai_input": [{"role": "user", "content": "hi"}],
+                            "$ai_input": [{"role": "user", "content": user_message}],
                             "$ai_model": "gpt-4",
                             "$ai_latency": 0.5,
                             "$ai_total_cost_usd": 0.002,
@@ -140,6 +146,24 @@ class TestFormatSessionForJudge:
         assert rendered is not None
         assert "t-alpha" in rendered
         assert "t-beta" in rendered
+
+    def test_injected_context_is_stripped_before_the_judge_reads_it(self):
+        # A session starts by delivering the agent's own instructions through the first user turn.
+        # Left in, the judge reads them as the person speaking, then grades the agent against the
+        # wording its own brief prescribed. The formatter can strip them, but only if this caller
+        # asks it to, so the opt-in is what this guards.
+        traces = [
+            _trace(
+                "t-onboarding",
+                cost=0,
+                latency=0,
+                user_message="<onboarding_brief>\nWrite the first message someone sees.\n</onboarding_brief>",
+            )
+        ]
+        rendered = format_session_for_judge(traces)
+        assert rendered is not None
+        assert "Write the first message someone sees" not in rendered
+        assert "onboarding_brief omitted" in rendered
 
 
 @freeze_time(FROZEN_NOW)

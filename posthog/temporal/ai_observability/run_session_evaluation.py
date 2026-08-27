@@ -355,6 +355,7 @@ def format_session_for_judge(traces: list[LLMTrace]) -> str | None:
         "truncated": True,
         "include_line_numbers": True,
         "max_length": per_trace_budget,
+        "strip_injected_context": True,
     }
     sections: list[str] = []
     for index, trace in enumerate(traces, start=1):

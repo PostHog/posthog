@@ -71,6 +71,56 @@ class TestTruncateContent:
         assert "4500>>>" in lines[2]  # 5000 - 500 = 4500
 
 
+class TestStripInjectedContext:
+    @parameterized.expand(
+        [
+            (
+                "well_formed_block",
+                "<onboarding_brief>\nWrite the first message.\n</onboarding_brief>",
+                "onboarding_brief",
+            ),
+            (
+                "block_with_attributes",
+                '<channel_context channel="general">the CONTEXT.md body</channel_context>',
+                "channel_context",
+            ),
+            # An oversized payload can be cut before capture, taking the closing tag with it. A
+            # pattern that only matched the well-formed shape would leave the whole brief in place,
+            # and leave it with no sign that the strip did nothing.
+            (
+                "closing_tag_lost_to_upstream_truncation",
+                "<onboarding_brief>\nWrite the first mess",
+                "onboarding_brief",
+            ),
+        ]
+    )
+    def test_block_is_replaced_by_a_note_naming_the_tag(self, _name, content, tag):
+        lines, _ = truncate_content(content, {"strip_injected_context": True})
+        assert lines == [f"[{tag} omitted: injected context, not written by the person]"]
+
+    def test_the_person_s_own_words_in_the_same_turn_survive(self):
+        content = "<onboarding_brief>instructions</onboarding_brief>\n\nfix the checkout funnel"
+        lines, _ = truncate_content(content, {"strip_injected_context": True})
+        assert "fix the checkout funnel" in lines[0]
+        assert "instructions" not in lines[0]
+
+    def test_blocks_are_kept_when_the_option_is_absent(self):
+        # The trace view renders through this same function, and someone debugging a verdict needs
+        # the brief: it is what the agent was actually told.
+        content = "<onboarding_brief>instructions</onboarding_brief>"
+        lines, _ = truncate_content(content, {})
+        assert lines == [content]
+
+    def test_stripping_happens_before_the_size_limit(self):
+        # The whole point of stripping in the formatter rather than over its rendered output is
+        # that the block stops consuming budget. Sessions were going ungraded as too large to
+        # judge, and a strip applied after truncation would not win any of that back.
+        content = "hi <onboarding_brief>" + "x" * 5000 + "</onboarding_brief>"
+        lines, truncated = truncate_content(content, {"strip_injected_context": True, "truncate_buffer": 1000})
+        assert truncated is False
+        assert lines == ["hi [onboarding_brief omitted: injected context, not written by the person]"]
+
+
 class TestSafeExtractText:
     """Test safe text extraction from various content formats."""
 

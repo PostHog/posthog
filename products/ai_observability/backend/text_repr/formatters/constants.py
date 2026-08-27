@@ -58,6 +58,25 @@ MISSING_TOOL_OUTPUT_NOTE = "[tool output not recorded]"
 MISSING_REASONING_NOTE = "[reasoning summary not recorded]"
 MISSING_TOOLS_NOTE = "[tool catalog not recorded]"
 
+# Context a product injects into a turn the person never typed. PostHog Desktop delivers an
+# agent's own instructions, its pre-gathered research, and a channel's CONTEXT.md through the
+# first user turn, because that turn is how a session is started. The desktop UI already hides
+# these blocks from the feed; the same text still reaches anything that reads the stored event.
+#
+# Keep in sync with the producers, which own the wire format:
+# `ONBOARDING_PROMPT_TAG` in products/tasks/backend/facade/onboarding_prompt.py, and
+# `buildChannelContextBlock` / `buildCanvasGenerationPrompt` / `buildCustomInstructionsText`
+# in products/desktop/packages/core. The tag names are duplicated rather than imported: they
+# are a wire format shared across a product boundary, and a reader has to keep handling blocks
+# whose producer has since been renamed.
+INJECTED_CONTEXT_TAGS = (
+    "onboarding_brief",
+    "channel_context",
+    "canvas_generation_instructions",
+    "user_custom_instructions",
+)
+INJECTED_CONTEXT_NOTE = "[{tag} omitted: injected context, not written by the person]"
+
 # Tree rendering
 MAX_TREE_DEPTH = 10  # Maximum depth for hierarchical trace tree rendering
 

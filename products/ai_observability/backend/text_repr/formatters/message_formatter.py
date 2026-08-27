@@ -30,6 +30,7 @@ from .constants import (
     SAMPLING_REDUCTION_FACTOR,
     SPECIAL_BLOCK_TYPES,
 )
+from .injected_context import strip_injected_context_blocks
 from .tool_formatter import format_tools
 
 
@@ -42,6 +43,7 @@ class FormatterOptions(TypedDict, total=False):
     collapsed: bool  # Show full hierarchy vs summary (default: False)
     include_line_numbers: bool  # Prefix each line with line number (default: False)
     max_length: int | None  # Max output length; randomly drop lines if exceeded (default: None)
+    strip_injected_context: bool  # Replace injected-context blocks with a note (default: False)
 
 
 class ToolCall(TypedDict, total=False):
@@ -167,6 +169,14 @@ def truncate_content(content: str, options: FormatterOptions | None = None) -> t
     """
     if options is None:
         options = {}
+
+    # Every content path in this package funnels through here, so stripping at this point covers
+    # messages, tool results, reasoning summaries, and trace state from one place. It also runs
+    # before both size limits: the buffer below, and the whole-trace `max_length` that
+    # `format_trace_text_repr` applies after joining. A caller that stripped the rendered output
+    # instead would have already spent budget on text it discards.
+    if options.get("strip_injected_context", False):
+        content = strip_injected_context_blocks(content)
 
     should_truncate = options.get("truncated", True)  # Default: True
     max_length = options.get("truncate_buffer", DEFAULT_TRUNCATE_BUFFER)

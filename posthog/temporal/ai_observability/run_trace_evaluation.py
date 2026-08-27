@@ -447,10 +447,14 @@ def format_trace_for_judge(trace: LLMTrace) -> str:
 
     Delegates to the shared `text_repr` formatter — the same plain-text rendering the trace
     view shows users and the trace-summarization workflow feeds its own LLM. Using it here
-    means the judge grades exactly what a user sees when they open the trace to debug a
-    verdict, and there's one trace serializer to maintain across the product, not a private
-    fork. `include_markers=False` drops the frontend expand/collapse markers; the output is
+    means there's one trace serializer to maintain across the product, not a private fork.
+    `include_markers=False` drops the frontend expand/collapse markers; the output is
     uniformly sampled down to `JUDGE_TRACE_MAX_CHARS` to bound judge cost and context.
+
+    The judge's rendering differs from the trace view in one way: `strip_injected_context`
+    replaces context a product injected into a turn the person never typed. A reader debugging
+    a verdict wants that text, because it is what the agent was told; a judge grading the
+    person's side of the conversation must not read it as something they said.
     """
     trace_dict, hierarchy = llm_trace_to_formatter_format(trace)
     options: FormatterOptions = {
@@ -459,6 +463,7 @@ def format_trace_for_judge(trace: LLMTrace) -> str:
         "truncated": True,
         "include_line_numbers": True,
         "max_length": JUDGE_TRACE_MAX_CHARS,
+        "strip_injected_context": True,
     }
     text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
     return text
