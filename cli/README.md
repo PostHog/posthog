@@ -129,7 +129,7 @@ export POSTHOG_RELEASE_ID=$(posthog-cli release resolve --release-name my-app --
 ./my-app
 ```
 
-The SDK reads `POSTHOG_RELEASE_ID` at runtime and reports it as `$release_id` on each exception, so the server resolves that exception's release by a direct id lookup. Because the id is the key, the release name and version do not have to match anything the app reports, and one symbol set serves every release of an unchanged binary. posthog-rs reads this variable (PostHog/posthog-rs#239); other native SDKs read the same one.
+The SDK reads `POSTHOG_RELEASE_ID` at runtime and reports it as `$release_id` on each exception, so the server resolves that exception's release by a direct id lookup. Because the id is the key, the release name and version do not have to match anything the app reports, and one symbol set serves every release of an unchanged binary. posthog-rs reads this variable in 0.26+ (PostHog/posthog-rs#239).
 
 This is the same `--release-mode=event` as for a distributed binary, minus the binary injection: the release still rides the event, but the SDK reads the id from the environment rather than from bytes patched into the build.
 
