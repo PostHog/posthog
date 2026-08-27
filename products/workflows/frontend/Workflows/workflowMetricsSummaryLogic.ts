@@ -255,7 +255,7 @@ export const WORKFLOW_EMAIL_METRICS: Record<
     email_failed: {
         name: 'Failed',
         description:
-            'Total number of emails that could not be sent. The cause is a failed call to the email provider, a template that did not render, or a message the provider rejected, most often because it contained a virus.',
+            'Total number of emails that could not be sent. This covers a failed call to the email provider, a template that did not render, a message the provider rejected for containing a virus, and a misconfigured email step, such as a sender that no longer exists or a domain that is not verified.',
         color: METRIC_COLORS['Failed'],
         metricNames: ['email_failed'],
     },
