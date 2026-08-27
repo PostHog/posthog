@@ -2772,6 +2772,41 @@ class TestAccountRelationshipViewSet(APIBaseTest):
         self.assertEqual(status.HTTP_403_FORBIDDEN, response.status_code)
         self.assertTrue(AccountRelationship.objects.for_team(self.team.id).filter(id=relationship.id).exists())
 
+    def test_account_viewer_cannot_hard_delete_relationship_as_customer_analytics_editor(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        definition = self._create_relationship_definition()
+        relationship = relationships_logic.assign(
+            team_id=self.team.id, account=self.account, definition=definition, user=self.user, created_by=self.user
+        )
+        account_viewer = User.objects.create_and_join(
+            self.organization, "account-viewer-relationship-editor@example.com", "testtest"
+        )
+        membership = OrganizationMembership.objects.get(user=account_viewer, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="customer_analytics",
+            resource_id=None,
+            access_level="editor",
+            organization_member=membership,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(self.account.id),
+            access_level="viewer",
+            organization_member=membership,
+        )
+        self.client.force_login(account_viewer)
+
+        response = self.client.delete(f"{self.endpoint}{relationship.id}/")
+
+        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+        self.assertTrue(AccountRelationship.objects.for_team(self.team.id).filter(id=relationship.id).exists())
+
 
 class TestAccountSupportTicketViewSet(APIBaseTest):
     def setUp(self):
