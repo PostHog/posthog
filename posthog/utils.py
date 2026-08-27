@@ -496,6 +496,13 @@ def get_context_for_template(
         return _build_template_context(template_name, request, context, team_for_public_context)
 
 
+def get_persisted_feature_flags_for_app_context() -> list[str]:
+    static_keys = settings.PERSISTED_FEATURE_FLAGS
+    if not is_cloud():
+        static_keys = (*static_keys, *settings.NON_CLOUD_PERSISTED_FEATURE_FLAGS)
+    return get_dynamic_persisted_feature_flags(posthoganalytics.feature_flag_definitions(), static_keys)
+
+
 def _build_template_context(
     template_name: str,
     request: HttpRequest,
@@ -568,9 +575,7 @@ def _build_template_context(
     context["js_url"] = get_js_url(request)
 
     posthog_app_context: dict[str, Any] = {
-        "persisted_feature_flags": get_dynamic_persisted_feature_flags(
-            posthoganalytics.feature_flag_definitions(), settings.PERSISTED_FEATURE_FLAGS
-        ),
+        "persisted_feature_flags": get_persisted_feature_flags_for_app_context(),
         "anonymous": not request.user or not request.user.is_authenticated,
     }
 

@@ -1,7 +1,9 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { UserProductListReason } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -51,6 +53,18 @@ describe('projectTreeDataLogic', () => {
 
         expect(paths).toContain('Session replay')
         expect(paths).toContain('Replay vision')
+    })
+
+    it('shows Warehouse properties in Data when its persisted feature flag is enabled', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES]: false })
+
+        const dataRootWithoutFlag = logic.values.getStaticTreeItems('', false).find((item) => item.id === 'data://')
+        expect(dataRootWithoutFlag?.children?.some((item) => item.record?.path === 'Warehouse properties')).toBe(false)
+
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES]: true })
+
+        const dataRootWithFlag = logic.values.getStaticTreeItems('', false).find((item) => item.id === 'data://')
+        expect(dataRootWithFlag?.children?.some((item) => item.record?.path === 'Warehouse properties')).toBe(true)
     })
 
     it('handles null unfiled item responses', async () => {
