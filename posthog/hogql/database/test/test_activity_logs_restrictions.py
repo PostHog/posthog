@@ -1,6 +1,7 @@
 from datetime import timedelta
 from typing import Literal
 
+from freezegun import freeze_time
 from posthog.test.base import BaseTest
 
 from django.utils import timezone
@@ -241,3 +242,23 @@ class TestActivityLogsCacheKey(BaseTest):
         payload = runner.get_cache_payload()
 
         self.assertEqual("activity_log_visibility_policy" in payload, expected)
+
+    def test_cache_key_follows_the_floor_as_it_moves(self):
+        # A cache-only request returns a stored result however stale it is, so a result stored inside the
+        # window would keep serving its rows after they fall outside it. The window alone cannot catch that,
+        # because it does not change as the clock moves.
+        self.organization.available_product_features = [
+            {"key": "audit_logs", "name": "Audit logs", "limit": 30, "unit": "days"}
+        ]
+        self.organization.save()
+
+        with freeze_time("2026-08-14T10:30:00Z"):
+            earlier = get_query_runner(
+                HogQLQuery(query="SELECT id FROM system.activity_logs"), team=self.team, user=self.user
+            ).get_cache_key()
+        with freeze_time("2026-08-14T11:30:00Z"):
+            later = get_query_runner(
+                HogQLQuery(query="SELECT id FROM system.activity_logs"), team=self.team, user=self.user
+            ).get_cache_key()
+
+        self.assertNotEqual(earlier, later)

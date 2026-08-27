@@ -34,6 +34,7 @@ from posthog.event_usage import AnalyticsProps
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
 from posthog.models import User
+from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
 
 from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
 from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
@@ -136,13 +137,22 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
 
-        # The activity-log visibility rules are printed guards, so a cache hit returns before they run and
-        # nothing else in the key tracks them. Varying on the rule set means a result stored under the
-        # previous rules stops being served once the version bumps. `requires_fresh_calculation` above
-        # skips the cache for these queries in every mode that may calculate; this also covers
-        # CACHE_ONLY_NEVER_CALCULATE, which returns a stored result without asking.
+        # Both activity-log guards print into the query, so a cache lookup returns before either runs.
+        # `requires_fresh_calculation` above keeps a stored result from being served in every mode that may
+        # calculate. CACHE_ONLY_NEVER_CALCULATE is the mode it cannot reach: that one returns a stored
+        # result however stale it is, so the key carries what the guards depend on.
         if _ACTIVITY_LOGS_TABLE in self._queried_table_names:
+            # Nothing else in the key tracks the visibility rules. Varying on the rule set means a result
+            # stored under the previous rules stops being served once the version bumps.
             payload["activity_log_visibility_policy"] = ACTIVITY_LOG_VISIBILITY_POLICY_VERSION
+
+            # The retention floor moves with the clock, so a result stored inside the window would outlive
+            # it. Bucketing by the hour bounds a cache-only read to rows at most an hour past the floor,
+            # rather than for as long as the entry lives. The window itself is in the key already, from
+            # `QueryRunner.get_cache_payload`, which covers a read that reaches the table through a view.
+            floor = get_activity_log_lookback_restriction(self.team.organization)
+            if floor is not None:
+                payload["activity_log_retention_floor_hour"] = floor.strftime("%Y-%m-%dT%H")
 
         return payload
 
