@@ -112,12 +112,14 @@ async def test_persist_ai_report_keeps_context_provenance_with_the_report(team, 
         context_references=[("dashboard", "1")],
     )
 
-    references = await sync_to_async(list)(
-        SubscriptionDeliveryContext.objects.for_team(team.id)
-        .filter(delivery=delivery)
-        .order_by("kind", "identifier")
-        .values_list("kind", "identifier")
-    )
+    references: list[tuple[str, str]] = await sync_to_async(
+        lambda: list(
+            SubscriptionDeliveryContext.objects.for_team(team.id)
+            .filter(delivery=delivery)
+            .order_by("kind", "identifier")
+            .values_list("kind", "identifier")
+        )
+    )()
     assert references == [
         (AI_REPORT_DELIVERY_CONTEXT_MARKER_KIND, AI_REPORT_DELIVERY_CONTEXT_MARKER_IDENTIFIER),
         ("dashboard", "1"),

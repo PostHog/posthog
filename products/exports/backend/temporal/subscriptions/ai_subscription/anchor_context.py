@@ -1,6 +1,7 @@
 import json
 import hashlib
 from itertools import islice
+from typing import cast
 
 from django.db.models import IntegerField, Q, QuerySet, Value
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
@@ -92,14 +93,14 @@ def _bounded_json_value(value: object, remaining_nodes: list[int], depth: int = 
             bounded["…(truncated)"] = True
         return bounded
     if isinstance(value, (list, tuple)):
-        bounded = []
+        bounded_list: list[object] = []
         for item in islice(value, ANCHOR_JSON_MAX_ITEMS_PER_CONTAINER):
             if remaining_nodes[0] <= 0:
                 break
-            bounded.append(_bounded_json_value(item, remaining_nodes, depth + 1))
-        if len(value) > len(bounded):
-            bounded.append("…(truncated)")
-        return bounded
+            bounded_list.append(_bounded_json_value(item, remaining_nodes, depth + 1))
+        if len(value) > len(bounded_list):
+            bounded_list.append("…(truncated)")
+        return bounded_list
     return value
 
 
@@ -203,7 +204,7 @@ def _capped_dashboard_tiles(dashboard: Dashboard, limit: int) -> tuple[list[Dash
             "insight__filters",
         )[: limit + 1]
     )
-    return selected_tiles[:limit], len(selected_tiles) > limit
+    return cast(list[DashboardTile], selected_tiles[:limit]), len(selected_tiles) > limit
 
 
 def build_anchor_context(subscription: Subscription) -> AnchorContext | None:
@@ -303,6 +304,8 @@ def _build_anchor_context(subscription: Subscription) -> AnchorContext | None:
         capped_tiles, has_more_tiles = _capped_dashboard_tiles(dashboard, remaining_tiles)
         for tile in capped_tiles:
             tile_insight = tile.insight
+            if tile_insight is None:
+                continue
             lines.extend(_insight_lines(tile_insight, events))
             resource_references.append(("dashboard_tile_insight", str(tile_insight.id)))
             tile_filters = _dashboard_metadata_line("Tile filters", tile.filters_overrides)

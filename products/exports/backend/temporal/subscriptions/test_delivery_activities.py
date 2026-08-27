@@ -68,9 +68,9 @@ async def test_ai_report_delivery_context_references_are_replaced_per_generation
     )
     await _replace_delivery_context_references(delivery.id, team.id, [("insight", "3")])
 
-    references = await sync_to_async(list)(
-        delivery.context_references.order_by("kind", "identifier").values_list("kind", "identifier")
-    )
+    references: list[tuple[str, str]] = await sync_to_async(
+        lambda: list(delivery.context_references.order_by("kind", "identifier").values_list("kind", "identifier"))
+    )()
     assert references == [
         (AI_REPORT_DELIVERY_CONTEXT_MARKER_KIND, AI_REPORT_DELIVERY_CONTEXT_MARKER_IDENTIFIER),
         ("insight", "3"),

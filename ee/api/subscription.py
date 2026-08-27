@@ -24,9 +24,9 @@ from drf_spectacular.utils import (
 from rest_framework import exceptions, filters, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.fields import html
 from rest_framework.pagination import CursorPagination
 from rest_framework.response import Response
+from rest_framework.utils import html
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -42,6 +42,7 @@ from posthog.event_usage import get_request_analytics_properties, groups
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.integration import Integration
 from posthog.rate_limit import SubscriptionTestDeliveryThrottle
 from posthog.resource_limits import LimitKey, check_count_limit, get_organization_limit
@@ -122,6 +123,7 @@ def _log_subscription_context_changes(
             scope="Subscription",
             activity="updated",
             detail=Detail(name=subscription.display_name, changes=changes),
+            was_impersonated=get_was_impersonated(),
         )
     except Exception as exc:
         capture_exception(exc)
@@ -533,7 +535,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(SubscriptionContextSerializer(many=True))
     def get_contexts(self, obj: Subscription) -> list[dict[str, str | int]]:
-        user_access_control = self.context.get("view").user_access_control if self.context.get("view") else None
+        user_access_control = getattr(self.context.get("view"), "user_access_control", None)
         is_context_recovery = bool(getattr(obj, "_is_context_recovery", False))
         dashboards = [
             {
