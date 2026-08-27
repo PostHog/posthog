@@ -53,14 +53,7 @@ export function GatewayAccessSection(): JSX.Element | null {
             {isAdmin && (
                 <>
                     <div className="border rounded p-3 flex items-center justify-between gap-3 bg-surface-secondary">
-                        <div>
-                            <div className="font-semibold">Available to team members</div>
-                            <div className="text-sm text-secondary">
-                                {server.is_team_enabled
-                                    ? `Members can connect their own ${server.name} account.`
-                                    : `Members cannot see or call ${server.name} while it is off.`}
-                            </div>
-                        </div>
+                        <div className="font-semibold">Allow members to connect their own {server.name} account</div>
                         <LemonSwitch
                             checked={server.is_team_enabled}
                             loading={allServersEnabledLoading || serverEnabledLoadingIds.has(server.id)}

@@ -241,12 +241,7 @@ export function GatewayAddServer({
             <Flex direction="column" gap="3">
               {isAdmin && (
                 <ToggleRow
-                  title="Available to team members"
-                  sub={
-                    values.teamEnabled
-                      ? "Members can find this server and connect their own account"
-                      : "Only admins will see it until you enable it in Team settings."
-                  }
+                  title={`Allow members to connect their own ${values.name || "server"} account`}
                   checked={values.teamEnabled}
                   onChange={(checked) => set("teamEnabled", checked)}
                 />
@@ -365,12 +360,10 @@ function Field({
 
 function ToggleRow({
   title,
-  sub,
   checked,
   onChange,
 }: {
   title: string;
-  sub: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
 }) {
@@ -384,9 +377,6 @@ function ToggleRow({
       <div>
         <Text as="div" className="font-medium text-sm">
           {title}
-        </Text>
-        <Text as="div" color="gray" className="text-[13px]">
-          {sub}
         </Text>
       </div>
       <Switch checked={checked} onCheckedChange={onChange} />
