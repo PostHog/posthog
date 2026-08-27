@@ -250,8 +250,17 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
                 loadRunResultSuccess: () => null,
                 // A run against broken SQL is the author's own definition error, not a crash. Keep the
                 // backend detail so they can see which expression broke, and render it inline.
-                loadRunResultFailure: (_, { errorObject }) =>
-                    apiErrorDetail(errorObject) ?? 'This metric could not run. Check the definition and try again.',
+                loadRunResultFailure: (_, { errorObject }) => {
+                    const detail = apiErrorDetail(errorObject)
+                    if (detail) {
+                        return detail
+                    }
+                    // Only a 400 is a definition error. A network drop or a 5xx has no detail either,
+                    // but it is not the author's fault, so it must not point them at valid SQL.
+                    return errorObject instanceof ApiError && errorObject.status === 400
+                        ? 'This metric could not run. Check the definition and try again.'
+                        : 'Could not run the metric. Try again.'
+                },
             },
         ],
     }),

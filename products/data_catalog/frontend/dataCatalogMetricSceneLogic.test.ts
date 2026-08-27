@@ -127,6 +127,17 @@ describe('dataCatalogMetricSceneLogic', () => {
         await expectLogic(logic).toMatchValues({ runError: null })
     })
 
+    it('shows a neutral retry message when a run fails without a definition error', async () => {
+        // A gateway 503 (or a network drop) carries no detail and is not the author's fault,
+        // so the banner must not tell them to check valid SQL.
+        ;(dataCatalogMetricsRunCreate as jest.Mock).mockRejectedValue(new ApiError('unavailable', 503))
+
+        logic.actions.loadRunResult()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.runError).toEqual('Could not run the metric. Try again.')
+    })
+
     it('discards the edited draft when the definition editor closes without saving', async () => {
         jest.clearAllMocks()
         ;(dataCatalogMetricsRetrieve as jest.Mock).mockResolvedValue(
