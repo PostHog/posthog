@@ -269,19 +269,24 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
             selection.HIGH_FANOUT_PATH = original_path
 
     def test_changed_tests_do_not_trigger_full_run_patterns(self) -> None:
-        selection = _load_selection_module()
+        with tempfile.TemporaryDirectory() as root:
+            selection = _load_selection_module()
+            selection.REPO_ROOT = Path(root)
+            test_path = selection.REPO_ROOT / "posthog" / "test" / "test_version_requirement.py"
+            test_path.parent.mkdir(parents=True)
+            test_path.touch()
 
-        result = selection.ast_select_tests(
-            ["posthog/test/test_version_requirement.py"],
-            {
-                "posthog/test/test_version_requirement.py": selection.TestFeatures(
-                    path="posthog/test/test_version_requirement.py"
-                )
-            },
-        )
+            result = selection.ast_select_tests(
+                ["posthog/test/test_version_requirement.py"],
+                {
+                    "posthog/test/test_version_requirement.py": selection.TestFeatures(
+                        path="posthog/test/test_version_requirement.py"
+                    )
+                },
+            )
 
-        self.assertEqual([], result.full_run_reasons)
-        self.assertEqual({"changed_tests": ["posthog/test/test_version_requirement.py"]}, result.groups)
+            self.assertEqual([], result.full_run_reasons)
+            self.assertEqual({"changed_tests": ["posthog/test/test_version_requirement.py"]}, result.groups)
 
     # ci-backend's `legacy` paths filter routes these into test selection, but none of
     # them is Python, so the import graph reaches no test through them. Without a full-run
