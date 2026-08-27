@@ -35,6 +35,17 @@ describe('widgetArtifactBridge', () => {
                 ['pandas_df'],
                 loadFrame,
                 {
+                    key: `${NOTEBOOK_FRAME_KEY_PREFIX}pandas_df:0:5000`,
+                },
+                signal
+            )
+        ).resolves.toBe(frame)
+        expect(loadFrame).toHaveBeenLastCalledWith('pandas_df', 0, 500, signal)
+        await expect(
+            readWidgetFrame(
+                ['pandas_df'],
+                loadFrame,
+                {
                     key: `${NOTEBOOK_FRAME_KEY_PREFIX}private_df:0:100`,
                 },
                 signal
@@ -49,7 +60,7 @@ describe('widgetArtifactBridge', () => {
                 ['pandas_df'],
                 jest.fn(),
                 {
-                    key: `${NOTEBOOK_FRAME_KEY_PREFIX}pandas_df:0:501`,
+                    key: `${NOTEBOOK_FRAME_KEY_PREFIX}pandas_df:0:0`,
                 },
                 signal
             )

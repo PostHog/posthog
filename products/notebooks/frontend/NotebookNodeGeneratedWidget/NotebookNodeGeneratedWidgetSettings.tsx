@@ -51,13 +51,14 @@ export function NotebookNodeGeneratedWidgetSettings({
         generationModalOperation,
         generationRequestLoading,
         isWorking,
+        dataRefreshInFlight,
         restoreInFlight,
         selectedVersion,
         selectedVersionId,
         status,
-        statusLoading,
         versions,
         versionsCount,
+        versionsError,
         versionsLoading,
         versionsNextOffset,
         workingStatus,
@@ -67,6 +68,7 @@ export function NotebookNodeGeneratedWidgetSettings({
         closeGenerationModal,
         generateWidget,
         loadMoreVersions,
+        loadVersions,
         openGenerationModal,
         openSourceModal,
         refreshData,
@@ -161,6 +163,15 @@ export function NotebookNodeGeneratedWidgetSettings({
                                 </LemonButton>
                             ) : null}
                         </div>
+                        {versionsError && !versionsLoading ? (
+                            <LemonBanner
+                                type="warning"
+                                className="mt-2"
+                                action={{ children: 'Retry', onClick: () => loadVersions(true) }}
+                            >
+                                Couldn't load version history.
+                            </LemonBanner>
+                        ) : null}
                     </div>
                     {selectedVersion ? (
                         <div className="rounded border bg-surface-primary p-3">
@@ -225,7 +236,7 @@ export function NotebookNodeGeneratedWidgetSettings({
                                 </LemonButton>
                                 <LemonButton
                                     onClick={refreshData}
-                                    loading={statusLoading}
+                                    disabledReason={dataRefreshInFlight ? 'Reloading widget.' : undefined}
                                     data-attr="notebook-widget-reload"
                                 >
                                     Reload

@@ -4,6 +4,7 @@ const CANVAS_CHANNEL = 'posthog-canvas'
 export const NOTEBOOK_FRAME_KEY_PREFIX = '__posthog_notebook_frame__:'
 const MAX_CONCURRENT_REQUESTS = 8
 const MAX_REQUEST_BYTES = 8 * 1024
+const MAX_FRAME_PAGE_ROWS = 500
 const REQUEST_TIMEOUT_MS = 30_000
 
 type ArtifactMessage = {
@@ -33,10 +34,10 @@ export async function readWidgetFrame(
     if (!name || !allowedFrames.includes(name)) {
         throw new Error('This dataframe is not available to the widget')
     }
-    if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 500) {
+    if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1) {
         throw new Error('The dataframe page is invalid')
     }
-    return await loadFrame(name, offset, limit, signal)
+    return await loadFrame(name, offset, Math.min(limit, MAX_FRAME_PAGE_ROWS), signal)
 }
 
 export type WidgetHostCallbacks = {

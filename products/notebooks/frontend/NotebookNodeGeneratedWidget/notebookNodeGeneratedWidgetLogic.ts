@@ -449,9 +449,12 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
             dataRefreshInFlight: [
                 false,
                 {
+                    artifactRefreshReady: () => false,
                     dataRefreshStarted: () => true,
                     dataRefreshFinished: () => false,
                     abortChain: () => false,
+                    refreshData: () => true,
+                    statusFailed: () => false,
                 },
             ],
             restoreInFlight: [
@@ -855,7 +858,11 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                 },
                 statusReceived: ({ status }) => {
                     cache.disposables.dispose('statusPoll')
-                    if (status.has_versions && (!values.versions.length || !values.selectedVersionId)) {
+                    if (
+                        status.has_versions &&
+                        !cache.versionsRequestInFlight &&
+                        (!values.versions.length || !values.selectedVersionId)
+                    ) {
                         actions.loadVersions(true)
                     }
                     if (

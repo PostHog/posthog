@@ -135,7 +135,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         expect(logic.values.versionsLoading).toBe(false)
     })
 
-    it('reloads versions after a reset arrives during an in-flight request', async () => {
+    it('ignores repeated status polls and reloads explicit resets during an in-flight request', async () => {
         const initialVersion: WidgetVersionApi = {
             id: '00000000-0000-0000-0000-000000000002',
             parent_version_id: null,
@@ -157,14 +157,14 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             artifact_url: 'https://example.com/widget-v2.html',
         }
         let resolveInitialRequest: (page: WidgetVersionPageApi) => void = () => undefined
-        jest.mocked(notebooksWidgetStatus).mockResolvedValue(
-            status({
-                lifecycle_status: 'ready',
-                artifact_url: initialVersion.artifact_url,
-                current_version_id: initialVersion.id,
-                has_versions: true,
-            })
-        )
+        let resolveResetRequest: (page: WidgetVersionPageApi) => void = () => undefined
+        const readyStatus = status({
+            lifecycle_status: 'ready',
+            artifact_url: initialVersion.artifact_url,
+            current_version_id: initialVersion.id,
+            has_versions: true,
+        })
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(readyStatus)
         jest.mocked(notebooksWidgetVersions)
             .mockImplementationOnce(
                 () =>
@@ -172,36 +172,57 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
                         resolveInitialRequest = resolve
                     })
             )
+            .mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        resolveResetRequest = resolve
+                    })
+            )
             .mockResolvedValueOnce({ results: [currentVersion], count: 1, next_offset: null })
         logic = notebookNodeGeneratedWidgetLogic(props)
         logic.mount()
         await expectLogic(logic).toDispatchActions(['statusReceived', 'loadVersions'])
 
-        logic.actions.loadVersions(true)
+        logic.actions.statusReceived(readyStatus)
         resolveInitialRequest({ results: [initialVersion], count: 1, next_offset: null })
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(notebooksWidgetVersions).toHaveBeenCalledTimes(2)
+        expect(notebooksWidgetVersions).toHaveBeenCalledTimes(1)
+        expect(logic.values.versions).toEqual([initialVersion])
+
+        logic.actions.loadVersions(true)
+        logic.actions.loadVersions(true)
+        resolveResetRequest({ results: [initialVersion], count: 1, next_offset: null })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(notebooksWidgetVersions).toHaveBeenCalledTimes(3)
         expect(logic.values.versions).toEqual([currentVersion])
     })
 
     it('refreshes the signed preview URL before reloading the frame', async () => {
+        let resolveReload: (status: WidgetStatusApi) => void = () => undefined
         jest.mocked(notebooksWidgetStatus)
             .mockResolvedValueOnce(
                 status({ lifecycle_status: 'ready', artifact_url: 'https://example.com/widget-old.html' })
             )
-            .mockResolvedValueOnce(
-                status({ lifecycle_status: 'ready', artifact_url: 'https://example.com/widget-new.html' })
+            .mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        resolveReload = resolve
+                    })
             )
         logic = notebookNodeGeneratedWidgetLogic(props)
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
         logic.actions.refreshData()
+        expect(logic.values.dataRefreshInFlight).toBe(true)
+        resolveReload(status({ lifecycle_status: 'ready', artifact_url: 'https://example.com/widget-new.html' }))
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.status?.artifact_url).toBe('https://example.com/widget-new.html')
         expect(logic.values.frameRevision).toBe(1)
+        expect(logic.values.dataRefreshInFlight).toBe(false)
     })
 
     it('keeps the last ready version selected while a replacement builds', async () => {
