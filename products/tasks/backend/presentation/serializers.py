@@ -517,6 +517,14 @@ class TaskSerializer(DataclassSerializer):
         choices=tasks_facade.TaskRuntime.choices,
         help_text="Agent protocol and harness used for this task's runs.",
     )
+    origin_key = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Stable key of the server-side flow that created this task, e.g. "
+            "`desktop_onboarding_session:<user_id>`. Null for tasks people create themselves."
+        ),
+    )
 
     class Meta:
         dataclass = TaskDetailDTO
@@ -546,6 +554,7 @@ class TaskSerializer(DataclassSerializer):
             "ci_prompt",
             "channel",
             "slack_thread_references",
+            "origin_key",
         ]
 
 

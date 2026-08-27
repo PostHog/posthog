@@ -199,6 +199,7 @@ class TaskDetailDTO:
     latest_run_id: UUID | None = None
     channel: UUID | None = None
     slack_thread_references: list[SlackThreadReferenceDTO] = Field(default_factory=list)
+    origin_key: str | None = None
 
 
 @dataclass(frozen=True)
