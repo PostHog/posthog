@@ -227,6 +227,7 @@ export interface subscriptionLogicValues {
     previewError: string | null
     previewImageUrl: string | null
     previewLoading: boolean
+    recoveryActionLoading: boolean
     showSubscriptionErrors: boolean
     subscription: SubscriptionType
     subscriptionAllErrors: Record<string, any>
@@ -314,6 +315,15 @@ export interface subscriptionLogicActions {
             limit: number | null
         }
         payload?: any
+    }
+    recoverContextAccess: (action: 'clear' | 'pause') => {
+        action: 'clear' | 'pause'
+    }
+    recoverContextAccessFailure: () => {
+        value: true
+    }
+    recoverContextAccessSuccess: () => {
+        value: true
     }
     removeContext: (context: SubscriptionContextApi) => {
         context: SubscriptionContextApi
@@ -424,6 +434,9 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         addContextEvent: (eventName: string) => ({ eventName }),
         removeContext: (context: SubscriptionContextApi) => ({ context }),
         removeContextEvent: (eventName: string) => ({ eventName }),
+        recoverContextAccess: (action: 'pause' | 'clear') => ({ action }),
+        recoverContextAccessFailure: true,
+        recoverContextAccessSuccess: true,
         selectAiExamplePrompt: (prompt: string, label: string) => ({
             prompt,
             label,
@@ -446,6 +459,14 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 sendTestDelivery: () => true,
                 sendTestDeliveryFailure: () => false,
                 sendTestDeliverySuccess: () => false,
+            },
+        ],
+        recoveryActionLoading: [
+            false,
+            {
+                recoverContextAccess: () => true,
+                recoverContextAccessFailure: () => false,
+                recoverContextAccessSuccess: () => false,
             },
         ],
         previewAsset: [
@@ -660,6 +681,26 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 return
             }
             actions.sendTestDeliveryFailure()
+        },
+        recoverContextAccess: async ({ action }) => {
+            if (props.id === 'new') {
+                actions.recoverContextAccessFailure()
+                return
+            }
+            try {
+                const updated = await api.subscriptions.update(
+                    props.id,
+                    action === 'pause'
+                        ? { enabled: false }
+                        : { context_dashboards: [], context_insights: [], context_items: [] }
+                )
+                actions.resetSubscription(updated)
+                actions.recoverContextAccessSuccess()
+                lemonToast.success(action === 'pause' ? 'Subscription paused.' : 'Inaccessible context removed.')
+            } catch {
+                actions.recoverContextAccessFailure()
+                lemonToast.error('Could not update this subscription. Please try again.')
+            }
         },
         sendTestDeliverySuccess: async (_, breakpoint) => {
             await breakpoint(2000)

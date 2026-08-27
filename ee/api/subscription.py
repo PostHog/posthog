@@ -369,6 +369,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "when resource_type is 'ai_prompt'. Replaced wholesale on writes."
         ),
     )
+    context_dashboards = serializers.PrimaryKeyRelatedField(many=True, queryset=Dashboard.objects.all(), required=False)
+    context_insights = serializers.PrimaryKeyRelatedField(many=True, queryset=Insight.objects.all(), required=False)
     context_items = serializers.ListField(
         child=SubscriptionContextItemSerializer(),
         required=False,
@@ -381,6 +383,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     resource_name = serializers.SerializerMethodField()
     contexts = serializers.SerializerMethodField(
         help_text=("The dashboards and insights grounding an AI report, for display. Deleted context is omitted.")
+    )
+    context_recovery = serializers.SerializerMethodField(
+        help_text="Whether this subscription can only be paused or cleared because its creator lost context access."
     )
     resource_type = serializers.ChoiceField(
         choices=Subscription.ResourceType.choices,
@@ -409,6 +414,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "context_insights",
             "context_items",
             "contexts",
+            "context_recovery",
             "target_type",
             "target_value",
             "frequency",
@@ -440,6 +446,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "insight_short_id",
             "resource_name",
             "contexts",
+            "context_recovery",
         ]
         extra_kwargs = {
             "prompt": {
@@ -511,6 +518,15 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             return obj.insight.short_id
         return None
 
+    def to_internal_value(self, data: Any) -> dict:
+        # Bound raw arrays before DRF resolves each relation, so an oversized request cannot
+        # turn one validation error into thousands of database lookups.
+        for field in ("context_dashboards", "context_insights", "context_items"):
+            value = data.get(field) if hasattr(data, "get") else None
+            if isinstance(value, list) and len(value) > MAX_AI_REPORT_CONTEXTS:
+                raise ValidationError({field: [f"Select no more than {MAX_AI_REPORT_CONTEXTS} items."]})
+        return super().to_internal_value(data)
+
     @extend_schema_field(SubscriptionContextSerializer(many=True))
     def get_contexts(self, obj: Subscription) -> list[dict[str, str | int]]:
         user_access_control = self.context.get("view").user_access_control if self.context.get("view") else None
@@ -546,6 +562,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             data["context_dashboards"] = []
             data["context_insights"] = []
         return data
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_context_recovery(self, obj: Subscription) -> bool:
+        return bool(getattr(obj, "_is_context_recovery", False))
 
     def get_resource_name(self, obj: Subscription) -> Optional[str]:
         info = obj.resource_info
@@ -1107,6 +1127,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         old_context_ids = {
             field: set(getattr(instance, field).values_list("id", flat=True)) for field in new_context_ids
         }
+        old_context_items = instance.context_items if "context_items" in validated_data else None
 
         if is_delete:
             with slo_operation(
@@ -1153,6 +1174,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         ) or (old_export_insight_ids is not None and set(dashboard_export_insight_ids) != old_export_insight_ids)
         delivery_content_changed = delivery_content_changed or any(
             new_context_ids[field] != old_ids for field, old_ids in old_context_ids.items()
+        )
+        delivery_content_changed = delivery_content_changed or (
+            old_context_items is not None and instance.context_items != old_context_items
         )
 
         # Explicit send_test_now wins. When omitted, infer: send when the edit changed what

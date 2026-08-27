@@ -19,6 +19,7 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery, SubscriptionDeliveryContext
+from products.exports.backend.temporal.subscriptions.ai_subscription.anchor_context import AnchorContextAccessDenied
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     build_ai_subscription_report,
     build_chart_image_urls,
@@ -325,6 +326,12 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
             inputs.delivery_id, subscription.team_id, context.anchor.resource_references if context.anchor else []
         )
         report_result = await build_ai_subscription_report(subscription, context=context)
+    except AnchorContextAccessDenied:
+        reason = "A selected report context is no longer accessible. Remove it before re-enabling this subscription."
+        aborted = await auto_disable_and_return(subscription, reason, [])
+        return GenerateAIReportResult(
+            aborted=True, recipient_results=aborted.recipient_results, target_type=subscription.target_type
+        )
     except PromptRejectedError as exc:
         # Structurally permanent: no creator, prompt now fails sanitization, or the
         # planner returned a malformed plan. Re-firing wastes LLM tokens every cycle.

@@ -59,6 +59,10 @@ class AnchorContextUnavailable(Exception):
     """
 
 
+class AnchorContextAccessDenied(Exception):
+    """A configured report context is no longer readable by the subscription creator."""
+
+
 def _extract_event_names(node: object) -> Iterator[str]:
     # Insight queries reference events as {"event": "<name>"} nodes (TrendsQuery series, funnel
     # steps, property filters). A structural walk keeps this schema-agnostic.
@@ -200,7 +204,14 @@ def _build_anchor_context(subscription: Subscription) -> AnchorContext | None:
 
     for dashboard in dashboards:
         if not can_view(dashboard):
-            continue
+            raise AnchorContextAccessDenied
+        viewable_tile_insights = viewable_dashboard_insights(dashboard)
+        live_tile_insights = Insight.objects.filter(
+            team_id=subscription.team_id,
+            id__in=dashboard.tiles.filter(insight__isnull=False, insight__deleted=False).values("insight_id"),
+        )
+        if live_tile_insights.exclude(id__in=viewable_tile_insights).exists():
+            raise AnchorContextAccessDenied
         name = sanitize_user_text(dashboard.name or "", ANCHOR_NAME_MAX_LENGTH) or "(unnamed)"
         lines.append(f"- Context dashboard: {name}")
         resource_references.append(("dashboard", str(dashboard.id)))
@@ -211,9 +222,7 @@ def _build_anchor_context(subscription: Subscription) -> AnchorContext | None:
             metadata_line = _dashboard_metadata_line(label, value)
             if metadata_line:
                 lines.append(metadata_line)
-        capped_tiles, tile_count = _capped_dashboard_tiles(
-            dashboard, viewable_dashboard_insights(dashboard), remaining_tiles
-        )
+        capped_tiles, tile_count = _capped_dashboard_tiles(dashboard, viewable_tile_insights, remaining_tiles)
         insights_by_id = {
             insight_row.id: insight_row
             for insight_row in Insight.objects.filter(id__in=[tile.insight_id for tile in capped_tiles]).only(
@@ -241,7 +250,7 @@ def _build_anchor_context(subscription: Subscription) -> AnchorContext | None:
 
     for insight in insights:
         if not can_view(insight):
-            continue
+            raise AnchorContextAccessDenied
         lines.append("- Context insight:")
         lines.extend(_insight_lines(insight, events))
         resource_references.append(("insight", str(insight.id)))

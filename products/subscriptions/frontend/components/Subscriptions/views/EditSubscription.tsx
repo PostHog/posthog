@@ -275,6 +275,7 @@ function EditSubscriptionForm({
         lastDeliveryLoading,
         summaryQuota,
         testDeliveryLoading,
+        recoveryActionLoading,
     } = useValues(logic)
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
     const {
@@ -285,6 +286,7 @@ function EditSubscriptionForm({
         removeContext,
         removeContextEvent,
         sendTestDelivery,
+        recoverContextAccess,
     } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
@@ -401,6 +403,36 @@ function EditSubscriptionForm({
                                         Learn more
                                     </Link>
                                 </>
+                            </LemonBanner>
+                        )}
+
+                        {subscription.context_recovery && (
+                            <LemonBanner type="warning">
+                                <p>
+                                    This subscription is paused from normal editing because you no longer have access to
+                                    one or more report contexts.
+                                </p>
+                                <div className="flex gap-2 mt-2">
+                                    <LemonButton
+                                        size="small"
+                                        type="secondary"
+                                        onClick={() => recoverContextAccess('pause')}
+                                        loading={recoveryActionLoading}
+                                        disabled={recoveryActionLoading || subscription.enabled === false}
+                                    >
+                                        Pause subscription
+                                    </LemonButton>
+                                    <LemonButton
+                                        size="small"
+                                        type="secondary"
+                                        status="danger"
+                                        onClick={() => recoverContextAccess('clear')}
+                                        loading={recoveryActionLoading}
+                                        disabled={recoveryActionLoading}
+                                    >
+                                        Remove inaccessible context
+                                    </LemonButton>
+                                </div>
                             </LemonBanner>
                         )}
 
@@ -875,7 +907,13 @@ function EditSubscriptionForm({
                     type="primary"
                     htmlType="submit"
                     loading={isSubscriptionSubmitting}
-                    disabled={!subscriptionChanged || subscriptionLoading || aiGate.submitBlocked}
+                    disabled={
+                        !subscriptionChanged ||
+                        subscriptionLoading ||
+                        aiGate.submitBlocked ||
+                        subscription?.context_recovery
+                    }
+                    disabledReason={subscription?.context_recovery ? 'Use the recovery actions above.' : undefined}
                 >
                     {id === 'new' ? 'Create subscription' : 'Save'}
                 </LemonButton>
