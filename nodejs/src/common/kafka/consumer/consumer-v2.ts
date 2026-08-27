@@ -53,6 +53,8 @@ export type KafkaConsumerV2Config = {
     autoCommit?: boolean
     enablePartitionEof?: boolean
     fetchBatchSize?: number
+    maxBackgroundTasks?: number
+    rebalanceTimeoutMs?: number
 }
 
 export type RdKafkaConsumerOverrides = Omit<
@@ -137,9 +139,9 @@ export class KafkaConsumerV2 {
 
         this.fetchBatchSize = config.fetchBatchSize ?? defaultConfig.CONSUMER_BATCH_SIZE
         this.batchTimeoutMs = this.config.batchTimeoutMs ?? DEFAULT_BATCH_TIMEOUT_MS
-        this.maxBackgroundTasks = defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
+        this.maxBackgroundTasks = config.maxBackgroundTasks ?? defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
         this.backgroundTaskTimeoutMs = defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_MS
-        this.drainTimeoutMs = defaultConfig.CONSUMER_REBALANCE_TIMEOUT_MS
+        this.drainTimeoutMs = config.rebalanceTimeoutMs ?? defaultConfig.CONSUMER_REBALANCE_TIMEOUT_MS
         this.loopStallThresholdMs = defaultConfig.CONSUMER_LOOP_STALL_THRESHOLD_MS || LOOP_STALL_THRESHOLD_MS_DEFAULT
         this.logStatsLevel = defaultConfig.CONSUMER_LOG_STATS_LEVEL
 
