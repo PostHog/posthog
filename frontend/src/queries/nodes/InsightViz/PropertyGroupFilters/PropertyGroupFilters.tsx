@@ -176,7 +176,6 @@ export function PropertyGroupFilters({
                                                         logicalRowDivider={behavioralFiltersEnabled}
                                                         hasRowOperator={!behavioralFiltersEnabled}
                                                         addFilterDivider={behavioralFiltersEnabled}
-                                                        framedRows={behavioralFiltersEnabled}
                                                         addFilterSuffix={
                                                             behavioralFiltersEnabled
                                                                 ? (addFilter) => (
