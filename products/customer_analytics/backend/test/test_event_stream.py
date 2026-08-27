@@ -325,6 +325,8 @@ class TestEventStreamViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
     def test_account_deletion_resyncs_destination_filters(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save(update_fields=["level"])
         stream = self._create_stream()
         account = create_account(team_id=self.team.id, name="Acme", external_id="org-acme")
         self.client.post(f"{self.base_url}{stream['id']}/add_account/", {"account_id": str(account.id)}, format="json")

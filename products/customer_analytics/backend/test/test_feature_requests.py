@@ -195,7 +195,7 @@ class TestFeatureRequestsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(FeatureRequest.objects.for_team(self.team.id).count(), 0)
 
-    def test_idempotency_retry_does_not_expose_a_request_for_an_inaccessible_account(self) -> None:
+    def test_account_deny_does_not_hide_idempotent_create_result(self) -> None:
         payload = self._payload()
         created = self.client.post(self.requests_url, payload, format="json").json()
         restricted_editor = User.objects.create_and_join(
@@ -220,11 +220,11 @@ class TestFeatureRequestsAPI(APIBaseTest):
         response = self.client.post(self.requests_url, payload, format="json")
 
         self.assertEqual(listed.status_code, status.HTTP_200_OK)
-        self.assertEqual(listed.json()["count"], 0)
-        self.assertEqual(retrieved.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertEqual(history.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertNotIn("Export account-level retention data", str(response.json()))
+        self.assertEqual(listed.json()["count"], 1)
+        self.assertEqual(retrieved.status_code, status.HTTP_200_OK)
+        self.assertEqual(history.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], created["id"])
 
     def test_viewer_can_read_but_cannot_create(self) -> None:
         payload = self._payload()
@@ -468,7 +468,7 @@ class TestFeatureRequestsAPI(APIBaseTest):
         self.assertEqual(initial_changes["accounts"]["after"][0]["name"], "Acme")
         self.assertEqual(initial_changes["product_areas"]["after"][0]["name"], "Product analytics")
 
-    def test_history_redacts_snapshots_for_accounts_the_viewer_cannot_access(self) -> None:
+    def test_history_includes_snapshots_when_account_access_is_denied(self) -> None:
         created = self.client.post(self.requests_url, self._payload(), format="json").json()
         other_account = create_account(team_id=self.team.id, name="Globex")
         self.client.patch(
@@ -499,15 +499,19 @@ class TestFeatureRequestsAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         updated_changes = {change["field"]: change for change in response.json()[0]["changes"]}
-        self.assertEqual(updated_changes["accounts"]["before"], [])
+        self.assertEqual(
+            updated_changes["accounts"]["before"],
+            [{"id": str(self.account.id), "name": "Acme"}],
+        )
         self.assertEqual(
             updated_changes["accounts"]["after"],
             [{"id": str(other_account.id), "name": "Globex"}],
         )
         initial_changes = {change["field"]: change for change in response.json()[1]["changes"]}
-        self.assertNotIn("accounts", initial_changes)
-        self.assertNotIn(str(self.account.id), str(response.json()))
-        self.assertNotIn("Acme", str(response.json()))
+        self.assertEqual(
+            initial_changes["accounts"]["after"],
+            [{"id": str(self.account.id), "name": "Acme"}],
+        )
 
     def test_multiple_accounts_keep_separate_evidence_across_unlink_and_relink(self) -> None:
         created = self.client.post(self.requests_url, self._payload(), format="json").json()
@@ -743,7 +747,7 @@ class TestFeatureRequestsAPI(APIBaseTest):
         self.assertEqual(deleted.json()["account_links"][0]["evidence"], [])
         self.assertFalse(FeatureRequestEvidence.objects.for_team(self.team.id).filter(id=evidence_id).exists())
 
-    def test_viewer_only_receives_data_for_accessible_accounts(self) -> None:
+    def test_viewer_receives_data_for_accounts_with_read_denies(self) -> None:
         created = self.client.post(self.requests_url, self._payload(), format="json").json()
         other_account = create_account(team_id=self.team.id, name="Globex")
         linked = self.client.patch(
@@ -789,12 +793,15 @@ class TestFeatureRequestsAPI(APIBaseTest):
         visible_filter = self.client.get(self.requests_url, {"account_ids": str(other_account.id)})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual([link["account"]["name"] for link in response.json()["account_links"]], ["Globex"])
-        self.assertEqual(response.json()["account_links"][0]["evidence"][0]["summary"], "Visible account evidence")
-        self.assertNotIn("Restricted account evidence", str(response.json()))
-        self.assertNotIn("Restricted account evidence", str(history.json()))
+        self.assertEqual(
+            [link["account"]["name"] for link in response.json()["account_links"]],
+            ["Acme", "Globex"],
+        )
+        evidence = {item["summary"] for link in response.json()["account_links"] for item in link["evidence"]}
+        self.assertEqual(evidence, {"Restricted account evidence", "Visible account evidence"})
+        self.assertIn("Restricted account evidence", str(history.json()))
         self.assertTrue(all(entry["changes"] for entry in history.json()))
-        self.assertEqual(restricted_filter.json()["count"], 0)
+        self.assertEqual(restricted_filter.json()["count"], 1)
         self.assertEqual(visible_filter.json()["count"], 1)
         self.assertFalse(response.json()["can_update"])
 

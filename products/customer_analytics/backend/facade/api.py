@@ -16,7 +16,7 @@ Do NOT:
 """
 
 import asyncio
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional, cast
@@ -197,7 +197,7 @@ def _to_account_properties(properties: _ModelAccountProperties) -> contracts.Acc
     )
 
 
-def _to_account_ref(row: dict) -> contracts.AccountRef:
+def _to_account_ref(row: Mapping[str, Any]) -> contracts.AccountRef:
     return contracts.AccountRef(id=str(row["id"]), name=row["name"], external_id=row["external_id"])
 
 
@@ -220,13 +220,11 @@ def get_account_context_data(
     user_access_control: "UserAccessControl",
 ) -> contracts.AccountContextData | None:
     """Fetch one account (by id or external_id, scoped to the team) with the tags
-    and internal notes the assistant context renders, gated by the caller's access.
+    and internal notes the assistant context renders.
 
-    Returns None when no account matches, the identifier is malformed, or the caller
-    lacks object-level read access — so a denied account is indistinguishable from a
-    missing one to the caller.
+    Returns None when no account matches or the identifier is malformed.
     """
-    account = _resolve_accessible_account(team_id, user_access_control, account_id=account_id, external_id=external_id)
+    account = _resolve_readable_account(team_id, account_id=account_id, external_id=external_id)
     if account is None:
         return None
     return contracts.AccountContextData(
@@ -262,11 +260,11 @@ def search_accounts(
     *,
     include_ignored: bool = False,
 ) -> tuple[list[contracts.AccountRef], int]:
-    """Accounts matching `query` by name or external id, access-filtered for the caller.
+    """Accounts matching `query` by name or external id.
 
     Returns `(rows, total_count)` where `total_count` is the pre-limit match count.
     """
-    queryset = _accounts_queryset(team_id, user_access_control)
+    queryset = _accounts_queryset(team_id)
     if not include_ignored:
         queryset = queryset.filter(ignored_at__isnull=True)
     queryset = queryset.filter(Q(name__icontains=query) | Q(external_id__icontains=query))
@@ -283,11 +281,11 @@ def list_accounts(
     *,
     include_ignored: bool = False,
 ) -> tuple[list[contracts.AccountRef], int]:
-    """Accounts for the team, newest first, access-filtered for the caller.
+    """Accounts for the team, newest first.
 
     Returns `(rows, total_count)` where `total_count` is the full (unpaginated) count.
     """
-    queryset = _accounts_queryset(team_id, user_access_control)
+    queryset = _accounts_queryset(team_id)
     if not include_ignored:
         queryset = queryset.filter(ignored_at__isnull=True)
     queryset = queryset.order_by("-created_at")
@@ -296,30 +294,16 @@ def list_accounts(
     return [_to_account_ref(row) for row in rows], total_count
 
 
-def _accounts_queryset(team_id: int, user_access_control: "UserAccessControl"):
-    """Base accounts queryset, gated and object-level filtered by the caller's access.
-
-    Account uses a fail-closed manager, so the unscoped manager is used with an
-    explicit team filter (mirroring the prior in-consumer behavior).
-    """
-    if not user_access_control.check_access_level_for_resource("account", "viewer"):
-        return Account.objects.unscoped().none()
-    return user_access_control.filter_queryset_by_access_level(Account.objects.unscoped().filter(team_id=team_id))
+def _accounts_queryset(team_id: int) -> QuerySet[Account]:
+    return Account.objects.for_team(team_id)
 
 
-def _resolve_accessible_account(
+def _resolve_readable_account(
     team_id: int,
-    user_access_control: "UserAccessControl",
     *,
     account_id: str | None = None,
     external_id: str | None = None,
 ) -> Account | None:
-    """Resolve one account the caller is allowed to read, or None.
-
-    Goes through the access-gated queryset so an account the caller can't read is
-    returned as None rather than leaked — unlike ``_resolve_account``, which is
-    team-scoped only.
-    """
     if account_id:
         lookup = {"id": account_id}
     elif external_id:
@@ -327,7 +311,7 @@ def _resolve_accessible_account(
     else:
         return None
     try:
-        return _accounts_queryset(team_id, user_access_control).filter(**lookup).first()
+        return _accounts_queryset(team_id).filter(**lookup).first()
     except (ValidationError, ValueError):
         return None
 
@@ -2915,7 +2899,7 @@ def query_accounts_metrics(
         if DATA_TYPE_BY_DISPLAY_TYPE[custom_property_display_types[definition_id]] != DataType.NUMERIC:
             raise InvalidAccountTableColumn("Account table metrics require numeric custom properties.")
 
-    accounts = _accounts_queryset(team_id, user_access_control)
+    accounts = _accounts_queryset(team_id)
     if not include_churned and not _filters_account_table_field(filters, contracts.AccountTableField.CHURNED_AT):
         accounts = accounts.filter(churned_at__isnull=True)
     if not include_ignored and not _filters_account_table_field(filters, contracts.AccountTableField.IGNORED_AT):
@@ -3003,7 +2987,7 @@ def query_accounts_table(
         sort=sort,
     )
 
-    queryset = _accounts_queryset(team_id, user_access_control)
+    queryset = _accounts_queryset(team_id)
     if not include_churned and not _filters_account_table_field(filters, contracts.AccountTableField.CHURNED_AT):
         queryset = queryset.filter(churned_at__isnull=True)
     if not include_ignored and not _filters_account_table_field(filters, contracts.AccountTableField.IGNORED_AT):
@@ -3137,11 +3121,11 @@ def list_accounts_for_view(
     include_ignored: bool = False,
     ordering: str | None = None,
 ) -> tuple[list[contracts.AccountView], int]:
-    """The accounts list endpoint, behind the facade: team + object-level access filtering,
+    """The accounts list endpoint, behind the facade: team scoping,
     the search / tags / unassigned / ordering query filters, notebook + tag prefetching, and
     pagination. Returns ``(page, total_count)``. ``tags``/``ordering`` are pre-validated by
     the view; an empty ``tags`` list is treated as "no tag filter" (matches old behavior)."""
-    queryset = _accounts_queryset(team_id, user_access_control).prefetch_related(
+    queryset = _accounts_queryset(team_id).prefetch_related(
         Prefetch("notebooks", queryset=ResourceNotebook.objects.select_related("notebook")),
         Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags"),
     )
@@ -3550,10 +3534,12 @@ def _to_account_notebook_view(notebook: "notebook_contracts.AccountNotebook") ->
     )
 
 
-def get_accessible_account_id(team_id: int, account_id: str, user_access_control: "UserAccessControl") -> str | None:
-    """The account_id when the caller has object-level access to that team-scoped account,
-    else None — backs the notebook viewset's parent-account gate (object denial → 404,
-    via filtering rather than a permission check)."""
+def get_readable_account_id(team_id: int, account_id: str) -> str | None:
+    account = _resolve_account(team_id, account_id=account_id)
+    return str(account.id) if account is not None else None
+
+
+def get_writable_account_id(team_id: int, account_id: str, user_access_control: "UserAccessControl") -> str | None:
     queryset = user_access_control.filter_queryset_by_access_level(Account.objects.unscoped().filter(team_id=team_id))
     try:
         account = queryset.filter(id=account_id).first()
@@ -3570,10 +3556,10 @@ def list_account_channel_summaries(
     offset: int,
     limit: int,
 ) -> tuple[list[contracts.AccountChannelSummaryView], int] | None:
-    """Stored Slack channel summaries for an accessible account, newest period first.
+    """Stored Slack channel summaries for an account, newest period first.
 
-    Returns ``(page, total_count)``, or None when the parent account isn't accessible (→ 404)."""
-    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+    Returns ``(page, total_count)``, or None when the parent account does not exist."""
+    if get_readable_account_id(team_id, account_id) is None:
         return None
     queryset = (
         AccountChannelSummary.objects.for_team(team_id)
@@ -3723,7 +3709,7 @@ def get_account_support_tickets(
     Raises :class:`ResourceForbiddenError` (→ 403) when the caller can read the account but not
     tickets — this endpoint is authorized as ``account`` while the payload is ticket content, so
     the ``ticket`` resource has to be gated separately or this path bypasses its RBAC."""
-    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+    if get_readable_account_id(team_id, account_id) is None:
         return None
     if not user_access_control.check_access_level_for_resource("ticket", "viewer"):
         raise ResourceForbiddenError()
@@ -3742,7 +3728,7 @@ def get_account_support_ticket_messages(
     offset: int = 0,
     limit: int = 50,
 ) -> tuple[list[SupportTicketMessage], int] | None:
-    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+    if get_readable_account_id(team_id, account_id) is None:
         return None
     if not user_access_control.check_access_level_for_resource("ticket", "viewer"):
         raise ResourceForbiddenError()
@@ -3767,7 +3753,7 @@ def get_account_email_threads(
     offset: int = 0,
     limit: int = 50,
 ) -> tuple[list[AccountEmailThreadSummary], int] | None:
-    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+    if get_readable_account_id(team_id, account_id) is None:
         return None
     if not user_access_control.check_access_level_for_resource("ticket", "viewer"):
         raise ResourceForbiddenError()
@@ -3783,7 +3769,7 @@ def get_account_email_thread_messages(
     offset: int = 0,
     limit: int = 50,
 ) -> tuple[list[AccountEmailThreadMessage], int] | None:
-    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+    if get_readable_account_id(team_id, account_id) is None:
         return None
     if not user_access_control.check_access_level_for_resource("ticket", "viewer"):
         raise ResourceForbiddenError()
@@ -3959,10 +3945,9 @@ def list_account_meetings(
     limit: int = 100,
     search: str | None = None,
 ) -> tuple[list[contracts.MeetingView], int] | None:
-    """Synced calendar meetings for an accessible account, newest first, optionally
-    filtered by ``search`` (title or attendee email/name). None when the account isn't
-    accessible (→ 404)."""
-    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+    """Synced calendar meetings for an account, newest first, optionally
+    filtered by ``search`` (title or attendee email/name). None when the account does not exist."""
+    if get_readable_account_id(team_id, account_id) is None:
         return None
     queryset = Meeting.objects.for_team(team_id).filter(account_id=account_id)
     if search:
@@ -4018,8 +4003,8 @@ def list_account_notebooks(
 ) -> list[contracts.AccountNotebookView] | None:
     """Internal notebooks linked to an accessible account. Optionally full-text filtered by
     ``search`` (title + content) and sorted by ``order`` (creation date or author); defaults to
-    newest first. None when the parent account isn't accessible (→ 404)."""
-    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+    newest first. None when the parent account does not exist."""
+    if get_readable_account_id(team_id, account_id) is None:
         return None
     return [
         _to_account_notebook_view(n) for n in notebooks.list_account_notebooks(account_id, search=search, order=order)
@@ -4037,12 +4022,12 @@ def list_account_notes_for_view(
     created_by_ids: list[int] | None = None,
     assigned_to_ids: list[int] | None = None,
 ) -> tuple[list[contracts.AccountNoteView], int]:
-    """Team-wide account notes (internal notebooks linked to accounts), newest-modified first,
-    restricted to accounts the caller can read. ``search`` matches note title/content (full-text)
+    """Team-wide account notes (internal notebooks linked to accounts), newest-modified first.
+    ``search`` matches note title/content (full-text)
     and account name (substring). ``account_id`` narrows to one account, ``created_by_ids`` to
     notes authored by the given users, ``assigned_to_ids`` to notes on accounts where one of the
     given users actively holds a relationship. Returns ``(page, total_count)``."""
-    accounts = _accounts_queryset(team_id, user_access_control)
+    accounts = _accounts_queryset(team_id)
     if assigned_to_ids:
         # "Assigned to" means any active relationship, matching the accounts list HogQL
         # runner's assignedToUserIds.
@@ -4051,10 +4036,10 @@ def list_account_notes_for_view(
             .filter(ended_at__isnull=True, user_id__in=assigned_to_ids)
             .values("account_id")
         )
-    accessible_account_ids = accounts.values_list("id", flat=True)
+    account_ids = accounts.values_list("id", flat=True)
     notes, count = notebooks.list_team_account_notes(
         team_id,
-        account_ids=accessible_account_ids,
+        account_ids=account_ids,
         account_id=account_id,
         created_by_ids=created_by_ids,
         search=search,
@@ -4078,9 +4063,8 @@ def list_account_notes_for_view(
 def get_account_notebook(
     team_id: int, account_id: str, short_id: str, user_access_control: "UserAccessControl"
 ) -> contracts.AccountNotebookView | None:
-    """One internal notebook linked to an accessible account. None when the account isn't
-    accessible or no such linked notebook exists (→ 404)."""
-    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+    """One internal notebook linked to an account. None when the account or notebook does not exist."""
+    if get_readable_account_id(team_id, account_id) is None:
         return None
     notebook = notebooks.get_account_notebook(account_id, short_id)
     return _to_account_notebook_view(notebook) if notebook is not None else None
@@ -4098,7 +4082,7 @@ def create_account_notebook(
     """Create an internal notebook and link it to an accessible account. None when the
     parent account isn't accessible (→ 404). The view supplies ``synthesized_content``
     (markdown→tiptap) so the ``ee.hogai`` helper stays off the facade import path."""
-    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+    if get_writable_account_id(team_id, account_id, user_access_control) is None:
         return None
     content = input.synthesized_content if input.synthesized_content is not None else input.content
     created = notebooks.create_account_notebook(
@@ -4129,9 +4113,8 @@ def create_account_notebook(
 def delete_account_notebook(
     *, team_id: int, account_id: str, short_id: str, user_access_control: "UserAccessControl"
 ) -> bool:
-    """Delete an internal notebook linked to an accessible account. False when the account
-    isn't accessible or no such notebook exists (→ 404)."""
-    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+    """Delete an internal notebook linked to a writable account. False when access is denied or no such notebook exists."""
+    if get_writable_account_id(team_id, account_id, user_access_control) is None:
         return False
     return notebooks.delete_account_notebook(account_id, short_id)
 
@@ -4563,7 +4546,7 @@ def set_event_stream_member(
         # Adding an account pipes its events into Slack, so a denied account must behave
         # like an unknown one. Removal stays team-scoped: members must be droppable even
         # after access to them is revoked.
-        if get_accessible_account_id(team_id, str(account.id), user_access_control) is None:
+        if get_writable_account_id(team_id, str(account.id), user_access_control) is None:
             raise Account_DoesNotExist()
         # for_team() filters don't propagate into creation — team_id must be in defaults.
         EventStreamMember.objects.for_team(team_id).get_or_create(

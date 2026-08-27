@@ -429,6 +429,8 @@ class TestCustomerJourneyViewSet(APIBaseTest):
 class TestAccountViewSet(APIBaseTest):
     def setUp(self):
         super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save(update_fields=["level"])
         self.endpoint_base = f"/api/environments/{self.team.id}/accounts/"
 
     def _create_account(self, **kwargs):
@@ -921,7 +923,7 @@ class TestAccountViewSet(APIBaseTest):
             account.tagged_items.create(tag=billing_tag)
             account.tagged_items.create(tag=urgent_tag)
 
-        with self.assertNumQueries(12):
+        with self.assertNumQueries(11):
             # Query budget for a tag-filtered account list. Constant regardless of result count
             # because tagged_items and notebooks are prefetched once. If a query is added, please
             # confirm it does not scale with the number of accounts before raising the limit:
@@ -1061,6 +1063,8 @@ class TestAccountViewSet(APIBaseTest):
 class TestAccountNotebookViewSet(APIBaseTest):
     def setUp(self):
         super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save(update_fields=["level"])
         self.account = Account.objects.unscoped().create(team=self.team, name="Acme Corp")
         self.endpoint_base = f"/api/environments/{self.team.id}/accounts/{self.account.id}/notebooks/"
 
@@ -1543,7 +1547,7 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
         response = self.client.delete(f"{self.journeys_url}{self.journey.id}/")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-    # -- Resource inheritance: customer_analytics access cascades to accounts --
+    # -- Account reads are open to project members; writes still inherit Customer analytics access --
 
     def test_customer_analytics_viewer_can_list_accounts(self):
         self._set_access_level(self.viewer_user, resource="customer_analytics", access_level="viewer")
@@ -1566,16 +1570,31 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
         response = self.client.post(self.accounts_url, {"name": "Inherited Account"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    def test_customer_analytics_none_blocks_account_list(self):
+    def test_customer_analytics_editor_cannot_delete_account(self):
+        self._set_access_level(self.editor_user, resource="customer_analytics", access_level="editor")
+        membership = OrganizationMembership.objects.get(user=self.editor_user, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="member",
+            organization_member=membership,
+        )
+        self.client.force_login(self.editor_user)
+
+        response = self.client.delete(f"{self.accounts_url}{self.account.id}/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_customer_analytics_none_allows_account_list(self):
         self._set_access_level(self.no_access_user, resource="customer_analytics", access_level="none")
         self.client.force_login(self.no_access_user)
 
         response = self.client.get(self.accounts_url)
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    # -- Account notebooks inherit object-level access from the parent account --
+    # -- Account notebook writes retain access control --
 
-    def test_account_notebooks_404_when_parent_account_access_denied(self):
+    def test_account_notebook_reads_ignore_account_access_but_writes_do_not(self):
         AccessControl.objects.create(
             team=self.team,
             resource="account",
@@ -1591,7 +1610,7 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
         url = f"{self.accounts_url}{self.account.id}/notebooks/"
 
         list_response = self.client.get(url)
-        self.assertEqual(list_response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
 
         create_response = self.client.post(url, {"title": "x"}, format="json")
         self.assertEqual(create_response.status_code, status.HTTP_404_NOT_FOUND)
@@ -1600,6 +1619,8 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
 class TestCustomPropertyDefinitionViewSet(APIBaseTest):
     def setUp(self):
         super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save(update_fields=["level"])
         self.endpoint_base = f"/api/environments/{self.team.id}/custom_property_definitions/"
 
     def _create(self, **overrides):
@@ -1866,16 +1887,24 @@ class TestCustomPropertyDefinitionAccessControl(APIBaseTest):
         response = self.client.post(self.endpoint_base, {"name": "Editor Prop", "display_type": "text"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    def test_editor_can_delete(self):
+    def test_editor_cannot_delete(self):
         self._set_access_level(self.editor_user, access_level="editor")
+        membership = OrganizationMembership.objects.get(user=self.editor_user, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="member",
+            organization_member=membership,
+        )
         self.client.force_login(self.editor_user)
         response = self.client.delete(f"{self.endpoint_base}{self.definition.id}/")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_none_access_blocks_list(self):
+    def test_none_access_allows_list(self):
         self._set_access_level(self.no_access_user, access_level="none")
         self.client.force_login(self.no_access_user)
-        self.assertEqual(self.client.get(self.endpoint_base).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.get(self.endpoint_base).status_code, status.HTTP_200_OK)
 
     def test_org_admin_has_full_access(self):
         membership = OrganizationMembership.objects.get(user=self.editor_user, organization=self.organization)
@@ -1958,7 +1987,7 @@ class TestCustomPropertyValueViewSet(APIBaseTest):
 
         self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
 
-    @patch("products.customer_analytics.backend.facade.api.get_accessible_account_id")
+    @patch("products.customer_analytics.backend.facade.api.get_writable_account_id")
     def test_account_deleted_after_access_check_returns_404(self, mock_access):
         # Account passes the access pre-check but is gone by the time the write commits.
         mock_access.return_value = str(uuid4())
@@ -1994,6 +2023,8 @@ class TestCustomPropertyValueViewSet(APIBaseTest):
 class TestCustomPropertySourceViewSet(APIBaseTest):
     def setUp(self):
         super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save(update_fields=["level"])
         self.endpoint = f"/api/projects/{self.team.id}/custom_property_sources/"
         saved_query_model = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
         self.view = saved_query_model.objects.create(
@@ -2504,10 +2535,10 @@ class TestAccountNotesViewSet(APIBaseTest):
         second_page = self.client.get(f"{self.endpoint_base}?limit=1&offset=1").json()
         self.assertEqual([n["short_id"] for n in second_page["results"]], [older.short_id])
 
-    def test_list_hides_notes_of_accounts_the_caller_cannot_read(self):
+    def test_list_includes_notes_when_account_access_is_denied(self):
         visible = self._link_note(title="Visible")
         hidden_account = Account.objects.unscoped().create(team=self.team, name="Hidden Inc")
-        self._link_note(title="Hidden", account=hidden_account)
+        hidden = self._link_note(title="Hidden", account=hidden_account)
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
@@ -2527,13 +2558,15 @@ class TestAccountNotesViewSet(APIBaseTest):
         response = self.client.get(self.endpoint_base)
 
         self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
-        short_ids = [n["short_id"] for n in response.json()["results"]]
-        self.assertEqual(short_ids, [visible.short_id])
+        short_ids = {n["short_id"] for n in response.json()["results"]}
+        self.assertEqual(short_ids, {visible.short_id, hidden.short_id})
 
 
 class TestAccountRelationshipDefinitionViewSet(APIBaseTest):
     def setUp(self):
         super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save(update_fields=["level"])
         self.endpoint_base = f"/api/projects/{self.team.id}/account_relationship_definitions/"
 
     def _create(self, **overrides):
@@ -2633,6 +2666,8 @@ class TestAccountRelationshipDefinitionViewSet(APIBaseTest):
 class TestAccountRelationshipViewSet(APIBaseTest):
     def setUp(self):
         super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save(update_fields=["level"])
         self.account = create_account(team_id=self.team.id)
         self.endpoint = f"/api/projects/{self.team.id}/accounts/{self.account.id}/relationships/"
 
@@ -2726,6 +2761,29 @@ class TestAccountRelationshipViewSet(APIBaseTest):
         data = response.json()
         self.assertEqual(data["attr"], "user")
         self.assertEqual(data["type"], "validation_error")
+
+    def test_project_member_cannot_end_relationship(self):
+        definition = self._create_relationship_definition()
+        relationship = relationships_logic.assign(
+            team_id=self.team.id,
+            account=self.account,
+            definition=definition,
+            user=self.user,
+            created_by=self.user,
+        )
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="member",
+            organization_member=self.organization_membership,
+        )
+
+        response = self.client.post(f"{self.endpoint}{relationship.id}/end/")
+
+        self.assertEqual(status.HTTP_403_FORBIDDEN, response.status_code)
 
     def test_end_already_ended_relationship_returns_404(self):
         definition = self._create_relationship_definition()

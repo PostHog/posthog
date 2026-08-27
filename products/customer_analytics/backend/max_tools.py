@@ -65,13 +65,12 @@ class OpenAccountTool(MaxTool):
     args_schema: type[BaseModel] = OpenAccountToolArgs
 
     def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
-        return [("account", "viewer")]
+        return []
 
     async def _arun_impl(self, account: str, tab: str = "usage") -> tuple[str, dict[str, Any]]:
         resolved = await self._resolve_account(account)
         if resolved is None:
             return f"Couldn't find an account matching '{account}'.", {"error": "account_not_found"}
-        await self.check_object_access(resolved, "viewer", resource="account", action="read")
         return (
             f"Opened {resolved.name}'s {tab} tab.",
             {

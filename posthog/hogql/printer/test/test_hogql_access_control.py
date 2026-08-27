@@ -87,8 +87,20 @@ class TestAccessControlSystemTables(BaseTest):
         assert "system.error_tracking_issues" in database._denied_tables
         assert "system.support_tickets" in database._denied_tables
         # Unscoped tables remain
+        assert "accounts" in system_node.children
+        assert "_account_custom_property_values" in system_node.children
+        assert "_account_custom_property_values_history" in system_node.children
+        assert "account_relationships" in system_node.children
+        assert "custom_property_definitions" in system_node.children
         assert "cohorts" in system_node.children
         assert "teams" in system_node.children
+
+    def test_unrestricted_account_tables_still_require_organization_membership(self):
+        outsider = User.objects.create_user("outsider@example.com", "testtest", "")
+
+        database = Database.create_for(team=self.team, user=outsider)
+
+        assert "system.accounts" in database._denied_tables
 
     def test_bypass_warehouse_access_control_still_applies_system_table_acl(self):
         """bypass_warehouse_access_control only relaxes warehouse tables/views; scoped system tables
@@ -101,6 +113,7 @@ class TestAccessControlSystemTables(BaseTest):
         assert "dashboards" not in system_node.children
         assert "system.dashboards" in database._denied_tables
         # Unscoped tables remain.
+        assert "accounts" in system_node.children
         assert "cohorts" in system_node.children
 
 
@@ -321,10 +334,7 @@ class TestAccessControlGuard(BaseTest):
         assert f"notIn(toString(system__dashboard_tiles.dashboard_id), %({deny_key})s)" in sql
         assert "notIn(toString(system__dashboard_tiles.id)" not in sql
 
-    def test_account_custom_property_values_guard_filters_account_fk(self):
-        # The hidden EAV tables scope by a direct team guard, so the per-account deny set
-        # must be declared on the table itself (account_id FK) - without it a member denied
-        # an account could read its property values by selecting the hidden table directly.
+    def test_account_custom_property_values_ignore_account_access(self):
         from posthog.hogql.parser import parse_select
 
         from posthog.constants import AvailableFeature
@@ -357,9 +367,8 @@ class TestAccessControlGuard(BaseTest):
             assert prepared is not None
             sql = print_prepared_ast(prepared, context=context, dialect="clickhouse")
             deny_keys = [k for k in context.values if k.endswith("_sensitive") and isinstance(context.values[k], list)]
-            assert len(deny_keys) == 1, table
-            assert context.values[deny_keys[0]] == ["acct-42"], table
-            assert f"notIn(toString(system__{table}.account_id), %({deny_keys[0]})s)" in sql, table
+            assert deny_keys == [], table
+            assert f"notIn(toString(system__{table}.account_id)" not in sql, table
 
 
 class TestRestParityForObjectGrants(BaseTest):
@@ -1065,7 +1074,8 @@ class TestWarehouseViewAccessControl(BaseTest):
         # A shared-link viewer executes without warehouse access control - the deny is skipped.
         assert "denied_view" not in database._denied_tables
         assert "allowed_view" not in database._denied_tables
-        # But scoped system tables stay hidden, exactly like a userless build.
+        # Shared links carry no system-table resource scopes.
+        assert "system.accounts" in database._denied_tables
         assert "system.dashboards" in database._denied_tables
 
     def test_shared_link_user_requires_enabled_configuration(self):
@@ -1094,7 +1104,7 @@ class TestWarehouseViewAccessControl(BaseTest):
             == get_query_runner(events_query, self.team, user=self.user).get_cache_key()
         )
 
-    def test_synthetic_principal_skips_warehouse_view_acl(self):
+    def test_synthetic_principal_skips_warehouse_view_acl_but_needs_account_scope(self):
         self._create_ac(
             resource="warehouse_view",
             resource_id=str(self.denied_view.id),
@@ -1106,7 +1116,15 @@ class TestWarehouseViewAccessControl(BaseTest):
 
         # Service-token principals bypass warehouse access control by design (see Database.create_for).
         assert "denied_view" not in database._denied_tables
+        assert "system.accounts" in database._denied_tables
         assert "system.dashboards" in database._denied_tables
+
+        class AccountReader(SyntheticUser):
+            def readable_system_table_access_scopes(self) -> set[str]:
+                return {"account"}
+
+        account_database = Database.create_for(team=self.team, user=AccountReader(self.team, "account-token"))
+        assert "system.accounts" not in account_database._denied_tables
 
     def _materialize(self, view):
         """Attach a same-named backing DataWarehouseTable to a saved query, mirroring materialization."""

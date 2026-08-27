@@ -29,6 +29,7 @@ from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
@@ -115,6 +116,19 @@ _OBJECT_READ_LEVEL = "viewer"
 _OBJECT_WRITE_LEVEL = "editor"
 
 _ICON_DOMAIN_VALIDATOR = DomainNameValidator(accept_idna=False)
+
+
+class _AccountDestructiveActionPermission(BasePermission):
+    message = "You don't have sufficient permissions in the project."
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        destructive_actions: frozenset[str] = getattr(view, "account_destructive_actions", frozenset())
+        if request.method != "DELETE" and view.action not in destructive_actions:
+            return True
+        if not isinstance(request.user, User):
+            return False
+        membership_level = view.user_permissions.current_team.effective_membership_level
+        return membership_level is not None and membership_level >= OrganizationMembership.Level.ADMIN
 
 
 # The warehouse resources a person/group-property source can bind to: the import source behind a
@@ -874,6 +888,8 @@ class CustomPropertyDefinitionViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "account"
+    access_control_unrestricted_read = True
+    permission_classes = [_AccountDestructiveActionPermission]
     # ``values`` is a custom read action; without listing it here it carries no required scope and
     # rejects token auth outright ("does not support personal API key access") before the group gate runs.
     scope_object_read_actions = ["list", "retrieve", "values"]
@@ -1057,6 +1073,8 @@ class AccountRelationshipDefinitionViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "account"
+    access_control_unrestricted_read = True
+    permission_classes = [_AccountDestructiveActionPermission]
     serializer_class = AccountRelationshipDefinitionSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
 
@@ -1151,6 +1169,8 @@ class CustomPropertySourceViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "account"
+    access_control_unrestricted_read = True
+    permission_classes = [_AccountDestructiveActionPermission]
     serializer_class = CustomPropertySourceSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
 
@@ -1515,6 +1535,8 @@ class AccountViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "account"
+    access_control_unrestricted_read = True
+    permission_classes = [_AccountDestructiveActionPermission]
     serializer_class = AccountSerializer
     queryset = None
     bulk_update_tags = None  # Mixin action assumes integer PKs; Account uses UUIDs.
@@ -1602,7 +1624,7 @@ class AccountViewSet(
                 team_id=self.team_id,
                 account_id=self.kwargs["pk"],
                 user_access_control=self.user_access_control,
-                required_level=_object_required_level(request, write=False),
+                required_level=None,
             )
         except api.Account_DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -1672,7 +1694,7 @@ class AccountViewSet(
     @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: AccountEmailThreadSerializer(many=True)})
     @action(methods=["GET"], detail=True, url_path="email_threads")
     def email_threads(self, request: Request, *args, **kwargs) -> Response:
-        if api.get_accessible_account_id(self.team_id, self.kwargs["pk"], self.user_access_control) is None:
+        if api.get_readable_account_id(self.team_id, self.kwargs["pk"]) is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
         def fetch(offset: int, limit: int) -> tuple[list[api.AccountEmailThreadSummary], int]:
@@ -1749,7 +1771,7 @@ class AccountViewSet(
     )
     @action(methods=["GET"], detail=True)
     def meetings(self, request: Request, *args, **kwargs) -> Response:
-        if api.get_accessible_account_id(self.team_id, self.kwargs["pk"], self.user_access_control) is None:
+        if api.get_readable_account_id(self.team_id, self.kwargs["pk"]) is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         search = request.query_params.get("search", "").strip() or None
 
@@ -1872,7 +1894,7 @@ class AccountViewSet(
     @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: AccountChannelSummarySerializer(many=True)})
     @action(methods=["GET"], detail=True)
     def summaries(self, request: Request, *args, **kwargs) -> Response:
-        if api.get_accessible_account_id(self.team_id, self.kwargs["pk"], self.user_access_control) is None:
+        if api.get_readable_account_id(self.team_id, self.kwargs["pk"]) is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
         def fetch(offset: int, limit: int) -> tuple[list[contracts.AccountChannelSummaryView], int]:
@@ -1929,6 +1951,8 @@ class AccountNotebookViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "account"
+    access_control_unrestricted_read = True
+    permission_classes = [_AccountDestructiveActionPermission]
     serializer_class = AccountNotebookSerializer
     queryset = None
     lookup_field = "short_id"
@@ -2069,6 +2093,7 @@ class AccountNotesViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "account"
+    access_control_unrestricted_read = True
     serializer_class = AccountNoteSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
 
@@ -2137,19 +2162,21 @@ class AccountNotesViewSet(
 )
 class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
     scope_object = "account"
+    access_control_unrestricted_read = True
     serializer_class = CustomPropertyValueSerializer
     pagination_class = None
 
-    def _accessible_account_id(self) -> str | None:
-        """The parent account's id when the caller has object-level access to it, else ``None``
-        (mapped to 404). Object-access filtering lives behind the facade — the view imports no models."""
-        return api.get_accessible_account_id(
+    def _readable_account_id(self) -> str | None:
+        return api.get_readable_account_id(self.team_id, self.parents_query_dict["account_id"])
+
+    def _writable_account_id(self) -> str | None:
+        return api.get_writable_account_id(
             self.team_id, self.parents_query_dict["account_id"], user_access_control=self.user_access_control
         )
 
     @extend_schema(responses={200: CustomPropertyValueSerializer(many=True)})
     def list(self, request: Request, *args, **kwargs) -> Response:
-        account_id = self._accessible_account_id()
+        account_id = self._readable_account_id()
         if account_id is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         values = api.list_active_custom_property_values(self.team_id, account_id)
@@ -2157,7 +2184,7 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
 
     @extend_schema(request=CustomPropertyValueWriteSerializer, responses={201: CustomPropertyValueSerializer})
     def create(self, request: Request, *args, **kwargs) -> Response:
-        account_id = self._accessible_account_id()
+        account_id = self._writable_account_id()
         if account_id is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         write = CustomPropertyValueWriteSerializer(data=request.data)
@@ -2199,13 +2226,17 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
 )
 class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
     scope_object = "account"
+    access_control_unrestricted_read = True
+    account_destructive_actions = frozenset({"end"})
+    permission_classes = [_AccountDestructiveActionPermission]
     serializer_class = AccountRelationshipSerializer
     pagination_class = None
 
-    def _accessible_account_id(self) -> str | None:
-        """The parent account's id when the caller has object-level access to it, else ``None``
-        (mapped to 404). Object-access filtering lives behind the facade — the view imports no models."""
-        return api.get_accessible_account_id(
+    def _readable_account_id(self) -> str | None:
+        return api.get_readable_account_id(self.team_id, self.parents_query_dict["account_id"])
+
+    def _writable_account_id(self) -> str | None:
+        return api.get_writable_account_id(
             self.team_id, self.parents_query_dict["account_id"], user_access_control=self.user_access_control
         )
 
@@ -2220,7 +2251,7 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         responses={200: AccountRelationshipSerializer(many=True)},
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
-        account_id = self._accessible_account_id()
+        account_id = self._readable_account_id()
         if account_id is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         relationships = api.list_account_relationships(
@@ -2232,7 +2263,7 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
 
     @extend_schema(request=AccountRelationshipWriteSerializer, responses={201: AccountRelationshipSerializer})
     def create(self, request: Request, *args, **kwargs) -> Response:
-        account_id = self._accessible_account_id()
+        account_id = self._writable_account_id()
         if account_id is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         write = AccountRelationshipWriteSerializer(data=request.data)
@@ -2256,7 +2287,7 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
     @extend_schema(request=None, responses={200: AccountRelationshipSerializer})
     @action(methods=["POST"], detail=True)
     def end(self, request: Request, *args, **kwargs) -> Response:
-        account_id = self._accessible_account_id()
+        account_id = self._writable_account_id()
         if account_id is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         relationship = api.end_account_relationship(
@@ -2302,6 +2333,7 @@ class EventStreamViewSet(
     config and delivery can't drift apart."""
 
     scope_object = "account"
+    access_control_unrestricted_read = True
     serializer_class = EventStreamSerializer
     pagination_class = None  # at most one stream exists per team (one-to-one) — nothing to paginate
     queryset = None  # data is reached through the facade; declared for router/schema only
@@ -2446,6 +2478,7 @@ class CalendarSyncViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vie
     Temporal schedule; this surface only offers the manual "sync now" escape hatch."""
 
     scope_object = "account"
+    access_control_unrestricted_read = True
     scope_object_read_actions = ["list"]
     # Same gate as IntegrationViewSet: any member can read status, starting a run needs admin.
     permission_classes = [TeamMemberStrictManagementPermission]

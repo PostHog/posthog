@@ -86,7 +86,7 @@ class TestFacadeHogqlSystemTables(SimpleTestCase):
 class TestFeatureRequestHogqlAccess(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
-    def test_account_access_filters_requests_links_and_evidence(self) -> None:
+    def test_account_access_does_not_filter_requests_links_or_evidence(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -130,7 +130,7 @@ class TestFeatureRequestHogqlAccess(NonAtomicBaseTest):
             changed_at=timezone.now(),
         )
         denied_request = FeatureRequest.objects.unscoped().create(team=self.team, title="Denied request")
-        FeatureRequestAccountLink.objects.unscoped().create(
+        denied_request_link = FeatureRequestAccountLink.objects.unscoped().create(
             team=self.team, feature_request=denied_request, account=denied_account
         )
         AccessControl.objects.create(
@@ -152,9 +152,13 @@ class TestFeatureRequestHogqlAccess(NonAtomicBaseTest):
             "SELECT changed_fields FROM system.feature_request_history", team=self.team, user=viewer
         ).results
 
-        assert {str(row[0]) for row in requests} == {str(visible_request.id)}
-        assert {str(row[0]) for row in links} == {str(visible_link.id)}
-        assert evidence == [("Visible evidence", [str(visible_image_id)])]
+        assert {str(row[0]) for row in requests} == {str(visible_request.id), str(denied_request.id)}
+        assert {str(row[0]) for row in links} == {
+            str(visible_link.id),
+            str(denied_link.id),
+            str(denied_request_link.id),
+        }
+        assert {row[0] for row in evidence} == {"Visible evidence", "Denied evidence"}
         assert history == [(["evidence"],)]
         with self.assertRaises(QueryError):
             execute_hogql_query("SELECT changes FROM system.feature_request_history", team=self.team, user=viewer)

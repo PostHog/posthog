@@ -154,12 +154,10 @@ def _feature_request_queryset(
     *,
     include_evidence: bool = True,
 ) -> QuerySet[FeatureRequest]:
-    accessible_account_ids = user_access_control.filter_queryset_by_access_level(
-        Account.objects.for_team(team_id)
-    ).values("id")
+    account_ids = Account.objects.for_team(team_id).values("id")
     visible_links = (
         FeatureRequestAccountLink.objects.for_team(team_id)
-        .filter(account_id__in=accessible_account_ids, unlinked_at__isnull=True)
+        .filter(account_id__in=account_ids, unlinked_at__isnull=True)
         .select_related("account")
         .annotate(evidence_count=Count("evidence"))
         .order_by("account__name", "id")
@@ -171,7 +169,7 @@ def _feature_request_queryset(
     )
     queryset = (
         FeatureRequest.objects.for_team(team_id)
-        .filter(account_links__account_id__in=accessible_account_ids, account_links__unlinked_at__isnull=True)
+        .filter(account_links__account_id__in=account_ids, account_links__unlinked_at__isnull=True)
         .prefetch_related("product_areas", Prefetch("account_links", queryset=visible_links))
     )
     return queryset.prefetch_related(
@@ -546,9 +544,7 @@ def list_feature_requests(
     account_filter_ids: tuple[UUID, ...] = ()
     if filters.account_ids:
         account_filter_ids = tuple(
-            user_access_control.filter_queryset_by_access_level(Account.objects.for_team(team_id))
-            .filter(id__in=filters.account_ids)
-            .values_list("id", flat=True)
+            Account.objects.for_team(team_id).filter(id__in=filters.account_ids).values_list("id", flat=True)
         )
     queryset = _apply_filters(
         _feature_request_queryset(team_id, user_access_control, include_evidence=False),
@@ -1262,9 +1258,7 @@ def list_feature_request_history(
                     account_ids = []
                 history_account_ids.update(account_id for account_id in account_ids if account_id is not None)
     accessible_account_ids = set(
-        user_access_control.filter_queryset_by_access_level(Account.objects.for_team(team_id))
-        .filter(id__in=history_account_ids)
-        .values_list("id", flat=True)
+        Account.objects.for_team(team_id).filter(id__in=history_account_ids).values_list("id", flat=True)
     )
     actors = User.objects.filter(id__in={entry.actor_id for entry in history if entry.actor_id is not None})
     actor_names = {actor.id: actor.get_full_name().strip() or actor.email for actor in actors}
