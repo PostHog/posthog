@@ -41,6 +41,7 @@ from products.managed_warehouse.backend.facade.temporal import (
     DuckLakeRegisterDataImportsWorkflow,
     build_register_data_imports_workflow_id,
 )
+from products.warehouse_sources.backend.billing import billed_usage_for_job
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     AUTO_DISABLED_JOB_ERROR,
@@ -414,19 +415,16 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         )
 
     if inputs.status == ExternalDataJob.Status.COMPLETED:
-        # TODO: this bills more than `get_teams_with_rows_synced_in_period` does, in two ways.
-        # It reports nothing while `begin` sits inside the warehouse free period, and it moves a
-        # job whose source was created within seven days of the period end onto
-        # `free_historical_rows_synced` instead. Both are period-relative, and a collector only
-        # knows the moment the job finished, so mirroring them needs a decision on what the
-        # equivalent is at write time rather than a straight port of the filter.
-        #
-        # The status above is already written, so a job we cannot read back bills nothing
-        # rather than failing the finalization and retrying the whole activity.
+        # Read the job back rather than trusting `inputs`: the status write above is absorbing,
+        # so it can leave a job that stayed FAILED, and the row counter is written elsewhere.
+        # That write already committed, so a job we cannot read back bills nothing rather than
+        # failing a finalization that is done.
         completed_job = await database_sync_to_async_pool(
-            ExternalDataJob.objects.filter(team_id=inputs.team_id, id=job_id).first
+            ExternalDataJob.objects.select_related("pipeline").filter(team_id=inputs.team_id, id=job_id).first
         )()
-        if completed_job and completed_job.billable and completed_job.rows_synced:
+        billed = billed_usage_for_job(completed_job) if completed_job else None
+        if completed_job and billed:
+            usage_key, rows = billed
             await asyncio.to_thread(
                 report_usage,
                 [
@@ -434,9 +432,9 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                         record_id=str(completed_job.id),
                         producer_id="warehouse-sources",
                         team_id=completed_job.team_id,
-                        usage_key="warehouse_rows_synced",
+                        usage_key=usage_key,
                         unit="rows",
-                        quantity=completed_job.rows_synced,
+                        quantity=rows,
                     )
                 ],
                 site="warehouse_rows",
