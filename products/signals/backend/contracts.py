@@ -229,6 +229,9 @@ class ConversationsTicketSignalInput(SignalInputBase):
 
 class ErrorTrackingSignalExtra(SignalExtraBase):
     fingerprint: str
+    # Event origin, attached so grouping and steering can read the source host without parsing prose.
+    host: str | None = None
+    is_dev_host: bool = False
 
 
 class ErrorTrackingSignalInput(SignalInputBase):

@@ -21,6 +21,7 @@ from products.error_tracking.backend.temporal.lifecycle.side_effects import (
     emit_issue_lifecycle_signal,
     produce_issue_lifecycle_internal_event,
 )
+from products.signals.backend.facade.api import validate_signal_input
 
 
 def _inputs() -> IssueReopenedWorkflowInputs:
@@ -312,3 +313,25 @@ async def test_signal_survives_special_token_in_origin_text() -> None:
     emit_signal.assert_awaited_once()
     assert emit_signal.await_args is not None
     assert "lib <|endoftext|>" in emit_signal.await_args.kwargs["description"]
+
+
+@pytest.mark.parametrize("source_type", ["issue_created", "issue_reopened", "issue_spiking"])
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"fingerprint": "fp", "host": "app.example.com", "is_dev_host": False},
+        {"fingerprint": "fp", "host": None, "is_dev_host": False},
+    ],
+)
+def test_lifecycle_signal_extra_matches_contract(source_type: str, extra: dict[str, object]) -> None:
+    # emit_issue_lifecycle_signal sends fingerprint/host/is_dev_host on extra, so the signal contract
+    # must accept exactly those keys — otherwise emit_signal raises before any signal is emitted.
+    validate_signal_input(
+        source_product="error_tracking",
+        source_type=source_type,
+        source_id="issue-1",
+        description="d",
+        weight=1.0,
+        extra=extra,
+        remediation=None,
+    )
