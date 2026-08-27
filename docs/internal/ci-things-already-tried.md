@@ -64,7 +64,7 @@ Wall time decreased from approximately 15 minutes to approximately 9 minutes. Th
 CPU cost increased from 1,572 to 3,908 core-minutes. This is a factor of approximately 2.5.
 
 The speed increase is real. The cost is the problem.
-A factor of 2.5 in compute is too much for 3 minutes of wall time.
+A factor of 2.5 in compute is too much for 6 minutes of wall time.
 
 `pytest-xdist` is still a development dependency, and it operates correctly on a local machine. CI does not use it in the shards.
 
@@ -251,8 +251,8 @@ _Also asked as:_ Docker Hub rate limit in CI, unauthenticated pull limit, DOCKER
 
 The trial did not do a direct exchange. It ran a Blacksmith shadow of most compute jobs on the same commit, behind the `BLACKSMITH_SHADOW_ENABLED` variable. Each shadow used `continue-on-error`, and no shadow was a required check.
 
-The team kept Depot. The comparison did not give a clear answer.
-The detail of that comparison is not in the PRs. It went to a report in the team channel, so this entry cannot show you the numbers. [#57991](https://github.com/PostHog/posthog/pull/57991) removed the shadow workflow and the matrix branches.
+The team kept Depot. [#57991](https://github.com/PostHog/posthog/pull/57991) removed the shadow workflow and the matrix branches.
+The measurements are not in the PRs, so this entry cannot show them.
 It kept `.github/scripts/compare-ci-runners.py` and marked the file as legacy. That script produced the numbers of the trial.
 
 If you propose this again, equalize the caches of the two providers first. A runner that keeps a warm cache between jobs measures the cache, not the compute.
@@ -262,7 +262,7 @@ _Also asked as:_ change CI provider, Blacksmith, cheaper runners, are the Depot 
 
 ### Use sparse-checkout on the large CI workflows
 
-**Verdict: rejected for those workflows** · Oct 2025 · [#39239](https://github.com/PostHog/posthog/pull/39239)
+**Verdict: abandoned** · Oct 2025 · [#39239](https://github.com/PostHog/posthog/pull/39239)
 
 The description covers the backend, frontend, and Rust workflows. The diff changes only `ci-backend.yml` and `ci-rust.yml`.
 
@@ -416,7 +416,7 @@ _Also asked as:_ remove pydantic, use dataclasses for the schema, the schema imp
 
 ### Switch the Person model to the partitioned table with a Django setting
 
-**Verdict: eight attempts, none merged** · Nov 2025 · [#41436](https://github.com/PostHog/posthog/pull/41436), [#41513](https://github.com/PostHog/posthog/pull/41513), [#41522](https://github.com/PostHog/posthog/pull/41522), [#41600](https://github.com/PostHog/posthog/pull/41600), [#41604](https://github.com/PostHog/posthog/pull/41604), [#41669](https://github.com/PostHog/posthog/pull/41669), [#41698](https://github.com/PostHog/posthog/pull/41698), [#41813](https://github.com/PostHog/posthog/pull/41813)
+**Verdict: eight attempts closed unmerged** · Nov 2025 · [#41436](https://github.com/PostHog/posthog/pull/41436), [#41513](https://github.com/PostHog/posthog/pull/41513), [#41522](https://github.com/PostHog/posthog/pull/41522), [#41600](https://github.com/PostHog/posthog/pull/41600), [#41604](https://github.com/PostHog/posthog/pull/41604), [#41669](https://github.com/PostHog/posthog/pull/41669), [#41698](https://github.com/PostHog/posthog/pull/41698), [#41813](https://github.com/PostHog/posthog/pull/41813)
 
 The goal is to move the Person model from `posthog_person` to a table that is partitioned by `team_id`. Eight PRs tried five mechanisms.
 
@@ -426,10 +426,14 @@ None of them merged. The author wrote this on [#41513](https://github.com/PostHo
 
 > I'm still not sure if I got on the wrong track here by wanting to bend all test setup to use the person_new table and other sqlx migrated stuff. It seems I overlooked something fundamental since things are failing so much.
 
-The work continues, but the mechanism is different. `PERSON_TABLE_NAME` is not in the code. `posthog_person_new` survives in one Dagster job, with a comment about a future name swap.
+One narrow PR from the same window did merge. [#41620](https://github.com/PostHog/posthog/pull/41620) put `team_id` into the Person queries that lacked it, and it carried the `PERSON_TABLE_NAME` setting to master.
+The setting is in `posthog/settings/data_stores.py`, and `Person.Meta.db_table` reads it. It defaults to `posthog_person`, so the cutover is off.
+The switch exists. The eight PRs above failed at what surrounds it: the test setup, the dual reads, and the partition guard.
+`posthog_person_new` comes from the sqlx migrations in `rust/persons_migrations/`. Three Dagster jobs read it, and one carries a comment about a future name swap.
 Person and group data now goes through the gRPC client in `posthog/personhog_client/`. `AGENTS.md` makes that client the required interface and prohibits new ORM queries against the person tables.
 
-Read this entry before you propose a Django-level cutover. The Django setting is not where this problem lives any more.
+Read this entry before you propose a Django-level cutover. The setting is already there.
+What is missing is everything that must be true before a person changes its value.
 
 _Also asked as:_ partition the person table, `PERSON_TABLE_NAME`, `posthog_person_new`, dual-table reads, cut over the Person model
 
