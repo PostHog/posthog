@@ -614,15 +614,15 @@ fn settle(w, outcome, groups) {              // every transition — per key and
 }
 
 fn dispatch() {                              // the batcher's own algorithm (§4.3): one
-    keys.revive();                           //   pass. The table yields uniform work
-    while let Some((item, pin)) = keys.pop_ready() {     //   items — keyed or keyless is
-        match router.place(pin, &packer) {               //   its business alone; the
-            None => {                                    //   router places, the packer
-                keys.park(item)                          //   composes. Parking removes an
-            }                                            //   item from the pass, so the
-            Some(w) => {                                 //   pass ends
-                packer.bin(w, keys.take(item, up_to: T))
-            }
+    keys.retry_parked();                     //   pass. Parked items rejoin ready first —
+    while let Some((item, pin)) = keys.pop_ready() {     //   the pool may have healed
+        match router.place(pin, &packer) {               //   since the last wake. The
+            Placed(w) => {                               //   table yields uniform items;
+                packer.bin(w, keys.take(item, up_to: T)) //   the router places, the
+            }                                            //   packer composes
+            Unroutable => {                  // pool-wide, no healthy worker (§4.5): the
+                keys.park(item)              //   item parks, leaving the pass — so the
+            }                                //   pass always ends
         }
     }
     if keys.any_parked() {
@@ -665,7 +665,8 @@ fn try_fire(w) -> bool {                     // the single send-origination site
 struct KeyTable {
     partitions: Map<Partition, PartitionKeys>,
     ready: Deque<Item>,                      // runnable now, in the order they became so
-    parked: Deque<Item>,                     // unplaceable (§4.5); revived at each wake
+    parked: Deque<Item>,                     // unplaceable (§4.5); rejoin ready at each
+                                             //   wake via retry_parked()
 }
 
 enum Item {                                  // the table's one scheduling unit — keyed or
@@ -703,9 +704,11 @@ fn admit(group) {                            // scenario: a demuxed group arrive
     }
 }
 
-fn revive() {                                // scenario: a new wake — parked items retry
-    ready.append(take(parked))
-}
+fn retry_parked() {                          // scenario: a new wake — every parked item
+    ready.append(take(parked))               //   rejoins the ready list for another
+}                                            //   placement attempt: worker health is only
+                                             //   observable at placement, and the pool
+                                             //   may have healed since the item parked
 
 fn pop_ready() -> Option<(Item, Option<WorkerId>)> {     // scenario: dispatch wants the
     loop {                                   //   next runnable item, with its placement
@@ -913,24 +916,29 @@ fn observe(rtt_sample) {                     // at every settlement — the law:
 **Router placement** (§4.3) — inside the batcher; `sticky` is the batcher's pin for the key — a preference, not a constraint:
 
 ```rust
-fn place(sticky, packer) -> Option<WorkerId> {       // reads the packer's bins for
-                                                     //   fill and load
+enum Placement {                             // the router's verdict, named:
+    Placed(WorkerId),                        //   this item's next run rides w's stream
+    Unroutable,                              //   pool-wide — no healthy worker (§4.5)
+}
+
+fn place(sticky, packer) -> Placement {      // reads the packer's bins for fill and load
     let health = registry.snapshot();        // published by the probe task; the model's
                                              //   only cross-task shared read — no lock
     if let Some(w) = sticky {
         if healthy(w) && !overloaded_beyond_slack(w, T) {
-            return Some(w)
+            return Placed(w)
         }
     }                                        // else fall through: pin abandonment — safe,
                                              //   nothing of that key is in flight (§4.3)
     let slice = aperture.slice(health);      // in-slice candidates
     let open = slice.healthy, below-target bins, load-checked;
     if open is non-empty {
-        pick by fill, affinity overlap as tie-break   // never overriding load or fill
+        Placed(pick by fill, affinity overlap as tie-break)  // never overriding load/fill
+    } else if slice.any_healthy() {
+        Placed(rotating_p2c(slice))          // opens further slice workers
     } else {
-        rotating_p2c(slice)                  // opens further slice workers
-    }
-    // none healthy → None: the release parks; the batcher's next wake re-tries (§4.5)
+        Unroutable                           // the item parks; the batcher's next wake
+    }                                        //   re-tries (§4.5)
 }
 ```
 
