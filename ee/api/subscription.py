@@ -534,6 +534,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     @extend_schema_field(SubscriptionContextSerializer(many=True))
     def get_contexts(self, obj: Subscription) -> list[dict[str, str | int]]:
         user_access_control = self.context.get("view").user_access_control if self.context.get("view") else None
+        is_context_recovery = bool(getattr(obj, "_is_context_recovery", False))
         dashboards = [
             {
                 "kind": "dashboard",
@@ -545,7 +546,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             if not dashboard.deleted
             and (user_access_control is None or user_access_control.check_access_level_for_object(dashboard, "viewer"))
             and (
-                user_access_control is None
+                not is_context_recovery
+                or user_access_control is None
                 or _dashboard_has_only_viewable_live_tiles(user_access_control, dashboard, self.context["team_id"])
             )
         ]
