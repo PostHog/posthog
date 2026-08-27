@@ -21,7 +21,7 @@ export function SettingsSection({
   return (
     <section className="flex flex-col gap-2">
       {(label || action) && (
-        <div className="flex items-end justify-between gap-3 px-0.5">
+        <div className="flex items-center justify-between gap-3 px-0.5">
           <div className="flex flex-col gap-0.5">
             {label && (
               <h3 className="font-semibold text-[11px] text-gray-9 uppercase tracking-[0.08em]">
