@@ -450,14 +450,6 @@ export function ProjectTree({
                     root === 'custom-products://'
                 ) {
                     const key = item.record?.sceneKey
-                    const tooltipText =
-                        root === 'custom-products://' ? (
-                            <>
-                                Open the three-dot menu to remove from the sidebar.
-                                <br />
-                                <br />
-                            </>
-                        ) : undefined
 
                     return (
                         <>
@@ -466,7 +458,6 @@ export function ProjectTree({
                                     <p className="mb-1 font-semibold">{item.displayName}</p>
                                 </>
                             )}
-                            {tooltipText}
                             {sceneConfigurations[key]?.description || item.name}
 
                             {item.tags?.length && (
