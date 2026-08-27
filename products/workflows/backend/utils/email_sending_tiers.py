@@ -41,13 +41,24 @@ class TeamEmailSendingTier:
 def email_sending_tier_mode() -> TierMode:
     """Rollout mode. An unrecognized value reads as "off" so a typo cannot start throttling teams."""
     mode = str(settings.WORKFLOWS_EMAIL_TIER_MODE or "").strip().lower()
-    if mode in ("shadow", "enforce"):
-        return mode  # type: ignore[return-value]
+    if mode == "shadow":
+        return "shadow"
+    if mode == "enforce":
+        return "enforce"
     return "off"
 
 
 def max_email_sending_tier() -> int:
     return _tier_count() - 1
+
+
+def min_days_at_tier(tier: int) -> int:
+    """Days a team must hold `tier` before it can be promoted off it. Clamped into the configured
+    list so a partial env override cannot raise on a high tier."""
+    days = settings.WORKFLOWS_EMAIL_TIER_MIN_DAYS_AT_TIER
+    if not days:
+        return 0
+    return int(days[min(max(tier, 0), len(days) - 1)])
 
 
 def _tier_count() -> int:

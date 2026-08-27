@@ -1234,26 +1234,53 @@ HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS: set[int] = {
 # by hours) arrives while total volume is still low.
 # The three lists are indexed by tier and must all be the same length. The top tier matches
 # HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED so a fully graduated team is no more limited than it was
-# before tiers existed.
+# before tiers existed. Adjacent tiers stay roughly 3x apart: published warmup ramps (SendGrid,
+# Mailgun, Oracle) grow 25-50% per step and warn against jumps above 2x, and a promotion is an
+# overnight allowance jump, so a 3x step with the utilization bar below approximates that ramp
+# while keeping the tier count small enough to reason about.
 WORKFLOWS_EMAIL_TIER_HOURLY_CAPS: list[int] = [
-    int(cap) for cap in get_list(get_from_env("WORKFLOWS_EMAIL_TIER_HOURLY_CAPS", "200,2000,10000,50000,200000"))
+    int(cap)
+    for cap in get_list(get_from_env("WORKFLOWS_EMAIL_TIER_HOURLY_CAPS", "200,600,2000,6000,20000,60000,200000"))
 ]
 WORKFLOWS_EMAIL_TIER_DAILY_CAPS: list[int] = [
-    int(cap) for cap in get_list(get_from_env("WORKFLOWS_EMAIL_TIER_DAILY_CAPS", "1000,10000,50000,250000,1000000"))
+    int(cap)
+    for cap in get_list(get_from_env("WORKFLOWS_EMAIL_TIER_DAILY_CAPS", "1000,3000,10000,30000,100000,300000,1000000"))
 ]
 WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS: list[int] = [
     int(cap)
-    for cap in get_list(get_from_env("WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS", "1000,10000,50000,250000,1000000"))
+    for cap in get_list(
+        get_from_env("WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS", "1000,3000,10000,30000,100000,300000,1000000")
+    )
 ]
 
 # Promotion bar. A team must sit at its tier for this long, actually use the tier, and keep its
-# rates under the thresholds below before it moves up one step.
-WORKFLOWS_EMAIL_TIER_MIN_DAYS_AT_TIER = int(get_from_env("WORKFLOWS_EMAIL_TIER_MIN_DAYS_AT_TIER", 3))
-# Trailing window the complaint and bounce rates are measured over. 30 days is how the industry
-# quotes these thresholds, and it matches the reputation surface in the workflows UI.
+# rates under the thresholds below before it moves up one step. Indexed by the tier the team is
+# promoted from, clamped to the last entry, so the dwell grows with the volume at stake and a full
+# climb takes the 4-6 weeks the industry treats as a complete warmup.
+WORKFLOWS_EMAIL_TIER_MIN_DAYS_AT_TIER: list[int] = [
+    int(days) for days in get_list(get_from_env("WORKFLOWS_EMAIL_TIER_MIN_DAYS_AT_TIER", "3,3,5,5,7,7,7"))
+]
+# Trailing window the complaint and bounce rates are measured over for promotion. 30 days is how
+# the industry quotes these thresholds, and it matches the reputation surface in the workflows UI.
 WORKFLOWS_EMAIL_TIER_RATE_WINDOW_DAYS = int(get_from_env("WORKFLOWS_EMAIL_TIER_RATE_WINDOW_DAYS", 30))
+# Demotion reads a shorter window than promotion, so one incident stops demoting once it ages out
+# of the short window instead of holding the team down for the full promotion window.
+WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS = int(get_from_env("WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS", 7))
+# After a rate-based demotion, further rate-based demotions wait this long. Without it the daily
+# sweep re-reads the same dirty window every run and one incident cascades a team to the bottom.
+WORKFLOWS_EMAIL_TIER_DEMOTION_COOLDOWN_DAYS = int(get_from_env("WORKFLOWS_EMAIL_TIER_DEMOTION_COOLDOWN_DAYS", 3))
+# A team above the lowest tier that sends nothing for this long drops one tier per period. Mailbox
+# providers keep about 30 days of reputation history, so a long-dormant allowance is unearned and a
+# comeback blast from a stale list is exactly what the caps exist to prevent. 0 disables decay.
+WORKFLOWS_EMAIL_TIER_INACTIVITY_DECAY_DAYS = int(get_from_env("WORKFLOWS_EMAIL_TIER_INACTIVITY_DECAY_DAYS", 30))
 WORKFLOWS_EMAIL_TIER_MAX_COMPLAINT_RATE = float(get_from_env("WORKFLOWS_EMAIL_TIER_MAX_COMPLAINT_RATE", 0.001))
 WORKFLOWS_EMAIL_TIER_MAX_BOUNCE_RATE = float(get_from_env("WORKFLOWS_EMAIL_TIER_MAX_BOUNCE_RATE", 0.02))
+# Rates are meaningless on tiny denominators: at the 0.1% complaint threshold one complaint per
+# 1,000 sends IS the line, so judging a window with fewer sends turns a single complaint into a
+# demotion. Below the floor a metric only counts through the absolute backstop next to it.
+WORKFLOWS_EMAIL_TIER_COMPLAINT_RATE_MIN_SENDS = int(get_from_env("WORKFLOWS_EMAIL_TIER_COMPLAINT_RATE_MIN_SENDS", 1000))
+WORKFLOWS_EMAIL_TIER_COMPLAINT_COUNT_BACKSTOP = int(get_from_env("WORKFLOWS_EMAIL_TIER_COMPLAINT_COUNT_BACKSTOP", 3))
+WORKFLOWS_EMAIL_TIER_BOUNCE_RATE_MIN_SENDS = int(get_from_env("WORKFLOWS_EMAIL_TIER_BOUNCE_RATE_MIN_SENDS", 200))
 # A team that has sent nothing has proven nothing, so promotion also needs real use of the current
 # tier: this many separate days on which the team sent at least this fraction of its daily cap.
 WORKFLOWS_EMAIL_TIER_MIN_ACTIVE_DAYS = int(get_from_env("WORKFLOWS_EMAIL_TIER_MIN_ACTIVE_DAYS", 2))
