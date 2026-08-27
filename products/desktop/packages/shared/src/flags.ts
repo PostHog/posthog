@@ -7,6 +7,8 @@ export const EXPERIMENT_SUGGESTIONS_FLAG =
 /** Autoresearch (metric-optimization loop). Staff-gated while it bakes. */
 export const AUTORESEARCH_FLAG = "posthog-code-autoresearch";
 export const DISCOVERY_RUN_FLAG = "posthog-code-discovery-run";
+export const ONBOARDING_TEST_TOOLS_FLAG =
+  "posthog-desktop-onboarding-test-tools";
 // Gates the entire canvas feature: the app rail's Channels space, the /website
 // routes, channels and dashboards.
 export const PROJECT_BLUEBIRD_FLAG = "project-bluebird";
