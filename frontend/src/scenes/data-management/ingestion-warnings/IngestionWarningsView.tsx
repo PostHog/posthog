@@ -304,8 +304,8 @@ export const WARNING_TYPE_RENDERER = {
         }
         return (
             <>
-                Rate limit reached, so these events were ingested with person profile processing turned off. No
-                events were dropped.
+                Rate limit reached, so these events were ingested with person profile processing turned off. No events
+                were dropped.
                 {details.distinctId ? (
                     <>
                         {' '}
