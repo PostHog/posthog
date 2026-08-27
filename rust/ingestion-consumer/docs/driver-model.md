@@ -343,13 +343,9 @@ fn assign(p, epoch) { partitions.insert(p, PartitionDriver::new(epoch)) }
 fn revoking(p) { partitions[p].revoking = true }  // drain begun (§4.5): the ledger stays
                                                   //   to absorb in-flight completions
 
-fn drained(p) -> DrainHarvest {              // the drain's end (§4.5): remove the driver —
-    let d = partitions.remove(p);            //   its final frontier for the last commit,
-    DrainHarvest {                           //   and the never-completed charge, which
-        p,                                   //   replays on the partition's next owner
-        last: d.final_advance(),
-        dropped: d.pending_charge(),
-    }
+fn drained(p) -> DrainHarvest {              // the drain's end (§4.5): remove the driver,
+    let (frontier, dropped) = partitions.remove(p).drained();    //   take its last word
+    DrainHarvest { p, frontier, dropped }
 }
 
 fn accept(msgs, acc) {                       // one poll, demuxed to its partitions
@@ -394,6 +390,10 @@ fn complete(group) -> Option<Advance> {      // one ACKed group — the record o
     })
 }
 
+fn drained(self) -> (Offset, Charge) {       // consumed at the drain's end (§4.5): the
+    (ledger.frontier, ledger.pending_charge())       //   final frontier to commit, and the
+}                                            //   charge of what never completed
+
 fn check_stall() {
     if !revoking && ledger.has_pending() && now > stall_deadline {
         fail_process()                       // replay ≤ B; this partition's wedge only (§4.5)
@@ -425,11 +425,11 @@ fn begin_revoke(p) { revoking.insert(p) }    // drain begun (§4.5): p's next is
                                              //   final one, via finish_revoke below
 
 fn finish_revoke(kafka, harvest) -> Refund { // the drain's end: issue p's final frontier
-    let held = pending.remove(harvest.p);    //   NOW — the rebalance is waiting — and
-    issue(kafka, [harvest.last]);            //   settle every charge the partition still
-    revoking.remove(harvest.p);              //   holds: the tally held here, the final
-    held.retired + harvest.last.retired + harvest.dropped    //   advance, and the never-
-}                                            //   completed remainder that will replay
+    let held = pending.remove(harvest.p);    //   NOW — the rebalance is waiting. Every
+    issue(kafka, [(harvest.p, harvest.frontier + 1)]);   //   completed span was already
+    revoking.remove(harvest.p);              //   reported via progress, so the refund is
+    held.retired + harvest.dropped           //   the held tally plus the never-completed
+}                                            //   charge — nothing counts twice
 
 fn maybe_issue(kafka) -> Refund {            // the algorithm — today: at most one batched
     if last_issue.elapsed() < COMMIT_INTERVAL { return 0 }   //   issue per interval
