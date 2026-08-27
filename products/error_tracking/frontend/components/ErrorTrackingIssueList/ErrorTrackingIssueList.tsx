@@ -134,7 +134,6 @@ export function ErrorTrackingIssueListRow({
                         <QuillAssigneeSelect
                             assignee={issue.assignee}
                             onChange={(assignee) => updateIssueAssignee(issue.id, assignee)}
-                            nativeButton={false}
                         >
                             {(anyAssignee) => (
                                 <button
