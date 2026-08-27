@@ -23,6 +23,13 @@ from .runner import RunningTestSnapshot
 logger = structlog.get_logger(__name__)
 
 TEMPORAL_WORKER_APP = "temporal-worker-general-purpose"
+
+# Slack Block Kit limits: 50 blocks per message, 3000 characters of section
+# text, 10 elements per context block. Context text has no documented cap;
+# 2000 is a safe ceiling.
+MAX_BLOCKS = 50
+MAX_SECTION_TEXT_CHARS = 3000
+MAX_CONTEXT_TEXT_CHARS = 2000
 MAX_ERROR_MESSAGE_CHARS = 700
 MAX_CAPTURED_EVENTS_LISTED = 6
 
@@ -140,6 +147,7 @@ def send_slack_timeout_notification(
 
 
 def _post(webhook_url: str, blocks: list[dict[str, Any]], what: str) -> bool:
+    blocks = _fit_slack_limits(blocks)
     try:
         response = requests.post(webhook_url, json={"blocks": blocks}, timeout=10)
         response.raise_for_status()
@@ -148,6 +156,29 @@ def _post(webhook_url: str, blocks: list[dict[str, Any]], what: str) -> bool:
     except requests.RequestException as e:
         logger.warning(f"Failed to send {what}", error=str(e))
         return False
+
+
+def _fit_slack_limits(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Trim a block list so Slack accepts it, keeping the header and the links footer."""
+    if len(blocks) > MAX_BLOCKS:
+        dropped = len(blocks) - (MAX_BLOCKS - 1)
+        blocks = [
+            *blocks[: MAX_BLOCKS - 2],
+            _section(f"... {dropped} more block(s) not shown; see the Temporal run result for every test."),
+            *blocks[-1:],
+        ]
+    fitted = []
+    for block in blocks:
+        if block.get("type") == "section":
+            block = _section(_truncate(block["text"]["text"], MAX_SECTION_TEXT_CHARS))
+        elif block.get("type") == "context":
+            block = _context(_truncate(block["elements"][0]["text"], MAX_CONTEXT_TEXT_CHARS))
+        fitted.append(block)
+    return fitted
+
+
+def _truncate(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 3] + "..."
 
 
 def _build_slack_blocks(

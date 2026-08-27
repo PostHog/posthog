@@ -228,6 +228,35 @@ class TestSendSlackNotification:
         assert f"Failure class: {expected_class}" in metadata_block
 
     @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
+    def test_payload_stays_within_slack_block_kit_limits(self, mock_post: MagicMock, config: Config) -> None:
+        mock_post.return_value.raise_for_status = MagicMock()
+        results = [
+            TestResult(
+                test_name=f"t{i}",
+                test_file=f"acceptance_test_x::TestX::t{i}",
+                status="failed",
+                duration_seconds=1.0,
+                error_message="x" * 5000,
+                error_details={"type": "AssertionError"},
+                captured_events=[CapturedEventRef(uuid=f"u-{i}-{j}", event="$e", distinct_id="d") for j in range(40)],
+            )
+            for i in range(80)
+        ]
+        result = TestSuiteResult(
+            results=results, total_duration_seconds=1.0, environment={}, timestamp="2024-01-01T00:00:00Z"
+        )
+
+        send_slack_notification(config, result)
+
+        blocks = mock_post.call_args[1]["json"]["blocks"]
+        assert len(blocks) <= 50
+        assert all(len(b["text"]["text"]) <= 3000 for b in blocks if b["type"] == "section")
+        assert all(len(b["elements"][0]["text"]) <= 2000 for b in blocks if b["type"] == "context")
+        assert "Unsuccessful run" in blocks[0]["text"]["text"]
+        assert "Env: https://test.posthog.com" in blocks[-1]["elements"][0]["text"]
+        assert "more block(s) not shown" in blocks[-2]["text"]["text"]
+
+    @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
     def test_suite_failure_class_is_the_most_serious_one(self, mock_post: MagicMock, config: Config) -> None:
         mock_post.return_value.raise_for_status = MagicMock()
         result = TestSuiteResult(
