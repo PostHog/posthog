@@ -51,7 +51,7 @@ import { PipelineEvent, PluginsServerConfig, ProjectId, RawClickHouseEvent, Redi
 import { Clickhouse } from './clickhouse'
 import { waitForExpect } from './expectations'
 import { ensureKafkaTopics } from './kafka'
-import { createUserTeamAndOrganization } from './sql'
+import { createUserTeamAndOrganization, uniqueTestId } from './sql'
 
 export const DEFAULT_TEAM: Team = {
     id: 2,
@@ -512,7 +512,7 @@ export function createTestWithTeamIngester<T extends IngesterLike>(
 
             const kafkaProducer = await KafkaProducerWrapper.create(serverConfig.KAFKA_CLIENT_RACK)
 
-            const teamId = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
+            const teamId = uniqueTestId()
             const userId = teamId
             const organizationId = new UUIDT().toString()
 

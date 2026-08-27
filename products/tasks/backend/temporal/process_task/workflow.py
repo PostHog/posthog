@@ -17,7 +17,7 @@ from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.constants import DEV_STACK_IMAGE_NAME, SNAPSHOT_KIND_FILESYSTEM
+from products.tasks.backend.constants import DEV_STACK_IMAGE_NAME, SNAPSHOT_KIND_FILESYSTEM, is_same_run_resume_state
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.babysit_pr.prompts import (
@@ -1966,7 +1966,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 await self._emit_progress("clone", "completed", clone_label, "setup")
 
         state = self.context.state or {}
-        is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
+        is_resume = bool(state.get("resume_from_run_id") or is_same_run_resume_state(state))
         checkout_ms: int | None = None
         if will_checkout and checkout_repository not in failed_repositories and not is_resume:
             assert checkout_repository is not None
@@ -2342,7 +2342,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             return False
 
         state = self.context.state or {}
-        is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
+        is_resume = bool(state.get("resume_from_run_id") or is_same_run_resume_state(state))
         return self.context.mode != "interactive" and not is_resume
 
     async def _track_workflow_event(self, event_name: str, properties: dict, capture_analytics: bool = True) -> None:
@@ -2552,8 +2552,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             "snapshot_external_id": snapshot.external_id,
             "snapshot_kind": snapshot.snapshot_kind,
             "snapshot_mount_path": snapshot.snapshot_mount_path,
-            "handoff_resumed": True,
-            "handoff_resume_idle": True,
+            "same_run_resume": True,
+            "same_run_resume_idle": True,
         }
         live_sandbox = PreRotationSandbox(
             sandbox_id=old_sandbox_id,

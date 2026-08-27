@@ -2885,14 +2885,25 @@ class TestSessionReplayObservationViewSet(_VisionAPITestCase):
         )
 
     def test_list_returns_observations_from_every_scanner_for_the_session(self) -> None:
+        inline_scanner = self._create_scanner(name="one-off", origin=ScannerOrigin.INLINE, inline_key="one-off")
         self._create_observation(self.scanner_a, "sess-target")
         self._create_observation(self.scanner_b, "sess-target")
+        self._create_observation(inline_scanner, "sess-target")
         self._create_observation(self.scanner_a, "sess-other")
 
         resp = self.client.get(f"{self.session_observations_url}?session_id=sess-target")
         self.assertEqual(resp.status_code, 200)
         results = resp.json()["results"]
-        self.assertEqual({r["scanner_id"] for r in results}, {str(self.scanner_a.id), str(self.scanner_b.id)})
+        self.assertEqual(
+            {r["scanner_id"] for r in results},
+            {str(self.scanner_a.id), str(self.scanner_b.id), str(inline_scanner.id)},
+        )
+        # This endpoint feeds the dock, seekbar and sidebar, where a one-off scan used to render a
+        # blank label, so the origin has to survive the trip here and not only on the scanner route.
+        self.assertEqual(
+            {r["scanner_id"]: r["scanner_origin"] for r in results}[str(inline_scanner.id)],
+            "inline",
+        )
 
     def test_list_requires_session_id(self) -> None:
         resp = self.client.get(self.session_observations_url)
@@ -3693,6 +3704,22 @@ class TestInlineScanAction(_VisionAPITestCase):
         resp = self.client.get(self.observations_url(scan_id))
         self.assertEqual(resp.status_code, 200, resp.content)
         self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["sess-1"])
+        # Marked inline so a reader knows not to offer a link to the scanner: those endpoints 404 on it.
+        self.assertEqual([r["scanner_origin"] for r in resp.json()["results"]], ["inline"])
+
+    def test_a_configured_scanners_observations_are_marked_configured(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # The other half of the flag. Without it every observation reads as unlinkable and the scanner
+        # breadcrumb disappears for the configured scanners that do have a page.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+        scanner = self._create_scanner()
+        self._finished_observation(str(scanner.id), "sess-1")
+
+        resp = self.client.get(self.observations_url(str(scanner.id)))
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual([r["scanner_origin"] for r in resp.json()["results"]], ["configured"])
 
     def test_requires_ai_consent(self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock) -> None:
         # New call site into the LLM path, so it needs its own consent gate rather than inheriting one.

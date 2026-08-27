@@ -46,6 +46,7 @@ class ProxyRecord(UUIDTModel):
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="proxy_records")
     domain = models.CharField(max_length=64, unique=True)
     target_cname = models.CharField(max_length=256, null=False)
+    root_redirect_url = models.URLField(max_length=1024, null=True, blank=True)
     message = models.CharField(max_length=1024, null=True)
 
     class Status(models.TextChoices):
