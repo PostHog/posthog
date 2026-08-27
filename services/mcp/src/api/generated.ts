@@ -4676,6 +4676,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
       preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
@@ -4766,6 +4768,8 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -6250,6 +6254,8 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -6278,6 +6284,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
       preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
@@ -6364,6 +6372,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -6400,6 +6410,8 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -7382,6 +7394,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -7486,6 +7500,8 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -70437,6 +70453,8 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -70465,6 +70483,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
       preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
@@ -70551,6 +70571,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -70576,6 +70598,8 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -70935,6 +70959,8 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -70963,6 +70989,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
       preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
@@ -71049,6 +71077,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -71074,6 +71104,8 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
