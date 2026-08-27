@@ -116,25 +116,30 @@ def update_alert(
     throttle_seconds: Optional[int] = None,
     destinations: Optional[list[dict[str, Any]]] = None,
 ) -> Optional[ErrorTrackingAlert]:
-    alert = get_alert(team_id, alert_id)
-    if alert is None:
+    parsed_id = _parse_alert_id(alert_id)
+    if parsed_id is None:
         return None
-    if name is not None:
-        alert.name = name
-    if enabled is not None:
-        alert.enabled = enabled
-    if triggers is not None:
-        alert.triggers = triggers
-    if filters is not None:
-        # Validate against the stored (canonical) team id, not the raw caller id.
-        alert.filters = _compile_filters(alert.team_id, filters)
-    if throttle_seconds is not None:
-        alert.throttle_seconds = throttle_seconds
-    if destinations is not None:
-        for destination in destinations:
-            _validate_destination(alert.team_id, destination)
 
     with transaction.atomic():
+        # Lock the row so concurrent partial updates cannot overwrite each other's fields.
+        alert = ErrorTrackingAlert.objects.for_team(team_id).select_for_update().filter(id=parsed_id).first()
+        if alert is None:
+            return None
+        if name is not None:
+            alert.name = name
+        if enabled is not None:
+            alert.enabled = enabled
+        if triggers is not None:
+            alert.triggers = triggers
+        if filters is not None:
+            # Validate against the stored (canonical) team id, not the raw caller id.
+            alert.filters = _compile_filters(alert.team_id, filters)
+        if throttle_seconds is not None:
+            alert.throttle_seconds = throttle_seconds
+        if destinations is not None:
+            for destination in destinations:
+                _validate_destination(alert.team_id, destination)
+
         alert.save()
         if destinations is not None:
             # Destinations are replaced wholesale: threads cascade with removed rows,

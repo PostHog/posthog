@@ -13,6 +13,7 @@ export const errorTrackingAlertsCreateBodyNameMax = 400
 
 export const errorTrackingAlertsCreateBodyThrottleSecondsDefault = 0
 export const errorTrackingAlertsCreateBodyThrottleSecondsMin = 0
+export const errorTrackingAlertsCreateBodyThrottleSecondsMax = 2147483647
 
 export const ErrorTrackingAlertsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(errorTrackingAlertsCreateBodyNameMax).describe('Human-readable name of the alert.'),
@@ -34,6 +35,7 @@ export const ErrorTrackingAlertsCreateBody = /* @__PURE__ */ zod.object({
     throttle_seconds: zod
         .number()
         .min(errorTrackingAlertsCreateBodyThrottleSecondsMin)
+        .max(errorTrackingAlertsCreateBodyThrottleSecondsMax)
         .default(errorTrackingAlertsCreateBodyThrottleSecondsDefault)
         .describe('Minimum seconds between thread-opening notifications per issue. 0 disables the throttle.'),
     destinations: zod
@@ -58,6 +60,7 @@ export const ErrorTrackingAlertsCreateBody = /* @__PURE__ */ zod.object({
 export const errorTrackingAlertsUpdateBodyNameMax = 400
 
 export const errorTrackingAlertsUpdateBodyThrottleSecondsMin = 0
+export const errorTrackingAlertsUpdateBodyThrottleSecondsMax = 2147483647
 
 export const ErrorTrackingAlertsUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -88,6 +91,7 @@ export const ErrorTrackingAlertsUpdateBody = /* @__PURE__ */ zod.object({
     throttle_seconds: zod
         .number()
         .min(errorTrackingAlertsUpdateBodyThrottleSecondsMin)
+        .max(errorTrackingAlertsUpdateBodyThrottleSecondsMax)
         .optional()
         .describe('Minimum seconds between thread-opening notifications per issue. Omit to keep the current value.'),
     destinations: zod
@@ -113,6 +117,7 @@ export const ErrorTrackingAlertsUpdateBody = /* @__PURE__ */ zod.object({
 export const errorTrackingAlertsPartialUpdateBodyNameMax = 400
 
 export const errorTrackingAlertsPartialUpdateBodyThrottleSecondsMin = 0
+export const errorTrackingAlertsPartialUpdateBodyThrottleSecondsMax = 2147483647
 
 export const ErrorTrackingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -143,6 +148,7 @@ export const ErrorTrackingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
     throttle_seconds: zod
         .number()
         .min(errorTrackingAlertsPartialUpdateBodyThrottleSecondsMin)
+        .max(errorTrackingAlertsPartialUpdateBodyThrottleSecondsMax)
         .optional()
         .describe('Minimum seconds between thread-opening notifications per issue. Omit to keep the current value.'),
     destinations: zod

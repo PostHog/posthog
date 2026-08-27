@@ -10,6 +10,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from products.error_tracking.backend.facade import alerts as alerts_facade
 from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertDestination
 
+# PostgreSQL integer column bound; larger values would 500 on save.
+MAX_THROTTLE_SECONDS = 2**31 - 1
+
 
 class ErrorTrackingAlertDestinationRequestSerializer(serializers.Serializer):
     # Request-side twin of ErrorTrackingAlertDestinationSerializer without the
@@ -70,6 +73,7 @@ class ErrorTrackingAlertCreateRequestSerializer(serializers.Serializer):
         required=False,
         default=0,
         min_value=0,
+        max_value=MAX_THROTTLE_SECONDS,
         help_text="Minimum seconds between thread-opening notifications per issue. 0 disables the throttle.",
     )
     destinations = ErrorTrackingAlertDestinationRequestSerializer(
@@ -100,6 +104,7 @@ class ErrorTrackingAlertUpdateRequestSerializer(serializers.Serializer):
     throttle_seconds = serializers.IntegerField(
         required=False,
         min_value=0,
+        max_value=MAX_THROTTLE_SECONDS,
         help_text="Minimum seconds between thread-opening notifications per issue. Omit to keep the current value.",
     )
     destinations = ErrorTrackingAlertDestinationRequestSerializer(
