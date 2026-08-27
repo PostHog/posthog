@@ -83,7 +83,7 @@ export function ToolsStep({ plan, onChange }: ToolsStepProps) {
           anything else you name.
         </Text>
       ) : (
-        <div className="relative max-h-[360px] w-full overflow-y-auto rounded-(--radius-3) border border-(--gray-5)">
+        <div className="relative max-h-[360px] w-full overflow-y-auto rounded-(--radius-3) border border-border">
           <TooltipProvider delay={TOOLTIP_DELAY_MS}>
             {IMAGE_TOOL_CATEGORIES.map((category) => {
               const tools = visible.filter(

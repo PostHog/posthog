@@ -35,9 +35,9 @@ function PermissionList({
   emptyMessage: string;
 }) {
   return (
-    <Box className="rounded-lg border border-gray-6 bg-gray-2 p-3">
+    <Box className="rounded-lg border border-border bg-gray-2 p-3">
       <Text className="mb-2 block font-medium text-[13px]">{title}</Text>
-      <Box className="min-h-[40px] rounded border border-gray-5 bg-gray-3 p-2.5">
+      <Box className="min-h-[40px] rounded border border-border bg-gray-3 p-2.5">
         {permissions.length > 0 ? (
           <Flex wrap="wrap" gap="2">
             {permissions.map((perm) => (

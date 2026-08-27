@@ -30,7 +30,7 @@ function CopyableCommand({ command }: { command: string }) {
     <Flex
       align="center"
       gap="2"
-      className="rounded border border-gray-6 bg-gray-2 px-2 py-1"
+      className="rounded border border-border bg-gray-2 px-2 py-1"
     >
       <Text className="text-[13px] text-gray-11">{command}</Text>
       <Tooltip content={copied ? "Copied!" : "Copy"}>
@@ -157,7 +157,7 @@ export function HarnessSettings() {
       </SettingRow>
 
       {/* Codex */}
-      <Text className="mb-2 block border-gray-6 border-t pt-4 font-medium text-sm">
+      <Text className="mb-2 block border-border border-t pt-4 font-medium text-sm">
         Codex
       </Text>
 
@@ -211,7 +211,7 @@ export function HarnessSettings() {
       </SettingRow>
 
       {/* Permissions */}
-      <Text className="mb-2 block border-gray-6 border-t pt-4 font-medium text-sm">
+      <Text className="mb-2 block border-border border-t pt-4 font-medium text-sm">
         Permissions
       </Text>
 

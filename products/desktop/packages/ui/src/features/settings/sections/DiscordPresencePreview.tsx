@@ -82,7 +82,7 @@ export function DiscordPresencePreview({
       }
     >
       <div
-        className={`max-w-[380px] rounded-xl border border-gray-5 bg-gray-2 px-4 py-3 ${
+        className={`max-w-[380px] rounded-xl border border-border bg-gray-2 px-4 py-3 ${
           enabled ? "" : "pointer-events-none opacity-50"
         }`}
       >

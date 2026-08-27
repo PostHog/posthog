@@ -108,7 +108,7 @@ function SettingsPageHeader({
   return (
     <div
       className={`flex items-center gap-2 ${
-        bordered ? "shrink-0 border-gray-5 border-b px-6 py-4" : ""
+        bordered ? "shrink-0 border-border border-b px-6 py-4" : ""
       }`}
     >
       {icon && <span className="text-gray-10">{icon}</span>}

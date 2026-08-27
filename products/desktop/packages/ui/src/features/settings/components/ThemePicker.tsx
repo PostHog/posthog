@@ -123,10 +123,10 @@ export function ThemePicker({ value, onChange }: ThemePickerProps) {
           <label
             key={option.value}
             className={cn(
-              "flex cursor-pointer flex-col overflow-hidden rounded-(--radius-3) border bg-(--color-panel-solid) transition-colors has-[:focus-visible]:ring-(--accent-8) has-[:focus-visible]:ring-2",
+              "flex cursor-pointer flex-col overflow-hidden rounded-(--radius-3) border bg-card transition-colors has-[:focus-visible]:ring-(--accent-8) has-[:focus-visible]:ring-2",
               selected
                 ? "border-(--accent-9)"
-                : "border-(--gray-5) hover:border-(--gray-8)",
+                : "border-border hover:border-(--gray-8)",
             )}
           >
             <input

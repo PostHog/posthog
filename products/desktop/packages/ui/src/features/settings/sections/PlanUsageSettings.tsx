@@ -178,7 +178,7 @@ export function PlanUsageContent({
               align="center"
               justify="center"
               p="4"
-              className="rounded-(--radius-3) border border-(--gray-5) bg-(--color-panel-solid)"
+              className="rounded-(--radius-3) border border-border bg-card"
             >
               <Spinner size="2" />
             </Flex>
@@ -209,7 +209,7 @@ export function PlanUsageContent({
               justify="between"
               gap="4"
               p="4"
-              className="rounded-(--radius-3) border border-(--gray-5) bg-(--color-panel-solid)"
+              className="rounded-(--radius-3) border border-border bg-card"
             >
               <Text color="gray" className="text-[13px]">
                 {usage
@@ -275,7 +275,7 @@ function UsageMix({
       direction="column"
       gap="3"
       p="4"
-      className="rounded-(--radius-3) border border-(--gray-5) bg-(--color-panel-solid)"
+      className="rounded-(--radius-3) border border-border bg-card"
     >
       <Text className="font-medium text-[13px] text-gray-12">Usage mix</Text>
       <div

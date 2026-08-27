@@ -52,7 +52,7 @@ export function SettingsCard({
   return (
     <div
       className={cn(
-        "divide-y divide-(--gray-4) rounded-(--radius-3) border border-(--gray-5) bg-(--color-panel-solid)",
+        "divide-y divide-border rounded-(--radius-3) border border-border bg-card",
         className,
       )}
     >

@@ -24,7 +24,7 @@ export function SettingsSubsection({
     <Flex
       direction="column"
       gap="4"
-      className="border-(--gray-5) border-t pt-8 first:border-t-0 first:pt-0"
+      className="border-border border-t pt-8 first:border-t-0 first:pt-0"
     >
       <Flex align="start" justify="between" gap="4" wrap="wrap">
         <Flex direction="column" gap="1">

@@ -212,7 +212,7 @@ function Section({
 
 function EmptyNote({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-(--radius-3) border border-(--gray-5) border-dashed px-3 py-3">
+    <div className="rounded-(--radius-3) border border-border border-dashed px-3 py-3">
       <Text className="text-(--gray-11) text-[11.5px] leading-snug">
         {children}
       </Text>

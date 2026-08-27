@@ -40,7 +40,7 @@ export function SlackWorkspaceConnection({
 
   if (isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-(--radius-3) border border-(--gray-5) bg-(--color-panel-solid) px-3.5 py-3">
+      <div className="flex items-center gap-2 rounded-(--radius-3) border border-border bg-card px-3.5 py-3">
         <Spinner />
         <Text size="xs" variant="muted">
           Loading Slack…
@@ -52,7 +52,7 @@ export function SlackWorkspaceConnection({
   if (hasSlackIntegration) {
     return (
       <div className="flex flex-col gap-2">
-        <div className="divide-y divide-(--gray-4) rounded-(--radius-3) border border-(--gray-5) bg-(--color-panel-solid)">
+        <div className="divide-y divide-border rounded-(--radius-3) border border-border bg-card">
           {slackIntegrations.map((integration) => (
             <SlackWorkspaceRow key={integration.id} integration={integration} />
           ))}
@@ -79,7 +79,7 @@ export function SlackWorkspaceConnection({
   }
 
   return (
-    <div className="flex min-h-11 items-center justify-between gap-6 rounded-(--radius-3) border border-(--gray-5) bg-(--color-panel-solid) px-3.5 py-2">
+    <div className="flex min-h-11 items-center justify-between gap-6 rounded-(--radius-3) border border-border bg-card px-3.5 py-2">
       <div className="flex min-w-0 flex-col gap-0.5 py-0.5">
         <span className="font-medium text-[13px] text-gray-12 leading-snug">
           No Slack workspace connected yet
@@ -216,7 +216,7 @@ export function SlackWorkspaceConnectionCallouts({
         </div>
       ) : null}
       {slackConnect.isTimedOut ? (
-        <div className="rounded-(--radius-2) border border-(--gray-5) bg-(--gray-2) px-3 py-2">
+        <div className="rounded-(--radius-2) border border-border bg-(--gray-2) px-3 py-2">
           <Text size="xs" variant="muted">
             We didn't hear back from PostHog. If you completed the connection in
             your browser it should appear shortly, otherwise try again.

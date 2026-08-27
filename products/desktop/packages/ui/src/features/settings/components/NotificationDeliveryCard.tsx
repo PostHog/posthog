@@ -49,7 +49,7 @@ function Illustration({ kind }: { kind: DeliveryIllustration }) {
     case "push":
       return (
         <div className="relative h-full w-full overflow-hidden">
-          <div className="absolute top-2.5 right-2.5 flex w-24 items-center gap-1.5 rounded-md border border-(--gray-6) bg-(--color-panel-solid) p-1.5 shadow-sm">
+          <div className="absolute top-2.5 right-2.5 flex w-24 items-center gap-1.5 rounded-md border border-(--gray-6) bg-card p-1.5 shadow-sm">
             <div className="size-4 shrink-0 rounded-[5px] bg-(--gray-6)" />
             <div className="flex min-w-0 flex-1 flex-col gap-1">
               <div className="h-1 w-3/4 rounded-full bg-(--gray-8)" />
@@ -61,7 +61,7 @@ function Illustration({ kind }: { kind: DeliveryIllustration }) {
     case "toast":
       return (
         <div className="relative flex h-full w-full items-center justify-center">
-          <div className="relative h-12 w-24 rounded-md border border-(--gray-6) bg-(--color-panel-solid)">
+          <div className="relative h-12 w-24 rounded-md border border-(--gray-6) bg-card">
             <div className="absolute top-1.5 left-1.5 flex gap-0.5">
               <div className="size-1 rounded-full bg-(--gray-7)" />
               <div className="size-1 rounded-full bg-(--gray-7)" />
@@ -127,7 +127,7 @@ export function NotificationDeliveryCard({
       disabled={disabled}
       onClick={() => onCheckedChange(!checked)}
       className={cn(
-        "flex cursor-pointer flex-col overflow-hidden rounded-(--radius-3) border border-(--gray-5) bg-(--color-panel-solid) p-0 text-left transition-colors hover:border-(--gray-8)",
+        "flex cursor-pointer flex-col overflow-hidden rounded-(--radius-3) border border-border bg-card p-0 text-left transition-colors hover:border-(--gray-8)",
         disabled && "cursor-not-allowed opacity-50",
       )}
     >

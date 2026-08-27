@@ -108,7 +108,7 @@ export function WorkspacesSettings() {
           {defaults.map((path) => (
             <div
               key={path}
-              className="flex min-w-0 items-center gap-2 rounded-(--radius-2) border border-(--gray-5) bg-(--gray-2) px-2 py-1"
+              className="flex min-w-0 items-center gap-2 rounded-(--radius-2) border border-border bg-(--gray-2) px-2 py-1"
             >
               <Folder size={12} className="shrink-0 text-(--gray-11)" />
               <span

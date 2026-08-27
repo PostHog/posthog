@@ -13,7 +13,6 @@ import {
   Keyboard,
   Lightbulb,
   Lightning,
-  MagnifyingGlass,
   Palette,
   Plugs,
   Robot,
@@ -193,15 +192,12 @@ export function SettingsPanel({
   )?.icon;
 
   return (
-    <div
-      className="flex h-full w-full bg-(--color-background)"
-      data-page="settings"
-    >
-      <div className="flex h-full w-[256px] shrink-0 flex-col border-gray-6 border-r">
-        <div className="drag h-[36px] shrink-0 border-b border-b-(--gray-6)" />
+    <div className="flex h-full w-full bg-background" data-page="settings">
+      <div className="flex h-full w-[256px] shrink-0 flex-col border-border border-r bg-chrome">
+        <div className="drag h-[36px] shrink-0 border-b border-b-border" />
 
         {isAuthenticated && user && (
-          <div className="flex items-center gap-3 border-b border-b-(--gray-5) px-3 py-3">
+          <div className="flex items-center gap-3 border-b border-b-border px-3 py-3">
             <UserAvatar user={user} />
             <div className="flex min-w-0 flex-col">
               <span className="truncate font-medium text-sm">{user.email}</span>
@@ -211,7 +207,7 @@ export function SettingsPanel({
 
         <button
           type="button"
-          className="mt-2 flex cursor-pointer items-center gap-2 border-0 bg-transparent px-3 py-2 text-left text-[13px] text-gray-11 transition-colors hover:bg-gray-3"
+          className="mt-2 flex cursor-pointer items-center gap-2 border-0 bg-transparent px-3 py-2 text-left text-[13px] text-gray-11 transition-colors hover:bg-fill-hover"
           onClick={close}
         >
           <ArrowLeft size={14} />
@@ -267,7 +263,7 @@ export function SettingsPanel({
           <button
             type="button"
             disabled={logoutMutation.isPending}
-            className="flex cursor-pointer items-center gap-2 border-0 border-gray-5 border-t bg-transparent px-3 py-2.5 text-left font-mono text-[12px] text-gray-9 transition-colors hover:bg-gray-3 hover:text-gray-11 disabled:pointer-events-none disabled:opacity-50"
+            className="flex cursor-pointer items-center gap-2 border-0 border-border border-t bg-transparent px-3 py-2.5 text-left font-mono text-[12px] text-gray-9 transition-colors hover:bg-fill-hover hover:text-gray-11 disabled:pointer-events-none disabled:opacity-50"
             onClick={() => {
               close();
               logoutMutation.mutate();
@@ -280,7 +276,7 @@ export function SettingsPanel({
       </div>
 
       <div className="relative flex flex-1 flex-col overflow-hidden">
-        <div className="drag h-[36px] shrink-0 border-b border-b-(--gray-6)" />
+        <div className="drag h-[36px] shrink-0 border-b border-b-border" />
         <div className="relative flex flex-1 justify-center overflow-hidden">
           <svg
             aria-hidden="true"
@@ -332,11 +328,7 @@ function SettingsSearchInput({
   onSubmit: () => void;
 }) {
   return (
-    <div className="relative px-3 py-2">
-      <MagnifyingGlass
-        size={13}
-        className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-5 text-gray-9"
-      />
+    <div className="px-3 py-2">
       <Input
         value={query}
         onChange={(e) => onQueryChange(e.currentTarget.value)}
@@ -353,9 +345,9 @@ function SettingsSearchInput({
             onSubmit();
           }
         }}
-        placeholder="Search settings"
+        placeholder="Search settings..."
         aria-label="Search settings"
-        className="h-7 pl-7 text-[13px]"
+        className="h-7 text-[13px] hover:bg-fill-hover"
       />
     </div>
   );
@@ -382,7 +374,7 @@ function SettingsSearchResults({
         <button
           key={`${result.category}:${result.label}`}
           type="button"
-          className="flex w-full cursor-pointer items-center justify-between gap-2 border-0 bg-transparent px-3 py-1.5 text-left transition-colors hover:bg-gray-3"
+          className="flex w-full cursor-pointer items-center justify-between gap-2 border-0 bg-transparent px-3 py-1.5 text-left transition-colors hover:bg-fill-hover"
           onClick={() => onSelect(result.category)}
         >
           <span className="min-w-0 truncate text-[13px] text-gray-12">
@@ -407,7 +399,7 @@ function SidebarNavItem({ item, isActive, onClick }: SidebarNavItemProps) {
   return (
     <button
       type="button"
-      className="flex w-full cursor-pointer items-center justify-between gap-2 border-0 bg-transparent px-3 py-1.5 text-left text-[13px] text-gray-11 transition-colors hover:bg-gray-3 data-[active]:bg-accent-4 data-[active]:text-gray-12"
+      className="flex w-full cursor-pointer items-center justify-between gap-2 border-0 bg-transparent px-3 py-1.5 text-left text-[13px] text-gray-11 transition-colors hover:bg-fill-hover data-[active]:bg-fill-selected data-[active]:text-gray-12"
       data-active={isActive || undefined}
       onClick={onClick}
     >
