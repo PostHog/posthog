@@ -6,13 +6,13 @@ import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopov
 import { IconEvent } from 'lib/lemon-ui/icons'
 
 import type { SubscriptionContextApi, SubscriptionContextItemApi } from '../../generated/api.schemas'
+import { MAX_CONTEXTS } from './utils'
 
 const CONTEXT_GROUP_TYPES = [
     TaxonomicFilterGroupType.Events,
     TaxonomicFilterGroupType.Insights,
     TaxonomicFilterGroupType.Dashboards,
 ]
-const MAX_CONTEXTS = 25
 
 interface PickableContextItem {
     id?: number

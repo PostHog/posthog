@@ -32,7 +32,7 @@ import type { SubscriptionContextApi } from '../../generated/api.schemas'
 import { runSubscriptionTestDelivery } from './runSubscriptionTestDelivery'
 import { SUBSCRIPTION_PREFILL_PARAMS } from './subscriptionNudge'
 import { subscriptionsLogic } from './subscriptionsLogic'
-import { ALL_DAYS, AI_PROMPT_MAX_LENGTH, SubscriptionBaseProps, urlForSubscription } from './utils'
+import { ALL_DAYS, AI_PROMPT_MAX_LENGTH, MAX_CONTEXTS, SubscriptionBaseProps, urlForSubscription } from './utils'
 
 // Spelled out rather than interpolated, so the event a metric is configured against is greppable.
 const EXPORT_NUDGE_CLICKED_EVENTS = {
@@ -727,7 +727,12 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         },
         addContext: ({ context }) => {
             const contexts = values.subscription.contexts ?? []
+            const contextItems = values.subscription.context_items ?? []
             if (contexts.some((current) => current.kind === context.kind && current.id === context.id)) {
+                return
+            }
+            // The picker stays open after a pick, so the disabled trigger alone cannot hold the cap.
+            if (contexts.length + contextItems.length >= MAX_CONTEXTS) {
                 return
             }
             const nextContexts = [...contexts, context]
@@ -738,8 +743,13 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             })
         },
         addContextEvent: ({ eventName }) => {
+            const contexts = values.subscription.contexts ?? []
             const contextItems = values.subscription.context_items ?? []
             if (contextItems.some((item) => item.kind === 'event' && item.event_name === eventName)) {
+                return
+            }
+            // The picker stays open after a pick, so the disabled trigger alone cannot hold the cap.
+            if (contexts.length + contextItems.length >= MAX_CONTEXTS) {
                 return
             }
             actions.setSubscriptionValue('context_items', [...contextItems, { kind: 'event', event_name: eventName }])

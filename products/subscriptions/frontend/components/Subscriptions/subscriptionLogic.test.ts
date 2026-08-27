@@ -783,6 +783,27 @@ describe('subscriptionLogic', () => {
         dashboardAiLogic.unmount()
     })
 
+    it('caps combined context at 25 when the picker stays open', async () => {
+        const capLogic = subscriptionLogic({ id: 'new' })
+        capLogic.mount()
+        router.actions.push('/subscriptions/new')
+        await expectLogic(capLogic).toFinishListeners()
+        const seededContexts = Array.from({ length: 24 }, (_, index) => ({
+            kind: 'insight' as const,
+            id: index + 1,
+            name: `Insight ${index + 1}`,
+            url: `/insights/${index + 1}`,
+        }))
+        capLogic.actions.setSubscriptionValue('contexts', seededContexts)
+        // 24 contexts + this event reaches the cap, so the following add must be dropped.
+        capLogic.actions.addContextEvent('signed up')
+        capLogic.actions.addContext({ kind: 'insight', id: 999, name: 'Overflow', url: '/insights/999' })
+        await expectLogic(capLogic).toFinishListeners()
+        expect(capLogic.values.subscription.contexts).toHaveLength(24)
+        expect(capLogic.values.subscription.context_items).toEqual([{ kind: 'event', event_name: 'signed up' }])
+        capLogic.unmount()
+    })
+
     it('removes one context while preserving the others on edit', async () => {
         let capturedBody: Record<string, unknown> | undefined
         const dashboardContext = { kind: 'dashboard' as const, id: 9, name: 'Growth', url: '/dashboard/9' }
