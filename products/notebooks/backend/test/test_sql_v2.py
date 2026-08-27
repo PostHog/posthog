@@ -2,6 +2,7 @@ import io
 import os
 import json
 import math
+import time
 import tarfile
 import datetime
 import tempfile
@@ -9,6 +10,7 @@ import threading
 import urllib.error
 import email.message
 import urllib.request
+from datetime import timedelta
 from http.server import ThreadingHTTPServer
 from types import SimpleNamespace
 from typing import Any
@@ -21,12 +23,14 @@ from django.conf import settings
 from django.core import signing
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
+from posthog import redis
 from posthog.clickhouse.client.execute_async import QueryNotFoundError
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
@@ -35,6 +39,7 @@ from posthog.models.user import User
 from posthog.models.utils import UUIDT
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.notebooks.backend import sql_v2_concurrency
 from products.notebooks.backend.kernel_package import kernel_package_bytes_and_hash
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.notebooks.backend.sandbox.kernel import (
@@ -71,6 +76,7 @@ from products.notebooks.backend.sql_v2_direct import (
     notebook_direct_query_id,
     sync_direct_run,
 )
+from products.notebooks.backend.sql_v2_runs import finish_node_run
 from products.notebooks.backend.temporal.sql_v2 import (
     SQLV2RunInput,
     dispatch_sql_v2_run_activity,
@@ -441,6 +447,15 @@ class TestSQLV2Run(APIBaseTest):
         mock_start.assert_not_called()
         self.assertFalse(KernelRuntime.objects.filter(team=self.team).exists())
 
+    def _age_slot(self, run_id: str) -> None:
+        """Backdate a held slot so it reads as old enough to have been abandoned.
+
+        The set's score is the member's expiry, so moving it earlier ages the member.
+        """
+        key = sql_v2_concurrency._notebook_key(self.team.id, self.notebook.short_id)
+        client = redis.get_client()
+        client.zadd(key, {run_id: time.time() + sql_v2_concurrency._NOTEBOOK_SLOT_TTL_SECONDS - 7200})
+
     @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
@@ -448,8 +463,6 @@ class TestSQLV2Run(APIBaseTest):
         # The editor has always shown one run at a time per notebook, but that rule was kea
         # state in one browser tab. An API caller — which is what the MCP cell tools are — could
         # dispatch as many as it liked, and each SQL run is a real ClickHouse query.
-        from products.notebooks.backend.sql_v2_runs import finish_node_run
-
         first = self.client.post(self.run_url, data={"node_id": "n1", "code": "select 1"}, format="json")
         self.assertEqual(first.status_code, 200)
 
@@ -485,6 +498,45 @@ class TestSQLV2Run(APIBaseTest):
         NotebookNodeRun.objects.for_team(self.team.id).filter(id=first.json()["run_id"]).update(
             status=NotebookNodeRun.Status.DONE
         )
+        self._age_slot(first.json()["run_id"])
+
+        second = self.client.post(self.run_url, data={"node_id": "n2", "code": "select 2"}, format="json")
+        self.assertEqual(second.status_code, 200, second.content)
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_a_slot_taken_moments_ago_is_not_mistaken_for_a_leak(self, _mock_enabled, _mock_enqueue, _mock_start):
+        # The race three reviewers found: the run row is written after the slot is taken, so a
+        # dispatch arriving in that gap sees a held slot with no row behind it. Reading that as
+        # a leak would clear a live slot and admit a second run — losing the ceiling in exactly
+        # the parallel-dispatch case it exists for. A fresh slot is trusted on its age alone.
+        first = self.client.post(self.run_url, data={"node_id": "n1", "code": "select 1"}, format="json")
+        self.assertEqual(first.status_code, 200)
+        # Stand in for the gap: the slot is held and no RUNNING row backs it.
+        NotebookNodeRun.objects.for_team(self.team.id).filter(id=first.json()["run_id"]).update(
+            status=NotebookNodeRun.Status.DONE
+        )
+
+        second = self.client.post(self.run_url, data={"node_id": "n2", "code": "select 2"}, format="json")
+        self.assertEqual(second.status_code, 409, second.content)
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_a_run_abandoned_in_running_stops_blocking_its_notebook(self, _mock_enabled, _mock_enqueue, _mock_start):
+        # A direct (hogql) run only turns terminal when a client polls it, and nothing sweeps
+        # one server-side. Left RUNNING for good, it would block its notebook for good — a
+        # permanent outage rather than a wait — so a row past every watchdog budget must stop
+        # counting as in flight.
+        first = self.client.post(self.run_url, data={"node_id": "n1", "code": "select 1"}, format="json")
+        self.assertEqual(first.status_code, 200)
+        run_id = first.json()["run_id"]
+        # Still RUNNING, but last touched long past every lane's budget.
+        NotebookNodeRun.objects.for_team(self.team.id).filter(id=run_id).update(
+            updated_at=timezone.now() - timedelta(hours=2)
+        )
+        self._age_slot(run_id)
 
         second = self.client.post(self.run_url, data={"node_id": "n2", "code": "select 2"}, format="json")
         self.assertEqual(second.status_code, 200, second.content)

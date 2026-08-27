@@ -17,7 +17,11 @@ funnels through `finish_node_run`, and the sandbox callback claims its own trans
 those are the two release sites. The TTL is the backstop for a process that dies in between.
 """
 
+import time
 from contextlib import suppress
+from datetime import timedelta
+
+from django.utils import timezone
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 
@@ -41,6 +45,21 @@ _NOTEBOOK_SLOT_TTL_SECONDS = 2 * 60 * 60
 # The per-team slot can expire early without harm: it only widens a coarse ceiling by one, and
 # there is no cheap index to check a whole team's in-flight runs against.
 _TEAM_SLOT_TTL_SECONDS = 25 * 60
+
+# How long a slot is trusted purely because it is recent. The run row is written after the
+# slot is taken, so between those two steps a slot legitimately exists with no row behind it.
+# Without this window a second dispatch arriving in that gap would read "slot held, no run" as
+# a leak, clear it, and admit itself — defeating the ceiling in exactly the parallel-dispatch
+# case it exists for. Far longer than the gap, far shorter than any TTL.
+_SLOT_CONFIRM_GRACE_SECONDS = 60
+
+# How recently a RUNNING row must have been touched to count as genuinely in flight. A direct
+# (hogql) run only turns terminal when a client polls it, and nothing sweeps one server-side,
+# so an abandoned row stays RUNNING for good. Treating that as active would block its notebook
+# permanently rather than for a TTL. Past every lane's watchdog budget (600s direct, 1200s
+# kernel, which `touch_run_progress` re-anchors), a row is abandoned, not running. Kept as a
+# literal because sql_v2_runs, which owns those budgets, releases these slots.
+_RUN_ACTIVE_WINDOW_SECONDS = 25 * 60
 
 _NOTEBOOK_LIMITER: RateLimit | None = None
 _TEAM_LIMITER: RateLimit | None = None
@@ -121,7 +140,12 @@ def acquire_run_slots(team_id: int, notebook_short_id: str, run_id: str) -> None
         # the kernel lane's watchdog fires there too — so an agent that dispatches a cell and
         # walks away leaves the slot held with nothing to hand it back. The run rows are the
         # truth, so ask them before refusing.
-        if _notebook_has_running_run(team_id, notebook_short_id):
+        # Two things have to be true before treating the slot as a leak. A run row must not be
+        # in flight, and the slot must be old enough that its holder would have written that row
+        # by now. Checking only the row would let a dispatch still in the gap look like a leak.
+        if _notebook_has_running_run(team_id, notebook_short_id) or _slot_is_recent(
+            notebook_limiter, _notebook_key(team_id, notebook_short_id)
+        ):
             raise NotebookRunBusy(
                 "This notebook already has a cell running. Wait for it to finish, then run this one."
             ) from exc
@@ -148,14 +172,39 @@ def acquire_run_slots(team_id: int, notebook_short_id: str, run_id: str) -> None
 def _notebook_has_running_run(team_id: int, notebook_short_id: str) -> bool:
     """Whether a run for this notebook is genuinely still in flight.
 
+    Bounded by `_RUN_ACTIVE_WINDOW_SECONDS` rather than trusting the status alone: a row that
+    has sat RUNNING past every watchdog budget is abandoned, and counting it would block its
+    notebook for good instead of until a TTL.
+
     Only reached when the slot is already full, so the join to resolve the short id costs
     nothing on the path that matters.
     """
     return (
         NotebookNodeRun.objects.for_team(team_id)
-        .filter(notebook__short_id=notebook_short_id, status=NotebookNodeRun.Status.RUNNING)
+        .filter(
+            notebook__short_id=notebook_short_id,
+            status=NotebookNodeRun.Status.RUNNING,
+            updated_at__gte=timezone.now() - timedelta(seconds=_RUN_ACTIVE_WINDOW_SECONDS),
+        )
         .exists()
     )
+
+
+def _slot_is_recent(limiter: RateLimit, key: str) -> bool:
+    """Whether the slot was taken too recently for its holder to have written a run row yet.
+
+    The set's score is the member's expiry, so its age is the TTL minus the time still on it.
+    A Redis failure reads as recent, which refuses the dispatch rather than clearing a slot on
+    no evidence.
+    """
+    try:
+        entries = limiter.redis_client.zrange(key, 0, -1, withscores=True)
+    except Exception:
+        return True
+    if not entries:
+        return False
+    now = time.time()
+    return any(limiter.ttl - (float(expiry) - now) < _SLOT_CONFIRM_GRACE_SECONDS for _member, expiry in entries)
 
 
 def _clear(limiter: RateLimit, key: str) -> None:
