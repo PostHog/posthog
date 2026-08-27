@@ -188,7 +188,7 @@ export function ActivityFeedList({
         />
         <AutocompleteList
           ref={setScrollRoot}
-          className="scroll-mask-8 !max-h-none !p-1.5 min-h-0 flex-1 overflow-y-auto"
+          className="sidebar-autocomplete-tree scroll-mask-8 !max-h-none !p-1.5 min-h-0 flex-1 overflow-y-auto"
         >
           {isLoading && feedItems.length === 0 ? (
             <div className="flex justify-center py-10">
