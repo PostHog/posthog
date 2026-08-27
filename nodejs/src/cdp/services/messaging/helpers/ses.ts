@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import { Counter } from 'prom-client'
 import { z } from 'zod'
 
 import { MinimalAppMetric } from '~/cdp/types'
@@ -182,6 +183,15 @@ export type SesEventLogLine = {
     level: 'warn' | 'error'
     message: string
 }
+
+// Records that carry no tracking code on either carrier can't be attributed to a workflow, so
+// they're dropped. A silent drop hides systemic carrier loss (e.g. a configuration set that
+// stops emitting original headers or tags), so count what's dropped, by event type.
+const sesUnattributedEventsCounter = new Counter({
+    name: 'email_tracking_unattributed_total',
+    help: 'SES webhook records dropped because no tracking code was found on either carrier',
+    labelNames: ['event_type'],
+})
 
 // SES link tag naming an anchor's ordinal position in the email body. Set on each `<a>` at send
 // time and echoed back on the Click event, which is what lets two anchors pointing at the same URL
@@ -559,6 +569,14 @@ export class SesWebhookHandler {
             emailAddresses: string[]
             diagnostic?: string
         }[]
+        // Spam complaints — recorded in the suppression list so future sends to the address are
+        // blocked. A complaint is the recipient asking us to stop, and provider complaint-rate
+        // thresholds are far tighter than bounce thresholds.
+        complainedRecipients?: {
+            teamId?: string
+            emailAddresses: string[]
+            feedbackType?: string
+        }[]
         // Successful deliveries — reset the suppression counter so transient outages don't accumulate.
         // Timestamp is threaded through so the reset ignores an out-of-order delivery from an older send
         // arriving after a newer bounce.
@@ -655,6 +673,11 @@ export class SesWebhookHandler {
             emailAddresses: string[]
             diagnostic?: string
         }[] = []
+        const complainedRecipients: {
+            teamId?: string
+            emailAddresses: string[]
+            feedbackType?: string
+        }[] = []
         const deliveredRecipients: {
             teamId?: string
             emailAddresses: string[]
@@ -678,6 +701,7 @@ export class SesWebhookHandler {
                 parsedCode || {}
 
             if (!functionId && !invocationId) {
+                sesUnattributedEventsCounter.inc({ event_type: rec.eventType })
                 logger.error('[SesWebhookHandler] handleWebhook: No functionId or invocationId found', { rec })
                 continue
             }
@@ -711,6 +735,10 @@ export class SesWebhookHandler {
                     timestamp = rec.bounce.timestamp
                 } else if ('complaint' in rec && rec.complaint) {
                     timestamp = rec.complaint.timestamp
+                    if (rec.complaint.complaintFeedbackType) {
+                        // The provider's classification of the report (e.g. "abuse", "fraud").
+                        properties.$complaint_feedback_type = rec.complaint.complaintFeedbackType
+                    }
                 }
                 timestamp = timestamp ?? rec.mail.timestamp
 
@@ -813,6 +841,18 @@ export class SesWebhookHandler {
                 transientBounceRecipients.push({ teamId, emailAddresses: emails, diagnostic })
             }
 
+            // Record complaints in the suppression list so future sends to the address are blocked.
+            // The recipient reported the message as spam — one complaint suppresses immediately,
+            // like a hard bounce.
+            if (suppressionAllowed && rec.eventType === 'Complaint') {
+                const emails = rec.complaint.complainedRecipients.map((r) => r.emailAddress)
+                complainedRecipients.push({
+                    teamId,
+                    emailAddresses: emails,
+                    feedbackType: rec.complaint.complaintFeedbackType,
+                })
+            }
+
             // Successful delivery resets an address's soft-bounce counter — but only if newer than the
             // last-recorded bounce (checked at the SQL layer), so an out-of-order delivery from an
             // older send can't erase a fresh bounce.
@@ -831,6 +871,7 @@ export class SesWebhookHandler {
             logEntries,
             transientBounceRecipients,
             hardBounceRecipients,
+            complainedRecipients,
             deliveredRecipients,
         }
     }

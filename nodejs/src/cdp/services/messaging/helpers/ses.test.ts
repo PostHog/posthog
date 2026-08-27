@@ -423,10 +423,22 @@ describe('SesWebhookHandler', () => {
             },
             'deliveredRecipients' as const,
         ],
+        [
+            'Complaint',
+            {
+                eventType: 'Complaint',
+                complaint: {
+                    complainedRecipients: [{ emailAddress: 'to@example.com' }],
+                    timestamp: '2025-10-03T12:05:00Z',
+                },
+            },
+            'complainedRecipients' as const,
+        ],
     ])('does not populate %s suppression writes for test sends', async (_label, eventFields, arrayKey) => {
-        // Same guarantee as the permanent-bounce test above but for the counter-driving events:
-        // a "Run test" from the editor must not push into the suppression counter (transient) or
-        // reset it (delivery), which could otherwise perturb production suppression state.
+        // Same guarantee as the permanent-bounce test above but for the other state-changing
+        // events: a "Run test" from the editor must not push into the suppression counter
+        // (transient), reset it (delivery), or suppress outright (complaint), which could
+        // otherwise perturb production suppression state.
         const testMail = {
             ...baseMail,
             headers: [{ name: TRACKING_CODE_HEADER, value: signer.generate(baseInvocation, true) }],
@@ -555,7 +567,7 @@ describe('SesWebhookHandler', () => {
         expect(result.hardBounceRecipients).toBeUndefined()
     })
 
-    it('parses a raw Complaint event', async () => {
+    it('parses a raw Complaint event and surfaces the recipients for suppression', async () => {
         const body = [
             {
                 eventType: 'Complaint',
@@ -563,6 +575,7 @@ describe('SesWebhookHandler', () => {
                 complaint: {
                     complainedRecipients: [{ emailAddress: 'to@example.com' }],
                     timestamp: '2025-10-03T12:05:00Z',
+                    complaintFeedbackType: 'abuse',
                 },
             },
         ]
@@ -570,6 +583,10 @@ describe('SesWebhookHandler', () => {
         expect(result.status).toBe(200)
         expect(result.metrics?.[0].metricName).toBe('email_blocked')
         expect(result.metrics?.[0].distinctId).toBe('user-123')
+        expect(result.metrics?.[0].properties).toMatchObject({ $complaint_feedback_type: 'abuse' })
+        expect(result.complainedRecipients).toEqual([
+            { teamId: '1', emailAddresses: ['to@example.com'], feedbackType: 'abuse' },
+        ])
     })
 
     it('returns 200 and no metrics if tracking code is missing from both carriers', async () => {
@@ -1016,11 +1033,20 @@ describe('SesWebhookHandler', () => {
                     mail: unsignedMail,
                     delivery: { timestamp: '2025-10-03T12:05:00Z', recipients: ['delivered@example.com'] },
                 },
+                {
+                    eventType: 'Complaint',
+                    mail: unsignedMail,
+                    complaint: {
+                        complainedRecipients: [{ emailAddress: 'complainer@example.com' }],
+                        timestamp: '2025-10-03T12:06:00Z',
+                    },
+                },
             ]
             const result = await handler.handleWebhook({ body, headers: {} })
             expect(result.status).toBe(200)
             expect(result.transientBounceRecipients).toEqual([])
             expect(result.hardBounceRecipients).toEqual([])
+            expect(result.complainedRecipients).toEqual([])
             expect(result.deliveredRecipients).toEqual([])
             // Metrics are unaffected — engagement signal is still emitted for the parsed events.
             expect(result.metrics?.length).toBeGreaterThan(0)
