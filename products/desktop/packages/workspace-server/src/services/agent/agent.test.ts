@@ -1251,6 +1251,7 @@ describe("AgentService", () => {
           buildSystemPrompt: (
             credentials: { apiHost: string; projectId: number },
             taskId: string,
+            cwd: string,
             customInstructions?: string,
             additionalDirectories?: string[],
             systemPromptOverride?: string,
@@ -1260,6 +1261,7 @@ describe("AgentService", () => {
       ).buildSystemPrompt(
         credentials,
         "task-1",
+        "/tmp/task-1",
         undefined,
         undefined,
         systemPromptOverride,
@@ -1304,11 +1306,13 @@ describe("AgentService", () => {
           buildSystemPrompt: (
             credentials: { apiHost: string; projectId: number },
             taskId: string,
+            cwd: string,
           ) => { append: string };
         }
       ).buildSystemPrompt(
         { apiHost: "https://app.posthog.com", projectId: 1 },
         "task-1",
+        "/tmp/task-1",
       ).append;
 
       expect(prompt).toContain(

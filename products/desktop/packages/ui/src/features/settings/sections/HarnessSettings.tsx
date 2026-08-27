@@ -1,14 +1,4 @@
 import { ArrowSquareOut, Check, Copy, Warning } from "@phosphor-icons/react";
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  Button,
-  Switch,
-} from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import {
   SettingsCard,
@@ -20,6 +10,16 @@ import { PermissionsSettings } from "@posthog/ui/features/settings/sections/Perm
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { track } from "@posthog/ui/shell/analytics";
+import {
+  AlertDialog,
+  Button,
+  Callout,
+  Flex,
+  IconButton,
+  Link,
+  Switch,
+  Text,
+} from "@radix-ui/themes";
 import { useCallback, useState } from "react";
 
 function CopyableCommand({ command }: { command: string }) {
@@ -32,14 +32,23 @@ function CopyableCommand({ command }: { command: string }) {
   }, [command]);
 
   return (
-    <div className="flex items-center gap-2 rounded border border-gray-6 bg-gray-2 px-2 py-1">
-      <span className="text-[13px] text-gray-11">{command}</span>
+    <Flex
+      align="center"
+      gap="2"
+      className="rounded border border-border bg-gray-2 px-2 py-1"
+    >
+      <Text className="text-[13px] text-muted-foreground">{command}</Text>
       <Tooltip content={copied ? "Copied!" : "Copy"}>
-        <Button variant="link-muted" size="icon-xs" onClick={handleCopy}>
+        <IconButton
+          variant="ghost"
+          size="1"
+          color={copied ? "green" : "gray"}
+          onClick={handleCopy}
+        >
           {copied ? <Check size={12} /> : <Copy size={12} />}
-        </Button>
+        </IconButton>
       </Tooltip>
-    </div>
+    </Flex>
   );
 }
 
@@ -51,18 +60,17 @@ function SettingDescription({
   docsUrl: string;
 }) {
   return (
-    <span className="flex flex-col gap-1">
-      <span>{text}</span>
-      <a
-        href={docsUrl}
-        target="_blank"
-        rel="noreferrer"
-        className="flex items-center gap-1 text-(--accent-11) hover:underline"
-      >
-        Documentation
-        <ArrowSquareOut size={10} />
-      </a>
-    </span>
+    <Flex direction="column" gap="1">
+      <Text color="gray" className="text-[13px]">
+        {text}
+      </Text>
+      <Link href={docsUrl} target="_blank" className="text-[13px]">
+        <Flex align="center" gap="1">
+          Documentation
+          <ArrowSquareOut size={10} />
+        </Flex>
+      </Link>
+    </Flex>
   );
 }
 
@@ -103,7 +111,7 @@ export function HarnessSettings() {
     <div className="flex flex-col gap-7">
       <SettingsSection
         label="Claude Code"
-        description="Applies to sessions that run on the Claude Code agent. It reads your own Claude configuration"
+        description="Configuration that lives with the Claude Code harness; run these commands in a terminal to change it"
       >
         <SettingsCard>
           <SettingsCardRow
@@ -117,6 +125,7 @@ export function HarnessSettings() {
           >
             <CopyableCommand command="claude mcp" />
           </SettingsCardRow>
+
           <SettingsCardRow
             label="Skills"
             description={
@@ -125,7 +134,10 @@ export function HarnessSettings() {
                 docsUrl="https://docs.anthropic.com/en/docs/claude-code/slash-commands"
               />
             }
-          />
+          >
+            <span />
+          </SettingsCardRow>
+
           <SettingsCardRow
             label="Memory"
             description={
@@ -137,6 +149,7 @@ export function HarnessSettings() {
           >
             <CopyableCommand command="claude /memory" />
           </SettingsCardRow>
+
           <SettingsCardRow
             label="Hooks"
             description={
@@ -153,7 +166,7 @@ export function HarnessSettings() {
 
       <SettingsSection
         label="Codex"
-        description="Applies to sessions that run on the Codex agent. It reads your own Codex configuration"
+        description="Configuration that lives with the Codex harness"
       >
         <SettingsCard>
           <CodexSubscriptionSettings />
@@ -168,6 +181,7 @@ export function HarnessSettings() {
           >
             <CopyableCommand command="codex mcp" />
           </SettingsCardRow>
+
           <SettingsCardRow
             label="Skills"
             description={
@@ -176,7 +190,10 @@ export function HarnessSettings() {
                 docsUrl="https://learn.chatgpt.com/docs/build-skills"
               />
             }
-          />
+          >
+            <span />
+          </SettingsCardRow>
+
           <SettingsCardRow
             label="Memory"
             description={
@@ -185,22 +202,27 @@ export function HarnessSettings() {
                 docsUrl="https://learn.chatgpt.com/docs/agent-configuration/agents-md"
               />
             }
-          />
+          >
+            <span />
+          </SettingsCardRow>
+
           <SettingsCardRow
             label="Hooks"
             description={
               <SettingDescription
-                text="Execute commands at specific points in Codex's lifecycle, defined in .codex/hooks.json or config.toml. Review them with /hooks inside a session"
+                text="Execute commands at specific points in Codex's lifecycle, defined in .codex/hooks.json or config.toml; review them with /hooks inside a session"
                 docsUrl="https://learn.chatgpt.com/docs/hooks"
               />
             }
-          />
+          >
+            <span />
+          </SettingsCardRow>
         </SettingsCard>
       </SettingsSection>
 
       <SettingsSection
         label="Permissions"
-        description="What sessions may do without asking you first. Applies to both agents unless noted"
+        description="What agents can do without asking you first"
       >
         <SettingsCard>
           <SettingsCardRow
@@ -209,83 +231,89 @@ export function HarnessSettings() {
           >
             <CopyableCommand command="claude config" />
           </SettingsCardRow>
-        </SettingsCard>
 
-        <PermissionsSettings />
+          <PermissionsSettings />
 
-        <SettingsCard>
           <SettingsCardRow
             label="Allow bypass permissions mode"
             description="Adds bypass permissions to the mode menu so you can pick it per session. Sessions keep asking for approval until you pick it. This also unlocks Full access in Codex"
           >
             <Switch
-              size="sm"
               checked={allowBypassPermissions}
               onCheckedChange={handleBypassPermissionsChange}
+              size="1"
+              color="red"
             />
           </SettingsCardRow>
         </SettingsCard>
         {allowBypassPermissions && (
-          <div className="flex items-start gap-2 rounded-(--radius-3) border border-(--red-6) bg-(--red-2) p-3 text-(--red-11) text-[13px]">
-            <Warning weight="fill" size={16} className="mt-0.5 shrink-0" />
-            <span>
+          <Callout.Root size="1" color="red" mb="3">
+            <Callout.Icon>
+              <Warning weight="fill" />
+            </Callout.Icon>
+            <Callout.Text>
               Bypass permissions, and Full access in Codex, are now available in
               the mode menu in the prompt input. Pick one per session when you
               want that session to run shell commands, file edits and web
               requests without approval. Other sessions are unaffected.
-            </span>
-          </div>
+            </Callout.Text>
+          </Callout.Root>
         )}
       </SettingsSection>
 
-      <AlertDialog open={showBypassWarning} onOpenChange={setShowBypassWarning}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              <span className="flex items-center gap-2 text-(--red-11)">
-                <Warning size={20} weight="fill" />
+      <AlertDialog.Root
+        open={showBypassWarning}
+        onOpenChange={setShowBypassWarning}
+      >
+        <AlertDialog.Content maxWidth="500px">
+          <AlertDialog.Title color="red">
+            <Flex align="center" gap="2">
+              <Warning size={20} weight="fill" color="var(--red-9)" />
+              <Text color="red" className="font-bold">
                 Allow bypass permissions mode
-              </span>
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              <span className="flex flex-col gap-3">
-                <span>
-                  This makes bypass permissions selectable in the mode menu. It
-                  does not turn it on for your tasks. Each session keeps its
-                  current mode until you pick bypass for it.
-                </span>
-                <span className="font-medium text-(--red-11)">
-                  A session running in bypass mode executes every action without
-                  asking, including shell commands, file edits, web requests and
-                  any installed MCP tools.
-                </span>
-                <span>
-                  Pick it for sandboxed environments (containers or VMs) with
-                  restricted network access that can be easily restored.
-                </span>
-                <span className="font-medium">
-                  By proceeding, you accept all responsibility for actions taken
-                  in sessions you run with bypass.
-                </span>
-              </span>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowBypassWarning(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleConfirmBypassPermissions}
-            >
-              Allow bypass mode
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+              </Text>
+            </Flex>
+          </AlertDialog.Title>
+          <AlertDialog.Description className="text-sm">
+            <Flex direction="column" gap="3">
+              <Text>
+                This makes bypass permissions selectable in the mode menu. It
+                does not turn it on for your tasks. Each session keeps its
+                current mode until you pick bypass for it.
+              </Text>
+              <Text color="red" className="font-medium">
+                A session running in bypass mode executes every action without
+                asking, including shell commands, file edits, web requests and
+                any installed MCP tools.
+              </Text>
+              <Text>
+                Pick it for sandboxed environments (containers or VMs) with
+                restricted network access that can be easily restored.
+              </Text>
+              <Text className="font-medium">
+                By proceeding, you accept all responsibility for actions taken
+                in sessions you run with bypass.
+              </Text>
+            </Flex>
+          </AlertDialog.Description>
+          <Flex gap="3" mt="4" justify="end">
+            <AlertDialog.Cancel>
+              <Button variant="soft" color="gray">
+                Cancel
+              </Button>
+            </AlertDialog.Cancel>
+            <AlertDialog.Action>
+              <Button
+                variant="solid"
+                color="red"
+                onClick={handleConfirmBypassPermissions}
+              >
+                Allow bypass mode
+              </Button>
+            </AlertDialog.Action>
+          </Flex>
+        </AlertDialog.Content>
+      </AlertDialog.Root>
     </div>
   );
 }

@@ -21,6 +21,9 @@ tools:
     community-skills-vote-create:
         operation: community_skills_vote_create
         enabled: false
+    llm-skills-bundle-retrieve:
+        operation: llm_skills_bundle_retrieve
+        enabled: false
     llm-skills-import-create:
         operation: llm_skills_import_create
         enabled: false

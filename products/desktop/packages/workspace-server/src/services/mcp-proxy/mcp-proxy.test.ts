@@ -281,6 +281,30 @@ describe("McpProxyService", () => {
       expect(authServiceMock.authenticatedFetch).toHaveBeenCalledTimes(1);
     });
 
+    it("does not refresh on a permission denial", async () => {
+      // Permission denials share `type: "authentication_error"` with rejected
+      // tokens; only a rejected token can be fixed by refreshing.
+      authServiceMock.authenticatedFetch.mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            type: "authentication_error",
+            code: "permission_denied",
+            detail: "You do not have permission to perform this action.",
+          }),
+          { status: 403, headers: { "content-type": "application/json" } },
+        ),
+      );
+
+      await service.start();
+      const proxyUrl = service.register("alpha", "https://upstream.example");
+
+      const res = await fetch(proxyUrl, { method: "POST", body: "payload" });
+
+      expect(res.status).toBe(403);
+      expect(authServiceMock.refreshAccessToken).not.toHaveBeenCalled();
+      expect(authServiceMock.authenticatedFetch).toHaveBeenCalledTimes(1);
+    });
+
     it("does not retry when the body looks healthy", async () => {
       authServiceMock.authenticatedFetch.mockResolvedValue(
         new Response('{"ok":true}', {

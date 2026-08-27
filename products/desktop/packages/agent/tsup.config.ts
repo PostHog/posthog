@@ -158,6 +158,7 @@ export default defineConfig([
       "src/pr-url-detector.ts",
       "src/pi/rpc-client.ts",
       "src/pi/runtime.ts",
+      "src/pi/task-system-prompt.ts",
       "src/pi/types.ts",
       "src/pi/conversation/translatePiConversation.ts",
       "src/resume.ts",

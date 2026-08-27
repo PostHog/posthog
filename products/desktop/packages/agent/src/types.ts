@@ -15,6 +15,8 @@ export type {
   TaskRun,
   TaskRunArtifact,
   TaskRunEnvironment,
+  TaskRunState,
+  TaskRunStateField,
   TaskRunStatus,
 } from "@posthog/shared";
 

@@ -36,6 +36,10 @@
       "types": "./dist/pi/rpc-client.d.ts",
       "import": "./dist/pi/rpc-client.js"
     },
+    "./pi/task-system-prompt": {
+      "types": "./dist/pi/task-system-prompt.d.ts",
+      "import": "./dist/pi/task-system-prompt.js"
+    },
     "./pi/rpc-transport": {
       "types": "./dist/pi/rpc-transport.d.ts",
       "import": "./dist/pi/rpc-transport.js"
