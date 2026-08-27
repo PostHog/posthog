@@ -1,4 +1,5 @@
 import { type FeatureFlagKey } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
@@ -22,16 +23,45 @@ export interface ProductSetupProbe {
     hasDataEvents: string[]
     /** Any of these existing (without `hasDataEvents`) means instrumented but no traffic yet. */
     waitingEvents?: string[]
+    /**
+     * Ignore definitions whose last ingested occurrence is older than this many
+     * days, so a product that stopped sending long ago reads as needing setup
+     * again. Definitions that were never stamped (`last_seen_at` null) count as
+     * fresh. Omit to match on bare existence, for products where any history
+     * means set up. Keep in sync with the staleness window the product's own
+     * detection logic uses.
+     */
+    staleAfterDays?: number
     /** Only probe when this flag is enabled. */
     featureFlag?: FeatureFlagKey
 }
 
-export function statusFromProbeDefinitions(probe: ProductSetupProbe, eventNames: Set<string>): ProductSetupStatus {
-    if (probe.hasDataEvents.some((event) => eventNames.has(event))) {
+/** The slice of an event definition a probe needs to answer. */
+export interface ProbeEventDefinition {
+    name: string
+    last_seen_at?: string | null
+}
+
+export function statusFromProbeDefinitions(
+    probe: ProductSetupProbe,
+    definitions: ProbeEventDefinition[]
+): ProductSetupStatus {
+    const freshNames = new Set(
+        definitions
+            .filter(
+                (definition) =>
+                    probe.staleAfterDays === undefined ||
+                    !definition.last_seen_at ||
+                    dayjs().diff(dayjs(definition.last_seen_at), 'day') <= probe.staleAfterDays
+            )
+            .map((definition) => definition.name)
+    )
+
+    if (probe.hasDataEvents.some((event) => freshNames.has(event))) {
         return 'has-data'
     }
 
-    if (probe.waitingEvents?.some((event) => eventNames.has(event))) {
+    if (probe.waitingEvents?.some((event) => freshNames.has(event))) {
         return 'waiting-for-data'
     }
 
