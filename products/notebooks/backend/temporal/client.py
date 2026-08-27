@@ -4,6 +4,7 @@ from django.conf import settings
 
 from asgiref.sync import async_to_sync
 from temporalio.client import Client
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.temporal.common.client import sync_connect
 
@@ -37,3 +38,15 @@ def start_frame_materialize_workflow(inputs: FrameMaterializeInputs) -> None:
         f"notebook-frame-materialize-{inputs.query_id}",
         inputs,
     )
+
+
+def start_widget_generation_workflow(job_id: str) -> None:
+    try:
+        _start_workflow(
+            sync_connect(),
+            "notebook-widget-generate",
+            f"notebook-widget-generate-{job_id}",
+            job_id,
+        )
+    except WorkflowAlreadyStartedError:
+        pass

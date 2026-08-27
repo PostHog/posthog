@@ -15,7 +15,7 @@ The resource is independent of notebook placement. That allows a later picker to
 ## Generation
 
 1. The request snapshots the notebook's current dataframe catalog and bounded context, saves a durable generation job, and returns `202 Accepted`.
-2. A Celery worker uses that recorded context to call the selected model.
+2. A Temporal activity uses that recorded context to call the selected model.
 3. Improvement is based on one immutable parent. Publication fails if the Canvas head moved.
 4. Canvas publication, widget-version metadata, instance selection, and terminal job state commit together.
 5. Compact status polling reports queued, generating, and publishing phases. Version history loads through a separate paginated endpoint.

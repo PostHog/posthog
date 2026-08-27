@@ -13,8 +13,6 @@ from django.db import transaction
 from django.db.models import Count, OuterRef, Q, QuerySet, Subquery
 from django.utils import timezone
 
-from celery import current_app
-
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
@@ -28,6 +26,7 @@ from products.notebooks.backend.models import (
 )
 from products.notebooks.backend.sql_v2 import SQLV2KernelNotRunning, SQLV2PageError, fetch_sql_v2_page
 from products.notebooks.backend.sql_v2_state import extract_cells
+from products.notebooks.backend.temporal.client import start_widget_generation_workflow
 from products.notebooks.backend.util import (
     _create_stable_markdown_node_id,
     _get_markdown_component_fingerprint,
@@ -477,6 +476,7 @@ def start_widget_generation(
             model=model,
             operation=operation,
         )
+        start_widget_generation_workflow(str(existing_job.id))
         return get_widget_status(notebook=notebook, node_id=node_id)
 
     _check_generation_rate(notebook.team_id, user_id)
@@ -549,7 +549,7 @@ def start_widget_generation(
             context_manifest=_context_manifest(notebook, inspection),
             schema_hash=inspection.schema_hash,
         )
-        transaction.on_commit(lambda: current_app.send_task("products.notebooks.generate_widget", args=[str(job.id)]))
+        transaction.on_commit(lambda: start_widget_generation_workflow(str(job.id)))
     return get_widget_status(notebook=notebook, node_id=node_id)
 
 
@@ -621,6 +621,16 @@ def _mark_job_failed(job_id: UUID, team_id: int, error: WidgetError) -> None:
     )
 
 
+def fail_widget_generation_job(job_id: UUID) -> None:
+    job = GeneratedWidgetGenerationJob.objects.unscoped().only("id", "team_id").filter(id=job_id).first()
+    if job is not None:
+        _mark_job_failed(
+            job.id,
+            job.team_id,
+            WidgetError("Generation stopped unexpectedly. Start it again.", "generation_abandoned"),
+        )
+
+
 def run_widget_generation_job(job_id: UUID) -> None:
     from products.canvas.backend import (  # noqa: PLC0415 — keeps Canvas and object storage off worker registration
         notebook_integration as canvas_facade,
@@ -635,7 +645,7 @@ def run_widget_generation_job(job_id: UUID) -> None:
     with transaction.atomic():
         job = (
             GeneratedWidgetGenerationJob.objects.unscoped()
-            .select_for_update()
+            .select_for_update(of=("self",))
             .select_related(
                 "team",
                 "widget",

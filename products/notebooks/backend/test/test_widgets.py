@@ -55,6 +55,7 @@ from products.notebooks.backend.widgets import (
     inspect_widget_inputs,
     normalize_widget_inputs as normalize_inputs,
     read_widget_frame,
+    run_widget_generation_job,
     start_widget_generation,
 )
 
@@ -680,7 +681,11 @@ class TestWidgetData(APIBaseTest):
         )
         generation_id = uuid4()
 
-        with patch("products.notebooks.backend.widgets._is_ai_usage_limited", return_value=False):
+        with (
+            patch("products.notebooks.backend.widgets._is_ai_usage_limited", return_value=False),
+            patch("products.notebooks.backend.widgets.start_widget_generation_workflow") as start_workflow,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
             result = start_widget_generation(
                 notebook=self.notebook,
                 node_id=self.NODE_ID,
@@ -697,6 +702,7 @@ class TestWidgetData(APIBaseTest):
         assert result.active_job.id == generation_id
         assert job.base_version is None
         assert job.operation == GeneratedWidgetVersion.Operation.INITIAL
+        start_workflow.assert_called_once_with(str(generation_id))
 
     def test_generation_identifier_is_idempotent_and_payload_bound(self) -> None:
         generation_id = uuid4()
@@ -723,9 +729,12 @@ class TestWidgetData(APIBaseTest):
             build_error=None,
         )
 
-        with patch(
-            "products.canvas.backend.notebook_integration.get_canvas_generation_state",
-            return_value=state,
+        with (
+            patch(
+                "products.canvas.backend.notebook_integration.get_canvas_generation_state",
+                return_value=state,
+            ),
+            patch("products.notebooks.backend.widgets.start_widget_generation_workflow") as start_workflow,
         ):
             result = start_widget_generation(
                 notebook=self.notebook,
@@ -740,6 +749,7 @@ class TestWidgetData(APIBaseTest):
 
         assert result.active_job is not None
         assert result.active_job.id == job.id
+        start_workflow.assert_called_once_with(str(generation_id))
         assert GeneratedWidgetGenerationJob.objects.for_team(self.team.id).filter(id=generation_id).count() == 1
 
         with self.assertRaises(WidgetError) as error:
@@ -844,6 +854,32 @@ class TestWidgetData(APIBaseTest):
         assert result.active_job is None
         assert job.status == GeneratedWidgetGenerationJob.Status.FAILED
         assert job.error_code == "generation_abandoned"
+
+    def test_generation_worker_locks_only_the_job_row(self) -> None:
+        instance = self._mapping()
+        job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            widget=instance.widget,
+            instance=instance,
+            requested_by=self.user,
+            operation=GeneratedWidgetVersion.Operation.INITIAL,
+            prompt="Render a globe",
+            model="claude-sonnet-4-6",
+            input_contract=[],
+            schema_hash="",
+        )
+
+        with patch(
+            "products.notebooks.backend.widget_generation.generate_widget_source",
+            side_effect=WidgetSourceGenerationError("Generation failed"),
+        ) as generate:
+            run_widget_generation_job(job.id)
+
+        job.refresh_from_db()
+        generate.assert_called_once()
+        assert job.started_at is not None
+        assert job.status == GeneratedWidgetGenerationJob.Status.FAILED
+        assert job.error_code == "generation_failed"
 
     def test_cancel_endpoint_records_the_request(self) -> None:
         generation_id = uuid4()
