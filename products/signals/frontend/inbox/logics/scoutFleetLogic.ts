@@ -255,7 +255,7 @@ export interface scoutFleetLogicActions {
         fleetFindingsSummary: FleetFindingsSummaryApi | null
         payload?: any
     }
-    loadRunsWindow: () => any
+    loadRunsWindow: (_: void) => void
     loadRunsWindowFailure: (
         error: string,
         errorObject?: any
@@ -268,15 +268,15 @@ export interface scoutFleetLogicActions {
             complete: boolean
             runs: SignalScoutRunSummary[]
         },
-        payload?: any
+        payload?: void
     ) => {
         runsWindow: {
             complete: boolean
             runs: SignalScoutRunSummary[]
         }
-        payload?: any
+        payload?: void
     }
-    loadScoutConfigs: () => any
+    loadScoutConfigs: (_: void) => void
     loadScoutConfigsFailure: (
         error: string,
         errorObject?: any
@@ -286,10 +286,10 @@ export interface scoutFleetLogicActions {
     }
     loadScoutConfigsSuccess: (
         scoutConfigs: SignalScoutConfigApi[] | null,
-        payload?: any
+        payload?: void
     ) => {
         scoutConfigs: SignalScoutConfigApi[] | null
-        payload?: any
+        payload?: void
     }
     loadScoutMetadata: () => any
     loadScoutMetadataFailure: (
@@ -306,7 +306,7 @@ export interface scoutFleetLogicActions {
         scoutMetadata: ScoutMetadataApi | null
         payload?: any
     }
-    loadScoutRuns: () => any
+    loadScoutRuns: (_: void) => void
     loadScoutRunsFailure: (
         error: string,
         errorObject?: any
@@ -316,10 +316,10 @@ export interface scoutFleetLogicActions {
     }
     loadScoutRunsSuccess: (
         scoutRuns: SignalScoutRunSummary[],
-        payload?: any
+        payload?: void
     ) => {
         scoutRuns: SignalScoutRunSummary[]
-        payload?: any
+        payload?: void
     }
     patchScoutConfigLocally: (
         configId: string,
@@ -489,7 +489,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         scoutConfigs: [
             null as SignalScoutConfig[] | null,
             {
-                loadScoutConfigs: async (_, breakpoint) => {
+                loadScoutConfigs: async (_: void, breakpoint) => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return null
@@ -560,7 +560,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         scoutRuns: [
             [] as SignalScoutRunSummary[],
             {
-                loadScoutRuns: async (_, breakpoint) => {
+                loadScoutRuns: async (_: void, breakpoint) => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return values.scoutRuns
@@ -583,7 +583,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 complete: boolean
             },
             {
-                loadRunsWindow: async (_, breakpoint) => {
+                loadRunsWindow: async (_: void, breakpoint) => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return values.runsWindow
