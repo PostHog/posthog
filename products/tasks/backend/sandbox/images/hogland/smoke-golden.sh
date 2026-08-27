@@ -222,13 +222,20 @@ if [[ -n "${HOG_HOST:-}" && -n "${HOG_TOKEN_COMMAND:-}" ]]; then
         # below treats as a hard failure.
         # curl already prints "000" via -w on a connection failure, so append
         # nothing on its non-zero exit — `|| echo 000` would concatenate to
-        # "000000" and never match the 000) fail-open arm below. --max-time caps
-        # a hung request so a wedged endpoint can't stall the job.
-        http_code=$(curl -sS --connect-timeout 10 --max-time 60 -o "$exec_out" -w '%{http_code}' \
+        # "000000" and never match the 000) arm below. --max-time caps a hung
+        # request so a wedged endpoint can't stall the job. -w also prints
+        # num_connects so a 000 can be routed by whether a connection was ever
+        # made: 0 => the endpoint was unreachable (a tailnet/infra blip, not the
+        # golden's fault) => fail open and rely on the SSH assertions; >=1 with a
+        # 000 => we connected but the request hung or was reset (a --max-time
+        # stall) => a real failure. So a box that stalls the exec cannot promote
+        # itself by forcing a fail-open.
+        read -r http_code num_connects <<<"$(curl -sS --connect-timeout 10 --max-time 60 \
+            -o "$exec_out" -w '%{http_code} %{num_connects}' \
             -X POST "$HOG_HOST/v1/hogboxes/$SMOKE_BOX_ID/exec" \
             -H "Authorization: Bearer $exec_token" \
             -H 'Content-Type: application/json' \
-            -d "$exec_body" 2>/dev/null || true)
+            -d "$exec_body" 2>/dev/null || true)"
         case "$http_code" in
             2*)
                 if grep -q 'golden-exec-ok' "$exec_out"; then
@@ -241,7 +248,13 @@ if [[ -n "${HOG_HOST:-}" && -n "${HOG_TOKEN_COMMAND:-}" ]]; then
                 fi
                 ;;
             000)
-                log "WARN: exec API unreachable (HTTP 000); relying on SSH assertions. Enable once the exec contract is confirmed (see runbook)."
+                if [[ "${num_connects:-0}" != "0" ]]; then
+                    log "FAIL: exec API connected but the request did not complete (num_connects=${num_connects}) — a stall or reset, not fail-open"
+                    cat "$exec_out" >&2 || true
+                    rm -f "$exec_out"
+                    exit 1
+                fi
+                log "WARN: exec API unreachable (never connected); relying on SSH assertions. Enable once the exec contract is confirmed (see runbook)."
                 ;;
             *)
                 log "FAIL: exec API POST returned HTTP $http_code"
