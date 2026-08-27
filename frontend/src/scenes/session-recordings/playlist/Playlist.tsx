@@ -3,7 +3,7 @@ import './Playlist.scss'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { ReactNode, RefObject, useLayoutEffect, useRef, useState } from 'react'
+import { ReactNode, useLayoutEffect, useRef, useState } from 'react'
 
 import { IconSidebarClose } from '@posthog/icons'
 import {
@@ -84,7 +84,8 @@ export function Playlist({
     })
 
     const lastScrollPositionRef = useRef(0)
-    const contentRef = useRef<HTMLDivElement | null>(null)
+    // state, not a ref: the virtualizer must re-initialize when the scroll container mounts
+    const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
 
     const notebookNode = useNotebookNode()
     const embedded = !!notebookNode
@@ -328,7 +329,7 @@ export function Playlist({
                                 until you close it.
                             </LemonBanner>
                         )}
-                        <div className="overflow-y-auto flex-1 min-h-0" onScroll={handleScroll} ref={contentRef}>
+                        <div className="overflow-y-auto flex-1 min-h-0" onScroll={handleScroll} ref={setScrollEl}>
                             {sectionCount > 1 ? (
                                 <LemonCollapse
                                     defaultActiveKeys={openSections}
@@ -343,7 +344,7 @@ export function Playlist({
                                                     setActiveItemId={onChangeActiveItem}
                                                     activeItemId={activeItemId}
                                                     emptyState={listEmptyState}
-                                                    scrollRef={contentRef}
+                                                    scrollEl={scrollEl}
                                                 />
                                             ),
                                             className: 'p-0',
@@ -361,7 +362,7 @@ export function Playlist({
                                     setActiveItemId={onChangeActiveItem}
                                     activeItemId={activeItemId}
                                     emptyState={listEmptyState}
-                                    scrollRef={contentRef}
+                                    scrollEl={scrollEl}
                                 />
                             ) : sessionRecordingsResponseLoading ? (
                                 <LoadingState />
@@ -461,19 +462,19 @@ function SectionContent({
     activeItemId,
     setActiveItemId,
     emptyState,
-    scrollRef,
+    scrollEl,
 }: {
     section: PlaylistSection
     loading: boolean
     activeItemId: SessionRecordingType['id'] | null
     setActiveItemId: (item: SessionRecordingType) => void
     emptyState: JSX.Element
-    scrollRef: RefObject<HTMLDivElement | null>
+    scrollEl: HTMLDivElement | null
 }): JSX.Element {
     return 'content' in section ? (
         <>{section.content}</>
     ) : 'items' in section && !!section.items.length ? (
-        <ListSection {...section} onClick={setActiveItemId} activeItemId={activeItemId} scrollRef={scrollRef} />
+        <ListSection {...section} onClick={setActiveItemId} activeItemId={activeItemId} scrollEl={scrollEl} />
     ) : loading ? (
         <LoadingState />
     ) : (
@@ -487,18 +488,18 @@ export function ListSection({
     footer,
     onClick,
     activeItemId,
-    scrollRef,
+    scrollEl,
 }: PlaylistRecordingPreviewBlock & {
     onClick: (item: SessionRecordingType) => void
     activeItemId: SessionRecordingType['id'] | null
-    scrollRef: RefObject<HTMLDivElement | null>
+    scrollEl: HTMLDivElement | null
 }): JSX.Element {
     const listRef = useRef<HTMLDivElement>(null)
     const [scrollMargin, setScrollMargin] = useState(0)
 
     const virtualizer = useVirtualizer({
         count: items.length,
-        getScrollElement: () => scrollRef.current,
+        getScrollElement: () => scrollEl,
         estimateSize: () => ESTIMATED_ROW_HEIGHT,
         overscan: 10,
         getItemKey: (index) => items[index].id,
@@ -510,14 +511,25 @@ export function ListSection({
     // The formula is scroll-invariant, so it only updates state on real shifts, not on every scroll frame.
     useLayoutEffect(() => {
         const listEl = listRef.current
-        const scrollEl = scrollRef.current
-        if (!listEl || !scrollEl) {
+        if (!listEl || !scrollEl || virtualizer.isScrolling) {
             return
         }
         const nextMargin =
             listEl.getBoundingClientRect().top - scrollEl.getBoundingClientRect().top + scrollEl.scrollTop
         setScrollMargin((current) => (Math.abs(current - nextMargin) > 1 ? nextMargin : current))
     })
+
+    // Transformed absolute rows opt out of browser scroll anchoring, so compensate for
+    // prepended items ("newer" loads) to keep the visible rows in place.
+    const prevFirstIdRef = useRef(items[0]?.id)
+    useLayoutEffect(() => {
+        const prevFirstId = prevFirstIdRef.current
+        prevFirstIdRef.current = items[0]?.id
+        const insertedCount = items.findIndex((item) => item.id === prevFirstId)
+        if (insertedCount > 0 && scrollEl && scrollEl.scrollTop > 0) {
+            scrollEl.scrollTop += insertedCount * ESTIMATED_ROW_HEIGHT
+        }
+    }, [items, scrollEl])
 
     return (
         <>
