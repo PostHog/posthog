@@ -313,7 +313,9 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             "id"
         ):
             candidate_access = (
-                user_access_control if candidate.id == team.id else UserAccessControl(request.user, candidate)
+                user_access_control
+                if candidate.id == team.id
+                else UserAccessControl(user_access_control.user, candidate)
             )
             if candidate_access.check_can_modify_access_levels_for_object(candidate):
                 visible_teams.append((candidate, candidate_access))

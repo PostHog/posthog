@@ -199,13 +199,13 @@ def _build_subjects(
             continue
         user = membership.user
         name = f"{user.first_name} {user.last_name}".strip() or user.email
-        subject = SubjectAccessControl(
+        member_access = SubjectAccessControl(
             user_access_control.user, team, org_membership=acting_membership, member=membership
         )
         subjects.append(
             _Subject(
                 ref=SubjectRef(type="member", id=str(membership.id), name=name),
-                access=subject,
+                access=member_access,
                 member_user_id=membership.user_id,
             )
         )
@@ -351,7 +351,10 @@ def build_resolution_preview(team: Team, user_access_control: UserAccessControl)
                 resource_wide_keys.add(_subject_key(row))
             else:
                 explicit_keys_by_object.setdefault(row.resource_id, set()).add(_subject_key(row))
-        for parent in {RESOURCE_INHERITANCE_MAP.get(resource), RESOURCE_FALLBACK_MAP.get(resource)} - {None}:
+        scoped_resource = cast(APIScopeObject, resource)
+        for parent in {RESOURCE_INHERITANCE_MAP.get(scoped_resource), RESOURCE_FALLBACK_MAP.get(scoped_resource)} - {
+            None
+        }:
             resource_wide_keys |= {
                 _subject_key(row)
                 for row in rows_by_resource.get(cast(str, parent), [])
