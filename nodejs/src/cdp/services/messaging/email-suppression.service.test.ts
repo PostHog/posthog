@@ -266,6 +266,37 @@ describe('EmailSuppressionService', () => {
             )
             expect(detail.rows[0].reason).toBe('Manually added')
         })
+
+        it.each(['hard', 'transient'] as const)(
+            'keeps source and reason on a complaint row when a later %s bounce lands',
+            async (bounceType) => {
+                // Threshold=1 so one soft bounce crosses it. Above 1 the transient path never
+                // reaches the branch that rewrites the reason, and the case would prove nothing.
+                process.env.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD = '1'
+                const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+                const email = `complained-then-${bounceType}@example.com`
+                const diagnostic = 'smtp; 550 5.1.1 user unknown'
+
+                await svc.recordComplaints(team.id, [email], 'abuse')
+                await (bounceType === 'hard'
+                    ? svc.recordHardBounces(team.id, [email], diagnostic)
+                    : svc.recordTransientBounces(team.id, [email], diagnostic))
+
+                expect(await readRow(email)).toMatchObject({ source: 'COMPLAINT', suppressed: true })
+                const detail = await hub.postgres.query<{ reason: string; last_bounce_diagnostic: string }>(
+                    PostgresUse.COMMON_READ,
+                    `SELECT reason, last_bounce_diagnostic FROM posthog_messagesuppression
+                     WHERE team_id = $1 AND identifier = $2`,
+                    [team.id, email],
+                    'test-read-complaint-then-bounce'
+                )
+                // Without the precedence the row would read as a bounce suppression while still
+                // tagged COMPLAINT.
+                expect(detail.rows[0].reason).toBe('Auto-suppressed after a spam complaint (feedback type: abuse)')
+                // The bounce is still recorded, just not as the row's headline reason.
+                expect(detail.rows[0].last_bounce_diagnostic).toBe(diagnostic)
+            }
+        )
     })
 
     describe('cache invalidation', () => {

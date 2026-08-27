@@ -96,7 +96,7 @@ export class EmailSuppressionService {
     /**
      * Record one or more soft (Transient) bounces. Increments each address's consecutive-bounce
      * counter and auto-suppresses it in the same statement once it reaches the threshold. Manual
-     * entries keep their suppressed state untouched.
+     * entries keep their suppressed state untouched, and complaint entries keep their reason.
      */
     public async recordTransientBounces(teamId: number, emails: string[], diagnostic?: string): Promise<void> {
         const identifiers = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean)))
@@ -140,8 +140,10 @@ export class EmailSuppressionService {
                         AND posthog_messagesuppression.suppressed = false
                         AND posthog_messagesuppression.transient_bounce_count + 1 >= $3 THEN NOW()
                     ELSE posthog_messagesuppression.suppressed_at END,
+                -- Same precedence as the hard-bounce path: a COMPLAINT row keeps its reason so it
+                -- can't end up labelled COMPLAINT while reading as a soft-bounce suppression.
                 reason = CASE
-                    WHEN posthog_messagesuppression.source <> 'MANUAL'
+                    WHEN posthog_messagesuppression.source NOT IN ('MANUAL', 'COMPLAINT')
                         AND posthog_messagesuppression.transient_bounce_count + 1 >= $3 THEN $2
                     ELSE posthog_messagesuppression.reason END,
                 -- A provably-undeliverable address coming back over threshold un-deletes itself.
@@ -165,7 +167,9 @@ export class EmailSuppressionService {
     /**
      * Record one or more hard (Permanent) bounces. Suppresses each address immediately — no
      * threshold, no counter — because a permanent bounce is definitive. Manual entries are never
-     * touched. If a row already exists as an unsuppressed BOUNCE counter, this escalates it.
+     * touched. If a row already exists as an unsuppressed BOUNCE counter, this escalates it. A row
+     * that a complaint already claimed keeps its source and reason, so the bounce refreshes the
+     * diagnostic without relabelling why the address is suppressed.
      */
     public async recordHardBounces(teamId: number, emails: string[], diagnostic?: string): Promise<void> {
         const identifiers = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean)))
@@ -203,8 +207,12 @@ export class EmailSuppressionService {
                     WHEN posthog_messagesuppression.source = 'MANUAL' THEN posthog_messagesuppression.suppressed_at
                     WHEN posthog_messagesuppression.suppressed = false THEN NOW()
                     ELSE posthog_messagesuppression.suppressed_at END,
+                -- A complaint outranks a bounce as the reason a row exists, so it keeps its reason
+                -- here the way a manual entry does. This upsert never reassigns the source, so
+                -- overwriting the reason on a COMPLAINT row would leave the two contradicting each
+                -- other. The bounce still refreshes the diagnostic and the suppression state above.
                 reason = CASE
-                    WHEN posthog_messagesuppression.source = 'MANUAL' THEN posthog_messagesuppression.reason
+                    WHEN posthog_messagesuppression.source IN ('MANUAL', 'COMPLAINT') THEN posthog_messagesuppression.reason
                     ELSE EXCLUDED.reason END,
                 -- A provably-undeliverable address coming back un-deletes itself.
                 deleted = CASE
@@ -227,7 +235,8 @@ export class EmailSuppressionService {
      * Record one or more spam complaints. Suppresses each address immediately — no threshold —
      * because a complaint is the recipient asking us to stop, and provider complaint-rate
      * thresholds are far tighter than bounce thresholds. Manual entries are never touched; any
-     * other existing row is re-keyed to COMPLAINT so the list shows the operative reason.
+     * other existing row is re-keyed to COMPLAINT so the list shows the operative reason. The
+     * bounce paths then treat COMPLAINT as authoritative, so a later bounce can't relabel the row.
      */
     public async recordComplaints(teamId: number, emails: string[], feedbackType?: string): Promise<void> {
         const identifiers = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean)))
