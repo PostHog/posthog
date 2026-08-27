@@ -25,7 +25,7 @@ The rebalance metrics from the consumer context stay on regardless, and the `con
 The worker-side check lives in `nodejs/src/ingestion/api/feed-order-sentinel.ts`, fed by the `consumer_id` (process incarnation) and `replay` fields the transport stamps on every `/ingest` request.
 It measures the invariant at its end point: the worker's grouping stage processes each key strictly in feed order, so "fed in offset order per key" is "processed in order per key".
 Rebalances reset all baselines (`ingestion_consumer_rebalances_total{event}` counts them), so partition handoffs don't fire false positives.
-Null-key messages (e.g. overflow rerouting) are excluded from the consumer-side key checks: the producer deliberately spreads such a routing key across partitions, forfeiting per-key order, so offsets from different partitions are not comparable and there is no invariant to check. The worker-side check is unaffected — it scopes keys per partition, an invariant that holds for all traffic.
+Null-key messages (e.g. overflow rerouting) are excluded from both checks: the producer deliberately forfeits per-key order for them, and the consumer routes each one individually rather than pinning it, so there is no invariant to check on either side.
 
 ## Debug API
 
