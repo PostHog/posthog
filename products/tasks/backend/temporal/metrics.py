@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from typing import Any
 
 import posthoganalytics
-from temporalio import activity
+from temporalio import activity, workflow
 from temporalio.common import MetricMeter
 
 Attributes = dict[str, str | int | float | bool]
@@ -108,6 +108,24 @@ def _runtime_adapter_label(value: str | None) -> str:
     if not value:
         return "unknown"
     return value if value in _ALLOWED_RUNTIME_ADAPTERS else "other"
+
+
+def resume_mode_label(*, same_run_resume: bool, using_modal_snapshot: bool) -> str:
+    if same_run_resume:
+        return "same_run_and_snapshot" if using_modal_snapshot else "same_run"
+    return "snapshot_only" if using_modal_snapshot else "neither"
+
+
+def increment_resume_mode(mode: str, *, origin_product: str | None) -> None:
+    try:
+        _metric_meter({"mode": mode, "origin_product": origin_product or "unknown"}).create_counter(
+            "tasks_process_resume_mode",
+            "Resuming process-task runs by the resume state available at provision time. "
+            "same_run labels identify a restart of the current run. neither means no snapshot "
+            "or same-run state accompanied the resume, so the prior working tree could not be restored.",
+        ).add(1)
+    except Exception:
+        pass
 
 
 def increment_snapshot_usage(
@@ -224,6 +242,17 @@ def increment_credential_refresh(kind: str, outcome: str) -> None:
         meter.create_counter(
             "tasks_sandbox_credential_refresh",
             "Sandbox credential refresh outcomes for running cloud task runs",
+        ).add(1)
+    except Exception:
+        pass
+
+
+def increment_pr_babysit_decision(decision: str) -> None:
+    try:
+        meter = workflow.metric_meter().with_additional_attributes({"decision": decision})
+        meter.create_counter(
+            "tasks_pr_babysit_decision",
+            "CI follow-up decisions made by the snapshot-driven PR babysit loop",
         ).add(1)
     except Exception:
         pass

@@ -7,10 +7,12 @@ from unittest.mock import patch
 
 from rest_framework import status
 
-from posthog.models import OrganizationMembership, Team, UploadedMedia, User
+from posthog.models import OrganizationMembership, PersonalAPIKey, Team, UploadedMedia, User
 from posthog.models.organization import AvailableFeature
 from posthog.models.scoping import team_scope
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.models import (
     FeatureRequest,
     FeatureRequestAccountLink,
@@ -19,8 +21,6 @@ from products.customer_analytics.backend.models import (
     FeatureRequestProductArea,
 )
 from products.customer_analytics.backend.test.factories import create_account
-
-from ee.models.rbac.access_control import AccessControl
 
 
 class _EvidenceResponse(TypedDict):
@@ -139,6 +139,25 @@ class TestFeatureRequestsAPI(APIBaseTest):
         )
         self.assertEqual(retrieved.json()["request_status"], "requested")
         self.assertEqual(FeatureRequest.objects.for_team(self.team.id).count(), 1)
+
+    def test_create_can_include_initial_evidence(self) -> None:
+        payload = self._payload()
+        payload["evidence"] = {
+            "evidence_source": "meeting",
+            "requested_on": "2026-01-01",
+        }
+
+        response = self.client.post(self.requests_url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        evidence = response.json()["account_links"][0]["evidence"]
+        self.assertEqual(len(evidence), 1)
+        self.assertEqual(evidence[0]["summary"], "")
+        self.assertEqual(evidence[0]["evidence_source"], "meeting")
+        self.assertEqual(evidence[0]["requested_on"], "2026-01-01")
+        history = self.client.get(f"{self.requests_url}{response.json()['id']}/history/").json()
+        initial_changes = {change["field"]: change for change in history[0]["changes"]}
+        self.assertEqual(initial_changes["evidence"]["after"]["requested_on"], evidence[0]["requested_on"])
 
     def test_description_can_be_omitted_or_cleared(self) -> None:
         payload_without_description = self._payload()
@@ -781,9 +800,15 @@ class TestFeatureRequestsAPI(APIBaseTest):
 
     def test_list_combines_filters_orders_priorities_and_hides_archived_requests(self) -> None:
         first = self.client.post(self.requests_url, self._payload(), format="json").json()
+        other_creator = User.objects.create_and_join(
+            self.organization, "feature-request-creator@example.com", "testtest"
+        )
+        self._set_access_level(other_creator, "editor")
+        self.client.force_login(other_creator)
         second_payload = self._payload()
         second_payload["title"] = "Session replay export"
         second = self.client.post(self.requests_url, second_payload, format="json").json()
+        self.client.force_login(self.user)
         third_payload = self._payload()
         third_payload["title"] = "Unprioritized export"
         third = self.client.post(self.requests_url, third_payload, format="json").json()
@@ -819,6 +844,10 @@ class TestFeatureRequestsAPI(APIBaseTest):
             },
         )
         archived = self.client.get(self.requests_url, {"archive_state": "archived"})
+        created_by_other = self.client.get(
+            self.requests_url,
+            {"archive_state": "all", "created_by_ids": str(other_creator.id)},
+        )
         ordered = self.client.get(
             self.requests_url,
             {"archive_state": "all", "request_ordering": "-priority"},
@@ -827,6 +856,7 @@ class TestFeatureRequestsAPI(APIBaseTest):
         self.assertEqual(active.status_code, status.HTTP_200_OK)
         self.assertEqual([request["id"] for request in active.json()["results"]], [first["id"]])
         self.assertEqual([request["id"] for request in archived.json()["results"]], [second["id"]])
+        self.assertEqual([request["id"] for request in created_by_other.json()["results"]], [second["id"]])
         self.assertEqual(
             [request["id"] for request in ordered.json()["results"]],
             [second["id"], first["id"], third["id"]],
@@ -864,6 +894,38 @@ class TestFeatureRequestsAPI(APIBaseTest):
         self.assertEqual(restored.json()["account_links"], created["account_links"])
         self.assertEqual(restored.json()["product_areas"], created["product_areas"])
         self.assertEqual(len(history.json()), 2)
+
+    def test_scoped_personal_api_key_can_use_custom_actions(self) -> None:
+        created = self.client.post(self.requests_url, self._payload(), format="json").json()
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="feature requests",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["customer_analytics:write"],
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key_value}")
+
+        added = self.client.post(
+            f"{self.requests_url}{created['id']}/add_evidence/",
+            {
+                "expected_version": created["version"],
+                "account_link_id": created["account_links"][0]["id"],
+                "summary": "Requested during onboarding",
+                "customer_quote": "",
+                "evidence_source": "conversation",
+                "source_url": "",
+                "requested_on": None,
+                "image_ids": [],
+            },
+            format="json",
+        )
+        history = self.client.get(f"{self.requests_url}{created['id']}/history/")
+
+        self.assertEqual(added.status_code, status.HTTP_200_OK)
+        self.assertEqual(added.json()["account_links"][0]["evidence_count"], 1)
+        self.assertEqual(history.status_code, status.HTTP_200_OK)
 
     def test_feature_flag_blocks_the_api_without_deleting_data(self) -> None:
         created = self.client.post(self.requests_url, self._payload(), format="json")

@@ -9,12 +9,13 @@ import {
   shapeCommandSuggestions,
   shapeFileSuggestions,
 } from "@posthog/core/message-editor/suggestions";
+import { sessionSupportsSideQuestion } from "@posthog/shared";
 import {
   getAvailableCommandsForTask,
   useSessionStore,
 } from "@posthog/ui/features/sessions/sessionStore";
 import { fetchRepoFiles, searchFiles } from "../../repo-files/useRepoFiles";
-import { CODE_COMMANDS } from "../commands";
+import { BTW_COMMAND_NAME, CODE_COMMANDS } from "../commands";
 import { useDraftStore } from "../draftStore";
 import { searchGithubRefs } from "../hostApi";
 import type {
@@ -25,13 +26,19 @@ import type {
 
 function getTaskCommandContext(taskId: string | undefined): {
   adapter: string | undefined;
+  supportsSideQuestion: boolean;
   commands: ReturnType<typeof getAvailableCommandsForTask>;
 } {
-  if (!taskId) return { adapter: undefined, commands: null };
+  if (!taskId)
+    return { adapter: undefined, supportsSideQuestion: false, commands: null };
   const state = useSessionStore.getState();
   const taskRunId = state.taskIdIndex[taskId];
+  const session = taskRunId ? state.sessions[taskRunId] : undefined;
   return {
-    adapter: taskRunId ? state.sessions[taskRunId]?.adapter : undefined,
+    adapter: session?.adapter,
+    supportsSideQuestion: session
+      ? sessionSupportsSideQuestion(session)
+      : false,
     commands: getAvailableCommandsForTask(taskId),
   };
 }
@@ -104,7 +111,11 @@ export function getCommandSuggestions(
   // commands, so keep merging the trpc-fetched skills fallback for GPT tasks.
   // `null` means "agent hasn't reported yet"; an empty array means "agent
   // reported empty".
-  const { adapter, commands: sessionCommands } = getTaskCommandContext(taskId);
+  const {
+    adapter,
+    supportsSideQuestion,
+    commands: sessionCommands,
+  } = getTaskCommandContext(taskId);
   const draftCommands = store.commands[sessionId] ?? [];
   const localDraftCommands = draftCommands.filter((cmd) => cmd.localSkill);
   const agentCommands =
@@ -113,7 +124,13 @@ export function getCommandSuggestions(
       : adapter === "codex"
         ? mergeCommands(sessionCommands, draftCommands)
         : [...sessionCommands, ...localDraftCommands];
-  const commands = mergeCommands(CODE_COMMANDS, agentCommands);
+  // Only offer /btw where the session can actually answer a side question;
+  // otherwise picking it from the menu dead-ends in an error toast. The
+  // runtime guard in the command still stands for users who type /btw by hand.
+  const codeCommands = supportsSideQuestion
+    ? CODE_COMMANDS
+    : CODE_COMMANDS.filter((cmd) => cmd.name !== BTW_COMMAND_NAME);
+  const commands = mergeCommands(codeCommands, agentCommands);
   const filtered = searchCommands(commands, query);
 
   return shapeCommandSuggestions(filtered);

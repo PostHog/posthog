@@ -3,6 +3,7 @@ import { Worker } from 'node:worker_threads'
 
 import { UndecodableImageError } from './blur.ts'
 import { WORKER_HEAP_MB } from './cores.ts'
+import { ImageOptOutError } from './image-input.ts'
 import { ScrubMetrics } from './metrics.ts'
 import { type StageTimings } from './scrub.ts'
 import { type ScrubReply } from './worker-protocol.ts'
@@ -194,9 +195,12 @@ export async function startPool(
                 restartFailures[index] = 0
             }
             if ('failure' in msg) {
-                const error = msg.failure.undecodable
-                    ? new UndecodableImageError(msg.failure.message)
-                    : new Error(msg.failure.message)
+                const error =
+                    msg.failure.kind === 'undecodable'
+                        ? new UndecodableImageError(msg.failure.reason, msg.failure.message)
+                        : msg.failure.kind === 'opt-out'
+                          ? new ImageOptOutError(msg.failure.message)
+                          : new Error(msg.failure.message)
                 pending.reject(error)
             } else {
                 pending.resolve({

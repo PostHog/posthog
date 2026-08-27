@@ -588,9 +588,10 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
     return ReviewMeta(
         report_id=report_id,
         head_sha=head_sha,
-        # Sandboxes check out this ref. For PRs use the pinned pull ref: refs/pull/N/head outlives the
-        # head branch (merging mid-review deletes it, killing every later sandbox checkout).
-        branch=f"pull/{pr_number}/head" if pr_number is not None else pr_metadata.head_branch,
+        # Sandboxes check out this branch by name. The Tasks checkout only resolves refs/heads/<name>;
+        # a pull ref like `pull/N/head` falls through to a fresh branch on the base tip, so every
+        # sandbox would review the base branch instead of the PR.
+        branch=pr_metadata.head_branch,
         repository=input.repository,
         run_index=run_index,
         snapshotted=snapshotted,

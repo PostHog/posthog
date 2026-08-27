@@ -20,7 +20,7 @@ import { EmailTrackingCodeSigner } from '../../../src/cdp/services/messaging/hel
 import { RecipientTokensService } from '../../../src/cdp/services/messaging/recipient-tokens.service'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
-import { createHub } from '~/common/utils/db/hub'
+import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
 import { promisifyCallback } from '~/common/utils/utils'
 import { compileHog } from '../templates/compiler'
@@ -41,7 +41,7 @@ jest.mock('~/common/utils/request', () => {
     }
 })
 
-import { fetch } from '~/common/utils/request'
+import { fetch, SecureRequestError } from '~/common/utils/request'
 
 const cleanLogs = (logs: string[]): string[] => {
     // Replaces the function time with a fixed value to simplify testing
@@ -73,7 +73,6 @@ describe('Hog Executor', () => {
                 sesEndpoint: hub.SES_ENDPOINT,
                 sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
                 sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
-                sesTenantAttributionEnabled: hub.EMAIL_SES_TENANT_ATTRIBUTION_ENABLED,
             },
             hub.integrationManager,
             new TeamWorkflowsConfigService(hub.postgres),
@@ -104,9 +103,10 @@ describe('Hog Executor', () => {
         )
     })
 
-    afterEach(() => {
+    afterEach(async () => {
         // Ensure any spies (e.g., execHog, Math.random, Date.now) are restored between tests
         jest.restoreAllMocks()
+        await closeHub(hub)
     })
 
     describe('getSensitiveValues', () => {
@@ -957,7 +957,6 @@ describe('Hog Executor', () => {
         let server: any
         let baseUrl: string
         const mockRequest = jest.fn()
-        let timeoutHandle: NodeJS.Timeout | undefined
         let hogFunction: HogFunctionType
 
         beforeAll(async () => {
@@ -980,10 +979,6 @@ describe('Hog Executor', () => {
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
-        })
-
-        afterEach(() => {
-            clearTimeout(timeoutHandle)
         })
 
         afterAll(async () => {
@@ -1374,7 +1369,7 @@ describe('Hog Executor', () => {
         })
 
         it('handles security errors', async () => {
-            process.env.NODE_ENV = 'production' // Make sure the security features are enabled
+            jest.mocked(fetch).mockRejectedValueOnce(new SecureRequestError('Hostname is not allowed'))
 
             const invocation = await createFetchInvocation({
                 url: 'http://localhost',
@@ -1391,16 +1386,10 @@ describe('Hog Executor', () => {
                   "HTTP fetch failed on attempt 1 with status code (none). Error: Hostname is not allowed.",
                 ]
             `)
-
-            process.env.NODE_ENV = 'test'
         })
 
         it('handles timeouts', async () => {
-            mockRequest.mockImplementation((_req: any, res: any) => {
-                // Never send response
-                clearTimeout(timeoutHandle)
-                timeoutHandle = setTimeout(() => res.end(), 10000)
-            })
+            jest.mocked(fetch).mockRejectedValueOnce(new Error('The operation was aborted due to timeout'))
 
             const invocation = await createFetchInvocation({
                 url: `${baseUrl}/test`,

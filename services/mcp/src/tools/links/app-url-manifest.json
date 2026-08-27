@@ -44,6 +44,16 @@
         "params": [],
         "scope": "project"
     },
+    "aiEnrichment": {
+        "template": "/ai-enrichment",
+        "params": [],
+        "scope": "project"
+    },
+    "aiGateway": {
+        "template": "/ai-gateway",
+        "params": [],
+        "scope": "project"
+    },
     "aiHistory": {
         "template": "/ai/history",
         "params": [],
@@ -129,6 +139,11 @@
         "params": [],
         "scope": "project"
     },
+    "aiObservabilitySelfDriving": {
+        "template": "/ai-observability/self-driving",
+        "params": [],
+        "scope": "project"
+    },
     "aiObservabilitySentiment": {
         "template": "/ai-observability/sentiment",
         "params": [],
@@ -141,16 +156,6 @@
     },
     "aiObservabilitySessions": {
         "template": "/ai-observability/sessions",
-        "params": [],
-        "scope": "project"
-    },
-    "aiObservabilitySkill": {
-        "template": "/prompt-management/skills/{name}",
-        "params": ["name"],
-        "scope": "project"
-    },
-    "aiObservabilitySkills": {
-        "template": "/prompt-management/skills",
         "params": [],
         "scope": "project"
     },
@@ -264,6 +269,26 @@
         "params": [],
         "scope": "global"
     },
+    "codeCanvasLink": {
+        "template": "/code/canvas/{channelId}/{dashboardId}",
+        "params": ["channelId", "dashboardId"],
+        "scope": "project"
+    },
+    "codeChannelLink": {
+        "template": "/code/channel/{channelId}",
+        "params": ["channelId"],
+        "scope": "project"
+    },
+    "codeReview": {
+        "template": "/code-review",
+        "params": [],
+        "scope": "project"
+    },
+    "codeTaskLink": {
+        "template": "/code/task/{taskId}",
+        "params": ["taskId"],
+        "scope": "project"
+    },
     "cohort": {
         "template": "/cohorts/{id}",
         "params": ["id"],
@@ -279,6 +304,11 @@
         "params": [],
         "scope": "project"
     },
+    "cohortsStaffTools": {
+        "template": "/feature_flags/staff/cohorts",
+        "params": [],
+        "scope": "global"
+    },
     "comment": {
         "template": "/data-management/comments/{id}",
         "params": ["id"],
@@ -286,6 +316,11 @@
     },
     "comments": {
         "template": "/data-management/comments",
+        "params": [],
+        "scope": "project"
+    },
+    "communitySkills": {
+        "template": "/skills/community",
         "params": [],
         "scope": "project"
     },
@@ -319,8 +354,18 @@
         "params": [],
         "scope": "project"
     },
+    "customerAnalyticsAccount": {
+        "template": "/customer_analytics/accounts/{accountId}",
+        "params": ["accountId"],
+        "scope": "project"
+    },
     "customerAnalyticsAccounts": {
         "template": "/customer_analytics/accounts",
+        "params": [],
+        "scope": "project"
+    },
+    "customerAnalyticsAnnouncements": {
+        "template": "/customer_analytics/announcements",
         "params": [],
         "scope": "project"
     },
@@ -334,8 +379,23 @@
         "params": [],
         "scope": "project"
     },
+    "customerAnalyticsFeatureRequests": {
+        "template": "/customer_analytics/feature-requests",
+        "params": [],
+        "scope": "project"
+    },
+    "customerAnalyticsFeed": {
+        "template": "/customer_analytics/feed",
+        "params": [],
+        "scope": "project"
+    },
     "customerAnalyticsJourneys": {
         "template": "/customer_analytics/journeys",
+        "params": [],
+        "scope": "project"
+    },
+    "customerAnalyticsNotes": {
+        "template": "/customer_analytics/notes",
         "params": [],
         "scope": "project"
     },
@@ -394,6 +454,16 @@
         "params": [],
         "scope": "project"
     },
+    "dataCatalog": {
+        "template": "/data-catalog",
+        "params": [],
+        "scope": "project"
+    },
+    "dataCatalogMetric": {
+        "template": "/data-catalog/metrics/{name}",
+        "params": ["name"],
+        "scope": "project"
+    },
     "dataManagementHistory": {
         "template": "/data-management/history",
         "params": [],
@@ -417,6 +487,11 @@
     "dataWarehouseSource": {
         "template": "/data-management/sources/{id}/schemas",
         "params": ["id"],
+        "scope": "project"
+    },
+    "dataWarehouseSourceConnect": {
+        "template": "/data-warehouse/connect",
+        "params": [],
         "scope": "project"
     },
     "dataWarehouseSourceNew": {
@@ -486,6 +561,56 @@
     },
     "endpointsUsage": {
         "template": "/endpoints",
+        "params": [],
+        "scope": "project"
+    },
+    "engineeringAnalytics": {
+        "template": "/engineering-analytics/overview",
+        "params": [],
+        "scope": "project"
+    },
+    "engineeringAnalyticsAuthor": {
+        "template": "/engineering-analytics/authors/{handle}",
+        "params": ["handle"],
+        "scope": "project"
+    },
+    "engineeringAnalyticsPullRequest": {
+        "template": "/engineering-analytics/repos/{repoOwner}/{repoName}/pull-requests/{number}",
+        "params": ["repoOwner", "repoName", "number"],
+        "scope": "project"
+    },
+    "engineeringAnalyticsPullRequestList": {
+        "template": "/engineering-analytics/pull-requests",
+        "params": [],
+        "scope": "project"
+    },
+    "engineeringAnalyticsTeam": {
+        "template": "/engineering-analytics/teams/{ownerTeam}",
+        "params": ["ownerTeam"],
+        "scope": "project"
+    },
+    "engineeringAnalyticsTeams": {
+        "template": "/engineering-analytics/teams",
+        "params": [],
+        "scope": "project"
+    },
+    "engineeringAnalyticsTestHealth": {
+        "template": "/engineering-analytics/test-health",
+        "params": [],
+        "scope": "project"
+    },
+    "engineeringAnalyticsWorkflowRun": {
+        "template": "/engineering-analytics/repos/{repoOwner}/{repoName}/actions/runs/{runId}",
+        "params": ["repoOwner", "repoName", "runId"],
+        "scope": "project"
+    },
+    "engineeringAnalyticsWorkflowRuns": {
+        "template": "/engineering-analytics/repos/{repoOwner}/{repoName}/actions/workflows/{workflowName}",
+        "params": ["repoOwner", "repoName", "workflowName"],
+        "scope": "project"
+    },
+    "engineeringAnalyticsWorkflows": {
+        "template": "/engineering-analytics/workflows",
         "params": [],
         "scope": "project"
     },
@@ -569,6 +694,11 @@
         "params": [],
         "scope": "project"
     },
+    "experimentsStaffTools": {
+        "template": "/experiments/staff",
+        "params": [],
+        "scope": "global"
+    },
     "exports": {
         "template": "/exports",
         "params": [],
@@ -591,6 +721,16 @@
     },
     "featureFlags": {
         "template": "/feature_flags",
+        "params": [],
+        "scope": "project"
+    },
+    "featureFlagsStaffTools": {
+        "template": "/feature_flags/staff",
+        "params": [],
+        "scope": "global"
+    },
+    "featurePreview": {
+        "template": "/settings/user-feature-previews",
         "params": [],
         "scope": "project"
     },
@@ -664,13 +804,53 @@
         "params": ["templateId"],
         "scope": "project"
     },
+    "identityMatching": {
+        "template": "/identity-matching",
+        "params": [],
+        "scope": "project"
+    },
     "inbox": {
         "template": "/inbox",
         "params": [],
         "scope": "project"
     },
+    "inboxFindings": {
+        "template": "/inbox/scouts/findings",
+        "params": [],
+        "scope": "project"
+    },
+    "inboxReport": {
+        "template": "/inbox/{tab}/{reportId}",
+        "params": ["tab", "reportId"],
+        "scope": "project"
+    },
+    "inboxRuns": {
+        "template": "/inbox/scouts/runs",
+        "params": [],
+        "scope": "project"
+    },
+    "inboxScout": {
+        "template": "/inbox/scouts/{skillName}",
+        "params": ["skillName"],
+        "scope": "project"
+    },
+    "inboxScratchpad": {
+        "template": "/inbox/scouts/scratchpad",
+        "params": [],
+        "scope": "project"
+    },
+    "inboxTriage": {
+        "template": "/inbox/reports/triage",
+        "params": [],
+        "scope": "project"
+    },
     "ingestionWarnings": {
         "template": "/data-management/ingestion-warnings",
+        "params": [],
+        "scope": "project"
+    },
+    "ingestionWarningsV2": {
+        "template": "/data-management/ingestion-warnings-v2",
         "params": [],
         "scope": "project"
     },
@@ -754,6 +934,11 @@
         "params": [],
         "scope": "global"
     },
+    "integration": {
+        "template": "/integrations/{slug}",
+        "params": ["slug"],
+        "scope": "project"
+    },
     "integrationsRedirect": {
         "template": "/integrations/{kind}/callback",
         "params": ["kind"],
@@ -824,6 +1009,16 @@
         "params": ["alertId", "hogFunctionId"],
         "scope": "project"
     },
+    "logsRetentionDetail": {
+        "template": "/logs/retention-rules/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "logsRetentionNew": {
+        "template": "/logs/retention-rules/new",
+        "params": [],
+        "scope": "project"
+    },
     "logsSamplingDetail": {
         "template": "/logs/drop-rules/{id}",
         "params": ["id"],
@@ -854,6 +1049,11 @@
         "params": [],
         "scope": "project"
     },
+    "mcpAnalyticsActivity": {
+        "template": "/mcp-analytics/activity",
+        "params": [],
+        "scope": "project"
+    },
     "mcpAnalyticsDashboard": {
         "template": "/mcp-analytics/dashboard",
         "params": [],
@@ -861,6 +1061,11 @@
     },
     "mcpAnalyticsIntentClustering": {
         "template": "/mcp-analytics/intent-clustering",
+        "params": [],
+        "scope": "project"
+    },
+    "mcpAnalyticsNotifications": {
+        "template": "/mcp-analytics/notifications",
         "params": [],
         "scope": "project"
     },
@@ -879,6 +1084,31 @@
         "params": [],
         "scope": "project"
     },
+    "mcpGateway": {
+        "template": "/mcp-servers",
+        "params": [],
+        "scope": "project"
+    },
+    "mcpGatewayAgent": {
+        "template": "/mcp-servers/agent/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "mcpGatewayMember": {
+        "template": "/mcp-servers/member/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "mcpGatewayServer": {
+        "template": "/mcp-servers/server/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "mcpGatewayTab": {
+        "template": "/mcp-servers/{tab}",
+        "params": ["tab"],
+        "scope": "project"
+    },
     "metrics": {
         "template": "/metrics",
         "params": [],
@@ -891,6 +1121,11 @@
     },
     "moveToPostHogCloud": {
         "template": "/move-to-cloud",
+        "params": [],
+        "scope": "project"
+    },
+    "myTickets": {
+        "template": "/my-tickets",
         "params": [],
         "scope": "project"
     },
@@ -1004,6 +1239,11 @@
         "params": [],
         "scope": "project"
     },
+    "projectPendingDeletion": {
+        "template": "/project-pending-deletion",
+        "params": [],
+        "scope": "project"
+    },
     "propertyDefinition": {
         "template": "/data-management/properties/{id}",
         "params": ["id"],
@@ -1019,10 +1259,10 @@
         "params": [],
         "scope": "project"
     },
-    "queryPerformance": {
-        "template": "/instance/query_performance",
+    "pulse": {
+        "template": "/pulse",
         "params": [],
-        "scope": "global"
+        "scope": "project"
     },
     "replay": {
         "template": "/replay/home",
@@ -1059,13 +1299,53 @@
         "params": [],
         "scope": "project"
     },
+    "replayVisionAction": {
+        "template": "/replay-vision/actions/{actionId}",
+        "params": ["actionId"],
+        "scope": "project"
+    },
+    "replayVisionActionEdit": {
+        "template": "/replay-vision/actions/{actionId}/edit",
+        "params": ["actionId"],
+        "scope": "project"
+    },
+    "replayVisionActionNew": {
+        "template": "/replay-vision/{scannerId}/actions/new",
+        "params": ["scannerId"],
+        "scope": "project"
+    },
+    "replayVisionActionRun": {
+        "template": "/replay-vision/actions/{actionId}/runs/{runId}",
+        "params": ["actionId", "runId"],
+        "scope": "project"
+    },
     "replayVisionObservation": {
         "template": "/replay-vision/observations/{observationId}",
         "params": ["observationId"],
         "scope": "project"
     },
+    "replayVisionScannerBudget": {
+        "template": "/replay-vision/{id}/budget",
+        "params": ["id"],
+        "scope": "project"
+    },
     "replayVisionScannerConfigure": {
         "template": "/replay-vision/{id}/configure",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "replayVisionScannerDetails": {
+        "template": "/replay-vision/{id}/details",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "replayVisionScannerSelfDriving": {
+        "template": "/replay-vision/{id}/self-driving",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "replayVisionScannerTemplate": {
+        "template": "/replay-vision/{id}/template",
         "params": ["id"],
         "scope": "project"
     },
@@ -1075,18 +1355,13 @@
         "scope": "project"
     },
     "replayVisionTemplates": {
-        "template": "/replay-vision/templates",
+        "template": "/replay-vision/new/template",
         "params": [],
         "scope": "project"
     },
     "resourceTransfer": {
         "template": "/resource-transfer/{resourceKind}/{resourceId}",
         "params": ["resourceKind", "resourceId"],
-        "scope": "project"
-    },
-    "revenueAnalytics": {
-        "template": "/revenue_analytics",
-        "params": [],
         "scope": "project"
     },
     "revenueSettings": {
@@ -1119,16 +1394,6 @@
         "params": ["id"],
         "scope": "project"
     },
-    "sessionSummaries": {
-        "template": "/session-summaries",
-        "params": [],
-        "scope": "project"
-    },
-    "sessionSummary": {
-        "template": "/session-summaries/{sessionGroupId}",
-        "params": ["sessionGroupId"],
-        "scope": "project"
-    },
     "settings": {
         "template": "/settings/project",
         "params": [],
@@ -1154,6 +1419,21 @@
         "params": ["url"],
         "scope": "project"
     },
+    "skill": {
+        "template": "/skills/{name}",
+        "params": ["name"],
+        "scope": "project"
+    },
+    "skills": {
+        "template": "/skills",
+        "params": [],
+        "scope": "project"
+    },
+    "skillsCategoryTab": {
+        "template": "/skills/{categoryTab}",
+        "params": ["categoryTab"],
+        "scope": "project"
+    },
     "slackTaskContext": {
         "template": "/slack-task-context",
         "params": [],
@@ -1169,8 +1449,48 @@
         "params": [],
         "scope": "project"
     },
+    "stamphog": {
+        "template": "/stamphog",
+        "params": [],
+        "scope": "project"
+    },
+    "stamphogCallback": {
+        "template": "/stamphog/install/callback",
+        "params": [],
+        "scope": "project"
+    },
+    "stamphogDigests": {
+        "template": "/stamphog/digests",
+        "params": [],
+        "scope": "project"
+    },
+    "stamphogRuns": {
+        "template": "/stamphog/runs",
+        "params": [],
+        "scope": "project"
+    },
     "startups": {
         "template": "/startups",
+        "params": [],
+        "scope": "project"
+    },
+    "streamlitApp": {
+        "template": "/streamlit-apps/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "streamlitAppEdit": {
+        "template": "/streamlit-apps/{id}/edit",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "streamlitAppNew": {
+        "template": "/streamlit-apps/new",
+        "params": [],
+        "scope": "project"
+    },
+    "streamlitApps": {
+        "template": "/streamlit-apps",
         "params": [],
         "scope": "project"
     },
@@ -1242,6 +1562,11 @@
     "taskDetail": {
         "template": "/tasks/{taskId}",
         "params": ["taskId"],
+        "scope": "project"
+    },
+    "taskNew": {
+        "template": "/tasks/new",
+        "params": [],
         "scope": "project"
     },
     "taskTracker": {
@@ -1319,6 +1644,11 @@
         "params": [],
         "scope": "project"
     },
+    "visualReviewFlakiness": {
+        "template": "/visual_review/repos/{repoId}/flakiness",
+        "params": ["repoId"],
+        "scope": "project"
+    },
     "visualReviewRepoRuns": {
         "template": "/visual_review/repos/{repoId}/runs",
         "params": ["repoId"],
@@ -1349,6 +1679,11 @@
         "params": ["repoId"],
         "scope": "project"
     },
+    "warehouseProperties": {
+        "template": "/data-management/warehouse-properties",
+        "params": [],
+        "scope": "project"
+    },
     "webAnalytics": {
         "template": "/web",
         "params": [],
@@ -1374,8 +1709,18 @@
         "params": [],
         "scope": "project"
     },
+    "webAnalyticsPagePerformance": {
+        "template": "/web/page-performance",
+        "params": [],
+        "scope": "project"
+    },
     "webAnalyticsPageReports": {
         "template": "/web/page-reports",
+        "params": [],
+        "scope": "project"
+    },
+    "webAnalyticsRecap": {
+        "template": "/web/recap",
         "params": [],
         "scope": "project"
     },

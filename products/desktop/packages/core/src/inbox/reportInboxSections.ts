@@ -1,0 +1,54 @@
+import type { SignalReport } from "@posthog/shared/types";
+
+/**
+ * The global reports inbox shows every live report in two sections. The
+ * boundary is deliberately a server-countable dimension — report status —
+ * because the section headers and nav badges are server-side count queries,
+ * and a boundary the API can't filter on (actionability, PR-merged state)
+ * produces headline numbers no query can verify.
+ */
+export interface InboxReportSections {
+  /** Ready: research done, a person decides — act, review the PR, or archive. */
+  decision: SignalReport[];
+  /** A responder cannot continue without input, or its latest run failed. */
+  attention: SignalReport[];
+  /** Work the responder is still processing or preparing. */
+  inProgress: SignalReport[];
+}
+
+/**
+ * Whether a report is in the "Needs a decision" section: exactly the `ready`
+ * status. Archiving an FYI is a decision too, so ready-but-not-actionable
+ * reports stay here (a row-level hint conveys that) rather than defining a
+ * section boundary counts can't reproduce.
+ */
+export function reportNeedsDecision(report: SignalReport): boolean {
+  return report.status === "ready";
+}
+
+/**
+ * Partition the loaded list into the two sections, preserving its order. The
+ * list arrives sorted by the user's own sort (applied server-side by the
+ * filter bar); section totals come from server count queries, not from this
+ * partition — these arrays only feed the rendered rows.
+ */
+export function partitionInboxReports(
+  reports: SignalReport[],
+): InboxReportSections {
+  const decision: SignalReport[] = [];
+  const attention: SignalReport[] = [];
+  const inProgress: SignalReport[] = [];
+  for (const report of reports) {
+    if (reportNeedsDecision(report)) {
+      decision.push(report);
+    } else if (
+      report.status === "pending_input" ||
+      report.status === "failed"
+    ) {
+      attention.push(report);
+    } else {
+      inProgress.push(report);
+    }
+  }
+  return { decision, attention, inProgress };
+}

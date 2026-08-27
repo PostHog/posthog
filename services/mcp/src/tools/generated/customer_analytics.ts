@@ -1022,6 +1022,7 @@ const customPropertySourcesRunsList = (): ToolBase<
             query: {
                 limit: params.limit,
                 offset: params.offset,
+                search: params.search,
             },
         })
         return await withPostHogUrl(context, result, '/customer_analytics')
@@ -1411,6 +1412,9 @@ const featureRequestsCreate = (): ToolBase<
         if (params.idempotency_key !== undefined) {
             body['idempotency_key'] = params.idempotency_key
         }
+        if (params.evidence !== undefined) {
+            body['evidence'] = params.evidence
+        }
         const result = await context.api.request<Schemas.FeatureRequest>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_requests/`,
@@ -1454,6 +1458,7 @@ const featureRequestsList = (): ToolBase<
             query: {
                 account_ids: params.account_ids,
                 archive_state: params.archive_state,
+                created_by_ids: params.created_by_ids,
                 limit: params.limit,
                 offset: params.offset,
                 priorities: params.priorities,

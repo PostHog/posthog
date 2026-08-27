@@ -7,6 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils/objects'
+import { isLaunched } from 'scenes/experiments/experimentStatus'
 
 import { experimentsConfigLogic } from '~/scenes/settings/environment/experimentsConfigLogic'
 import { ConversionRateInputType, Experiment } from '~/types'
@@ -21,7 +22,6 @@ import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { CachedNewExperimentQueryResponse, ExperimentMetricUnion } from '../../../queries/schema/schema-general'
 import { experimentLogic } from '../experimentLogic'
 import { experimentMetricsLogic } from '../experimentMetricsLogic'
-import { isLaunched } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import {
     getFlagVariants,
@@ -545,7 +545,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 rate: number | null,
                 experiment: Experiment
             ): number | null => {
-                if (!target || !rate || rate <= 0) {
+                if (!target || target <= 0 || !rate || rate <= 0) {
                     return null
                 }
 
@@ -618,7 +618,11 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 isManualMode ||
                 !isLaunched(experiment) ||
                 remainingDays === null ||
-                targetSampleSize === null
+                targetSampleSize === null ||
+                // Never store a non-positive estimate — a negative sample size or running time is
+                // meaningless and would surface in the header and list view.
+                remainingDays < 0 ||
+                targetSampleSize <= 0
             ) {
                 return
             }

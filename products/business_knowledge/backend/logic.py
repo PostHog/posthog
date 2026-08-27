@@ -49,6 +49,7 @@ from .constants import (
     BK_RERANK_SNIPPET_CHARS,
     BK_RRF_K,
     BK_RRF_SCORE_FLOOR,
+    BK_SEARCH_MAX_LIMIT,
     BK_SEMANTIC_DISTANCE_CUTOFF,
     BK_SEMANTIC_OVERFETCH,
     CHUNK_HARD_MAX_CHARS,
@@ -1718,9 +1719,6 @@ def is_maintained_for_team(team: Team) -> bool:
     return has_feature_flag(team) and has_maintained_sources(team.parent_team_id or team.id)
 
 
-_SEARCH_LIMIT_CAP = 20
-
-
 # ---------------------------------------------------------------------------
 # Semantic search helpers (hybrid retrieval, gated on use_semantic)
 # ---------------------------------------------------------------------------
@@ -1891,7 +1889,7 @@ def search_knowledge(
     Reciprocal Rank Fusion (RRF), safety-re-joined against Postgres, trimmed
     to ``limit``, and ordinal-neighbour-expanded.
     """
-    limit = max(1, min(limit, _SEARCH_LIMIT_CAP))
+    limit = max(1, min(limit, BK_SEARCH_MAX_LIMIT))
 
     # --- FTS anchors (always computed) ---
     processed = process_query(query)
