@@ -1,0 +1,86 @@
+{
+    "PA1": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 75,
+        "source": "verified-same-claim:KA2 (LA14/NA5/NB2)"
+    },
+    "PA2": {
+        "is_real": true,
+        "severity": "consider",
+        "cluster": 35,
+        "source": "cluster 3/3"
+    },
+    "PA3": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 51,
+        "source": "verified-same-claim:LB4 (logging half; NA3)"
+    },
+    "PA4": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 58,
+        "source": "verified-same-claim:KA13"
+    },
+    "PA5": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 58,
+        "source": "verified-same-claim:LA6"
+    },
+    "PA6": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 29,
+        "source": "verified-same-claim:LA4"
+    },
+    "PA7": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 57,
+        "source": "doc-form of cluster 57 (precedent NA8; KB5/LA10/NB6 rule)"
+    },
+    "PA8": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 2,
+        "source": "verified-same-claim:KA10"
+    },
+    "PA9": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 31,
+        "source": "cluster 0/6"
+    },
+    "PA10": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 6,
+        "source": "verified-same-claim:LA19"
+    },
+    "PA11": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 2,
+        "source": "verified-same-claim:KA10"
+    },
+    "PA12": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 57,
+        "source": "verified-same-claim:KA4"
+    },
+    "PA13": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 39,
+        "source": "verified-same-claim:KA5"
+    },
+    "PA14": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 58,
+        "source": "verified-same-claim:KA13"
+    }
+}
