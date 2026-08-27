@@ -197,18 +197,20 @@ class OrganizationNotificationLockViewSet(TeamAndOrgViewSetMixin, viewsets.ViewS
         return self._cached_team_ids
 
     def _apply_change(self, change: dict, membership: OrganizationMembership) -> None:
-        lookup = {
-            "organization_id": self.organization.id,
+        # organization_id stays an explicit keyword at both call sites so the IDOR scan can see
+        # the scoping; hidden inside the unpacked dict, it reads as an unscoped lookup.
+        rule = {
             "organization_membership": membership,
             "setting": change["setting"],
             "scope_id": change.get("scope_id") or "",
         }
         if change["locked_value"] is None:
-            OrganizationMemberNotificationLock.objects.filter(**lookup).delete()
+            OrganizationMemberNotificationLock.objects.filter(organization_id=self.organization.id, **rule).delete()
             return
 
         OrganizationMemberNotificationLock.objects.update_or_create(
-            **lookup,
+            organization_id=self.organization.id,
+            **rule,
             defaults={"locked_value": change["locked_value"], "created_by": cast(User, self.request.user)},
         )
 
