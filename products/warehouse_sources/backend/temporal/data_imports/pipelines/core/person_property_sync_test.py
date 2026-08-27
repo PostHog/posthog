@@ -124,15 +124,18 @@ class TestRunOrchestration:
             {"distinct_id": "b", "plan": "free"},
             {"distinct_id": "ghost", "plan": "x"},
         ]
+
+        def _record_produce(*_args: object, **_kwargs: object) -> int:
+            order.append("produce")
+            return 2
+
         with (
             patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[self._source()]),
             patch(f"{_MODULE}.Team") as team_cls,
             patch(f"{_MODULE}._read_staged_rows", new=AsyncMock(return_value=rows)),
             patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
             patch(f"{_MODULE}._filter_existing_ids", return_value={"a", "b"}) as existing,
-            patch(
-                f"{_MODULE}._produce_intents", side_effect=lambda *_args, **_kwargs: order.append("produce") or 2
-            ) as produce,
+            patch(f"{_MODULE}._produce_intents", side_effect=_record_produce) as produce,
             patch(
                 f"{_MODULE}._write_snapshot_hashes",
                 new=AsyncMock(side_effect=lambda *_args, **_kwargs: order.append("snapshot")),
