@@ -1,4 +1,4 @@
-import { scannerStartSearchParams } from './ScannerTemplatePicker'
+import { scannerStartSearchParams } from './scannerStartParams'
 
 describe('scannerStartSearchParams', () => {
     // A card starts the flow with whatever query string the previous step left behind, so carrying
