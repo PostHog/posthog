@@ -572,6 +572,7 @@ class TaskRunDetailDTO:
     created_at: datetime | None = None
     updated_at: datetime | None = None
     completed_at: datetime | None = None
+    preview_available: bool = False
 
 
 @dataclass(frozen=True)
@@ -677,19 +678,6 @@ class WorkflowTaskSlackContext:
     slack_user_id: str = ""
     slack_team_id: str = ""
     is_ext_shared_channel: bool = False
-
-
-@dataclass(frozen=True)
-class CodeInviteRedeemResult:
-    """Outcome of attempting to redeem a PostHog Desktop invite.
-
-    ``outcome`` is one of ``redeemed`` (or ``already_redeemed``), ``invalid_code``, or
-    ``not_redeemable``. The presentation layer maps it to the success/error HTTP response;
-    the ORM redemption, idempotency check, count increment, and analytics capture all
-    happen inside the facade so no model leaks across the boundary.
-    """
-
-    outcome: str
 
 
 @dataclass(frozen=True)
