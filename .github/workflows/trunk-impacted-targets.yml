@@ -268,8 +268,14 @@ jobs:
             # The key is the write-only token from hogli.yaml's telemetry block:
             # it cannot read data, which is why it is committed rather than a
             # secret, and why this works on fork PRs too.
+            #
+            # Only human PRs against this repository are recorded. The queue's
+            # trunk-merge/** batch PRs run this workflow too and nearly all of
+            # them widen, so counting them doubles every widening figure on the
+            # lane dashboard. A fork running the workflow on its own repository
+            # has no diff to compute and would report a degraded lane here.
             - name: Record lane telemetry
-              if: ${{ !cancelled() }}
+              if: ${{ !cancelled() && github.repository == 'PostHog/posthog' && !startsWith(github.head_ref, 'trunk-merge/') }}
               continue-on-error: true
               env:
                   POSTHOG_TELEMETRY_HOST: https://us.i.posthog.com
