@@ -116,8 +116,12 @@ def highest_qualifying_tier(daily_sends: dict[str, int], *, since: Optional[date
     """
     min_days = settings.WORKFLOWS_EMAIL_TIER_MIN_ACTIVE_DAYS
     ratio = settings.WORKFLOWS_EMAIL_TIER_MIN_DAILY_USE_RATIO
+    # Exclude the whole anchor day, not only the change moment. Metrics are day-grained, so the
+    # anchor day holds sends made both before and after the tier change. Keeping it would count
+    # pre-change volume as evidence for the new tier, which lets a demoted team re-promote on one
+    # real day at the new tier plus the day it was demoted on.
     since_key = since.strftime("%Y-%m-%d") if since else None
-    counted = {day: sent for day, sent in daily_sends.items() if since_key is None or day >= since_key}
+    counted = {day: sent for day, sent in daily_sends.items() if since_key is None or day > since_key}
 
     tier = MIN_EMAIL_SENDING_TIER
     top = max_email_sending_tier()

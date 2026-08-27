@@ -292,6 +292,25 @@ class TestEmailSendingTierDecision(BaseTest):
         )
         assert decision.new_tier == 4
 
+    def test_sends_before_a_midday_tier_change_do_not_count(self) -> None:
+        # The tier change stamps a mid-day anchor, but metrics are day-grained. The anchor day's
+        # pre-change volume must not count toward the new tier, so a team demoted mid-day cannot
+        # re-promote on one real day at the new tier plus the anchor day it was demoted on.
+        now = timezone.now().replace(hour=12, minute=0, second=0, microsecond=0)
+        anchor = now - timedelta(days=4)  # past the 3-day dwell, so promotion is considered
+        # Tier 0 allows 1,000/day and the bar is half of it, so 900 qualifies. Only the anchor day
+        # and one later day clear the bar, so counting the anchor day would reach the two-day minimum.
+        daily_sends = {anchor.strftime("%Y-%m-%d"): 900, now.strftime("%Y-%m-%d"): 900}
+        decision = decide_tier(
+            history=history(sent=sum(daily_sends.values()), daily_sends=daily_sends),
+            current_tier=0,
+            tier_updated_at=anchor,
+            suspended=False,
+            now=now,
+        )
+        assert decision.new_tier == 0
+        assert decision.reason == "tier_not_used_enough"
+
     def test_qualifying_tier_never_exceeds_the_table(self) -> None:
         used = clean_days(5, TIER_DAILY_CAPS[-1] * 100)
         assert highest_qualifying_tier(used) == len(TIER_DAILY_CAPS) - 1
