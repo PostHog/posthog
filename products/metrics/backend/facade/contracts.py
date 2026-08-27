@@ -22,7 +22,7 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass
 
-from .enums import AttributeScope, FilterOp, MetricAggregation, MetricType
+from .enums import AttributeScope, FilterOp, HealthState, MetricAggregation, MetricType
 
 # Each clause runs its own ClickHouse query on the shared logs cluster, so
 # the clause count per request is hard-capped.
@@ -31,6 +31,24 @@ MAX_CLAUSES_PER_QUERY = 10
 # Private-alpha gate. Every read surface (viewset, query runner, MCP tools)
 # must check the same flag, or one of them becomes a bypass.
 METRICS_FEATURE_FLAG = "metrics"
+
+# Gates the pipelines surface (topology CRUD + evaluation) independently of
+# the base metrics viewer, so it can roll out on its own schedule.
+PIPELINES_FEATURE_FLAG = "metrics-pipelines"
+
+# Caps enforced by `parse_pipeline_config`, mirrored in the serializer so the
+# two can't drift.
+MAX_PIPELINE_NODES = 20
+MAX_PIPELINE_STATS_PER_NODE = 12
+MAX_PIPELINE_EDGES = 40
+MAX_PIPELINE_BREAKDOWN_TOP_N = 20
+
+# The per-item caps above multiply out to far more ClickHouse queries than one
+# evaluation should ever issue, so the total is capped directly. A stat costs
+# one query, a breakdown adds another, and an edge costs two (current window
+# plus baseline). The evaluate endpoint's throttles only bind personal API key
+# traffic, so this is what bounds a session-authenticated caller.
+MAX_PIPELINE_EVALUATION_QUERIES = 120
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +111,11 @@ class MetricQueryRequest:
     date_to: dt.datetime
     interval: str | None = None
     formula: str | None = None
+    # Charts want a gap-free line, so a bucket a series did not report is
+    # filled with 0.0 by default. Set False when the caller has to tell
+    # "reported zero" apart from "did not report" — a series that stopped
+    # mid-window would otherwise read as currently sitting at zero.
+    zero_fill: bool = True
 
     def __post_init__(self) -> None:
         if not self.clauses:
@@ -127,6 +150,210 @@ class MetricSeries:
     points: tuple[MetricPoint, ...]
     metric_name: str | None = None
     clause: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineThresholdBounds:
+    """Inclusive healthy range for one severity: a value breaches when it is
+    below `lower` or above `upper`. Either side may be open (None)."""
+
+    lower: float | None = None
+    upper: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineStatThresholds:
+    """Warn/crit bounds for a stat. A missing severity never fires."""
+
+    warn: PipelineThresholdBounds | None = None
+    crit: PipelineThresholdBounds | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineBreakdownConfig:
+    """Optional per-label breakdown table under a stat (e.g. lag by
+    partition). Rows beyond `top_n` are rolled into one "others" row."""
+
+    group_by_key: str
+    top_n: int = 10
+    scope: AttributeScope = AttributeScope.AUTO
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineLink:
+    """External deep link rendered on a node's drill panel."""
+
+    label: str
+    url: str
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineStatConfig:
+    """One health stat on a node: a metric selection plus thresholds.
+    `format` is a display hint only (rate|bytes|pct|count|duration)."""
+
+    id: str
+    label: str
+    format: str
+    metric_name: str
+    aggregation: MetricAggregation
+    filters: tuple[MetricFilter, ...] = ()
+    quantile: float | None = None
+    metric_type: MetricType | None = None
+    thresholds: PipelineStatThresholds | None = None
+    breakdown: PipelineBreakdownConfig | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineNodeConfig:
+    """One component in the topology. `headline_stat_ids` picks the rows
+    shown on the collapsed node card (all stats show in the drill panel)."""
+
+    id: str
+    name: str
+    kind: str
+    stats: tuple[PipelineStatConfig, ...]
+    headline_stat_ids: tuple[str, ...] = ()
+    links: tuple[PipelineLink, ...] = ()
+    note: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineEdgeConfig:
+    """A directed flow between two nodes, measured by one metric. The edge is
+    "hot" when current throughput reaches `hot_multiplier` x the same-length
+    window `baseline_offset` ago."""
+
+    source: str
+    target: str
+    metric_name: str
+    aggregation: MetricAggregation
+    filters: tuple[MetricFilter, ...] = ()
+    quantile: float | None = None
+    metric_type: MetricType | None = None
+    baseline_offset: str = "-7d"
+    hot_multiplier: float = 2.0
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineVariableConfig:
+    """A pipeline-level selector (e.g. environment) that injects one label
+    filter into every stat and edge query when a value is chosen."""
+
+    key: str
+    label: str
+    filter_key: str
+    options: tuple[str, ...] = ()
+    default: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineConfig:
+    """A whole validated topology. Always obtained via
+    `parse_pipeline_config` — construction from raw JSON is where duplicate
+    ids, dangling edges, and cycles are rejected."""
+
+    nodes: tuple[PipelineNodeConfig, ...]
+    edges: tuple[PipelineEdgeConfig, ...]
+    variables: tuple[PipelineVariableConfig, ...] = ()
+
+
+class PipelineNotFoundError(Exception):
+    """Raised when a pipeline id does not exist for the team (or is deleted)."""
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineActor:
+    """Minimal user identity attached to a pipeline record."""
+
+    id: int
+    email: str
+    first_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class MetricsPipelineRecord:
+    """A stored pipeline as the API serves it. `config` is the raw validated
+    JSON object (the wire shape), not the parsed `PipelineConfig` — clients
+    round-trip it through the editor."""
+
+    id: str
+    name: str
+    description: str
+    config: dict
+    enabled: bool
+    created_at: str
+    created_by: PipelineActor | None
+    updated_at: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineBreakdownRow:
+    """One row of a stat's breakdown table."""
+
+    label: str
+    value: float
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineStatResult:
+    """A stat's evaluated value and verdict. `value` is None exactly when
+    `state` is NO_DATA."""
+
+    id: str
+    label: str
+    format: str
+    value: float | None
+    state: HealthState
+    breakdown_rows: tuple[PipelineBreakdownRow, ...] = ()
+    breakdown_others: PipelineBreakdownRow | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineNodeResult:
+    """A node's rolled-up verdict: the worst reporting stat wins; a node
+    with only silent stats is NO_DATA."""
+
+    id: str
+    state: HealthState
+    stats: tuple[PipelineStatResult, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineEdgeResult:
+    """An edge's throughput vs its baseline. `multiplier` is None when the
+    baseline window had no signal (new traffic has no meaningful ratio).
+    `points` is the current-window series for the sparkline."""
+
+    source: str
+    target: str
+    current_value: float | None
+    baseline_value: float | None
+    multiplier: float | None
+    hot: bool
+    points: tuple[MetricPoint, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineAlert:
+    """One alert-strip entry, derived server-side from a breached stat."""
+
+    severity: str  # "warning" | "critical"
+    node_id: str
+    stat_id: str
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineEvaluation:
+    """One refresh tick of a whole pipeline: every node and edge verdict plus
+    the derived alert strip, over one explicit window."""
+
+    nodes: tuple[PipelineNodeResult, ...]
+    edges: tuple[PipelineEdgeResult, ...]
+    alerts: tuple[PipelineAlert, ...]
+    date_from: str
+    date_to: str
 
 
 @dataclass(frozen=True, slots=True)

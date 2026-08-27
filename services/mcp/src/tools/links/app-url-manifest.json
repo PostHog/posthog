@@ -1114,6 +1114,16 @@
         "params": [],
         "scope": "project"
     },
+    "metricsPipeline": {
+        "template": "/metrics/pipelines/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "metricsPipelines": {
+        "template": "/metrics/pipelines",
+        "params": [],
+        "scope": "project"
+    },
     "models": {
         "template": "/models",
         "params": [],

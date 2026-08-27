@@ -53,6 +53,24 @@ tools:
     metrics-overview-retrieve:
         operation: metrics_overview_retrieve
         enabled: false
+    metrics-pipelines-create:
+        operation: metrics_pipelines_create
+        enabled: false
+    metrics-pipelines-destroy:
+        operation: metrics_pipelines_destroy
+        enabled: false
+    metrics-pipelines-evaluate-create:
+        operation: metrics_pipelines_evaluate_create
+        enabled: false
+    metrics-pipelines-list:
+        operation: metrics_pipelines_list
+        enabled: false
+    metrics-pipelines-partial-update:
+        operation: metrics_pipelines_partial_update
+        enabled: false
+    metrics-pipelines-retrieve:
+        operation: metrics_pipelines_retrieve
+        enabled: false
     metrics-samples-create:
         operation: metrics_samples_create
         enabled: false

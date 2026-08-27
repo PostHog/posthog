@@ -50343,6 +50343,292 @@ export namespace Schemas {
       Retention: 'retention',
     } as const;
 
+    export interface PipelineFilter {
+      /**
+         * Attribute name to filter on (e.g. 'k8s.pod.name').
+         * @maxLength 255
+         */
+      key: string;
+      /**
+         * Comparison operator: one of 'eq', 'neq', 'regex', 'not_regex'.
+         * @maxLength 16
+         */
+      op?: string;
+      /**
+         * Value to compare against; the pattern for regex operators.
+         * @maxLength 1024
+         */
+      value: string;
+      /**
+         * Where the attribute lives: 'resource', 'attribute', or 'auto'.
+         * @maxLength 16
+         */
+      scope?: string;
+    }
+
+    export interface PipelineThresholdBounds {
+      /**
+         * Values below this breach the severity. Omit for no lower bound.
+         * @nullable
+         */
+      lower?: number | null;
+      /**
+         * Values above this breach the severity. Omit for no upper bound.
+         * @nullable
+         */
+      upper?: number | null;
+    }
+
+    export interface PipelineThresholds {
+      /** Bounds whose breach marks the stat degraded. */
+      warn?: PipelineThresholdBounds | null;
+      /** Bounds whose breach marks the stat critical. */
+      crit?: PipelineThresholdBounds | null;
+    }
+
+    export interface PipelineBreakdown {
+      /**
+         * Label to split the stat's breakdown table by (e.g. 'partition_id').
+         * @maxLength 255
+         */
+      group_by_key: string;
+      /**
+         * Rows shown before the remainder rolls into one 'others' row.
+         * @minimum 1
+         * @maximum 20
+         */
+      top_n?: number;
+      /**
+         * Attribute scope: 'resource', 'attribute', or 'auto'.
+         * @maxLength 16
+         */
+      scope?: string;
+    }
+
+    export interface PipelineStat {
+      /**
+         * Stat id, unique within its node.
+         * @maxLength 64
+         */
+      id: string;
+      /**
+         * Display label for the stat.
+         * @maxLength 120
+         */
+      label: string;
+      /**
+         * Display format hint: 'rate', 'bytes', 'pct', 'count', or 'duration'.
+         * @maxLength 16
+         */
+      format?: string;
+      /**
+         * Exact ingested metric name this stat queries.
+         * @maxLength 255
+         */
+      metric_name: string;
+      /**
+         * Aggregation per time bucket: 'sum', 'avg', 'count', 'rate', 'increase', 'quantile', or 'histogram_quantile'.
+         * @maxLength 32
+         */
+      aggregation?: string;
+      /**
+         * Quantile in (0, 1) for the quantile aggregations.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      quantile?: number | null;
+      /**
+         * Optional OTel metric type constraint (e.g. 'gauge', 'sum', 'histogram').
+         * @maxLength 32
+         * @nullable
+         */
+      metric_type?: string | null;
+      /** Label predicates ANDed onto the stat's query. */
+      filters?: PipelineFilter[];
+      /** Warn/crit bounds evaluated against the stat's latest value. */
+      thresholds?: PipelineThresholds | null;
+      /** Optional per-label breakdown table under the stat. */
+      breakdown?: PipelineBreakdown | null;
+    }
+
+    export interface PipelineLink {
+      /**
+         * Link text shown on the drill panel.
+         * @maxLength 120
+         */
+      label: string;
+      /**
+         * Destination URL.
+         * @maxLength 2048
+         */
+      url: string;
+    }
+
+    export interface PipelineNode {
+      /**
+         * Node id, unique within the pipeline; edges reference it.
+         * @maxLength 64
+         */
+      id: string;
+      /**
+         * Display name of the component.
+         * @maxLength 120
+         */
+      name: string;
+      /**
+         * Free-form component kind subtitle.
+         * @maxLength 120
+         */
+      kind?: string;
+      /** Health stats on this node (at most 12). */
+      stats: PipelineStat[];
+      /**
+         * Stat ids shown on the collapsed node card, in order.
+         * @items.maxLength 64
+         */
+      headline_stat_ids?: string[];
+      /** External deep links shown on the drill panel. */
+      links?: PipelineLink[];
+      /** Free-form operator note shown on the drill panel. */
+      note?: string;
+    }
+
+    export interface PipelineEdge {
+      /**
+         * Upstream node id.
+         * @maxLength 64
+         */
+      source: string;
+      /**
+         * Downstream node id.
+         * @maxLength 64
+         */
+      target: string;
+      /**
+         * Metric measuring throughput along this edge.
+         * @maxLength 255
+         */
+      metric_name: string;
+      /**
+         * Aggregation per time bucket; same vocabulary as stats.
+         * @maxLength 32
+         */
+      aggregation?: string;
+      /**
+         * Quantile in (0, 1) for the quantile aggregations.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      quantile?: number | null;
+      /**
+         * Optional OTel metric type constraint.
+         * @maxLength 32
+         * @nullable
+         */
+      metric_type?: string | null;
+      /** Label predicates ANDed onto the edge's query. */
+      filters?: PipelineFilter[];
+      /**
+         * How far back the comparison window sits, e.g. '-7d', '-24h', '-1w'.
+         * @maxLength 16
+         */
+      baseline_offset?: string;
+      /** Current/baseline ratio at which the edge renders hot. Must exceed 1. */
+      hot_multiplier?: number;
+    }
+
+    export interface PipelineVariable {
+      /**
+         * Variable key referenced when evaluating.
+         * @maxLength 64
+         */
+      key: string;
+      /**
+         * Display label of the selector.
+         * @maxLength 120
+         */
+      label: string;
+      /**
+         * Metric label the chosen value filters on (e.g. 'k8s.cluster.name').
+         * @maxLength 255
+         */
+      filter_key: string;
+      /**
+         * Allowed values; empty accepts any value.
+         * @items.maxLength 255
+         */
+      options?: string[];
+      /**
+         * Value applied when none is passed to evaluate.
+         * @maxLength 255
+         * @nullable
+         */
+      default?: string | null;
+    }
+
+    export interface PipelineConfig {
+      /** Topology nodes (at most 20). */
+      nodes: PipelineNode[];
+      /** Directed flows between nodes; the graph must stay acyclic. */
+      edges?: PipelineEdge[];
+      /** Pipeline-level selectors injected into every query. */
+      variables?: PipelineVariable[];
+    }
+
+    export interface PipelineActor {
+      /** User id. */
+      id: number;
+      /** User email. */
+      email: string;
+      /** User first name. */
+      first_name: string;
+    }
+
+    /**
+     * Read shape of a stored pipeline (mirrors `MetricsPipelineRecord`).
+     */
+    export interface MetricsPipeline {
+      /** Pipeline UUID. */
+      id: string;
+      /** Display name of the pipeline. */
+      name: string;
+      /** What this pipeline observes and who owns it. */
+      description: string;
+      /** The topology: nodes with health stats, edges with baselines. */
+      config: PipelineConfig;
+      /** Disabled pipelines stay listed but are not evaluated. */
+      enabled: boolean;
+      /** Creation time, ISO 8601. */
+      created_at: string;
+      /** User who created the pipeline. */
+      created_by: PipelineActor | null;
+      /**
+         * Last update time, ISO 8601.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
+    /**
+     * Write shape for create/update. `config` is fully revalidated by
+     * `parse_pipeline_config` on every write.
+     */
+    export interface MetricsPipelineWrite {
+      /**
+         * Display name of the pipeline.
+         * @maxLength 400
+         */
+      name: string;
+      /** What this pipeline observes and who owns it. */
+      description?: string;
+      /** The topology: nodes with health stats, edges with baselines. */
+      config: PipelineConfig;
+      /** Disabled pipelines stay listed but are not evaluated. */
+      enabled?: boolean;
+    }
+
     export interface MinimalPerson {
       /** Numeric person ID. */
       readonly id: number;
@@ -53660,6 +53946,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: MessageTemplate[];
+    }
+
+    export interface PaginatedMetricsPipelineList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MetricsPipeline[];
     }
 
     export interface PaginatedNodeList {
@@ -62729,6 +63024,24 @@ export namespace Schemas {
       deleted?: boolean;
     }
 
+    /**
+     * Write shape for create/update. `config` is fully revalidated by
+     * `parse_pipeline_config` on every write.
+     */
+    export interface PatchedMetricsPipelineWrite {
+      /**
+         * Display name of the pipeline.
+         * @maxLength 400
+         */
+      name?: string;
+      /** What this pipeline observes and who owns it. */
+      description?: string;
+      /** The topology: nodes with health stats, edges with baselines. */
+      config?: PipelineConfig;
+      /** Disabled pipelines stay listed but are not evaluated. */
+      enabled?: boolean;
+    }
+
     export interface PatchedMoveTileRequest {
       /** Destination dashboard ID. */
       to_dashboard?: number;
@@ -67319,6 +67632,122 @@ export namespace Schemas {
     export interface PinnedTaskIdsResponse {
       /** Visible task IDs pinned by the requester, newest pin first. */
       task_ids: string[];
+    }
+
+    export interface PipelineAlert {
+      /** 'warning' or 'critical'. */
+      severity: string;
+      /** Node whose stat breached. */
+      node_id: string;
+      /** The breached stat. */
+      stat_id: string;
+      /** Human-readable alert line for the strip. */
+      message: string;
+    }
+
+    export interface PipelineBreakdownRow {
+      /** Label value of the row (e.g. the partition id). */
+      label: string;
+      /** Latest reported value for the row. */
+      value: number;
+    }
+
+    export interface PipelinePoint {
+      /** Bucket start, ISO 8601. */
+      time: string;
+      /**
+         * Bucket value; null renders a gap.
+         * @nullable
+         */
+      value: number | null;
+    }
+
+    export interface PipelineEdgeResult {
+      /** Upstream node id. */
+      source: string;
+      /** Downstream node id. */
+      target: string;
+      /**
+         * Mean throughput over the current window.
+         * @nullable
+         */
+      current_value: number | null;
+      /**
+         * Mean throughput over the baseline window.
+         * @nullable
+         */
+      baseline_value: number | null;
+      /**
+         * current/baseline ratio; null when the baseline had no signal.
+         * @nullable
+         */
+      multiplier: number | null;
+      /** True when the multiplier reached the edge's hot_multiplier. */
+      hot: boolean;
+      /** Current-window series for the sparkline. */
+      points: PipelinePoint[];
+    }
+
+    /**
+     * Variable values keyed by variable key; unset variables fall back to their defaults.
+     */
+    export type PipelineEvaluateRequestVariables = {[key: string]: string};
+
+    export interface PipelineEvaluateRequest {
+      /** Variable values keyed by variable key; unset variables fall back to their defaults. */
+      variables?: PipelineEvaluateRequestVariables;
+      /**
+         * Window start (ISO 8601). Defaults to 30 minutes ago.
+         * @nullable
+         */
+      date_from?: string | null;
+      /**
+         * Window end (ISO 8601), exclusive. Defaults to now.
+         * @nullable
+         */
+      date_to?: string | null;
+    }
+
+    export interface PipelineStatResult {
+      /** Stat id from the config. */
+      id: string;
+      /** Display label from the config. */
+      label: string;
+      /** Display format hint from the config. */
+      format: string;
+      /**
+         * Latest reported value; null when the stat is silent.
+         * @nullable
+         */
+      value: number | null;
+      /** Health verdict: 'healthy', 'degraded', 'critical', or 'no_data'. */
+      state: string;
+      /** Top breakdown rows, when the stat configures a breakdown. */
+      breakdown_rows: PipelineBreakdownRow[];
+      /** Rollup of the rows beyond top_n; null when nothing was rolled up. */
+      breakdown_others: PipelineBreakdownRow | null;
+    }
+
+    export interface PipelineNodeResult {
+      /** Node id from the config. */
+      id: string;
+      /** Worst reporting stat's verdict; 'no_data' when every stat is silent. */
+      state: string;
+      /** Per-stat verdicts, in config order. */
+      stats: PipelineStatResult[];
+    }
+
+    export interface PipelineEvaluation {
+      /** Per-node verdicts, in config order. */
+      nodes: PipelineNodeResult[];
+      /** Per-edge throughput vs baseline, in config order. */
+      edges: PipelineEdgeResult[];
+      /** Derived alert strip, critical entries first. */
+      alerts: PipelineAlert[];
+      /** Evaluated window start, ISO 8601. */
+      date_from: string;
+      /** Evaluated window end, ISO 8601. */
+      date_to: string;
     }
 
     export interface PlainThreadSignalExtra {
@@ -88584,6 +89013,7 @@ export namespace Schemas {
      * * `Person` - Person
      * * `Group` - Group
      * * `Insight` - Insight
+     * * `MetricsPipeline` - MetricsPipeline
      * * `Plugin` - Plugin
      * * `PluginConfig` - PluginConfig
      * * `HogFunction` - HogFunction
@@ -88681,6 +89111,7 @@ export namespace Schemas {
       Person: 'Person',
       Group: 'Group',
       Insight: 'Insight',
+      MetricsPipeline: 'MetricsPipeline',
       Plugin: 'Plugin',
       PluginConfig: 'PluginConfig',
       HogFunction: 'HogFunction',
@@ -88764,6 +89195,7 @@ export namespace Schemas {
      * * `Person` - Person
      * * `Group` - Group
      * * `Insight` - Insight
+     * * `MetricsPipeline` - MetricsPipeline
      * * `Plugin` - Plugin
      * * `PluginConfig` - PluginConfig
      * * `HogFunction` - HogFunction
@@ -88849,6 +89281,7 @@ export namespace Schemas {
       Person: 'Person',
       Group: 'Group',
       Insight: 'Insight',
+      MetricsPipeline: 'MetricsPipeline',
       Plugin: 'Plugin',
       PluginConfig: 'PluginConfig',
       HogFunction: 'HogFunction',
@@ -95292,6 +95725,17 @@ export namespace Schemas {
      * @maxLength 255
      */
     value?: string;
+    };
+
+    export type MetricsPipelinesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type NotebooksListParams = {

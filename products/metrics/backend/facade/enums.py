@@ -51,6 +51,27 @@ class MetricType(StrEnum):
     SUMMARY = "summary"
 
 
+class HealthState(StrEnum):
+    """Health verdict for a pipeline stat or node.
+
+    NO_DATA is not a severity: a silent stat neither clears nor breaches a
+    threshold, so `worst` skips it whenever any sibling reported.
+    """
+
+    HEALTHY = "healthy"
+    DEGRADED = "degraded"
+    CRITICAL = "critical"
+    NO_DATA = "no_data"
+
+    @classmethod
+    def worst(cls, states: list[HealthState]) -> HealthState:
+        severity = [cls.HEALTHY, cls.DEGRADED, cls.CRITICAL]
+        reporting = [s for s in states if s != cls.NO_DATA]
+        if not reporting:
+            return cls.NO_DATA
+        return max(reporting, key=severity.index)
+
+
 class MetricAggregation(StrEnum):
     """How a clause collapses the values in each time bucket into one number.
 
