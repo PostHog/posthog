@@ -21,6 +21,7 @@ import { NotebookHistoryWarning } from './NotebookHistory'
 import { NotebookLoadingState } from './NotebookLoadingState'
 import { NotebookMergeConflictDetails } from './NotebookMergeConflictDetails'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
+import { NotebookVariablesBar } from './NotebookVariablesBar'
 
 // Counts mounted notebooks so the <body> marker class survives overlapping mounts
 // (e.g. one in the scene and one in the side panel)
@@ -144,6 +145,8 @@ export function Notebook({
                             It's a great place to gather ideas before turning into a saved Notebook!
                         </LemonBanner>
                     ) : null}
+
+                    <NotebookVariablesBar />
 
                     <div className="Notebook_content">
                         <NotebookColumnLeft />
