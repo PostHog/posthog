@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
@@ -8,16 +9,23 @@ import { initKeaTests } from '~/test/init'
 
 import { AIObservabilitySessionsPlaylist } from './AIObservabilitySessionsPlaylist'
 
-// The detail panel reads the current team at import time, before a test can set the app context.
+// TraceTimeline reaches the current team at module scope, which throws before initKeaTests can
+// set the app context, and the detail panel imports it.
 jest.mock('./AIObservabilitySessionScene', () => ({
     SessionDetailPanel: () => null,
 }))
 
 describe('AIObservabilitySessionsPlaylist', () => {
+    let queryCalls: number
+
     beforeEach(() => {
+        queryCalls = 0
         useMocks({
             post: {
-                '/api/environments/:team_id/query/:query_kind/': () => [500, { type: 'server_error' }],
+                '/api/environments/:team_id/query/:query_kind/': () => {
+                    queryCalls += 1
+                    return [500, { type: 'server_error' }]
+                },
             },
         })
         initKeaTests()
@@ -35,8 +43,12 @@ describe('AIObservabilitySessionsPlaylist', () => {
         )
 
         expect(await screen.findByText('Could not load sessions')).toBeInTheDocument()
-        expect(screen.getByText('Retry')).toBeInTheDocument()
         expect(screen.queryByText('No sessions yet')).not.toBeInTheDocument()
         expect(screen.queryByText('Traces are not grouped into sessions')).not.toBeInTheDocument()
+
+        // Asserting the button exists would still pass with the retry wired to nothing.
+        const callsBeforeRetry = queryCalls
+        await userEvent.click(await screen.findByText('Try again'))
+        await waitFor(() => expect(queryCalls).toBeGreaterThan(callsBeforeRetry))
     })
 })

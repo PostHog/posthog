@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -10,6 +9,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { cn } from 'lib/utils/css-classes'
+import { InsightErrorState } from 'scenes/insights/EmptyStates/EmptyStates'
 
 import { SessionDetailPanel } from './AIObservabilitySessionScene'
 import { AIObservabilitySessionsEmptyState } from './AIObservabilitySessionsEmptyState'
@@ -101,7 +101,7 @@ function ListPane({ className }: { className?: string }): JSX.Element {
         hasMoreSessions,
         moreSessionsLoading,
     } = useValues(aiObservabilitySessionsViewLogic)
-    const { selectSession, loadMoreSessions } = useActions(aiObservabilitySessionsViewLogic)
+    const { selectSession, loadMoreSessions, loadSessions } = useActions(aiObservabilitySessionsViewLogic)
 
     return (
         <div
@@ -119,7 +119,7 @@ function ListPane({ className }: { className?: string }): JSX.Element {
                         ))}
                     </div>
                 ) : sessionsError && sessions.length === 0 ? (
-                    <SessionsErrorState />
+                    <InsightErrorState title="Could not load sessions" onRetry={() => loadSessions()} />
                 ) : sessions.length === 0 ? (
                     <AIObservabilitySessionsEmptyState />
                 ) : (
@@ -153,28 +153,6 @@ function ListPane({ className }: { className?: string }): JSX.Element {
                     </>
                 )}
             </div>
-        </div>
-    )
-}
-
-function SessionsErrorState(): JSX.Element {
-    const { sessionsLoading } = useValues(aiObservabilitySessionsViewLogic)
-    const { loadSessions } = useActions(aiObservabilitySessionsViewLogic)
-
-    return (
-        <div className="p-4 text-center">
-            <div className="text-sm text-secondary mb-1">Could not load sessions</div>
-            <div className="text-xs text-secondary mb-3">The query failed. This is usually temporary. Try again.</div>
-            <LemonButton
-                type="secondary"
-                size="small"
-                icon={<IconRefresh />}
-                loading={sessionsLoading}
-                onClick={() => loadSessions()}
-                data-attr="llma-sessions-retry"
-            >
-                Retry
-            </LemonButton>
         </div>
     )
 }
