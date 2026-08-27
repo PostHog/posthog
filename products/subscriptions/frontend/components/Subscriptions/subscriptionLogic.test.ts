@@ -745,6 +745,36 @@ describe('subscriptionLogic', () => {
         expect(capturedBody?.insight).toBeUndefined()
     })
 
+    it('anchors a new AI subscription to the dashboard it is created from', async () => {
+        // The dashboard FK is dropped for AI subs (it would flip resource_type), so the page
+        // context must arrive via anchor_dashboard instead, or the report loses its grounding.
+        let capturedBody: Partial<SubscriptionType> | undefined
+        useMocks({
+            post: {
+                '/api/environments/:team/subscriptions': async ({ request }) => {
+                    capturedBody = (await request.json()) as Partial<SubscriptionType>
+                    return [200, { id: 44, ...capturedBody } as SubscriptionType]
+                },
+            },
+        })
+        const dashboardAiLogic = subscriptionLogic({ dashboardId: 9, id: 'new' })
+        dashboardAiLogic.mount()
+        router.actions.push('/subscriptions/new')
+        await expectLogic(dashboardAiLogic).toFinishListeners()
+        dashboardAiLogic.actions.setSubscriptionValues({
+            resource_type: 'ai_prompt',
+            prompt: 'Show me the biggest event gains last week',
+            title: 'AI test',
+            target_type: 'email',
+            target_value: 'ben@posthog.com',
+        })
+        dashboardAiLogic.actions.submitSubscription()
+        await expectLogic(dashboardAiLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+        expect(capturedBody?.anchor_dashboard).toEqual(9)
+        expect(capturedBody?.anchor_insight).toBeUndefined()
+        expect(capturedBody?.dashboard).toBeUndefined()
+    })
+
     it('drops a stale prompt when saving a non-AI subscription', async () => {
         // Toggling resource_type back to insight after typing a prompt leaves it in form state;
         // it must not be sent, else the backend rejects a non-AI sub that carries a prompt.

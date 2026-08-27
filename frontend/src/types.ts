@@ -5500,6 +5500,10 @@ export interface SubscriptionType {
     integration_id?: number | null
     prompt?: string | null
     ai_prompt_config?: AIPromptConfigApi | null
+    /** AI report subscriptions only: dashboard whose insights ground the generated report. */
+    anchor_dashboard?: number | null
+    /** AI report subscriptions only: insight that grounds the generated report. */
+    anchor_insight?: number | null
     target_type: string
     target_value: string
     frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'

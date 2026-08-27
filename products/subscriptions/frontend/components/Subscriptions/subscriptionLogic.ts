@@ -252,6 +252,8 @@ export interface subscriptionLogicActions {
     loadSubscriptionSuccess: (
         subscription: {
             ai_prompt_config?: AIPromptConfigApi | null | undefined
+            anchor_dashboard?: number | null | undefined
+            anchor_insight?: number | null | undefined
             bysetpos?: number | null | undefined
             byweekday?: WeekdayType[] | null | undefined
             created_at?: string | undefined
@@ -284,6 +286,8 @@ export interface subscriptionLogicActions {
     ) => {
         subscription: {
             ai_prompt_config?: AIPromptConfigApi | null | undefined
+            anchor_dashboard?: number | null | undefined
+            anchor_insight?: number | null | undefined
             bysetpos?: number | null | undefined
             byweekday?: WeekdayType[] | null | undefined
             created_at?: string | undefined
@@ -563,13 +567,18 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             }),
             submit: async (subscription, breakpoint) => {
                 const isAi = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
-                const insightId = !isAi && props.insightShortId ? await getInsightId(props.insightShortId) : undefined
+                const insightId = props.insightShortId ? await getInsightId(props.insightShortId) : undefined
+                // Anchors are set once, from the page the sub is created on; edits never resend them,
+                // so editing from the standalone subscriptions scene can't clear an existing anchor.
+                const isCreating = props.id === 'new'
 
                 const payload = {
                     ...subscription,
                     bysetpos: subscription.frequency === 'monthly' ? subscription.bysetpos : null,
                     insight: isAi ? undefined : insightId,
                     dashboard: isAi ? undefined : props.dashboardId,
+                    anchor_dashboard: isAi && isCreating ? props.dashboardId : undefined,
+                    anchor_insight: isAi && isCreating && !props.dashboardId ? insightId : undefined,
                     // AI subscriptions have no dashboard, so a carried-over insight selection would
                     // trip the backend's "insights without a dashboard" guard. Clear it.
                     dashboard_export_insights: isAi ? [] : subscription.dashboard_export_insights,
