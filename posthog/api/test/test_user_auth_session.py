@@ -18,7 +18,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from posthog.api.authentication import password_reset_token_generator
-from posthog.api.email_verification import email_verification_token_generator
+from posthog.api.email_verification import email_verification_code_verifier
 from posthog.models import User
 from posthog.models.activity_logging.signal_handlers import post_login
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -442,11 +442,14 @@ class TestRevokeOnCredentialChange(APIBaseTest):
     @patch("posthog.tasks.email.send_email_change_emails.delay")
     def test_email_change_revokes_other_sessions(self, _mock_email):
         other = self._other_session()
+        self.user.is_email_verified = True
         self.user.pending_email = "changed@example.com"
         self.user.save()
-        token = email_verification_token_generator.make_token(self.user)
+        with patch("posthog.api.email_verification.send_email_verification_code") as mock_send:
+            email_verification_code_verifier.send_code(self.user)
+        code = mock_send.call_args[0][1]
 
-        response = self.client.post("/api/users/verify_email/", {"uuid": str(self.user.uuid), "token": token})
+        response = self.client.post("/api/users/verify_email/", {"uuid": str(self.user.uuid), "code": code})
 
         self.assertEqual(response.status_code, 200, response.content)
         self.assertFalse(Session.objects.filter(session_key=other.session_key).exists())

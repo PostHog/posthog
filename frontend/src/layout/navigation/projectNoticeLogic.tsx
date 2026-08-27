@@ -236,7 +236,7 @@ export interface projectNoticeLogicActions {
     reportProjectNoticeShown: (variant: string) => {
         variant: string
     } // eventUsageLogic
-    requestVerificationLink: (uuid: string) => {
+    requestVerificationCode: (uuid: string) => {
         uuid: string
     } // verifyEmailLogic
     dismissProjectNotice: (dismissKey: string | null) => {
@@ -353,7 +353,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
             // Mount verifyEmailLogic so the "Send verification email" banner CTA's loader fires.
             // The banner renders on every scene, but verifyEmailLogic is otherwise only mounted on the verify-email scene.
             verifyEmailLogic,
-            ['requestVerificationLink'],
+            ['requestVerificationCode'],
         ],
     })),
     actions({
@@ -662,7 +662,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                             message: 'Please verify your email address.',
                             action: {
                                 'data-attr': 'unverified-email-cta',
-                                onClick: () => user && verifyEmailLogic.actions.requestVerificationLink(user.uuid),
+                                onClick: () => user && verifyEmailLogic.actions.requestVerificationCode(user.uuid),
                                 children: 'Send verification email',
                             },
                             type: 'warning',

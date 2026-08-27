@@ -20,7 +20,7 @@ from django.http import HttpResponseBase, HttpResponseRedirect
 
 import structlog
 
-from posthog.api.email_verification import EmailVerifier
+from posthog.api.email_verification import email_verification_code_verifier
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -109,10 +109,10 @@ def stripe_provisioning_login(request: Any) -> HttpResponseBase:
     # or the org-level email-verification-disabled flag.
     if user.is_email_verified is not True:
         try:
-            EmailVerifier.create_token_and_send_email_verification(user)
+            email_verification_code_verifier.send_code(user)
         except Exception:
             # Intentionally swallowed: the login must stay blocked regardless of email delivery.
-            # EmailVerifier captures the exception internally; the verify_email page has a resend button.
+            # The verifier captures the exception internally; the verify_email page has a resend button.
             logger.warning("stripe_provisioning.login.verification_email_failed", user_id=user.id)
         _capture("email_unverified", user_id=user_id)
         logger.warning("stripe_provisioning.login.email_unverified", user_id=user_id)

@@ -202,8 +202,7 @@ export const urls = {
     twoFactorReset: (userUuid: string, token: string): string => `/reset_2fa/${userUuid}/${token}`,
     preflight: (): string => '/preflight',
     signup: (): string => '/signup',
-    verifyEmail: (userUuid: string = '', token: string = ''): string =>
-        `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
+    verifyEmail: (userUuid: string = ''): string => `/verify_email${userUuid ? `/${userUuid}` : ''}`,
     vercelConnect: (): string => '/connect/vercel/link',
     vercelLinkError: (): string => '/integrations/vercel/link-error',
     agenticAccountMismatch: (): string => '/agentic/account-mismatch',
