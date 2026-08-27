@@ -116,16 +116,22 @@ Explicit `--release-name`, `--release-version`, and `--build` values take preced
 
 ### Reporting the release from a native app at runtime
 
-A web build injects `$release_id` into its bundle. A compiled binary has no bundle, so it reports the release from an environment variable instead. Resolve the release, put its id in `POSTHOG_RELEASE_ID`, and run the app with that variable set:
+A web build injects `$release_id` into its bundle. A compiled binary has no bundle, so it reports the release from an environment variable instead.
+
+Upload the debug symbols with `--release-mode=event`, so the symbol sets upload **release-independent** — bound to no release. Then resolve the release, put its id in `POSTHOG_RELEASE_ID`, and run the app with that variable set:
 
 ```bash
+# Symbols, release-independent — no --release-name/--release-version needed here.
+posthog-cli symbol-sets upload --directory target/release --release-mode=event
+
+# The release is named here, and its id goes to the app.
 export POSTHOG_RELEASE_ID=$(posthog-cli release resolve --release-name my-app --release-version 1.4.0)
 ./my-app
 ```
 
-The SDK reads `POSTHOG_RELEASE_ID` at runtime and reports it as `$release_id` on each exception, so the server resolves that exception's release by a direct id lookup. The release name and version do not have to match anything the app reports. posthog-rs reads this variable (PostHog/posthog-rs#239); other native SDKs read the same one.
+The SDK reads `POSTHOG_RELEASE_ID` at runtime and reports it as `$release_id` on each exception, so the server resolves that exception's release by a direct id lookup. Because the id is the key, the release name and version do not have to match anything the app reports, and one symbol set serves every release of an unchanged binary. posthog-rs reads this variable (PostHog/posthog-rs#239); other native SDKs read the same one.
 
-Upload the debug symbols the usual way, with `symbol-sets upload` and no extra flag, so native frames still symbolicate. The symbols carry no release, so an unchanged binary keeps one symbol set across releases.
+This is the same `--release-mode=event` as for a distributed binary, minus the binary injection: the release still rides the event, but the SDK reads the id from the environment rather than from bytes patched into the build.
 
 ## Skipping uploads (dry run)
 

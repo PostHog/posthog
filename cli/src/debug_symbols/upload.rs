@@ -10,7 +10,7 @@ use crate::{
         symbol_sets::{dedup_uploads_by_chunk_id, SymbolSetUpload, MAX_FILE_SIZE},
     },
     debug_symbols::{discover, package_dsym_bundles, report_problems},
-    sourcemaps::args::{pack_version, ReleaseArgs, UploadConflictArgs},
+    sourcemaps::args::{pack_version, ReleaseArgs, ReleaseMode, UploadConflictArgs},
     utils::git::get_git_info,
 };
 
@@ -36,6 +36,22 @@ pub struct Args {
     /// Implies --force unless --skip-on-conflict is set.
     #[arg(long, default_value_t = false)]
     pub include_source: bool,
+
+    /// How the release is associated with exceptions. `symbol-set`, the default, resolves a release
+    /// (from the flags above or git) and binds it to every uploaded symbol set, so an exception
+    /// takes the release of the symbol sets its frames resolved against. EXPERIMENTAL `event`
+    /// instead uploads the symbol sets release-independent: the release rides the event as
+    /// `$release_id`, which the SDK reports from `POSTHOG_RELEASE_ID` (posthog-rs 0.26+). So one
+    /// symbol set serves every release of an unchanged binary, and the release flags are not needed
+    /// here — name the release with `posthog-cli release resolve` instead. Also settable via
+    /// `POSTHOG_RELEASE_MODE`.
+    #[arg(
+        long,
+        env = "POSTHOG_RELEASE_MODE",
+        value_enum,
+        default_value = "symbol-set"
+    )]
+    pub release_mode: ReleaseMode,
 }
 
 pub fn upload(args: &Args) -> Result<()> {
@@ -44,6 +60,7 @@ pub fn upload(args: &Args) -> Result<()> {
         release,
         conflict,
         include_source,
+        release_mode,
     } = args;
     let release_args = release.resolve_info_plist()?;
 
@@ -95,27 +112,41 @@ pub fn upload(args: &Args) -> Result<()> {
         );
     }
 
-    // Now that there's something to upload, set up the release (explicit flags
-    // win, git info is metadata/fallback) and stamp it on every set.
-    let mut release_builder = ReleaseBuilder::default();
-    if let Ok(Some(git_info)) = get_git_info(Some(directory.clone())) {
-        release_builder.with_git(git_info);
-    }
-    if let Some(ref release_name) = release_args.name {
-        release_builder.with_name(release_name);
-    }
-    if let Some(version) = pack_version(&release_args.version, &release_args.build) {
-        release_builder.with_version(&version);
-    }
+    match release_mode {
+        // Resolve a release (explicit flags win, git info is metadata/fallback) and stamp it on
+        // every set, so an exception takes the release of the symbol sets it resolves against.
+        ReleaseMode::SymbolSet => {
+            let mut release_builder = ReleaseBuilder::default();
+            if let Ok(Some(git_info)) = get_git_info(Some(directory.clone())) {
+                release_builder.with_git(git_info);
+            }
+            if let Some(ref release_name) = release_args.name {
+                release_builder.with_name(release_name);
+            }
+            if let Some(version) = pack_version(&release_args.version, &release_args.build) {
+                release_builder.with_version(&version);
+            }
 
-    let created_release = release_builder
-        .can_create()
-        .then(|| release_builder.fetch_or_create())
-        .transpose()?;
-    if let Some(release) = created_release {
-        let release_id = release.id.to_string();
-        for upload in &mut uploads {
-            upload.release_id = Some(release_id.clone());
+            let created_release = release_builder
+                .can_create()
+                .then(|| release_builder.fetch_or_create())
+                .transpose()?;
+            if let Some(release) = created_release {
+                let release_id = release.id.to_string();
+                for upload in &mut uploads {
+                    upload.release_id = Some(release_id.clone());
+                }
+            }
+        }
+        // Upload the symbol sets release-independent (bound to no release). The release rides the
+        // event instead: the SDK reports it as `$release_id` (from `POSTHOG_RELEASE_ID`), and the
+        // server resolves each exception by that id. One symbol set then serves every release of an
+        // unchanged binary, so there is nothing to resolve or bind here.
+        ReleaseMode::Event => {
+            info!(
+                "--release-mode=event: uploading symbol sets release-independent; the release is \
+                 carried on each event as $release_id (POSTHOG_RELEASE_ID)"
+            );
         }
     }
 
@@ -159,6 +190,36 @@ fn merge_uploads_prefer_dsym(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct SymbolSetsCli {
+        #[command(subcommand)]
+        command: crate::download::SymbolSetsSubcommand,
+    }
+
+    fn parse_upload(extra: &[&str]) -> Args {
+        let mut argv = vec!["symbol-sets", "upload", "--directory", "target/release"];
+        argv.extend_from_slice(extra);
+        match SymbolSetsCli::parse_from(argv).command {
+            crate::download::SymbolSetsSubcommand::Upload(args) => args,
+            _ => panic!("expected the upload subcommand"),
+        }
+    }
+
+    #[test]
+    fn defaults_to_binding_the_release_to_the_symbol_sets() {
+        // Every existing caller omits the flag and must keep binding symbol sets to their release.
+        assert_eq!(parse_upload(&[]).release_mode, ReleaseMode::SymbolSet);
+    }
+
+    #[test]
+    fn accepts_event_release_mode() {
+        assert_eq!(
+            parse_upload(&["--release-mode", "event"]).release_mode,
+            ReleaseMode::Event
+        );
+    }
 
     #[test]
     fn merge_uploads_prefers_dsym_over_matching_macho() {
