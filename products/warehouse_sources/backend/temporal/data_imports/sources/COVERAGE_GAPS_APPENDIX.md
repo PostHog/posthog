@@ -3130,19 +3130,19 @@ Note: The Flexmail public API is contact-management only - it exposes no campaig
 
 ## FloatApp — gaps
 
-Today (18): `accounts`, `clients`, `deleted_logged_time`, `deleted_tasks`, `deleted_timeoffs`, `departments`, `holidays`, `logged_time`, `milestones`, `people`, `phases`, `project_tasks`, `projects`, `roles`, `status`, `tasks`, `timeoff_types`, `timeoffs`
+Today (20): `accounts`, `clients`, `currencies`, `deleted_logged_time`, `deleted_tasks`, `deleted_timeoffs`, `departments`, `holidays`, `logged_time`, `milestones`, `people`, `phases`, `project_tasks`, `projects`, `rate_cards`, `roles`, `status`, `tasks`, `timeoff_types`, `timeoffs`
 
 Diffed against: <https://developer.float.com/swagger-api-v3.yaml>
 
 - [ ] `/project-stages` — lookup table resolving the stage IDs carried on the projects we already sync (high)
-- [ ] `/rate-cards` — lookup for the rate card IDs on people/projects; required to turn logged hours into billable value (high)
+- [x] `/rate-cards` — lookup for the rate card IDs on people/projects; required to turn logged hours into billable value (high)
 - [ ] `/reports/people` — Float's headline utilization/capacity report per person, pre-aggregated (high)
 - [ ] `/reports/projects` — per-project scheduled vs logged vs billable breakdown (medium)
 - [ ] `/project-expenses` — non-labor project cost, needed for true project margin alongside logged_time (medium)
 - [ ] `/public-holidays` — region public holidays; distinct from the team /holidays table already synced, needed for correct capacity math (medium)
-- [ ] `/currencies` — lookup for currency codes on rate cards and project budgets (low)
+- [x] `/currencies` — lookup for currency codes on rate cards and project budgets (low)
 
-Note: Machine-readable OpenAPI at /swagger-api-v3.yaml enumerates 26 resources; PostHog covers 18. /project-templates was excluded as config.
+Note: Machine-readable OpenAPI at /swagger-api-v3.yaml enumerates 26 resources; PostHog covers 20. /project-templates was excluded as config.
 
 ## Flowlu — **thin**
 
@@ -3906,10 +3906,11 @@ Note: learn.hex.tech renders the reference client-side from Docusaurus; the oper
 
 ## HiBob — **thin**
 
-Today (2): `employees`, `tasks`
+Today (3): `employees`, `tasks`, `time_off_calendars`
 
 Diffed against: <https://apidocs.hibob.com/reference/get_tasks>
 
+- [x] `POST /timeoff/calendars/employees/search` — the holiday calendar resolved per employee (employment override or site default); fans out over employee ids, full refresh (medium)
 - [ ] `GET /bulk/people/lifecycle` — employee lifecycle state transitions (hire, promotion, termination) — the core HR history table (high)
 - [ ] `GET /bulk/people/employment` — employment history rows per employee (contract, manager, site changes) rather than only current state (high)
 - [ ] `GET /bulk/people/salaries` — compensation history, the headline HR analytics dataset (high)
@@ -6397,7 +6398,7 @@ Note: Persona's own repo note (products/warehouse_sources/backend/temporal/data_
 
 ## Personio — **thin**
 
-Today (3): `absence_periods`, `attendance_periods`, `persons`
+Today (5): `absence_periods`, `attendance_periods`, `cost_centers`, `persons`, `salary_bands`
 
 Diffed against: <https://developer.personio.de/llms.txt>
 
@@ -6405,7 +6406,8 @@ Diffed against: <https://developer.personio.de/llms.txt>
 - [ ] `GET /v2/absence-types` — lookup resolving the absence type on every absence period already synced (high)
 - [ ] `GET /v2/compensations` — salary, hourly, bonus and recurring compensation - the payroll dataset (high)
 - [ ] `GET /v2/org-units` — department/team hierarchy lookup for grouping persons, absences and attendance (high)
-- [ ] `GET /v2/cost-centers` — cost center lookup for allocating attendance and compensation to finance dimensions (medium)
+- [x] `GET /v2/cost-centers` — cost center lookup for allocating attendance and compensation to finance dimensions (medium)
+- [x] `GET /v2/salary-bands` — salary band ranges (min/max/mid, currency) and the workplaces they apply to (medium)
 - [ ] `GET /v2/legal-entities` — legal entity lookup for multi-entity headcount and payroll splits (medium)
 - [ ] `GET /v2/jobs` — job/position catalog referenced from employments (medium)
 - [ ] `GET /v2/compensations/types` — lookup resolving compensation type IDs on compensation rows (medium)
@@ -6414,7 +6416,7 @@ Diffed against: <https://developer.personio.de/llms.txt>
 - [ ] `GET /v2/recruiting/applications/{id}/stage-transitions` — stage transition history - exactly the state-change data needed for time-in-stage metrics (medium)
 - [ ] `GET /v2/recruiting/candidates` — candidate records joined to applications above (medium)
 
-Note: PERSONIO_ENDPOINTS in products/warehouse_sources/backend/temporal/data_imports/sources/personio/settings.py is a static 3-entry dict (/v2/persons, /v2/absence-periods, /v2/attendance-periods) - no dynamic discovery. The v2 API exposes roughly 20 listable resources, so this is a small fraction, and notably every organizational lookup that would let you group the synced persons and time data (org units, cost centers, legal entities, jobs) is missing. Exact paths confirmed from the individual reference .md pages. Recruiting endpoints are flagged beta by the vendor.
+Note: PERSONIO_ENDPOINTS in products/warehouse_sources/backend/temporal/data_imports/sources/personio/settings.py is a static 5-entry dict (/v2/persons, /v2/absence-periods, /v2/attendance-periods, /v2/salary-bands, /v2/cost-centers) - no dynamic discovery. The v2 API exposes roughly 20 listable resources, so this is still a small fraction, and other organizational lookups that would let you group the synced persons and time data (org units, legal entities, jobs) are still missing. Salary bands and cost centers are dimension lookups with no updated_at/created_at field, so they sync full-refresh only. Exact paths confirmed from the individual reference .md pages. Recruiting endpoints are flagged beta by the vendor.
 
 ## Pexels — gaps
 
@@ -7189,10 +7191,14 @@ Note: Per-version download counts are already included in the synced `versions` 
 
 ## Ruddr — **thin**
 
-Today (5): `clients`, `members`, `project_tasks`, `projects`, `time_entries`
+Today (9): `clients`, `members`, `pipeline_activities`, `project_prepayments`, `project_tasks`, `projects`, `task_categories`, `time_entries`, `timesheet_attestations`
 
 Diffed against: <https://docs.ruddr.io/llms.txt>
 
+- [x] `project-prepayments` — prepayments recorded against projects to offset future fees
+- [x] `timesheet-attestations` — statements members sign when submitting timesheets
+- [x] `task-categories` — lookup classifying project tasks
+- [x] `pipeline-activities` — sales-pipeline activity log tied to opportunities, companies, and contacts
 - [ ] `invoices` — billing and revenue, entirely absent from the current 5 tables (high)
 - [ ] `invoice-items` — line-item revenue tied back to projects and time entries (high)
 - [ ] `allocations` — planned resource allocation to compare against logged time entries (high)
@@ -7206,7 +7212,7 @@ Diffed against: <https://docs.ruddr.io/llms.txt>
 - [ ] `project-health-reports` — periodic project status history, a natural trend series (medium)
 - [ ] `practices` — lookup resolving the practice/org-unit IDs on members and projects (medium)
 
-Note: Ruddr documents roughly 78 list endpoints; the connector exposes 5. Beyond the twelve listed, whole domains are unsynced: project budget items (service/product/other/expense, plus monthly variants), revenue recognition entries, revenue adjustments, credit notes, tax rates, cost periods, exchange rate periods, utilization target periods, contacts, companies, expense reports, holidays, skills, disciplines, job titles and member levels. Static endpoint catalog, no dynamic discovery.
+Note: Ruddr documents roughly 78 list endpoints; the connector exposes 9. Beyond those listed, whole domains are unsynced: project budget items (service/product/other/expense, plus monthly variants), revenue recognition entries, revenue adjustments, credit notes, tax rates, cost periods, exchange rate periods, utilization target periods, contacts, companies, expense reports, holidays, skills, disciplines, job titles and member levels. Static endpoint catalog, no dynamic discovery.
 
 ## RunPod — adequate
 
@@ -7578,6 +7584,14 @@ Diffed against: <https://api-reference.shutterstock.com/>
 - [ ] `images/collections/featured and videos/collections/featured (GET, plus /items)` — Shutterstock-curated collections and their contents (low)
 
 Note: Coverage is solid for the images and videos verticals (categories, collections, licenses, updated feeds) but the audio, SFX, and editorial verticals are entirely absent, and collection membership is never resolved.
+
+## SigmaComputing — gaps
+
+Today (10): `Connections`, `DataModels`, `Members`, `Reports`, `Teams`, `WorkbookElements`, `WorkbookPages`, `WorkbookQueries`, `Workbooks`, `Workspaces`
+
+Diffed against: <https://help.sigmacomputing.com/reference/get-started-sigma-api>
+
+- [x] `reports (GET /v2/reports)` — org-level catalog of saved reports, the same top-level content shape as workbooks and data models, added here
 
 ## SigNoz — gaps
 
