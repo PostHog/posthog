@@ -1,3 +1,4 @@
+import { getIsOnline } from "@posthog/core/connectivity/connectivityStore";
 import { partitionLocalMcpServersForRun } from "@posthog/core/local-mcp/localMcpImport";
 import {
   getErrorTitle,
@@ -578,9 +579,12 @@ export function useTaskCreation({
               // interrupted so the pending view offers to recover or discard it,
               // instead of navigating back to a composer that may not have it.
               const interruptedKey = createdTaskId ?? pendingTaskKey;
+              // Read connectivity live, not the value captured at submit: the
+              // submit guard forced isOnline true then, so a connection dropped
+              // during setup only shows in the store now.
               pendingTaskPromptStoreApi.markInterrupted(
                 interruptedKey,
-                isOnline ? "failed" : "offline",
+                getIsOnline() ? "failed" : "offline",
               );
               // If onTaskReady already navigated the origin tab to
               // /tasks/$taskId (the worktree path notifies ready before later
@@ -609,9 +613,11 @@ export function useTaskCreation({
           if (pendingTaskKey) {
             // Keep the prompt recoverable from the pending view.
             const interruptedKey = createdTaskId ?? pendingTaskKey;
+            // Live connectivity, not the submit-time value, so a drop during
+            // setup is classified as offline (see the failed-result branch).
             pendingTaskPromptStoreApi.markInterrupted(
               interruptedKey,
-              isOnline ? "failed" : "offline",
+              getIsOnline() ? "failed" : "offline",
             );
             // A throw after onTaskReady leaves the origin tab on the
             // rolled-back task's detail view; return it to the pending route so
@@ -674,7 +680,6 @@ export function useTaskCreation({
       queryClient,
       taskService,
       tasks,
-      isOnline,
     ],
   );
 
