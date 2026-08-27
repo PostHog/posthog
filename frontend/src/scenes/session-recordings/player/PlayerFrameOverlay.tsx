@@ -81,7 +81,7 @@ const RECOVERABLE_SNAPSHOT_ERRORS = [
 const PlayerFrameOverlayContent = (): JSX.Element | null => {
     const { currentPlayerState, endReached, logicProps, playerError, isWaitingForIngestion, sessionPlayerMetaData } =
         useValues(sessionRecordingPlayerLogic)
-    const { setPlay, retryLoadingSnapshots, loadOversizedRecording } = useActions(sessionRecordingPlayerLogic)
+    const { setPlay, retryLoadingSnapshots } = useActions(sessionRecordingPlayerLogic)
 
     const handlePlay = (e: MouseEvent): void => {
         e.stopPropagation()
@@ -99,22 +99,21 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
         const totalSize = sessionPlayerMetaData?.total_size
         content = (
             <div className="flex flex-col justify-center items-center p-6 bg-surface-primary rounded m-6 gap-2 max-w-120 shadow-sm">
-                <IconWarning className="text-warning text-5xl" />
-                <div className="font-bold text-text-3000 text-lg">This recording is unusually large</div>
+                <IconWarning className="text-danger text-5xl" />
+                <div className="font-bold text-text-3000 text-lg">We're unable to play this recording</div>
                 <div className="text-secondary text-sm text-center">
-                    It contains {totalSize ? `${humanizeBytes(totalSize)} of` : 'a large amount of'} data in very large
-                    chunks, and playing it may freeze this browser tab.
+                    It contains {totalSize ? `${humanizeBytes(totalSize)} of` : 'too much'} snapshot data in very large
+                    chunks, and playing it would freeze this browser tab. This usually comes from pages with rapidly
+                    changing content. You can exclude those elements from capture to keep future recordings playable.
                 </div>
                 <LemonButton
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        loadOversizedRecording()
-                    }}
+                    targetBlank
+                    to="https://posthog.com/docs/session-replay/privacy"
                     type="primary"
                     fullWidth
                     center
                 >
-                    Load anyway
+                    Learn how to exclude elements
                 </LemonButton>
             </div>
         )

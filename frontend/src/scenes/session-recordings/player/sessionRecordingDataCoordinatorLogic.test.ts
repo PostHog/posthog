@@ -96,20 +96,14 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             return gatedLogic
         }
 
-        it('stops snapshot auto-load until loadOversizedRecording', async () => {
+        it('never loads snapshots for an unplayably large recording', async () => {
             const gatedLogic = mountWithMeta('oversized-gated', oversizedMeta, true)
 
             await expectLogic(gatedLogic)
                 .toDispatchActions(['loadRecordingMetaSuccess'])
                 .toFinishAllListeners()
                 .toNotHaveDispatchedActions(['loadSnapshotSources'])
-                .toMatchValues({ recordingTooLargeToAutoload: true })
-
-            gatedLogic.actions.loadOversizedRecording()
-
-            await expectLogic(gatedLogic)
-                .toDispatchActions(['loadSnapshotSources'])
-                .toMatchValues({ recordingTooLargeToAutoload: false })
+                .toMatchValues({ recordingTooLargeToPlay: true })
         })
 
         it.each([
@@ -132,7 +126,7 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
 
             await expectLogic(gatedLogic)
                 .toDispatchActions(['loadRecordingMetaSuccess', 'loadSnapshotSources'])
-                .toMatchValues({ recordingTooLargeToAutoload: false })
+                .toMatchValues({ recordingTooLargeToPlay: false })
         })
     })
 
