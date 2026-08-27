@@ -12,6 +12,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
+from django.utils.html import escape
 
 import pydantic
 import requests as http_requests
@@ -45,6 +46,7 @@ from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.event_usage import groups
+from posthog.middleware import is_read_only_impersonation
 from posthog.models import User
 from posthog.permissions import (
     APIScopePermission,
@@ -2254,6 +2256,64 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if url is None:
             raise NotFound()
         return HttpResponseRedirect(url)
+
+    def _preview_unavailable_page(self, outcome: str, task_id: str) -> HttpResponse:
+        if outcome == "ended":
+            heading = "This preview has ended"
+            body = "Rerun the task to start a new one."
+        elif outcome == "unavailable":
+            heading = "This preview isn't reachable right now"
+            body = "Try again in a moment."
+        else:
+            heading = "This preview isn't ready yet"
+            body = "PostHog is still starting in the sandbox. Refresh this page in a moment."
+        task_url = escape(absolute_uri(f"/project/{self.team_id}/tasks/{task_id}"))
+        html = (
+            '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            f"<title>{escape(heading)}</title></head>"
+            '<body style="font-family: system-ui, sans-serif; margin: 3rem auto; max-width: 32rem; padding: 0 1rem;">'
+            f'<h1 style="font-size: 1.25rem;">{escape(heading)}</h1>'
+            f"<p>{escape(body)}</p>"
+            f'<p><a href="{task_url}">Back to the task</a></p>'
+            "</body></html>"
+        )
+        response = HttpResponse(html, content_type="text/html; charset=utf-8")
+        response["Cache-Control"] = "no-store"
+        return response
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(description="HTML page explaining that the preview is not ready yet or has ended"),
+            302: OpenApiResponse(description="Redirect to the sandbox preview with a freshly minted access token"),
+            403: OpenApiResponse(description="Refused during read-only impersonation"),
+            404: OpenApiResponse(description="Task run not found"),
+        },
+        summary="Open the dev stack preview for a task run",
+        description=(
+            "Redirects to the PostHog dev stack running inside this run's sandbox. A fresh sandbox "
+            "access token is minted on every request and carried only in the redirect target, so it "
+            "is never persisted or returned in a response body. When the run has no preview, or its "
+            "sandbox has stopped, this renders a short HTML page instead."
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="preview", required_scopes=["task:write"])
+    def preview(self, request, pk=None, **kwargs):
+        if is_read_only_impersonation(request):
+            raise PermissionDenied(
+                "This action is not allowed during read-only user impersonation.", code="impersonation_read_only"
+            )
+        task_id = self._ensure_task_accessible()
+        redirect = tasks_facade.resolve_task_run_preview_redirect(
+            pk, task_id, self.team_id, user_id=cast(User, request.user).id
+        )
+        if redirect is None:
+            raise NotFound()
+        if redirect.outcome == "ready" and redirect.redirect_url:
+            response = HttpResponseRedirect(redirect.redirect_url)
+            response["Cache-Control"] = "no-store"
+            return response
+        return self._preview_unavailable_page(redirect.outcome, task_id)
 
     def _peer_messaging_gate(self, task_id: str) -> Response | None:
         """Server-side authorization for the peers endpoints. Tool gating in the
