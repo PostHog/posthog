@@ -11,9 +11,11 @@ from drf_spectacular.plumbing import get_override
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, HEAVY_COLUMN_TO_PROPERTY
-from posthog.models import Organization, Project, Team, User
+from posthog.models import Organization, OrganizationMembership, Project, Team, User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.evaluations import ModelConfigurationSerializer, _TargetConfigField
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluation_configs import validate_target_config
@@ -986,6 +988,21 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data["results"]), 0)
 
+    @parameterized.expand(
+        [
+            ("unknown_uuid", "019f5632-6df1-0000-5093-46d18b1bc987"),
+            # An agent holding the evaluation's name but not its id puts the name in the id slot. That
+            # can't parse as a UUID, so without the ValidationError catch it surfaces as a 500.
+            ("name_in_the_id_slot", "answer-faithfulness"),
+        ]
+    )
+    def test_retrieving_a_missing_evaluation_says_how_to_find_a_real_id(self, _name, evaluation_id):
+        response = self.client.get(f"/api/environments/{self.team.id}/evaluations/{evaluation_id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn(evaluation_id, response.data["detail"])
+        self.assertIn("list the project's evaluations", response.data["detail"].lower())
+
     def test_validation_requires_required_fields(self):
         # Missing name
         response = self.client.post(
@@ -1739,3 +1756,175 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
         eval_obj.refresh_from_db()
         self.assertTrue(eval_obj.enabled)
         self.assertIsNone(eval_obj.status_reason)
+
+
+class TestEvaluationsAccessControl(APIBaseTest):
+    # Evaluations have their own access control resource (see ACCESS_CONTROL_RESOURCES in
+    # posthog/rbac/user_access_control.py). They used to inherit from `llm_analytics`.
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        self.viewer_user = User.objects.create_and_join(self.organization, "eval-viewer@posthog.com", "testtest")
+        self.editor_user = User.objects.create_and_join(self.organization, "eval-editor@posthog.com", "testtest")
+        self.no_access_user = User.objects.create_and_join(self.organization, "eval-noaccess@posthog.com", "testtest")
+
+        self._grant(self.viewer_user, "viewer")
+        self._grant(self.editor_user, "editor")
+        self._grant(self.no_access_user, "none")
+
+    def _grant(
+        self, user: User, access_level: str, resource: str = "evaluation", resource_id: str | None = None
+    ) -> AccessControl:
+        membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
+        return AccessControl.objects.create(
+            team=self.team,
+            resource=resource,
+            resource_id=resource_id,
+            access_level=access_level,
+            organization_member=membership,
+        )
+
+    def _create_evaluation(self, name: str = "Existing Evaluation") -> Evaluation:
+        return Evaluation.objects.create(
+            team=self.team,
+            name=name,
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+            created_by=self.user,
+        )
+
+    def _create_payload(self, name: str = "New Evaluation") -> dict:
+        return {
+            "name": name,
+            "evaluation_type": "hog",
+            "evaluation_config": {"source": "return true"},
+            "output_type": "boolean",
+        }
+
+    def test_no_access_user_cannot_list_or_create_evaluations(self):
+        self.client.force_login(self.no_access_user)
+
+        list_response = self.client.get(f"/api/environments/{self.team.id}/evaluations/")
+        assert list_response.status_code == status.HTTP_403_FORBIDDEN
+
+        create_response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/", self._create_payload(), format="json"
+        )
+        assert create_response.status_code == status.HTTP_403_FORBIDDEN
+        assert Evaluation.objects.count() == 0
+
+    def test_viewer_user_can_read_but_not_write_evaluations(self):
+        evaluation = self._create_evaluation()
+        self.client.force_login(self.viewer_user)
+
+        list_response = self.client.get(f"/api/environments/{self.team.id}/evaluations/")
+        assert list_response.status_code == status.HTTP_200_OK
+        assert len(list_response.json()["results"]) == 1
+
+        retrieve_response = self.client.get(f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/")
+        assert retrieve_response.status_code == status.HTTP_200_OK
+
+        create_response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/", self._create_payload(), format="json"
+        )
+        assert create_response.status_code == status.HTTP_403_FORBIDDEN
+        assert Evaluation.objects.count() == 1
+
+        edit_response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/",
+            {"name": "Renamed by viewer"},
+            format="json",
+        )
+        assert edit_response.status_code == status.HTTP_403_FORBIDDEN
+        evaluation.refresh_from_db()
+        assert evaluation.name == "Existing Evaluation"
+
+    def test_editor_user_can_create_and_edit_evaluations(self):
+        self.client.force_login(self.editor_user)
+
+        create_response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/", self._create_payload(), format="json"
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+        evaluation_id = create_response.json()["id"]
+
+        edit_response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{evaluation_id}/",
+            {"name": "Renamed by editor"},
+            format="json",
+        )
+        assert edit_response.status_code == status.HTTP_200_OK
+        assert edit_response.json()["name"] == "Renamed by editor"
+
+    def test_viewer_cannot_soft_delete_evaluation(self):
+        # DELETE is 405 (ForbidDestroyModel), so deletion goes through a `deleted` patch.
+        evaluation = self._create_evaluation()
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/", {"deleted": True}, format="json"
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        evaluation.refresh_from_db()
+        assert evaluation.deleted is False
+
+    def test_retrieve_exposes_user_access_level(self):
+        evaluation = self._create_evaluation()
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["user_access_level"] == "viewer"
+
+    def test_object_level_grant_scopes_list_to_that_evaluation(self):
+        visible = self._create_evaluation("Visible")
+        self._create_evaluation("Hidden")
+        self._grant(self.no_access_user, "viewer", resource_id=str(visible.id))
+        self.client.force_login(self.no_access_user)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/evaluations/")
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert [result["name"] for result in results] == ["Visible"]
+
+    @patch("products.ai_observability.backend.api.evaluations.query_ai_events")
+    def test_object_level_grant_does_not_authorize_team_wide_hog_preview(self, mock_query) -> None:
+        visible = self._create_evaluation("Visible")
+        self._grant(self.no_access_user, "viewer", resource_id=str(visible.id))
+        self.client.force_login(self.no_access_user)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_hog/",
+            {"source": "return true"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        mock_query.assert_not_called()
+
+    def test_llm_analytics_grant_no_longer_implies_evaluation_access(self):
+        # Regression guard for removing "evaluation" from RESOURCE_INHERITANCE_MAP.
+        self._grant(self.no_access_user, "editor", resource="llm_analytics")
+        self.client.force_login(self.no_access_user)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/evaluations/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_model_picker_stays_on_llm_analytics_resource(self):
+        # LLMModelsViewSet is shared with the taggers and playground pickers, so it must not
+        # require evaluation access.
+        self._grant(self.no_access_user, "viewer", resource="llm_analytics")
+        self.client.force_login(self.no_access_user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/llm_analytics/models/?provider=openai")
+
+        assert response.status_code == status.HTTP_200_OK

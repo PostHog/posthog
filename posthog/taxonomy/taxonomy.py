@@ -484,6 +484,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Conversation ticket priority changed",
             "description": "Fires when the priority of a support conversation ticket changes.",
         },
+        "$slack_message_received": {
+            "label": "Slack message received",
+            "description": "Fires when a message is posted in a Slack channel PostHog is connected to.",
+        },
     },
     "elements": {
         "tag_name": {
@@ -688,16 +692,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "initialization time",
             "description": "The iso formatted timestamp of SDK initialization.",
             "type": "String",
-            "used_for_debug": True,
-        },
-        "$transformations_skipped": {
-            "label": "Transformations skipped",
-            "description": "Array of transformations skipped during ingestion.",
-            "used_for_debug": True,
-        },
-        "$transformations_succeeded": {
-            "label": "Transformations succeeded",
-            "description": "Array of transformations that succeeded during ingestion.",
             "used_for_debug": True,
         },
         "$config_defaults": {
@@ -2720,6 +2714,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
                 "Fetch the trace referenced by an AI observability URL.",
             ],
         },
+        "$mcp_skill_name": {
+            "label": "MCP skill name",
+            "description": "The stored skill a skill-* read tool returned, on `skill-get` and `skill-file-get` (and their `llma-skill-*` aliases). Present only when the read succeeded, so counting these events counts skills that were actually delivered. A failed read carries no skill name, which stops a deleted skill that agents keep requesting from reading as a popular one. Recorded only when the value matches the shape the skills store enforces at creation, so a name the agent invented is left off rather than echoed. Skill writes are not stamped here; those emit `llma skill *` from the skills API.",
+            "examples": ["prove-the-change", "pr-shepherd"],
+        },
+        "$mcp_skill_body_offset": {
+            "label": "MCP skill body offset",
+            "description": "Where in a skill's body a `skill-get` started reading. Long bodies come back in slices, so one skill load is several calls that differ only by this offset, and a first read usually omits the offset — absent and 0 both mean a first page. Scope the query to `$mcp_tool_name IN ('skill-get', 'llma-skill-get')` before counting: the property is never set on `skill-file-get` or on a failed read, so an absent value outside that scope means 'never paginated' rather than 'first page', and counting it inflates loads. Within the scope, count calls where the offset is absent or 0 for loads, and every call for pages read. Set only on reads that succeeded, like `$mcp_skill_name`.",
+            "examples": ["0", "5000"],
+        },
         "$mcp_resource_name": {
             "label": "MCP resource name",
             "description": "The name of the MCP resource, prompt, or tool the event refers to.",
@@ -2870,7 +2874,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$mcp_consumer": {
             "label": "MCP consumer",
-            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' means the request came through PostHog Desktop; 'slack' means it was triggered from Slack.",
+            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' is the catch-all every sandbox agent sends, so it covers Signals runs as well as PostHog Desktop; break down by `source` to separate them. 'slack' means it was triggered from Slack.",
             "examples": ["posthog-code", "slack"],
         },
         "$mcp_mode": {
@@ -2975,6 +2979,33 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "is_error": {
             "label": "Is error (unprefixed)",
             "description": "Older unprefixed variant of $mcp_is_error. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_is_error for new dashboards.",
+        },
+        "source": {
+            "label": "Source",
+            "description": (
+                "Which PostHog surface the work came from. The surface values are 'web' (the app in a "
+                "browser), 'posthog_ai' (Max), 'desktop' (the PostHog Desktop app), 'mobile' (the PostHog "
+                "mobile app), 'slack' (the Slack app), 'mcp' (a third-party agent over MCP), 'cli', and "
+                "'api' (a direct API call). On API events, PostHog's own surfaces report themselves, so "
+                "'mcp' measures other people's agents. The $mcp_* events are stamped by the MCP server "
+                "instead, which cannot read the OAuth grant that identifies the Desktop app, so a Desktop "
+                "request can still show as 'mcp' on those. "
+                "'posthog_code' covers the headless coding agents: the cloud agent and the local agent. "
+                "'self_driving' is Signals: scouts, report implementations, and scout chat. "
+                "'wizard' is the setup agent and 'terraform' is the Terraform provider. "
+                "Four values are machines rather than surfaces: 'cache_warming', 'alert', 'export', and "
+                "'subscription'. "
+                "Two unrelated properties share this name, so filter to a specific event before breaking "
+                "down by it. The app also uses 'source' for which control fired an event, with values "
+                "like 'menu', 'keyboard-shortcut', and 'card_drag_handle'. Some backend paths use it for "
+                "something else again: 'static' on $http_log, 'blob_v2', 'blob', 'listing' and 'realtime' "
+                "on the session replay snapshot events, 'mcpcat' on the legacy MCP events, and 'template' "
+                "or 'custom' on 'mcp_store server installed'. Two "
+                "surface values also collide with older control names: on 'switched site mode', "
+                "'desktop' means the device-mode control rather than the app, and on the AI report "
+                "events, 'slack' means the delivery channel."
+            ),
+            "examples": ["web", "posthog_ai", "mcp", "desktop", "api"],
         },
         "mcp_runtime": {
             "label": "MCP runtime",
@@ -3402,12 +3433,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": [9.99],
             "type": "Numeric",
         },
-        "$transformations_failed": {
-            "label": "Transformations failed",
-            "description": "The transformations that failed to run on this event during ingestion.",
-            "type": "String",
-            "ignored_in_assistant": True,
-        },
         "$override_feature_flag_payloads": {
             "label": "Override feature flag payloads",
             "description": "Feature flag payloads attached to the event, overriding the evaluated payloads.",
@@ -3707,6 +3732,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "assignee": {"label": "Issue assignee", "description": "The current assignee of an issue."},
         "name": {"label": "Issue name", "description": "The name of an issue."},
         "issue_description": {"label": "Issue description", "description": "The description of an issue."},
+        "severity": {"label": "Issue severity", "description": "The severity level assigned to an issue."},
         "first_seen": {
             "label": "Issue first seen",
             "description": "The first time the issue was seen.",

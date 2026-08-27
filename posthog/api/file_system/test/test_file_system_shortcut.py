@@ -10,10 +10,9 @@ from rest_framework import status
 from posthog.models import User
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.product_analytics.backend.models.insight import Insight
-
-from ee.models.rbac.access_control import AccessControl
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestFileSystemShortcutAPI(APIBaseTest):

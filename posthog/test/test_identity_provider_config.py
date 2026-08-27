@@ -1,223 +1,116 @@
-import pytest
+import uuid
+
 from posthog.test.base import BaseTest
 
-from django.core.exceptions import ValidationError
+from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models import IdentityProviderConfig, LinkedIdentityProviderConfig, Organization, OrganizationDomain
-
-# Legacy `OrganizationDomain` columns that mirror fields on `IdentityProviderConfig`. Test-only:
-# used to build underscore-prefixed kwargs and to guard the two models' field shapes against drift.
-_LEGACY_IDP_FIELDS: tuple[str, ...] = (
-    "saml_entity_id",
-    "saml_acs_url",
-    "saml_x509_cert",
-    "scim_enabled",
-    "scim_bearer_token",
-    "id_jag_issuer_url",
-    "id_jag_jwks_url",
-    "id_jag_allowed_clients",
-)
-
-
-def _prefix_idp_kwargs(kwargs: dict) -> dict:
-    # The domain's legacy IdP columns are underscore-prefixed Python attributes; map the public names.
-    return {(f"_{k}" if k in _LEGACY_IDP_FIELDS else k): v for k, v in kwargs.items()}
+from posthog.models.identity_provider_config import ConfigScope, DomainScope
 
 
 class TestIdentityProviderConfig(BaseTest):
-    def _create_domain(self, domain: str = "posthog.com", **kwargs) -> OrganizationDomain:
-        return OrganizationDomain.objects.create(
-            organization=self.organization, domain=domain, **_prefix_idp_kwargs(kwargs)
+    SAML_CONFIG = {
+        "saml_entity_id": "entity-id",
+        "saml_acs_url": "https://idp.example.com/acs",
+        "saml_x509_cert": "cert-contents",
+    }
+
+    def _create_domain(self, domain: str = "posthog.com") -> OrganizationDomain:
+        return OrganizationDomain.objects.create(organization=self.organization, domain=domain)
+
+    def _create_config(self, **kwargs: object) -> IdentityProviderConfig:
+        return IdentityProviderConfig.objects.create(organization=self.organization, **kwargs)
+
+    def _link(self, domain: OrganizationDomain, config: IdentityProviderConfig) -> None:
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=domain,
+            identity_provider_config=config,
         )
 
-    def _create_linked_config(self, domain: OrganizationDomain, **config_kwargs) -> IdentityProviderConfig:
-        config = IdentityProviderConfig.objects.create(organization=self.organization, **config_kwargs)
-        domain.identity_provider_config = config
-        domain.save()
-        return config
+    def test_creating_config_populates_uuid_identifiers(self) -> None:
+        config = self._create_config()
 
-    def test_creating_domain_with_idp_config_creates_link(self):
-        config = IdentityProviderConfig.objects.create(organization=self.organization)
-        domain = self._create_domain(identity_provider_config=config)
+        assert uuid.UUID(str(config.saml_relay_state))
+        assert uuid.UUID(str(config.scim_slug))
+        assert config.saml_relay_state != config.scim_slug
 
-        assert LinkedIdentityProviderConfig.objects.filter(
-            organization_domain=domain, identity_provider_config=config
-        ).exists()
-        config.refresh_from_db()
-        assert config.saml_relay_state == str(domain.pk)
-        assert config.scim_slug == str(domain.pk)
-
-    def test_updating_domain_idp_config_creates_link(self):
-        domain = self._create_domain()
-        config = IdentityProviderConfig.objects.create(organization=self.organization)
-        domain.identity_provider_config = config
-        domain.save()
-
-        assert LinkedIdentityProviderConfig.objects.filter(
-            organization_domain=domain, identity_provider_config=config
-        ).exists()
-        config.refresh_from_db()
-        assert config.saml_relay_state == str(domain.pk)
-        assert config.scim_slug == str(domain.pk)
-
-    def test_linking_config_preserves_identifiers_on_stale_partial_save(self):
-        config = IdentityProviderConfig.objects.create(organization=self.organization)
-        stale_config = IdentityProviderConfig.objects.get(pk=config.pk)
-        domain = self._create_domain(identity_provider_config=config)
-
-        stale_config.saml_entity_id = "entity-id"
-        stale_config.save(update_fields=["saml_entity_id"])
-        stale_config.refresh_from_db()
-
-        assert stale_config.saml_relay_state == str(domain.pk)
-        assert stale_config.scim_slug == str(domain.pk)
-
-    def test_linking_config_preserves_identifiers_on_stale_full_save(self):
-        config = IdentityProviderConfig.objects.create(organization=self.organization)
-        stale_config = IdentityProviderConfig.objects.get(pk=config.pk)
-        domain = self._create_domain(identity_provider_config=config)
-
-        stale_config.scim_enabled = True
-        stale_config.save()
-        stale_config.refresh_from_db()
-
-        assert stale_config.saml_relay_state == str(domain.pk)
-        assert stale_config.scim_slug == str(domain.pk)
-
-    def test_explicitly_clearing_identifiers_persists_null(self):
-        config = IdentityProviderConfig.objects.create(
+    def test_deprecated_domain_foreign_key_does_not_create_a_link(self) -> None:
+        config = self._create_config(**self.SAML_CONFIG)
+        domain = OrganizationDomain.objects.create(
             organization=self.organization,
-            saml_relay_state="relay-state",
-            scim_slug="scim-slug",
+            domain="posthog.com",
+            _identity_provider_config=config,
         )
 
-        config.saml_relay_state = None
-        config.scim_slug = None
-        config.save()
-        config.refresh_from_db()
+        assert not LinkedIdentityProviderConfig.objects.filter(organization_domain=domain).exists()
+        assert domain.saml_identity_provider_configs.first() is None
 
-        assert config.saml_relay_state is None
-        assert config.scim_slug is None
-
-    def test_saving_legacy_idp_columns_does_not_create_or_link_config(self):
-        # The domain<->config dual-write mirror has been removed: writing the legacy underscore
-        # columns must no longer auto-create or link an IdentityProviderConfig.
-        domain = self._create_domain(
-            saml_entity_id="entity-id",
-            saml_acs_url="https://idp.example.com/acs",
-            saml_x509_cert="cert-contents",
-        )
-        domain.refresh_from_db()
-        assert domain.identity_provider_config is None
-        assert IdentityProviderConfig.objects.count() == 0
-
-    def test_updating_linked_config_does_not_touch_legacy_domain_columns(self):
-        # The reverse mirror (config -> domain) has been removed: updating a linked config must
-        # not touch the domain's legacy columns anymore.
+    def test_deleting_domain_does_not_delete_config(self) -> None:
+        config = self._create_config()
         domain = self._create_domain()
-        config = self._create_linked_config(domain, saml_entity_id="entity-id")
-
-        config.saml_entity_id = "new-entity-id"
-        config.save()
-
-        domain.refresh_from_db()
-        assert domain._saml_entity_id is None
-
-    def test_synced_fields_match_between_models(self):
-        # Guard against the two models drifting apart. The domain stores these as underscore-prefixed
-        # columns (with the original db_column), the config stores them under the plain name.
-        for field in _LEGACY_IDP_FIELDS:
-            domain_field = OrganizationDomain._meta.get_field(f"_{field}")
-            config_field = IdentityProviderConfig._meta.get_field(field)
-            assert domain_field.__class__ == config_field.__class__, field
-            assert getattr(domain_field, "max_length", None) == getattr(config_field, "max_length", None), field
-            assert getattr(domain_field, "db_column", None) == field, field
-
-    def test_deleting_domain_deletes_orphaned_config(self):
-        domain = self._create_domain()
-        config = self._create_linked_config(domain, saml_entity_id="entity-id")
+        self._link(domain, config)
 
         domain.delete()
-        assert not IdentityProviderConfig.objects.filter(pk=config.pk).exists()
 
-    def test_deleting_domain_keeps_config_linked_to_another_domain(self):
-        domain = self._create_domain()
-        other_domain = self._create_domain(domain="other.posthog.com")
-        config = self._create_linked_config(domain, saml_entity_id="entity-id")
-        other_domain.identity_provider_config = config
-        other_domain.save()
-
-        domain.delete()
         assert IdentityProviderConfig.objects.filter(pk=config.pk).exists()
 
-    def test_cross_org_config_link_fails_validation(self):
-        other_org = Organization.objects.create(name="Other")
-        other_config = IdentityProviderConfig.objects.create(organization=other_org)
+    @parameterized.expand([(None,), (DomainScope.SELECTED,)])
+    def test_selected_scope_only_resolves_explicit_links(self, domain_scope: str | None) -> None:
+        config = self._create_config(domain_scope=domain_scope)
+        linked_domain = self._create_domain()
+        unlinked_domain = self._create_domain("other.posthog.com")
+        self._link(linked_domain, config)
+
+        assert list(config.organization_domains) == [linked_domain]
+        assert list(linked_domain.identity_provider_configs) == [config]
+        assert list(unlinked_domain.identity_provider_configs) == []
+
+    def test_all_scope_resolves_every_domain_in_the_organization(self) -> None:
+        config = self._create_config(domain_scope=DomainScope.ALL, **self.SAML_CONFIG)
+        first_domain = self._create_domain()
+        second_domain = self._create_domain("other.posthog.com")
+        other_organization = Organization.objects.create(name="Other")
+        other_domain = OrganizationDomain.objects.create(organization=other_organization, domain="example.com")
+
+        assert set(config.organization_domains) == {first_domain, second_domain}
+        assert first_domain.saml_identity_provider_configs.first() == config
+        assert second_domain.saml_identity_provider_configs.first() == config
+        assert list(other_domain.identity_provider_configs) == []
+
+    def test_config_scope_selects_the_matching_config(self) -> None:
         domain = self._create_domain()
-        domain.identity_provider_config = other_config
-
-        with pytest.raises(ValidationError) as exc_info:
-            domain.full_clean()
-        assert "identity_provider_config" in exc_info.value.message_dict
-
-    def test_cross_org_config_link_fails_on_direct_save(self):
-        # `clean()`/`full_clean()` aren't invoked by plain `.save()`/`.objects.create()`, so the
-        # cross-org guard must also be enforced from `save()` itself.
-        other_org = Organization.objects.create(name="Other")
-        other_config = IdentityProviderConfig.objects.create(organization=other_org)
-        domain = self._create_domain()
-        domain.identity_provider_config = other_config
-
-        with pytest.raises(ValidationError) as exc_info:
-            domain.save()
-        assert "identity_provider_config" in exc_info.value.message_dict
-
-    def test_cross_org_config_link_fails_on_create(self):
-        other_org = Organization.objects.create(name="Other")
-        other_config = IdentityProviderConfig.objects.create(organization=other_org)
-
-        with pytest.raises(ValidationError) as exc_info:
-            OrganizationDomain.objects.create(
-                organization=self.organization, domain="posthog.com", identity_provider_config=other_config
-            )
-        assert "identity_provider_config" in exc_info.value.message_dict
-
-    def test_dangling_config_link_fails_validation(self):
-        domain = self._create_domain()
-        config = self._create_linked_config(domain)
-        # Delete the row out from under the FK without nulling the link on the in-memory instance.
-        IdentityProviderConfig.objects.filter(pk=config.pk).delete()
-
-        with pytest.raises(ValidationError) as exc_info:
-            domain.full_clean()
-        assert "identity_provider_config" in exc_info.value.message_dict
-
-    def test_deleting_config_nulls_domain_link(self):
-        domain = self._create_domain()
-        config = self._create_linked_config(domain)
-
-        config.delete()
-        domain.refresh_from_db()
-        assert domain.identity_provider_config is None
-
-    def test_has_saml_reads_from_linked_config_not_legacy_domain_columns(self):
-        domain = self._create_domain()  # legacy columns stay empty throughout
-        config = self._create_linked_config(
-            domain,
-            saml_entity_id="entity-id",
-            saml_acs_url="https://idp.example.com/acs",
-            saml_x509_cert="cert-contents",
+        saml_config = self._create_config(config_scope=ConfigScope.SAML, **self.SAML_CONFIG)
+        second_saml_config = self._create_config(config_scope=ConfigScope.SAML, **self.SAML_CONFIG)
+        xaa_config = self._create_config(
+            config_scope=ConfigScope.ID_JAG,
+            id_jag_issuer_url="https://idp.example.com",
         )
-        assert domain.has_saml
+        self._link(domain, saml_config)
+        self._link(domain, second_saml_config)
+        self._link(domain, xaa_config)
 
-        config.saml_entity_id = None
-        config.save()
-        domain.refresh_from_db()
-        assert not domain.has_saml
+        assert list(domain.saml_identity_provider_configs) == [saml_config, second_saml_config]
+        assert list(domain.identity_provider_configs_for_scope(ConfigScope.ID_JAG)) == [xaa_config]
 
-    def test_domain_without_config_has_no_idp_reads(self):
+    def test_explicit_config_takes_precedence_over_all_scope(self) -> None:
+        organization_config = self._create_config(domain_scope=DomainScope.ALL, **self.SAML_CONFIG)
+        selected_config = self._create_config(**self.SAML_CONFIG)
         domain = self._create_domain()
-        assert domain.identity_provider_config is None
-        assert not domain.has_saml
-        assert not domain.has_scim
-        assert not domain.has_id_jag
+        self._link(domain, selected_config)
+
+        assert list(domain.identity_provider_configs) == [selected_config, organization_config]
+        assert domain.saml_identity_provider_configs.first() == selected_config
+
+    def test_saml_availability_resolves_through_join_table(self) -> None:
+        self.organization.available_product_features = [{"key": AvailableFeature.SAML, "name": "SAML"}]
+        self.organization.save()
+        config = self._create_config(**self.SAML_CONFIG)
+        domain = self._create_domain()
+        domain._complete_verification()
+        self._link(domain, config)
+
+        assert OrganizationDomain.objects.get_is_saml_available_for_email("person@posthog.com")
+
+        LinkedIdentityProviderConfig.objects.filter(organization_domain=domain).delete()
+        assert not OrganizationDomain.objects.get_is_saml_available_for_email("person@posthog.com")

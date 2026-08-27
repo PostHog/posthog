@@ -1,19 +1,18 @@
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, PersonalAPIKey, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
-from products.replay_vision.backend.tests.helpers import create_experiment
+from products.replay_vision.backend.tests.helpers import create_experiment, snapshot_for
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 from products.replay_vision.backend.tests.test_vision_actions_api import _VisionActionAPITestCase
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
 
 
 class _AccessControlTestCase(_VisionAPITestCase):
@@ -212,11 +211,9 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
                 "name": "targeting-denied",
                 "scanner_type": "monitor",
                 "scanner_config": {"prompt": "p"},
-                "model": "gemini-3.6-flash",
+                "model": "gemini-3.7-flash",
                 "experiment_targeting": {
                     "experiment_id": experiment.id,
-                    "variant_keys": [],
-                    "use_exposure_fallback": False,
                 },
             },
             format="json",
@@ -227,8 +224,8 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
     def test_experiment_targeting_hidden_from_a_viewer_without_experiment_access(self) -> None:
         # A scanner is viewable at a coarser grain than its targeted experiment; a viewer who can't
         # access the experiment must not learn its id or variants from the scanner payload.
-        experiment = create_experiment(self.team, "hidden-flag")
-        targeting = {"experiment_id": experiment.id, "variant_keys": ["test"], "use_exposure_fallback": False}
+        experiment = create_experiment(self.team, "hidden-flag", created_by=self.user)
+        targeting = {"experiment_id": experiment.id, "variant": "test"}
         scanner = self._create_scanner(name="targeted", experiment_targeting=targeting)
         self._set_resource_default("replay_scanner", "viewer")
         self._set_resource_default("experiment", "none")
@@ -243,6 +240,173 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         self.client.force_login(self.user)
         resp = self.client.get(f"{self.scanners_url}{scanner.id}/")
         self.assertEqual(resp.json()["experiment_targeting"], targeting)
+
+    def test_save_by_a_viewer_denied_the_experiment_keeps_the_targeting(self) -> None:
+        # The API redacts experiment_targeting to null for such an editor, and the editor form
+        # writes the whole object back on save. Without the write-side guard, renaming the scanner
+        # would silently clear targeting the caller can't even see.
+        experiment = create_experiment(self.team, "hidden-flag", created_by=self.user)
+        targeting = {"experiment_id": experiment.id, "variant": "test"}
+        scanner = self._create_scanner(name="targeted", experiment_targeting=targeting)
+        self._set_resource_default("replay_scanner", "editor")
+        self._set_resource_default("experiment", "none")
+        self._grant_object_access(self.other_user, "experiment", str(experiment.id), "none")
+
+        self.client.force_login(self.other_user)
+        resp = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/",
+            data={"name": "renamed", "experiment_targeting": None},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200, resp.json())
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.experiment_targeting, targeting)
+
+        # The creator, who can view the experiment, can still clear it explicitly.
+        self.client.force_login(self.user)
+        resp = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/", data={"experiment_targeting": None}, format="json"
+        )
+        self.assertEqual(resp.status_code, 200, resp.json())
+        scanner.refresh_from_db()
+        self.assertIsNone(scanner.experiment_targeting)
+
+    def test_estimate_treats_a_denied_experiment_targeting_as_not_found(self) -> None:
+        # The query runner's own access check answers a denied experiment with a 403, which would
+        # confirm the hidden id exists; the endpoint must answer 400 not-found, like the scanner
+        # write path does.
+        experiment = create_experiment(self.team, "hidden-flag")
+        self._set_resource_default("experiment", "none")
+        self._grant_object_access(self.other_user, "experiment", str(experiment.id), "none")
+
+        self.client.force_login(self.other_user)
+        resp = self.client.post(
+            f"{self.scanners_url}estimate/",
+            data={"experiment_targeting": {"experiment_id": experiment.id}},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["attr"], "experiment_targeting")
+
+    def test_experiment_id_filter_returns_no_matches_for_an_inaccessible_experiment(self) -> None:
+        # Guards the ?experiment_id= disclosure: a scanner-viewer who can't access the experiment must
+        # not confirm a scanner targets it via the filter's match count. Distinct code path from the
+        # serializer redaction above — the scanner is hidden from the list entirely, not just nulled.
+        experiment = create_experiment(self.team, "hidden-flag", created_by=self.user)
+        targeting = {"experiment_id": experiment.id, "variant": "test"}
+        self._create_scanner(name="targeted", experiment_targeting=targeting)
+        self._set_resource_default("replay_scanner", "viewer")
+        self._set_resource_default("experiment", "none")
+        self._grant_object_access(self.other_user, "experiment", str(experiment.id), "none")
+
+        self.client.force_login(self.other_user)
+        resp = self.client.get(f"{self.scanners_url}?experiment_id={experiment.id}")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["results"], [])
+
+        # The creator, who can view the experiment, gets the match.
+        self.client.force_login(self.user)
+        resp = self.client.get(f"{self.scanners_url}?experiment_id={experiment.id}")
+        self.assertEqual([s["name"] for s in resp.json()["results"]], ["targeted"])
+
+    def test_experiment_id_filter_resolves_the_current_project_alias(self) -> None:
+        # The filter must resolve @current the way the viewset does, not pass the literal string to
+        # the DB lookup (which 500s). The user's current team is set by the test harness.
+        experiment = create_experiment(self.team, "aliased-flag")
+        targeting = {"experiment_id": experiment.id}
+        self._create_scanner(name="targeted", experiment_targeting=targeting)
+
+        resp = self.client.get(f"/api/environments/@current/vision/scanners/?experiment_id={experiment.id}")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([s["name"] for s in resp.json()["results"]], ["targeted"])
+
+    def test_observations_of_a_denied_experiment_scanner_read_as_not_found(self) -> None:
+        # An experiment scanner's observations are the experiment's exposed sessions, so scanner +
+        # session_recording access is not enough to read them: a caller denied the experiment must
+        # not learn which sessions and people were exposed. Reads as not-found, not 403, matching
+        # the targeting redaction. A non-targeted scanner the same caller can read is the control.
+        experiment = create_experiment(self.team, "hidden-flag")
+        self._set_resource_default("replay_scanner", "editor")
+        self._set_resource_default("session_recording", "editor")
+        self._set_resource_default("experiment", "none")
+        self._grant_object_access(self.other_user, "experiment", str(experiment.id), "none")
+        targeted = self._create_scanner(name="targeted", experiment_targeting={"experiment_id": experiment.id})
+        plain = self._create_scanner(name="plain")
+        # Observations carry the scanner's snapshot, so their experiment targeting is recorded on the row.
+        ReplayObservation.objects.create(
+            scanner=targeted, session_id="exposed-sess", scanner_snapshot=snapshot_for(targeted)
+        )
+        ReplayObservation.objects.create(scanner=plain, session_id="plain-sess", scanner_snapshot=snapshot_for(plain))
+
+        self.client.force_login(self.other_user)
+        targeted_url = self.observations_url(str(targeted.id))
+        self.assertEqual(self.client.get(targeted_url).status_code, 404)
+        self.assertEqual(self.client.get(f"{targeted_url}stats/").status_code, 404)
+
+        # Same access, non-targeted scanner: the experiment gate must not have widened to a blanket block.
+        plain_resp = self.client.get(self.observations_url(str(plain.id)))
+        self.assertEqual(plain_resp.status_code, 200, plain_resp.json())
+        self.assertEqual([o["session_id"] for o in plain_resp.json()["results"]], ["plain-sess"])
+
+        # The session-wide dock endpoint drops the exposed session but keeps the readable one.
+        dock_url = f"/api/environments/{self.team.id}/vision/observations/"
+        dock_resp = self.client.get(f"{dock_url}?session_id=exposed-sess")
+        self.assertEqual(dock_resp.status_code, 200, dock_resp.json())
+        self.assertEqual(dock_resp.json()["results"], [])
+
+    def test_retargeting_a_scanner_does_not_expose_historical_observations(self) -> None:
+        # An observation's population is fixed at creation, so the read gate follows the experiment in
+        # each row's snapshot, not the scanner's current targeting. Removing or changing targeting must
+        # not turn historical rows from a restricted experiment readable.
+        restricted = create_experiment(self.team, "restricted-flag")
+        self._set_resource_default("replay_scanner", "editor")
+        self._set_resource_default("session_recording", "editor")
+        self._set_resource_default("experiment", "none")
+        self._grant_object_access(self.other_user, "experiment", str(restricted.id), "none")
+
+        scanner = self._create_scanner(name="retargeted", experiment_targeting={"experiment_id": restricted.id})
+        # A row produced while the scanner targeted the restricted experiment.
+        ReplayObservation.objects.create(
+            scanner=scanner, session_id="restricted-sess", scanner_snapshot=snapshot_for(scanner)
+        )
+        # The editor clears targeting; the scanner's current targeting is now null.
+        scanner.experiment_targeting = None
+        scanner.save()
+        ReplayObservation.objects.create(
+            scanner=scanner, session_id="untargeted-sess", scanner_snapshot=snapshot_for(scanner)
+        )
+
+        self.client.force_login(self.other_user)
+        # The scanner itself now reads (no current targeting), but the historical restricted row is withheld.
+        resp = self.client.get(self.observations_url(str(scanner.id)))
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([o["session_id"] for o in resp.json()["results"]], ["untargeted-sess"])
+
+        # Same through the session-wide dock: the restricted session stays hidden.
+        dock_url = f"/api/environments/{self.team.id}/vision/observations/"
+        dock_resp = self.client.get(f"{dock_url}?session_id=restricted-sess")
+        self.assertEqual(dock_resp.status_code, 200, dock_resp.json())
+        self.assertEqual(dock_resp.json()["results"], [])
+
+    def test_dock_experiment_access_check_does_not_scale_per_scanner(self) -> None:
+        # The dock's readable-scanner filter must batch the experiment-access lookup, not run one
+        # query per targeted scanner — otherwise a team member can amplify one request into a query
+        # per scanner. The query count stays flat as targeted scanners grow.
+        experiment = create_experiment(self.team, "shared-flag")
+        self._set_resource_default("replay_scanner", "editor")
+        self._set_resource_default("session_recording", "editor")
+        dock_url = f"/api/environments/{self.team.id}/vision/observations/?session_id=s1"
+        self.client.force_login(self.other_user)
+
+        self._create_scanner(name="t0", experiment_targeting={"experiment_id": experiment.id})
+        self.client.get(dock_url)  # warm request-scoped caches so the two captures compare cleanly.
+        with CaptureQueriesContext(connection) as one:
+            self.assertEqual(self.client.get(dock_url).status_code, 200)
+        for i in range(1, 6):
+            self._create_scanner(name=f"t{i}", experiment_targeting={"experiment_id": experiment.id})
+        with CaptureQueriesContext(connection) as six:
+            self.assertEqual(self.client.get(dock_url).status_code, 200)
+        self.assertEqual(len(one.captured_queries), len(six.captured_queries))
 
 
 class TestVisionActionAccessControlInheritance(_VisionActionAPITestCase):

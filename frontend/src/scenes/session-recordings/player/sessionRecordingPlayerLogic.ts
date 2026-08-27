@@ -55,9 +55,11 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, ExporterFormat, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
 
+import { analysisNudgeLogic } from 'products/replay_vision/frontend/logics/analysisNudgeLogic'
 import {
     MAX_REPLAY_IFRAME_HTML_CHARS,
     ReplayIframeData,
+    isUsableHeatmapUrl,
     persistReplayIframeData,
 } from 'products/web_analytics/frontend/heatmaps/replayIframeData'
 
@@ -70,6 +72,7 @@ import {
     playerCommentOverlayLogic,
     type playerCommentOverlayLogicType,
 } from './commenting/playerFrameCommentOverlayLogic'
+import { clipWindowSeconds } from './controller/clipRange'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import {
@@ -237,6 +240,8 @@ export function stripRrwebScriptShims(html: string): string {
 }
 
 const SNAPSHOT_REJECTION_PROBLEM = {
+    not_ready: 'This recording has not finished loading this frame yet.',
+    no_url: 'This moment has no page address to build a heatmap for.',
     too_large: 'This part of the recording is too large to use as a heatmap background.',
     storage_failed: "Couldn't save this moment as a heatmap background.",
 } as const
@@ -730,6 +735,9 @@ export interface sessionRecordingPlayerLogicActions {
         error: string
         errorObject?: any
     } // snapshotDataLogic
+    retrySnapshotLoading: () => {
+        value: true
+    } // snapshotDataLogic
     setPlayerActive: (active: boolean) => {
         active: boolean
     } // snapshotDataLogic
@@ -843,6 +851,9 @@ export interface sessionRecordingPlayerLogicActions {
         error: any
     }
     restartIframePlayback: () => {
+        value: true
+    }
+    retryLoadingSnapshots: () => {
         value: true
     }
     schedulePlayerTimeTracking: () => {
@@ -1165,6 +1176,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'loadSnapshotsForSourceFailure',
                 'loadSnapshotSourcesFailure',
                 'snapshotSourceLoadExhausted',
+                'retrySnapshotLoading',
                 'loadNextSnapshotSource',
                 'loadAllSources',
                 'setTargetTimestamp',
@@ -1195,6 +1207,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         endScrub: true,
         setPlayerError: (reason: string) => ({ reason }),
         clearPlayerError: true,
+        retryLoadingSnapshots: true,
         setSkippingInactivity: (isSkippingInactivity: boolean) => ({ isSkippingInactivity }),
         setSkippingToMatchingEvent: (isSkippingToMatchingEvent: boolean) => ({ isSkippingToMatchingEvent }),
         syncPlayerSpeed: true,
@@ -2568,6 +2581,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             console.error('PostHog Recording Playback Error: Snapshot processing repeatedly failed')
             actions.setPlayerError('snapshotProcessingFailed')
         },
+        retryLoadingSnapshots: () => {
+            actions.clearPlayerError()
+            actions.retrySnapshotLoading()
+        },
         setPlay: () => {
             if (!values.snapshotsLoaded) {
                 actions.loadSnapshots()
@@ -2617,6 +2634,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 analyzed: true,
                 player_metadata: values.sessionPlayerMetaData,
             })
+            analysisNudgeLogic.findMounted()?.actions.recordingAnalyzed(props.sessionRecordingId)
         },
         setPause: () => {
             actions.stopAnimation()
@@ -3088,11 +3106,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.exportRecording(ExporterFormat.PNG, timestamp, SessionRecordingPlayerMode.Screenshot)
         },
         getClip: async ({ format, duration = 5, filename }) => {
-            // Center the clip around current time, minus 1 second offset for player start
-            const timestamp = Math.max(
-                0,
-                Math.floor(getCurrentPlayerTime(values.logicProps) - 1 - Math.floor(duration / 2))
+            // The window the overlay showed, so the exported file covers the range that was on screen.
+            const window = clipWindowSeconds(
+                getCurrentPlayerTime(values.logicProps),
+                Math.floor((values.sessionPlayerData?.durationMs ?? 0) / 1000),
+                duration
             )
+            // Minus 1 second offset for player start
+            const timestamp = Math.max(0, Math.floor(window.startSeconds - 1))
             actions.exportRecording(format, timestamp, SessionRecordingPlayerMode.Screenshot, duration, filename)
         },
         exportRecordingToVideoFile: async () => {
@@ -3108,6 +3129,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const rawIframeHtml = iframe?.contentWindow?.document?.documentElement?.innerHTML
             const resolution = values.resolution
             if (!rawIframeHtml || !resolution) {
+                rejectHeatmapSnapshot('not_ready', rawIframeHtml?.length ?? 0)
+                return
+            }
+
+            const url = values.currentURL?.trim()
+            if (!isUsableHeatmapUrl(url)) {
+                rejectHeatmapSnapshot('no_url', rawIframeHtml.length)
                 return
             }
 
@@ -3123,7 +3151,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 width: resolution.width,
                 height: resolution.height,
                 startDateTime: values.sessionPlayerMetaData?.start_time,
-                url: values.currentURL,
+                url,
             }
             const key = persistReplayIframeData(data)
             if (!key) {

@@ -5,6 +5,7 @@ from products.replay_vision.backend.temporal.activities import (
     advance_backfill_cursor_activity,
     advance_scanner_watermark_activity,
     call_scanner_provider_activity,
+    check_scanner_budget_activity,
     cleanup_gemini_file_activity,
     count_in_flight_applies_activity,
     count_in_flight_by_team_activity,
@@ -61,6 +62,13 @@ from products.replay_vision.backend.temporal.vision_actions import (
     update_vision_action_run_activity,
     validate_vision_action_activity,
 )
+from products.replay_vision.backend.temporal.vision_alerts import (
+    VisionAlertCheckWorkflow,
+    cleanup_vision_alert_history_activity,
+    discover_due_vision_alerts_activity,
+    drain_vision_alert_matches_activity,
+    evaluate_vision_alert_batch_activity,
+)
 from products.replay_vision.backend.temporal.workflow import ApplyScannerWorkflow
 
 WORKFLOWS = [
@@ -73,8 +81,13 @@ WORKFLOWS = [
     ReplayVisionGeminiCleanupSweepWorkflow,
     SweepScannerWorkflow,
     ProcessVisionActionWorkflow,
+    VisionAlertCheckWorkflow,
 ]
 ACTIVITIES: list[Callable[..., Any]] = [
+    discover_due_vision_alerts_activity,
+    evaluate_vision_alert_batch_activity,
+    drain_vision_alert_matches_activity,
+    cleanup_vision_alert_history_activity,
     create_observation_activity,
     mark_observation_running_activity,
     mark_observation_failed_activity,
@@ -92,6 +105,7 @@ ACTIVITIES: list[Callable[..., Any]] = [
     find_scanner_candidates_activity,
     count_in_flight_applies_activity,
     count_in_flight_by_team_activity,
+    check_scanner_budget_activity,
     advance_scanner_watermark_activity,
     refresh_prompt_suggestion_activity,
     prepare_backfill_tick_activity,
@@ -145,6 +159,7 @@ __all__ = [
     "advance_scanner_watermark_activity",
     "refresh_prompt_suggestion_activity",
     "call_scanner_provider_activity",
+    "check_scanner_budget_activity",
     "cleanup_gemini_file_activity",
     "count_in_flight_applies_activity",
     "count_in_flight_by_team_activity",

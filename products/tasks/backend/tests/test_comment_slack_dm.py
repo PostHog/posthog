@@ -4,15 +4,14 @@ from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models import Comment, OrganizationMembership, User
-from posthog.models.integration import Integration
+from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.user_integration import UserIntegration
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.canvas.backend.models import Canvas
 from products.tasks.backend.logic.services.comment_slack_dm import send_comment_slack_dms
 from products.tasks.backend.models import Channel, TaskCommentActivity
 from products.tasks.backend.tests.test_comment_activity import CommentActivityTestCase
-
-from ee.models.rbac.access_control import AccessControl
 
 SLACK_WORKSPACE_ID = "T123"
 
@@ -52,7 +51,10 @@ class TestCommentSlackDm(CommentActivityTestCase):
         with self.captureOnCommitCallbacks(execute=True):
             super()._record_activity(comment, user_ids)
 
-    def _dm_text(self) -> str:
+    def _dm_heading(self) -> str:
+        return self.slack_client.chat_postMessage.call_args.kwargs["text"]
+
+    def _dm_body(self) -> str:
         attachment = self.slack_client.chat_postMessage.call_args.kwargs["attachments"][0]
         return attachment["blocks"][0]["text"]["text"]
 
@@ -65,9 +67,10 @@ class TestCommentSlackDm(CommentActivityTestCase):
         self._record_activity(comment, [self.author.id])
 
         assert self._dm_channels() == ["U-author"]
-        text = self._dm_text()
-        assert "mentioned you" in text
-        assert "this needs a guard" in text
+        assert "mentioned you" in self._dm_heading()
+        body = self._dm_body()
+        assert "this needs a guard" in body
+        assert "mentioned you" not in body
 
     def test_an_overlong_comment_is_not_cut_inside_a_link(self):
         filler = "x" * 790
@@ -75,9 +78,9 @@ class TestCommentSlackDm(CommentActivityTestCase):
 
         self._record_activity(comment, [self.author.id])
 
-        text = self._dm_text()
-        assert text.endswith("…")
-        assert text.rfind("<") < text.rfind(">")
+        body = self._dm_body()
+        assert body.endswith("…")
+        assert body.rfind("<") <= body.rfind(">")
 
     def test_inline_mention_lookups_are_bounded(self) -> None:
         third = User.objects.create_user(email="third@example.com", first_name="Carol", password="password")
@@ -99,8 +102,7 @@ class TestCommentSlackDm(CommentActivityTestCase):
             self._record_activity(comment, [self.author.id])
 
         assert lookup.call_count == 2
-        text = self._dm_text()
-        assert "<@U-one> <@U-two> @Member 2" in text
+        assert "<@U-one> <@U-two> @Member 2" in self._dm_body()
 
     def test_inline_mentions_only_query_slack_for_current_organization_members(self) -> None:
         comment = self._comment(content="@[Member](author@example.com) and @[Outsider](outsider@example.com)")
@@ -119,9 +121,9 @@ class TestCommentSlackDm(CommentActivityTestCase):
 
         lookup.assert_called_once()
         assert lookup.call_args.args[2] == "author@example.com"
-        assert "<@U-member> and @Outsider" in self._dm_text()
+        assert "<@U-member> and @Outsider" in self._dm_body()
 
-    def test_fallback_text_escapes_user_controlled_slack_markup(self):
+    def test_heading_escapes_user_controlled_slack_markup(self):
         self.peer.first_name = "<@U-ATTACKER>"
         self.peer.last_name = ""
         self.peer.save(update_fields=["first_name", "last_name"])
@@ -130,8 +132,10 @@ class TestCommentSlackDm(CommentActivityTestCase):
 
         self._record_activity(self._comment(), [self.author.id])
 
-        fallback = self.slack_client.chat_postMessage.call_args.kwargs["text"]
-        assert fallback == "&lt;@U-ATTACKER&gt; mentioned you on &lt;https://example.com|click me&gt;"
+        heading = self._dm_heading()
+        assert "<@U-ATTACKER>" not in heading
+        assert "*&lt;@U-ATTACKER&gt;* mentioned you on " in heading
+        assert heading.endswith("|&lt;https://example.com-click me&gt;>")
 
     def test_no_dm_when_the_user_opted_out(self):
         self._opt_in(self.author, False)
@@ -207,6 +211,17 @@ class TestCommentSlackDm(CommentActivityTestCase):
         self._record_activity(comment, [self.author.id])
 
         assert self._dm_channels() == ["U-author"]
+        assert (
+            f"/code/task/{self.task.id}?comment={comment.id}&scope=desktop_canvas&item={canvas.id}"
+            in self._dm_heading()
+        )
+
+    def test_dm_links_to_the_desktop_task_bridge_anchored_on_the_comment(self):
+        comment = self._comment()
+
+        self._record_activity(comment, [self.author.id])
+
+        assert f"/code/task/{self.task.id}?comment={comment.id}" in self._dm_heading()
 
     def test_canvas_comment_does_not_dm_a_recipient_without_canvas_access(self):
         personal_channel = Channel.objects.unscoped().create(
@@ -254,6 +269,40 @@ class TestCommentSlackDm(CommentActivityTestCase):
             self._record_activity(self._comment(), [self.author.id])
 
         assert self._dm_channels() == expected
+
+    @parameterized.expand(
+        [
+            ("one_workspace", frozenset({SLACK_WORKSPACE_ID}), [f"U-{SLACK_WORKSPACE_ID}"]),
+            ("multiple_workspaces", frozenset({SLACK_WORKSPACE_ID, "T456"}), []),
+        ]
+    )
+    def test_unlinked_user_is_dmed_only_when_email_resolves_in_one_workspace(
+        self, _name: str, matching_workspaces: frozenset[str], expected: list[str]
+    ) -> None:
+        second_workspace = "T456"
+        Integration.objects.create(
+            team=self.team, kind="slack", integration_id=second_workspace, config={"scope": "chat:write"}
+        )
+        UserIntegration.objects.filter(user=self.author).delete()
+
+        def lookup_by_email(_slack: SlackIntegration, integration: Integration, _email: str) -> str | None:
+            return f"U-{integration.integration_id}" if integration.integration_id in matching_workspaces else None
+
+        with (
+            patch(
+                "products.tasks.backend.logic.services.comment_slack_dm.lookup_slack_user_id_by_email",
+                side_effect=lookup_by_email,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.comment_slack_dm.resolve_slack_user",
+                side_effect=lambda _client, _user_id, *, workspace: {"team_id": workspace},
+            ),
+        ):
+            self._record_activity(self._comment())
+
+        assert self._dm_channels() == expected
+        if expected:
+            assert "commented on" in self._dm_heading()
 
     def test_the_linked_account_wins_over_an_email_match(self):
         with patch(

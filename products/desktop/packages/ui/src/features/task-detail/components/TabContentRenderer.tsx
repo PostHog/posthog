@@ -7,8 +7,9 @@ import {
 } from "../../code-review/components/LazyReviewPages";
 import type { Tab } from "../../panels/panelTypes";
 import { PiSessionView } from "../../pi-sessions/PiSessionView";
+import { PostHogObjectPage } from "../../posthog-objects/PostHogObjectPage";
 import { ArtifactPreview } from "../../sessions/components/ArtifactPreview";
-import { useIsWorkspaceCloudRun } from "../../workspace/useWorkspace";
+import { useIsCloudTask } from "../../workspace/useWorkspace";
 import { ActionPanel } from "./ActionPanel";
 import { CanvasInstructionsTab } from "./CanvasInstructionsTab";
 import { ChangesPanel } from "./ChangesPanel";
@@ -28,8 +29,7 @@ export function TabContentRenderer({
   taskId,
   task,
 }: TabContentRendererProps) {
-  const isCloud =
-    useIsWorkspaceCloudRun(taskId) || task.latest_run?.environment === "cloud";
+  const isCloud = useIsCloudTask(task);
   const { data } = tab;
 
   switch (data.type) {
@@ -90,6 +90,17 @@ export function TabContentRenderer({
           runId={data.runId}
           artifactId={data.artifactId}
           name={tab.label}
+        />
+      );
+
+    case "posthog-object":
+      return (
+        <PostHogObjectPage
+          metadata={{
+            object_kind: data.objectKind,
+            object_id: data.objectId,
+          }}
+          fallbackName={tab.label}
         />
       );
 

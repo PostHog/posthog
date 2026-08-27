@@ -14,5 +14,12 @@
 posthog.1264_delete_revenue_analytics_user_product_list
 product_analytics.0004_delete_revenue_analytics_insights
 tasks.0079_backfill_task_repositories
+replay_vision.0073_rebackfill_usage_scanner_id
 replay_vision.0070_backfill_usage_scanner_id
 tasks.0088_backfill_task_search_documents
+tasks.0092_backfill_task_last_activity_at
+signals.0099_backfill_first_visible_at
+# Does run CONCURRENTLY, one index per sourcebatch partition, but from RunPython
+# (the partition list is only known at runtime), which the type-based check can't see.
+warehouse_sources_queue.0008_sourcebatch_superseded
+warehouse_sources_queue.0009_sourcebatch_job_id_idx

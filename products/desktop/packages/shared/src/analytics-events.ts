@@ -57,10 +57,16 @@ export type CommandMenuAction =
   | "open-artifact"
   | "open-channel"
   | "open-command-center"
+  | "save-feed"
+  | "complete-filter"
+  | "show-all-matches"
+  | "repair-query"
+  | "open-feed"
   | "open-inbox"
   | "open-archived"
   | "open-loops"
   | "open-usage"
+  | "open-cost-management"
   | "search-files"
   | "open-file"
   | "reload-window"
@@ -258,6 +264,8 @@ export interface CommandMenuActionProperties {
 }
 
 export type SidebarNavItem =
+  | "home"
+  | "spaces"
   | "new_task"
   | "search"
   | "inbox"
@@ -299,11 +307,36 @@ export interface SidebarReorderedProperties {
   to_index: number;
 }
 
+export interface TaskListGroupingChangedProperties {
+  group_by: "repository" | "date";
+  sort_by: "updated" | "created" | "alpha";
+  /** Which list was regrouped: the app sidebar's, or a space's session list. */
+  surface: "sidebar" | "space";
+}
+
+export interface TaskListAppearanceChangedProperties {
+  secondary_fields: ("repository" | "branch" | "creator" | "activity")[];
+  secondary_field_count: number;
+  /** Which list it was changed from. The setting applies to both. */
+  surface: "sidebar" | "space";
+}
+
 export interface BrainrotActivatedProperties {
   /** Grid layout preset, e.g. "2x2". */
   layout: string;
   /** Cells already holding a task when Brainrot was chosen. */
   filled_cells: number;
+}
+
+export interface BrainrotPlayerErrorProperties {
+  /** YouTube player error code (e.g. 153), or null when the widget went silent. */
+  error_code: number | null;
+  /**
+   * "player_error" when the embed reported an onError message;
+   * "no_widget_messages" when the widget sent nothing after loading, which
+   * usually means the player failed before the postMessage API came up.
+   */
+  reason: "player_error" | "no_widget_messages";
 }
 
 // Settings events
@@ -458,12 +491,11 @@ export interface TaskFeedbackProperties {
 
 // Onboarding events
 export type OnboardingStepId =
-  | "welcome"
   | "project-select"
   | "invite-code"
+  | "consent"
   | "connect-github"
   | "install-cli"
-  | "import-config"
   | "select-repo";
 
 type OnboardingSkipReason = "no_repo_selected" | "dev_skip";
@@ -542,6 +574,15 @@ export interface OnboardingGithubConnectFailedProperties {
   error_type?: string;
 }
 
+export interface OnboardingGithubConnectPendingAdminProperties {
+  flow_type: OnboardingGithubConnectFlow;
+}
+
+export interface OnboardingGithubConnectAbandonedProperties {
+  flow_type: OnboardingGithubConnectFlow;
+  seconds_since_started: number;
+}
+
 export interface OnboardingAbandonedProperties {
   last_step_id: OnboardingStepId;
   duration_seconds: number;
@@ -549,6 +590,9 @@ export interface OnboardingAbandonedProperties {
 
 export interface AiConsentGateShownProperties {
   is_org_admin: boolean;
+  outstanding_ai_consent: boolean;
+  outstanding_beta_terms: boolean;
+  surface: "onboarding_step" | "standalone_gate";
 }
 
 // Setup / onboarding events
@@ -632,7 +676,8 @@ export type InboxReportActionType =
   | "add_suggested_reviewer"
   | "remove_suggested_reviewer"
   | "expand_task_section"
-  | "play_session_recording";
+  | "play_session_recording"
+  | "create_canvas";
 
 export type InboxReportActionSurface =
   | "detail_pane"
@@ -665,12 +710,13 @@ export interface InboxViewedProperties {
   actionability_not_actionable_count: number;
   actionability_unknown_count: number;
   /**
-   * Tab badge counts shown in the v2 inbox header on load — the actual numbers
-   * the user sees (Pull requests / Reports / Runs). Optional: only the desktop
-   * v2 shell populates these; the mobile event omits them.
+   * Tab badge counts shown in the inbox header on load — the actual numbers
+   * the user sees (Pull requests / Reports), sent whatever tab is open. Distinct
+   * from `report_count`, which is only the loaded rows of the active tab.
+   * Optional: the mobile event omits them.
    */
-  pulls_count?: number;
-  reports_count?: number;
+  pulls_tab_count?: number;
+  reports_tab_count?: number;
 }
 
 export interface InboxReportOpenedProperties {
@@ -908,7 +954,7 @@ export interface SignalSourceConnectedProperties {
   via_setup_wizard: boolean;
 }
 
-// Agents page events (the `/code/agents` configuration surface)
+// Agents page events (the `/agents` configuration surface)
 export type AgentsActionType = "run_setup_agent" | "open_mcp_servers";
 
 export interface AgentsViewedProperties {
@@ -943,7 +989,6 @@ export type ChannelsSurface =
   | "task_input"
   | "channel_home"
   | "channel_history"
-  | "channel_artifacts"
   | "pinned"
   | "dashboards_grid"
   | "canvas"
@@ -973,8 +1018,6 @@ export type ChannelActionType =
   | "new_task_suggestion"
   | "view_context"
   | "view_history"
-  | "view_artifacts"
-  | "open_artifact"
   | "file_task"
   | "unfile_task"
   | "archive_task"
@@ -985,11 +1028,17 @@ export type ChannelActionType =
   | "mention_member"
   | "view_activity"
   | "open_mention"
-  | "canvas_mode_toggle"
-  /** Submitted a canvas-mode prompt (the agent resolves or creates the canvas). */
-  | "canvas_generate"
-  | "activity_tab_change"
-  | "artifacts_view_change";
+  | "activity_tab_change";
+
+export type TaskFeedActionType = "create" | "update" | "delete" | "open";
+
+export interface TaskFeedActionProperties {
+  action_type: TaskFeedActionType;
+  surface: "sidebar" | "feed_home" | "command_menu";
+  feed_id: string;
+  /** Length of the saved query. Do not record its text. */
+  query_length?: number;
+}
 
 export interface ChannelActionProperties {
   action_type: ChannelActionType;
@@ -1006,12 +1055,8 @@ export interface ChannelActionProperties {
   mentioned_user_id?: string;
   /** For new_task_suggestion: the starter-prompt card label. */
   suggestion_label?: string;
-  /** For canvas_mode_toggle: whether canvas mode is being armed. */
-  armed?: boolean;
   /** For activity_tab_change: the tab landed on. */
   tab?: string;
-  /** For artifacts_view_change: the selected layout. */
-  view_mode?: "list" | "grid" | "masonry";
   /** Whether the underlying mutation resolved successfully. */
   success?: boolean;
 }
@@ -1038,8 +1083,6 @@ export interface DashboardActionProperties {
   surface: ChannelsSurface;
   channel_id?: string;
   dashboard_id?: string;
-  /** The canvas render kind. */
-  kind?: "json-render" | "freeform";
   /** Template chosen on create. */
   template_id?: string;
   /** edit_toggle: the state being entered. */
@@ -1064,11 +1107,23 @@ export interface CanvasPromptSentProperties {
   prompt_length_chars: number;
 }
 
+export interface CommandCenterCanvasViewedProperties {
+  dashboard_id: string;
+  canvas_kind: "freeform" | "grid" | "component";
+}
+
 export interface CanvasRenderedProperties {
   channel_id?: string;
   dashboard_id?: string;
   /** The published build whose artifact rendered; absent for head-source renders. */
   build_id?: string;
+}
+
+export interface CanvasViewedProperties {
+  channel_id: string;
+  dashboard_id: string;
+  canvas_kind: "freeform" | "grid" | "component";
+  template_id: string;
 }
 
 export interface CanvasRuntimeErrorProperties {
@@ -1332,7 +1387,7 @@ export const ANALYTICS_EVENTS = {
   APP_QUIT: "App quit",
 
   // Authentication
-  USER_LOGGED_IN: "User logged in",
+  USER_LOGGED_IN: "Desktop user logged in",
   USER_LOGGED_OUT: "User logged out",
 
   // Task management
@@ -1379,11 +1434,15 @@ export const ANALYTICS_EVENTS = {
   COMMAND_MENU_OPENED: "Command menu opened",
   COMMAND_MENU_ACTION: "Command menu action",
   COMMAND_CENTER_VIEWED: "Command center viewed",
+  COMMAND_CENTER_CANVAS_VIEWED: "Command center canvas viewed",
   BRAINROT_ACTIVATED: "Brainrot activated",
+  BRAINROT_PLAYER_ERROR: "Brainrot player error",
   POSTHOG_WEB_OPENED: "PostHog web opened",
   SIDEBAR_NAV_ITEM_CLICKED: "Sidebar nav item clicked",
   SIDEBAR_CUSTOMIZED: "Sidebar customized",
   SIDEBAR_REORDERED: "Sidebar reordered",
+  TASK_LIST_GROUPING_CHANGED: "Task list grouping changed",
+  TASK_LIST_APPEARANCE_CHANGED: "Task list appearance changed",
 
   // Permission events
   PERMISSION_RESPONDED: "Permission responded",
@@ -1418,6 +1477,9 @@ export const ANALYTICS_EVENTS = {
   ONBOARDING_FOLDER_SELECTED: "Onboarding folder selected",
   ONBOARDING_GITHUB_CONNECT_STARTED: "Onboarding github connect started",
   ONBOARDING_GITHUB_CONNECT_FAILED: "Onboarding github connect failed",
+  ONBOARDING_GITHUB_CONNECT_PENDING_ADMIN:
+    "Onboarding github connect pending admin",
+  ONBOARDING_GITHUB_CONNECT_ABANDONED: "Onboarding github connect abandoned",
   ONBOARDING_GITHUB_CONNECTED: "Onboarding github connected",
   ONBOARDING_CLI_CHECK_COMPLETED: "Onboarding cli check completed",
   ONBOARDING_CLI_RUN_COMPLETED: "Onboarding cli run completed",
@@ -1426,6 +1488,8 @@ export const ANALYTICS_EVENTS = {
   AI_CONSENT_GATE_SHOWN: "Ai consent gate shown",
   AI_CONSENT_APPROVED: "Ai consent approved",
   AI_CONSENT_GRANTED_INAPP: "Ai consent granted in-app",
+  DESKTOP_BETA_TERMS_ACCEPTED: "Desktop beta terms accepted",
+  DESKTOP_BETA_TERMS_ACCEPTED_INAPP: "Desktop beta terms accepted in-app",
 
   // Setup / onboarding events
   SETUP_DISCOVERY_STARTED: "Setup discovery started",
@@ -1485,8 +1549,10 @@ export const ANALYTICS_EVENTS = {
   // Project Bluebird (Channels) events
   CHANNELS_SPACE_VIEWED: "Channels space viewed",
   CHANNEL_ACTION: "Channel action",
+  TASK_FEED_ACTION: "Task feed action",
   DASHBOARD_ACTION: "Dashboard action",
   CANVAS_PROMPT_SENT: "Canvas prompt sent",
+  CANVAS_VIEWED: "Canvas viewed",
   CANVAS_RENDERED: "Canvas rendered",
   CANVAS_RUNTIME_ERROR: "Canvas runtime error",
   CONTEXT_ACTION: "Context action",
@@ -1494,6 +1560,7 @@ export const ANALYTICS_EVENTS = {
   // Autoresearch events
   AUTORESEARCH_ARMED: "Autoresearch armed",
   AUTORESEARCH_RUN_STARTED: "Autoresearch run started",
+  TASK_ANALYSIS_REQUESTED: "Task analysis requested",
 
   // Remote in-app announcement events
   ANNOUNCEMENT_SHOWN: "Announcement shown",
@@ -1561,11 +1628,15 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.COMMAND_MENU_OPENED]: never;
   [ANALYTICS_EVENTS.COMMAND_MENU_ACTION]: CommandMenuActionProperties;
   [ANALYTICS_EVENTS.COMMAND_CENTER_VIEWED]: never;
+  [ANALYTICS_EVENTS.COMMAND_CENTER_CANVAS_VIEWED]: CommandCenterCanvasViewedProperties;
   [ANALYTICS_EVENTS.BRAINROT_ACTIVATED]: BrainrotActivatedProperties;
+  [ANALYTICS_EVENTS.BRAINROT_PLAYER_ERROR]: BrainrotPlayerErrorProperties;
   [ANALYTICS_EVENTS.POSTHOG_WEB_OPENED]: never;
   [ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED]: SidebarNavItemClickedProperties;
   [ANALYTICS_EVENTS.SIDEBAR_CUSTOMIZED]: SidebarCustomizedProperties;
   [ANALYTICS_EVENTS.SIDEBAR_REORDERED]: SidebarReorderedProperties;
+  [ANALYTICS_EVENTS.TASK_LIST_GROUPING_CHANGED]: TaskListGroupingChangedProperties;
+  [ANALYTICS_EVENTS.TASK_LIST_APPEARANCE_CHANGED]: TaskListAppearanceChangedProperties;
 
   // Permission events
   [ANALYTICS_EVENTS.PERMISSION_RESPONDED]: PermissionRespondedProperties;
@@ -1600,6 +1671,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.ONBOARDING_FOLDER_SELECTED]: OnboardingFolderSelectedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_STARTED]: OnboardingGithubConnectStartedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_FAILED]: OnboardingGithubConnectFailedProperties;
+  [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_PENDING_ADMIN]: OnboardingGithubConnectPendingAdminProperties;
+  [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_ABANDONED]: OnboardingGithubConnectAbandonedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECTED]: never;
   [ANALYTICS_EVENTS.ONBOARDING_CLI_CHECK_COMPLETED]: OnboardingCliCheckCompletedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_CLI_RUN_COMPLETED]: OnboardingCliRunCompletedProperties;
@@ -1608,6 +1681,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.AI_CONSENT_GATE_SHOWN]: AiConsentGateShownProperties;
   [ANALYTICS_EVENTS.AI_CONSENT_APPROVED]: never;
   [ANALYTICS_EVENTS.AI_CONSENT_GRANTED_INAPP]: never;
+  [ANALYTICS_EVENTS.DESKTOP_BETA_TERMS_ACCEPTED]: never;
+  [ANALYTICS_EVENTS.DESKTOP_BETA_TERMS_ACCEPTED_INAPP]: never;
 
   // Setup / onboarding events
   [ANALYTICS_EVENTS.SETUP_DISCOVERY_STARTED]: SetupDiscoveryStartedProperties;
@@ -1667,8 +1742,10 @@ export type EventPropertyMap = {
   // Project Bluebird (Channels) events
   [ANALYTICS_EVENTS.CHANNELS_SPACE_VIEWED]: ChannelsSpaceViewedProperties;
   [ANALYTICS_EVENTS.CHANNEL_ACTION]: ChannelActionProperties;
+  [ANALYTICS_EVENTS.TASK_FEED_ACTION]: TaskFeedActionProperties;
   [ANALYTICS_EVENTS.DASHBOARD_ACTION]: DashboardActionProperties;
   [ANALYTICS_EVENTS.CANVAS_PROMPT_SENT]: CanvasPromptSentProperties;
+  [ANALYTICS_EVENTS.CANVAS_VIEWED]: CanvasViewedProperties;
   [ANALYTICS_EVENTS.CANVAS_RENDERED]: CanvasRenderedProperties;
   [ANALYTICS_EVENTS.CANVAS_RUNTIME_ERROR]: CanvasRuntimeErrorProperties;
   [ANALYTICS_EVENTS.CONTEXT_ACTION]: ContextActionProperties;
@@ -1676,6 +1753,11 @@ export type EventPropertyMap = {
   // Autoresearch events
   [ANALYTICS_EVENTS.AUTORESEARCH_ARMED]: AutoresearchArmedProperties;
   [ANALYTICS_EVENTS.AUTORESEARCH_RUN_STARTED]: AutoresearchRunStartedProperties;
+  [ANALYTICS_EVENTS.TASK_ANALYSIS_REQUESTED]: {
+    task_id: string;
+    run_id: string;
+    created: boolean;
+  };
 
   // Remote in-app announcement events
   [ANALYTICS_EVENTS.ANNOUNCEMENT_SHOWN]: AnnouncementProperties;

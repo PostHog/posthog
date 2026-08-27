@@ -28,6 +28,7 @@ from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import AgentRuntime
+from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY
@@ -35,6 +36,7 @@ from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, 
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S, failure_streak_pause_threshold
 from products.signals.backend.scout_harness.model_selection import ScoutModel
 from products.signals.backend.scout_harness.prompt import (
+    _EXTERNAL_MCP_LISTING_CAP,
     _GOVERNED_METRIC_LISTING_CAP,
     _METRICS_CATALOG_SUPERSEDES_CACHE as _SUPERSEDES_CACHED_ENTRIES,
     _REPORT_CHARTS,
@@ -55,6 +57,7 @@ from products.signals.backend.scout_harness.skill_loader import (
     SkillNotFoundError,
     is_signals_scout_skill,
     load_skill_for_run,
+    resolve_scout_acting_user_id,
 )
 from products.signals.backend.scout_harness.tools.runs import _build_task_url, _to_detail, _to_summary
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, run_signals_scout_activity
@@ -276,6 +279,60 @@ class TestSkillLoader(BaseTest):
         loaded = load_skill_for_run(self.team, "signals-scout-errors", include_authors=True)
         assert loaded.authors == []
 
+    def _create_config(self, **kwargs) -> SignalScoutConfig:
+        return SignalScoutConfig.objects.unscoped().create(
+            team_id=self.team.id, skill_name="signals-scout-errors", **kwargs
+        )
+
+    def test_acting_user_is_creator_even_when_config_names_an_enabler(self) -> None:
+        # The creator authored the prompt the run executes, so they must win over whoever
+        # merely switched the scout on.
+        ben = User.objects.create_and_join(self.organization, "ben@example.com", None, "Ben")
+        v1 = self._create_skill("signals-scout-errors")
+        v1.created_by = ben
+        v1.is_latest = False
+        v1.save()
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-errors",
+            description="A test skill",
+            body="edited body",
+            version=2,
+            is_latest=True,
+            created_by=self.user,
+        )
+        config = self._create_config(enabled_by=self.user)
+        assert resolve_scout_acting_user_id(self.team, "signals-scout-errors", config) == ben.id
+
+    def test_acting_user_falls_back_to_config_enabler_for_authorless_skill(self) -> None:
+        # A pristine canonical scout's versions are all system-authored, so without the config
+        # fallback its runs pool on the team-level default user, which is the cost-allocation
+        # bug this resolver exists to fix. `enabled_by` outranks `created_by`: switching a
+        # scout on is the spend decision.
+        ben = User.objects.create_and_join(self.organization, "ben@example.com", None, "Ben")
+        self._create_skill("signals-scout-errors")
+        config = self._create_config(enabled_by=ben, created_by=self.user)
+        assert resolve_scout_acting_user_id(self.team, "signals-scout-errors", config) == ben.id
+
+    def test_acting_user_skips_config_enabler_without_access(self) -> None:
+        # The run mints a sandbox token as the resolved user, so a revoked member must never
+        # resolve; the next self-consenting candidate (the config creator) takes over.
+        ben = User.objects.create_and_join(self.organization, "ben@example.com", None, "Ben")
+        self._create_skill("signals-scout-errors")
+        config = self._create_config(enabled_by=ben, created_by=self.user)
+        OrganizationMembership.objects.filter(user=ben).delete()
+        assert resolve_scout_acting_user_id(self.team, "signals-scout-errors", config) == self.user.id
+
+    def test_acting_user_none_when_creator_lost_access(self) -> None:
+        # A revoked skill creator with no config candidates must resolve to nothing, so the
+        # runner falls back to the team-level default instead of minting for a removed member.
+        ben = User.objects.create_and_join(self.organization, "ben@example.com", None, "Ben")
+        skill = self._create_skill("signals-scout-errors")
+        skill.created_by = ben
+        skill.save()
+        OrganizationMembership.objects.filter(user=ben).delete()
+        assert resolve_scout_acting_user_id(self.team, "signals-scout-errors", self._create_config()) is None
+
     def test_signals_scout_prefix_check(self) -> None:
         match = self._create_skill("signals-scout-errors")
         non_match = self._create_skill("custom-research-helper")
@@ -403,6 +460,97 @@ class TestStructuredOutputPromptSection(SimpleTestCase):
         without_schema = _prompt(None)
         assert "# Structured output" not in without_schema
         assert "scout-record-output" not in without_schema
+
+
+class TestExternalMcpServersPromptSection(SimpleTestCase):
+    def _prompt(self, mcp_server_names: list[str] | None) -> str:
+        return build_run_prompt(
+            LoadedSkill(
+                name="signals-scout-errors",
+                version=1,
+                body="watch",
+                description="d",
+                allowed_tools=[],
+                files=[],
+                skill_id="skill-1",
+                origin="canonical",
+                authors=[],
+            ),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=1,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+            mcp_server_names=mcp_server_names,
+        )
+
+    def test_carve_out_renders_only_when_the_run_mounts_external_servers(self) -> None:
+        # Two silent failure modes: dropping the paragraph leaves the exec-interface rule reading
+        # as universal, steering a scout away from the only way its mounted external tools can be
+        # called; rendering it unconditionally steers server-less scouts at ToolSearch lookups
+        # that can't match.
+        mounted = self._prompt(["Linear", "Notion"])
+        assert "`Linear`" in mounted
+        assert "`Notion`" in mounted
+        assert "mcp__<server>__<tool>" in mounted
+        # The exec rule stays: external servers are a carve-out, not a replacement.
+        assert "mcp__posthog__exec" in mounted
+
+        for unmounted in (self._prompt(None), self._prompt([])):
+            assert "mcp__<server>__<tool>" not in unmounted
+            assert "Linear" not in unmounted
+
+        overflowing = [f"server-{index:02d}" for index in range(_EXTERNAL_MCP_LISTING_CAP + 5)]
+        capped = self._prompt(overflowing)
+        assert f"`server-{_EXTERNAL_MCP_LISTING_CAP - 1:02d}`" in capped
+        assert f"server-{_EXTERNAL_MCP_LISTING_CAP:02d}" not in capped
+        # Past the cap the listing says it's partial, so an omitted server isn't read as unmounted.
+        assert "5 more this listing omits" in capped
+
+
+class TestBusinessKnowledgePromptSection(SimpleTestCase):
+    # Each channel assembles its own tail list, so the gate can be lost or inverted on one
+    # channel alone.
+    @parameterized.expand(
+        [
+            ("signal_channel", []),
+            ("report_channel", ["emit_report", "edit_report"]),
+        ]
+    )
+    def test_section_renders_only_when_the_team_has_a_knowledge_base(
+        self, _name: str, allowed_tools: list[str]
+    ) -> None:
+        # Both failure modes are silent in production: dropping the section leaves a team that
+        # curated a knowledge base with scouts that never search it, and rendering it for everyone
+        # steers the whole fleet at BK tools that are only in the toolset when that product's flag
+        # is on — an unknown-tool burn on every run, for a section most teams can't act on.
+        def _prompt(*, maintained: bool) -> str:
+            return build_run_prompt(
+                LoadedSkill(
+                    name="signals-scout-errors",
+                    version=1,
+                    body="watch",
+                    description="d",
+                    allowed_tools=allowed_tools,
+                    files=[],
+                    skill_id="skill-1",
+                    origin="custom",
+                    authors=[],
+                ),
+                run_id="00000000-0000-0000-0000-000000000abc",
+                team_id=1,
+                started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+                business_knowledge_maintained=maintained,
+            )
+
+        maintained = _prompt(maintained=True)
+        assert "# Business knowledge" in maintained
+        assert "business-knowledge-documents-search" in maintained
+
+        unmaintained = _prompt(maintained=False)
+        assert "# Business knowledge" not in unmaintained
+        # The tool names, specifically — *Ground rules* still names business-knowledge documents as
+        # one of the untrusted sources a run may read, and must keep doing so.
+        assert "business-knowledge-documents-search" not in unmaintained
+        assert "business-knowledge-document-window-retrieve" not in unmaintained
 
 
 class TestPromptBuilder(BaseTest):
@@ -539,7 +687,7 @@ class TestPromptBuilder(BaseTest):
             ("report_channel", ["emit_report", "edit_report"]),
         ]
     )
-    def test_catalog_rule_gated_on_data_catalog_flag(self, name: str, allowed_tools: list[str]) -> None:
+    def test_catalog_rule_renders_on_every_channel(self, name: str, allowed_tools: list[str]) -> None:
         skill_name = f"signals-scout-catalog-{name}"
         LLMSkill.objects.create(
             team=self.team,
@@ -555,15 +703,9 @@ class TestPromptBuilder(BaseTest):
             "started_at": datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
         }
 
-        enabled = build_run_prompt(loaded, **kwargs, data_catalog_enabled=True)
-        assert "system.information_schema.metrics" in enabled
-        assert "data-catalog-metric-run" in enabled
-
-        # Default (flag off): the metrics table isn't registered for the team, so steering
-        # at it would burn the run's budget on failing queries.
-        disabled = build_run_prompt(loaded, **kwargs)
-        assert "information_schema.metrics" not in disabled
-        assert "data-catalog-metric-run" not in disabled
+        prompt = build_run_prompt(loaded, **kwargs)
+        assert "system.information_schema.metrics" in prompt
+        assert "data-catalog-metric-run" in prompt
 
     def test_prefetched_catalog_listing_replaces_the_probe_instruction(self) -> None:
         LLMSkill.objects.create(team=self.team, name="signals-scout-catalog-listing", description="s", body="watch")
@@ -575,34 +717,33 @@ class TestPromptBuilder(BaseTest):
         }
         names = ["scout_cost_per_run", "scout_run_fail_pct"]
 
-        listed = build_run_prompt(loaded, **kwargs, data_catalog_enabled=True, governed_metric_names=names)
+        listed = build_run_prompt(loaded, **kwargs, governed_metric_names=names)
         assert "`scout_run_fail_pct`" in listed
         assert "`scout_cost_per_run`" in listed
         assert "data-catalog-metric-run" in listed
         assert "Cache the lookup outcome" not in listed
         assert _SUPERSEDES_CACHED_ENTRIES in listed
+        assert "governed catalog consulted: no listed metric matched" in listed
 
-        empty = build_run_prompt(loaded, **kwargs, data_catalog_enabled=True, governed_metric_names=[])
+        empty = build_run_prompt(loaded, **kwargs, governed_metric_names=[])
         assert "no approved metrics" in empty
         assert "Cache the lookup outcome" not in empty
         assert _SUPERSEDES_CACHED_ENTRIES in empty
+        assert "governed catalog consulted: empty, no metric matches" in empty
 
-        fallback = build_run_prompt(loaded, **kwargs, data_catalog_enabled=True, governed_metric_names=None)
+        fallback = build_run_prompt(loaded, **kwargs, governed_metric_names=None)
         assert "Cache the lookup outcome" in fallback
         assert _SUPERSEDES_CACHED_ENTRIES not in fallback
+        assert "governed catalog consulted: no listed metric matched" in fallback
 
-        # The cap is what keeps this injection to a handful of tokens in every catalog-enabled run,
-        # and past it the listing stops being the whole catalog, so it has to say a lookup is still
-        # warranted for an unlisted measure.
+        # The cap is what keeps this injection to a handful of tokens in every run, and past it the
+        # listing stops being the whole catalog, so it has to say a lookup is still warranted for an
+        # unlisted measure.
         overflowing = [f"metric_{index:03d}" for index in range(_GOVERNED_METRIC_LISTING_CAP + 3)]
-        capped = build_run_prompt(loaded, **kwargs, data_catalog_enabled=True, governed_metric_names=overflowing)
+        capped = build_run_prompt(loaded, **kwargs, governed_metric_names=overflowing)
         assert "`metric_000`" in capped
         assert f"`metric_{_GOVERNED_METRIC_LISTING_CAP:03d}`" not in capped
         assert "and 3 more this listing omits" in capped
-
-        flag_off = build_run_prompt(loaded, **kwargs, governed_metric_names=names)
-        assert "scout_run_fail_pct" not in flag_off
-        assert "data-catalog-metric-run" not in flag_off
 
     def test_report_channel_renders_report_persona_and_guidance(self) -> None:
         LLMSkill.objects.create(
@@ -1036,20 +1177,17 @@ async def test_run_tags_session_with_scout_ai_stage(ateam, aerrors_skill):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize(
-    "flag,expect_rule",
-    [
-        pytest.param(True, True, id="enabled"),
-        pytest.param(False, False, id="disabled"),
-        # A flag-read error resolves off and the run still completes: failing here would book a
-        # failed run and advance the streak toward pausing the lane, over a prompt section the
-        # run does not need.
-        pytest.param(RuntimeError("flag backend down"), False, id="flag_read_error"),
-    ],
-)
-async def test_catalog_steering_reaches_the_prompt_from_the_team_flag(ateam, aerrors_skill, flag, expect_rule):
-    # The prompt-builder tests take `data_catalog_enabled` directly, so they stay green if the
-    # runner stops resolving or forwarding the flag — this covers that wiring end to end.
+async def test_run_acts_as_the_skill_creator_when_one_resolves(ateam, aorganization, aerrors_skill):
+    # Spend attribution follows the task row's user, so a run whose skill has a creator must
+    # mint under them; falling through to the team-level default (42 here) re-pools every
+    # scout's spend on one user, the bug the skill-based resolution exists to fix.
+    def _set_creator() -> User:
+        creator = User.objects.create_and_join(aorganization, f"creator-{random.randint(1, 99999)}@example.com", None)
+        aerrors_skill.created_by = creator
+        aerrors_skill.save()
+        return creator
+
+    creator = await database_sync_to_async(_set_creator, thread_sensitive=False)()
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
     captured: dict = {}
 
@@ -1059,10 +1197,8 @@ async def test_catalog_steering_reaches_the_prompt_from_the_team_flag(ateam, aer
             await on_task_run_created(session.task_run)
         return session, result
 
-    flag_mock = MagicMock(side_effect=flag) if isinstance(flag, Exception) else MagicMock(return_value=flag)
     with (
         patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
-        patch("products.signals.backend.scout_harness.runner.is_data_catalog_enabled", flag_mock),
         patch(
             "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
             return_value="env-id",
@@ -1072,10 +1208,53 @@ async def test_catalog_steering_reaches_the_prompt_from_the_team_flag(ateam, aer
             return_value=42,
         ),
     ):
-        run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+        await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
-    assert run_result.status == apps.get_model("tasks", "TaskRun").Status.COMPLETED.value
-    assert ("information_schema.metrics" in captured["prompt"]) is expect_rule
+    assert captured["context"].user_id == creator.id
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_run_passes_the_per_scout_server_selection_and_no_credential_owner(ateam, aerrors_skill):
+    # A scout is a team resource: its runs mount only team-scoped grants, gated by the
+    # config's per-scout server selection, and never delegate anyone's personal grants.
+    # Passing a credential owner here would silently re-open the personal lane.
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+    captured: dict = {}
+
+    def _seed_config() -> None:
+        creator = User.objects.create(email=f"scout-owner-{random.randint(1, 99999)}@example.com")
+        SignalScoutConfig.objects.unscoped().create(
+            team_id=ateam.id,
+            skill_name="signals-scout-errors",
+            created_by=creator,
+            mcp_gateway_server_ids=["11111111-1111-1111-1111-111111111111"],
+        )
+
+    await database_sync_to_async(_seed_config, thread_sensitive=False)()
+
+    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+        captured.update(kwargs)
+        if on_task_run_created is not None:
+            await on_task_run_created(session.task_run)
+        return session, result
+
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            return_value=42,
+        ),
+    ):
+        await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert captured["mcp_builtin_agent_key"] == "scout"
+    assert captured.get("mcp_credential_owner_id") is None
+    assert captured["mcp_gateway_server_ids"] == ["11111111-1111-1111-1111-111111111111"]
 
 
 @pytest.mark.asyncio
@@ -1105,7 +1284,6 @@ async def test_governed_listing_reaches_the_prompt_from_the_catalog(ateam, aerro
     names_mock = MagicMock(side_effect=names) if isinstance(names, Exception) else MagicMock(return_value=names)
     with (
         patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
-        patch("products.signals.backend.scout_harness.runner.is_data_catalog_enabled", return_value=True),
         patch("products.signals.backend.scout_harness.runner.approved_metric_names_for_team", names_mock),
         patch(
             "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
@@ -1124,6 +1302,54 @@ async def test_governed_listing_reaches_the_prompt_from_the_catalog(ateam, aerro
     # could have queried for itself; the access check lives behind the facade call, so passing the
     # user is the only part of that the runner owns.
     assert names_mock.call_args.args == (ateam, acting_user)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "resolution,expect_carve_out",
+    [
+        pytest.param(["Linear"], True, id="mounted_server_named"),
+        pytest.param([], False, id="no_servers_no_carve_out"),
+        # A resolution error degrades to no carve-out and the run still completes: failing here
+        # would book a failed run and advance the streak toward pausing the lane, over a paragraph
+        # of steering for servers the launch mounts (or not) regardless.
+        pytest.param(RuntimeError("store read down"), False, id="resolution_error_falls_back"),
+    ],
+)
+async def test_mounted_mcp_server_names_reach_the_prompt(ateam, aerrors_skill, resolution, expect_carve_out):
+    # The prompt-builder tests take `mcp_server_names` directly, so they stay green if the runner
+    # stops resolving or forwarding the mounted set — this covers that wiring end to end.
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+    captured: dict = {}
+
+    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+        captured.update(kwargs)
+        if on_task_run_created is not None:
+            await on_task_run_created(session.task_run)
+        return session, result
+
+    names_mock = (
+        MagicMock(side_effect=resolution) if isinstance(resolution, Exception) else MagicMock(return_value=resolution)
+    )
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
+        patch("products.signals.backend.scout_harness.runner.get_sandbox_mcp_server_names", names_mock),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            return_value=42,
+        ),
+    ):
+        run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert run_result.status == apps.get_model("tasks", "TaskRun").Status.COMPLETED.value
+    assert ("mcp__<server>__<tool>" in captured["prompt"]) is expect_carve_out
+    if expect_carve_out:
+        assert "`Linear`" in captured["prompt"]
 
 
 @pytest.mark.asyncio
@@ -1440,6 +1666,9 @@ async def test_successful_run_captures_run_finished_event(ateam, aerrors_skill):
     # task_run_id is the join key into LLM analytics for the richer per-run metrics.
     assert props["task_run_id"] == str(session.task_run.id)
     assert isinstance(props["runtime_seconds"], float)
+    # The prompt-shape fork reaches the lifecycle event too (this team has no knowledge base),
+    # so an event-based A/B readout can segment on it without joining back to the run row.
+    assert props["business_knowledge_maintained"] is False
 
 
 @pytest.mark.asyncio
@@ -1992,13 +2221,30 @@ async def test_activity_returns_skip_outcome_when_already_running(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_activity_skips_run_when_team_over_signals_quota(ateam):
+@pytest.mark.parametrize(
+    ("billing_limited", "daily_limited", "expected_skip_reason"),
+    [
+        (True, False, "quota_limited"),
+        (False, True, "daily_report_limit"),
+        (True, True, "quota_limited"),
+    ],
+)
+async def test_activity_skips_run_attributed_to_the_limit_that_fired(
+    ateam, billing_limited, daily_limited, expected_skip_reason
+):
     fake_arun = AsyncMock()
     with (
         patch(
             "products.signals.backend.temporal.agentic.scout_scheduler.is_team_signals_quota_limited",
-            return_value=True,
+            return_value=billing_limited,
         ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.daily_report_limit_gate",
+            return_value=DailyReportLimitGate(limited=daily_limited, limit=2, reports_today=2),
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.capture_signal_report_daily_limit_paused"
+        ) as capture,
         patch("products.signals.backend.scout_harness.runner.arun_signals_scout", fake_arun),
     ):
         env = ActivityEnvironment()
@@ -2010,7 +2256,13 @@ async def test_activity_skips_run_when_team_over_signals_quota(ateam):
     fake_arun.assert_not_called()
     assert output.run_id is None
     assert output.status is None
-    assert output.skip_reason == "quota_limited"
+    assert output.skip_reason == expected_skip_reason
+    # The capture event tracks its own gate: it fires whenever the daily limit binds, even when
+    # the quota skip wins the single-status run counter.
+    if daily_limited:
+        assert capture.call_args.kwargs["stage"] == "scout_run"
+    else:
+        capture.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -2187,6 +2439,24 @@ class TestRunRowProvenanceStamps(BaseTest):
         assert stamped["harness_prompt_version"] == HARNESS_PROMPT_VERSION
         assert stamped["report_channel"] == expected_channel
         assert stamped["skill_origin"] == expected_origin
+        # Always-present provenance key: absence would mean a run predating the field, so a False
+        # default must still be stamped, not omitted.
+        assert stamped["business_knowledge_maintained"] is False
         # The routing triple stays absent on the default-model path, so its keys can't be
         # confused with the always-present provenance keys.
         assert not any(key in stamped for key in _ROUTED_MODEL_KEYS)
+
+    def test_stamps_business_knowledge_fork_when_maintained(self) -> None:
+        # The section rides on every run and the flag/source state behind it can change, so the
+        # resolved boolean is stamped write-once — an eval or A/B compares only runs given the
+        # same prompt, and re-deriving it later would read the wrong (current) state.
+        config, _ = SignalScoutConfig.objects.get_or_create(team=self.team, skill_name="signals-scout-general")
+        run = _create_run_row(
+            run_id=uuid7(),
+            task_run=_make_task_run(self.team),
+            team=self.team,
+            config=config,
+            skill=self._skill(allowed_tools=["emit_report"], origin="custom"),
+            business_knowledge_maintained=True,
+        )
+        assert (run.metadata or {})["business_knowledge_maintained"] is True

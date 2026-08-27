@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 49 enabled ops
+ * PostHog API - MCP 64 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -113,11 +113,22 @@ export const AccountsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const accountsListQueryIncludeChurnedDefault = false
+export const accountsListQueryIncludeIgnoredDefault = false
+
 export const AccountsListQueryParams = /* @__PURE__ */ zod.object({
     all_roles_unassigned: zod
         .boolean()
         .optional()
         .describe('When true, returns only accounts where no user actively holds any relationship.'),
+    include_churned: zod
+        .boolean()
+        .default(accountsListQueryIncludeChurnedDefault)
+        .describe('Include churned accounts. Churned accounts are hidden by default.'),
+    include_ignored: zod
+        .boolean()
+        .default(accountsListQueryIncludeIgnoredDefault)
+        .describe('Include ignored accounts. Ignored accounts are hidden by default.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod.string().optional().describe("Sort order. Defaults to '-created_at'."),
@@ -154,6 +165,10 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
             ),
         properties: zod
             .object({
+                website_domain: zod
+                    .string()
+                    .nullish()
+                    .describe('Primary company website hostname used for account identity and logo lookup.'),
                 email_domains: zod
                     .array(zod.string())
                     .optional()
@@ -175,7 +190,7 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
             })
             .nullish()
             .describe(
-                "Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here."
+                "Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here."
             ),
         tags: zod
             .array(zod.string())
@@ -192,6 +207,10 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
             .describe(
                 "How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.\n\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly"
             ),
+        churned_at: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe('When the account churned. Null means the account has not churned.'),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
@@ -359,6 +378,10 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             ),
         properties: zod
             .object({
+                website_domain: zod
+                    .string()
+                    .nullish()
+                    .describe('Primary company website hostname used for account identity and logo lookup.'),
                 email_domains: zod
                     .array(zod.string())
                     .optional()
@@ -380,7 +403,7 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             })
             .nullish()
             .describe(
-                "Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here."
+                "Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here."
             ),
         tags: zod
             .array(zod.string())
@@ -397,6 +420,10 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.\n\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly"
             ),
+        churned_at: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe('When the account churned. Null means the account has not churned.'),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
@@ -733,13 +760,13 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe(
-                'Account sources only: UUID of the data-warehouse saved query (materialized view) to read values from. Mutually exclusive with external_data_schema.'
+                'UUID of the data-warehouse saved query to read from. Required for an account source. For a person or group source it must be a materialized view, and is one of the two binding options. Mutually exclusive with external_data_schema.'
             ),
         external_data_schema: zod
             .string()
             .nullish()
             .describe(
-                'Person and group sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.'
+                'Person and group sources only: UUID of the warehouse schema (an imported table) to read from. Mutually exclusive with saved_query; a person or group source sets exactly one.'
             ),
         source_column: zod
             .string()
@@ -756,7 +783,7 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             .unknown()
             .optional()
             .describe(
-                "Person sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only."
+                "Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only."
             ),
         key_column: zod
             .string()
@@ -772,7 +799,7 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe(
-        'Binds a data-warehouse source to a custom property definition. Account sources read a\nmaterialized view column and sync onto matching accounts; person and group sources read a\nwarehouse schema and sync onto matching persons or groups on each warehouse sync.'
+        'Binds warehouse columns to a custom property definition. Account sources read a materialized\nview column and sync onto matching accounts; person and group sources read either an imported\nwarehouse table or a materialized view, and sync onto matching persons or groups on every\nwarehouse run of what they read.'
     )
 
 export const CustomPropertySourcesRetrieveParams = /* @__PURE__ */ zod.object({
@@ -842,9 +869,8 @@ export const CustomPropertySourcesBackfillParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Person and group sources only: the source's sync/backfill run history, newest first. Gated
- * on the caller's warehouse-source viewer access, since the runs expose its row counts and sync
- * errors.
+ * The source's sync history, newest first. Person and group runs require viewer access to
+ * their warehouse source because the response includes row counts and sync errors.
  */
 export const CustomPropertySourcesRunsListParams = /* @__PURE__ */ zod.object({
     id: zod.string(),
@@ -858,12 +884,16 @@ export const CustomPropertySourcesRunsListParams = /* @__PURE__ */ zod.object({
 export const CustomPropertySourcesRunsListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    search: zod
+        .string()
+        .optional()
+        .describe('Match run IDs, workflow IDs, job IDs, statuses, segments, triggers, or errors.'),
 })
 
 /**
- * Person and group sources only: trigger the underlying warehouse schema's sync now. This
- * re-runs a real (billable) warehouse sync; the incremental person/group-property update runs
- * off it.
+ * Person and group sources only: run what this source reads now — an import for a table
+ * binding (a real, billable warehouse sync), a materialization for a view binding. The
+ * incremental person/group-property update runs off that run.
  */
 export const CustomPropertySourcesSyncParams = /* @__PURE__ */ zod.object({
     id: zod.string(),
@@ -1071,6 +1101,483 @@ export const EventStreamsSendTestMessageCreateParams = /* @__PURE__ */ zod.objec
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+export const FeatureRequestProductAreasListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const featureRequestProductAreasListQueryIncludeInactiveDefault = false
+
+export const FeatureRequestProductAreasListQueryParams = /* @__PURE__ */ zod.object({
+    include_inactive: zod
+        .boolean()
+        .default(featureRequestProductAreasListQueryIncludeInactiveDefault)
+        .describe('Include inactive product areas. Defaults to false.'),
+})
+
+export const FeatureRequestProductAreasCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const featureRequestProductAreasCreateBodyNameMax = 200
+
+export const featureRequestProductAreasCreateBodyDisplayOrderDefault = 0
+export const featureRequestProductAreasCreateBodyDisplayOrderMin = 0
+
+export const featureRequestProductAreasCreateBodyIsActiveDefault = true
+
+export const FeatureRequestProductAreasCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(featureRequestProductAreasCreateBodyNameMax).describe('Team-maintained product area name.'),
+    display_order: zod
+        .number()
+        .min(featureRequestProductAreasCreateBodyDisplayOrderMin)
+        .default(featureRequestProductAreasCreateBodyDisplayOrderDefault)
+        .describe('Position in product area selectors. Lower values appear first.'),
+    is_active: zod
+        .boolean()
+        .default(featureRequestProductAreasCreateBodyIsActiveDefault)
+        .describe('Whether editors can select this product area for new requests.'),
+})
+
+export const FeatureRequestProductAreasPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const featureRequestProductAreasPartialUpdateBodyNameMax = 200
+
+export const featureRequestProductAreasPartialUpdateBodyDisplayOrderMin = 0
+
+export const FeatureRequestProductAreasPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(featureRequestProductAreasPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Team-maintained product area name.'),
+    display_order: zod
+        .number()
+        .min(featureRequestProductAreasPartialUpdateBodyDisplayOrderMin)
+        .optional()
+        .describe('Position in product area selectors. Lower values appear first.'),
+    is_active: zod.boolean().optional().describe('Whether editors can select this product area for new requests.'),
+})
+
+export const FeatureRequestsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const featureRequestsListQueryArchiveStateDefault = `active`
+export const featureRequestsListQueryRequestOrderingDefault = `-updated_at`
+
+export const FeatureRequestsListQueryParams = /* @__PURE__ */ zod.object({
+    account_ids: zod
+        .array(zod.string())
+        .optional()
+        .describe('Accessible account IDs to include. Multiple values use OR semantics.'),
+    archive_state: zod
+        .enum(['active', 'archived', 'all'])
+        .default(featureRequestsListQueryArchiveStateDefault)
+        .describe(
+            'Whether to return active requests, archived requests, or all requests.\n\n\* `active` - Active\n\* `archived` - Archived\n\* `all` - All'
+        ),
+    created_by_ids: zod
+        .array(zod.number().min(1))
+        .optional()
+        .describe('Creator user IDs to include. Multiple values use OR semantics.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    priorities: zod
+        .array(
+            zod
+                .enum(['high', 'medium', 'low', 'none'])
+                .describe('\* `high` - High\n\* `medium` - Medium\n\* `low` - Low\n\* `none` - No priority')
+        )
+        .optional()
+        .describe('Priorities to include. Use none for requests without a priority.'),
+    product_area_ids: zod
+        .array(zod.string())
+        .optional()
+        .describe('Product area IDs to include. Multiple values use OR semantics.'),
+    request_ordering: zod
+        .string()
+        .min(1)
+        .default(featureRequestsListQueryRequestOrderingDefault)
+        .describe(
+            'Stable ordering for the result list.\n\n\* `-updated_at` - Last updated: newest\n\* `updated_at` - Last updated: oldest\n\* `-created_at` - Date created: newest\n\* `created_at` - Date created: oldest\n\* `-priority` - Priority: high to low\n\* `priority` - Priority: low to high\n\* `title` - Title: A to Z\n\* `-title` - Title: Z to A'
+        ),
+    search: zod.string().optional().describe('Case-insensitive text to find in request titles and descriptions.'),
+    statuses: zod
+        .array(
+            zod
+                .enum(['requested', 'planned', 'completed', 'wont_fix', 'duplicate'])
+                .describe(
+                    "\* `requested` - Requested\n\* `planned` - Planned\n\* `completed` - Completed\n\* `wont_fix` - Won't fix\n\* `duplicate` - Duplicate"
+                )
+        )
+        .optional()
+        .describe('Lifecycle statuses to include. Multiple values use OR semantics.'),
+})
+
+export const FeatureRequestsCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const featureRequestsCreateBodyTitleMax = 400
+
+export const featureRequestsCreateBodyDescriptionDefault = ``
+export const featureRequestsCreateBodyEvidenceOneSummaryDefault = ``
+export const featureRequestsCreateBodyEvidenceOneCustomerQuoteDefault = ``
+export const featureRequestsCreateBodyEvidenceOneEvidenceSourceMax = 200
+
+export const featureRequestsCreateBodyEvidenceOneSourceUrlDefault = ``
+export const featureRequestsCreateBodyEvidenceOneSourceUrlMax = 2000
+
+export const FeatureRequestsCreateBody = /* @__PURE__ */ zod.object({
+    title: zod.string().max(featureRequestsCreateBodyTitleMax).describe('Required customer-facing request title.'),
+    description: zod
+        .string()
+        .default(featureRequestsCreateBodyDescriptionDefault)
+        .describe('Optional customer-facing request description in Markdown.'),
+    account_id: zod.string().describe('ID of the affected Customer Analytics account.'),
+    product_area_ids: zod
+        .array(zod.string())
+        .describe('One or more active product area IDs. Duplicate IDs are ignored.'),
+    idempotency_key: zod
+        .string()
+        .describe(
+            'Client-generated key that makes retries return the original request instead of creating a duplicate.'
+        ),
+    evidence: zod
+        .union([
+            zod.object({
+                summary: zod
+                    .string()
+                    .default(featureRequestsCreateBodyEvidenceOneSummaryDefault)
+                    .describe("Internal summary of this account's request evidence."),
+                customer_quote: zod
+                    .string()
+                    .default(featureRequestsCreateBodyEvidenceOneCustomerQuoteDefault)
+                    .describe('Customer quote kept with this evidence item.'),
+                evidence_source: zod
+                    .string()
+                    .max(featureRequestsCreateBodyEvidenceOneEvidenceSourceMax)
+                    .describe('Free-form name of the source where this evidence was recorded.'),
+                source_url: zod
+                    .url()
+                    .max(featureRequestsCreateBodyEvidenceOneSourceUrlMax)
+                    .default(featureRequestsCreateBodyEvidenceOneSourceUrlDefault)
+                    .describe('Optional HTTP or HTTPS link to the source.'),
+                requested_on: zod.iso
+                    .date()
+                    .nullish()
+                    .describe('Date the account made the request, or null when unknown.'),
+                image_ids: zod
+                    .array(zod.string())
+                    .optional()
+                    .describe('Uploaded image IDs from this project to attach in display order.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Optional first evidence item to create for the selected account.'),
+})
+
+export const FeatureRequestsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const FeatureRequestsPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const featureRequestsPartialUpdateBodyTitleMax = 400
+
+export const FeatureRequestsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    expected_version: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
+    title: zod
+        .string()
+        .max(featureRequestsPartialUpdateBodyTitleMax)
+        .optional()
+        .describe('Updated customer-facing request title.'),
+    description: zod.string().optional().describe('Updated optional customer-facing request description in Markdown.'),
+    account_id: zod.string().optional().describe('Deprecated single affected account ID. Use account_ids.'),
+    account_ids: zod
+        .array(zod.string())
+        .optional()
+        .describe('One or more affected account IDs. Removed accounts are unlinked without deleting their evidence.'),
+    product_area_ids: zod
+        .array(zod.string())
+        .optional()
+        .describe('One or more product area IDs. Existing inactive areas can remain linked.'),
+    request_status: zod
+        .enum(['requested', 'planned', 'completed', 'wont_fix', 'duplicate'])
+        .describe(
+            "\* `requested` - Requested\n\* `planned` - Planned\n\* `completed` - Completed\n\* `wont_fix` - Won't fix\n\* `duplicate` - Duplicate"
+        )
+        .optional()
+        .describe(
+            "Updated customer-facing lifecycle status.\n\n\* `requested` - Requested\n\* `planned` - Planned\n\* `completed` - Completed\n\* `wont_fix` - Won't fix\n\* `duplicate` - Duplicate"
+        ),
+    request_priority: zod
+        .union([
+            zod.enum(['high', 'medium', 'low']).describe('\* `high` - High\n\* `medium` - Medium\n\* `low` - Low'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Updated manual priority. Pass null to remove the priority.\n\n\* `high` - High\n\* `medium` - Medium\n\* `low` - Low'
+        ),
+})
+
+export const FeatureRequestsAddAccountCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const featureRequestsAddAccountCreateBodyEvidenceOneSummaryDefault = ``
+export const featureRequestsAddAccountCreateBodyEvidenceOneCustomerQuoteDefault = ``
+export const featureRequestsAddAccountCreateBodyEvidenceOneEvidenceSourceMax = 200
+
+export const featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlDefault = ``
+export const featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlMax = 2000
+
+export const FeatureRequestsAddAccountCreateBody = /* @__PURE__ */ zod.object({
+    expected_version: zod
+        .number()
+        .min(1)
+        .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
+    account_id: zod.string().describe('Accessible account to link to this feature request.'),
+    evidence: zod
+        .union([
+            zod.object({
+                summary: zod
+                    .string()
+                    .default(featureRequestsAddAccountCreateBodyEvidenceOneSummaryDefault)
+                    .describe("Internal summary of this account's request evidence."),
+                customer_quote: zod
+                    .string()
+                    .default(featureRequestsAddAccountCreateBodyEvidenceOneCustomerQuoteDefault)
+                    .describe('Customer quote kept with this evidence item.'),
+                evidence_source: zod
+                    .string()
+                    .max(featureRequestsAddAccountCreateBodyEvidenceOneEvidenceSourceMax)
+                    .describe('Free-form name of the source where this evidence was recorded.'),
+                source_url: zod
+                    .url()
+                    .max(featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlMax)
+                    .default(featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlDefault)
+                    .describe('Optional HTTP or HTTPS link to the source.'),
+                requested_on: zod.iso
+                    .date()
+                    .nullish()
+                    .describe('Date the account made the request, or null when unknown.'),
+                image_ids: zod
+                    .array(zod.string())
+                    .optional()
+                    .describe('Uploaded image IDs from this project to attach in display order.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Optional first evidence item to create for the account in the same change.'),
+})
+
+export const FeatureRequestsAddEvidenceCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const featureRequestsAddEvidenceCreateBodySummaryDefault = ``
+export const featureRequestsAddEvidenceCreateBodyCustomerQuoteDefault = ``
+export const featureRequestsAddEvidenceCreateBodyEvidenceSourceMax = 200
+
+export const featureRequestsAddEvidenceCreateBodySourceUrlDefault = ``
+export const featureRequestsAddEvidenceCreateBodySourceUrlMax = 2000
+
+export const FeatureRequestsAddEvidenceCreateBody = /* @__PURE__ */ zod.object({
+    summary: zod
+        .string()
+        .default(featureRequestsAddEvidenceCreateBodySummaryDefault)
+        .describe("Internal summary of this account's request evidence."),
+    customer_quote: zod
+        .string()
+        .default(featureRequestsAddEvidenceCreateBodyCustomerQuoteDefault)
+        .describe('Customer quote kept with this evidence item.'),
+    evidence_source: zod
+        .string()
+        .max(featureRequestsAddEvidenceCreateBodyEvidenceSourceMax)
+        .describe('Free-form name of the source where this evidence was recorded.'),
+    source_url: zod
+        .url()
+        .max(featureRequestsAddEvidenceCreateBodySourceUrlMax)
+        .default(featureRequestsAddEvidenceCreateBodySourceUrlDefault)
+        .describe('Optional HTTP or HTTPS link to the source.'),
+    requested_on: zod.iso.date().nullish().describe('Date the account made the request, or null when unknown.'),
+    image_ids: zod
+        .array(zod.string())
+        .optional()
+        .describe('Uploaded image IDs from this project to attach in display order.'),
+    expected_version: zod
+        .number()
+        .min(1)
+        .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
+    account_link_id: zod.string().describe('Active account link that owns this evidence.'),
+})
+
+export const FeatureRequestsArchiveCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const FeatureRequestsArchiveCreateBody = /* @__PURE__ */ zod.object({
+    expected_version: zod
+        .number()
+        .min(1)
+        .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
+})
+
+export const FeatureRequestsHistoryListParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const FeatureRequestsRemoveEvidenceCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const FeatureRequestsRemoveEvidenceCreateBody = /* @__PURE__ */ zod.object({
+    expected_version: zod
+        .number()
+        .min(1)
+        .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
+    evidence_id: zod.string().describe('Evidence item to delete.'),
+})
+
+export const FeatureRequestsRestoreCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const FeatureRequestsRestoreCreateBody = /* @__PURE__ */ zod.object({
+    expected_version: zod
+        .number()
+        .min(1)
+        .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
+})
+
+export const FeatureRequestsStatusHistoryListParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const FeatureRequestsUpdateEvidenceCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const featureRequestsUpdateEvidenceCreateBodySummaryDefault = ``
+export const featureRequestsUpdateEvidenceCreateBodyCustomerQuoteDefault = ``
+export const featureRequestsUpdateEvidenceCreateBodyEvidenceSourceMax = 200
+
+export const featureRequestsUpdateEvidenceCreateBodySourceUrlDefault = ``
+export const featureRequestsUpdateEvidenceCreateBodySourceUrlMax = 2000
+
+export const FeatureRequestsUpdateEvidenceCreateBody = /* @__PURE__ */ zod.object({
+    summary: zod
+        .string()
+        .default(featureRequestsUpdateEvidenceCreateBodySummaryDefault)
+        .describe("Internal summary of this account's request evidence."),
+    customer_quote: zod
+        .string()
+        .default(featureRequestsUpdateEvidenceCreateBodyCustomerQuoteDefault)
+        .describe('Customer quote kept with this evidence item.'),
+    evidence_source: zod
+        .string()
+        .max(featureRequestsUpdateEvidenceCreateBodyEvidenceSourceMax)
+        .describe('Free-form name of the source where this evidence was recorded.'),
+    source_url: zod
+        .url()
+        .max(featureRequestsUpdateEvidenceCreateBodySourceUrlMax)
+        .default(featureRequestsUpdateEvidenceCreateBodySourceUrlDefault)
+        .describe('Optional HTTP or HTTPS link to the source.'),
+    requested_on: zod.iso.date().nullish().describe('Date the account made the request, or null when unknown.'),
+    image_ids: zod
+        .array(zod.string())
+        .optional()
+        .describe('Uploaded image IDs from this project to attach in display order.'),
+    expected_version: zod
+        .number()
+        .min(1)
+        .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
+    evidence_id: zod.string().describe('Evidence item to replace.'),
 })
 
 export const groupsTypesMetricsListPathGroupTypeIndexMin = -2147483648

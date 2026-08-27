@@ -1,8 +1,11 @@
-"""GitHub source and warehouse-table fixtures shared across this product's test files."""
+"""GitHub and Trunk source warehouse fixtures shared across this product's test files."""
 
+import os
 import json
 import zlib
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +33,18 @@ TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.github
 GITHUB_SOURCE_PREFIX = "myprefix"
 
 
+@contextmanager
+def seeding_object_storage(test: BaseTest) -> Iterator[None]:
+    # Skipping locally keeps the suite usable without the dev stack; skipping in CI would drop every
+    # warehouse-backed assertion behind a green job, so there it raises.
+    try:
+        yield
+    except PermissionError as err:
+        if os.environ.get("CI"):
+            raise
+        test.skipTest(f"object storage unavailable: {err}")
+
+
 def create_github_source(
     team: Team, *, prefix: str = GITHUB_SOURCE_PREFIX, source_id: str = "gh-source", repository: str = ""
 ) -> ExternalDataSource:
@@ -42,6 +57,39 @@ def create_github_source(
         prefix=prefix,
         job_inputs={"repository": repository} if repository else {},
     )
+
+
+def create_trunk_source(
+    team: Team, *, prefix: str = "trunkprefix_", source_id: str = "trunk-source"
+) -> ExternalDataSource:
+    return ExternalDataSource.objects.create(
+        team=team,
+        source_id=source_id,
+        connection_id=source_id,
+        status=ExternalDataSource.Status.COMPLETED,
+        source_type=ExternalDataSourceType.TRUNKIO,
+        prefix=prefix,
+        job_inputs={},
+    )
+
+
+def _trunk_queue_row(
+    entry_id: str,
+    state: str,
+    pr_number: int,
+    state_changed_at: str,
+    *,
+    skip_the_line: bool = False,
+    priority_name: str = "medium",
+) -> dict[str, Any]:
+    return {
+        "id": entry_id,
+        "state": state,
+        "pr_number": pr_number,
+        "priority_name": priority_name,
+        "skip_the_line": skip_the_line,
+        "state_changed_at": state_changed_at,
+    }
 
 
 def link_schema(
@@ -219,14 +267,13 @@ def _run_row(
 
 def create_github_warehouse_table(test: BaseTest, base_name: str, columns: dict, rows: list[dict[str, Any]]) -> str:
     # Returns the real table name (prefixed), which the builder is then told to read,
-    # proving build_query honors the resolved name instead of a hardcoded one. Skips the
-    # calling test when object storage is unreachable so the suite runs without the dev stack.
+    # proving build_query honors the resolved name instead of a hardcoded one.
     df = pd.DataFrame(rows, columns=list(columns.keys()))
     tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False)
     df.to_csv(tmp.name, index=False)
     tmp.close()
     test.addCleanup(Path(tmp.name).unlink, missing_ok=True)
-    try:
+    with seeding_object_storage(test):
         table, _source, _credential, _df, cleanup = create_data_warehouse_table_from_csv(
             csv_path=Path(tmp.name),
             table_name=base_name,
@@ -235,7 +282,5 @@ def create_github_warehouse_table(test: BaseTest, base_name: str, columns: dict,
             team=test.team,
             source_prefix=GITHUB_SOURCE_PREFIX,
         )
-    except PermissionError as err:
-        test.skipTest(f"object storage unavailable: {err}")
     test.addCleanup(cleanup)
     return table.name

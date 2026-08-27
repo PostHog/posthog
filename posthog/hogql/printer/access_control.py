@@ -10,8 +10,9 @@ from posthog.hogql.database.postgres_table import PostgresTable
 if TYPE_CHECKING:
     from posthog.schema import AccessControlFilterWarning
 
-    from posthog.rbac.user_access_control import UserAccessControl
     from posthog.scopes import APIScopeObject
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 def build_access_control_warning(resources: Iterable["APIScopeObject"]) -> Optional["AccessControlFilterWarning"]:
@@ -24,7 +25,7 @@ def build_access_control_warning(resources: Iterable["APIScopeObject"]) -> Optio
         AccessControlFilterWarning,  # noqa: PLC0415 — keeps posthog.schema off django.setup() via this module
     )
 
-    from posthog.rbac.user_access_control import resource_to_display_name  # noqa: PLC0415
+    from products.access_control.backend.facade.user_access_control import resource_to_display_name  # noqa: PLC0415
 
     sorted_resources = sorted(resources)
     if not sorted_resources:
@@ -75,7 +76,7 @@ def build_access_control_guard(
             type=ast.BooleanType(),
         )
     else:
-        blocked_ids = user_access_control.blocked_resource_ids_by_scope.get(resource, set())
+        blocked_ids = user_access_control.blocked_resource_ids_by_scope.get(resource, frozenset())
         if not blocked_ids:
             return None
         guard = ast.CompareOperation(

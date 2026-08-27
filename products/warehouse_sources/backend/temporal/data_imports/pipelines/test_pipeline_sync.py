@@ -25,6 +25,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     update_last_synced_at,
     validate_schema_and_update_table,
 )
+from products.warehouse_sources.backend.types import (
+    DataWarehouseTableCreatedVia,
+    DataWarehouseTableFormat,
+    ExternalDataJobStatus,
+)
 
 _PIPELINE_SYNC_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync"
 _DB_RETRY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry"
@@ -123,7 +128,7 @@ def _register_companion_sync(
     schema_id: uuid.UUID,
     resource_name: str,
     row_count: int,
-    table_format: DataWarehouseTable.TableFormat,
+    table_format: DataWarehouseTableFormat,
     queryable_folder: str,
     table_schema_dict: dict[str, str] | None = None,
     set_as_schema_table: bool = False,
@@ -198,7 +203,7 @@ class TestRegisterCDCCompanionTable(BaseTest):
             team_id=self.team.pk,
             pipeline=source,
             schema=schema,
-            status=ExternalDataJob.Status.RUNNING,
+            status=ExternalDataJobStatus.RUNNING,
             rows_synced=0,
         )
         return source, job, schema
@@ -214,7 +219,7 @@ class TestRegisterCDCCompanionTable(BaseTest):
             schema_id=schema.id,
             resource_name="orders_cdc",
             row_count=100,
-            table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
             queryable_folder="s3://bucket/cdc_folder",
             table_schema_dict={"id": "Int64", "name": "String"},
         )
@@ -242,7 +247,7 @@ class TestRegisterCDCCompanionTable(BaseTest):
             schema_id=schema.id,
             resource_name="orders_cdc",
             row_count=100,
-            table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
             queryable_folder="s3://bucket/cdc_folder_v1",
         )
 
@@ -252,7 +257,7 @@ class TestRegisterCDCCompanionTable(BaseTest):
             schema_id=schema.id,
             resource_name="orders_cdc",
             row_count=200,
-            table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
             queryable_folder="s3://bucket/cdc_folder_v2",
         )
 
@@ -279,7 +284,7 @@ class TestRegisterCDCCompanionTable(BaseTest):
             schema_id=schema.id,
             resource_name="orders_cdc",
             row_count=50,
-            table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
             queryable_folder="s3://bucket/cdc_folder",
             set_as_schema_table=True,
         )
@@ -298,7 +303,7 @@ class TestRegisterCDCCompanionTable(BaseTest):
             schema_id=schema.id,
             resource_name="orders_cdc",
             row_count=0,
-            table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
             queryable_folder="s3://bucket/cdc_folder",
         )
 
@@ -320,7 +325,7 @@ class TestValidateSchemaAndUpdateTable:
         )
         schema = ExternalDataSchema.objects.create(name="orders", team=team, source=source)
         job = ExternalDataJob.objects.create(
-            team=team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING, rows_synced=10
+            team=team, pipeline=source, schema=schema, status=ExternalDataJobStatus.RUNNING, rows_synced=10
         )
         return schema, job
 
@@ -346,7 +351,7 @@ class TestValidateSchemaAndUpdateTable:
                 team_id=team.pk,
                 schema_id=schema.id,
                 row_count=10,
-                table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
                 queryable_folder="s3://bucket/orders",
             )
 
@@ -356,6 +361,7 @@ class TestValidateSchemaAndUpdateTable:
         assert schema.table is None
         table = DataWarehouseTable.objects.get(external_data_source=schema.source, deleted=False)
         assert not table.columns
+        assert table.created_via == DataWarehouseTableCreatedVia.SOURCE
 
 
 class TestUpdateLastSyncedAt:
@@ -384,3 +390,70 @@ class TestUpdateLastSyncedAt:
         schema.save.assert_called_once_with(skip_activity_log=True)
         close.assert_called_once()
         sleep.assert_called_once_with(2)
+
+
+class TestSetInitialSyncComplete(BaseTest):
+    """The purge-then-flip contract: a CDC snapshot schema's buffer prefix is purged before the
+    streaming flip (stale pre-snapshot files merged after the flip resurrect rows the snapshot
+    wiped), and NEVER purged when the schema is already streaming (those files are live,
+    unconsumed changes)."""
+
+    def _schema(self, *, sync_type: str, config: dict, initial_sync_complete: bool) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+        )
+        return ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source=source,
+            name="public.users",
+            sync_type=sync_type,
+            sync_type_config=config,
+            initial_sync_complete=initial_sync_complete,
+        )
+
+    @parameterized.expand(
+        [
+            # The flip: stale buffer must be gone before streaming resumes.
+            ("cdc_snapshot_first_completion", "cdc", {"cdc_mode": "snapshot"}, False, True, "streaming"),
+            # Already streaming (idempotent completion call): purging would delete live files.
+            ("cdc_already_streaming", "cdc", {"cdc_mode": "streaming"}, True, False, "streaming"),
+            # Non-CDC schemas have no buffer; purge must not run.
+            ("non_cdc", "full_refresh", {}, False, False, None),
+        ]
+    )
+    def test_purges_buffer_only_on_snapshot_to_streaming_flip(
+        self,
+        _name: str,
+        sync_type: str,
+        config: dict,
+        initial_flag: bool,
+        expects_purge: bool,
+        expected_cdc_mode: str | None,
+    ) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
+            _purge_stale_buffer_then_mark_initial_sync_complete,
+        )
+
+        schema = self._schema(sync_type=sync_type, config=config, initial_sync_complete=initial_flag)
+        calls: list[str] = []
+
+        def _record_purge(team_id: int, schema_id: str, logger, *, strict: bool = False) -> None:
+            assert strict, "flip purge must be strict — a swallowed failure re-ships the phantom-row bug"
+            fresh = ExternalDataSchema.objects.get(id=schema_id)
+            assert not fresh.initial_sync_complete, "purge must run BEFORE the flip commits"
+            calls.append(schema_id)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.buffer.purge_buffer_prefix",
+            side_effect=_record_purge,
+        ):
+            _purge_stale_buffer_then_mark_initial_sync_complete(str(schema.id), self.team.pk, MagicMock())
+
+        schema.refresh_from_db()
+        assert schema.initial_sync_complete is True
+        assert (calls == [str(schema.id)]) is expects_purge
+        assert schema.sync_type_config.get("cdc_mode") == expected_cdc_mode

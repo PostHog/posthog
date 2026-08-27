@@ -6,6 +6,17 @@ from posthog.hogql.database.models import DatabaseField, Table
 from posthog.hogql_queries.insights.query_context import QueryContextProtocol
 
 
+def resolve_warehouse_field(database: Database, table_name: str, field_name: str) -> DatabaseField:
+    table = database.get_table(table_name)
+    field = table.fields.get(field_name)
+    if field is None:
+        raise ValidationError(detail=f"Unknown field {table_name}.{field_name}")
+    if isinstance(field, Table):
+        raise ValidationError(detail=f"{table_name}.{field_name} points to a table, not a field")
+    assert isinstance(field, DatabaseField)
+    return field
+
+
 class DataWarehouseSchemaMixin(QueryContextProtocol):
     _hogql_database: Database | None = None
 
@@ -21,11 +32,4 @@ class DataWarehouseSchemaMixin(QueryContextProtocol):
         return self._hogql_database
 
     def get_warehouse_field(self, table_name: str, field_name: str) -> DatabaseField:
-        table = self.hogql_database.get_table(table_name)
-        field = table.fields.get(field_name)
-        if field is None:
-            raise ValidationError(detail=f"Unknown field {table_name}.{field_name}")
-        if isinstance(field, Table):
-            raise ValidationError(detail=f"{table_name}.{field_name} points to a table, not a field")
-        assert isinstance(field, DatabaseField)
-        return field
+        return resolve_warehouse_field(self.hogql_database, table_name, field_name)

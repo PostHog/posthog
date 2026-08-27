@@ -55,6 +55,10 @@ jobs:
                   filters: |
                       nodejs:
                         - .github/workflows/ci-nodejs.yml
+                        # The report job executes these after Jest uploads its JUnit artifacts.
+                        - '.github/actions/report-jest-timings/**'
+                        - '.github/scripts/report_test_timings.py'
+                        - 'bin/report-jest-timings'
                         # Node DB setup builds sqlx-cli via this composite; changes to it must exercise these jobs.
                         - '.github/actions/setup-sqlx-cli/**'
                         - 'nodejs/**'
@@ -62,6 +66,9 @@ jobs:
                         # its Rust tests; a rust-side change (incl. the shared fixtures) must run it.
                         - 'rust/replay-anonymizer/**'
                         - 'rust/replay-anonymizer-node/**'
+                        # These native addons are built by Turbo before Node.js tests. Their Rust
+                        # dependencies are not part of the ingestion consumer's targeted e2e set.
+                        - 'rust/common/hogvm/**'
                         - '**/crosslang/**'
                         # The clientwarnings consumer e2e replays capture's warning envelope from
                         # this shared fixture. Without it the rust filter below decides, and it only
@@ -261,7 +268,7 @@ jobs:
 
     tests:
         if: needs.changes.outputs.nodejs == 'true'
-        name: Node.js Tests ${{matrix.shard}}/3 (depot-ubuntu-24.04-4)
+        name: Node.js ${{ matrix.lane }} Tests ${{ matrix.shard }}/${{ matrix.shard_count }} (depot-ubuntu-24.04-4)
         needs: changes
         runs-on: depot-ubuntu-24.04-4
         # Tests fit comfortably in 30, but a rust change misses the turbo cache and cold-builds the
@@ -270,7 +277,19 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                shard: [1, 2, 3]
+                include:
+                    - lane: parallel
+                      shard: 1
+                      shard_count: 1
+                    - lane: serial
+                      shard: 1
+                      shard_count: 3
+                    - lane: serial
+                      shard: 2
+                      shard_count: 3
+                    - lane: serial
+                      shard: 3
+                      shard_count: 3
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -300,7 +319,7 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-                  COMPOSE_PROFILES: dev_tools,localstack
+                  COMPOSE_PROFILES: dev_tools,dynamodb
                   WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
                   WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
               run: |
@@ -309,7 +328,7 @@ jobs:
             - name: Wait for Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-                  COMPOSE_PROFILES: dev_tools,localstack
+                  COMPOSE_PROFILES: dev_tools,dynamodb
               run: bin/ci-wait-for-docker wait
 
             - name: Add service hostnames to /etc/hosts
@@ -382,11 +401,13 @@ jobs:
                   install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
-            - name: Wait for Clickhouse, Redis, Kafka, Localstack, SeaweedFS
+            - name: Wait for Clickhouse, Redis, Kafka, DynamoDB, SeaweedFS
               # seaweedfs backs the blob-store integration tests; the profile-scoped
               # stack launch above never starts it (it sits in the replay/agents
               # profiles), so start it explicitly here — no profiles overlay in play.
-              run: docker compose -f docker-compose.dev.yml up kafka redis7 valkey-cluster clickhouse maildev localstack seaweedfs -d --wait
+              # objectstorage starts by default but is listed so --wait blocks on its
+              # bootstrap sentinel: it returns InvalidAccessKeyId until that finishes.
+              run: docker compose -f docker-compose.dev.yml up kafka redis7 valkey-cluster clickhouse maildev dynamodb objectstorage seaweedfs -d --wait
 
             - name: Create Kafka topics
               run: docker compose -f docker-compose.dev.yml up kafka-init
@@ -456,7 +477,7 @@ jobs:
             - name: Prepare Node.js workspace
               env:
                   SHARD_INDEX: ${{ matrix.shard }}
-                  SHARD_COUNT: 3
+                  SHARD_COUNT: ${{ matrix.shard_count }}
               run: bin/turbo --filter=@posthog/nodejs prepare
 
             - name: Test with Jest
@@ -473,23 +494,30 @@ jobs:
                   REDIS_URL: 'redis://localhost'
                   NODE_OPTIONS: '--max_old_space_size=4096'
                   SHARD_INDEX: ${{ matrix.shard }}
-                  SHARD_COUNT: 3
-                  LOG_LEVEL: info
-                  # Enable localstack integration tests for DynamoDB/KMS
-                  LOCALSTACK_ENABLED: '1'
-                  # Emit JUnit XML for the Trunk upload below (turbo passes JEST_JUNIT_* through).
+                  SHARD_COUNT: ${{ matrix.shard_count }}
+                  LOG_LEVEL: ${{ runner.debug == '1' && 'info' || 'error' }}
+                  # Emit JUnit XML for the Trunk upload below.
                   JEST_JUNIT_OUTPUT_DIR: ${{ github.workspace }}/junit-results
-                  JEST_JUNIT_OUTPUT_NAME: junit-nodejs-${{ matrix.shard }}.xml
+                  JEST_JUNIT_OUTPUT_NAME: junit-nodejs-${{ matrix.lane }}-${{ matrix.shard }}.xml
                   # Trunk attributes flakes by test file; jest-junit's default suite name is the
                   # describe block, so make it the file path instead.
                   JEST_JUNIT_SUITE_NAME: '{filepath}'
                   JEST_JUNIT_ADD_FILE_ATTRIBUTE: 'true'
-              run: bin/turbo run test --filter=@posthog/nodejs
+                  # New compileHog callers must generate and commit their source-addressed fixture.
+                  HOG_BYTECODE_CACHE_REQUIRED: 'true'
+              run: |
+                  if [ -f nodejs/jest.serial.config.js ]; then
+                    cd nodejs && pnpm run test:${{ matrix.lane }}
+                  elif [ "${{ matrix.lane }}" = 'serial' ]; then
+                    bin/turbo run test --filter=@posthog/nodejs
+                  else
+                    echo "Parallel Jest config is not present on this branch; skipping."
+                  fi
 
             - name: Test postgres-parity (isolated DB)
               id: run-parity
               continue-on-error: true
-              if: (success() || failure()) && matrix.shard == 1
+              if: (success() || failure()) && matrix.lane == 'serial' && matrix.shard == 1
               env:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
@@ -497,16 +525,35 @@ jobs:
                   PERSONS_READONLY_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons_parity'
                   REDIS_URL: 'redis://localhost'
                   NODE_OPTIONS: '--max_old_space_size=4096'
-                  LOG_LEVEL: info
+                  LOG_LEVEL: ${{ runner.debug == '1' && 'info' || 'error' }}
                   JEST_JUNIT_OUTPUT_DIR: ${{ github.workspace }}/junit-results
                   JEST_JUNIT_OUTPUT_NAME: junit-nodejs-postgres-parity.xml
                   JEST_JUNIT_SUITE_NAME: '{filepath}'
                   JEST_JUNIT_ADD_FILE_ATTRIBUTE: 'true'
               run: cd nodejs && pnpm run test:postgres-parity
 
+            - name: Upload test results
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  # Attempt-suffixed so a same-run re-run keeps attempt 1's artifact available
+                  # for the recovery/failure correlation the signal job does. Retention 1 day:
+                  # these are inputs to the signal and slow-test jobs, nothing long-lived.
+                  # jest-junit's outputDir resolves against the jest process cwd, which is the
+                  # workspace root for the turbo invocation but `nodejs/` if a shard ever runs
+                  # jest directly; cover both.
+                  name: junit-results-nodejs-${{ matrix.shard }}${{ github.run_attempt != '1' && format('-attempt{0}', github.run_attempt) || '' }}
+                  path: |
+                      junit-results/junit-nodejs-*.xml
+                      junit-results/posthog-jest-quarantine-*.jsonl
+                      nodejs/junit-results/junit-nodejs-*.xml
+                      nodejs/junit-results/posthog-jest-quarantine-*.jsonl
+                  if-no-files-found: ignore
+                  retention-days: 1
+
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
             # the verdict, so a Trunk outage can't red a passing shard. Internal PRs only (needs the
-            # secret); cli-version pinned, not 'latest' (skips the release redirect).
+            # secret).
             # TRUNK_UPLOAD_ENABLED is the master kill-switch: when it is not 'true' this gate
             # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
             # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
@@ -515,12 +562,9 @@ jobs:
               id: quarantine_gate
               continue-on-error: true
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
-              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: junit-results/junit-*.xml
-                  org-slug: posthog-inc
-                  cli-version: '0.13.7'
-                  quarantine: true
                   # Worst of the two test steps: the gate must know the run failed even when
                   # only the parity step (shard 1) did. A skipped parity step counts as success.
                   previous-step-outcome: ${{ (steps.run-jest.outcome == 'failure' || steps.run-parity.outcome == 'failure') && 'failure' || 'success' }}
@@ -576,7 +620,7 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-                  COMPOSE_PROFILES: dev_tools,localstack
+                  COMPOSE_PROFILES: dev_tools
                   WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
                   WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
               run: |
@@ -585,7 +629,7 @@ jobs:
             - name: Wait for Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-                  COMPOSE_PROFILES: dev_tools,localstack
+                  COMPOSE_PROFILES: dev_tools
               run: bin/ci-wait-for-docker wait
 
             - name: Add service hostnames to /etc/hosts
@@ -658,8 +702,8 @@ jobs:
                   install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
-            - name: Wait for Clickhouse, Redis, Kafka, Localstack
-              run: docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev localstack -d --wait
+            - name: Wait for Clickhouse, Redis, Kafka
+              run: docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev -d --wait
 
             - name: Create Kafka topics
               run: docker compose -f docker-compose.dev.yml up kafka-init
@@ -726,6 +770,10 @@ jobs:
             - name: Build Node.js workspace dependencies
               run: bin/turbo --filter=@posthog/nodejs prepare
 
+            # ingestion-consumer depends on ingestion-worker-proto, whose build script runs protoc.
+            - name: Install protoc
+              uses: ./.github/actions/setup-protoc
+
             - name: Pre-build Rust ingestion consumer
               working-directory: rust
               run: cargo build -p ingestion-consumer
@@ -738,9 +786,9 @@ jobs:
                   PERSONS_READONLY_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons'
                   REDIS_URL: 'redis://localhost'
                   NODE_OPTIONS: '--max_old_space_size=4096'
-                  LOG_LEVEL: info
+                  LOG_LEVEL: ${{ runner.debug == '1' && 'info' || 'error' }}
               run: |
-                  if [ -f nodejs/tests/service-e2e/rust-ingestion-consumer.test.ts ]; then
+                  if [ -f nodejs/tests/service-e2e/rust-ingestion-consumer.serial.test.ts ] || [ -f nodejs/tests/service-e2e/rust-ingestion-consumer.test.ts ]; then
                     cd nodejs && pnpm run test:rust-ingestion-e2e
                   else
                     echo "Rust ingestion service e2e test is not present on this branch; skipping."
@@ -753,7 +801,61 @@ jobs:
                   # Echo out the logs stored in the container
                   docker compose -f docker-compose.dev.yml exec clickhouse cat /var/log/clickhouse-server/clickhouse-server.err.log
 
+    report-test-speed:
+        name: Node.js test-speed report
+        needs: [tests]
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        continue-on-error: true
+        permissions:
+            actions: read
+            contents: read
+        # Prints the per-shard/per-test slow-down breakdown to the job log and summary.
+        # It runs only the PR's reporter against uploaded JUnit and has no write permissions.
+        if: >-
+            !cancelled() &&
+            needs.tests.result != 'skipped' &&
+            github.repository == 'PostHog/posthog' &&
+            (
+            (github.event_name != 'pull_request' && github.ref == 'refs/heads/master') ||
+            (github.event_name == 'pull_request' &&
+            github.event.pull_request.head.repo.full_name == 'PostHog/posthog')
+            )
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+                  fetch-depth: 1
+            - name: Check for trusted test reporter
+              id: test-reporter
+              shell: bash
+              run: |
+                  available=false
+                  if [[ -f .github/scripts/report_test_timings.py && -f bin/report-jest-timings && -d tools/owners ]] && grep -q -- '--timings' .github/scripts/report_test_timings.py; then
+                    available=true
+                  fi
+                  if [[ "$available" != "true" ]]; then
+                    echo "Trusted timings reporter is not available on the checked-out ref; skipping speed report."
+                  fi
+                  echo "available=$available" >> "$GITHUB_OUTPUT"
+            - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              if: steps.test-reporter.outputs.available == 'true'
+              with:
+                  version: '0.11.28'
+            - name: Download Jest results
+              if: steps.test-reporter.outputs.available == 'true'
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  path: ./junit-artifacts
+                  pattern: junit-results-nodejs-*
+            - name: Render test-speed report
+              if: steps.test-reporter.outputs.available == 'true'
+              uses: ./.github/actions/report-jest-timings
+              with:
+                  artifacts: ./junit-artifacts
+
     node_tests:
+        # report-test-speed is deliberately not in needs: it is visible but non-gating.
         needs: [tests, rust_ingestion_e2e, build, lint]
         name: Node.js Tests Pass
         runs-on: ubuntu-latest

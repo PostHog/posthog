@@ -25,8 +25,10 @@ REVIEW_INITIAL_PERMISSION_MODE = "full-access"
 # untrusted PR-comment text, and their only legitimate MCP use is reading their criteria skill
 # (skill-get / skill-file-get) — without this the context defaults to "full", handing an injectable
 # agent execute-sql and every write tool. Internal sandbox-plumbing scopes are re-added by the
-# resolver, so this cannot break session mechanics.
-REVIEW_MCP_SCOPES: list[str] = ["llm_skill:read"]
+# resolver, so this cannot break session mechanics. `user:read` is the MCP handshake: the MCP
+# server resolves the calling user (`/api/users/@me/`) when a session opens and refuses the whole
+# connection without it, so the agent never gets `skill-get` and silently reviews without its skill.
+REVIEW_MCP_SCOPES: list[str] = ["llm_skill:read", "user:read"]
 
 
 @dataclass(frozen=True)
@@ -138,8 +140,10 @@ MAX_THREADS_PER_RUN = 20
 # Attempts for the per-PR resolution session. Retries are cheap — the per-thread verdicts persist,
 # so a retry redoes unjudged threads and undelivered side effects (a crash in the post-reply window
 # can still duplicate a reply; see temporal/resolution.py). On the final attempt a failed turn skips
-# its thread instead of raising, mirroring the validation session.
-RESOLUTION_MAX_ATTEMPTS = 2
+# its thread instead of raising, mirroring the validation session. Sized for prod worker rollouts:
+# deploys land every ~15 minutes and kill the in-flight attempt after a ~5-minute grace, so an
+# attempt survives ~2-4 turns and a full work-list needs several attempts to grind through.
+RESOLUTION_MAX_ATTEMPTS = 5
 
 # CHUNKING MODEL
 # Pins for the sandbox chunking turn (PRs over the one-shot gate), matching the one-shot pin below —

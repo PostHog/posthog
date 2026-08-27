@@ -28,6 +28,8 @@ from posthog.clickhouse.cluster import (
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 
+pytestmark = pytest.mark.django_db
+
 
 @pytest.fixture
 def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
@@ -339,6 +341,30 @@ def test_find_existing_mutations_handles_multiline_formatted_command(cluster: Cl
     assert shard_mutations == duplicate
 
 
+def test_find_existing_mutations_handles_delimiter_shaped_parameter_value(cluster: ClickhouseCluster) -> None:
+    """Regression test: `find_existing_mutations` used to interpolate the command template into a
+    `$__sql$` heredoc and let the driver substitute parameters inside it. The driver escapes quotes
+    and backslashes but not `$`, so a parameter value containing the delimiter closed the heredoc
+    early and the remainder of the value parsed as SQL — silently, since the surrounding array kept
+    its length. A person's `distinct_id` is exactly such attacker-controlled input once it reaches a
+    mutation predicate. Parameters are now rendered via `substitute_params` and bound as an ordinary
+    parameter, so a delimiter-shaped value is just data; pre-fix, this raised a ClickHouse syntax
+    error instead of returning cleanly.
+    """
+    sentinel_uuid = uuid.uuid1()  # keeps the rendered command unique to this run
+
+    runner = AlterTableMutationRunner(
+        table=EVENTS_DATA_TABLE(),
+        commands={"UPDATE person_id = %(uuid)s WHERE distinct_id = %(distinct_id)s"},
+        parameters={"uuid": sentinel_uuid, "distinct_id": "$__sql$"},
+    )
+
+    existing = cluster.map_all_hosts(runner.find_existing_mutations).result()
+    assert all(not mutations for mutations in existing.values()), (
+        "expected no pre-existing mutation for this delimiter-shaped parameter"
+    )
+
+
 def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
     table = EVENTS_DATA_TABLE()
     count = 100
@@ -516,6 +542,30 @@ def test_map_hosts_with_satellite_clusters() -> None:
         assert times_called["aux"] == 2
         assert times_called["sessions"] == 1
         times_called.clear()
+
+
+def test_sibling_addresses_another_cluster_and_is_memoized() -> None:
+    hosts_by_cluster = {
+        "posthog": [("host1", 9000, 1, 1, "online", "data")],
+        "events": [
+            ("events-host1", 9000, 1, 1, "online", "data"),
+            ("events-host2", 9000, 2, 1, "online", "data"),
+        ],
+    }
+    bootstrap_client_mock = Mock()
+    bootstrap_client_mock.execute = Mock(side_effect=lambda query, params: hosts_by_cluster[params["name"]])
+
+    cluster = ClickhouseCluster(bootstrap_client_mock, cluster="posthog")
+
+    assert cluster.sibling("posthog") is cluster
+
+    sibling = cluster.sibling("events")
+    assert sibling.data_cluster_name == "events"
+    assert sorted(sibling.shards) == [1, 2]
+    # The handle it was derived from keeps its own shard map, so the two clusters are not merged.
+    assert cluster.shards == [1]
+    # Memoized: rebuilding would rediscover the hosts and open a second pool per host.
+    assert cluster.sibling("events") is sibling
 
 
 def test_satellite_cluster_hosts_have_no_shard_info() -> None:

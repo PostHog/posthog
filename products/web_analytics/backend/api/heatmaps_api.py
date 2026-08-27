@@ -1,7 +1,8 @@
-from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from io import BytesIO
 from json import JSONDecodeError, loads
 from typing import Any, List, Literal, cast, get_args  # noqa: UP035
+from urllib.parse import urlparse
 
 from django.core.exceptions import FieldError
 from django.db import transaction
@@ -13,9 +14,11 @@ import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
+from PIL import Image
 from prometheus_client import Counter
 from rest_framework import request, response, serializers, status, viewsets
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, UnsupportedMediaType, ValidationError
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import BasePermission
 from rest_framework.views import APIView
 
@@ -34,9 +37,11 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.uploaded_media import validate_image_file
 from posthog.api.utils import action
 from posthog.auth import ExportRendererAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.dataclasses import frozen
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
@@ -49,11 +54,14 @@ from posthog.rate_limit import (
     HeatmapPreflightBurstRateThrottle,
     HeatmapPreflightSustainedRateThrottle,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControlSerializerMixin
 from posthog.security.url_validation import is_url_allowed
 from posthog.utils import relative_date_parse_with_delta_mapping
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.cohorts.backend.models.cohort import Cohort
 from products.web_analytics.backend.api.heatmaps_utils import (
     DEFAULT_TARGET_WIDTHS,
@@ -64,9 +72,18 @@ from products.web_analytics.backend.api.heatmaps_utils import (
 )
 from products.web_analytics.backend.heatmap_preflight import BlockedBy, Framing, preflight_page
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
-from products.web_analytics.backend.tasks.heatmap_screenshot import generate_heatmap_screenshot
+from products.web_analytics.backend.tasks.heatmap_screenshot import (
+    HEATMAP_SCREENSHOT_MAX_BYTES,
+    _persist_snapshot,
+    generate_heatmap_screenshot,
+)
 
 STALE_PROCESSING_THRESHOLD = timedelta(minutes=10)
+
+MAX_CAPTURE_IMAGE_WIDTH = 4000
+MAX_CAPTURE_IMAGE_HEIGHT = 30000
+MAX_CAPTURE_IMAGE_PIXELS = 50_000_000
+MAX_CAPTURE_TOTAL_BYTES = 60 * 1024 * 1024
 
 HEATMAPS_COHORT_FILTER_FLAG = "heatmaps-cohort-filter"
 
@@ -86,6 +103,20 @@ def _heatmaps_cohort_filter_enabled(user: User, team: Team) -> bool:
         team_id=team.id,
         organization_id=str(team.organization_id),
     )
+
+
+def _reject_oversized_capture_image(image_bytes: bytes) -> None:
+    try:
+        with Image.open(BytesIO(image_bytes)) as im:
+            width, height = im.size
+    except Exception:
+        raise ValidationError(code="invalid_image", detail="Uploaded media must be a valid image")
+    if (
+        width > MAX_CAPTURE_IMAGE_WIDTH
+        or height > MAX_CAPTURE_IMAGE_HEIGHT
+        or width * height > MAX_CAPTURE_IMAGE_PIXELS
+    ):
+        raise ValidationError(code="image_too_large", detail="Screenshot dimensions are too large to process")
 
 
 DEFAULT_QUERY = """
@@ -194,7 +225,7 @@ def anchor_url_pattern(value: str) -> str:
     return validated_value
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class ResolvedUrlFilter:
     url_exact: str | None
     url_pattern: str | None
@@ -835,6 +866,11 @@ class HeatmapSnapshotMetadataSerializer(serializers.Serializer):
 
 class HeatmapScreenshotResponseSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    target_widths = serializers.ListField(
+        child=serializers.IntegerField(),
+        read_only=True,
+        help_text="Viewport widths (CSS pixels) the screenshot is rendered at.",
+    )
     snapshots = serializers.SerializerMethodField(
         help_text="Per-width render metadata. Fetch the actual image bytes for a width from the content endpoint."
     )
@@ -849,6 +885,7 @@ class HeatmapScreenshotResponseSerializer(UserAccessControlSerializerMixin, seri
             "data_url",
             "target_widths",
             "type",
+            "source",
             "status",
             "has_content",
             "snapshots",
@@ -863,6 +900,7 @@ class HeatmapScreenshotResponseSerializer(UserAccessControlSerializerMixin, seri
         read_only_fields = [
             "id",
             "short_id",
+            "source",
             "status",
             "has_content",
             "created_by",
@@ -875,8 +913,11 @@ class HeatmapScreenshotResponseSerializer(UserAccessControlSerializerMixin, seri
             "name": {"help_text": "Human-readable label for the saved heatmap."},
             "url": {"help_text": "The page URL this saved heatmap renders and overlays data on."},
             "data_url": {"help_text": "URL whose heatmap data is overlaid on the screenshot (defaults to 'url')."},
-            "target_widths": {"help_text": "Viewport widths (CSS pixels) the screenshot is rendered at."},
             "type": {"help_text": "Render mode: 'screenshot', 'iframe', or 'recording'."},
+            "source": {
+                "help_text": "How the screenshot was captured: 'server' (rendered headlessly via Browserless) or "
+                "'toolbar' (captured client-side from the on-page toolbar, e.g. for pages behind a login)."
+            },
             "status": {"help_text": "Screenshot generation status: 'processing', 'completed', or 'failed'."},
             "has_content": {"help_text": "Whether at least one rendered image is ready to fetch."},
             "deleted": {"help_text": "Soft-delete flag; deleted heatmaps are hidden from the list."},
@@ -1009,12 +1050,23 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 _URL_PATTERN_CHARS = set("*+?^${}()|[]\\")
 
 
-def validate_page_url(value: str) -> str:
+def _reject_url_wildcards(value: str) -> None:
     if any(c in _URL_PATTERN_CHARS for c in value):
         raise serializers.ValidationError("Wildcards are not allowed in the page URL.")
+
+
+def validate_page_url(value: str) -> str:
+    _reject_url_wildcards(value)
     ok, err = is_url_allowed(value)
     if not ok:
         raise serializers.ValidationError(err or "URL not allowed")
+    return value
+
+
+def validate_captured_page_url(value: str) -> str:
+    _reject_url_wildcards(value)
+    if urlparse(value).scheme not in ("http", "https"):
+        raise serializers.ValidationError("URL must start with http:// or https://.")
     return value
 
 
@@ -1061,6 +1113,65 @@ class SavedHeatmapRequestSerializer(serializers.ModelSerializer):
                 "time out. Only applies to 'screenshot' heatmaps.",
             },
         }
+
+
+class SavedHeatmapCaptureRequestSerializer(serializers.Serializer):
+    image = serializers.ImageField(
+        required=False,
+        help_text="Single screenshot of the page, captured client-side by the toolbar (JPEG or PNG). Max 20MB. "
+        "Pair with 'width'. Use 'images'/'widths' instead to save several viewport widths on one heatmap.",
+    )
+    width = serializers.IntegerField(
+        required=False,
+        min_value=100,
+        max_value=3000,
+        help_text="Viewport width (CSS pixels) the single 'image' was captured at.",
+    )
+    images = serializers.ListField(
+        child=serializers.ImageField(),
+        required=False,
+        allow_empty=False,
+        max_length=MAX_TARGET_WIDTHS,
+        help_text="One screenshot per viewport width, parallel to 'widths' (same length, same order). Lets a single "
+        f"toolbar capture cover the same viewport widths the server renders. At most {MAX_TARGET_WIDTHS} widths.",
+    )
+    widths = serializers.ListField(
+        child=serializers.IntegerField(min_value=100, max_value=3000),
+        required=False,
+        allow_empty=False,
+        max_length=MAX_TARGET_WIDTHS,
+        help_text="Viewport widths (CSS pixels) the 'images' were captured at, parallel to 'images'.",
+    )
+    url = serializers.CharField(
+        max_length=2000,
+        help_text="Exact page URL the screenshot was captured on. Wildcards are not allowed; this is stored as both "
+        "the heatmap URL and its data URL, so the overlay reads aggregate data for this exact URL.",
+    )
+    name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=400,
+        help_text="Human-readable label for the saved heatmap. Defaults to the URL when omitted.",
+    )
+
+    def validate_url(self, value: str) -> str:
+        return validate_captured_page_url(value)
+
+    def validate(self, data: dict) -> dict:
+        has_multi = "images" in data or "widths" in data
+        has_single = "image" in data or "width" in data
+        if has_multi and has_single:
+            raise serializers.ValidationError("Provide either 'image'+'width' or 'images'+'widths', not both.")
+        if has_multi:
+            if "images" not in data or "widths" not in data:
+                raise serializers.ValidationError("Both 'images' and 'widths' are required for a multi-width capture.")
+            if len(data["images"]) != len(data["widths"]):
+                raise serializers.ValidationError("'images' and 'widths' must be the same length.")
+            if len(set(data["widths"])) != len(data["widths"]):
+                raise serializers.ValidationError("'widths' must not contain duplicate values.")
+        elif not ("image" in data and "width" in data):
+            raise serializers.ValidationError("Provide 'image'+'width' or 'images'+'widths'.")
+        return data
 
 
 class SavedHeatmapListQuerySerializer(serializers.Serializer):
@@ -1136,7 +1247,11 @@ class HeatmapPreflightResponseSerializer(serializers.Serializer):
 # AccessControlPermission lets a collection action through on a grant over any single heatmap, which
 # for an action that spends something on a caller-supplied URL rather than reading one heatmap is not
 # the boundary we want. These two need resource-level access to the whole kind instead.
-_RESOURCE_LEVEL_ACTIONS: dict[str, AccessControlLevel] = {"prewarm": "editor", "preflight": "viewer"}
+_RESOURCE_LEVEL_ACTIONS: dict[str, AccessControlLevel] = {
+    "capture": "editor",
+    "prewarm": "editor",
+    "preflight": "viewer",
+}
 
 
 class HeatmapResourceAccessPermission(BasePermission):
@@ -1169,7 +1284,7 @@ class SavedHeatmapViewSet(
     pagination_class = None
 
     def get_throttles(self):
-        if self.action in ("create", "prewarm"):
+        if self.action in ("create", "prewarm", "capture"):
             # More restrictive rate limiting for expensive screenshot generation
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
         if self.action == "preflight":
@@ -1320,21 +1435,78 @@ class SavedHeatmapViewSet(
                 else SavedHeatmap.Status.COMPLETED,
             )
 
-        log_activity(
-            organization_id=cast(User, request.user).current_organization_id
-            if hasattr(request.user, "current_organization_id")
-            else None,
-            team_id=self.team.id,
-            user=cast(User, request.user),
-            item_id=screenshot.short_id or str(screenshot.id),
-            scope="Heatmap",
-            activity="created",
-            detail=Detail(name=screenshot.name or screenshot.url, short_id=screenshot.short_id, type=screenshot.type),
-            was_impersonated=is_impersonated(request),
-        )
+        self._log_heatmap_activity(request, screenshot, "created")
 
         if enqueue_render:
             generate_heatmap_screenshot.delay(screenshot.id)
+
+        response_serializer = HeatmapScreenshotResponseSerializer(screenshot, context=self.get_serializer_context())
+        return response.Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        request={"multipart/form-data": SavedHeatmapCaptureRequestSerializer},
+        responses={201: HeatmapScreenshotResponseSerializer},
+        description="Persist screenshots captured client-side by the on-page toolbar as a completed screenshot "
+        "heatmap. No headless render is enqueued: the toolbar runs in the user's authenticated browser, so this is "
+        "the path for pages behind a login that Browserless cannot reach. Send one 'image'+'width', or 'images'+"
+        "'widths' parallel arrays to store several viewport widths on one heatmap (the toolbar re-lays out the page "
+        "at each width and captures it, matching the widths the server renders). The image bytes are stored and "
+        "served only through the authenticated content endpoint. The heatmap's data URL is set to the captured URL.",
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        required_scopes=["heatmap:write"],
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def capture(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        serializer = SavedHeatmapCaptureRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        validated = serializer.validated_data
+
+        if "images" in validated:
+            width_image_pairs = list(zip(validated["widths"], validated["images"]))
+        else:
+            width_image_pairs = [(validated["width"], validated["image"])]
+
+        if sum(image_file.size for _, image_file in width_image_pairs) > MAX_CAPTURE_TOTAL_BYTES:
+            raise ValidationError(code="request_too_large", detail="Total screenshot size is too large")
+
+        user_id = cast(User, request.user).id
+        snapshot_bytes: list[tuple[int, bytes]] = []
+        for width, image_file in width_image_pairs:
+            if image_file.size > HEATMAP_SCREENSHOT_MAX_BYTES:
+                raise ValidationError(code="file_too_large", detail="Each screenshot must be less than 20MB")
+            content_type = getattr(image_file, "content_type", "") or ""
+            if not content_type.startswith("image/"):
+                raise UnsupportedMediaType(content_type or "unknown")
+            image_file.seek(0)
+            image_bytes = image_file.read()
+            _reject_oversized_capture_image(image_bytes)
+            if not validate_image_file(image_bytes, user=user_id):
+                raise ValidationError(code="invalid_image", detail="Uploaded media must be a valid image")
+            snapshot_bytes.append((width, image_bytes))
+
+        url = validated["url"]
+        name = validated.get("name") or url
+        target_widths = list(dict.fromkeys(width for width, _ in snapshot_bytes))
+
+        with transaction.atomic():
+            screenshot = SavedHeatmap.objects.create(
+                team=self.team,
+                name=name,
+                url=url,
+                data_url=url,
+                target_widths=target_widths,
+                type=SavedHeatmap.Type.SCREENSHOT,
+                source=SavedHeatmap.Source.TOOLBAR,
+                status=SavedHeatmap.Status.COMPLETED,
+                created_by=cast(User, request.user),
+            )
+            for width, image_bytes in snapshot_bytes:
+                _persist_snapshot(screenshot, width, image_bytes)
+
+        self._log_heatmap_activity(request, screenshot, "created")
 
         response_serializer = HeatmapScreenshotResponseSerializer(screenshot, context=self.get_serializer_context())
         return response.Response(response_serializer.data, status=status.HTTP_201_CREATED)
@@ -1407,6 +1579,11 @@ class SavedHeatmapViewSet(
             return response.Response(
                 {"error": "Only screenshot heatmaps can be regenerated"}, status=status.HTTP_400_BAD_REQUEST
             )
+        if obj.source == SavedHeatmap.Source.TOOLBAR:
+            return response.Response(
+                {"error": "Toolbar-captured heatmaps can't be re-rendered on the server; re-capture from the toolbar"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         self._regenerate(obj)
         response_serializer = HeatmapScreenshotResponseSerializer(obj, context=self.get_serializer_context())
@@ -1431,11 +1608,27 @@ class SavedHeatmapViewSet(
         return response.Response(HeatmapPreflightResponseSerializer(result).data, status=status.HTTP_200_OK)
 
     def _regenerate(self, obj: SavedHeatmap) -> None:
+        if obj.source == SavedHeatmap.Source.TOOLBAR:
+            return
         obj.status = SavedHeatmap.Status.PROCESSING
         obj.exception = None
         obj.save(update_fields=["status", "exception", "updated_at"])
         HeatmapSnapshot.objects.filter(heatmap=obj).delete()
         generate_heatmap_screenshot.delay(obj.id)
+
+    def _log_heatmap_activity(self, request: request.Request, obj: SavedHeatmap, activity: str) -> None:
+        log_activity(
+            organization_id=cast(User, request.user).current_organization_id
+            if hasattr(request.user, "current_organization_id")
+            else None,
+            team_id=self.team.id,
+            user=cast(User, request.user),
+            item_id=obj.short_id or str(obj.id),
+            scope="Heatmap",
+            activity=activity,
+            detail=Detail(name=obj.name or obj.url, short_id=obj.short_id, type=obj.type),
+            was_impersonated=is_impersonated(request),
+        )
 
     @extend_schema(
         request=SavedHeatmapRequestSerializer,
@@ -1463,23 +1656,28 @@ class SavedHeatmapViewSet(
 
         serializer = SavedHeatmapRequestSerializer(obj, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
+
+        if obj.source == SavedHeatmap.Source.TOOLBAR:
+            validated = serializer.validated_data
+            render_input_changing = (
+                ("url" in validated and validated["url"] != obj.url)
+                or ("data_url" in validated and validated["data_url"] != obj.data_url)
+                or (
+                    "block_consent_modals" in validated
+                    and validated["block_consent_modals"] != obj.block_consent_modals
+                )
+            )
+            if render_input_changing:
+                raise ValidationError(
+                    "Toolbar-captured heatmaps can't change their URL or rendering settings; re-capture from the toolbar instead."
+                )
+
         updated = serializer.save()
 
         render_input_changed = updated.url != old_url or updated.block_consent_modals != old_block_consent_modals
         if updated.type == SavedHeatmap.Type.SCREENSHOT and render_input_changed:
             self._regenerate(updated)
 
-        log_activity(
-            organization_id=cast(User, request.user).current_organization_id
-            if hasattr(request.user, "current_organization_id")
-            else None,
-            team_id=self.team.id,
-            user=cast(User, request.user),
-            item_id=updated.short_id or str(updated.id),
-            scope="Heatmap",
-            activity="updated",
-            detail=Detail(name=updated.name or updated.url, short_id=updated.short_id, type=updated.type),
-            was_impersonated=is_impersonated(request),
-        )
+        self._log_heatmap_activity(request, updated, "updated")
         response_serializer = HeatmapScreenshotResponseSerializer(updated, context=self.get_serializer_context())
         return response.Response(response_serializer.data, status=status.HTTP_200_OK)

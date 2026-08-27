@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-import os
 import re
 import json
 import time
 import struct
 import asyncio
 import builtins
-from collections.abc import AsyncGenerator, Generator
+from collections.abc import Generator
 from contextlib import contextmanager
-from dataclasses import dataclass
 from json import JSONDecodeError
 from typing import Any, Literal, cast
 from urllib.parse import urlparse
@@ -22,9 +20,8 @@ from django.http import HttpResponse, JsonResponse
 import requests
 import structlog
 import posthoganalytics
-from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import ServerException
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import extend_schema
 from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
     ChatCompletionMessageParam,
@@ -42,7 +39,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.utils.encoders import JSONEncoder
-from temporalio.service import RPCError, RPCStatusCode
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
 from posthog.schema import (
@@ -61,7 +57,6 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
 from posthog.auth import (
     ExportRendererAuthentication,
@@ -72,7 +67,7 @@ from posthog.auth import (
     SharingPasswordProtectedAuthentication,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.cloud_utils import is_cloud
+from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import report_user_action
 from posthog.exceptions import ClickHouseAtCapacity
@@ -82,7 +77,6 @@ from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.comment import Comment
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
-from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import hash_key_value
 from posthog.otel_metrics import OtelInstrumentFactory
 from posthog.personhog_client.caller_tag import personhog_caller_tag
@@ -93,12 +87,11 @@ from posthog.rate_limit import (
     is_rate_limit_enabled,
     team_is_allowed_to_bypass_throttle,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
 from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
+from posthog.session_recordings.openai_client import get_openai_client
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.session_replay_events import (
     SessionReplayEvents,
@@ -116,22 +109,11 @@ from posthog.session_recordings.utils import (
     recordings_query_has_event_filters,
 )
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
-from posthog.temporal.common.client import async_connect
-from posthog.temporal.session_replay.session_summary.workflow import (
-    SummarizeSingleSessionWorkflow,
-    execute_summarize_session_video_stream,
-)
 
-from products.replay.backend.models.team_session_summaries_config import TeamSessionSummariesConfig
-
-from ee.hogai.session_summaries.llm.call import get_openai_client
-from ee.hogai.session_summaries.session.output_data import OutcomeSerializer
-from ee.hogai.session_summaries.tracking import (
-    capture_session_summary_generated,
-    capture_session_summary_started,
-    generate_tracking_id,
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
 )
-from ee.hogai.session_summaries.utils import serialize_to_sse_event
 
 from ..models.product_intent.product_intent import ProductIntent
 from .queries.combine_session_ids_for_filtering import combine_session_id_filters
@@ -198,21 +180,6 @@ def _count_session_recording_throttled(location: str, auth_type: str) -> None:
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
-
-
-async def _cancel_summary_workflow(workflow_id: str) -> None:
-    """Issue a Temporal cancel for the given workflow id.
-
-    Treats NOT_FOUND as success so the cancel endpoint stays idempotent —
-    the workflow may have already finished, been cancelled, or never started.
-    """
-    client = await async_connect()
-    handle = client.get_workflow_handle(workflow_id)
-    try:
-        await handle.cancel()
-    except RPCError as exc:
-        if exc.status != RPCStatusCode.NOT_FOUND:
-            raise
 
 
 def _request_auth_type(request) -> str:
@@ -319,8 +286,6 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
     viewed = serializers.SerializerMethodField()
     viewers = serializers.SerializerMethodField()
     activity_score = serializers.SerializerMethodField()
-    has_summary = serializers.SerializerMethodField()
-    summary_outcome = serializers.SerializerMethodField()
     matches_filters = serializers.SerializerMethodField(
         help_text="Whether this recording matched the filters of the listing query that returned it. "
         "False only when a recording requested via session_recording_id was included despite not matching the filters."
@@ -347,33 +312,6 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
 
     def get_activity_score(self, obj: SessionRecording) -> float | None:
         return getattr(obj, "activity_score", None)
-
-    def get_has_summary(self, obj: SessionRecording) -> bool:
-        preloaded_has_summary = getattr(obj, "has_summary", None)
-        if preloaded_has_summary is not None:
-            return bool(preloaded_has_summary)
-
-        # Skip loading in list views to prevent N+1 queries.
-        # List endpoints should preload this field in batch.
-        view = self.context.get("view")
-        if view and getattr(view, "action", None) == "list":
-            return False
-
-        try:
-            from products.replay.backend.models.session_summaries import SingleSessionSummary
-        except ImportError:
-            return False
-
-        return SingleSessionSummary.objects.filter(
-            team_id=obj.team_id,
-            session_id=str(obj.session_id),
-            # Keep this aligned with summarize() default behavior (no extra context).
-            extra_summary_context__isnull=True,
-        ).exists()
-
-    @extend_schema_field(OutcomeSerializer(allow_null=True))
-    def get_summary_outcome(self, obj: SessionRecording) -> dict | None:
-        return getattr(obj, "summary_outcome", None)
 
     def get_external_references(self, obj: SessionRecording) -> list[dict]:
         """Load external references (linked issues) for this recording"""
@@ -426,8 +364,6 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "snapshot_library",
             "ongoing",
             "activity_score",
-            "has_summary",
-            "summary_outcome",
             "external_references",
             "matches_filters",
         ]
@@ -584,7 +520,7 @@ class SessionRecordingBulkDeleteResponseSerializer(serializers.Serializer):
     )
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class RecordingsListingResult:
     recordings: list[SessionRecording]
     more_recordings_available: bool
@@ -891,6 +827,14 @@ class SessionRecordingViewSet(
     queryset = SessionRecording.objects.none()
 
     sharing_enabled_actions = ["retrieve", "snapshots", "snapshot_file"]
+
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        # Scope parity with the experiments API: the experiment_exposure filter reads
+        # experiment data through the recordings list, so a token needs experiment:read on
+        # top of the replay scope. The result replaces the default, so both are listed.
+        if getattr(view, "action", None) == "list" and request.query_params.get("experiment_exposure"):
+            return ["session_recording:read", "experiment:read"]
+        return None
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
@@ -1330,20 +1274,11 @@ class SessionRecordingViewSet(
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=False, url_path="batch_check_exists")
     def batch_check_exists(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        """Batch check which session IDs have recordings, optionally with persisted AI summary outcomes.
+        """Batch check which session IDs have recordings.
 
         Returns a dict mapping session_id -> exists (boolean).
         Only positive results (exists=True) are cached.
         Negative results are not cached since recordings may still be ingesting.
-
-        When ``include_outcomes`` is truthy, also returns ``outcomes`` mapping session_id ->
-        ``{"description": ...}`` for sessions with a persisted AI summary outcome description.
-
-        This action is deliberately *not* in ``scope_object_read_actions`` so personal API keys
-        cannot call it; outcome descriptions can contain user-activity text and must remain
-        scoped to authenticated session-based access.
-        Sessions without a persisted summary or without an outcome description are omitted from
-        the outcomes map rather than returned with a null value.
         """
         session_ids = request.data.get("session_ids", [])
 
@@ -1356,27 +1291,8 @@ class SessionRecordingViewSet(
         if not all(isinstance(sid, str) for sid in session_ids):
             raise exceptions.ValidationError("session_ids must contain only strings")
 
-        include_outcomes = bool(request.data.get("include_outcomes"))
-
         results = SessionReplayEvents().batch_exists(session_ids, self.team)
-        payload: dict[str, Any] = {"results": results}
-
-        if include_outcomes:
-            outcomes: dict[str, dict] = {}
-            try:
-                from products.replay.backend.models.session_summaries import SingleSessionSummary
-            except ImportError:
-                # Distinguishes OSS deploys (expected) from EE refactors that break the import (silent feature
-                # degradation otherwise).
-                logger.warning("session_summaries module not importable; returning empty outcomes")
-            else:
-                bulk_outcomes = SingleSessionSummary.objects.get_outcomes_bulk(self.team.id, session_ids)
-                for session_id, outcome in bulk_outcomes.items():
-                    if outcome and outcome.get("description"):
-                        outcomes[session_id] = {"description": outcome["description"]}
-            payload["outcomes"] = outcomes
-
-        return Response(payload)
+        return Response({"results": results})
 
     @tracer.start_as_current_span("replay_snapshots_api")
     @extend_schema(exclude=True)
@@ -1621,165 +1537,6 @@ class SessionRecordingViewSet(
         except:
             return "unknown"
 
-    async def _generate_video_based_summary(
-        self,
-        session_id: str,
-        user: User,
-        tracking_id: str,
-        product_context: str | None = None,
-        custom_tags: dict[str, str] | None = None,
-        force_restart: bool = False,
-    ) -> AsyncGenerator[str]:
-        """Stream video-based summarization progress events and final summary to the client.
-
-        Progress events (``session-summary-progress``) carry the workflow's
-        current phase, a step counter, and — while the rasterizer is running —
-        fine-grained frame progress read from Temporal activity heartbeats.
-
-        This is implemented as an async generator so Django's ``StreamingHttpResponse``
-        under ASGI flushes each chunk as it is produced. A sync generator would
-        hit Django's ``list()``-materialize fallback path and buffer the entire
-        response server-side before any bytes reach the client.
-        """
-        success: bool | None = None
-        error_type: str | None = None
-        error_message: str | None = None
-        try:
-            async for chunk in execute_summarize_session_video_stream(
-                session_id=session_id,
-                user=user,
-                team=self.team,
-                force_restart=force_restart,
-                product_context=product_context,
-                custom_tags=custom_tags,
-            ):
-                if chunk.startswith("event: session-summary-stream"):
-                    success = True
-                elif chunk.startswith("event: session-summary-error"):
-                    success = False
-                    error_type = "stream_error"
-                yield chunk
-        except Exception as e:
-            success = False
-            error_type = type(e).__name__
-            error_message = str(e)
-            capture_exception(e)
-            yield serialize_to_sse_event(
-                event_label="session-summary-error",
-                event_data="Something went wrong while generating the summary. Please try again.",
-            )
-        finally:
-            if success is not None:
-                await asyncio.to_thread(
-                    capture_session_summary_generated,
-                    user=user,
-                    team=self.team,
-                    tracking_id=tracking_id,
-                    summary_source="dock",
-                    summary_type="single",
-                    session_ids=[session_id],
-                    video_based=True,
-                    success=success,
-                    error_type=error_type,
-                    error_message=error_message,
-                )
-
-    def _load_team_summary_config(self) -> tuple[str | None, dict[str, str] | None]:
-        team_config = get_or_create_team_extension(self.team, TeamSessionSummariesConfig)
-        product_context = (team_config.product_context or "").strip() or None
-        custom_tags = team_config.custom_tags or None
-        return product_context, custom_tags
-
-    @extend_schema(exclude=True)
-    @action(methods=["POST"], detail=True)
-    def summarize(self, request: request.Request, **kwargs):
-        if not request.user.is_authenticated:
-            raise exceptions.NotAuthenticated()
-        tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
-
-        user = cast(User, request.user)
-
-        recording = self.get_object()
-
-        if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
-            raise exceptions.NotFound("Recording not found")
-
-        environment_is_allowed = settings.DEBUG or is_cloud()
-        has_openai_api_key = bool(os.environ.get("OPENAI_API_KEY"))
-        if not environment_is_allowed or not has_openai_api_key:
-            raise exceptions.ValidationError("session summary is only supported in PostHog Cloud")
-        if not posthoganalytics.feature_enabled(
-            "replay-video-based-summarization",
-            str(user.distinct_id),
-            groups={"organization": str(self.team.organization_id)},
-            group_properties={"organization": {"id": str(self.team.organization_id)}},
-            send_feature_flag_events=False,
-        ):
-            raise exceptions.ValidationError("session summary is not enabled for this user")
-        session_id = str(recording.session_id)
-
-        # Per-team monthly hard cap as a cost backstop is enforced inside
-        # `execute_summarize_session_video_stream`, just before a *fresh*
-        # workflow start — gating it here would 402 cached-summary fast-path
-        # hits and silent-attach (`id_conflict_policy=USE_EXISTING`) cases that
-        # don't issue any LLM work.
-        tracking_id = generate_tracking_id()
-        force_restart = bool(request.data.get("force_restart", False)) if isinstance(request.data, dict) else False
-        product_context, custom_tags = self._load_team_summary_config()
-
-        capture_session_summary_started(
-            user=user,
-            team=self.team,
-            tracking_id=tracking_id,
-            summary_source="dock",
-            summary_type="single",
-            session_ids=[session_id],
-            video_based=True,
-        )
-        return sse_streaming_response(
-            self._generate_video_based_summary(
-                session_id, user, tracking_id, product_context, custom_tags, force_restart=force_restart
-            ),
-            endpoint="session_recording_summary",
-        )
-
-    @extend_schema(exclude=True)
-    @action(methods=["POST"], detail=True, url_path="summarize/cancel")
-    def cancel_summary(self, request: request.Request, **kwargs):
-        """Cancel an in-flight session summary Temporal workflow.
-
-        Idempotent: if the workflow doesn't exist (already finished, never started,
-        or already cancelled) we still return 200 so the client can fire-and-forget.
-        Stops billable LLM/rasterizer work that the user no longer cares about.
-        """
-        if not request.user.is_authenticated:
-            raise exceptions.NotAuthenticated()
-
-        recording = self.get_object()
-        session_id = str(recording.session_id)
-        workflow_id = SummarizeSingleSessionWorkflow.workflow_id_for(self.team.id, session_id)
-
-        try:
-            async_to_sync(_cancel_summary_workflow)(workflow_id)
-        except Exception as e:
-            # Don't surface raw Temporal error strings to the client — gRPC
-            # error messages can leak internal hostnames, namespaces, or TLS
-            # error details. Log the full exception server-side, return a
-            # generic message to the client.
-            logger.exception(
-                "session_summary_cancel_failed",
-                error=str(e),
-                team_id=self.team.id,
-                session_id=session_id,
-                workflow_id=workflow_id,
-            )
-            return Response(
-                {"cancelled": False, "error": "An internal server error occurred. Please try again later."},
-                status=500,
-            )
-
-        return Response({"cancelled": True})
-
     async def _stream_lts_blob_v2_to_client_async(
         self,
         blob_key: str,
@@ -1984,12 +1741,11 @@ class SessionRecordingViewSet(
             model=SESSION_REPLAY_AI_REGEX_MODEL,
             messages=messages,
             response_format=AiRegexSchema,
-            # need to type ignore before, this will be a WrappedParse
-            # but the type detection can't figure that out
-            posthog_distinct_id=self._distinct_id_from_request(request),  # type: ignore
+            posthog_distinct_id=self._distinct_id_from_request(request),
             posthog_properties={
                 "ai_product": "session_replay",
                 "ai_feature": "ai_regex",
+                "team_id": self.team.id,
             },
         )
 
@@ -2009,6 +1765,7 @@ def _load_recording_if_matches_filters(
     session_id: str,
     query: RecordingsQuery,
     team: Team,
+    user: User | None,
     allow_event_property_expansion: bool,
 ) -> SessionRecording | None:
     """
@@ -2033,6 +1790,7 @@ def _load_recording_if_matches_filters(
     ch_query_result = SessionRecordingListFromQuery(
         query=prepend_check_query,
         team=team,
+        user=user,
         hogql_query_modifiers=None,
         allow_event_property_expansion=allow_event_property_expansion,
     ).run()
@@ -2109,6 +1867,7 @@ def list_recordings_from_query(
                 session_recording_id_to_prepend,
                 query,
                 team,
+                user,
                 allow_event_property_expansion,
             )
             if prepend_recording is None:
@@ -2118,7 +1877,14 @@ def list_recordings_from_query(
             if prepend_recording:
                 recordings.append(prepend_recording)
 
-    if all_session_ids:
+    if all_session_ids and query.experiment_exposure is not None:
+        # The exposure filter only exists as a join in the ClickHouse query, so the persisted
+        # Postgres shortcut below would return these sessions unfiltered and skip the
+        # experiment access check with them. Route every requested id through ClickHouse
+        # instead; a persisted recording that has left ClickHouse can't be verified as an
+        # exposed person's and so stays out of the list.
+        remaining_session_ids = list(all_session_ids)
+    elif all_session_ids:
         with timer("load_persisted_recordings"), tracer.start_as_current_span("load_persisted_recordings"):
             # If we specify the session ids (like from pinned recordings) we can optimise by only going to Postgres
             sorted_session_ids = sorted(all_session_ids)
@@ -2165,6 +1931,7 @@ def list_recordings_from_query(
             query_result = SessionRecordingListFromQuery(
                 query=query_for_list,
                 team=team,
+                user=user,
                 hogql_query_modifiers=None,
                 allow_event_property_expansion=allow_event_property_expansion,
                 session_ids_to_exclude=session_ids_to_exclude,
@@ -2209,19 +1976,6 @@ def list_recordings_from_query(
     with timer("load_other_viewers_by_recording"), tracer.start_as_current_span("load_other_viewers_by_recording"):
         other_viewers = _other_users_viewed(recording_ids_in_list, user, team)
 
-    default_summary_session_ids: set[str] = set()
-    summary_outcomes: dict[str, dict] = {}
-    if recording_ids_in_list:
-        try:
-            from products.replay.backend.models.session_summaries import SingleSessionSummary
-        except ImportError:
-            default_summary_session_ids = set()
-        else:
-            with timer("load_summary_existence"), tracer.start_as_current_span("load_summary_existence"):
-                bulk_outcomes = SingleSessionSummary.objects.get_outcomes_bulk(team.id, recording_ids_in_list)
-                default_summary_session_ids = set(bulk_outcomes.keys())
-                summary_outcomes = {sid: outcome for sid, outcome in bulk_outcomes.items() if outcome}
-
     with timer("load_persons"), tracer.start_as_current_span("load_persons"):
         distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
         with personhog_caller_tag("replay/recordings-persons"):
@@ -2231,8 +1985,6 @@ def list_recordings_from_query(
         for recording in recordings:
             recording.viewed = recording.session_id in viewed_session_recordings
             recording.viewers = other_viewers.get(recording.session_id, [])
-            recording.has_summary = recording.session_id in default_summary_session_ids
-            recording.summary_outcome = summary_outcomes.get(recording.session_id)
             matched_person = distinct_id_to_person.get(recording.distinct_id) if recording.distinct_id else None
             if matched_person:
                 recording.person = matched_person

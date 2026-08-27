@@ -205,6 +205,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.WEB_GOALS_QUERY
             | NodeKind.WEB_EXTERNAL_CLICKS_TABLE_QUERY
             | NodeKind.WEB_BOTS_TABLE_QUERY
+            | NodeKind.WEB_AGENT_ANALYTICS_QUERY
             | NodeKind.WEB_PAGE_URL_SEARCH_QUERY
             | NodeKind.WEB_VITALS_QUERY
             | NodeKind.WEB_VITALS_PATH_BREAKDOWN_QUERY
@@ -217,6 +218,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             NodeKind.ERROR_TRACKING_QUERY
             | NodeKind.ERROR_TRACKING_ISSUE_CORRELATION_QUERY
             | NodeKind.ERROR_TRACKING_SIMILAR_ISSUES_QUERY
+            | NodeKind.ERROR_TRACKING_FINGERPRINT_PROJECTION_QUERY
             | NodeKind.ERROR_TRACKING_BREAKDOWNS_QUERY
         ):
             return {"product": Product.ERROR_TRACKING}
@@ -287,6 +289,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.MCP_TOOL_QUALITY_DAILY_STATS_QUERY
             | NodeKind.MCP_TOOL_CATEGORY_COUNTS_QUERY
             | NodeKind.MCP_TOOL_CATEGORIES_QUERY
+            | NodeKind.MCP_TOOL_CATEGORY_MAP_QUERY
             | NodeKind.MCP_TOOL_DESCRIPTIONS_QUERY
             | NodeKind.MCP_TOOL_SAMPLE_INTENTS_QUERY
             | NodeKind.MCP_TOOL_NEIGHBORS_QUERY
@@ -781,6 +784,10 @@ def add_fallback_query_tags(tags: QueryTags) -> None:
 
     from posthog.event_usage import EventSource
 
+    # Stays a bare MCP comparison rather than MCP_TRANSPORT_EVENT_SOURCES: this tag's source is
+    # set by the request middleware, which runs before DRF authentication, so the surfaces that
+    # resolve from the OAuth grant (desktop, Slack) can never reach here — MCP traffic always
+    # arrives as plain `mcp`.
     if tags.product is None and tags.source == EventSource.MCP:
         tags.product = Product.MCP
 

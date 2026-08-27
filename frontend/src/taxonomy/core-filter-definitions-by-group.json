@@ -48,6 +48,10 @@
         "name": {
             "description": "The name of an issue.",
             "label": "Issue name"
+        },
+        "severity": {
+            "description": "The severity level assigned to an issue.",
+            "label": "Issue severity"
         }
     },
     "event_metadata": {
@@ -2087,6 +2091,32 @@
             ],
             "label": "Locale"
         },
+        "$mcp_auth_failure_reason": {
+            "description": "Why an MCP request was refused, on $mcp_auth_failed: insufficient_scope (the credential is valid but the API denied the call), inactive_oauth_token, invalid_api_key, or unknown. insufficient_scope also carries $mcp_missing_scope when the API named a scope.",
+            "examples": [
+                "insufficient_scope",
+                "invalid_api_key",
+                "inactive_oauth_token"
+            ],
+            "label": "MCP auth failure reason"
+        },
+        "$mcp_auth_method": {
+            "description": "Which credential the MCP request authenticated with, derived from the bearer token's prefix: oauth, personal_api_key, id_jag, none, or unknown. Stamped on every event by PostHog's own MCP server. Use it to tell an OAuth connector apart from an API-key connection \u2014 for example when a user works around a broken OAuth flow by switching to a personal API key.",
+            "examples": [
+                "oauth",
+                "personal_api_key"
+            ],
+            "label": "MCP auth method"
+        },
+        "$mcp_auth_status": {
+            "description": "HTTP status returned to the client when an MCP request was refused (401 for a rejected credential, 403 for a denied scope). Distinct from $mcp_error_status, which is the upstream status of a failed tool call. Only set on $mcp_auth_failed.",
+            "examples": [
+                401,
+                403
+            ],
+            "label": "MCP auth status",
+            "type": "Numeric"
+        },
         "$mcp_client_name": {
             "description": "The MCP client that initiated the connection. Common values are coding agents (Claude Code, Codex) and chat clients (Claude desktop, Claude on web).",
             "examples": [
@@ -2109,7 +2139,7 @@
             "label": "MCP client version"
         },
         "$mcp_consumer": {
-            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' means the request came through PostHog Desktop; 'slack' means it was triggered from Slack.",
+            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' is the catch-all every sandbox agent sends, so it covers Signals runs as well as PostHog Desktop; break down by `source` to separate them. 'slack' means it was triggered from Slack.",
             "examples": [
                 "posthog-code",
                 "slack"
@@ -2223,6 +2253,14 @@
             ],
             "label": "MCP listed tool names"
         },
+        "$mcp_missing_scope": {
+            "description": "The API scope the PostHog API said was missing when it refused an MCP request. Only set on $mcp_auth_failed with reason insufficient_scope, and only when the API named a specific scope.",
+            "examples": [
+                "insight:read",
+                "query:read"
+            ],
+            "label": "MCP missing scope"
+        },
         "$mcp_mode": {
             "description": "Which tool-registration mode the MCP server ran in for this request. 'cli' is single-exec mode (the v2 wrapper that exposes one dispatcher tool taking a `call <tool> ...` command); 'tools' exposes every tool individually.",
             "examples": [
@@ -2297,6 +2335,22 @@
         "$mcp_session_id": {
             "description": "Transport-level session handle the MCP SDK observed for this request (e.g. MCP `extra.sessionId` or a framework session cookie). Rotates per process restart, reconnect, or framework boundary \u2014 use $mcp_conversation_id when you need a stable identifier across reconnects.",
             "label": "MCP session ID"
+        },
+        "$mcp_skill_body_offset": {
+            "description": "Where in a skill's body a `skill-get` started reading. Long bodies come back in slices, so one skill load is several calls that differ only by this offset, and a first read usually omits the offset \u2014 absent and 0 both mean a first page. Scope the query to `$mcp_tool_name IN ('skill-get', 'llma-skill-get')` before counting: the property is never set on `skill-file-get` or on a failed read, so an absent value outside that scope means 'never paginated' rather than 'first page', and counting it inflates loads. Within the scope, count calls where the offset is absent or 0 for loads, and every call for pages read. Set only on reads that succeeded, like `$mcp_skill_name`.",
+            "examples": [
+                "0",
+                "5000"
+            ],
+            "label": "MCP skill body offset"
+        },
+        "$mcp_skill_name": {
+            "description": "The stored skill a skill-* read tool returned, on `skill-get` and `skill-file-get` (and their `llma-skill-*` aliases). Present only when the read succeeded, so counting these events counts skills that were actually delivered. A failed read carries no skill name, which stops a deleted skill that agents keep requesting from reading as a popular one. Recorded only when the value matches the shape the skills store enforces at creation, so a name the agent invented is left off rather than echoed. Skill writes are not stamped here; those emit `llma skill *` from the skills API.",
+            "examples": [
+                "prove-the-change",
+                "pr-shepherd"
+            ],
+            "label": "MCP skill name"
         },
         "$mcp_source": {
             "description": "Constant identifier for the analytics SDK that emitted the event. Lets you separate events from different SDK versions or unrelated MCP servers.",
@@ -3348,22 +3402,6 @@
             "description": "The location of a Touch event on the Y axis",
             "label": "Touch Y"
         },
-        "$transformations_failed": {
-            "description": "The transformations that failed to run on this event during ingestion.",
-            "ignored_in_assistant": true,
-            "label": "Transformations failed",
-            "type": "String"
-        },
-        "$transformations_skipped": {
-            "description": "Array of transformations skipped during ingestion.",
-            "label": "Transformations skipped",
-            "used_for_debug": true
-        },
-        "$transformations_succeeded": {
-            "description": "Array of transformations that succeeded during ingestion.",
-            "label": "Transformations succeeded",
-            "used_for_debug": true
-        },
         "$update_person_last_seen_at": {
             "description": "When set to false, the event will not update the person's last_seen_at timestamp",
             "label": "Update last seen at",
@@ -3731,6 +3769,17 @@
             "description": "Snapchat Click ID",
             "label": "sccid"
         },
+        "source": {
+            "description": "Which PostHog surface the work came from. The surface values are 'web' (the app in a browser), 'posthog_ai' (Max), 'desktop' (the PostHog Desktop app), 'mobile' (the PostHog mobile app), 'slack' (the Slack app), 'mcp' (a third-party agent over MCP), 'cli', and 'api' (a direct API call). On API events, PostHog's own surfaces report themselves, so 'mcp' measures other people's agents. The $mcp_* events are stamped by the MCP server instead, which cannot read the OAuth grant that identifies the Desktop app, so a Desktop request can still show as 'mcp' on those. 'posthog_code' covers the headless coding agents: the cloud agent and the local agent. 'self_driving' is Signals: scouts, report implementations, and scout chat. 'wizard' is the setup agent and 'terraform' is the Terraform provider. Four values are machines rather than surfaces: 'cache_warming', 'alert', 'export', and 'subscription'. Two unrelated properties share this name, so filter to a specific event before breaking down by it. The app also uses 'source' for which control fired an event, with values like 'menu', 'keyboard-shortcut', and 'card_drag_handle'. Some backend paths use it for something else again: 'static' on $http_log, 'blob_v2', 'blob', 'listing' and 'realtime' on the session replay snapshot events, 'mcpcat' on the legacy MCP events, and 'template' or 'custom' on 'mcp_store server installed'. Two surface values also collide with older control names: on 'switched site mode', 'desktop' means the device-mode control rather than the app, and on the AI report events, 'slack' means the delivery channel.",
+            "examples": [
+                "web",
+                "posthog_ai",
+                "mcp",
+                "desktop",
+                "api"
+            ],
+            "label": "Source"
+        },
         "token": {
             "description": "Token used for authentication.",
             "examples": [
@@ -3984,6 +4033,11 @@
             "description_llm": "Identifies an anonymous user. The event shows how many users used an account, so do not use it for active users metrics because a user may skip identification.",
             "label": "Identify"
         },
+        "$mcp_auth_failed": {
+            "description": "Fires when an MCP request is refused before a session is established, because the credential was rejected or lacked a required scope. Emitted by PostHog's own MCP server rather than the SDK, so it is absent for customer-instrumented servers. Carries `$mcp_auth_failure_reason`, `$mcp_auth_method`, and the client identity, so connectors stuck re-authorizing are visible instead of appearing as an absence of traffic. Not a tool-call failure: it never sets `$mcp_is_error`.",
+            "label": "MCP auth failed",
+            "primary_property": "$mcp_auth_failure_reason"
+        },
         "$mcp_custom": {
             "description": "A custom MCP analytics event emitted by a server through the SDK's custom-event API. Properties depend on what the caller passed.",
             "label": "MCP custom event"
@@ -4057,6 +4111,10 @@
             "description": "Setting person properties. Sent as `$set`.",
             "ignored_in_assistant": true,
             "label": "Set person properties"
+        },
+        "$slack_message_received": {
+            "description": "Fires when a message is posted in a Slack channel PostHog is connected to.",
+            "label": "Slack message received"
         },
         "$snapshot": {
             "description": "Carries session replay data to the backend. These events do not contribute to event counts.",
@@ -4218,6 +4276,32 @@
         }
     },
     "mcp_properties": {
+        "$mcp_auth_failure_reason": {
+            "description": "Why an MCP request was refused, on $mcp_auth_failed: insufficient_scope (the credential is valid but the API denied the call), inactive_oauth_token, invalid_api_key, or unknown. insufficient_scope also carries $mcp_missing_scope when the API named a scope.",
+            "examples": [
+                "insufficient_scope",
+                "invalid_api_key",
+                "inactive_oauth_token"
+            ],
+            "label": "MCP auth failure reason"
+        },
+        "$mcp_auth_method": {
+            "description": "Which credential the MCP request authenticated with, derived from the bearer token's prefix: oauth, personal_api_key, id_jag, none, or unknown. Stamped on every event by PostHog's own MCP server. Use it to tell an OAuth connector apart from an API-key connection \u2014 for example when a user works around a broken OAuth flow by switching to a personal API key.",
+            "examples": [
+                "oauth",
+                "personal_api_key"
+            ],
+            "label": "MCP auth method"
+        },
+        "$mcp_auth_status": {
+            "description": "HTTP status returned to the client when an MCP request was refused (401 for a rejected credential, 403 for a denied scope). Distinct from $mcp_error_status, which is the upstream status of a failed tool call. Only set on $mcp_auth_failed.",
+            "examples": [
+                401,
+                403
+            ],
+            "label": "MCP auth status",
+            "type": "Numeric"
+        },
         "$mcp_client_name": {
             "description": "The MCP client that initiated the connection. Common values are coding agents (Claude Code, Codex) and chat clients (Claude desktop, Claude on web).",
             "examples": [
@@ -4240,7 +4324,7 @@
             "label": "MCP client version"
         },
         "$mcp_consumer": {
-            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' means the request came through PostHog Desktop; 'slack' means it was triggered from Slack.",
+            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' is the catch-all every sandbox agent sends, so it covers Signals runs as well as PostHog Desktop; break down by `source` to separate them. 'slack' means it was triggered from Slack.",
             "examples": [
                 "posthog-code",
                 "slack"
@@ -4354,6 +4438,14 @@
             ],
             "label": "MCP listed tool names"
         },
+        "$mcp_missing_scope": {
+            "description": "The API scope the PostHog API said was missing when it refused an MCP request. Only set on $mcp_auth_failed with reason insufficient_scope, and only when the API named a specific scope.",
+            "examples": [
+                "insight:read",
+                "query:read"
+            ],
+            "label": "MCP missing scope"
+        },
         "$mcp_mode": {
             "description": "Which tool-registration mode the MCP server ran in for this request. 'cli' is single-exec mode (the v2 wrapper that exposes one dispatcher tool taking a `call <tool> ...` command); 'tools' exposes every tool individually.",
             "examples": [
@@ -4428,6 +4520,22 @@
         "$mcp_session_id": {
             "description": "Transport-level session handle the MCP SDK observed for this request (e.g. MCP `extra.sessionId` or a framework session cookie). Rotates per process restart, reconnect, or framework boundary \u2014 use $mcp_conversation_id when you need a stable identifier across reconnects.",
             "label": "MCP session ID"
+        },
+        "$mcp_skill_body_offset": {
+            "description": "Where in a skill's body a `skill-get` started reading. Long bodies come back in slices, so one skill load is several calls that differ only by this offset, and a first read usually omits the offset \u2014 absent and 0 both mean a first page. Scope the query to `$mcp_tool_name IN ('skill-get', 'llma-skill-get')` before counting: the property is never set on `skill-file-get` or on a failed read, so an absent value outside that scope means 'never paginated' rather than 'first page', and counting it inflates loads. Within the scope, count calls where the offset is absent or 0 for loads, and every call for pages read. Set only on reads that succeeded, like `$mcp_skill_name`.",
+            "examples": [
+                "0",
+                "5000"
+            ],
+            "label": "MCP skill body offset"
+        },
+        "$mcp_skill_name": {
+            "description": "The stored skill a skill-* read tool returned, on `skill-get` and `skill-file-get` (and their `llma-skill-*` aliases). Present only when the read succeeded, so counting these events counts skills that were actually delivered. A failed read carries no skill name, which stops a deleted skill that agents keep requesting from reading as a popular one. Recorded only when the value matches the shape the skills store enforces at creation, so a name the agent invented is left off rather than echoed. Skill writes are not stamped here; those emit `llma skill *` from the skills API.",
+            "examples": [
+                "prove-the-change",
+                "pr-shepherd"
+            ],
+            "label": "MCP skill name"
         },
         "$mcp_source": {
             "description": "Constant identifier for the analytics SDK that emitted the event. Lets you separate events from different SDK versions or unrelated MCP servers.",
@@ -6943,6 +7051,32 @@
             ],
             "label": "Locale"
         },
+        "$mcp_auth_failure_reason": {
+            "description": "Why an MCP request was refused, on $mcp_auth_failed: insufficient_scope (the credential is valid but the API denied the call), inactive_oauth_token, invalid_api_key, or unknown. insufficient_scope also carries $mcp_missing_scope when the API named a scope.",
+            "examples": [
+                "insufficient_scope",
+                "invalid_api_key",
+                "inactive_oauth_token"
+            ],
+            "label": "MCP auth failure reason"
+        },
+        "$mcp_auth_method": {
+            "description": "Which credential the MCP request authenticated with, derived from the bearer token's prefix: oauth, personal_api_key, id_jag, none, or unknown. Stamped on every event by PostHog's own MCP server. Use it to tell an OAuth connector apart from an API-key connection \u2014 for example when a user works around a broken OAuth flow by switching to a personal API key.",
+            "examples": [
+                "oauth",
+                "personal_api_key"
+            ],
+            "label": "MCP auth method"
+        },
+        "$mcp_auth_status": {
+            "description": "HTTP status returned to the client when an MCP request was refused (401 for a rejected credential, 403 for a denied scope). Distinct from $mcp_error_status, which is the upstream status of a failed tool call. Only set on $mcp_auth_failed.",
+            "examples": [
+                401,
+                403
+            ],
+            "label": "MCP auth status",
+            "type": "Numeric"
+        },
         "$mcp_client_name": {
             "description": "The MCP client that initiated the connection. Common values are coding agents (Claude Code, Codex) and chat clients (Claude desktop, Claude on web).",
             "examples": [
@@ -6965,7 +7099,7 @@
             "label": "MCP client version"
         },
         "$mcp_consumer": {
-            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' means the request came through PostHog Desktop; 'slack' means it was triggered from Slack.",
+            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' is the catch-all every sandbox agent sends, so it covers Signals runs as well as PostHog Desktop; break down by `source` to separate them. 'slack' means it was triggered from Slack.",
             "examples": [
                 "posthog-code",
                 "slack"
@@ -7079,6 +7213,14 @@
             ],
             "label": "MCP listed tool names"
         },
+        "$mcp_missing_scope": {
+            "description": "The API scope the PostHog API said was missing when it refused an MCP request. Only set on $mcp_auth_failed with reason insufficient_scope, and only when the API named a specific scope.",
+            "examples": [
+                "insight:read",
+                "query:read"
+            ],
+            "label": "MCP missing scope"
+        },
         "$mcp_mode": {
             "description": "Which tool-registration mode the MCP server ran in for this request. 'cli' is single-exec mode (the v2 wrapper that exposes one dispatcher tool taking a `call <tool> ...` command); 'tools' exposes every tool individually.",
             "examples": [
@@ -7153,6 +7295,22 @@
         "$mcp_session_id": {
             "description": "Transport-level session handle the MCP SDK observed for this request (e.g. MCP `extra.sessionId` or a framework session cookie). Rotates per process restart, reconnect, or framework boundary \u2014 use $mcp_conversation_id when you need a stable identifier across reconnects.",
             "label": "MCP session ID"
+        },
+        "$mcp_skill_body_offset": {
+            "description": "Where in a skill's body a `skill-get` started reading. Long bodies come back in slices, so one skill load is several calls that differ only by this offset, and a first read usually omits the offset \u2014 absent and 0 both mean a first page. Scope the query to `$mcp_tool_name IN ('skill-get', 'llma-skill-get')` before counting: the property is never set on `skill-file-get` or on a failed read, so an absent value outside that scope means 'never paginated' rather than 'first page', and counting it inflates loads. Within the scope, count calls where the offset is absent or 0 for loads, and every call for pages read. Set only on reads that succeeded, like `$mcp_skill_name`.",
+            "examples": [
+                "0",
+                "5000"
+            ],
+            "label": "MCP skill body offset"
+        },
+        "$mcp_skill_name": {
+            "description": "The stored skill a skill-* read tool returned, on `skill-get` and `skill-file-get` (and their `llma-skill-*` aliases). Present only when the read succeeded, so counting these events counts skills that were actually delivered. A failed read carries no skill name, which stops a deleted skill that agents keep requesting from reading as a popular one. Recorded only when the value matches the shape the skills store enforces at creation, so a name the agent invented is left off rather than echoed. Skill writes are not stamped here; those emit `llma skill *` from the skills API.",
+            "examples": [
+                "prove-the-change",
+                "pr-shepherd"
+            ],
+            "label": "MCP skill name"
         },
         "$mcp_source": {
             "description": "Constant identifier for the analytics SDK that emitted the event. Lets you separate events from different SDK versions or unrelated MCP servers.",
@@ -8210,22 +8368,6 @@
             "description": "The location of a Touch event on the Y axis",
             "label": "Touch Y"
         },
-        "$transformations_failed": {
-            "description": "The transformations that failed to run on this event during ingestion.",
-            "ignored_in_assistant": true,
-            "label": "Transformations failed",
-            "type": "String"
-        },
-        "$transformations_skipped": {
-            "description": "Array of transformations skipped during ingestion.",
-            "label": "Transformations skipped",
-            "used_for_debug": true
-        },
-        "$transformations_succeeded": {
-            "description": "Array of transformations that succeeded during ingestion.",
-            "label": "Transformations succeeded",
-            "used_for_debug": true
-        },
         "$update_person_last_seen_at": {
             "description": "When set to false, the event will not update the person's last_seen_at timestamp",
             "label": "Update last seen at",
@@ -8581,6 +8723,17 @@
         "sccid": {
             "description": "Snapchat Click ID Data from the last time this user was seen.",
             "label": "Latest sccid"
+        },
+        "source": {
+            "description": "Which PostHog surface the work came from. The surface values are 'web' (the app in a browser), 'posthog_ai' (Max), 'desktop' (the PostHog Desktop app), 'mobile' (the PostHog mobile app), 'slack' (the Slack app), 'mcp' (a third-party agent over MCP), 'cli', and 'api' (a direct API call). On API events, PostHog's own surfaces report themselves, so 'mcp' measures other people's agents. The $mcp_* events are stamped by the MCP server instead, which cannot read the OAuth grant that identifies the Desktop app, so a Desktop request can still show as 'mcp' on those. 'posthog_code' covers the headless coding agents: the cloud agent and the local agent. 'self_driving' is Signals: scouts, report implementations, and scout chat. 'wizard' is the setup agent and 'terraform' is the Terraform provider. Four values are machines rather than surfaces: 'cache_warming', 'alert', 'export', and 'subscription'. Two unrelated properties share this name, so filter to a specific event before breaking down by it. The app also uses 'source' for which control fired an event, with values like 'menu', 'keyboard-shortcut', and 'card_drag_handle'. Some backend paths use it for something else again: 'static' on $http_log, 'blob_v2', 'blob', 'listing' and 'realtime' on the session replay snapshot events, 'mcpcat' on the legacy MCP events, and 'template' or 'custom' on 'mcp_store server installed'. Two surface values also collide with older control names: on 'switched site mode', 'desktop' means the device-mode control rather than the app, and on the AI report events, 'slack' means the delivery channel.",
+            "examples": [
+                "web",
+                "posthog_ai",
+                "mcp",
+                "desktop",
+                "api"
+            ],
+            "label": "Source"
         },
         "token": {
             "description": "Token used for authentication.",

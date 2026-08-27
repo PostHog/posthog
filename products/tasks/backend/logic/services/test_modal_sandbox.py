@@ -1,5 +1,8 @@
+import shutil
+from pathlib import Path
+
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from products.tasks.backend.constants import (
     DEFAULT_SANDBOX_WORKING_DIR,
@@ -8,20 +11,37 @@ from products.tasks.backend.constants import (
 )
 from products.tasks.backend.logic.services.modal_sandbox import (
     DEFAULT_MODAL_APP_NAME,
+    LOCAL_MODAL_AGENT_SHADOW_DIR,
+    LOCAL_MODAL_NOTEBOOK_KERNEL_DIR,
+    LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE,
     NOTEBOOK_MODAL_APP_NAME,
     SELF_DRIVING_MODAL_APP_NAME,
     STREAMLIT_MODAL_APP_NAME,
     ModalSandbox,
+    _prepare_local_modal_build_context,
 )
 from products.tasks.backend.logic.services.sandbox import (
     SELF_DRIVING_ORIGIN_PRODUCTS,
     SandboxConfig,
+    SandboxStatus,
     SandboxTemplate,
     SandboxWorkload,
     get_sandbox_class_for_backend,
     workload_for_origin_product,
 )
 from products.tasks.backend.models import Task
+
+
+def test_destroy_updates_status_before_modal_termination_settles(mocker):
+    handle = MagicMock(object_id="sb-test")
+    handle.poll.return_value = None
+    mocker.patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock())
+    sandbox = ModalSandbox(handle, SandboxConfig(name="test"))
+
+    sandbox.destroy()
+
+    assert sandbox.get_status() == SandboxStatus.SHUTDOWN
+    handle.terminate.assert_called_once_with()
 
 
 @pytest.fixture
@@ -211,3 +231,37 @@ class TestSelfDrivingWorkloadMapping:
         # The set is held as strings to keep the sandbox layer model-free, so a renamed or
         # removed OriginProduct would otherwise silently drop that product out of the fleet.
         assert SELF_DRIVING_ORIGIN_PRODUCTS <= {choice.value for choice in Task.OriginProduct}
+
+
+class TestLocalModalBuildContext:
+    def test_base_context_carries_the_agent_shadow_sources(self):
+        # The base Dockerfile's first stage COPYs and builds the agent-shadow observer, so the
+        # trimmed DEBUG context must carry its sources or every local sandbox fails at image build.
+        _prepare_local_modal_build_context.cache_clear()
+        with (
+            patch("products.tasks.backend.logic.services.modal_sandbox.LocalSkillsCache"),
+            patch("products.tasks.backend.logic.services.modal_sandbox.populate_skills_directory"),
+        ):
+            _dockerfile_path, context_dir = _prepare_local_modal_build_context(SandboxTemplate.DEFAULT_BASE)
+        try:
+            root = Path(context_dir)
+            assert (root / LOCAL_MODAL_AGENT_SHADOW_DIR / "go.mod").is_file()
+            assert (root / LOCAL_MODAL_AGENT_SHADOW_DIR / "main.go").is_file()
+        finally:
+            shutil.rmtree(context_dir, ignore_errors=True)
+            _prepare_local_modal_build_context.cache_clear()
+
+    def test_notebook_context_carries_the_baked_kernel_package(self):
+        # DEBUG builds the notebook image from this trimmed context, not the repo root, so a
+        # Dockerfile COPY whose source is missing here fails the build and no notebook
+        # sandbox starts. The registry path in production never exercises it.
+        _prepare_local_modal_build_context.cache_clear()
+        _dockerfile_path, context_dir = _prepare_local_modal_build_context(SandboxTemplate.NOTEBOOK_BASE)
+        try:
+            root = Path(context_dir)
+            assert (root / LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE).is_file()
+            assert (root / LOCAL_MODAL_NOTEBOOK_KERNEL_DIR / "server.py").is_file()
+            assert not (root / LOCAL_MODAL_NOTEBOOK_KERNEL_DIR / "__pycache__").exists()
+        finally:
+            shutil.rmtree(context_dir, ignore_errors=True)
+            _prepare_local_modal_build_context.cache_clear()

@@ -1,11 +1,15 @@
 """Daily modeling dataset for the Self-driving Inbox report-ranking model.
 
-Four assets on one daily partition, each writing Parquet under the configured S3 prefix:
+Five assets on one daily partition, each writing Parquet under the configured S3 prefix:
 
     inbox_report_state/v1/dt=D/       Postgres spine + report state + tabular features
     inbox_report_embeddings/v1/dt=D/  report_id -> small-1536 vector as of snapshot end
     inbox_report_labels/v1/dt=D/      cumulative label columns from the dogfood project's events
     inbox_report_model_data/v1/dt=D/  materialized join of the three, plus a rewritten latest/
+    inbox_signal_embeddings/v1/dt=D/  one row per signal emission during D, for the group-level model
+
+The first four are report grain and feed one table; the fifth is signal grain and is read on its
+own, joined to the others by report_id at training time.
 
 Partition dt=D is a full snapshot of the eligible report inventory (promoted or ever-labeled),
 with every label aggregate bounded `event_time < D+1 00:00 UTC`. Label columns are cumulative,
@@ -16,6 +20,9 @@ are never backfilled into old partitions.
 Point-in-time caveats, per source:
 - labels are fully point-in-time for any past day (explicit event-time bound);
 - embeddings are point-in-time within the underlying table's 3-month TTL (inserted_at bound);
+- signal embeddings are exact for any past day within that same TTL, which is measured from signal
+  event time — a day whose signals have since aged out cannot be rebuilt, and the asset refuses to
+  overwrite a partition with fewer rows rather than quietly shrink it;
 - report state is current-state-only. A backfilled partition therefore carries *today's* Postgres
   state, flagged by features_observed_at being far after snapshot_date. Only forward-run daily
   partitions are true point-in-time snapshots. This reaches row *inclusion*, not just feature
@@ -42,6 +49,11 @@ from posthog.dags.common import dagster_tags
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_embeddings import EMBEDDING_DOCUMENT_TYPE, EMBEDDING_PRODUCT, EMBEDDING_RENDERING
+from products.signals.backend.signal_metadata import (
+    SIGNAL_DOCUMENT_PRODUCT,
+    SIGNAL_DOCUMENT_RENDERING,
+    SIGNAL_DOCUMENT_TYPE,
+)
 from products.signals.dags.inbox_ranking.common import (
     DATASET_VERSION,
     S3_BUCKET_ENV,
@@ -50,11 +62,15 @@ from products.signals.dags.inbox_ranking.common import (
     ensure_utc,
     latest_is_stale,
     latest_object_key,
+    merge_emission_rows,
+    object_row_count,
     object_snapshot_date,
     owner_tags,
     partition_def,
     partition_object_key,
+    partition_write_allowed,
     read_parquet,
+    read_parquet_if_exists,
     s3_client,
     skip_unconfigured,
     snapshot_bounds,
@@ -64,8 +80,11 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     LABEL_DEFAULTS,
     LABEL_STREAMS,
     LABELED_REPORT_IDS_SQL,
+    LABELS_TEAM_ID,
     REPORT_EMBEDDINGS_QUERY_SETTINGS,
     REPORT_EMBEDDINGS_SQL,
+    SIGNAL_EMBEDDINGS_QUERY_SETTINGS,
+    SIGNAL_EMBEDDINGS_SQL,
     etl_workload,
     hogql_rows,
     labels_team,
@@ -73,7 +92,7 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     valid_report_uuids,
 )
 
-FEATURE_SCHEMA_VERSION = 2
+FEATURE_SCHEMA_VERSION = 4
 
 # Statuses a report can be authored straight into and still be in the inbox (`create_scout_report`
 # and `create_custom_agent_ready_report`), which is how a report reaches the spine without a
@@ -89,6 +108,7 @@ STATE_TABLE = "inbox_report_state"
 EMBEDDINGS_TABLE = "inbox_report_embeddings"
 LABELS_TABLE = "inbox_report_labels"
 MODEL_DATA_TABLE = "inbox_report_model_data"
+SIGNAL_EMBEDDINGS_TABLE = "inbox_signal_embeddings"
 
 COMMON_ASSET_KWARGS: dict[str, Any] = {
     "group_name": "inbox_ranking",
@@ -104,11 +124,14 @@ COMMON_ASSET_KWARGS: dict[str, Any] = {
 }
 
 
-def _tag_dagster_queries(context: dagster.AssetExecutionContext) -> None:
+def _tag_dagster_queries(context: dagster.AssetExecutionContext, query_type: str) -> None:
     """Stamp product + feature + dagster run tags into the thread's query tags so every ClickHouse
     query this asset issues (sync_execute and HogQL alike) is attributable in system.query_log.
-    Both product and feature are required: sync_execute refuses an untagged query in local dev."""
-    tag_queries(product=Product.SIGNALS, feature=Feature.DATA_MODELING)
+    Both product and feature are required: sync_execute refuses an untagged query in local dev.
+    team_id and query_type are set because sync_execute warns on every call missing either; the
+    fleet-wide embedding scans have no single tenant, so they carry the labels team as the owner of
+    the dataset they feed (HogQL calls re-tag the team from their own context)."""
+    tag_queries(product=Product.SIGNALS, feature=Feature.DATA_MODELING, team_id=LABELS_TEAM_ID, query_type=query_type)
     get_query_tags().with_dagster(dagster_tags(context))
 
 
@@ -149,6 +172,31 @@ _EMBEDDING_FIELDS: list[tuple[str, pa.DataType]] = [
 ]
 EMBEDDINGS_SCHEMA = pa.schema(_EMBEDDING_FIELDS)
 
+_SIGNAL_EMBEDDING_FIELDS: list[tuple[str, pa.DataType]] = [
+    ("snapshot_date", pa.date32()),
+    ("signal_id", pa.string()),
+    ("team_id", pa.int64()),
+    ("report_id", pa.string()),
+    ("signal_timestamp", _TIMESTAMP),
+    ("embedding_inserted_at", _TIMESTAMP),
+    ("embedding_small", pa.list_(pa.float32())),
+    ("embedding_rendering", pa.string()),
+    ("weight", pa.float32()),
+    ("source_product", pa.string()),
+    ("source_type", pa.string()),
+    ("source_id", pa.string()),
+    ("is_deleted", pa.bool_()),
+    ("match_kind", pa.string()),
+    ("match_parent_signal_id", pa.string()),
+    ("rejected_signal_count", pa.int32()),
+]
+SIGNAL_EMBEDDINGS_SCHEMA = pa.schema(_SIGNAL_EMBEDDING_FIELDS)
+
+# What makes one emission distinct from another, so a re-run can tell a row it already archived from
+# a genuinely new one. embedding_inserted_at is the version: the source keys a signal by
+# (team_id, document_id) and distinguishes its versions by inserted_at.
+SIGNAL_EMISSION_KEY = ("team_id", "signal_id", "embedding_inserted_at")
+
 LABEL_FIELDS: list[tuple[str, pa.DataType]] = [
     ("first_impressed_at", _TIMESTAMP),
     ("impression_unit_count", pa.int32()),
@@ -176,6 +224,7 @@ LABEL_FIELDS: list[tuple[str, pa.DataType]] = [
     ("latest_status_event", pa.string()),
     ("latest_status_event_at", _TIMESTAMP),
     ("dismissal_reason", pa.string()),
+    ("wrong_dismissal_count", pa.int32()),
     ("status_event_priority", pa.string()),
     ("status_event_actionability", pa.string()),
     ("status_event_team_id", pa.int64()),
@@ -189,6 +238,10 @@ LABEL_FIELDS: list[tuple[str, pa.DataType]] = [
     ("refund_reason", pa.string()),
     ("refund_billing_path", pa.string()),
     ("refund_credits", pa.int64()),
+    ("reviewer_add_count", pa.int32()),
+    ("first_reviewer_added_at", _TIMESTAMP),
+    ("reviewer_remove_count", pa.int32()),
+    ("first_reviewer_removed_at", _TIMESTAMP),
 ]
 
 _LABELS_FIELDS: list[tuple[str, pa.DataType]] = [
@@ -335,7 +388,7 @@ def spine_report_filter(snapshot_end: datetime.datetime) -> Q:
 def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
     if skip_unconfigured(context):
         return
-    _tag_dagster_queries(context)
+    _tag_dagster_queries(context, query_type="inbox_ranking_report_state")
     partition_key = context.partition_key
     _, snapshot_end = snapshot_bounds(partition_key)
     snapshot_date = datetime.date.fromisoformat(partition_key)
@@ -435,7 +488,7 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
 def inbox_report_embeddings(context: dagster.AssetExecutionContext) -> None:
     if skip_unconfigured(context):
         return
-    _tag_dagster_queries(context)
+    _tag_dagster_queries(context, query_type="inbox_ranking_report_embeddings")
     partition_key = context.partition_key
     _, snapshot_end = snapshot_bounds(partition_key)
     snapshot_date = datetime.date.fromisoformat(partition_key)
@@ -505,11 +558,143 @@ def inbox_report_embeddings(context: dagster.AssetExecutionContext) -> None:
     )
 
 
+@dagster.asset(name=SIGNAL_EMBEDDINGS_TABLE, **COMMON_ASSET_KWARGS)
+def inbox_signal_embeddings(context: dagster.AssetExecutionContext) -> None:
+    """One row per signal emission in the partition day, for the group-level model.
+
+    This asset is an emission log, not a snapshot, and is the one table in this dag whose partitions
+    do not each hold the full inventory: dt=D carries only what was inserted during D. Training
+    reads the union of partitions and takes the latest row per (team_id, signal_id) at or before its
+    cutoff, the same argMax the other assets do in SQL, moved to read time. The tenant key is part of
+    the identity because signal_id is a caller-supplied document_id that is only unique within a team.
+    Snapshotting instead would copy a
+    1536-float vector per signal fleet-wide every day, which is several GB daily against tens of MB
+    for a day's emissions.
+
+    Writing the day's emissions down also outlives the source table's 3-month TTL, which is measured
+    from signal event time. That makes this dag the durable store for signal vectors: whatever is not
+    captured before a signal ages out is unrecoverable. A re-run is therefore additive rather than a
+    replacement — it unions the fresh scan into what the partition already holds, so a row the source
+    can no longer supply survives.
+
+    The log is best-effort, and deliberately so. The source is a ReplacingMergeTree versioned by
+    inserted_at, and a retraction re-emits the signal under the same sort key, so a merge between the
+    two writes keeps only the retraction. A signal whose report is deleted in the same window it was
+    inserted therefore reaches no partition in its live form, and no query shape recovers it, since
+    the merge has already dropped the row. The reverse gap is the TTL: a retraction inherits the
+    original event timestamp, so retracting a signal more than three months old writes a row that is
+    already expired and may never be scanned. Absence of an is_deleted row is not proof a signal is
+    live. Closing either gap needs an append-only source or a changed emission contract, both out of
+    this asset's scope.
+    """
+    if skip_unconfigured(context):
+        return
+    _tag_dagster_queries(context, query_type="inbox_ranking_signal_embeddings")
+    partition_key = context.partition_key
+    window_start, window_end = snapshot_bounds(partition_key)
+    snapshot_date = datetime.date.fromisoformat(partition_key)
+
+    results = cast(
+        list[tuple[Any, ...]],
+        sync_execute(
+            SIGNAL_EMBEDDINGS_SQL,
+            {
+                "product": SIGNAL_DOCUMENT_PRODUCT,
+                "document_type": SIGNAL_DOCUMENT_TYPE,
+                "rendering": SIGNAL_DOCUMENT_RENDERING,
+                "window_start": window_start.replace(tzinfo=None),
+                "window_end": window_end.replace(tzinfo=None),
+            },
+            settings=SIGNAL_EMBEDDINGS_QUERY_SETTINGS,
+            workload=etl_workload(),
+        )
+        or [],
+    )
+
+    # Column-wise into Arrow, releasing each source row as it is converted, for the same reason the
+    # report embeddings asset does it: the vectors are the widest thing this dag holds.
+    row_count = len(results)
+    deleted_count = 0
+    columns: dict[str, list[Any]] = {name: [] for name, _type in _SIGNAL_EMBEDDING_FIELDS}
+    for index in range(row_count):
+        (
+            team_id,
+            signal_id,
+            report_id,
+            timestamp,
+            inserted_at,
+            embedding,
+            weight,
+            source_product,
+            source_type,
+            source_id,
+            is_deleted,
+            match_kind,
+            match_parent_signal_id,
+            rejected_signal_count,
+        ) = results[index]
+        results[index] = ()
+        if is_deleted:
+            deleted_count += 1
+        columns["snapshot_date"].append(snapshot_date)
+        columns["signal_id"].append(str(signal_id))
+        columns["team_id"].append(int(team_id))
+        columns["report_id"].append(report_id)
+        columns["signal_timestamp"].append(ensure_utc(timestamp))
+        columns["embedding_inserted_at"].append(ensure_utc(inserted_at))
+        # A retracted signal is re-emitted with its original text, unlike a report tombstone, so its
+        # vector is real content that we have been told to stop showing. A partition written while it
+        # was live keeps it; this one records the retraction without carrying the content forward.
+        # Whether such a partition exists depends on merge timing — see the docstring's best-effort note.
+        columns["embedding_small"].append(None if is_deleted else list(embedding))
+        columns["embedding_rendering"].append(SIGNAL_DOCUMENT_RENDERING)
+        columns["weight"].append(weight)
+        columns["source_product"].append(source_product)
+        columns["source_type"].append(source_type)
+        columns["source_id"].append(source_id)
+        columns["is_deleted"].append(bool(is_deleted))
+        columns["match_kind"].append(match_kind)
+        columns["match_parent_signal_id"].append(match_parent_signal_id)
+        columns["rejected_signal_count"].append(rejected_signal_count)
+    del results
+
+    table = pa.Table.from_pydict(columns, schema=SIGNAL_EMBEDDINGS_SCHEMA)
+
+    bucket = dataset_bucket()
+    key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, SIGNAL_EMBEDDINGS_TABLE, partition_key)
+    client = s3_client()
+    # A re-run is additive. The source can no longer supply a row this partition already archived —
+    # a merge or the TTL removed it — so overwriting with the fresh scan alone would delete history
+    # that exists nowhere else. Row counts cannot police that on their own: a scan can lose one
+    # emission and gain another and land on the same total.
+    existing = read_parquet_if_exists(client, bucket, key)
+    if existing is not None:
+        table = merge_emission_rows(existing, table, SIGNAL_EMISSION_KEY)
+    existing_row_count = object_row_count(client, bucket, key)
+    if not partition_write_allowed(existing_row_count, table.num_rows):
+        raise dagster.Failure(
+            f"{SIGNAL_EMBEDDINGS_TABLE} dt={partition_key} already holds {existing_row_count} rows and the union "
+            f"with this run produced {table.num_rows}: a union can only grow, so this is a bug in the merge rather "
+            "than a source change. Refusing the write to keep archived rows the source may no longer hold."
+        )
+    write_parquet(client, bucket, key, table)
+    context.add_output_metadata(
+        {
+            "rows": dagster.MetadataValue.int(table.num_rows),
+            "scanned": dagster.MetadataValue.int(row_count),
+            "carried_over": dagster.MetadataValue.int(table.num_rows - row_count),
+            "retracted": dagster.MetadataValue.int(deleted_count),
+            "reports": dagster.MetadataValue.int(len({report_id for report_id in columns["report_id"] if report_id})),
+            "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
+        }
+    )
+
+
 @dagster.asset(name=LABELS_TABLE, **COMMON_ASSET_KWARGS)
 def inbox_report_labels(context: dagster.AssetExecutionContext) -> None:
     if skip_unconfigured(context):
         return
-    _tag_dagster_queries(context)
+    _tag_dagster_queries(context, query_type="inbox_ranking_labels")
     partition_key = context.partition_key
     _, snapshot_end = snapshot_bounds(partition_key)
     team = labels_team()
@@ -697,7 +882,7 @@ def inbox_report_model_data(context: dagster.AssetExecutionContext) -> None:
 
 inbox_ranking_dataset_job = dagster.define_asset_job(
     name="inbox_ranking_dataset_job",
-    selection=[STATE_TABLE, EMBEDDINGS_TABLE, LABELS_TABLE, MODEL_DATA_TABLE],
+    selection=[STATE_TABLE, EMBEDDINGS_TABLE, SIGNAL_EMBEDDINGS_TABLE, LABELS_TABLE, MODEL_DATA_TABLE],
     partitions_def=partition_def,
     # The seven label streams run sequentially and each may take its full 600s query timeout, so an
     # hour left a slow-but-valid pass no room for the join, the S3 writes, or an asset retry — and

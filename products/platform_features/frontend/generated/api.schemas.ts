@@ -246,6 +246,13 @@ export interface PatchedOrganizationApi {
     readonly is_pending_deletion?: boolean | null
 }
 
+export interface OrganizationRemoveBlockedMembersResponseApi {
+    /** Whether verified-domain enforcement was turned on. */
+    success: boolean
+    /** How many members with an email outside the verified domains were removed from the organization. Owners are never removed. */
+    removed_members: number
+}
+
 export interface OrganizationAIAccessRequestResponseApi {
     /** Whether the access request was accepted and the organization admins were notified. */
     success: boolean
@@ -942,6 +949,38 @@ export interface CommentSlackThreadApi {
     readonly created_by: UserBasicApi | null
 }
 
+/**
+ * * `attribute` - attribute
+ * * `resourceAttribute` - resourceAttribute
+ */
+export type UserFacetSettingsEntrySourceTypeEnumApi =
+    (typeof UserFacetSettingsEntrySourceTypeEnumApi)[keyof typeof UserFacetSettingsEntrySourceTypeEnumApi]
+
+export const UserFacetSettingsEntrySourceTypeEnumApi = {
+    Attribute: 'attribute',
+    ResourceAttribute: 'resourceAttribute',
+} as const
+
+export interface UserFacetSettingsEntryApi {
+    /** The log or span attribute key this facet is based on — for example `http.status_code` or `k8s.pod.name`. */
+    key: string
+    /** Where the key lives: `attribute` for a plain log/span attribute, `resourceAttribute` for an OpenTelemetry resource attribute.
+     *
+     * * `attribute` - attribute
+     * * `resourceAttribute` - resourceAttribute */
+    source_type: UserFacetSettingsEntrySourceTypeEnumApi
+}
+
+export interface UserFacetSettingsApi {
+    /** Ordered list of custom facets the user has pinned for this product, within the current team. Send the full list to replace the existing set. */
+    custom_facets: UserFacetSettingsEntryApi[]
+}
+
+export interface PatchedUserFacetSettingsApi {
+    /** Ordered list of custom facets the user has pinned for this product, within the current team. Send the full list to replace the existing set. */
+    custom_facets?: UserFacetSettingsEntryApi[]
+}
+
 export interface PinnedSceneTabApi {
     /** Stable identifier for the tab. Generated client-side; safe to omit on create. */
     id?: string
@@ -1003,6 +1042,14 @@ export type ListParams = {
 
 export type MembersListParams = {
     /**
+     * Only return members whose email address is on this domain (case-insensitive).
+     */
+    email_domain?: string
+    /**
+     * Comma-separated membership levels to return, e.g. `1,8`. Levels are 1 member, 8 admin, 15 owner.
+     */
+    levels?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -1014,6 +1061,10 @@ export type MembersListParams = {
      * Sort order. Defaults to `-joined_at`.
      */
     order?: string
+    /**
+     * When `true`, only return members whose email domain is not one of the organization's verified domains — the members who would lose access under verified-domain enforcement.
+     */
+    outside_verified_domains?: boolean
     /**
      * Match against member `first_name`, `last_name`, and `email`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.
      */
@@ -1154,6 +1205,7 @@ export type ActivityLogListParams = {
      * * `InstanceSetting` - InstanceSetting
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
+     * * `SignalTeamConfig` - SignalTeamConfig
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
@@ -1249,6 +1301,7 @@ export const ActivityLogListScope = {
     InstanceSetting: 'InstanceSetting',
     SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
+    SignalTeamConfig: 'SignalTeamConfig',
     StreamlitApp: 'StreamlitApp',
     Metric: 'Metric',
     TableCertification: 'TableCertification',
@@ -1331,6 +1384,7 @@ export const ActivityLogListScope = {
  * * `InstanceSetting` - InstanceSetting
  * * `SignalReport` - SignalReport
  * * `SignalScoutConfig` - SignalScoutConfig
+ * * `SignalTeamConfig` - SignalTeamConfig
  * * `StreamlitApp` - StreamlitApp
  * * `Metric` - Metric
  * * `TableCertification` - TableCertification
@@ -1414,6 +1468,7 @@ export const ActivityLogListScopesItem = {
     InstanceSetting: 'InstanceSetting',
     SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
+    SignalTeamConfig: 'SignalTeamConfig',
     StreamlitApp: 'StreamlitApp',
     Metric: 'Metric',
     TableCertification: 'TableCertification',
@@ -1617,4 +1672,34 @@ export const CommentsListKind = {
     Any: 'any',
     Comment: 'comment',
     Task: 'task',
+} as const
+
+export type UserFacetSettingsRetrieveParams = {
+    /**
+     * Which product's custom facets to read or update.
+     */
+    product: UserFacetSettingsRetrieveProduct
+}
+
+export type UserFacetSettingsRetrieveProduct =
+    (typeof UserFacetSettingsRetrieveProduct)[keyof typeof UserFacetSettingsRetrieveProduct]
+
+export const UserFacetSettingsRetrieveProduct = {
+    Logs: 'logs',
+    Tracing: 'tracing',
+} as const
+
+export type UserFacetSettingsPartialUpdateParams = {
+    /**
+     * Which product's custom facets to read or update.
+     */
+    product: UserFacetSettingsPartialUpdateProduct
+}
+
+export type UserFacetSettingsPartialUpdateProduct =
+    (typeof UserFacetSettingsPartialUpdateProduct)[keyof typeof UserFacetSettingsPartialUpdateProduct]
+
+export const UserFacetSettingsPartialUpdateProduct = {
+    Logs: 'logs',
+    Tracing: 'tracing',
 } as const

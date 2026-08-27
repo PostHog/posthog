@@ -17,10 +17,13 @@
 //! expected behavior legitimately differs across stack versions as
 //! admission hardening lands.
 //!
-//! Every database operation — seeding, verification, cleanup — touches
-//! only the configured target table (the writer's validation table), never
-//! posthog_person; a startup sentinel round-trip proves the router serves
-//! that same table before any traffic flows. Shutdown cuts the in-flight
+//! Direct database access is seeding and verification only — confined to
+//! the configured target table (the writer's validation table), never
+//! posthog_person, and never a DELETE: every row removal goes through the
+//! lifecycle delete saga, so leftovers from crashed runs and the saga's
+//! tombstones are external cleanup's business. A startup sentinel
+//! round-trip proves the router serves that same table before any traffic
+//! flows. Shutdown cuts the in-flight
 //! epoch's load short and runs the normal close-out (verify what was
 //! acked, record, clean up) inside the termination grace window.
 
@@ -105,19 +108,13 @@ fn validate_args(args: &TrafficArgs) -> Result<()> {
     }
     for team in args.team_ids.iter().chain([&args.hostile_team_id]) {
         // team_id columns are i32; reject here rather than deep inside
-        // the first seed or janitor query.
+        // the first seed query.
         if i32::try_from(*team).is_err() {
             bail!("team id {team} out of i32 range");
         }
     }
     seed::validate_table_name(&args.pg_target_table)
 }
-
-/// How old a leftover row must be before the startup janitor reaps it.
-/// Far above any epoch length, so a live sibling pod's pool is never
-/// touched; far below forever, so crashed instances' rows don't
-/// accumulate.
-const STALE_ROW_AGE: Duration = Duration::from_secs(3600);
 
 /// Concurrent identity-service create batches while seeding an epoch's
 /// pools. Bounded so a many-team epoch doesn't dogpile the service its
@@ -130,8 +127,8 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
     let team_ids = args.team_ids.clone();
     let hostile_team_id = args.hostile_team_id;
     // Instances share the team set; disjointness comes from the boot
-    // nonce in every distinct id, so verification (id-scoped) and the
-    // janitor (age-guarded) never cross instances.
+    // nonce in every distinct id, so verification (id-scoped) never
+    // crosses instances.
     let nonce = format!("{:08x}", rand::random::<u32>());
     tracing::info!(%nonce, ?team_ids, hostile_team_id, "instance identity");
 
@@ -144,7 +141,8 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
         shutdown_signal().await;
         return Ok(());
     }
-    let client = HarnessClient::connect(&args.router_url).await?;
+    let client =
+        HarnessClient::connect_with_channels(&args.router_url, args.router_channels).await?;
     let identity = IdentityClient::connect(&args.identity_url).await?;
     let lifecycle = LifecycleClient::connect(&args.identity_url).await?;
     let pool = PgPool::connect(&args.persons_db_url)
@@ -156,15 +154,14 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
     // restart loop retries — which also rides out startup races where the
     // leader hasn't claimed partitions yet. One team suffices: the check
     // proves the router/database pairing, not per-team routing.
-    sentinel_round_trip(&client, &pool, &args.pg_target_table, team_ids[0]).await?;
-
-    // A crashed prior run leaves rows behind; reap the ones old enough
-    // that they cannot belong to a live sibling — a rolling restart
-    // briefly runs two bed pods against the same team, each on its own
-    // disjoint id pool, and a fresh row is the sibling's business.
-    for team in team_ids.iter().chain([&hostile_team_id]) {
-        seed::reap_stale_team_rows(&pool, &args.pg_target_table, *team, STALE_ROW_AGE).await?;
-    }
+    sentinel_round_trip(
+        &client,
+        &lifecycle,
+        &pool,
+        &args.pg_target_table,
+        team_ids[0],
+    )
+    .await?;
 
     // Hostile targets live for the process lifetime: their documents stay
     // small (fixed keys, no journal growth) and their outcomes are only
@@ -225,19 +222,6 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
             teams = team_ids.len(),
             "epoch starting"
         );
-
-        // The hostile pool outlives epochs; keep its liveness stamp fresh
-        // so a sibling pod's startup janitor never reaps it mid-use.
-        seed::refresh_created_at(&pool, &args.pg_target_table, hostile_team_id, &hostile_ids)
-            .await?;
-
-        // The per-epoch janitor: crashed-run leftovers and the
-        // tombstones lifecycle rotation leaves behind both age into
-        // eligibility; without this the table grows one pool per epoch
-        // for the life of the deployment.
-        for team in team_ids.iter().chain([&hostile_team_id]) {
-            seed::reap_stale_team_rows(&pool, &args.pg_target_table, *team, STALE_ROW_AGE).await?;
-        }
 
         // Seed every lane's pool before any lane starts, concurrently
         // but bounded so one epoch's create batches don't dogpile the
@@ -415,7 +399,8 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
         traffic_metrics::record_violations(epoch, &violations);
         if let Some(error) = close_error {
             // The healthy lanes' violations are recorded above; the
-            // unrotated pools age into the janitor's reap.
+            // unrotated pools stay behind — the bed never deletes from
+            // Postgres, so leftovers are external cleanup's business.
             return Err(error);
         }
 
@@ -438,7 +423,7 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
         // whatever chaos is running. By id, not by team — a successor
         // pod may already be running its own pool against these teams.
         // Every pool's rotation is attempted before the first failure
-        // propagates; a missed pool ages into the janitor's reap.
+        // propagates; a missed pool is left behind for external cleanup.
         for result in futures::future::join_all(
             lanes
                 .iter()
@@ -607,9 +592,9 @@ async fn hold_and_run(
 }
 
 /// Delete the epoch's pool through the saga and account for every
-/// outcome. `deleted` is the expected answer; `not_found` means someone
-/// else already removed the row (a startup janitor's reap, never a
-/// second bed — pools are id-disjoint) and is counted, not fatal;
+/// outcome. `deleted` is the expected answer; `not_found` means the row
+/// was already gone (a replayed saga op, never a second bed — pools are
+/// id-disjoint) and is counted, not fatal;
 /// `skipped_conflict` means a lifecycle operation is stuck holding a
 /// pool person, which the bed exists to surface, so it fails the run.
 async fn delete_pool(lifecycle: &LifecycleClient, team_id: i64, person_ids: &[i64]) -> Result<()> {
@@ -743,9 +728,11 @@ fn hostile_payload(counter: u64) -> (&'static str, Value) {
 /// and require an exact match. The router path terminates in the leader's
 /// PG fallback, so a router pointed at any other environment cannot
 /// return a value that was generated here moments ago. The row is
-/// removed by the boot cleanup that follows.
+/// retired through the lifecycle delete saga — traffic mode never
+/// deletes from Postgres directly.
 async fn sentinel_round_trip(
     client: &HarnessClient,
+    lifecycle: &LifecycleClient,
     pool: &PgPool,
     table: &str,
     team_id: i64,
@@ -787,14 +774,9 @@ async fn sentinel_round_trip(
         );
     }
     tracing::info!("sentinel round-trip verified: router and database agree");
-    sqlx::query(&format!(
-        "DELETE FROM {table} WHERE team_id = $1 AND id = $2"
-    ))
-    .bind(team)
-    .bind(person_id)
-    .execute(pool)
-    .await
-    .context("deleting the sentinel person")?;
+    delete_pool(lifecycle, team_id, &[person_id])
+        .await
+        .context("retiring the sentinel person through the delete saga")?;
     Ok(())
 }
 
@@ -818,7 +800,7 @@ async fn shutdown_signal() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::DEFAULT_KEYS_PER_PERSON;
+    use crate::cli::{DEFAULT_KEYS_PER_PERSON, DEFAULT_ROUTER_CHANNELS};
 
     /// Needs the CI gate's etcd; run explicitly with `--ignored`.
     #[tokio::test]
@@ -863,6 +845,7 @@ mod tests {
             chaos_etcd_namespace: None,
             router_url: "http://localhost:1".to_string(),
             identity_url: "http://localhost:2".to_string(),
+            router_channels: DEFAULT_ROUTER_CHANNELS,
             enabled: true,
             team_ids: vec![900_101],
             hostile_team_id: 900_102,

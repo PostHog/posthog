@@ -287,10 +287,10 @@
         }
     },
     "notebooks-create-markdown": {
-        "description": "Create a notebook for deep, step-by-step data analysis: query PostHog and connected data warehouse data with SQL (HogQL), or analyze with Python code. SQL and Python cells can also read and query dataframes fetched or created by upstream cells in the notebook. Run a cell, read its result, decide the next step; add markdown cells to explain and summarize findings, and embed saved insights. Give it a title and optionally an initial markdown body. Returns the notebook_id to use with notebooks-add-cell.",
+        "description": "Create a notebook for deep, step-by-step data analysis: query PostHog and connected data warehouse data with SQL (HogQL), or analyze with Python code. SQL and Python cells can also read and query dataframes fetched or created by upstream cells in the notebook. Run a cell, read its result, decide the next step; add markdown cells to explain and summarize findings, and embed saved insights. Give it a title and optionally an initial markdown body. Returns the notebook_id to use with notebooks-add-cell. This is the default artifact for an analysis with a narrative — a deep dive, a one-off investigation, a 'why did X change' — where the reader needs the reasoning and caveats, not just a number; a dashboard is for metrics tracked repeatedly over time. Reach for a notebook without being asked whenever the work needs Python, so the code, its output, and its errors are visible to the user next to the result instead of running where they can't see them.",
         "category": "Notebooks",
         "feature": "notebooks",
-        "summary": "Create a markdown notebook for executable cells.",
+        "summary": "Create a markdown notebook for deep-dive analysis with SQL and Python cells.",
         "title": "Create markdown notebook",
         "required_scopes": ["notebook:write"],
         "feature_flag": "revamped-py-notebooks",
@@ -302,7 +302,7 @@
         }
     },
     "notebooks-add-cell": {
-        "description": "Add a cell to a markdown notebook. SQL and Python cells run immediately: the call waits up to ~45s and returns the result — columns, a capped row preview, stdout/stderr (a Python cell's logs and tracebacks), and error — so you can look at the output and decide the next step (fix, or proceed). If the status comes back 'running', poll notebooks-run-cell-result with the run_id. A cell that reads other cells' dataframes references them by dataframe_name; those cells must have completed a run first, so add cells in dependency order. SQL cells are always HogQL: queries against PostHog or data warehouse tables run on ClickHouse, and a SQL cell that references a Python-created dataframe runs on the notebook's local engine automatically — any local dataframe is queryable by name, same syntax. The first Python cell can take longer while the notebook's sandbox kernel starts. component cells add other node types: Query, Image, Embed, Latex, FeatureFlag, Survey, Experiment, Person, Cohort, Recording, RecordingPlaylist. Pass a short title on every cell you add, describing what that cell shows — it renders in the cell header and is what a reader skims instead of the code.",
+        "description": "Add a cell to a markdown notebook. SQL and Python cells run immediately: the call waits up to ~45s and returns the result — columns, a capped row preview, stdout/stderr (a Python cell's logs and tracebacks), and error — so you can look at the output and decide the next step (fix, or proceed). If the status comes back 'running', poll notebooks-run-cell-result with the run_id. A cell that reads other cells' dataframes references them by dataframe_name; those cells must have completed a run first, so add cells in dependency order. SQL cells are always HogQL: queries against PostHog or data warehouse tables run on ClickHouse, and a SQL cell that references a Python-created dataframe runs on the notebook's local engine automatically — any local dataframe is queryable by name, same syntax. The first Python cell can take longer while the notebook's sandbox kernel starts. Run analysis Python here rather than in a runtime the user can't see — dataframe work, statistics, clustering, forecasting, plotting — so the code and its output stay visible and re-runnable beside the result; the sandbox has pandas, numpy, scipy, scikit-learn, and matplotlib. component cells add other node types: Query, Image, Embed, Latex, FeatureFlag, Survey, Experiment, Person, Cohort, Recording, RecordingPlaylist. Pass a short title on every cell you add, describing what that cell shows — it renders in the cell header and is what a reader skims instead of the code. A notebook holds at most 50 cells; past that the call fails, so start a new notebook rather than retrying.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Add a cell to a notebook; SQL/Python cells run immediately.",
@@ -515,7 +515,7 @@
         }
     },
     "survey-get": {
-        "description": "Get a specific survey by ID. Returns the survey configuration including questions, targeting, and scheduling details.",
+        "description": "Get a specific survey by ID. Returns its questions, targeting flag — including current property targeting rules under targeting_flag.filters — and scheduling details. To change targeting, use targeting_flag_filters with survey-update.",
         "category": "Surveys",
         "summary": "Get a specific survey by ID.",
         "required_scopes": ["survey:read"],
@@ -680,22 +680,6 @@
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": false,
-            "readOnlyHint": true
-        }
-    },
-    "session-recording-summarize": {
-        "description": "DEPRECATED — prefer Replay Vision. This is the legacy session-summary path; it still works but is being retired (removal planned, months out), so do not reach for it by default. To summarize or understand a session without watching the whole recording, use Replay Vision's scanner tools (the `vision-*` MCP tools, e.g. `vision-observations-list` to read an existing summary and `vision-scanners-scan-session` to generate one) and follow their own instructions instead. Only fall back to this tool when Replay Vision is unavailable for the org, or a user explicitly asks for the legacy summarizer.\n\nIf you do use it: generates an AI summary of one or more session recordings — user journey segments, key actions, segment and overall outcomes, and sentiment (frustration score, rage clicks, confusion signals). Accepts up to 300 session IDs and an optional `focus_area` to steer the summary (e.g. \"checkout flow\"). Returns a dict keyed by session ID; failed entries carry an `error` (e.g. `no_events_or_too_short`, `summary_failed`) and an `error_message`, and a bad session ID fails only its own entry, not the batch. WARNING: first-time summaries call an AI model and are very slow — around 5 minutes; previously generated summaries are cached and return instantly, so warn the user about the wait before calling.\n\nDEEP LINKS: key actions include `session_id` and `milliseconds_since_start`. Build links as `{posthog_base_url}/replay/{session_id}?t={milliseconds_since_start / 1000}` (the `?t=` parameter is in seconds). Example: 45000ms in session abc123 → `/replay/abc123?t=45`. Always include these links for key actions and frustration signals.",
-        "category": "Session replays",
-        "feature": "replay",
-        "summary": "Legacy AI session summaries (streaming) — prefer Replay Vision summarizer scanners.",
-        "title": "Summarize session recording",
-        "required_scopes": ["session_recording:read"],
-        "requires_ai_consent": true,
-        "feature_flag": "replay-video-based-summarization",
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
             "readOnlyHint": true
         }
     },

@@ -266,6 +266,7 @@ export function PropertiesTable({
             [PropertyDefinitionType.Event]: TaxonomicFilterGroupType.EventProperties,
             [PropertyDefinitionType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
             [PropertyDefinitionType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
+            [PropertyDefinitionType.Account]: TaxonomicFilterGroupType.AccountFields,
             [PropertyDefinitionType.AccountCustomProperty]: TaxonomicFilterGroupType.AccountCustomProperties,
             [PropertyDefinitionType.Person]: TaxonomicFilterGroupType.PersonProperties,
             [PropertyDefinitionType.PersonMetadata]: TaxonomicFilterGroupType.PersonMetadata,

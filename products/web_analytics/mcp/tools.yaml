@@ -138,6 +138,9 @@ tools:
             `widths`, or soft-delete by setting `deleted: true` (deletion goes through this update, not a destroy call).
             Changing the `url` of a 'screenshot' heatmap triggers a fresh render.
         feature_flag: heatmaps-mcp
+    saved-capture-create:
+        operation: saved_capture_create
+        enabled: false
     saved-destroy:
         operation: saved_destroy
         enabled: false
@@ -164,6 +167,9 @@ tools:
         enabled: false
     web-analytics-achievements-update-preferences:
         operation: web_analytics_achievements_update_preferences
+        enabled: false
+    web-analytics-fetch-llms-txt:
+        operation: web_analytics_fetch_llms_txt
         enabled: false
     web-analytics-filter-presets-create:
         operation: web_analytics_filter_presets_create

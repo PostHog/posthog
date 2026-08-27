@@ -270,6 +270,13 @@ export const InsightsBulkRestoreCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Turn 'filter out internal and test users' on or off for every existing insight in the project. Requires project admin, matching the settings UI that fronts it. The setting of the same name only decides the default for new insights; this applies it to the insights that already exist. Only insights that store a query are changed; insights still holding legacy `filters` are counted in `legacy` and left as they are. Insights with nowhere to put the toggle, such as SQL insights, are left alone, as are insights the requester cannot edit. Dashboards follow their insights unless the dashboard sets its own override. Insights are updated in batches, so a failure part way through leaves the finished batches applied. Retrying is safe and picks up the rest.
+ */
+export const InsightsBulkSetTestAccountFilterCreateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean().describe('Whether every existing insight should filter out internal and test users.'),
+})
+
+/**
  * Bulk update tags on multiple objects.
  *
  * PAT access: this action has no ``required_scopes=`` on the decorator —
@@ -324,7 +331,7 @@ export const InsightsGenerateMetadataCreateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Record that the current user has just viewed one or more insights. Submitted ids that do not belong to the current project or that point at deleted insights are silently dropped. Returns 201 on success regardless of how many ids were retained.
+ * Record that the current user has just viewed one or more insights. Submitted ids that do not belong to the current project or that point at deleted insights are silently dropped, as are views from impersonated staff-support sessions. Returns 201 on success regardless of how many ids were retained.
  */
 export const insightsViewedCreateBodyInsightIdsMax = 2500
 

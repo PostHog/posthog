@@ -126,29 +126,75 @@ function shouldFetchProxyRecords(user: UserType | null, currentOrganizationId: s
     return !!user && !!currentOrganizationId && new Date().getDate() <= 7 && !isNoticeDismissed('missing_reverse_proxy')
 }
 
+function buildBillingAlertAction(
+    billingAlert: BillingAlertConfig,
+    canAccessBilling: boolean
+): LemonBannerProps['action'] | undefined {
+    if (billingAlert.action) {
+        return billingAlert.action
+    }
+
+    if (billingAlert.contactSupport) {
+        return {
+            to: 'mailto:sales@posthog.com',
+            children: billingAlert.buttonCTA || 'Contact support',
+            onClick: () => billingLogic.actions.reportBillingAlertActionClicked(billingAlert),
+        }
+    }
+
+    if (!canAccessBilling) {
+        return undefined
+    }
+
+    return {
+        to: getBillingAlertBillingUrl(billingAlert),
+        children: 'Manage billing',
+        onClick: () => billingLogic.actions.reportBillingAlertActionClicked(billingAlert),
+    }
+}
+
+function getBillingAlertBillingUrl(billingAlert: BillingAlertConfig): string {
+    return urls.organizationBilling(billingAlert.productKey ? [billingAlert.productKey] : undefined)
+}
+
+function isBillingPathname(pathname: string): boolean {
+    const billingPathname = urls.organizationBilling()
+
+    return pathname === billingPathname || pathname.startsWith(`${billingPathname}/`)
+}
+
+function isCurrentBillingAlertBillingUrl(
+    billingAlert: BillingAlertConfig,
+    currentLocation: { pathname: string; searchParams: Record<string, any> }
+): boolean {
+    if (!isBillingPathname(currentLocation.pathname)) {
+        return false
+    }
+
+    if (!billingAlert.productKey) {
+        return true
+    }
+
+    const productsParam = currentLocation.searchParams.products
+    const productKeys = Array.isArray(productsParam)
+        ? productsParam
+        : typeof productsParam === 'string'
+          ? productsParam.split(',')
+          : []
+
+    return productKeys.includes(billingAlert.productKey)
+}
+
 function buildBillingAlertNotice(
     billingAlert: BillingAlertConfig,
     canAccessBilling: boolean,
-    currentPathname: string
+    currentLocation: { pathname: string; searchParams: Record<string, any> }
 ): ProjectNoticeBlueprint {
     const showButton =
-        billingAlert.action || billingAlert.contactSupport || currentPathname !== urls.organizationBilling()
-
-    const action = billingAlert.action
-        ? billingAlert.action
-        : billingAlert.contactSupport
-          ? {
-                to: 'mailto:sales@posthog.com',
-                children: billingAlert.buttonCTA || 'Contact support',
-                onClick: () => billingLogic.actions.reportBillingAlertActionClicked(billingAlert),
-            }
-          : canAccessBilling
-            ? {
-                  to: urls.organizationBilling(),
-                  children: 'Manage billing',
-                  onClick: () => billingLogic.actions.reportBillingAlertActionClicked(billingAlert),
-              }
-            : undefined
+        billingAlert.action ||
+        billingAlert.contactSupport ||
+        !isCurrentBillingAlertBillingUrl(billingAlert, currentLocation)
+    const action = buildBillingAlertAction(billingAlert, canAccessBilling)
 
     return {
         message: (
@@ -514,11 +560,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                         if (!effectiveBillingAlert) {
                             return null
                         }
-                        const notice = buildBillingAlertNotice(
-                            effectiveBillingAlert,
-                            canAccessBilling,
-                            currentLocation.pathname
-                        )
+                        const notice = buildBillingAlertNotice(effectiveBillingAlert, canAccessBilling, currentLocation)
                         const canClose = dismiss || notice.onClose
                         return {
                             ...notice,

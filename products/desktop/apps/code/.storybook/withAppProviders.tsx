@@ -7,12 +7,14 @@ import {
 } from "@posthog/host-router/client";
 import { HostTRPCProvider } from "@posthog/host-router/react";
 import type { HostRouter } from "@posthog/host-router/router";
+import { ToastProvider } from "@posthog/quill";
 import {
   FEATURE_FLAGS,
   type FeatureFlags,
 } from "@posthog/ui/features/feature-flags/identifiers";
 import { DIFF_WORKER_FACTORY } from "@posthog/ui/shell/diffWorkerHost";
 import { IMPERATIVE_QUERY_CLIENT } from "@posthog/ui/shell/queryClient";
+import { registerRendererStateStorage } from "@posthog/ui/shell/rendererStorage";
 import type { Decorator } from "@storybook/react-vite";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -161,6 +163,20 @@ function createProviderStack(): ProviderStack {
   return { queryClient, hostTrpcClient, container };
 }
 
+// Persisted stores wait for a host persistence backend before they hydrate, and
+// anything gated on hydration (teaching tips) stays hidden until one arrives.
+// Per-session and empty, so a story never inherits another story's answers.
+const storyState = new Map<string, string>();
+registerRendererStateStorage({
+  getItem: (name) => storyState.get(name) ?? null,
+  setItem: (name, value) => {
+    storyState.set(name, value);
+  },
+  removeItem: (name) => {
+    storyState.delete(name);
+  },
+});
+
 export const withAppProviders: Decorator = (Story) => {
   // The provider singletons don't depend on the story; build them once per
   // mount. Lazy ref rather than useMemo: setRootContainer mutates a global, and
@@ -187,7 +203,9 @@ export const withAppProviders: Decorator = (Story) => {
     <QueryClientProvider client={queryClient}>
       <HostTRPCProvider trpcClient={hostTrpcClient} queryClient={queryClient}>
         <ServiceProvider container={container}>
-          <RouterProvider router={router} />
+          <ToastProvider>
+            <RouterProvider router={router} />
+          </ToastProvider>
         </ServiceProvider>
       </HostTRPCProvider>
     </QueryClientProvider>

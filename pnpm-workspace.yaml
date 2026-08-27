@@ -27,7 +27,6 @@ packages:
     - services/stripe-app
     - tools/*
     - '!tools/hedgebox-dummy'
-    - rust/cyclotron-node
     - rust/common/hogvm/node
     - rust/replay-anonymizer-node
 
@@ -105,7 +104,6 @@ overrides:
 patchedDependencies:
     heatmap.js@2.0.5: patches/heatmap.js@2.0.5.patch
     dayjs@1.11.11: patches/dayjs@1.11.11.patch
-    chartjs-plugin-crosshair@2.0.0: patches/chartjs-plugin-crosshair@2.0.0.patch
     kea@4.0.0-pre.6: patches/kea@4.0.0-pre.6.patch
 
 # Dependencies that require preinstall scripts. Add entries with caution.
@@ -145,9 +143,9 @@ catalog:
     kea-window-values: ^3.0.1
     # PostHog packages
     '@posthog/icons': ^0.38.0
-    '@posthog/brand': 0.9.1
-    '@posthog/react': ^1.9.0
-    posthog-js: ^1.410.1
+    '@posthog/brand': 0.10.0
+    '@posthog/react': ^1.10.5
+    posthog-js: ^1.420.0
     # Build tools
     '@parcel/packager-ts': 2.16.4
     '@parcel/transformer-typescript-types': 2.16.4

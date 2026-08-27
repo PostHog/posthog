@@ -7,6 +7,7 @@ import { dimensions, dragSelection, rawDrag, setupJsdom, setupSyncRaf } from '@p
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import type { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
 
 import { ExportType } from '~/exporter/types'
@@ -25,6 +26,8 @@ import {
 } from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { AnnotationScope, ChartDisplayType, InsightShortId } from '~/types'
+
+import { extendLabelsToLongestSeries } from './TrendsLineChart'
 
 // The full InsightViz tree is heavy to mount under jsdom; on contended CI shards
 // the default 1s waitFor / findBy timeout is too tight and flakes randomly.
@@ -186,7 +189,7 @@ describe('TrendsLineChart', () => {
             expect(tooltip.row('Formula (A*2) · Spike')).toContain('6')
         })
 
-        it('shows current and previous period rows in compare mode', async () => {
+        it('dates the previous period row in compare mode', async () => {
             renderInsight({
                 query: buildTrendsQuery({
                     compareFilter: { compare: true },
@@ -199,8 +202,10 @@ describe('TrendsLineChart', () => {
 
             const tooltip = await chart.hoverTooltip(2)
 
+            // Index 2 is 12 Jun in the current period, so 5 Jun can only come from the previous one.
             expect(tooltip.row('Current')).toContain('134')
-            expect(tooltip.row('Previous')).toContain('100')
+            expect(tooltip.row('5 Jun')).toContain('100')
+            expect(tooltip.element.textContent).not.toContain('Previous')
         })
 
         it('uses context.formatCompareLabel to override Current/Previous in compare mode', async () => {
@@ -670,6 +675,8 @@ describe('TrendsLineChart', () => {
             await waitFor(() => {
                 expect(personsModal.actorNames()).toEqual(['spike-fan@example.com'])
             })
+            // The pin outlives the click unless the drill-down drops it, leaving the tooltip over the modal.
+            expect(chart.getTooltip()).not.toBeInTheDocument()
         })
 
         it('fires context.onDataPointClick instead of opening the persons modal', async () => {
@@ -936,6 +943,30 @@ describe('TrendsLineChart', () => {
             dragSelection(wrapper, 1, 3, totalLabels)
 
             expect(getQuerySource().dateRange).toBeUndefined()
+        })
+    })
+
+    describe('extendLabelsToLongestSeries', () => {
+        const result = (data: number[]): IndexedTrendResult => ({ data }) as IndexedTrendResult
+
+        it('extends the hourly domain forward to a longer previous series', () => {
+            const currentDays = ['2020-01-02 00:00:00', '2020-01-02 01:00:00', '2020-01-02 02:00:00']
+            const extended = extendLabelsToLongestSeries(currentDays, 'hour', [
+                result([0, 0, 1]),
+                result([3, 0, 0, 0, 0]),
+            ])
+            expect(extended).toEqual([
+                '2020-01-02 00:00:00',
+                '2020-01-02 01:00:00',
+                '2020-01-02 02:00:00',
+                '2020-01-02 03:00:00',
+                '2020-01-02 04:00:00',
+            ])
+        })
+
+        it('leaves the domain untouched when no series is longer', () => {
+            const days = ['2020-01-02', '2020-01-03', '2020-01-04']
+            expect(extendLabelsToLongestSeries(days, 'day', [result([1, 2, 3]), result([4, 5, 6])])).toBe(days)
         })
     })
 })

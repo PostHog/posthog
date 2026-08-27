@@ -40,12 +40,8 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.temporal.tests.delete_teams.inline import execute_deletion_workflows_inline
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
 
 
 def create_user(email: str, password: str, organization: Organization):
@@ -344,6 +340,51 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == 200
         assert response.json()["requires_credential_review"] is expected
 
+    def test_requires_credential_review_skipped_when_impersonating_via_session(self):
+        User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Test key",
+            secure_value=hash_key_value("phx_test_value_impersonated"),
+            scopes=["*"],
+        )
+        with patch("posthog.helpers.impersonation.is_impersonated_session", return_value=True):
+            response = self.client.get("/api/users/@me/")
+        assert response.status_code == 200
+        assert response.json()["requires_credential_review"] is False
+
+    def test_requires_credential_review_skipped_when_impersonating_via_oauth_token(self):
+        User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Test key",
+            secure_value=hash_key_value("phx_test_value_impersonated_oauth"),
+            scopes=["*"],
+        )
+        staff = User.objects.create_user(email="staff@example.com", password="x", first_name="Staff", is_staff=True)
+        app = OAuthApplication.objects.create(
+            name="MCP client",
+            client_id="test_impersonation_client_id",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=app,
+            token="pha_test_impersonated_access_token",
+            scope="user:read",
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_teams=[self.team.id],
+            impersonated_by=staff,
+        )
+        self.client.logout()
+        response = self.client.get("/api/users/@me/", headers={"authorization": f"Bearer {token.token}"})
+        assert response.status_code == 200
+        assert response.json()["requires_credential_review"] is False
+
     def test_requires_credential_review_unverified_passkey(self):
         # Unverified passkeys are the realistic pre-claim attack artifact - a partner
         # session can register a credential without ever completing verification.
@@ -361,6 +402,53 @@ class TestUserAPI(APIBaseTest):
         response = self.client.get("/api/users/@me/")
         assert response.status_code == 200
         assert response.json()["requires_credential_review"] is True
+
+    @parameterized.expand(
+        [
+            ("live_access_token", 1, False, False, True),
+            ("live_refresh_token_only", -1, True, False, True),
+            ("expired_access_token_only", -1, False, False, False),
+            ("live_access_token_first_party", 1, False, True, False),
+        ]
+    )
+    def test_requires_credential_review_for_oauth_access(
+        self,
+        _name: str,
+        expires_hours: int,
+        with_refresh_token: bool,
+        is_first_party: bool,
+        expected: bool,
+    ):
+        User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
+        app = OAuthApplication.objects.create(
+            name="Provisioning partner",
+            client_id="test_credential_review_client_id",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+            is_first_party=is_first_party,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=app,
+            token="test_credential_review_access_token",
+            scope="openid",
+            expires=timezone.now() + timedelta(hours=expires_hours),
+        )
+        if with_refresh_token:
+            OAuthRefreshToken.objects.create(
+                user=self.user,
+                application=app,
+                token="test_credential_review_refresh_token",
+                access_token=access_token,
+            )
+
+        response = self.client.get("/api/users/@me/")
+        assert response.status_code == 200
+        assert response.json()["requires_credential_review"] is expected
 
     def test_credentials_review_complete_endpoint(self):
         User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
