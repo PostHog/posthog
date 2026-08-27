@@ -2,6 +2,7 @@ import { Counter, Gauge, Histogram } from 'prom-client'
 
 import type { RepublishReason, UrlDropReason } from './collected-urls-record'
 import type { AttemptOutcome } from './fetch-runner'
+import type { FrontierDeadLetterReason } from './frontier-dead-letter-sink'
 import type { FetchRefusalReason, RequestScheduleBlockReason, TransientFetchOutcome } from './image-fetcher'
 
 /** What the in-flight gauge reads. Narrower than `ConcurrencyController`, so the metrics do not depend on the whole of it. */
@@ -45,7 +46,17 @@ export class ImageFetchConsumerMetrics {
      */
     private static readonly dropped = new Counter({
         name: 'ml_image_fetch_consumer_dropped_total',
-        help: 'URLs refused before dedup because the versioned record, URL, ref, or registrable-domain key was invalid',
+        help: 'URLs refused before dedup because the versioned record, URL, ref, or registrable-domain key was invalid. When a dead-letter topic is configured, its Kafka acknowledgement precedes this increment and the source commit',
+        labelNames: ['reason'],
+    })
+    private static readonly deadLettered = new Counter({
+        name: 'ml_image_fetch_consumer_dead_lettered_total',
+        help: 'Rejected frontier records acknowledged by the dead-letter topic before the source offset can advance',
+        labelNames: ['reason'],
+    })
+    private static readonly deadLetterFailed = new Counter({
+        name: 'ml_image_fetch_consumer_dead_letter_failed_total',
+        help: 'Rejected frontier records that could not reach the dead-letter topic. The source batch fails so its offsets remain uncommitted',
         labelNames: ['reason'],
     })
     /**
@@ -129,6 +140,12 @@ export class ImageFetchConsumerMetrics {
     }
     public static incDropped(reason: UrlDropReason, count: number): void {
         this.dropped.labels(reason).inc(count)
+    }
+    public static incDeadLettered(reason: FrontierDeadLetterReason): void {
+        this.deadLettered.labels(reason).inc()
+    }
+    public static incDeadLetterFailed(reason: FrontierDeadLetterReason): void {
+        this.deadLetterFailed.labels(reason).inc()
     }
     public static incStoreError(operation: 'read' | 'write', count: number): void {
         this.storeErrors.labels(operation).inc(count)
