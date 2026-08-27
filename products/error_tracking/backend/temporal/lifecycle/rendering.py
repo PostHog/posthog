@@ -97,17 +97,31 @@ def _is_dev_hostname(hostname: str) -> bool:
     return ip.is_private or ip.is_loopback or ip.is_link_local
 
 
+def _authority(value: str, *, is_url: bool) -> tuple[str | None, int | None]:
+    # Parse a URL or a bare host[:port] into hostname and port. A malformed
+    # authority (an unbalanced bracket, an out-of-range port) parses to nothing
+    # instead of raising, so one crafted event can't abort the lifecycle signal.
+    try:
+        parsed = urlparse(value if is_url else f"//{value}")
+        return parsed.hostname, parsed.port
+    except ValueError:
+        return None, None
+
+
+def _format_host(hostname: str, port: int | None) -> str:
+    display = f"[{hostname}]" if ":" in hostname else hostname
+    return f"{display}:{port}" if port is not None else display
+
+
 def parse_origin(event_properties: dict[str, object]) -> Origin:
     current_url = _string(event_properties.get("$current_url"))
-    netloc = urlparse(current_url).netloc if current_url else ""
-    if not netloc:
-        netloc = _string(event_properties.get("$host"))
-    # Drop any userinfo, keep host and port. Path and query never reach here, since both
-    # $current_url and $host carry an authority only.
-    display = netloc.rsplit("@", 1)[-1] or None
-    hostname = urlparse(f"//{netloc}").hostname if netloc else None
+    hostname, port = _authority(current_url, is_url=True) if current_url else (None, None)
+    if hostname is None:
+        # $host is a bare authority. Rebuild host:port from the parsed hostname, so any
+        # userinfo, path, or query in a non-browser-supplied value never reaches the origin.
+        hostname, port = _authority(_string(event_properties.get("$host")), is_url=False)
     return Origin(
-        host=display,
+        host=_format_host(hostname, port) if hostname else None,
         is_dev_host=_is_dev_hostname(hostname) if hostname else False,
         lib=_string(event_properties.get("$lib")) or None,
         lib_version=_string(event_properties.get("$lib_version")) or None,

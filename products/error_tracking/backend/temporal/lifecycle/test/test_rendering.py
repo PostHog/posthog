@@ -48,10 +48,34 @@ class TestParseOrigin:
                 "app.example.com",
                 False,
             ),
+            (
+                "ipv6_loopback_with_port_is_dev",
+                {"$current_url": "http://[::1]:3000/p"},
+                "[::1]:3000",
+                True,
+            ),
+            (
+                "host_fallback_drops_path_and_query",
+                {"$host": "evil.example.com/admin?token=abc"},
+                "evil.example.com",
+                False,
+            ),
+            (
+                "malformed_bracket_current_url_yields_no_host",
+                {"$current_url": "https://a]b.example.com/"},
+                None,
+                False,
+            ),
+            (
+                "malformed_bracket_host_yields_no_host",
+                {"$host": "[unclosed"},
+                None,
+                False,
+            ),
         ]
     )
     def test_parse_origin_host_and_dev_flag(
-        self, _name: str, event_properties: dict[str, object], expected_host: str, expected_is_dev: bool
+        self, _name: str, event_properties: dict[str, object], expected_host: str | None, expected_is_dev: bool
     ) -> None:
         origin = parse_origin(event_properties)
         assert origin.host == expected_host
