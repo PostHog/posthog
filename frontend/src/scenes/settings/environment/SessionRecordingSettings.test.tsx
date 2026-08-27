@@ -4,7 +4,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
 
-import { TeamMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -26,7 +26,7 @@ describe('ReplayGeneral', () => {
     it('shows the restriction reason to a member who cannot toggle the switch', () => {
         teamLogic.actions.loadCurrentTeamSuccess({
             ...MOCK_DEFAULT_TEAM,
-            effective_membership_level: TeamMembershipLevel.Member,
+            effective_membership_level: OrganizationMembershipLevel.Member,
         })
         render(<ReplayGeneral />)
         expect(screen.getByText(/restricted to project admins and up/i)).toBeInTheDocument()
@@ -35,7 +35,7 @@ describe('ReplayGeneral', () => {
     it('hides the restriction reason from an admin', () => {
         teamLogic.actions.loadCurrentTeamSuccess({
             ...MOCK_DEFAULT_TEAM,
-            effective_membership_level: TeamMembershipLevel.Admin,
+            effective_membership_level: OrganizationMembershipLevel.Admin,
         })
         render(<ReplayGeneral />)
         expect(screen.queryByText(/restricted to project admins and up/i)).not.toBeInTheDocument()
