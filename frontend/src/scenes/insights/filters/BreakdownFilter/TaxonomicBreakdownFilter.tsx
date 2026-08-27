@@ -16,6 +16,7 @@ import { ChartDisplayType, InsightLogicProps } from '~/types'
 
 import { EditableBreakdownTag } from './BreakdownTag'
 import { GlobalBreakdownOptionsMenu } from './GlobalBreakdownOptionsMenu'
+import { PerformedBreakdownButton } from './PerformedBreakdownButton'
 import { TaxonomicBreakdownButton } from './TaxonomicBreakdownButton'
 import { TaxonomicBreakdownFilterLogicProps, taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
@@ -163,6 +164,7 @@ export function TaxonomicBreakdownFilter({
                     disabledReasonInteractive={!!composedDisabledReason}
                     size={size}
                 />
+                <PerformedBreakdownButton disabledReason={composedDisabledReason} size={size} />
             </div>
             {showInlineOptions && isMultipleBreakdownsEnabled && hasGlobalBreakdownOptions && (
                 <div className="mt-2 border-t pt-2">

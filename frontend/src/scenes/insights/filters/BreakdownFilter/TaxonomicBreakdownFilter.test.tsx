@@ -97,6 +97,26 @@ describe('TaxonomicBreakdownFilter', () => {
         })
     })
 
+    describe('performed breakdown button', () => {
+        it('renders only when the behavioral property filter flag is on', async () => {
+            renderInsightPage({
+                query: buildTrendsQuery(),
+                featureFlags: { 'behavioral-property-filter': true },
+            })
+            await waitForBreakdownButton()
+            expect(screen.getByTestId('add-performed-breakdown-button')).toBeInTheDocument()
+        })
+
+        it('stays hidden when the flag is off', async () => {
+            renderInsightPage({
+                query: buildTrendsQuery(),
+                featureFlags: { 'behavioral-property-filter': false },
+            })
+            await waitForBreakdownButton()
+            expect(screen.queryByTestId('add-performed-breakdown-button')).not.toBeInTheDocument()
+        })
+    })
+
     describe('at the funnel cohort cap', () => {
         it('surfaces the funnel cohort explanation and the cohort-anchored docs link', async () => {
             renderInsightPage({
