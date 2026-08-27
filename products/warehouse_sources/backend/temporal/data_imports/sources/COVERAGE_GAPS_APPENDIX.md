@@ -7585,6 +7585,14 @@ Diffed against: <https://api-reference.shutterstock.com/>
 
 Note: Coverage is solid for the images and videos verticals (categories, collections, licenses, updated feeds) but the audio, SFX, and editorial verticals are entirely absent, and collection membership is never resolved.
 
+## SigmaComputing — gaps
+
+Today (10): `Connections`, `DataModels`, `Members`, `Reports`, `Teams`, `WorkbookElements`, `WorkbookPages`, `WorkbookQueries`, `Workbooks`, `Workspaces`
+
+Diffed against: <https://help.sigmacomputing.com/reference/get-started-sigma-api>
+
+- [x] `reports (GET /v2/reports)` — org-level catalog of saved reports, the same top-level content shape as workbooks and data models, added here
+
 ## SigNoz — gaps
 
 Today (5): `alert_rules`, `dashboards`, `logs`, `notification_channels`, `traces`
