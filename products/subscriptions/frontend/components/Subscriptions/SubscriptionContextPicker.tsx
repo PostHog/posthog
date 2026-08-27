@@ -100,13 +100,9 @@ export function SubscriptionContextPicker({
                         className="flex items-center text-secondary max-w-48"
                         data-attr="ai-subscription-context"
                     >
-                        <Link
-                            to={`/data-management/events/${encodeURIComponent(eventName)}`}
-                            target="_blank"
-                            className="truncate min-w-0 flex-1"
-                        >
-                            {eventName}
-                        </Link>
+                        {/* Events carry only a name here, and the event-definition route resolves by
+                            UUID, so a name-based link dead-ends on "not found". Render plain text. */}
+                        <span className="truncate min-w-0 flex-1">{eventName}</span>
                     </LemonTag>
                 </Tooltip>
             ))}
