@@ -153,10 +153,18 @@ export interface CanvasApi {
     readonly context: string
     /** @nullable */
     readonly generation_task_id: string | null
-    /** Whether the canvas is pinned to its channel. */
+    /** Whether the requesting user pinned the canvas. */
     readonly pinned: boolean
-    /** @nullable */
+    /**
+     * When the requesting user pinned the canvas, or null.
+     * @nullable
+     */
     readonly pinned_at: string | null
+    /**
+     * When the requesting user pinned the canvas, or null.
+     * @nullable
+     */
+    readonly personal_pinned_at: string | null
     /**
      * Id of the live source version — pass as expected_current_version_id on publish. Null before the first publish.
      * @nullable
@@ -226,7 +234,7 @@ export interface PatchedCanvasUpdateApi {
     description?: string
     /** Id of the space the canvas belongs to. */
     channel_id?: string
-    /** Whether the canvas is pinned in its channel. */
+    /** Whether the requesting user pinned the canvas. */
     pinned?: boolean
     /**
      * Task currently generating this canvas, or null to clear it.
@@ -1085,6 +1093,11 @@ export interface CanvasLayoutPublishApi {
      * @nullable
      */
     expected_current_version_id?: string | null
+}
+
+export interface CanvasPinRequestApi {
+    /** Whether to pin the canvas for the requesting user. */
+    pinned: boolean
 }
 
 /**

@@ -245,61 +245,58 @@ function groupCanvasList(
   spaceNames: ReadonlyMap<string, string>,
   now: Date,
 ): CanvasListSection[] {
-  return buildCanvasSections(canvases, grouping, spaceNames, now).map(
-    (section) => ({ ...section, canvases: pinnedFirst(section.canvases) }),
-  );
-}
-
-function buildCanvasSections(
-  canvases: readonly DashboardRecord[],
-  grouping: CanvasListGrouping,
-  spaceNames: ReadonlyMap<string, string>,
-  now: Date,
-): CanvasListSection[] {
   if (canvases.length === 0) return [];
-  if (grouping === "none") {
-    return [{ key: "all", label: null, canvases: [...canvases] }];
-  }
 
-  if (grouping === "space") {
-    const sections = new Map<string, CanvasListSection>();
+  let sections: CanvasListSection[];
+  if (grouping === "none") {
+    sections = [{ key: "all", label: null, canvases: [...canvases] }];
+  } else if (grouping === "space") {
+    const sectionsBySpace = new Map<string, CanvasListSection>();
     for (const canvas of canvases) {
       const key = `space:${canvas.channelId}`;
-      const section = sections.get(key);
+      const section = sectionsBySpace.get(key);
       if (section) {
         section.canvases.push(canvas);
       } else {
-        sections.set(key, {
+        sectionsBySpace.set(key, {
           key,
           label: spaceNames.get(canvas.channelId) ?? "Unknown space",
           canvases: [canvas],
         });
       }
     }
-    return [...sections.values()];
-  }
-
-  const sections = new Map<
-    string,
-    { timestamp: number; canvases: DashboardRecord[] }
-  >();
-  for (const canvas of canvases) {
-    const key = getLocalDayKey(canvas.createdAt);
-    const section = sections.get(key);
-    if (section) {
-      section.canvases.push(canvas);
-    } else {
-      sections.set(key, { timestamp: canvas.createdAt, canvases: [canvas] });
+    sections = [...sectionsBySpace.values()];
+  } else {
+    const sectionsByDate = new Map<
+      string,
+      { timestamp: number; canvases: DashboardRecord[] }
+    >();
+    for (const canvas of canvases) {
+      const key = getLocalDayKey(canvas.createdAt);
+      const section = sectionsByDate.get(key);
+      if (section) {
+        section.canvases.push(canvas);
+      } else {
+        sectionsByDate.set(key, {
+          timestamp: canvas.createdAt,
+          canvases: [canvas],
+        });
+      }
     }
+
+    sections = [...sectionsByDate.entries()]
+      .sort(([, first], [, second]) => second.timestamp - first.timestamp)
+      .map(([key, section]) => ({
+        key: `date:${key}`,
+        label: formatShortDayLabel(section.timestamp, now),
+        canvases: section.canvases,
+      }));
   }
 
-  return [...sections.entries()]
-    .sort(([, first], [, second]) => second.timestamp - first.timestamp)
-    .map(([key, section]) => ({
-      key: `date:${key}`,
-      label: formatShortDayLabel(section.timestamp, now),
-      canvases: section.canvases,
-    }));
+  return sections.map((section) => ({
+    ...section,
+    canvases: pinnedFirst(section.canvases),
+  }));
 }
 
 @injectable()

@@ -58,7 +58,7 @@ export const CanvasesPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe('Updated canvas description (for components, the store-search text).'),
         channel_id: zod.uuid().optional().describe('Id of the space the canvas belongs to.'),
-        pinned: zod.boolean().optional().describe('Whether the canvas is pinned in its channel.'),
+        pinned: zod.boolean().optional().describe('Whether the requesting user pinned the canvas.'),
         generation_task_id: zod
             .uuid()
             .nullish()
@@ -699,6 +699,17 @@ export const CanvasesLayoutPublishCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Payload for publishing a complete layout document.')
+
+/**
+ * Canvases: agent-built sandboxed browser apps, filed into channels.
+ *
+ * Source is versioned per publish and built server-side; the canvas app
+ * renders the published build's artifact from the isolated artifact origin.
+ * @summary Set the requesting user's canvas pin
+ */
+export const CanvasesPinCreateBody = /* @__PURE__ */ zod.object({
+    pinned: zod.boolean().describe('Whether to pin the canvas for the requesting user.'),
+})
 
 /**
  * Make a draft version the canvas's live head.

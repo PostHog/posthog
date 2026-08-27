@@ -44,7 +44,7 @@ interface ApiCanvas {
   template_id: string;
   context: string;
   generation_task_id: string | null;
-  pinned_at: string | null;
+  personal_pinned_at?: string | null;
   current_version_id: string | null;
   published_build_id: string | null;
   created_by?: {
@@ -108,7 +108,7 @@ function toRecord(api: ApiCanvas): DashboardRecord {
     createdByUuid: api.created_by?.uuid,
     createdAt: toEpoch(api.created_at) ?? 0,
     updatedAt: toEpoch(api.updated_at) ?? 0,
-    pinnedAt: toEpoch(api.pinned_at),
+    pinnedAt: toEpoch(api.personal_pinned_at),
     currentVersionId: api.current_version_id,
     publishedBuildId: api.published_build_id,
   };
@@ -335,9 +335,20 @@ export class DashboardsService {
     );
   }
 
-  // Pin (or unpin) a canvas to its channel (shared across users).
-  setPinned(input: { id: string; pinned: boolean }): Promise<DashboardRecord> {
-    return this.patch(input.id, { pinned: input.pinned }, "set pin");
+  async setPinned(input: {
+    id: string;
+    pinned: boolean;
+  }): Promise<DashboardRecord> {
+    const api = await this.api.json<ApiCanvas>(
+      `canvases/${encodeURIComponent(input.id)}/pin/`,
+      "set pin",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pinned: input.pinned }),
+      },
+    );
+    return toRecord(api);
   }
 
   file(input: { id: string; channelId: string }): Promise<DashboardRecord> {

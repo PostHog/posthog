@@ -1,11 +1,11 @@
 import json
+from collections.abc import Mapping
 from typing import Any, cast
 from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import connection, transaction
 from django.db.models import Q, QuerySet
-from django.utils import timezone
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -17,6 +17,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle, SimpleRateThrottle
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.event_usage import report_user_action
@@ -39,6 +40,7 @@ from products.canvas.backend.facade.api import (
     validate_layout_references,
 )
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasHomePreference, CanvasSourceVersion, CanvasState
+from products.canvas.backend.pinning import annotate_canvas_pins, set_canvas_pinned
 from products.canvas.backend.presentation.serializers import (
     CanvasActionInvokeSerializer,
     CanvasActionResultSerializer,
@@ -57,6 +59,7 @@ from products.canvas.backend.presentation.serializers import (
     CanvasLayoutPublishResponseSerializer,
     CanvasLayoutPublishSerializer,
     CanvasLayoutResponseSerializer,
+    CanvasPinRequestSerializer,
     CanvasPromoteSerializer,
     CanvasPublishConflictSerializer,
     CanvasPublishCurrentVersionSerializer,
@@ -212,6 +215,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object_write_actions = [
         "create",
         "partial_update",
+        "pin",
         "destroy",
         "publish",
         "publish_current_version",
@@ -264,6 +268,13 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "patch_layout",
     }
 
+    def _is_personal_pin_update(self) -> bool:
+        return (
+            self.action == "partial_update"
+            and isinstance(self.request.data, Mapping)
+            and set(self.request.data) == {"pinned"}
+        )
+
     @extend_schema(
         parameters=[
             OpenApiParameter(
@@ -290,6 +301,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.filter(team_id=self.team_id, deleted=False)
         user = self._request_user()
+        queryset = annotate_canvas_pins(queryset, team_id=self.team_id, user_id=user.id if user else None)
         is_sandbox_authenticated = self._is_sandbox_authenticated(self.request)
         if is_sandbox_authenticated:
             sandbox_task_id = self._sandbox_task_id(self.request)
@@ -304,7 +316,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
             else:
                 actor_canvas_q = Q(created_by_id=user.id) & tasks_facade.visible_channels_q(user.id, relation="channel")
-                can_use_visible_canvas = self.action in [*self.scope_object_read_actions, "set_state"]
+                can_use_visible_canvas = self.action in [*self.scope_object_read_actions, "set_state", "pin"]
                 queryset = queryset.filter(
                     public_canvas_q | actor_canvas_q if can_use_visible_canvas else actor_canvas_q
                 )
@@ -313,7 +325,11 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # rule makes a canvas filed into someone else's personal channel
             # invisible (and unwritable) to everyone but its owner.
             queryset = queryset.filter(tasks_facade.visible_channels_q(user.id if user else None, relation="channel"))
-        if not is_sandbox_authenticated and self.action in self._CREATOR_ONLY_ACTIONS:
+        if (
+            not is_sandbox_authenticated
+            and self.action in self._CREATOR_ONLY_ACTIONS
+            and not self._is_personal_pin_update()
+        ):
             if user is None:
                 return queryset.none()
             queryset = queryset.filter(created_by_id=user.id)
@@ -399,8 +415,9 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         payload = CanvasUpdateSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         data = payload.validated_data
-        update_fields = ["updated_at"]
+        update_fields: list[str] = []
         changes: list[Change] = []
+        pin_user: User | None = None
 
         def record(field: str, before: Any = None, after: Any = None) -> None:
             changes.append(Change(type="Canvas", action="changed", field=field, before=before, after=after))
@@ -439,18 +456,15 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     )
             if channel_id != canvas.channel_id:
                 record("channel", str(canvas.channel_id), str(channel_id))
-                if canvas.pinned_at is not None:
-                    record("pinned", True, False)
-                    canvas.pinned_at = None
-                    update_fields.append("pinned_at")
             canvas.channel_id = channel_id
             update_fields.append("channel_id")
         if "pinned" in data:
-            was_pinned = canvas.pinned_at is not None
-            if data["pinned"] != was_pinned:
-                record("pinned", was_pinned, data["pinned"])
-            canvas.pinned_at = timezone.now() if data["pinned"] else None
-            update_fields.append("pinned_at")
+            pin_user = self._request_user()
+            if pin_user is None:
+                return Response(
+                    {"detail": "Canvas pins require an authenticated user."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
         if "generation_task_id" in data:
             task_id = data["generation_task_id"]
             user = self._request_user()
@@ -460,9 +474,31 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return Response({"detail": "Task not found in this team."}, status=status.HTTP_400_BAD_REQUEST)
             canvas.generation_task_id = task_id
             update_fields.append("generation_task_id")
-        canvas.save(update_fields=update_fields)
+        if update_fields or pin_user is not None:
+            with transaction.atomic():
+                if update_fields:
+                    canvas.save(update_fields=[*update_fields, "updated_at"])
+                if pin_user is not None:
+                    canvas = self._set_personal_pin(canvas, pin_user, data["pinned"])
         if changes:
             self._log_canvas_activity(canvas, "updated", Detail(name=canvas.name, changes=changes))
+        return Response(CanvasSerializer(canvas).data)
+
+    @validated_request(
+        request_serializer=CanvasPinRequestSerializer,
+        responses={200: OpenApiResponse(response=CanvasSerializer)},
+        summary="Set the requesting user's canvas pin",
+    )
+    @action(detail=True, methods=["post"], url_path="pin", required_scopes=["canvas:write"])
+    def pin(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        canvas = self.get_object()
+        user = self._request_user()
+        if user is None:
+            return Response(
+                {"detail": "Canvas pins require an authenticated user."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        canvas = self._set_personal_pin(canvas, user, request.validated_data["pinned"])
         return Response(CanvasSerializer(canvas).data)
 
     def perform_destroy(self, instance: Canvas) -> None:
@@ -1305,12 +1341,14 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         Deleting a canvas is a soft delete that leaves the pointer behind, so a
         pointer at a deleted canvas means "no home set", not a broken home.
         """
-        preference = (
-            CanvasHomePreference.objects.for_team(self.team_id).select_related("canvas").filter(user=user).first()
-        )
-        if preference is None or preference.canvas.deleted:
+        preference = CanvasHomePreference.objects.for_team(self.team_id).filter(user=user).first()
+        if preference is None:
             return None
-        return preference.canvas
+        return annotate_canvas_pins(
+            Canvas.objects.for_team(self.team_id).filter(id=preference.canvas_id, deleted=False),
+            team_id=self.team_id,
+            user_id=user.id,
+        ).first()
 
     @extend_schema(
         operation_id="canvases_build_action_create",
@@ -1815,6 +1853,14 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """The requesting real user, or None for anonymous/service principals."""
         user = self.request.user
         return user if isinstance(user, User) else None
+
+    def _set_personal_pin(self, canvas: Canvas, user: User, pinned: bool) -> Canvas:
+        set_canvas_pinned(canvas=canvas, user_id=user.id, pinned=pinned)
+        return annotate_canvas_pins(
+            Canvas.objects.for_team(self.team_id).filter(id=canvas.id),
+            team_id=self.team_id,
+            user_id=user.id,
+        ).get()
 
     @staticmethod
     def _request_task_id(request: Request) -> UUID | None:

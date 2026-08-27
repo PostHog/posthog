@@ -25,6 +25,7 @@ import type {
     CanvasLayoutPublishApi,
     CanvasLayoutPublishResponseApi,
     CanvasLayoutResponseApi,
+    CanvasPinRequestApi,
     CanvasPromoteApi,
     CanvasPublishCurrentVersionApi,
     CanvasReportErrorApi,
@@ -416,6 +417,31 @@ export const canvasesLayoutPublishCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(canvasLayoutPublishApi),
+    })
+}
+
+export const getCanvasesPinCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/pin/`
+}
+
+/**
+ * Canvases: agent-built sandboxed browser apps, filed into channels.
+ *
+ * Source is versioned per publish and built server-side; the canvas app
+ * renders the published build's artifact from the isolated artifact origin.
+ * @summary Set the requesting user's canvas pin
+ */
+export const canvasesPinCreate = async (
+    projectId: string,
+    id: string,
+    canvasPinRequestApi: CanvasPinRequestApi,
+    options?: RequestInit
+): Promise<CanvasApi> => {
+    return apiMutator<CanvasApi>(getCanvasesPinCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasPinRequestApi),
     })
 }
 

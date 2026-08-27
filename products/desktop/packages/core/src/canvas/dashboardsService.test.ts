@@ -52,72 +52,102 @@ function fakeApi(
   return { api: api as unknown as ProjectApiClient, calls };
 }
 
-describe("DashboardsService.list", () => {
-  it("maps API canvases to camelCase records", async () => {
-    const { api, calls } = fakeApi({
-      "canvases/?channel=chan-1": [apiCanvas()],
-    });
-    const service = new DashboardsService(api);
-
-    const rows = await service.list("chan-1");
-
-    expect(calls[0].path).toBe("canvases/?channel=chan-1");
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({
-      id: "c1",
-      channelId: "chan-1",
-      name: "Revenue board",
-      createdBy: "Ada L",
-      currentVersionId: "v1",
-    });
-    expect(rows[0].createdAt).toBe(Date.parse("2026-07-01T00:00:00Z"));
-  });
-});
-
-describe("DashboardsService.getBuilds", () => {
-  it("normalizes the lifecycle payload", async () => {
-    const { api } = fakeApi({
-      "canvases/c1/builds/?version_id=v1": {
-        published_build_id: "b1",
-        current_version_id: "v1",
-        builds: [
-          {
-            id: "b1",
-            source_version_id: "v1",
-            build_status: "ready",
-            diagnostics: [],
-            manifest: null,
-            artifact_url: null,
-            pinned: false,
-            created_at: "2026-07-01T00:00:00Z",
-            finished_at: null,
-          },
+describe("DashboardsService", () => {
+  describe("list", () => {
+    it("maps personal pins and ignores the legacy shared pin field", async () => {
+      const { api, calls } = fakeApi({
+        "canvases/?channel=chan-1": [
+          apiCanvas({ pinned_at: "2026-07-03T00:00:00Z" }),
+          apiCanvas({
+            id: "c2",
+            personal_pinned_at: "2026-07-04T00:00:00Z",
+          }),
         ],
-      },
+      });
+      const service = new DashboardsService(api);
+
+      const rows = await service.list("chan-1");
+
+      expect(calls[0].path).toBe("canvases/?channel=chan-1");
+      expect(rows).toHaveLength(2);
+      expect(rows[0]).toMatchObject({
+        id: "c1",
+        channelId: "chan-1",
+        name: "Revenue board",
+        createdBy: "Ada L",
+        currentVersionId: "v1",
+      });
+      expect(rows[0].createdAt).toBe(Date.parse("2026-07-01T00:00:00Z"));
+      expect(rows[0].pinnedAt).toBeUndefined();
+      expect(rows[1].pinnedAt).toBe(Date.parse("2026-07-04T00:00:00Z"));
     });
-    const service = new DashboardsService(api);
-
-    const lifecycle = await service.getBuilds({ id: "c1", versionId: "v1" });
-
-    expect(lifecycle.publishedBuildId).toBe("b1");
-    expect(lifecycle.currentVersionId).toBe("v1");
-    expect(lifecycle.builds[0].buildStatus).toBe("ready");
   });
-});
 
-describe("DashboardsService.file", () => {
-  it("patches the canvas channel", async () => {
-    const { api, calls } = fakeApi({
-      "canvases/c1/": apiCanvas({ channel: "chan-2" }),
+  describe("getBuilds", () => {
+    it("normalizes the lifecycle payload", async () => {
+      const { api } = fakeApi({
+        "canvases/c1/builds/?version_id=v1": {
+          published_build_id: "b1",
+          current_version_id: "v1",
+          builds: [
+            {
+              id: "b1",
+              source_version_id: "v1",
+              build_status: "ready",
+              diagnostics: [],
+              manifest: null,
+              artifact_url: null,
+              pinned: false,
+              created_at: "2026-07-01T00:00:00Z",
+              finished_at: null,
+            },
+          ],
+        },
+      });
+      const service = new DashboardsService(api);
+
+      const lifecycle = await service.getBuilds({ id: "c1", versionId: "v1" });
+
+      expect(lifecycle.publishedBuildId).toBe("b1");
+      expect(lifecycle.currentVersionId).toBe("v1");
+      expect(lifecycle.builds[0].buildStatus).toBe("ready");
     });
-    const service = new DashboardsService(api);
+  });
 
-    const canvas = await service.file({ id: "c1", channelId: "chan-2" });
+  describe("file", () => {
+    it("patches the canvas channel", async () => {
+      const { api, calls } = fakeApi({
+        "canvases/c1/": apiCanvas({ channel: "chan-2" }),
+      });
+      const service = new DashboardsService(api);
 
-    expect(canvas.channelId).toBe("chan-2");
-    expect(calls[0]).toMatchObject({ path: "canvases/c1/" });
-    expect(JSON.parse(calls[0].init?.body as string)).toEqual({
-      channel_id: "chan-2",
+      const canvas = await service.file({ id: "c1", channelId: "chan-2" });
+
+      expect(canvas.channelId).toBe("chan-2");
+      expect(calls[0]).toMatchObject({ path: "canvases/c1/" });
+      expect(JSON.parse(calls[0].init?.body as string)).toEqual({
+        channel_id: "chan-2",
+      });
+    });
+  });
+
+  describe("setPinned", () => {
+    it("uses the personal pin endpoint", async () => {
+      const { api, calls } = fakeApi({
+        "canvases/c1/pin/": apiCanvas({
+          personal_pinned_at: "2026-07-04T00:00:00Z",
+        }),
+      });
+      const service = new DashboardsService(api);
+
+      const canvas = await service.setPinned({ id: "c1", pinned: true });
+
+      expect(canvas.pinnedAt).toBe(Date.parse("2026-07-04T00:00:00Z"));
+      expect(calls[0]).toMatchObject({ path: "canvases/c1/pin/" });
+      expect(calls[0].init?.method).toBe("POST");
+      expect(JSON.parse(calls[0].init?.body as string)).toEqual({
+        pinned: true,
+      });
     });
   });
 });
