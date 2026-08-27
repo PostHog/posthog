@@ -93,7 +93,10 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
                 availableTabs.length > 1 && <LemonTabs activeKey={effectiveTab} tabs={tabs} sceneInset />
             )}
             {availableTabs
-                .filter((tab) => visitedTabs.includes(tab))
+                // Always render the active tab, even one not yet visited: if a shrinking tab set
+                // (e.g. the checks flag turned off while Tests was open) falls back to a tab the
+                // user never opened, it would otherwise show a blank body.
+                .filter((tab) => visitedTabs.includes(tab) || tab === effectiveTab)
                 .map((tab) => (
                     <div key={tab} className={tab === effectiveTab ? 'flex flex-col flex-1' : 'hidden'}>
                         {tabPanel(tab)}
