@@ -13,9 +13,7 @@ from posthog.integration_secrets.errors import SecretMissingError
 from posthog.jwt import PosthogJwtAudience
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
-    TrackedHTTPAdapter,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import TrackedHTTPAdapter
 
 SERVICE_SETTINGS: dict[str, Any] = {
     "INTEGRATION_SERVICE_URL": "http://integration-service.posthog.svc.cluster.local",
