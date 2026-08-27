@@ -35,6 +35,7 @@ from products.autoresearch.backend.facade.contracts import (
     AutoresearchConflict,
     InvalidArtifactPath,
     PipelineNotFound,
+    SuggestionNotFound,
     TrainingRunNotFound,
 )
 
@@ -49,14 +50,17 @@ from .serializers import (
     AutoresearchPipelineCreateSerializer,
     AutoresearchPipelineSerializer,
     AutoresearchRunSerializer,
+    AutoresearchSuggestionSerializer,
     AutoresearchTrainingRunSerializer,
     CompleteTrainingRunSerializer,
+    CreateSuggestionSerializer,
     MaterializeFeaturesRequestSerializer,
     MaterializeFeaturesResponseSerializer,
     OpenTrainingRunSerializer,
     RecordIterationSerializer,
     ResolvedTemplateSerializer,
     ResolveTemplateRequestSerializer,
+    RespondToSuggestionSerializer,
     StoredArtifactSerializer,
     TemplateInfoSerializer,
     TrainingRunHistorySerializer,
@@ -713,3 +717,122 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
         except (AutoresearchConflict, InvalidArtifactPath) as exc:
             raise ValidationError(str(exc)) from exc
         return Response(ArtifactDeleteResultSerializer(instance=result).data)
+
+
+@extend_schema(tags=["autoresearch"])
+class AutoresearchSuggestionViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, viewsets.GenericViewSet):
+    """
+    Submit and list steering suggestions for a running pipeline.
+
+    A suggestion is a free-text hypothesis or direction injected by a user or agent.
+    At the start of the next training batch the sandbox agent reads pending suggestions
+    and decides whether to translate each into a concrete iteration, apply it as a
+    search constraint, or dismiss it with rationale.
+    """
+
+    schema = FacadePathParamSchema()
+    uuid_path_parameters = {"id": "A UUID string identifying this autoresearch suggestion.", "pipeline_id": None}
+    scope_object = "autoresearch"
+    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_write_actions = ["create", "respond"]
+    permission_classes = [AutoresearchAccessPermission]
+    serializer_class = AutoresearchSuggestionSerializer
+    queryset = None  # data is reached through the facade; declared for router/schema only
+
+    def _should_skip_parents_filter(self) -> bool:
+        return True
+
+    @extend_schema(
+        responses={200: AutoresearchSuggestionSerializer(many=True)},
+        summary="List suggestions",
+        description=(
+            "List steering suggestions for a pipeline, ordered most recent first. "
+            "Check 'status' to see which have been picked up or acted on by the agent."
+        ),
+    )
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._paginate_via_facade(
+            request,
+            lambda offset, limit: api.list_suggestions(
+                self.team_id, pipeline_id=_parent_pipeline_id(self), offset=offset, limit=limit
+            ),
+            AutoresearchSuggestionSerializer,
+        )
+
+    @extend_schema(
+        responses={200: AutoresearchSuggestionSerializer},
+        summary="Get suggestion",
+        description="Get details for a specific suggestion including its status and agent_response.",
+    )
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        suggestion = api.get_suggestion(self.team_id, self.kwargs["pk"], pipeline_id=_parent_pipeline_id(self))
+        if suggestion is None:
+            raise NotFound("Suggestion not found.")
+        return Response(AutoresearchSuggestionSerializer(instance=suggestion).data)
+
+    @validated_request(
+        request_serializer=CreateSuggestionSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=AutoresearchSuggestionSerializer,
+                description="The created suggestion. The agent will pick it up at the start of the next training batch.",
+            ),
+        },
+        summary="Submit a suggestion",
+        description=(
+            "Inject a free-text hypothesis or direction into a running pipeline. "
+            "The sandbox agent reads queued suggestions at the start of each iteration batch and decides: "
+            "translate into a concrete iteration ('acted_on'), apply as a search constraint ('picked_up'), "
+            "or reject with rationale ('dismissed'). "
+            "Use priority='try_next' to instruct the agent to act on this before autonomous iterations; "
+            "'consider' is advisory. "
+            "Check 'agent_response' after the next training run to see how the suggestion was interpreted."
+        ),
+    )
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        data = request.validated_data
+        try:
+            suggestion = api.create_suggestion(
+                self.team_id,
+                _require_parent_pipeline_id(self),
+                prompt=data["prompt"],
+                priority=data.get("priority", "consider"),
+                # The permission class rejects anonymous callers, so this is always a real user.
+                created_by=cast(User, request.user),
+            )
+        except (PipelineNotFound, AutoresearchConflict) as exc:
+            raise ValidationError(str(exc)) from exc
+        return Response(AutoresearchSuggestionSerializer(instance=suggestion).data, status=201)
+
+    @validated_request(
+        request_serializer=RespondToSuggestionSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=AutoresearchSuggestionSerializer,
+                description="The updated suggestion with its new status and agent_response.",
+            ),
+        },
+        summary="Respond to a suggestion",
+        description=(
+            "Record how the agent handled a steering suggestion: set status to 'picked_up' (applied as a "
+            "search constraint), 'acted_on' (spawned iterations), or 'dismissed' (rejected — explain in "
+            "agent_response), and write the agent_response note the human will read. Call this from the "
+            "training loop after deciding what to do with a pending suggestion. Recording an iteration with "
+            "parent_suggestion set already advances a suggestion to 'acted_on'; use this to add the narrative "
+            "or to mark a suggestion picked_up/dismissed without spawning an iteration."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="respond")
+    def respond(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        data = request.validated_data
+        try:
+            suggestion = api.respond_to_suggestion(
+                self.team_id,
+                self.kwargs["pk"],
+                status=data["status"],
+                agent_response=data.get("agent_response"),
+                pipeline_id=_parent_pipeline_id(self),
+            )
+        except SuggestionNotFound:
+            raise NotFound("Suggestion not found.")
+        return Response(AutoresearchSuggestionSerializer(instance=suggestion).data)

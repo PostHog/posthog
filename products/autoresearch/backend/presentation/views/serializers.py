@@ -18,6 +18,7 @@ from products.autoresearch.backend.facade.contracts import (
     Pipeline,
     PipelineWrite,
     Run,
+    Suggestion,
     TrainingRun,
 )
 
@@ -31,6 +32,9 @@ RUN_STATUS_CHOICES = api.RUN_STATUS_CHOICES
 RUN_TYPE_CHOICES = api.RUN_TYPE_CHOICES
 TRAINING_RUN_STATUS_CHOICES = api.TRAINING_RUN_STATUS_CHOICES
 ITERATION_STATUS_CHOICES = api.ITERATION_STATUS_CHOICES
+SUGGESTION_PRIORITY_CHOICES = api.SUGGESTION_PRIORITY_CHOICES
+SUGGESTION_STATUS_CHOICES = api.SUGGESTION_STATUS_CHOICES
+SUGGESTION_SOURCE_CHOICES = api.SUGGESTION_SOURCE_CHOICES
 
 TARGET_EVENT_MAX_LENGTH = 255
 OUTPUT_PERSON_PROPERTY_MAX_LENGTH = 255
@@ -1138,6 +1142,25 @@ class RecordIterationSerializer(serializers.Serializer):
         return data
 
 
+class RespondToSuggestionSerializer(serializers.Serializer):
+    """Input for the agent to record how it interpreted a steering suggestion."""
+
+    status = serializers.ChoiceField(
+        choices=["picked_up", "acted_on", "dismissed"],
+        help_text=(
+            "How the agent handled the suggestion: 'picked_up' (applied as a search constraint), "
+            "'acted_on' (spawned one or more iterations), or 'dismissed' (rejected — explain why in agent_response)."
+        ),
+    )
+    agent_response = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=2000,
+        help_text="Plain-English note on how the suggestion was interpreted and acted upon (or why it was dismissed).",
+    )
+
+
 class CompleteTrainingRunSerializer(serializers.Serializer):
     """Input for finalizing a training run. The backend selects/promotes the champion."""
 
@@ -1275,6 +1298,74 @@ class ArtifactDeleteResultSerializer(serializers.Serializer):
 
     path = serializers.CharField(help_text="Relative path targeted for deletion.")
     deleted = serializers.BooleanField(help_text="True if a file existed and was removed; False if nothing was there.")
+
+
+# ── Suggestion serializers ─────────────────────────────────────────────────
+
+
+@extend_schema_serializer(component_name="AutoresearchSuggestion")
+class AutoresearchSuggestionSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="Unique UUID of this suggestion.")
+    pipeline = serializers.UUIDField(help_text="Pipeline this suggestion targets.")
+    prompt = serializers.CharField(help_text="Free-text hypothesis or direction for the agent to explore.")
+    priority = serializers.ChoiceField(
+        choices=SUGGESTION_PRIORITY_CHOICES,
+        required=False,
+        help_text="'try_next' instructs the agent to act on this before other iterations; 'consider' is advisory.",
+    )
+    status = serializers.ChoiceField(
+        choices=SUGGESTION_STATUS_CHOICES,
+        read_only=True,
+        help_text="Lifecycle status: 'queued' (awaiting pickup), 'picked_up' (agent is applying as a constraint), 'acted_on' (agent spawned iterations), 'dismissed' (agent rejected with rationale).",
+    )
+    # Named `source` to keep the field the API already exposes; it shadows DRF's own
+    # Field.source attribute, which is a typing conflict only.
+    source = serializers.ChoiceField(  # type: ignore[assignment]
+        choices=SUGGESTION_SOURCE_CHOICES,
+        read_only=True,
+        help_text="'user' for human-submitted suggestions; 'agent' for agent-generated hypotheses.",
+    )
+    agent_response = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        help_text="Agent's note on how the suggestion was interpreted and acted upon. Populated after pickup.",
+    )
+    created_by = UserBasicSerializer(read_only=True)
+    linked_iteration_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        read_only=True,
+        help_text="UUIDs of iterations spawned from this suggestion.",
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        dataclass = Suggestion
+        fields = [
+            "id",
+            "pipeline",
+            "prompt",
+            "priority",
+            "status",
+            "source",
+            "agent_response",
+            "created_by",
+            "linked_iteration_ids",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class CreateSuggestionSerializer(serializers.Serializer):
+    prompt = serializers.CharField(
+        max_length=2000,
+        help_text="Free-text hypothesis or direction for the agent to explore, e.g. 'try a tree-based model' or 'remove recency features, I suspect leakage'.",
+    )
+    priority = serializers.ChoiceField(
+        choices=["try_next", "consider"],
+        default="consider",
+        help_text="'try_next' asks the agent to act on this before other autonomous iterations; 'consider' is advisory context.",
+    )
 
 
 # ── Template serializers ───────────────────────────────────────────────────────
