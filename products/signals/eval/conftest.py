@@ -98,7 +98,7 @@ def gateway_client():
     """Async Anthropic client pointed at the internal LLM gateway's native Messages endpoint.
 
     Used by eval_grouping_e2e to drive the production signals pre-emit pipeline
-    (`_check_actionability` etc.) through the gateway, attributing cost to EVAL_TEAM_ID.
+    (`check_actionability` etc.) through the gateway, attributing cost to EVAL_TEAM_ID.
     """
     return get_async_anthropic_gateway_client(product="signals", team_id=EVAL_TEAM_ID)
 

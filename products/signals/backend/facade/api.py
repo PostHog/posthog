@@ -20,7 +20,7 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
-from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP, SignalRemediation
+from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
 from products.signals.backend.signal_metadata import fetch_signal_stats_for_source_slice
@@ -511,6 +511,11 @@ async def emit_signal(
     Active path:
         emit_signal() -> SignalEmitterWorkflow -> BufferSignalsWorkflow -> TeamSignalGroupingV2Workflow
 
+    A source in `DIRECT_STEERABLE_SOURCES` is checked against the team's steering first and dropped
+    when the team's rules say to skip it (see `emission/direct_gate.py`). A team that wrote no
+    steering is unaffected. Sources that reach here through the batch pipeline already ran their own
+    steered gate, so they stay out of that set and are never judged twice.
+
     Args:
         team: The team object
         source_product: Product emitting the signal (e.g., "experiments", "web_analytics")
@@ -589,8 +594,9 @@ async def emit_signal(
     )
 
     # Fire a "started" marker so direct callers (error tracking, AI observability evals, etc.)
-    # that don't go through the data-source pipeline still have a top-of-funnel event. The
-    # gap to `signal_emitted` surfaces Temporal/dispatch failures.
+    # that don't go through the data-source pipeline still have a top-of-funnel event. The gap to
+    # `signal_emitted` surfaces Temporal/dispatch failures, once the steering gate below is
+    # subtracted: started - signal_data_source_filtered - emitted = failures.
     try:
         posthoganalytics.capture(
             event="signal_emission_started",
@@ -611,6 +617,25 @@ async def emit_signal(
             source_type=source_type,
             source_id=source_id,
         )
+
+    # Below the started event on purpose: a filtered signal then has a top-of-funnel event to be
+    # counted against, so a steering drop reads apart from a dispatch failure rather than as one.
+    if (source_product, source_type) in DIRECT_STEERABLE_SOURCES:
+        # Deferred: the emission package imports this facade back, and its __init__ registers every
+        # emitter, which must stay off the import path of Celery workers and management commands.
+        from products.signals.backend.emission.direct_gate import steering_filters_signal  # noqa: PLC0415
+
+        if await steering_filters_signal(
+            team=team,
+            organization=organization,
+            source_product=source_product,
+            source_type=source_type,
+            source_id=source_id,
+            description=description,
+            weight=weight,
+            extra=extra or {},
+        ):
+            return
 
     client = await async_connect()
 

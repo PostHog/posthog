@@ -92,7 +92,7 @@ def _extract_text(response: Any) -> str:
     return "".join(block.text for block in response.content if getattr(block, "type", None) == "text")
 
 
-def _capture_pipeline_stage(
+def capture_pipeline_stage(
     event: str,
     team: Team,
     organization: Organization,
@@ -285,7 +285,7 @@ def _declared_context(extra: dict[str, Any], context_fields: tuple[str, ...]) ->
     return {key: extra[key] for key in context_fields if extra.get(key) is not None}
 
 
-async def _check_actionability(
+async def check_actionability(
     client: AsyncAnthropic,
     team_id: int,
     output: SignalEmitterOutput,
@@ -294,6 +294,11 @@ async def _check_actionability(
     include_record_metadata: bool = False,
     context_fields: tuple[str, ...] = (),
 ) -> bool:
+    """One record's actionability verdict, fail-open: every retry exhausted returns actionable.
+
+    Shared with the direct-source gate in `direct_gate.py`, which judges a single signal that never
+    entered this batch pipeline.
+    """
     description = output.description
     # Steering rules often reference metadata (labels, state, priority) that emitters keep in `extra`
     # rather than in the description, so the steered gate sees all of it. An unsteered gate sees only
@@ -359,7 +364,7 @@ async def filter_actionable(
         nonlocal checked_count
         async with semaphore:
             try:
-                result = await _check_actionability(
+                result = await check_actionability(
                     client,
                     team.id,
                     output,
@@ -475,7 +480,7 @@ async def _emit_signals(
                     signal_source_id=output.source_id,
                     **extra,
                 )
-                _capture_pipeline_stage(
+                capture_pipeline_stage(
                     "signal_data_source_emit_failed", team, organization, output, {"error_type": error_type}
                 )
                 metrics.increment_dropped(stage=EMIT_DROP_STAGE, reason=error_type)
@@ -531,7 +536,7 @@ async def run_signal_pipeline(
 
     organization = await database_sync_to_async(lambda: team.organization)()
     for output in outputs:
-        _capture_pipeline_stage("signal_data_source_entered", team, organization, output)
+        capture_pipeline_stage("signal_data_source_entered", team, organization, output)
 
     if config.summarization_prompt is not None and config.description_summarization_threshold_chars is not None:
         threshold = config.description_summarization_threshold_chars
@@ -546,7 +551,7 @@ async def run_signal_pipeline(
         for output in outputs:
             pre = pre_summary_by_id.get(output.source_id)
             if pre is not None and len(pre.description) > threshold:
-                _capture_pipeline_stage("signal_data_source_summarized", team, organization, output)
+                capture_pipeline_stage("signal_data_source_summarized", team, organization, output)
 
     if config.actionability_prompt:
         steering = steering_from_config(source_config)
@@ -564,7 +569,7 @@ async def run_signal_pipeline(
         post_filter_ids = {o.source_id for o in outputs}
         for source_id, output in pre_filter_by_id.items():
             if source_id not in post_filter_ids:
-                _capture_pipeline_stage(
+                capture_pipeline_stage(
                     "signal_data_source_filtered", team, organization, output, {"steering_applied": steering.active}
                 )
 
