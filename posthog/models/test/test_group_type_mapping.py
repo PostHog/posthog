@@ -708,6 +708,12 @@ class TestClearDashboardFromGroupTypeMapping(SimpleTestCase):
         mock_client.update_group_type_mapping.assert_not_called()
         mock_invalidate.assert_not_called()
 
+    def test_unconfigured_client_does_not_raise(self):
+        # Self-hosted worker without PERSONHOG_ADDR: require_personhog_client() raises.
+        # Best-effort cleanup must swallow it so the dashboard delete still succeeds.
+        with patch(_CLIENT_PATCH, return_value=None):
+            clear_dashboard_from_group_type_mapping(team_id=10, dashboard_id=42)
+
 
 # ── Terminal-failure hardening tests ──────────────────────────────────
 
