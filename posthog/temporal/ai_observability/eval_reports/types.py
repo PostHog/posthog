@@ -51,7 +51,7 @@ class PrepareReportContextInput:
     manual: bool = False
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass  # nosemgrep: prefer-frozen-dataclasses -- Temporal activity payload; decorator matches the rest of this module
 class PrepareReportContextOutput:
     report_id: str
     team_id: int
@@ -68,7 +68,7 @@ class PrepareReportContextOutput:
     true_is_pass: bool = True
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass  # nosemgrep: prefer-frozen-dataclasses -- Temporal activity payload; decorator matches the rest of this module
 class RunEvalReportAgentInput:
     report_id: str
     team_id: int
