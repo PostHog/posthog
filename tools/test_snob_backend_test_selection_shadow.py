@@ -82,6 +82,16 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
             self.assertIn("same_app:products/feature_flags/backend", result.groups)
             self.assertEqual(["products/feature_flags/backend/test/test_api.py"], result.tests)
 
+    def test_ast_selection_ignores_deleted_test_files(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            selection = _load_selection_module()
+            selection.REPO_ROOT = Path(root)
+
+            result = selection.ast_select_tests(["posthog/test/test_deleted.py"], {})
+
+            self.assertEqual({}, result.groups)
+            self.assertEqual([], result.tests)
+
     def test_ast_selection_matches_posthog_api_test_by_filename(self) -> None:
         with tempfile.TemporaryDirectory() as root:
             tmp_path = Path(root)
@@ -122,6 +132,7 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
             selected_test = selection.REPO_ROOT / "posthog" / "api" / "test" / "test_feature_flags.py"
             selected_test.parent.mkdir(parents=True)
             selected_test.write_text("def test_feature_flags():\n    pass\n")
+            deleted_test = selection.REPO_ROOT / "posthog" / "api" / "test" / "test_deleted.py"
 
             seen_changed_files: list[list[str]] = []
 
@@ -129,7 +140,7 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
 
             def get_tests(changed_files: list[str]) -> set[str]:
                 seen_changed_files.append(changed_files)
-                return {str(selected_test)}
+                return {str(selected_test), str(deleted_test)}
 
             fake_snob.get_tests = get_tests  # type: ignore[attr-defined]
             previous_snob = sys.modules.get("snob_lib")
