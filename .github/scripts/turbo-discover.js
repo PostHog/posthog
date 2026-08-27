@@ -50,9 +50,9 @@ const { loadContractSurfaces } = require('./trunk-impacted-targets')
 // for n, so the target is a promise about the PR lane (where the overheads below
 // are fitted); master pays extra overhead (full migration replay) on top.
 // A full run's wall is the pre-shard preamble plus the slowest of its shards.
-// The preamble (discovery, matrix build, runner start) measures ~5.5 min and the
-// slowest shard lands above the target by the imbalance margin below, so a
-// 12-minute shard target puts a full PR run near 19 minutes end to end.
+// The preamble (discovery, matrix build, runner start) measures ~5.5 min, and
+// sizing bounds the slowest shard at the target rather than the average, so a
+// 12-minute shard target puts a full PR run near 18 minutes end to end.
 const TARGET_WALL_SECONDS = 12 * 60
 // Per-product cost within a runner: turbo dispatch, pytest collection, Django
 // init. First product pays ~45s, subsequent ~15s; use 60s as a conservative
@@ -65,20 +65,9 @@ const PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS = 60
 // budget of TARGET minus PRODUCT_JOB_BASE_OVERHEAD_SECONDS and bought extra
 // buckets, each paying that base overhead again.
 const PRODUCT_BUCKET_SAFETY_FACTOR = 1.1
-// Headroom on a split product. Sizing solves for the MEAN shard, but a run's
-// wall is the MAX shard, and this is the only thing bridging the two. The gap
-// grows with the split count: the max is an order statistic over more shards,
-// and the product's own intra-split skew rides on top. Measured max/mean at p90
-// over PR runs; interpolated between the points and clamped outside them.
-// A per-product ratio read back from JUnit would beat a table keyed on n alone,
-// because the skew is a property of the suite. That needs per-test wall times,
-// which call-only durations cannot give (see PRODUCTS_SCALED_MARKER).
-const SPLIT_IMBALANCE_BY_SHARDS = [
-    [2, 1.12],
-    [4, 1.2],
-    [6, 1.23],
-    [9, 1.32],
-]
+// No headroom constant for a split product: the gap between the mean shard that
+// sizing solves for and the max shard that sets the wall is derived per product
+// in productSplitShards below.
 // Fitted per-shard overhead for a split product job. Two measured parts, from
 // run 32717208712: the job base (docker stack, deps, turbo dispatch) is
 // mean(job wall - JUnit suite time), 247-413s across 12 bucket jobs (median
@@ -718,6 +707,24 @@ function getProductDuration(product, durations) {
     return total
 }
 
+// The longest single test in a product. pytest-split cuts between tests, never
+// inside one, so this is the irreducible grain of any split and it bounds how
+// far the worst chunk can run past the mean.
+function getProductMaxTest(product, durations) {
+    if (!durations) {
+        return 0
+    }
+    const prefix = productPrefix(product)
+    const excluded = PRODUCTS_RUNNING_TEMPORAL_IN_JOB.has(product) ? [] : EXCLUDED_PATH_SEGMENTS
+    let longest = 0
+    for (const [test, dur] of Object.entries(durations)) {
+        if (test.startsWith(prefix) && !excluded.some((seg) => test.includes(seg)) && dur > longest) {
+            longest = dur
+        }
+    }
+    return longest
+}
+
 // One definition of a product's work estimate, shared by the split decision
 // (buildMatrix) and the bucket cost (packProducts), so they cannot disagree.
 //
@@ -730,17 +737,24 @@ function getProductDuration(product, durations) {
 // the recorded sum, so the caller can log it once.
 function resolveProductSizing(product, durations, productsScaled = false) {
     const unionWork = getProductDuration(product, durations)
+    const maxTest = getProductMaxTest(product, durations)
     if (productsScaled && unionWork > 0) {
-        return { work: unionWork, staleUnionWork: null, staleness: null }
+        return { work: unionWork, maxTest, staleUnionWork: null, staleness: null }
     }
     const staleness = checkProductStaleness(product, durations)
     if (staleness.stale && staleness.fileCount > 0) {
         const fallbackWork = staleness.fileCount * STALENESS_FALLBACK_SECONDS_PER_FILE
         if (fallbackWork > unionWork) {
-            return { work: fallbackWork, staleUnionWork: unionWork, staleness }
+            // The guess has no per-test shape, so assume one file's worth is one test.
+            return {
+                work: fallbackWork,
+                maxTest: Math.max(maxTest, STALENESS_FALLBACK_SECONDS_PER_FILE),
+                staleUnionWork: unionWork,
+                staleness,
+            }
         }
     }
-    return { work: unionWork, staleUnionWork: null, staleness: null }
+    return { work: unionWork, maxTest, staleUnionWork: null, staleness: null }
 }
 
 function productEffectiveCost(product, durations, productsScaled = false) {
@@ -865,42 +879,36 @@ function calculateShards(totalWorkSeconds, overheadSeconds, minShards = DJANGO_M
     return Math.max(minShards, Math.min(DJANGO_MAX_SHARDS, shards))
 }
 
-// Interpolates SPLIT_IMBALANCE_BY_SHARDS, clamped at both ends. One shard is not
-// a split, so it carries no imbalance.
-function splitImbalanceFactor(shards) {
-    if (shards <= 1) {
-        return 1
-    }
-    const first = SPLIT_IMBALANCE_BY_SHARDS[0]
-    const last = SPLIT_IMBALANCE_BY_SHARDS[SPLIT_IMBALANCE_BY_SHARDS.length - 1]
-    if (shards <= first[0]) {
-        return first[1]
-    }
-    for (let i = 1; i < SPLIT_IMBALANCE_BY_SHARDS.length; i++) {
-        const [prevShards, prevFactor] = SPLIT_IMBALANCE_BY_SHARDS[i - 1]
-        const [nextShards, nextFactor] = SPLIT_IMBALANCE_BY_SHARDS[i]
-        if (shards <= nextShards) {
-            const span = (shards - prevShards) / (nextShards - prevShards)
-            return prevFactor + (nextFactor - prevFactor) * span
-        }
-    }
-    return last[1]
+// Budget of test work one product shard can hold, mirroring calculateShards.
+function productShardBudget() {
+    return Math.max(TARGET_WALL_SECONDS - PRODUCT_JOB_OVERHEAD_SECONDS, PRODUCT_JOB_OVERHEAD_SECONDS / 2, 1)
 }
 
-// The imbalance margin depends on the shard count, which depends on the margin.
-// Iterate to the fixed point, seeding at no margin so a product that fits whole
-// is never split into two by its own headroom. Both sides only rise, so the
-// sequence is monotone and settles in a pass or two.
-function productSplitShards(workSeconds) {
-    let shards = calculateShards(workSeconds, PRODUCT_JOB_OVERHEAD_SECONDS, 1)
-    for (let pass = 0; pass < 3; pass++) {
-        const next = calculateShards(workSeconds * splitImbalanceFactor(shards), PRODUCT_JOB_OVERHEAD_SECONDS, 1)
-        if (next === shards) {
-            break
-        }
-        shards = next
+// Shards for one product. Sizing a split by work/n sizes the MEAN shard, but the
+// run's wall is the MAX shard, and pytest-split cuts between tests: a contiguous
+// split's worst chunk runs at most one whole test past the mean. So size the
+// worst chunk directly -- work/n + maxTest <= budget -- which rearranges to
+// n = ceil(work / (budget - maxTest)).
+//
+// This replaces a fitted margin. A ratio measured off CI describes one map, and
+// a map that misreports test weights (a floor on tiny tests, say) bakes its own
+// error into the constant. Deriving from maxTest tracks the map instead: a
+// product carrying one heavy test gets the shards that test forces, an evenly
+// grained one gets none it does not need, and a fixed point is unnecessary.
+//
+// n = 1 is checked first because the bound does not apply to it -- an unsplit
+// product's chunk is its whole work, with no extra test on top.
+function productSplitShards(workSeconds, maxTestSeconds = 0) {
+    const budget = productShardBudget()
+    if (workSeconds <= budget) {
+        return 1
     }
-    return shards
+    if (maxTestSeconds >= budget) {
+        // One test already overruns a shard's budget, so no split can hold the
+        // target. Size by work alone rather than buying shards that cannot help.
+        return Math.max(2, Math.min(DJANGO_MAX_SHARDS, Math.ceil(workSeconds / budget)))
+    }
+    return Math.max(2, Math.min(DJANGO_MAX_SHARDS, Math.ceil(workSeconds / (budget - maxTestSeconds))))
 }
 
 // Selector segment key -> Django matrix segment name.
@@ -1067,7 +1075,7 @@ function buildMatrix(products, durations, productsScaled = false) {
     // the fixture-heavy suites whose recorded durations undercount the most,
     // and a split sized on the bare sum lands its shards well past the target.
     for (const product of products) {
-        const { work, staleUnionWork, staleness } = resolveProductSizing(product, durations, productsScaled)
+        const { work, maxTest, staleUnionWork, staleness } = resolveProductSizing(product, durations, productsScaled)
         if (staleUnionWork !== null) {
             console.error(
                 `  ${product}: .test_durations stale, ${staleness.coveredCount}/${staleness.fileCount} test files covered ` +
@@ -1079,7 +1087,7 @@ function buildMatrix(products, durations, productsScaled = false) {
             )
         }
 
-        const shards = productSplitShards(work)
+        const shards = productSplitShards(work, maxTest)
         if (shards > 1) {
             console.error(`  ${product}: ${(work / 60).toFixed(1)} min work → split across ${shards} shards`)
             const filters = `--filter=@posthog/products-${product}`
@@ -1088,7 +1096,7 @@ function buildMatrix(products, durations, productsScaled = false) {
             // optimally. The greedy rule in duration_based_chunks lets every shard
             // overrun the per-shard average, which on skewed suites starves trailing
             // shards down to zero tests (pytest exit 5, "no tests collected").
-            const shardCost = (work * splitImbalanceFactor(shards)) / shards
+            const shardCost = work / shards + maxTest
             for (let i = 1; i <= shards; i++) {
                 const leg = {
                     filters,
@@ -1149,9 +1157,8 @@ module.exports = {
     buildMatrix,
     PRODUCT_JOB_OVERHEAD_SECONDS,
     PRODUCT_BUCKET_SAFETY_FACTOR,
-    SPLIT_IMBALANCE_BY_SHARDS,
-    splitImbalanceFactor,
     productSplitShards,
+    getProductMaxTest,
     PRODUCTS_SCALED_MARKER,
     TARGET_WALL_SECONDS,
     DJANGO_OVERHEAD_SECONDS_BY_SEGMENT,

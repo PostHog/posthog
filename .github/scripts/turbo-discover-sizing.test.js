@@ -7,7 +7,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { pruneDeadDurations, getSegmentDuration, calculateShards, resolveProductSizing, buildMatrix, productSplitShards, splitImbalanceFactor, PRODUCT_JOB_OVERHEAD_SECONDS, TARGET_WALL_SECONDS } = require('./turbo-discover.js')
+const { pruneDeadDurations, getSegmentDuration, calculateShards, resolveProductSizing, buildMatrix, productSplitShards, PRODUCT_JOB_OVERHEAD_SECONDS, TARGET_WALL_SECONDS } = require('./turbo-discover.js')
 
 // A path that exists in every checkout, so the existence check is deterministic.
 const LIVE_FILE = '.github/scripts/turbo-discover.js'
@@ -96,7 +96,7 @@ test('buildMatrix splits a product to the shared wall target', () => {
     const matrix = buildMatrix(['big-one'], union, true)
 
     // 2000s of work, with the imbalance margin, over a (target - overhead) budget.
-    assert.equal(matrix.length, productSplitShards(2000))
+    assert.equal(matrix.length, productSplitShards(2000, 50))
     assert.match(matrix[0].group, /^big-one \(1\/\d+\)$/)
 })
 
@@ -110,12 +110,18 @@ test('buildMatrix leaves a small product packed', () => {
     assert.deepEqual(matrix[0].legs, [{ filters: '--filter=@posthog/products-small-one', pytest_args: '' }])
 })
 
-test('splitImbalanceFactor rises with the split count and never marks up a single shard', () => {
-    assert.equal(splitImbalanceFactor(1), 1)
-    assert.ok(splitImbalanceFactor(2) < splitImbalanceFactor(6))
-    assert.ok(splitImbalanceFactor(6) < splitImbalanceFactor(9))
-    // Clamped, not extrapolated, past the measured range.
-    assert.equal(splitImbalanceFactor(40), splitImbalanceFactor(9))
+test('productSplitShards sizes the worst chunk, so a heavy test buys shards', () => {
+    const budget = TARGET_WALL_SECONDS - PRODUCT_JOB_OVERHEAD_SECONDS
+    // Same total work; the coarser grain cannot be cut as finely, so it needs more
+    // shards to keep its worst chunk inside the budget.
+    const fine = productSplitShards(1000, 10)
+    const coarse = productSplitShards(1000, 200)
+    assert.ok(coarse > fine, `expected ${coarse} > ${fine}`)
+    assert.ok(1000 / fine + 10 <= budget)
+    assert.ok(1000 / coarse + 200 <= budget)
+    // A test at or above the budget cannot be split out of, so no shard count
+    // meets the target; size by work alone rather than buying useless shards.
+    assert.equal(productSplitShards(1000, budget * 2), Math.ceil(1000 / budget))
 })
 
 test('a product that fits one shard is packed, not split by its own margin', () => {
@@ -127,7 +133,7 @@ test('a product that fits one shard is packed, not split by its own margin', () 
     }
 
     assert.ok(300 <= TARGET_WALL_SECONDS - PRODUCT_JOB_OVERHEAD_SECONDS)
-    assert.equal(productSplitShards(300), 1)
+    assert.equal(productSplitShards(300, 30), 1)
 
     const matrix = buildMatrix(['mid-one'], union, true)
 
@@ -140,9 +146,9 @@ test("a split product's last shard absorbs a small product without leaking split
     for (let i = 0; i < 11; i++) {
         union[`products/big_one/backend/test_${i}.py::test_${i}`] = 30
     }
-    union['products/small_one/backend/test_s.py::test_s'] = 60
+    union['products/small_one/backend/test_s.py::test_s'] = 40
 
-    assert.equal(productSplitShards(330), 2)
+    assert.equal(productSplitShards(330, 30), 2)
 
     const matrix = buildMatrix(['big-one', 'small-one'], union, true)
 

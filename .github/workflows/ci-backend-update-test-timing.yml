@@ -166,11 +166,17 @@ jobs:
                       posthog-test-durations-
 
             - name: Set the previous map aside
-              # The restore lands on the tracked file; keep the copy elsewhere and put
-              # the committed file back so the change check below diffs a clean tree.
+              # Keep the restored map where the drift fallback below expects it, and
+              # take it out of the tree so the fresh map is written rather than merged
+              # onto the old one. .test_durations is not tracked (it left the repo when
+              # the timing workflow started publishing it as an artifact), so there is
+              # nothing to restore it from and a cache miss leaves no file at all.
               run: |
-                  cp .test_durations /tmp/previous_durations
-                  git checkout -- .test_durations
+                  if [ -f .test_durations ]; then
+                      mv .test_durations /tmp/previous_durations
+                  else
+                      echo "::warning::No cached map restored; a drifting Products slice has no stand-in"
+                  fi
 
             - name: Download timing artifacts
               env:
