@@ -1,5 +1,4 @@
 import asyncio
-from datetime import timedelta
 from typing import Any, Literal
 
 from django.conf import settings
@@ -39,6 +38,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.exports.backend.facade.api import EXPORT_WORKFLOW_TIMEOUT
 from products.exports.backend.models.exported_asset import (
     ExportedAsset,
     get_content_response,
