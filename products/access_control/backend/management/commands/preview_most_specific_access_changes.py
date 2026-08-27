@@ -2,7 +2,7 @@ from typing import Any
 
 from django.core.management.base import BaseCommand
 
-from products.access_control.backend.resolution_preview import ResolutionChange, iter_resolution_changes
+from products.access_control.backend.facade.resolution_preview import ResolutionChange, iter_resolution_changes
 
 
 class Command(BaseCommand):

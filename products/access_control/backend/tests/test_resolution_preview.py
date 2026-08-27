@@ -5,8 +5,8 @@ from rest_framework import status
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 
+from products.access_control.backend.facade.resolution_preview import build_resolution_preview
 from products.access_control.backend.models.access_control import AccessControl
-from products.access_control.backend.resolution_preview import build_resolution_preview
 from products.access_control.backend.tests.test_user_access_control import BaseUserAccessControlTest
 from products.dashboards.backend.models.dashboard import Dashboard
 

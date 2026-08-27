@@ -35,6 +35,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.scopes import INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
 
+from products.access_control.backend.facade.resolution_preview import build_resolution_preview
 from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
 from products.access_control.backend.facade.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
@@ -48,7 +49,6 @@ from products.access_control.backend.facade.user_access_control import (
 )
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role
-from products.access_control.backend.resolution_preview import build_resolution_preview
 
 from .access_control import (
     AccessControlSerializer,

@@ -5,7 +5,7 @@ ALLOWED = {
     Path("products/access_control/backend/facade/user_access_control.py"),
     # The read-only resolution preview compares the enforced and
     # most-specific resolutions; it never enforces.
-    Path("products/access_control/backend/resolution_preview.py"),
+    Path("products/access_control/backend/facade/resolution_preview.py"),
 }
 SCANNED_ROOTS = ("posthog", "ee", "products")
 
