@@ -472,7 +472,7 @@ describe('ConversationMessagesDisplay', () => {
     })
 
     it.each<[string, unknown, string | null]>([
-        ['tokens were billed', 4096, '4,096'],
+        ['tokens were billed', 2048, '2,048'],
         ['a provider reported them as a string', '512', '512'],
         ['the provider billed none', 0, null],
         ['no token count arrived', undefined, null],
