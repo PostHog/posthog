@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-08-25 20:05:23 UTC
+// Generated at: 2026-08-26 20:43:40 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -99,6 +99,9 @@ export type CanonicalProvider =
     | 'io-net-fp8'
     | 'ionstream-fp4'
     | 'liquid-fp8'
+    | 'makora'
+    | 'makora-fp4'
+    | 'makora-fp8'
     | 'mancer-fp4'
     | 'mancer-fp8'
     | 'mara'
@@ -138,7 +141,6 @@ export type CanonicalProvider =
     | 'novita-int4'
     | 'nvidia'
     | 'nvidia-nvfp4'
-    | 'open-inference-bf16'
     | 'open-inference-fp4'
     | 'openai'
     | 'openai-default'
@@ -162,7 +164,6 @@ export type CanonicalProvider =
     | 'relace-bf16'
     | 'relace-fp4'
     | 'relace-fp8'
-    | 'sail-research-fp4'
     | 'sail-research-fp8'
     | 'sakana'
     | 'sambanova'
@@ -172,7 +173,6 @@ export type CanonicalProvider =
     | 'siliconflow'
     | 'siliconflow-fp8'
     | 'siliconflow-int4'
-    | 'stealth'
     | 'stepfun-fp8'
     | 'streamlake'
     | 'streamlake-fp8'
@@ -180,6 +180,7 @@ export type CanonicalProvider =
     | 'thinkingmachines-nvfp4'
     | 'together'
     | 'upstage'
+    | 'upstage-zdr'
     | 'venice'
     | 'venice-bf16'
     | 'venice-fp16'
