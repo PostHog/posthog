@@ -78,10 +78,10 @@ export interface notificationGovernanceLogicActions {
         errorObject?: any
     }
     loadMembersSuccess: (
-        members: OrganizationNotificationMemberApi[],
+        members: OrganizationNotificationMemberApi[] | null,
         payload?: any
     ) => {
-        members: OrganizationNotificationMemberApi[]
+        members: OrganizationNotificationMemberApi[] | null
         payload?: any
     }
     saveChanges: () => {
@@ -192,8 +192,11 @@ export const notificationGovernanceLogic = kea<notificationGovernanceLogicType>(
             null as OrganizationNotificationMemberApi[] | null,
             {
                 loadMembers: async () => {
+                    // Null on a cold mount, before organizationLogic resolves. Returning null
+                    // rather than an empty list keeps the section on its loading state, and the
+                    // listener below reloads once the organization arrives.
                     if (!values.currentOrganization) {
-                        return []
+                        return null
                     }
                     return await notificationLocksList(values.currentOrganization.id)
                 },
@@ -347,6 +350,9 @@ export const notificationGovernanceLogic = kea<notificationGovernanceLogicType>(
         ],
     }),
     listeners(({ actions, values }) => ({
+        [organizationLogic.actionTypes.loadCurrentOrganizationSuccess]: () => {
+            actions.loadMembers()
+        },
         saveChanges: async () => {
             if (!values.changesToSave.length || !values.currentOrganization) {
                 actions.saveChangesSuccess()
