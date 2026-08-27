@@ -340,8 +340,10 @@ jobs:
                   owner: PostHog
                   repositories: hogland
                   # Read-only: the deployer App may hold write on hogland, but
-                  # this job only checks out the CLI source to build it.
+                  # this job only reads it — checks out the CLI source to build,
+                  # and the quiet-window guard lists hogland Actions runs.
                   permission-contents: read
+                  permission-actions: read
 
             # Build the CLI from the newest released vX.Y.Z-cli tag: immutable
             # and reviewed, never a moving branch like main (which would run

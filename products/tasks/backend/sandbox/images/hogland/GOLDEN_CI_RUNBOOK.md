@@ -141,7 +141,9 @@ For **each** cluster the workflow targets (dev, then prod-us):
 - **Secrets** — the workflow checks out `PostHog/hogland` to build the CLI with
   the existing `GH_APP_HOGLAND_DEPLOYER` GitHub App (org secrets
   `GH_APP_HOGLAND_DEPLOYER_APP_ID` + `GH_APP_HOGLAND_DEPLOYER_PRIVATE_KEY`),
-  minted `contents: read`-only. The App must be installed on `PostHog/hogland`.
+  minted read-only: `contents: read` for the checkout, `actions: read` so the
+  quiet-window guard can list hogland rollout runs. The App must be installed on
+  `PostHog/hogland` with both.
 
 ## Running it
 
