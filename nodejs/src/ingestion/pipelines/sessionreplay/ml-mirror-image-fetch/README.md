@@ -299,6 +299,8 @@ Removing an eligible entry cannot permit an earlier request.
 
 This rule lets later Kafka records add domain and origin diversity when the current pass cannot use enough pod capacity. A job can receive this zero-wait diversity deferral once. A previously deferred job proceeds normally, subject to the pass deadline. This bound prevents a persistent dominant origin or one long run from creating a fast republish cycle without progress.
 
+**5.20** One fetch pass tries to combine record batches from the configured number of Kafka partitions. The default target is two partitions. After the first poll, the consumer pauses represented partitions before it polls for another partition. If no other partition has a batch ready, the consumer processes the available batch.
+
 ### 6. Smokescreen
 
 **6.1** Smokescreen is the authoritative network boundary for outbound requests in production. It must refuse a connection to an IP address that is not globally routable.

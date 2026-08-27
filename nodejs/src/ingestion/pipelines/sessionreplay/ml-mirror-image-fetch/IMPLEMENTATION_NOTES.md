@@ -38,6 +38,8 @@ The queue tracks the remaining request slots from active and waiting jobs. It ap
 
 The frontier consumer uses cooperative rebalancing. Its revoke path drains active work before it releases assigned partitions.
 
+The frontier consumer targets poll batches from two Kafka partitions by default. It pauses represented partitions before each additional poll. An empty additional poll ends collection, so one available batch starts without waiting for another batch beyond the normal poll timeout. `SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH` configures the target for worker-count experiments.
+
 Retry jobs use 1-minute, 10-minute, and 1-hour Kafka topics. The topics use broker append timestamps.
 
 Each delay consumer waits once for the latest record in its batch. It then republishes the complete batch to the frontier.
