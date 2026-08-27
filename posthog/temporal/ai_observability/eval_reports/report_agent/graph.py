@@ -22,7 +22,9 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
 from posthog.temporal.ai_observability.eval_reports.report_agent.state import EvalReportAgentState
 from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
     _ch_ts,
+    _dead_backticked_ids_across,
     _fetch_period_summary,
+    _handled_ids,
     _is_retriable_ch_error,
     get_eval_report_tools,
 )
@@ -183,13 +185,20 @@ def _append_references_section(content: EvalReportContent) -> None:
     content.sections.append(ReportSection(title="References", content="\n".join(refs_lines)))
 
 
-def _validate_agent_output(content: EvalReportContent) -> str | None:
+def _validate_agent_output(content: EvalReportContent, handled_ids: set[str] | None = None) -> str | None:
     """Return a reason string if content is invalid, else None.
 
     Enforced invariants:
       - title must be non-empty
       - section count must be within [MIN_REPORT_SECTIONS, MAX_REPORT_SECTIONS]
       - every section must have a non-empty title and content
+      - no backticked ID may ship dead: the renderer links only an exactly-cited ID
+        in one pair of backticks, so every other backticked ID is a dead identifier
+
+    add_section runs the same dead-ID check in the loop, so the agent can correct a
+    dead ID on its next call. This is the backstop for what reaches the end, and it
+    also covers the report title and the section titles, which no renderer runs
+    citation linking over.
     """
     if not content.title.strip():
         return "agent did not call set_title"
@@ -202,6 +211,11 @@ def _validate_agent_output(content: EvalReportContent) -> str | None:
             return f"section {idx + 1} has empty title"
         if not section.content.strip():
             return f"section {idx + 1} ({section.title!r}) has empty content"
+
+    section_texts = [text for section in content.sections for text in (section.title, section.content)]
+    dead = _dead_backticked_ids_across([content.title, *section_texts], content.citations, handled_ids or set())
+    if dead:
+        return f"backticked IDs will not render as citation links: {', '.join(dead[:3])}"
     return None
 
 
@@ -330,7 +344,7 @@ def run_eval_report_agent(
         content.evaluation_target = evaluation_target
         content.metrics = metrics
 
-        validation_error = _validate_agent_output(content)
+        validation_error = _validate_agent_output(content, _handled_ids(result))
         if validation_error:
             increment_report_generated("fallback_validation")
 
