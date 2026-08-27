@@ -2,7 +2,7 @@ import type {
   GridDefinition,
   GridPlacement,
 } from "@posthog/core/canvas/gridLayoutSchemas";
-import { type RefObject, useState } from "react";
+import { type RefObject, useRef, useState } from "react";
 import {
   cellFromPoint,
   clampRect,
@@ -48,6 +48,14 @@ export function useGridDrag({
   onComplete: (outcome: GridDragOutcome) => void;
 }) {
   const [drag, setDrag] = useState<GridDragState | null>(null);
+  // Pointer events can arrive before React commits the state update from the
+  // preceding event. Keep the active gesture in a ref so a press, immediate
+  // move, and release still uses the same drag state.
+  const dragRef = useRef<GridDragState | null>(null);
+  const setActiveDrag = (next: GridDragState | null) => {
+    dragRef.current = next;
+    setDrag(next);
+  };
   // The empty cell under a resting pointer, so the surface can show where a
   // click would put a box. Only the surface itself reports one: a tile handles
   // its own presses, and hovering it is not an offer to draw.
@@ -69,7 +77,11 @@ export function useGridDrag({
     const anchor = cellAt(event);
     capture(event);
     setHover(null);
-    setDrag({ kind: "draw", anchor, rect: rectFromCells(anchor, anchor) });
+    setActiveDrag({
+      kind: "draw",
+      anchor,
+      rect: rectFromCells(anchor, anchor),
+    });
   };
 
   const startMove =
@@ -78,7 +90,7 @@ export function useGridDrag({
       event.stopPropagation();
       capture(event);
       setHover(null);
-      setDrag({
+      setActiveDrag({
         kind: "move",
         placementId: placement.id,
         grabbed: cellAt(event),
@@ -98,7 +110,7 @@ export function useGridDrag({
       event.stopPropagation();
       capture(event);
       setHover(null);
-      setDrag({
+      setActiveDrag({
         kind: "resize",
         placementId: placement.id,
         origin: placement,
@@ -112,7 +124,8 @@ export function useGridDrag({
     };
 
   const onPointerMove = (event: React.PointerEvent) => {
-    if (!drag) {
+    const activeDrag = dragRef.current;
+    if (!activeDrag) {
       const cell =
         interactive && event.target === surfaceRef.current
           ? cellAt(event)
@@ -124,42 +137,49 @@ export function useGridDrag({
       return;
     }
     const cell = cellAt(event);
-    if (drag.kind === "draw") {
-      setDrag({ ...drag, rect: rectFromCells(drag.anchor, cell) });
-    } else if (drag.kind === "move") {
+    if (activeDrag.kind === "draw") {
+      setActiveDrag({
+        ...activeDrag,
+        rect: rectFromCells(activeDrag.anchor, cell),
+      });
+    } else if (activeDrag.kind === "move") {
       const rect = clampRect(
         {
-          ...drag.origin,
-          x: drag.origin.x + (cell.col - drag.grabbed.col),
-          y: drag.origin.y + (cell.row - drag.grabbed.row),
+          ...activeDrag.origin,
+          x: activeDrag.origin.x + (cell.col - activeDrag.grabbed.col),
+          y: activeDrag.origin.y + (cell.row - activeDrag.grabbed.row),
         },
         grid.columns,
       );
-      setDrag({ ...drag, rect });
+      setActiveDrag({ ...activeDrag, rect });
     } else {
       const rect = clampRect(
         {
-          ...drag.origin,
-          w: cell.col - drag.origin.x + 1,
-          h: cell.row - drag.origin.y + 1,
+          ...activeDrag.origin,
+          w: cell.col - activeDrag.origin.x + 1,
+          h: cell.row - activeDrag.origin.y + 1,
         },
         grid.columns,
       );
-      setDrag({ ...drag, rect });
+      setActiveDrag({ ...activeDrag, rect });
     }
   };
 
   const onPointerUp = () => {
-    if (!drag) return;
-    setDrag(null);
+    const activeDrag = dragRef.current;
+    if (!activeDrag) return;
+    setActiveDrag(null);
     onComplete({
-      kind: drag.kind,
+      kind: activeDrag.kind,
       // Move/resize rects are clamped on every pointer move; only a drawn
       // rect still needs it.
       rect:
-        drag.kind === "draw" ? clampRect(drag.rect, grid.columns) : drag.rect,
-      placementId: drag.kind === "draw" ? undefined : drag.placementId,
-      origin: drag.kind === "draw" ? undefined : drag.origin,
+        activeDrag.kind === "draw"
+          ? clampRect(activeDrag.rect, grid.columns)
+          : activeDrag.rect,
+      placementId:
+        activeDrag.kind === "draw" ? undefined : activeDrag.placementId,
+      origin: activeDrag.kind === "draw" ? undefined : activeDrag.origin,
     });
   };
 
@@ -169,7 +189,7 @@ export function useGridDrag({
   // tracks the cursor with no button held and persists an unmade edit on the
   // next click.
   const onPointerCancel = () => {
-    setDrag(null);
+    setActiveDrag(null);
   };
 
   const onPointerLeave = () => {
