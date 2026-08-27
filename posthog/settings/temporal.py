@@ -212,6 +212,10 @@ GENERAL_PURPOSE_TASK_QUEUE = _set_temporal_task_queue("general-purpose-task-queu
 SIGNUP_ENRICHMENT_TASK_QUEUE = _set_temporal_task_queue(
     os.getenv("SIGNUP_ENRICHMENT_TASK_QUEUE", "general-purpose-task-queue")
 )
+# Defaults to the general-purpose fleet so dispatch always has a live worker; set the env to
+# "canvas-build-task-queue" to route canvas builds to a dedicated, separately-scalable worker
+# once one is deployed.
+CANVAS_BUILD_TASK_QUEUE = _set_temporal_task_queue(os.getenv("CANVAS_BUILD_TASK_QUEUE", "general-purpose-task-queue"))
 EXPERIMENTS_RECALCULATION_TASK_QUEUE = _set_temporal_task_queue("experiments-recalculation-task-queue")
 HEALTH_CHECK_TASK_QUEUE = _set_temporal_task_queue("health-check-task-queue")
 DUCKLAKE_TASK_QUEUE = _set_temporal_task_queue("ducklake-task-queue")

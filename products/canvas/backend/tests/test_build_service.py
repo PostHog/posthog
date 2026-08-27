@@ -288,6 +288,36 @@ class TestRunCanvasBuild(BuildServiceBaseTest):
         assert properties["build_id"] == str(build.id)
 
 
+class TestBuildDispatch(BuildServiceBaseTest):
+    def test_flagged_in_team_dispatches_to_temporal_instead_of_celery(self):
+        with (
+            patch.object(build_service.posthoganalytics, "feature_enabled", return_value=True),
+            patch("products.canvas.backend.temporal.client.execute_canvas_build_workflow") as start_workflow,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            build = self._publish()
+        start_workflow.assert_called_once_with(self.team.id, str(build.id))
+        self.enqueue.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("flag_check_fails", RuntimeError("flag service down"), None),
+            ("workflow_start_fails", True, RuntimeError("temporal down")),
+        ]
+    )
+    def test_temporal_failure_falls_back_to_celery(self, _name, flag_result, workflow_error):
+        with (
+            patch.object(build_service.posthoganalytics, "feature_enabled", side_effect=[flag_result]),
+            patch(
+                "products.canvas.backend.temporal.client.execute_canvas_build_workflow",
+                side_effect=workflow_error,
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            build = self._publish()
+        self.enqueue.assert_called_once_with(self.team.id, str(build.id))
+
+
 class TestSweeper(BuildServiceBaseTest):
     def test_lease_expired_building_is_requeued_then_failed(self):
         build = self._publish()
