@@ -668,9 +668,7 @@ class ReviewPRWorkflow:
             workflow.logger.info("Publishing disabled for this run (publish=False)")
         return None
 
-    async def _finalize_failed(
-        self, inputs: ReviewPRWorkflowInputs, meta: ReviewMeta, publishes_to_pr: bool
-    ) -> None:
+    async def _finalize_failed(self, inputs: ReviewPRWorkflowInputs, meta: ReviewMeta, publishes_to_pr: bool) -> None:
         """Best-effort cleanup for a dead run: fail the status comment, log a receipt, count the failure."""
         # A dead run must not read as forever in progress on the PR or in the Code review UI
         # (the activity also returns the report to rest, covering a publish that died with the
