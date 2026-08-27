@@ -779,6 +779,15 @@ mod tests {
         assert_eq!(code_of(Some("banana")), NON_STATUS);
     }
 
+    /// The labelling rests on tonic putting a handler's error status in
+    /// the response headers, so pin it against tonic itself rather than
+    /// against a hand-built response.
+    #[test]
+    fn handler_error_reads_as_its_own_code() {
+        let response = tonic::Status::not_found("no organization for team").into_http();
+        assert_eq!(response_code(response.headers()), "not_found");
+    }
+
     #[test]
     fn extract_method_from_grpc_path() {
         assert_eq!(
