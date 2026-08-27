@@ -3,6 +3,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -41,6 +42,69 @@ const EXTENDED_SEARCH_RANGE = `-${EXTENDED_SEARCH_DAYS}d`
 export interface HogflowTestInvocation {
     globals: string
     mock_async_functions: boolean
+}
+
+const TEMPLATE_NOT_FOUND_RE = /Template '([^']+)' not found/
+
+// The runtime matcher throws a bare "Template '<id>' not found" carrying an internal template UUID
+// when a step points at a template that no longer exists. Rewrite it to name the step so the user
+// knows which one to fix instead of reading a raw ID.
+export const humanizeWorkflowTestError = (error: string, workflow: HogFlow, testedActionId?: string | null): string => {
+    const match = error.match(TEMPLATE_NOT_FOUND_RE)
+    if (!match) {
+        return error
+    }
+    const templateId = match[1]
+    const matchesTemplate = (action: HogFlow['actions'][number]): boolean =>
+        (action.config as { template_id?: string })?.template_id === templateId
+    // A test run executes only the selected step, so name that step when we know it —
+    // several steps can share a template_id, and matching by template alone names the first.
+    const step =
+        workflow.actions?.find((action) => action.id === testedActionId && matchesTemplate(action)) ??
+        workflow.actions?.find(matchesTemplate)
+    return step?.name
+        ? `Step "${step.name}" uses a template that is no longer available. Replace or remove the step, then test again.`
+        : 'A step uses a template that is no longer available. Replace or remove the step, then test again.'
+}
+
+const collectErrorStrings = (value: unknown): string[] => {
+    if (typeof value === 'string') {
+        return value ? [value] : []
+    }
+    if (Array.isArray(value)) {
+        return value.flatMap(collectErrorStrings)
+    }
+    if (value && typeof value === 'object') {
+        return Object.values(value).flatMap(collectErrorStrings)
+    }
+    return []
+}
+
+// The invocations endpoint reports failures in shapes the shared ApiError parser can't flatten onto
+// `error.message`: the CDP executor wraps its message in an array ({ message: [text] }) and DRF
+// serializer validation returns a raw { field: [message] } object. Both leave `error.message` as the
+// generic "Non-OK response" debug string, so pull the real text out of the response body here.
+export const extractTestErrorDetail = (error: any): string | null => {
+    // A flat DRF `detail` (raised exceptions, rendered by exceptions-hog) is already the clean message.
+    if (typeof error?.detail === 'string' && error.detail) {
+        return error.detail
+    }
+    const data = error?.data
+    if (data && typeof data === 'object') {
+        const message = collectErrorStrings(data.message).join(', ')
+        if (message) {
+            return message
+        }
+        // serializer.errors carries no `message` key, so flatten its field messages instead.
+        const fieldErrors = collectErrorStrings(data).join(', ')
+        if (fieldErrors) {
+            return fieldErrors
+        }
+    }
+    // No structured server message. A transport error (offline, a bare Error) still has a meaningful
+    // message; an HTTP error whose body we couldn't parse only carries the generic debug string, so
+    // drop it and let the caller show a clean fallback rather than leaking the debug string.
+    return data == null && typeof error?.message === 'string' ? error.message : null
 }
 
 export const createExampleEvent = (
@@ -830,7 +894,13 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         )
                     } catch (e: any) {
                         if (!e.message?.includes('breakpoint')) {
-                            actions.setSampleGlobalsError('Failed to load matching events. Please try again.')
+                            const detail = e.detail || e.message
+                            actions.setSampleGlobalsError(
+                                detail
+                                    ? `Couldn't load matching events: ${detail}`
+                                    : "Couldn't load matching events. Try again."
+                            )
+                            posthog.captureException(e, { scope: 'hogFlowEditorTestLogic.loadSampleGlobals' })
                         }
                         return null
                     }
@@ -901,8 +971,12 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                             values.workflow.name,
                             groups
                         )
-                    } catch {
-                        actions.setSampleGlobalsError('Failed to load event. Please try again.')
+                    } catch (e: any) {
+                        const detail = e.detail || e.message
+                        actions.setSampleGlobalsError(
+                            detail ? `Couldn't load event: ${detail}` : "Couldn't load event. Try again."
+                        )
+                        posthog.captureException(e, { scope: 'hogFlowEditorTestLogic.loadSampleEventByName' })
                         return null
                     }
                 },
@@ -1055,7 +1129,13 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                     return values.testInvocation
                 } catch (error: any) {
                     console.error('Workflow test error:', error)
-                    lemonToast.error('Error testing workflow')
+                    const detail = extractTestErrorDetail(error)
+                    const humanized =
+                        detail && humanizeWorkflowTestError(detail, values.workflow, values.selectedNodeId)
+                    lemonToast.error(
+                        humanized ? `Couldn't test workflow: ${humanized}` : "Couldn't test workflow. Try again."
+                    )
+                    posthog.captureException(error, { scope: 'hogFlowEditorTestLogic.submitTestInvocation' })
                     throw error
                 }
             },

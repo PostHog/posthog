@@ -1307,13 +1307,27 @@ class HogFlowActionSerializer(serializers.Serializer):
             if data.get("config", {}).get("type") in ["webhook", "manual", "tracking_pixel"]:
                 trigger_is_function = True
             elif data.get("config", {}).get("type") == "event":
-                filters = data.get("config", {}).get("filters", {})
-                # Move filter_test_accounts into filters for bytecode compilation
-                if data.get("config", {}).get("filter_test_accounts") is not None:
-                    filters["filter_test_accounts"] = data["config"].pop("filter_test_accounts")
-                if filters:
+                filters = data.get("config", {}).get("filters")
+                # Absent/null filters mean "match every event". A present non-dict is malformed: reject it
+                # for strict callers (same as the batch/data-warehouse branches) and leave lenient drafts
+                # untouched. Coercing it to {} would compile to always-true bytecode and fire on every event.
+                if filters is None:
+                    filters = {}
+                if not isinstance(filters, dict):
+                    if strict:
+                        raise serializers.ValidationError({"filters": "Filters must be a dictionary."})
+                else:
+                    # Move filter_test_accounts into filters for bytecode compilation
+                    if data.get("config", {}).get("filter_test_accounts") is not None:
+                        filters["filter_test_accounts"] = data["config"].pop("filter_test_accounts")
+                    # Compile even when filters are empty. The runtime matcher needs bytecode on the filter
+                    # object (empty filters compile to always-true bytecode); a trigger stored without
+                    # bytecode makes every test run throw "Filters were not compiled correctly" with no way
+                    # to clear it by retrying. The old `if filters:` gate skipped the empty case.
                     serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
                     if not strict:
+                        # Web-builder drafts stay lenient so incomplete graphs save mid-edit (e.g. a cohort
+                        # filter that can't compile for real-time); keep the raw filters when invalid.
                         if serializer.is_valid():
                             data["config"]["filters"] = serializer.validated_data
                     else:

@@ -895,6 +895,46 @@ class TestHogFlowAPI(APIBaseTest):
             "url": {"order": 0, "value": "https://example.com", "bytecode": ["_H", 1, 32, "https://example.com"]}
         }
 
+    def test_event_trigger_empty_filters_still_compile_bytecode(self):
+        # An event trigger with empty filters means "match every event". The runtime matcher requires
+        # bytecode on the filter object, so empty filters must compile to always-true bytecode. A trigger
+        # stored without bytecode makes every test run throw "Filters were not compiled correctly", and
+        # retrying can never clear it because the filters never change.
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["actions"][0]["config"]["filters"] = {}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+        stored = HogFlow.objects.get(pk=response.json()["id"])
+        assert stored.trigger["filters"].get("bytecode"), stored.trigger["filters"]
+
+    @parameterized.expand(
+        [
+            # (name, client_header, expected_status)
+            ("mcp_strict_rejects", "mcp", 400),
+            ("web_draft_lenient", None, 201),
+        ]
+    )
+    def test_event_trigger_non_dict_filters(self, _name, client_header, expected_status):
+        # A non-dict filters value is malformed. Coercing it to {} would compile to always-true bytecode
+        # and fire on every event, so strict callers (MCP/API) are rejected. Web-builder drafts stay
+        # lenient and keep the raw value without a 500, matching the sibling trigger branches.
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {"type": "event", "filters": []},
+        }
+        hog_flow = {"name": "Test Event Flow", "status": "draft", "actions": [trigger_action]}
+        extra = {"HTTP_X_POSTHOG_CLIENT": client_header} if client_header else {}
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, **extra)
+        assert response.status_code == expected_status, response.json()
+        if expected_status == 400:
+            assert "dictionary" in str(response.json()).lower()
+
     def test_hog_flow_conversion_filters_compiles_bytecode_on_create(self):
         expected_conversion_bytecode = [
             "_H",

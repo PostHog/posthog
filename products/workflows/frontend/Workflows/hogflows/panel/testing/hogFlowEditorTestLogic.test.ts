@@ -8,10 +8,13 @@ import { groupsModel } from '~/models/groupsModel'
 import { initKeaTests } from '~/test/init'
 import { AvailableFeature, GroupType, GroupTypeIndex, OrganizationType } from '~/types'
 
+import type { HogFlow } from '../../types'
 import {
     createGlobalsFromResponse,
+    extractTestErrorDetail,
     groupSelectColumns,
     hogFlowEditorTestLogic,
+    humanizeWorkflowTestError,
     parseGroupsFromResult,
 } from './hogFlowEditorTestLogic'
 
@@ -143,6 +146,79 @@ describe('hogFlowEditorTestLogic', () => {
         it('defaults groups to an empty object', () => {
             const globals = createGlobalsFromResponse(event, undefined, 1, 'wf')
             expect(globals.groups).toEqual({})
+        })
+    })
+
+    describe('humanizeWorkflowTestError', () => {
+        const workflow = {
+            actions: [{ id: 'step_1', name: 'Send Slack message', config: { template_id: 'template-slack' } }],
+        } as unknown as HogFlow
+
+        it('names the step for a template-not-found error instead of exposing the raw id', () => {
+            const message = humanizeWorkflowTestError("Template 'template-slack' not found", workflow)
+            expect(message).toContain('Send Slack message')
+            expect(message).not.toContain('template-slack')
+        })
+
+        it('falls back to a generic message when no step matches the template id', () => {
+            const message = humanizeWorkflowTestError("Template 'template-gone' not found", workflow)
+            expect(message).not.toContain('template-gone')
+            expect(message).toContain('template that is no longer available')
+        })
+
+        it('passes unrelated errors through unchanged', () => {
+            expect(humanizeWorkflowTestError('Some other failure', workflow)).toBe('Some other failure')
+        })
+
+        it('names the tested step when several steps share the missing template id', () => {
+            const workflowWithDuplicates = {
+                actions: [
+                    { id: 'step_1', name: 'First email', config: { template_id: 'template-email' } },
+                    { id: 'step_2', name: 'Second email', config: { template_id: 'template-email' } },
+                ],
+            } as unknown as HogFlow
+            const message = humanizeWorkflowTestError(
+                "Template 'template-email' not found",
+                workflowWithDuplicates,
+                'step_2'
+            )
+            expect(message).toContain('Second email')
+            expect(message).not.toContain('First email')
+        })
+    })
+
+    describe('extractTestErrorDetail', () => {
+        it('flattens an array message from the CDP executor', () => {
+            // The executor catch-all returns { error: [msg] }, which the backend copies into `message`.
+            expect(extractTestErrorDetail({ data: { status: 'error', message: ['Boom happened'] } })).toBe(
+                'Boom happened'
+            )
+        })
+
+        it('reads a string message', () => {
+            expect(extractTestErrorDetail({ data: { status: 'error', message: 'Team not found' } })).toBe(
+                'Team not found'
+            )
+        })
+
+        it('flattens raw DRF serializer field errors', () => {
+            expect(extractTestErrorDetail({ data: { configuration: { actions: ['Invalid action config'] } } })).toBe(
+                'Invalid action config'
+            )
+        })
+
+        it('prefers a flat detail over the response body', () => {
+            expect(
+                extractTestErrorDetail({ detail: 'Pass either use_draft or a configuration', data: { message: ['x'] } })
+            ).toBe('Pass either use_draft or a configuration')
+        })
+
+        it('keeps a transport error message when there is no response body', () => {
+            expect(extractTestErrorDetail({ message: 'Network request failed' })).toBe('Network request failed')
+        })
+
+        it('drops the generic debug string when the body carries no real message', () => {
+            expect(extractTestErrorDetail({ message: 'Non-OK response [POST ...] (status 400)', data: {} })).toBeNull()
         })
     })
 
