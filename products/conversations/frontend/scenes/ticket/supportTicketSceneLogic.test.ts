@@ -14,6 +14,7 @@ import type { CommentType } from '~/types'
 import { ActivityScope } from '~/types'
 
 import type { TicketAssignee } from '../../components/Assignee'
+import type { TicketViewer } from '../../components/TicketViewers/ticketPresence'
 import type { Ticket, TicketStatus } from '../../types'
 import { EmailReplyBlockedReason, getEmailReplyBlockedReason, supportTicketSceneLogic } from './supportTicketSceneLogic'
 
@@ -1038,5 +1039,31 @@ describe('supportTicketSceneLogic discussion polling', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(commentsLogic.findMounted(discussionProps)).toBeNull()
+    })
+})
+
+describe('supportTicketSceneLogic ticketViewers presence', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        logic = supportTicketSceneLogic({ id: 'new' })
+        logic.mount()
+    })
+
+    afterEach(() => {
+        stopPolling(logic)
+    })
+
+    // Saving a ticket dispatches setTicket with the fresh ticket. The viewers must survive it, or the
+    // "also viewing" avatars vanish for up to a heartbeat right when a collision is most likely.
+    it('keeps active viewers when the ticket is saved', () => {
+        const viewers: TicketViewer[] = [{ id: 2, email: 'sam@example.com', first_name: 'Sam', last_name: 'Lee' }]
+
+        logic.actions.setTicketViewers(viewers)
+        expect(logic.values.ticketViewers).toEqual(viewers)
+
+        logic.actions.setTicket(makeTicket())
+        expect(logic.values.ticketViewers).toEqual(viewers)
     })
 })

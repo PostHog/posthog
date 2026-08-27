@@ -762,8 +762,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         ticketViewers: [
             [] as TicketViewer[],
             {
+                // Keyed by props.id, so one instance only ever holds one ticket. Clearing on setTicket
+                // would drop the viewer avatars after every save until the next heartbeat.
                 setTicketViewers: (_, { viewers }) => viewers,
-                setTicket: () => [],
             },
         ],
         ticket: [
