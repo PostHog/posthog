@@ -1975,6 +1975,11 @@ export interface FeatureRequestApi {
     readonly account: FeatureRequestAccountApi
     /** Active account links visible to the caller, with account-specific evidence. */
     readonly account_links: readonly FeatureRequestAccountLinkApi[]
+    /**
+     * Total evidence items recorded across visible account links.
+     * @minimum 0
+     */
+    readonly evidence_count: number
     /** Product areas affected by this request. */
     readonly product_areas: readonly FeatureRequestProductAreaApi[]
     /**
@@ -2833,6 +2838,16 @@ export type FeatureRequestsListParams = {
      * * `priority` - Priority: low to high
      * * `title` - Title: A to Z
      * * `-title` - Title: Z to A
+     * * `account` - Accounts: A to Z
+     * * `-account` - Accounts: Z to A
+     * * `product_area` - Product areas: A to Z
+     * * `-product_area` - Product areas: Z to A
+     * * `status` - Status: A to Z
+     * * `-status` - Status: Z to A
+     * * `created_by` - Created by: A to Z
+     * * `-created_by` - Created by: Z to A
+     * * `evidence_count` - Evidence: low to high
+     * * `-evidence_count` - Evidence: high to low
      * @minLength 1
      */
     request_ordering?: string
