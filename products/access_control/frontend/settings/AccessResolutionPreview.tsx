@@ -111,12 +111,19 @@ const sharedColumns: LemonTableColumns<ResolutionChange> = [
 ]
 
 export function AccessResolutionPreview(): JSX.Element {
-    const { preview, previewLoading } = useValues(resolutionPreviewLogic)
+    const { preview, previewLoading, previewForbidden } = useValues(resolutionPreviewLogic)
     const { loadPreview } = useActions(resolutionPreviewLogic)
     const { openSupportForm } = useActions(supportLogic)
 
     if (previewLoading) {
         return <Spinner className="text-lg" />
+    }
+    if (previewForbidden) {
+        return (
+            <LemonBanner type="info">
+                Only administrators can view the resolution preview. Ask an organization admin to review the changes.
+            </LemonBanner>
+        )
     }
     if (!preview) {
         return (

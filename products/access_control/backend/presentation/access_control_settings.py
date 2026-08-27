@@ -291,12 +291,16 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
     def access_control_resolution_preview(self, request: Request, *args, **kwargs):
         """Every access rule on this project that resolves differently under most-specific-wins.
 
-        Admin only: the records describe other subjects' access. Cached per rule set, so the
-        answer updates the moment any rule changes and repeat opens cost nothing."""
+        Admin only: the records describe other subjects' access. When the organization hides
+        its member list, only organization admins may read them — the records name members a
+        project admin could not otherwise see. Cached per rule set, so the answer updates the
+        moment any rule changes and repeat opens cost nothing."""
         team = cast(Team, self.team)  # type: ignore
         user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
         if not user_access_control.check_can_modify_access_levels_for_object(team):
             raise exceptions.PermissionDenied("Only administrators can view the resolution preview.")
+        if not team.organization.members_can_see_org_members and not user_access_control.is_organization_admin:
+            raise exceptions.PermissionDenied("Only organization admins can view the resolution preview.")
 
         fingerprint = AccessControl.objects.filter(team=team).aggregate(count=Count("id"), latest=Max("updated_at"))
         cache_key = f"access_control_resolution_preview/{team.pk}/{fingerprint['count']}/{fingerprint['latest']}"

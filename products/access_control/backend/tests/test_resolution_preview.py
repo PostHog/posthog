@@ -130,6 +130,21 @@ class TestResolutionPreviewAPI(BaseUserAccessControlTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+    def test_hidden_member_list_requires_org_admin(self):
+        # A project admin passes the base gate, but the org hides its member list
+        self._create_access_control(resource="project", resource_id=str(self.team.id), access_level="admin")
+        self.organization.members_can_see_org_members = False
+        self.organization.save()
+
+        response = self.client.get("/api/projects/@current/access_control_resolution_preview")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+        self.membership.level = OrganizationMembership.Level.ADMIN
+        self.membership.save()
+
+        response = self.client.get("/api/projects/@current/access_control_resolution_preview")
+        assert response.status_code == status.HTTP_200_OK
+
     def test_returns_changes_and_summary(self):
         self.membership.level = OrganizationMembership.Level.ADMIN
         self.membership.save()
