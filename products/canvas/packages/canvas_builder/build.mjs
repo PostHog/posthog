@@ -240,7 +240,15 @@ function entryReferences(html) {
         }
         if (tag[1].toLowerCase() === 'script' && attributes.type === 'module' && attributes.src) {
             references.push([attributes.src, 'js'])
-        } else if (tag[1].toLowerCase() === 'link' && attributes.rel === 'stylesheet' && attributes.href) {
+        } else if (
+            tag[1].toLowerCase() === 'link' &&
+            attributes.rel === 'stylesheet' &&
+            attributes.href &&
+            !/^https:\/\//i.test(attributes.href)
+        ) {
+            // A remote HTTPS stylesheet is not a local build entry, so it stays
+            // in the emitted HTML and loads at runtime under the declared-origin
+            // style-src CSP. Only local stylesheets are bundled here.
             references.push([attributes.href, 'css'])
         }
     }

@@ -491,6 +491,27 @@ bridge.port1.close();
         self.assertIn("frame-src https://api.example.com", html)
         self.assertNotIn("script-src 'self' https://api.example.com", html)
 
+    def test_preserves_declared_remote_stylesheet_links(self) -> None:
+        project = self._project('document.body.textContent = "Hello"')
+        project["files"]["index.html"] = (
+            '<head><link rel="stylesheet" href="https://styles.example.com/theme.css" /></head>'
+            '<div id="root"></div><script type="module" src="/src/main.ts"></script>'
+        )
+        project["capabilities"] = {
+            "posthog": {"insights": [], "inlineQueries": False, "captureEvents": []},
+            "network": {"origins": ["https://styles.example.com"]},
+        }
+
+        files, _, diagnostics = validate_builder_output(run_cloud_builder(project))
+
+        self.assertEqual(diagnostics, [])
+        html = next(file["content"] for file in files if file["path"] == "index.html")
+        # A declared remote stylesheet is not a local build entry, so it stays in
+        # the HTML and loads at runtime under the widened style-src CSP, instead
+        # of failing the build with entry_not_found.
+        self.assertIn('href="https://styles.example.com/theme.css"', html)
+        self.assertIn("style-src 'self' 'unsafe-inline' https://styles.example.com", html)
+
     def test_runtime_reports_csp_violations_without_blocked_urls(self) -> None:
         result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
 
