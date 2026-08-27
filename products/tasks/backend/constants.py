@@ -68,6 +68,10 @@ def is_same_run_resume_idle_state(state: Mapping[str, Any] | None) -> bool:
     )
 
 
+DEV_STACK_PREVIEW_STATE_KEY = "dev_stack_preview"
+DEV_STACK_PREVIEW_FEATURE_FLAG = "tasks-dev-stack-preview"
+DEV_STACK_PREVIEW_PORT = 8020
+
 # Models a caller may only select while the paired flag is enabled for them. The Desktop
 # pickers already hide these client-side (`products/desktop/packages/shared/src/flags.ts`),
 # but a picker is a convenience rather than a gate: a stored per-task model preference, an

@@ -391,6 +391,11 @@ function getTaskRunStateString(
   return typeof value === "string" ? value : null;
 }
 
+type SteerDeclineReason =
+  | "startup_turn"
+  | "no_active_turn"
+  | "adapter_rejected";
+
 /** Which delivery routes a Slack run has, as resolved by the backend from flags and Slack scopes. */
 type SlackArtifactDelivery = "none" | "message" | "canvas_file";
 
@@ -1308,10 +1313,10 @@ export class AgentServer {
           };
 
           if (params.steer === true) {
-            if (
-              this.activeOwnedTurnCount > 0 &&
-              this.activeStartupTurnCount === 0
-            ) {
+            let declineReason: SteerDeclineReason = "no_active_turn";
+            if (this.activeStartupTurnCount > 0) {
+              declineReason = "startup_turn";
+            } else if (this.activeOwnedTurnCount > 0) {
               const result = await commandSession.clientConnection.prompt({
                 sessionId: commandSession.acpSessionId,
                 prompt,
@@ -1326,10 +1331,12 @@ export class AgentServer {
                 resolveDelivery(outcome);
                 return outcome;
               }
+              declineReason = "adapter_rejected";
             }
             const outcome = {
               stopReason: "steer_declined",
               steered: false,
+              reason: declineReason,
             };
             resolveDelivery(outcome);
             return outcome;
