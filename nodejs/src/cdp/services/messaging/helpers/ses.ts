@@ -843,8 +843,15 @@ export class SesWebhookHandler {
 
             // Record complaints in the suppression list so future sends to the address are blocked.
             // The recipient reported the message as spam — one complaint suppresses immediately,
-            // like a hard bounce.
-            if (suppressionAllowed && rec.eventType === 'Complaint') {
+            // like a hard bounce. Skip a "not-spam" feedback type, because that is a correction:
+            // the recipient or their provider states the message is not spam, so it must not
+            // suppress (and would otherwise resurrect a manually removed row). The value comes from
+            // an external provider, so compare case-insensitively.
+            if (
+                suppressionAllowed &&
+                rec.eventType === 'Complaint' &&
+                rec.complaint.complaintFeedbackType?.toLowerCase() !== 'not-spam'
+            ) {
                 const emails = rec.complaint.complainedRecipients.map((r) => r.emailAddress)
                 complainedRecipients.push({
                     teamId,

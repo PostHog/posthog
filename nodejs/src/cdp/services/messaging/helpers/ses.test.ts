@@ -567,27 +567,37 @@ describe('SesWebhookHandler', () => {
         expect(result.hardBounceRecipients).toBeUndefined()
     })
 
-    it('parses a raw Complaint event and surfaces the recipients for suppression', async () => {
-        const body = [
-            {
-                eventType: 'Complaint',
-                mail: baseMail,
-                complaint: {
-                    complainedRecipients: [{ emailAddress: 'to@example.com' }],
-                    timestamp: '2025-10-03T12:05:00Z',
-                    complaintFeedbackType: 'abuse',
+    it.each([
+        // A registered spam complaint surfaces the recipient for suppression.
+        {
+            feedbackType: 'abuse',
+            expectedRecipients: [{ teamId: '1', emailAddresses: ['to@example.com'], feedbackType: 'abuse' }],
+        },
+        // "not-spam" is a correction, not a complaint, so the recipient must not be suppressed. The
+        // metric still counts the event.
+        { feedbackType: 'not-spam', expectedRecipients: [] },
+    ])(
+        'parses a raw Complaint event with feedback type "$feedbackType" and surfaces the right recipients',
+        async ({ feedbackType, expectedRecipients }) => {
+            const body = [
+                {
+                    eventType: 'Complaint',
+                    mail: baseMail,
+                    complaint: {
+                        complainedRecipients: [{ emailAddress: 'to@example.com' }],
+                        timestamp: '2025-10-03T12:05:00Z',
+                        complaintFeedbackType: feedbackType,
+                    },
                 },
-            },
-        ]
-        const result = await handler.handleWebhook({ body, headers: {} })
-        expect(result.status).toBe(200)
-        expect(result.metrics?.[0].metricName).toBe('email_blocked')
-        expect(result.metrics?.[0].distinctId).toBe('user-123')
-        expect(result.metrics?.[0].properties).toMatchObject({ $complaint_feedback_type: 'abuse' })
-        expect(result.complainedRecipients).toEqual([
-            { teamId: '1', emailAddresses: ['to@example.com'], feedbackType: 'abuse' },
-        ])
-    })
+            ]
+            const result = await handler.handleWebhook({ body, headers: {} })
+            expect(result.status).toBe(200)
+            expect(result.metrics?.[0].metricName).toBe('email_blocked')
+            expect(result.metrics?.[0].distinctId).toBe('user-123')
+            expect(result.metrics?.[0].properties).toMatchObject({ $complaint_feedback_type: feedbackType })
+            expect(result.complainedRecipients).toEqual(expectedRecipients)
+        }
+    )
 
     it('returns 200 and no metrics if tracking code is missing from both carriers', async () => {
         const body = [
