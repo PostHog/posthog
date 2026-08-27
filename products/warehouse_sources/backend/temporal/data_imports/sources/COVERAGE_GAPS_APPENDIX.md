@@ -7191,10 +7191,14 @@ Note: Per-version download counts are already included in the synced `versions` 
 
 ## Ruddr — **thin**
 
-Today (5): `clients`, `members`, `project_tasks`, `projects`, `time_entries`
+Today (9): `clients`, `members`, `pipeline_activities`, `project_prepayments`, `project_tasks`, `projects`, `task_categories`, `time_entries`, `timesheet_attestations`
 
 Diffed against: <https://docs.ruddr.io/llms.txt>
 
+- [x] `project-prepayments` — prepayments recorded against projects to offset future fees
+- [x] `timesheet-attestations` — statements members sign when submitting timesheets
+- [x] `task-categories` — lookup classifying project tasks
+- [x] `pipeline-activities` — sales-pipeline activity log tied to opportunities, companies, and contacts
 - [ ] `invoices` — billing and revenue, entirely absent from the current 5 tables (high)
 - [ ] `invoice-items` — line-item revenue tied back to projects and time entries (high)
 - [ ] `allocations` — planned resource allocation to compare against logged time entries (high)
@@ -7208,7 +7212,7 @@ Diffed against: <https://docs.ruddr.io/llms.txt>
 - [ ] `project-health-reports` — periodic project status history, a natural trend series (medium)
 - [ ] `practices` — lookup resolving the practice/org-unit IDs on members and projects (medium)
 
-Note: Ruddr documents roughly 78 list endpoints; the connector exposes 5. Beyond the twelve listed, whole domains are unsynced: project budget items (service/product/other/expense, plus monthly variants), revenue recognition entries, revenue adjustments, credit notes, tax rates, cost periods, exchange rate periods, utilization target periods, contacts, companies, expense reports, holidays, skills, disciplines, job titles and member levels. Static endpoint catalog, no dynamic discovery.
+Note: Ruddr documents roughly 78 list endpoints; the connector exposes 9. Beyond those listed, whole domains are unsynced: project budget items (service/product/other/expense, plus monthly variants), revenue recognition entries, revenue adjustments, credit notes, tax rates, cost periods, exchange rate periods, utilization target periods, contacts, companies, expense reports, holidays, skills, disciplines, job titles and member levels. Static endpoint catalog, no dynamic discovery.
 
 ## RunPod — adequate
 
