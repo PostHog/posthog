@@ -79,6 +79,7 @@ def test_created_internal_event_preserves_raw_status() -> None:
             side_effect=capture_event,
         ),
         patch("products.error_tracking.backend.temporal.lifecycle.side_effects.flush_internal_events_producer"),
+        patch("products.error_tracking.backend.temporal.lifecycle.side_effects.start_alert_delivery_workflow"),
     ):
         produce_issue_lifecycle_internal_event(
             inputs,
@@ -121,6 +122,9 @@ def test_oversized_internal_event_retries_without_exception_properties() -> None
         patch(
             "products.error_tracking.backend.temporal.lifecycle.side_effects.flush_internal_events_producer"
         ) as flush,
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.start_alert_delivery_workflow"
+        ) as start_delivery,
     ):
         produce_issue_lifecycle_internal_event(
             inputs,
@@ -153,6 +157,18 @@ def test_oversized_internal_event_retries_without_exception_properties() -> None
     assert flush.call_count == 2
     oversized_result.get.assert_called_once_with(timeout=0)
     retry_result.get.assert_called_once_with(timeout=0)
+
+    # Delivery starts once, after the internal event landed, with by-reference event data.
+    start_delivery.assert_called_once()
+    delivery_kwargs = start_delivery.call_args.kwargs
+    assert delivery_kwargs["team_id"] == inputs.team_id
+    assert delivery_kwargs["event"] == "$error_tracking_issue_reopened"
+    assert delivery_kwargs["notification_id"] == inputs.notification_id
+    assert delivery_kwargs["issue_id"] == inputs.issue_id
+    assert delivery_kwargs["status"] == "Pending Release"
+    assert delivery_kwargs["assignee"] == inputs.assignee
+    assert delivery_kwargs["event_uuid"] == inputs.event_uuid
+    assert delivery_kwargs["event_timestamp"] == "2026-07-21T12:05:00+00:00"
 
 
 def test_internal_event_reraises_non_size_kafka_errors() -> None:
