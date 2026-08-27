@@ -8,7 +8,6 @@ import structlog
 from asgiref.local import Local
 
 from posthog.dataclasses import frozen
-from posthog.models.activity_logging.visibility_rules import activity_visibility_restrictions
 
 if TYPE_CHECKING:
     from posthog.models.activity_logging.activity_log import ActivityLog, Trigger
@@ -117,11 +116,13 @@ class ActivityLogVisibilityManager:
     Controls which activity logs can be seen by users and which should be
     filtered out from external destinations and user-facing interfaces.
 
-    Configuration is defined in visibility_rules.py as `activity_visibility_restrictions`.
+    Configuration is defined in activity_log.py as `activity_visibility_restrictions`.
     """
 
     @classmethod
     def _get_restrictions(cls) -> list[dict[str, Any]]:
+        from posthog.models.activity_logging.activity_log import activity_visibility_restrictions
+
         return activity_visibility_restrictions
 
     @classmethod

@@ -8,8 +8,8 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 
+from posthog.models.activity_logging.activity_log import activity_visibility_restrictions
 from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
-from posthog.models.activity_logging.visibility_rules import activity_visibility_restrictions
 
 # The SQL surface must hide what the REST viewsets hide: rows past the plan's retention window, and
 # rows the visibility rules restrict. Both are printed guards, so the printed SQL is the assertion.

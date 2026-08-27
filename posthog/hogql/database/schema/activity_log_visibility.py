@@ -22,7 +22,7 @@ def activity_visibility_predicates() -> tuple[Expr, ...]:
       `log_login_activity`), so the mandatory team guard already puts them out of reach.
     """
     # Deferred to keep the ORM off this module's import path, as elsewhere in the schema layer.
-    from posthog.models.activity_logging.visibility_rules import activity_visibility_restrictions  # noqa: PLC0415
+    from posthog.models.activity_logging.activity_log import activity_visibility_restrictions  # noqa: PLC0415
 
     return tuple(
         parse_expr(
