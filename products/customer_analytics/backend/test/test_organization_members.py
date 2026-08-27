@@ -1,3 +1,5 @@
+from urllib.parse import urlencode
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -5,7 +7,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 
 
@@ -19,14 +21,21 @@ class TestOrganizationMembersForAccountAPI(APIBaseTest):
     def _url(self, organization_id: object) -> str:
         return f"/api/projects/{self.team.id}/organization_members/?organization_id={organization_id}"
 
-    def _join(self, email: str, **kwargs) -> User:
+    def _join(
+        self, email: str, level: OrganizationMembership.Level = OrganizationMembership.Level.MEMBER, **kwargs
+    ) -> User:
         user = User.objects.create(email=email, **kwargs)
-        user.join(organization=self.target_org)
+        user.join(organization=self.target_org, level=level)
         return user
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_returns_slim_members_of_target_org_when_staff_and_flag_enabled(self, _mock_flag):
-        self._join("cust1@example.com", first_name="Ada", distinct_id="distinct-1")
+        self._join(
+            "cust1@example.com",
+            first_name="Ada",
+            distinct_id="distinct-1",
+            level=OrganizationMembership.Level.ADMIN,
+        )
         self._join("cust2@example.com", first_name="Grace", distinct_id="distinct-2")
 
         response = self.client.get(self._url(self.target_org.id))
@@ -38,7 +47,32 @@ class TestOrganizationMembersForAccountAPI(APIBaseTest):
         results = body["results"]
         self.assertEqual({r["user"]["email"] for r in results}, {"cust1@example.com", "cust2@example.com"})
         self.assertEqual({r["user"]["distinct_id"] for r in results}, {"distinct-1", "distinct-2"})
-        self.assertEqual(set(results[0].keys()), {"id", "user"})
+        self.assertEqual(set(results[0].keys()), {"id", "user", "level"})
+        self.assertEqual(
+            {r["user"]["email"]: r["level"] for r in results}, {"cust1@example.com": 8, "cust2@example.com": 1}
+        )
+
+    @parameterized.expand(
+        [
+            ("name", "ada", "ada@example.com"),
+            ("email", "hopper@", "grace.hopper@example.com"),
+            ("full name", "Grace Hopper", "grace.hopper@example.com"),
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_searches_members_by_name_or_email(self, _name, search, expected_email, _mock_flag):
+        self._join("ada@example.com", first_name="Ada", distinct_id="distinct-ada")
+        self._join(
+            "grace.hopper@example.com",
+            first_name="Grace",
+            last_name="Hopper",
+            distinct_id="distinct-grace",
+        )
+
+        response = self.client.get(f"{self._url(self.target_org.id)}&{urlencode({'search': search})}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([member["user"]["email"] for member in response.json()["results"]], [expected_email])
 
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_forbidden_when_flag_disabled(self, _mock_flag):
