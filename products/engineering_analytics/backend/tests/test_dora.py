@@ -112,6 +112,10 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         # Window 2026-01-10 → 2026-01-20; previous window 2025-12-31 → 2026-01-10.
         # prod: d1 succeeds Jan 12, d2 fails Jan 13, d3 succeeds Jan 13 (d2's recovery, 2h later),
         # d5 succeeded in the previous window, d6 never reached an outcome (no status rows).
+        # Each successful deploy's sha is a merged PR's merge_commit_sha (its head): PR 1 heads
+        # d1, PR 2 heads d3, PR 5 heads d5. Attribution follows head merge order, not success
+        # time: PR 6 (carol) merges Jan 12 09:00, AFTER d1's head merge (08:00), so d1 — despite
+        # succeeding later that day — does not contain it and it waits for d3.
         # staging: d4 succeeds Jan 12 09:00 — before d1 — so a production-scope leak would
         # change PR 1's lead time from 2h to 1h.
         return self._curated(
@@ -133,15 +137,42 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
                 _status_row(51, 5, "success", "prod", "2026-01-05 10:00:00"),
             ],
             pr_rows=[
-                # alice merges 2h before d1's success; bob merges 2.5h before d3's success.
-                _pr_row(1, "alice", "closed", 0, "2026-01-11 08:00:00", merged_at="2026-01-12 08:00:00"),
-                _pr_row(2, "bob", "closed", 0, "2026-01-12 08:00:00", merged_at="2026-01-13 09:30:00"),
+                # alice heads d1 and merges 2h before its success; bob heads d3, 2.5h before its.
+                _pr_row(
+                    1,
+                    "alice",
+                    "closed",
+                    0,
+                    "2026-01-11 08:00:00",
+                    merged_at="2026-01-12 08:00:00",
+                    merge_commit_sha="sha-a",
+                ),
+                _pr_row(
+                    2,
+                    "bob",
+                    "closed",
+                    0,
+                    "2026-01-12 08:00:00",
+                    merged_at="2026-01-13 09:30:00",
+                    merge_commit_sha="sha-c",
+                ),
                 # Bot merge in the same slot as PR 1: must not move the lead-time figures.
                 _pr_row(3, "dependabot[bot]", "closed", 0, "2026-01-11 08:00:00", merged_at="2026-01-12 08:00:00"),
                 # Merged but never deployed in the window: not part of the deployed population.
                 _pr_row(4, "alice", "closed", 0, "2026-01-19 08:00:00", merged_at="2026-01-19 23:00:00"),
-                # Previous window: deployed by d5, backing the _prev twins.
-                _pr_row(5, "alice", "closed", 0, "2026-01-05 06:00:00", merged_at="2026-01-05 08:00:00"),
+                # Previous window: deployed by d5 (which it heads), backing the _prev twins.
+                _pr_row(
+                    5,
+                    "alice",
+                    "closed",
+                    0,
+                    "2026-01-05 06:00:00",
+                    merged_at="2026-01-05 08:00:00",
+                    merge_commit_sha="sha-e",
+                ),
+                # Merged after d1's head merge but before d1's success: the success-time rule would
+                # wrongly hand it d1 (1h lead); containment makes it wait for d3 (27h lead).
+                _pr_row(6, "carol", "closed", 0, "2026-01-11 09:00:00", merged_at="2026-01-12 09:00:00"),
             ],
             member_rows=member_rows,
         )
@@ -170,10 +201,15 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         assert result.failed_deployment_share == 1 / 3  # outcomes in window: d1, d2, d3
         assert result.median_failed_deploy_to_next_success_seconds == 7200.0  # d2 10:00 → d3 12:00
 
-        assert result.deployed_pr_count == 2  # PRs 1 and 2; bot and undeployed merges excluded
+        assert result.deployed_pr_count == 3  # PRs 1, 2, 6; bot and undeployed merges excluded
         assert result.deployed_pr_count_prev == 1  # PR 5 via d5
-        assert result.median_merge_to_deploy_seconds == 8100.0  # median of 7200 (PR 1) and 9000 (PR 2)
+        # PR 1: 7200 via d1. PR 2: 9000 via d3. PR 6: 97200 via d3 — the containment rule at
+        # work: d1 succeeded after PR 6's merge but its head merged before it, so d1 doesn't count.
+        assert result.median_merge_to_deploy_seconds == 9000.0
         assert result.median_merge_to_deploy_seconds_prev == 7200.0
+        assert result.merged_pr_count == 4  # PRs 1, 2, 4, 6; the bot merge is excluded
+        assert result.unattributed_merged_pr_share == 0.25  # PR 4 merged Jan 19, never deployed
+        assert result.latest_deploy_status_at == datetime(2026, 1, 13, 12, 0, tzinfo=UTC)
 
         assert result.series_granularity == "day"
         frequency = {bucket.bucket_start: bucket.deployment_count for bucket in result.deployment_frequency_series}
@@ -188,8 +224,9 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         assert jan_12.deployed_pr_count == 1
         assert jan_12.min_seconds == jan_12.max_seconds == jan_12.p50_seconds == jan_12.mean_seconds == 7200.0
         jan_13 = lead[datetime(2026, 1, 13)]
-        assert jan_13.deployed_pr_count == 1
-        assert jan_13.p50_seconds == 9000.0
+        assert jan_13.deployed_pr_count == 2  # PRs 2 and 6, both deployed by d3
+        assert jan_13.min_seconds == 9000.0
+        assert jan_13.max_seconds == 97200.0
         empty = lead[datetime(2026, 1, 15)]
         assert empty.deployed_pr_count == 0
         assert empty.p50_seconds is None
@@ -224,9 +261,11 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
 
         assert result.has_membership_data is True
         assert result.github_teams == ["team-ingestion", "team-replay"]
-        # Only alice's merge counts toward lead time; deploy counts stay repo-wide.
+        # Only alice's merges count toward lead time and coverage; deploy counts stay repo-wide.
         assert result.deployed_pr_count == 1
         assert result.median_merge_to_deploy_seconds == 7200.0
+        assert result.merged_pr_count == 2  # alice's PRs 1 and 4
+        assert result.unattributed_merged_pr_share == 0.5  # PR 4 never deployed
         assert result.deployment_count == 2
 
     def test_team_filter_without_membership_returns_empty_lead_time(self):
@@ -246,19 +285,24 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         # Deploy-scoped figures are unaffected.
         assert result.deployment_count == 2
 
-    def test_persistent_fallback_excludes_transient_environments(self):
+    def test_busiest_environment_fallback_excludes_transient_and_sibling_environments(self):
         # Nothing is production-marked (this repo's real shape), so the default scope falls back
-        # to persistent environments — the ephemeral per-PR preview deploys must stay out of the
-        # counts and the picker options.
+        # to the single busiest persistent environment: the ephemeral per-PR preview deploys and
+        # the quieter sibling environment (a second region, dev, a package registry) must stay
+        # out of the counts — every-persistent counted them all and multiplied every metric.
         curated = self._curated(
             self.team,
             deployment_rows=[
                 _deployment_row(1, "sha-a", "prod-us", "2026-01-12 09:30:00", production=False),
                 _deployment_row(2, "sha-b", "preview-pr-123", "2026-01-12 09:30:00", production=False, transient=True),
+                _deployment_row(3, "sha-c", "prod-us", "2026-01-13 09:30:00", production=False),
+                _deployment_row(4, "sha-d", "dev", "2026-01-12 09:30:00", production=False),
             ],
             status_rows=[
                 _status_row(11, 1, "success", "prod-us", "2026-01-12 10:00:00"),
                 _status_row(21, 2, "success", "preview-pr-123", "2026-01-12 10:00:00"),
+                _status_row(31, 3, "success", "prod-us", "2026-01-13 10:00:00"),
+                _status_row(41, 4, "success", "dev", "2026-01-12 10:00:00"),
             ],
             # One never-merged PR keeps the seeded CSV non-empty without joining any deploy.
             pr_rows=[_pr_row(1, "alice", "open", 0, "2026-01-11 08:00:00")],
@@ -269,9 +313,9 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
             date_to=datetime(2026, 1, 20, tzinfo=UTC),
         )
 
-        assert result.environment_scope == "persistent"
-        assert result.environments == ["prod-us"]
-        assert result.deployment_count == 1
+        assert result.environment_scope == "prod-us"
+        assert result.environments == ["prod-us", "dev"]
+        assert result.deployment_count == 2
 
     def test_deploy_scan_slack_bounds_prewindow_deployments(self):
         # A deployment created before the scan window still counts when its success lands inside
@@ -313,7 +357,15 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
                 _status_row(41, 4, "success", "staging", "2026-01-12 09:00:00"),
             ],
             pr_rows=[
-                _pr_row(1, "alice", "closed", 0, "2026-01-11 08:00:00", merged_at="2026-01-12 08:00:00"),
+                _pr_row(
+                    1,
+                    "alice",
+                    "closed",
+                    0,
+                    "2026-01-11 08:00:00",
+                    merged_at="2026-01-12 08:00:00",
+                    merge_commit_sha="sha-d",
+                ),
             ],
         )
         result = query_dora_overview(

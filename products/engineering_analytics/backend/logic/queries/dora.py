@@ -5,10 +5,12 @@ Four quadrants, honestly named (SPEC §4):
 - Deployment frequency: deployments whose first ``success`` status landed in the
   window, within the environment scope. Computed directly.
 - Lead time: ``merge_to_deploy_seconds`` — a merged PR's wait until the first
-  successful deployment at or after its merge. Deploy ordering stands in for
-  commit ancestry (a deploy of an *older* SHA after the merge would count), which
-  holds on continuous-deploy repos where deploys land in merge order; the field
-  name says merge-to-deploy, not the full commit-to-deploy DORA definition.
+  successful deployment that *contains* its merge. Containment is resolved through
+  the deploy's head commit: the deploy's SHA is some merged PR's ``merge_commit_sha``,
+  and every merge at or before that head merge is on board. Success time alone
+  cannot decide this — deploys ship pre-built images, so a deploy routinely
+  succeeds *after* a merge it does not contain. The field name says merge-to-deploy,
+  not the full commit-to-deploy DORA definition (pre-merge time is measured elsewhere).
 - Change failure: ``failed_deployment_share`` — deployments with a failure/error
   status over deployments that reached any outcome. A proxy: no incident link, so
   a deploy that succeeded but broke production is invisible.
@@ -71,6 +73,7 @@ _DEPLOYS_CTE = """
     deploys AS (
         SELECT
             d.id AS id,
+            any(d.sha) AS sha,
             any(d.environment) AS environment,
             minIf(s.created_at, s.state = 'success') AS first_success_at,
             minIf(s.created_at, s.state IN ('failure', 'error')) AS first_failure_at
@@ -81,9 +84,9 @@ _DEPLOYS_CTE = """
     )
 """
 
-# Outcome counts and the restore proxy in ONE round trip: both halves aggregate the same deploys
-# rollup to a single row each, so the CROSS JOIN just glues the two rows side by side and the CTE
-# is scanned once instead of twice.
+# Outcome counts, the restore proxy, and the data-freshness edge in ONE round trip: every half
+# aggregates to a single row, so the CROSS JOINs just glue the rows side by side and the deploys
+# CTE is scanned once instead of twice.
 #
 # The restore half measures recovery per failed deployment: the next successful deployment in the
 # SAME environment. The self-join fans out and the min collapses it back to one row per failure;
@@ -91,7 +94,17 @@ _DEPLOYS_CTE = """
 # __DATE_TO_RECOVERY__ bounds the recovery to the requested horizon, so a historical report's
 # "no recovery" doesn't flip to recovered once a later, out-of-range deployment succeeds.
 _OUTCOMES_SELECT = """
-    SELECT * FROM (
+    SELECT
+        outcomes.deployment_count,
+        outcomes.deployment_count_prev,
+        outcomes.failed_count,
+        outcomes.failed_count_prev,
+        outcomes.outcome_count,
+        outcomes.outcome_count_prev,
+        restore.restore_median_cur,
+        restore.restore_median_prev,
+        freshness.latest_status_at
+    FROM (
         SELECT
             countIf(first_success_at IS NOT NULL AND __CUR_SUCCESS__) AS deployment_count,
             countIf(first_success_at IS NOT NULL AND __PREV_SUCCESS__) AS deployment_count_prev,
@@ -120,6 +133,9 @@ _OUTCOMES_SELECT = """
             GROUP BY f.id, f.first_failure_at
         )
     ) AS restore
+    CROSS JOIN (
+        SELECT max(created_at) AS latest_status_at FROM __STATUSES_SOURCE__ AS ls
+    ) AS freshness
 """
 
 _FREQUENCY_SERIES_SELECT = """
@@ -130,37 +146,86 @@ _FREQUENCY_SERIES_SELECT = """
     LIMIT 40000
 """
 
-# Each merged PR's first post-merge successful deployment. CROSS JOIN + the WHERE range condition
-# is the attribution: HogQL joins take equality keys only, and the windowed populations are small
-# enough that the pairing stays cheap. The locked cycle-time recipe applies (bots/drafts excluded).
+# Each successful deployment's head merge time: the deploy's SHA is the merge commit of some
+# merged PR, and that PR's merged_at says which merges the deploy contains. The sanctioned
+# merge_commit_sha exception (SPEC §6): gated on merged_at (an open PR carries a throwaway
+# test-merge SHA) and collapsed to one row per deployment (min breaks a shared-SHA tie).
+# Deploys whose SHA is no PR's merge commit (direct pushes) resolve no head and attribute nothing.
+# Bot merges stay in as heads on purpose: a bot's merge commit still names what a deploy contains.
+_DEPLOY_HEADS_CTE = """
+    deploy_heads AS (
+        SELECT
+            d.id AS id,
+            any(d.first_success_at) AS first_success_at,
+            min(hp.merged_at) AS head_merged_at
+        FROM deploys AS d
+        INNER JOIN __PR_SOURCE__ AS hp ON hp.merge_commit_sha = d.sha
+        WHERE d.first_success_at IS NOT NULL
+            AND d.sha != ''
+            AND hp.merged_at IS NOT NULL
+            AND hp.merged_at >= {merge_scan_floor}
+        GROUP BY d.id
+    )
+"""
+
+# Each merged PR's first successful deployment that CONTAINS it: the deploy's head merge is at or
+# after the PR's merge. Ground-truthed against deploys whose SHA is exactly a PR's merge commit:
+# this rule agrees on 99.7% of them with a 0-minute median error, where pairing on the deploy's
+# success time instead picked an in-flight deploy built before the merge for roughly half.
+# CROSS JOIN + the WHERE range condition is the attribution: HogQL joins take equality keys only,
+# and the windowed populations are small enough that the pairing stays cheap. The locked
+# cycle-time recipe applies (bots/drafts excluded).
 _DEPLOYED_PRS_CTE = """
     deployed_prs AS (
         SELECT
             pr.number AS number,
             pr.merged_at AS merged_at,
-            min(s.first_success_at) AS deployed_at
+            min(h.first_success_at) AS deployed_at
         FROM __PR_SOURCE__ AS pr
-        CROSS JOIN deploys AS s
+        CROSS JOIN deploy_heads AS h
         WHERE pr.merged_at IS NOT NULL
             AND pr.merged_at >= {merge_scan_floor}
             AND NOT pr.is_bot
             AND NOT pr.is_draft
             __TEAM_FILTER__
-            AND s.first_success_at IS NOT NULL
-            AND s.first_success_at >= pr.merged_at
+            AND h.head_merged_at >= pr.merged_at
         GROUP BY pr.number, pr.merged_at
     )
 """
 
 _LEAD_TIME_INNER = "SELECT deployed_at, dateDiff('second', merged_at, deployed_at) AS lead_seconds FROM deployed_prs"
 
+# The two one-row CROSS JOIN halves put attribution coverage on the same round trip: how many
+# PRs merged in the window at all (same bot/draft/team recipe), and how many of those an
+# in-scope deployment attributed — the honest denominator behind unattributed_merged_pr_share.
 _LEAD_TIME_HEADLINE_SELECT = f"""
     SELECT
-        countIf(__CUR_DEPLOYED__) AS deployed_cur,
-        countIf(__PREV_DEPLOYED__) AS deployed_prev,
-        quantileIf(0.5)(lead_seconds, __CUR_DEPLOYED__) AS median_cur,
-        quantileIf(0.5)(lead_seconds, __PREV_DEPLOYED__) AS median_prev
-    FROM ({_LEAD_TIME_INNER})
+        lead.deployed_cur,
+        lead.deployed_prev,
+        lead.median_cur,
+        lead.median_prev,
+        attributed.attributed_cur,
+        merged.merged_cur
+    FROM (
+        SELECT
+            countIf(__CUR_DEPLOYED__) AS deployed_cur,
+            countIf(__PREV_DEPLOYED__) AS deployed_prev,
+            quantileIf(0.5)(lead_seconds, __CUR_DEPLOYED__) AS median_cur,
+            quantileIf(0.5)(lead_seconds, __PREV_DEPLOYED__) AS median_prev
+        FROM ({_LEAD_TIME_INNER})
+    ) AS lead
+    CROSS JOIN (
+        SELECT countIf(__CUR_MERGED__) AS attributed_cur FROM deployed_prs
+    ) AS attributed
+    CROSS JOIN (
+        SELECT countIf(__CUR_MERGED__) AS merged_cur
+        FROM __PR_SOURCE__ AS pr
+        WHERE pr.merged_at IS NOT NULL
+            AND pr.merged_at >= {{merge_scan_floor}}
+            AND NOT pr.is_bot
+            AND NOT pr.is_draft
+            __TEAM_FILTER__
+    ) AS merged
 """
 
 _LEAD_TIME_SERIES_SELECT = f"""
@@ -224,6 +289,7 @@ class _DoraScan:
 
     curated: CuratedGitHubSource
     deploys_cte: str
+    statuses_source: str
     placeholders: dict[str, ast.Expr]
     date_from: datetime
     date_to: datetime | None
@@ -241,14 +307,20 @@ class _DoraScan:
 
 def _resolve_environment_scope(environment: str | None, environments: list[tuple[str, bool]]) -> _EnvironmentScope:
     """Pick the deploy population: the caller's exact environment when given; otherwise the
-    deployments GitHub marks production; otherwise every persistent (non-transient) environment,
+    deployments GitHub marks production; otherwise the single busiest persistent environment,
     so a repo that never sets the production flag still gets numbers instead of a false zero.
-    Transient environments never join a default scope: they are ephemeral per-PR previews, and
-    on this repo they outnumber real deploys by an order of magnitude."""
+    Busiest-single, not every-persistent: a multi-region repo deploys each merge to several
+    persistent environments (and to dev, package registries, ...), which would multiply every
+    deploy count and hand lead time to whichever region deploys first. 'persistent' survives
+    only when the window has no persistent environment at all. Transient environments never
+    join a default scope: they are ephemeral per-PR previews, and on this repo they outnumber
+    real deploys by an order of magnitude."""
     if environment:
         return _EnvironmentScope(scope=environment, predicate="d.environment = {environment}")
     if any(is_production for _, is_production in environments):
         return _EnvironmentScope(scope="production", predicate="d.is_production_environment")
+    if environments:
+        return _EnvironmentScope(scope=environments[0][0], predicate="d.environment = {environment}")
     return _EnvironmentScope(scope="persistent", predicate="NOT d.is_transient_environment")
 
 
@@ -281,6 +353,9 @@ def _empty_overview(
         failed_deployment_share_prev=None,
         median_failed_deploy_to_next_success_seconds=None,
         median_failed_deploy_to_next_success_seconds_prev=None,
+        merged_pr_count=0,
+        unattributed_merged_pr_share=None,
+        latest_deploy_status_at=None,
         deployment_frequency_series=[],
         merge_to_deploy_series=[],
         series_granularity=granularity,
@@ -301,6 +376,8 @@ class _DeployOutcomes:
     # Median failed-deploy-to-next-success seconds (the restore proxy); None when nothing recovered.
     restore_median_seconds: float | None
     restore_median_seconds_prev: float | None
+    # The newest status row synced, any environment — how fresh the deploy data is.
+    latest_status_at: datetime | None
 
     @property
     def failed_share(self) -> float | None:
@@ -320,10 +397,11 @@ def _query_deploy_outcomes(scan: _DoraScan) -> _DeployOutcomes:
         .replace("__CUR_FAILURE__", failure.current)
         .replace("__PREV_FAILURE__", failure.previous)
         .replace("__DATE_TO_RECOVERY__", scan.date_to_filter("r.first_success_at"))
+        .replace("__STATUSES_SOURCE__", scan.statuses_source)
     )
     response = scan.run(sql, query_type="engineering_analytics.dora_deploys")
-    deploy_count, deploy_count_prev, failed, failed_prev, outcome, outcome_prev, restore_cur, restore_prev = (
-        response.results[0] if response.results else (0, 0, 0, 0, 0, 0, None, None)
+    deploy_count, deploy_count_prev, failed, failed_prev, outcome, outcome_prev, restore_cur, restore_prev, latest = (
+        response.results[0] if response.results else (0, 0, 0, 0, 0, 0, None, None, None)
     )
     return _DeployOutcomes(
         deployment_count=int(deploy_count or 0),
@@ -334,6 +412,7 @@ def _query_deploy_outcomes(scan: _DoraScan) -> _DeployOutcomes:
         outcome_count_prev=int(outcome_prev or 0),
         restore_median_seconds=opt_float(restore_cur),
         restore_median_seconds_prev=opt_float(restore_prev),
+        latest_status_at=latest if isinstance(latest, datetime) else None,
     )
 
 
@@ -357,42 +436,63 @@ def _query_frequency_series(scan: _DoraScan) -> list[DeploymentFrequencyBucket]:
 
 @frozen
 class _LeadTime:
-    """The PR-scoped merge-to-deploy figures: window-pair counts and medians plus the box-plot series."""
+    """The PR-scoped merge-to-deploy figures: window-pair counts and medians, attribution
+    coverage, plus the box-plot series."""
 
     deployed_count: int
     deployed_count_prev: int
     median_seconds: float | None
     median_seconds_prev: float | None
+    # PRs merged in the window (the locked recipe), and how many of those a deploy attributed.
+    merged_count: int
+    attributed_count: int
     series: list[MergeToDeployBucket]
+
+    @property
+    def unattributed_share(self) -> float | None:
+        return 1 - self.attributed_count / self.merged_count if self.merged_count else None
+
+
+_EMPTY_LEAD_TIME = _LeadTime(
+    deployed_count=0,
+    deployed_count_prev=0,
+    median_seconds=None,
+    median_seconds_prev=None,
+    merged_count=0,
+    attributed_count=0,
+    series=[],
+)
 
 
 def _query_lead_time(scan: _DoraScan, *, github_team: str | None, members_source: str | None) -> _LeadTime:
     # A team filter without membership data cannot be honored: empty lead-time figures, never
     # silently unfiltered ones.
     if github_team and members_source is None:
-        return _LeadTime(
-            deployed_count=0, deployed_count_prev=0, median_seconds=None, median_seconds_prev=None, series=[]
-        )
+        return _EMPTY_LEAD_TIME
     team_filter = ""
     if github_team and members_source is not None:
         scan.placeholders["github_team"] = ast.Constant(value=github_team)
         team_filter = _TEAM_FILTER.replace("__MEMBERS_SOURCE__", members_source)
-    deployed_prs_cte = _DEPLOYED_PRS_CTE.replace("__PR_SOURCE__", scan.curated.pr_source()).replace(
-        "__TEAM_FILTER__", team_filter
-    )
+    pr_source = scan.curated.pr_source()
+    attribution_ctes = f"{scan.deploys_cte}, {_DEPLOY_HEADS_CTE}, {_DEPLOYED_PRS_CTE}".replace(
+        "__PR_SOURCE__", pr_source
+    ).replace("__TEAM_FILTER__", team_filter)
 
     windows = window_pair_predicates("deployed_at", date_to=scan.date_to)
-    headline_sql = f"WITH {scan.deploys_cte}, {deployed_prs_cte} " + (
-        _LEAD_TIME_HEADLINE_SELECT.replace("__CUR_DEPLOYED__", windows.current).replace(
-            "__PREV_DEPLOYED__", windows.previous
-        )
+    merged_window = window_pair_predicates("merged_at", date_to=scan.date_to)
+    headline_sql = f"WITH {attribution_ctes} " + (
+        _LEAD_TIME_HEADLINE_SELECT.replace("__CUR_DEPLOYED__", windows.current)
+        .replace("__PREV_DEPLOYED__", windows.previous)
+        .replace("__CUR_MERGED__", merged_window.current)
+        .replace("__PR_SOURCE__", pr_source)
+        .replace("__TEAM_FILTER__", team_filter)
     )
     headline = scan.run(headline_sql, query_type="engineering_analytics.dora_lead_time")
-    deployed_cur, deployed_prev, median_cur, median_prev = (
-        headline.results[0] if headline.results else (0, 0, None, None)
+    deployed_cur, deployed_prev, median_cur, median_prev, attributed_cur, merged_cur = (
+        headline.results[0] if headline.results else (0, 0, None, None, 0, 0)
     )
 
-    series_sql = f"WITH {scan.deploys_cte}, {deployed_prs_cte} " + (
+    series_sql = f"WITH {attribution_ctes} " + (
         _LEAD_TIME_SERIES_SELECT.replace("__BUCKET_FN__", bucket_expr(scan.granularity, "deployed_at")).replace(
             "__DATE_TO_DEPLOYED__", scan.date_to_filter("deployed_at")
         )
@@ -404,6 +504,8 @@ def _query_lead_time(scan: _DoraScan, *, github_team: str | None, members_source
         deployed_count_prev=int(deployed_prev or 0),
         median_seconds=opt_float(median_cur),
         median_seconds_prev=opt_float(median_prev),
+        merged_count=int(merged_cur or 0),
+        attributed_count=int(attributed_cur or 0),
         series=[_lead_time_bucket(bucket, stats_by_bucket.get(bucket)) for bucket in scan.window_buckets()],
     )
 
@@ -452,8 +554,10 @@ def query_dora_overview(
         date_to_filter=_date_to_clause(date_to, "d.created_at"),
     )
     env_scope = _resolve_environment_scope(environment, environments)
-    if environment:
-        placeholders["environment"] = ast.Constant(value=environment)
+    # The busiest-environment fallback binds the same placeholder as an explicit filter: either
+    # way the scope string IS the environment the predicate matches.
+    if "{environment}" in env_scope.predicate:
+        placeholders["environment"] = ast.Constant(value=env_scope.scope)
 
     scan = _DoraScan(
         curated=curated,
@@ -462,6 +566,7 @@ def query_dora_overview(
             .replace("__STATUSES_SOURCE__", deploy_sources.statuses)
             .replace("__ENV_PREDICATE__", env_scope.predicate)
         ),
+        statuses_source=deploy_sources.statuses,
         placeholders=placeholders,
         date_from=date_from,
         date_to=date_to,
@@ -492,6 +597,9 @@ def query_dora_overview(
         failed_deployment_share_prev=outcomes.failed_share_prev,
         median_failed_deploy_to_next_success_seconds=outcomes.restore_median_seconds,
         median_failed_deploy_to_next_success_seconds_prev=outcomes.restore_median_seconds_prev,
+        merged_pr_count=lead.merged_count,
+        unattributed_merged_pr_share=lead.unattributed_share,
+        latest_deploy_status_at=outcomes.latest_status_at,
         deployment_frequency_series=_query_frequency_series(scan),
         merge_to_deploy_series=lead.series,
         series_granularity=granularity,

@@ -1175,10 +1175,11 @@ class DeploymentFrequencyBucket:
 @dataclass(frozen=True)
 class MergeToDeployBucket:
     """One time bucket of per-PR merge-to-deploy seconds — the box-plot distribution of how long
-    merged PRs waited until the first successful deployment at or after their merge (bots and
-    drafts excluded, per the locked cycle-time recipe). Keyed on deploy time: a PR lands in the
-    bucket its deploy succeeded in. The measure is named for exactly what it is: merge to deploy,
-    not the full commit-to-deploy DORA lead time (pre-merge time is on the other cards).
+    merged PRs waited until the first successful deployment containing their merge (resolved
+    through the deploy's head commit; bots and drafts excluded, per the locked cycle-time
+    recipe). Keyed on deploy time: a PR lands in the bucket its deploy succeeded in. The measure
+    is named for exactly what it is: merge to deploy, not the full commit-to-deploy DORA lead
+    time (pre-merge time is on the other cards).
     Buckets where nothing deployed carry ``deployed_pr_count`` 0 and null stats (a gap).
     """
 
@@ -1216,9 +1217,11 @@ class DoraOverview:
     # False when the deployments/deployment_statuses tables aren't synced for the selected repo.
     deploy_data_available: bool
     # What the environment filter resolved to: 'production' (deployments GitHub marks
-    # production_environment), 'persistent' (no deploy in the window was marked production, so
-    # every non-transient environment counts), or the exact environment name the caller passed.
-    # Transient environments (ephemeral per-PR previews) never join a default scope.
+    # production_environment), an exact environment name (the one the caller passed, or —
+    # when nothing is marked production — the busiest persistent environment, so a multi-region
+    # repo doesn't multiply every count), or 'persistent' (no persistent environment deployed in
+    # the window at all, so every non-transient one counts). Transient environments (ephemeral
+    # per-PR previews) never join a default scope.
     environment_scope: str
     # Distinct persistent environments deployed to in the scan window, most-deployed first — the
     # picker's options. Transient environments are omitted but stay reachable by exact name.
@@ -1233,7 +1236,8 @@ class DoraOverview:
     # deployment_count normalized by the window length in days.
     deployments_per_day: float | None
     deployments_per_day_prev: float | None
-    # Median seconds from a PR's merge to the first successful deployment at or after it
+    # Median seconds from a PR's merge to the first successful deployment containing it —
+    # containment resolved through the deploy's head commit, not the deploy's success time
     # (bots/drafts excluded; narrowed by github_team when given). Keyed on deploy time.
     median_merge_to_deploy_seconds: float | None
     median_merge_to_deploy_seconds_prev: float | None
@@ -1253,6 +1257,16 @@ class DoraOverview:
     # invisible, and failures not yet recovered are excluded. None when no failed deploy recovered.
     median_failed_deploy_to_next_success_seconds: float | None
     median_failed_deploy_to_next_success_seconds_prev: float | None
+    # PRs merged in the window (bots/drafts excluded; narrowed by github_team when given) — the
+    # denominator behind unattributed_merged_pr_share.
+    merged_pr_count: int
+    # Share of merged_pr_count no successful in-scope deployment attributed: recent merges still
+    # waiting for their deploy, plus merges whose deploy the scope or scan bounds miss. None when
+    # nothing merged in the window.
+    unattributed_merged_pr_share: float | None
+    # The newest deployment status row synced, any environment — how fresh the deploy data is.
+    # Windows ending after this instant undercount. None when the deploy tables are empty.
+    latest_deploy_status_at: datetime | None
     # Successful deployments per bucket across the window, oldest first, zero-filled.
     deployment_frequency_series: list[DeploymentFrequencyBucket]
     # Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot series.

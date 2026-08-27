@@ -84,8 +84,9 @@ class DoraOverviewSerializer(DataclassSerializer):
             },
             "environment_scope": {
                 "help_text": "What the environment filter resolved to: 'production' (deployments GitHub marks "
-                "production_environment), 'persistent' (nothing was marked production, so every non-transient "
-                "environment counts), or the exact environment name passed. Transient environments (ephemeral "
+                "production_environment), an exact environment name (the one passed, or the busiest persistent "
+                "environment when nothing is marked production), or 'persistent' (no persistent environment "
+                "deployed in the window, so every non-transient one counts). Transient environments (ephemeral "
                 "per-PR previews) never join a default scope."
             },
             "environments": {
@@ -116,10 +117,11 @@ class DoraOverviewSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "median_merge_to_deploy_seconds": {
-                "help_text": "Median seconds from a PR's merge to the first successful deployment at or after "
-                "it (bots/drafts excluded; narrowed by github_team when given). Keyed on deploy time. Deploy "
-                "ordering stands in for commit ancestry, so this is merge-to-deploy, not full commit-to-deploy "
-                "DORA lead time. Null when nothing deployed in the window.",
+                "help_text": "Median seconds from a PR's merge to the first successful deployment containing "
+                "it (bots/drafts excluded; narrowed by github_team when given). Containment is resolved "
+                "through the deploy's head commit, not the deploy's success time. Keyed on deploy time. This "
+                "is merge-to-deploy, not full commit-to-deploy DORA lead time. Null when nothing deployed in "
+                "the window.",
                 "allow_null": True,
             },
             "median_merge_to_deploy_seconds_prev": {
@@ -154,6 +156,21 @@ class DoraOverviewSerializer(DataclassSerializer):
             },
             "median_failed_deploy_to_next_success_seconds_prev": {
                 "help_text": "Previous-window twin of median_failed_deploy_to_next_success_seconds.",
+                "allow_null": True,
+            },
+            "merged_pr_count": {
+                "help_text": "PRs merged in the window (bots and drafts excluded; narrowed by github_team "
+                "when given) — the denominator behind unattributed_merged_pr_share."
+            },
+            "unattributed_merged_pr_share": {
+                "help_text": "Share of merged_pr_count no successful in-scope deployment attributed: recent "
+                "merges still waiting for their deploy, plus merges whose deploy the scope or scan bounds "
+                "miss. Null when nothing merged in the window.",
+                "allow_null": True,
+            },
+            "latest_deploy_status_at": {
+                "help_text": "The newest deployment status row synced, any environment — how fresh the deploy "
+                "data is. Windows ending after this instant undercount. Null when the deploy tables are empty.",
                 "allow_null": True,
             },
             "series_granularity": {
