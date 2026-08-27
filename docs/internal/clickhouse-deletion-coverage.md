@@ -54,12 +54,27 @@ Sweeps that iterate placements dispatch each target over `placement.cluster.shar
 
 - `delete_person_events_op`
 - `execute_event_deletion`, immediate mode
+- `deletes_job` → `delete_events`, which also has to put its dictionaries on the second cluster; see below
 
 The rest are bound to a single handle and refuse rather than skip when a target has moved off it (`dispatchable_here`, `UnreachableTargetError`):
 
 - Property removal. Its staging table is host-local and its fan-out is one op per shard of one cluster.
 - The deferred queue fill. Both halves of its `INSERT` are host-local: the source table it reads and the `adhoc_events_deletion` queue it writes.
-- `deletes_job`. Its mutation predicate joins a pending-deletes dictionary that would have to be bootstrapped on the second cluster first — created, populated from Postgres, replicated, loaded and checksum-verified.
+
+### Getting the dictionaries onto the second cluster
+
+`delete_events` does not name the rows it removes. Its predicate joins two dictionaries, `pending_deletes_<timestamp>_dictionary` and `adhoc_events_deletion_dictionary`, so a mutation cannot run anywhere those are absent.
+
+Both reach every host of one cluster because their source table is replicated, and replication is exactly what a cluster boundary stops: a cluster with its own Keeper can never join that replica set.
+`adhoc_events_deletion` compounds it, being migration-managed and present only on the main cluster.
+
+So the rows are staged instead. One Parquet object per dictionary per run, written by the cluster itself with `INSERT INTO FUNCTION s3(...)`, and every host on the other cluster loads it through `SOURCE(CLICKHOUSE(QUERY 'SELECT ... FROM s3(...)'))`.
+ClickHouse has no S3 dictionary source, but that source runs its query locally, and the query can read anything the server can.
+
+- Nothing changes on a deployment where every target sits on the cluster the job connects to. The handle in hand is probed first, and no object is written.
+- The source tables stay where they are. `pending_deletes_<timestamp>` also carries the Postgres `AsyncDeletion` row ids that `mark_deletions_verified` reads back, and those never enter a dictionary.
+- `load_and_verify_deletes_dictionary` loads on every host of every cluster and fails the run unless all of them checksum alike. That is what catches a stale or missing object: without it the mutation there joins an empty dictionary, deletes nothing, and reports success.
+- Retention belongs to the bucket lifecycle policy, set through `DELETES_DICTIONARY_S3_*`. Nothing deletes the objects.
 
 ## Covered tables
 
