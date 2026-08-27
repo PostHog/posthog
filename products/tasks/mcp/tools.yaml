@@ -611,6 +611,9 @@ tools:
     tasks-runs-peers-retrieve:
         operation: tasks_runs_peers_retrieve
         enabled: false
+    tasks-runs-preview-retrieve:
+        operation: tasks_runs_preview_retrieve
+        enabled: false
     tasks-runs-relay-message-create:
         operation: tasks_runs_relay_message_create
         enabled: false
