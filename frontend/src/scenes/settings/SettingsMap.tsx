@@ -564,13 +564,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['notification', 'alert', 'threshold', 'spike'],
             },
             {
-                id: 'error-tracking-suppression-rules',
-                title: 'Suppression rules',
-                description: 'Filter out exceptions that match the given filters.',
-                component: <SuppressionRules />,
-                keywords: ['filter', 'ignore', 'suppress', 'exception', 'type', 'message'],
-            },
-            {
                 id: 'error-tracking-spike-detection',
                 title: 'Spike detection',
                 component: <SpikeDetectionSettings />,
@@ -584,10 +577,17 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'error-tracking-auto-assignment',
-                title: 'Auto assignment rules',
+                title: 'Assignment rules',
                 description: 'Automatically assign errors to team members based on rules you define.',
                 component: <AssignmentRules />,
-                keywords: ['assign', 'owner', 'team', 'rule', 'routing'],
+                keywords: ['assign', 'auto', 'owner', 'team', 'rule', 'routing'],
+            },
+            {
+                id: 'error-tracking-custom-grouping',
+                title: 'Grouping rules',
+                description: 'Define rules for how errors are grouped together into issues.',
+                component: <GroupingRules />,
+                keywords: ['group', 'custom', 'merge', 'fingerprint', 'dedup'],
             },
             {
                 id: 'error-tracking-severity-rules',
@@ -598,11 +598,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['severity', 'priority', 'triage', 'critical', 'rule'],
             },
             {
-                id: 'error-tracking-custom-grouping',
-                title: 'Custom grouping rules',
-                description: 'Define rules for how errors are grouped together into issues.',
-                component: <GroupingRules />,
-                keywords: ['group', 'merge', 'fingerprint', 'dedup'],
+                id: 'error-tracking-suppression-rules',
+                title: 'Suppression rules',
+                description: 'Filter out exceptions that match the given filters.',
+                component: <SuppressionRules />,
+                keywords: ['filter', 'ignore', 'suppress', 'exception', 'type', 'message'],
             },
             {
                 id: 'error-tracking-symbol-sets',
