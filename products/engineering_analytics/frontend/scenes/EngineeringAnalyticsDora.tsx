@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { LemonBanner, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 import { TimeSeriesBarChart, useChartTheme, type TimeInterval } from '@posthog/quill-charts'
@@ -23,9 +24,16 @@ export function EngineeringAnalyticsDora(): JSX.Element {
         boxPlotBuckets,
         frequencyCounts,
         frequencyIsoLabels,
+        environmentScopeLabel,
+        environmentOptions,
+        githubTeamOptions,
     } = useValues(doraLogic)
     const { setEnvironment, setGithubTeam, loadDora } = useActions(doraLogic)
     const chartTheme = useChartTheme()
+    const frequencySeries = useMemo(
+        () => [{ key: 'deployments', label: 'Deployments', data: frequencyCounts }],
+        [frequencyCounts]
+    )
 
     if (notConnected) {
         return <ConnectGitHubSource />
@@ -36,24 +44,6 @@ export function EngineeringAnalyticsDora(): JSX.Element {
 
     const firstLoad = doraLoading && !dora
     const deployDataMissing = !!dora && !dora.deploy_data_available
-
-    const scopeLabel =
-        !dora || dora.environment_scope === 'production'
-            ? 'production'
-            : dora.environment_scope === 'persistent'
-              ? 'all persistent environments'
-              : dora.environment_scope
-    const environmentOptions = [
-        {
-            value: null as string | null,
-            label: dora?.environment_scope === 'persistent' ? 'All persistent environments' : 'Production',
-        },
-        ...(dora?.environments ?? []).map((name) => ({ value: name as string | null, label: name })),
-    ]
-    const teamOptions = [
-        { value: null as string | null, label: 'All teams' },
-        ...(dora?.github_teams ?? []).map((slug) => ({ value: slug as string | null, label: slug })),
-    ]
 
     return (
         <div className="flex flex-col gap-4">
@@ -79,7 +69,7 @@ export function EngineeringAnalyticsDora(): JSX.Element {
                             size="small"
                             value={githubTeam}
                             onChange={setGithubTeam}
-                            options={teamOptions}
+                            options={githubTeamOptions}
                             data-attr="engineering-analytics-dora-team-select"
                         />
                     )}
@@ -93,7 +83,7 @@ export function EngineeringAnalyticsDora(): JSX.Element {
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <MetricTile
                     label="Deployment frequency"
-                    tooltip={`Successful deployments per day in the ${scopeLabel} scope: ${dora?.deployment_count ?? 0} in this window.`}
+                    tooltip={`Successful deployments per day in the ${environmentScopeLabel} scope: ${dora?.deployment_count ?? 0} in this window.`}
                     value={dora?.deployments_per_day != null ? `${dora.deployments_per_day.toFixed(1)}/day` : '—'}
                     delta={{ value: percentChange(dora?.deployments_per_day, dora?.deployments_per_day_prev) }}
                     sub={
@@ -191,7 +181,7 @@ export function EngineeringAnalyticsDora(): JSX.Element {
             <Section
                 id="deployment-frequency"
                 title="Deployments over time"
-                note={`Successful deployments per bucket in the ${scopeLabel} scope.`}
+                note={`Successful deployments per bucket in the ${environmentScopeLabel} scope.`}
                 busy={doraLoading && !!dora}
             >
                 {firstLoad ? (
@@ -202,7 +192,7 @@ export function EngineeringAnalyticsDora(): JSX.Element {
                     // The chart's root is a `flex-1` child, so the sized wrapper must be a flex column.
                     <div className="flex h-40 flex-col" data-attr="engineering-analytics-dora-frequency-chart">
                         <TimeSeriesBarChart
-                            series={[{ key: 'deployments', label: 'Deployments', data: frequencyCounts }]}
+                            series={frequencySeries}
                             labels={frequencyIsoLabels}
                             theme={chartTheme}
                             config={{

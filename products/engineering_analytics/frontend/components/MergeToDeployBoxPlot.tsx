@@ -60,7 +60,7 @@ function toDatum(bucket: BoxPlotBucket): BoxPlotDatum | null {
  */
 export function MergeToDeployBoxPlot({ buckets, formatSeconds, className }: MergeToDeployBoxPlotProps): JSX.Element {
     const theme = useChartTheme()
-    const labels = buckets.map((bucket) => bucket.label)
+    const labels = useMemo(() => buckets.map((bucket) => bucket.label), [buckets])
     const series = useMemo<BoxPlotSeries<BucketMeta>[]>(
         () => [
             {
