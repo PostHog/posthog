@@ -10,7 +10,7 @@ from products.alerts.backend.evaluation.contract import DetectorExtractor, Extra
 from products.alerts.backend.evaluation.detector import TrendsDetectorExtractor, evaluate_with_detector
 from products.alerts.backend.evaluation.funnels import FunnelsExtractor
 from products.alerts.backend.evaluation.hogql import HogQLDetectorExtractor, HogQLExtractor
-from products.alerts.backend.evaluation.metrics import MetricsExtractor
+from products.alerts.backend.evaluation.metrics import MetricsDetectorExtractor, MetricsExtractor
 from products.alerts.backend.evaluation.trends import TrendsExtractor
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
@@ -30,6 +30,7 @@ EXTRACTORS: dict[NodeKind, Extractor] = {
 DETECTOR_EXTRACTORS: dict[NodeKind, DetectorExtractor] = {
     NodeKind.TRENDS_QUERY: TrendsDetectorExtractor(),
     NodeKind.HOG_QL_QUERY: HogQLDetectorExtractor(),
+    NodeKind.METRICS_QUERY: MetricsDetectorExtractor(),
 }
 
 

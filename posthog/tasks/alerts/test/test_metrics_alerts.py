@@ -131,6 +131,21 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
             labels=labels or {},
         )
 
+    def seed_detector_history(self) -> None:
+        # 19 hourly buckets inside the insight's default 24h window — a windowed detector needs
+        # more history than a threshold check, which only reads the tail. The last bucket sits
+        # well before now so nothing here is read as absent.
+        start = dt.datetime(2026, 6, 30, 12, 30, tzinfo=dt.UTC)
+        points = [(start + dt.timedelta(hours=offset), 10.0 + offset % 2) for offset in range(18)]
+        points.append((dt.datetime(2026, 7, 1, 6, 30, tzinfo=dt.UTC), 500.0))
+        seed_metric(
+            team_id=self.team.pk,
+            metric_name=self.metric_name,
+            metric_type="gauge",
+            points=points,
+            labels={},
+        )
+
     @parameterized.expand(
         [
             # (name, seeded value, lower, upper, expected_state, expected_message_fragment)
@@ -185,6 +200,37 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
         alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
         assert alert_check.calculated_value == 0
         assert alert_check.error is None
+
+    @parameterized.expand(
+        [
+            # (name, lower, upper, expected_state)
+            ("lower_bound_fires", 10.0, None, AlertState.FIRING),
+            ("upper_bound_stays_quiet", None, 20.0, AlertState.NOT_FIRING),
+        ]
+    )
+    def test_metric_that_stopped_reporting(
+        self,
+        mock_send_breaches: MagicMock,
+        mock_send_errors: MagicMock,
+        mock_feature_enabled: MagicMock,
+        _name: str,
+        lower: Optional[float],
+        upper: Optional[float],
+        expected_state: AlertState,
+    ) -> None:
+        # Healthy at 50 through 05:00, then the emitter dies. The query returns no rows for the
+        # buckets that follow, so left alone the series ends at 50: the lower-bound alert goes
+        # quiet exactly when the metric stopped, and the upper-bound one keeps paging on a
+        # reading hours out of date. Both anchor on an absent bucket instead.
+        self.seed_gauge({3: 50.0, 4: 50.0, 5: 50.0})
+        insight = self.create_metrics_insight()
+        alert = self.create_alert(insight, lower=lower, upper=upper)
+
+        run_alert_check(alert["id"])
+
+        assert AlertConfiguration.objects.get(pk=alert["id"]).state == expected_state
+        alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
+        assert alert_check.calculated_value == 0
 
     def test_group_by_fires_on_any_breaching_series(
         self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
@@ -246,10 +292,12 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
         assert response.status_code == 400, response.json()
         assert "not enabled" in str(response.json()).lower()
 
-    def test_simulate_rejects_metrics_insight_with_flag_on(
+    def test_simulate_scores_a_metrics_insight(
         self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
     ) -> None:
-        # Metrics has no detector extractor: simulation must 400 cleanly via the registry, not 500.
+        # Metrics is registered in DETECTOR_EXTRACTORS, so the editor preview scores it through
+        # the same registry the alert check uses rather than 400ing as an unsupported kind.
+        self.seed_detector_history()
         insight = self.create_metrics_insight()
         response = self.client.post(
             f"/api/projects/{self.team.id}/alerts/simulate",
@@ -258,8 +306,30 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
                 "detector_config": {"type": "zscore", "threshold": 0.9, "window": 10},
             },
         )
-        assert response.status_code == 400, response.json()
-        assert "isn't supported for MetricsQuery" in str(response.json())
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        assert body["total_points"] == len(body["data"]) == len(body["scores"])
+        assert body["total_points"] > 0
+
+    def test_detector_alert_check_runs_on_a_metrics_insight(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
+    ) -> None:
+        # End-to-end through the detector branch of the dispatcher. Asserts the path completes and
+        # records a check rather than a specific score, so detector tuning can't make it flaky.
+        self.seed_detector_history()
+        insight = self.create_metrics_insight()
+        alert = self.create_alert(
+            insight,
+            detector_config={"type": "zscore", "threshold": 0.9, "window": 10},
+            threshold=None,
+        )
+
+        run_alert_check(alert["id"])
+
+        updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
+        assert updated_alert.state in (AlertState.FIRING, AlertState.NOT_FIRING)
+        alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
+        assert alert_check.error is None, alert_check.error
 
     @parameterized.expand(
         [
