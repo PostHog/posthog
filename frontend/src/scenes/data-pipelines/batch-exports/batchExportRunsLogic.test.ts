@@ -29,22 +29,19 @@ const MOCK_BATCH_EXPORT_CONFIG: BatchExportConfiguration = {
     team_id: 997,
     name: 'Test Export',
     destination: {
-        type: 'S3',
+        type: 'AwsS3',
+        integration: 31,
         config: {
             bucket_name: 'test-bucket',
             region: 'us-east-1',
             prefix: 'events/',
-            aws_access_key_id: 'AKIAIOSFODNN7EXAMPLE',
-            aws_secret_access_key: 'secret',
             exclude_events: [],
             include_events: [],
             compression: 'gzip',
             encryption: null,
             kms_key_id: null,
-            endpoint_url: null,
             file_format: 'Parquet',
             max_file_size_mb: null,
-            use_virtual_style_addressing: false,
         },
     },
     interval: 'hour',
@@ -72,17 +69,24 @@ function makeRun(overrides: Partial<RawBatchExportRun> = {}): RawBatchExportRun 
 
 describe('batchExportRunsLogic', () => {
     let logic: ReturnType<typeof batchExportRunsLogic.build>
+    let lastRunsRequestUrl: URL | null
+
+    // Spies on the api module survive the test that made them, and would stop later tests reaching the mock server.
+    afterEach(() => {
+        jest.restoreAllMocks()
+    })
 
     // oxlint-disable-next-line react-hooks/rules-of-hooks -- useMocks is not a React hook
     async function setupLogic(runsResponse?: { results: RawBatchExportRun[]; next: string | null }): Promise<void> {
+        lastRunsRequestUrl = null
         // eslint-disable-next-line react-hooks/rules-of-hooks -- useMocks is an MSW test helper, not a React hook
         useMocks({
             get: {
                 [`/api/environments/:team_id/batch_exports/${MOCK_BATCH_EXPORT_ID}/`]: MOCK_BATCH_EXPORT_CONFIG,
                 '/api/environments/:team_id/batch_exports/test/': { steps: [] },
-                [`/api/environments/:team_id/batch_exports/${MOCK_BATCH_EXPORT_ID}/runs/`]: runsResponse ?? {
-                    results: [],
-                    next: null,
+                [`/api/environments/:team_id/batch_exports/${MOCK_BATCH_EXPORT_ID}/runs/`]: ({ request }) => {
+                    lastRunsRequestUrl = new URL(request.url)
+                    return [200, runsResponse ?? { results: [], next: null }]
                 },
             },
         })
@@ -215,6 +219,28 @@ describe('batchExportRunsLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(loadSpy).toHaveBeenCalled()
+        })
+    })
+
+    describe('status filter', () => {
+        // Asserted through the request URL rather than a listRuns spy, so the group expansion and
+        // the repeated-parameter encoding are both covered.
+        it.each([
+            ['latest runs mode', true],
+            ['grouped mode', false],
+        ])('sends the expanded statuses as repeated parameters in %s', async (_label, usingLatestRuns) => {
+            await setupLogic()
+
+            logic.actions.switchLatestRuns(usingLatestRuns)
+            logic.actions.setStatusFilter(['failed'])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(lastRunsRequestUrl).not.toBeNull()
+            expect(lastRunsRequestUrl!.searchParams.getAll('status')).toEqual([
+                'Failed',
+                'FailedRetryable',
+                'FailedBilling',
+            ])
         })
     })
 })

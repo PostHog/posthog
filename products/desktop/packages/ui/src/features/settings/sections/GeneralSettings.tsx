@@ -276,7 +276,10 @@ export function GeneralSettings() {
         </SettingsCard>
       )}
 
-      <SettingsSection label="Appearance">
+      <SettingsSection
+        label="Appearance"
+        description="Theme and how the app looks"
+      >
         <ThemePicker value={theme} onChange={handleThemeChange} />
         {missionControl != null && missionControlSupported === true && (
           <SettingsCard>
@@ -296,10 +299,13 @@ export function GeneralSettings() {
 
       <SettingsSection
         label="New tasks"
-        description="Defaults for every new task. You can change any of these per task in the composer."
+        description="Defaults for every new task; you can change any of these per task in the composer"
       >
         <SettingsCard>
-          <SettingsCardRow label="Start in">
+          <SettingsCardRow
+            label="Start in"
+            description="The mode a new task opens in; Plan drafts an approach before any changes"
+          >
             <SettingsSegmented
               ariaLabel="Initial task mode"
               value={defaultInitialTaskMode}
@@ -315,7 +321,10 @@ export function GeneralSettings() {
             />
           </SettingsCardRow>
 
-          <SettingsCardRow label="Effort">
+          <SettingsCardRow
+            label="Effort"
+            description="How much reasoning the agent puts into each turn"
+          >
             <ReasoningLevelDropdown
               value={defaultReasoningEffort}
               options={DEFAULT_EFFORT_OPTIONS}
@@ -332,11 +341,11 @@ export function GeneralSettings() {
 
           <SettingsCardRow
             label="Messaging"
-            description="Queue holds messages until the turn ends. Steer applies them mid-turn."
+            description="Queue holds messages until the turn ends; Steer applies them mid-turn"
           >
             <div className="flex items-center gap-5">
               <div className="flex flex-col items-start gap-1">
-                <span className="text-[10px] text-gray-9 uppercase tracking-wide">
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
                   Local
                 </span>
                 <SettingsSegmented
@@ -351,7 +360,7 @@ export function GeneralSettings() {
                 />
               </div>
               <div className="flex flex-col items-start gap-1">
-                <span className="text-[10px] text-gray-9 uppercase tracking-wide">
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
                   Cloud
                 </span>
                 <SettingsSegmented
@@ -370,14 +379,17 @@ export function GeneralSettings() {
         </SettingsCard>
       </SettingsSection>
 
-      <SettingsSection label="Composer">
+      <SettingsSection
+        label="Composer"
+        description="How the message box behaves while you type"
+      >
         <SettingsCard>
           <SettingsCardRow
             label="Send messages with"
             description={
               sendMessagesWith === "enter"
                 ? "Shift+Enter inserts a new line"
-                : undefined
+                : "Enter inserts a new line"
             }
           >
             <SettingsSegmented
@@ -417,9 +429,15 @@ export function GeneralSettings() {
         </SettingsCard>
       </SettingsSection>
 
-      <SettingsSection label="Editor">
+      <SettingsSection
+        label="Editor"
+        description="Where diffs open and what happens while agents run"
+      >
         <SettingsCard>
-          <SettingsCardRow label="Open diffs in">
+          <SettingsCardRow
+            label="Open diffs in"
+            description="Which pane a changed file opens in when you click it"
+          >
             <SettingsSelect
               ariaLabel="Open diffs in"
               value={diffOpenMode}
@@ -441,7 +459,7 @@ export function GeneralSettings() {
               label="Keep awake while agents work"
               description={
                 hasBuiltInBattery
-                  ? "Stops your computer from sleeping on its own during a task. Closing the lid still puts it to sleep."
+                  ? "Stops your computer from sleeping on its own during a task; closing the lid still puts it to sleep"
                   : "Stops your computer from sleeping on its own during a task"
               }
             >

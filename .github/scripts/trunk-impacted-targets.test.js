@@ -9,17 +9,23 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
+const { execFileSync } = require('node:child_process')
 const fs = require('node:fs')
+const os = require('node:os')
 const path = require('node:path')
 
 const {
     computeTargets,
     allKnownTargets,
+    buildContext,
+    parseCargoLockCrates,
     compileContractMatcher,
     compileWorkspaceMatcher,
     globToRegExp,
     isProductDirectory,
     isTripwire,
+    listIsolatedProducts,
+    loadContractSurfaces,
     parseCrateDependencies,
     parseCrateName,
     parsePytestIgnores,
@@ -107,16 +113,22 @@ const PROTO_CONTEXT = {
     rustGraph: {
         dependsOn: new Map([
             ['cymbal-proto', []],
+            ['ingestion-worker-proto', []],
             ['kafka-assigner-proto', []],
             ['personhog-proto', []],
             ['personhog-consumer', ['personhog-proto']],
+            ['prometheus-rw-proto', []],
+            ['usage-ingestion-proto', []],
             ['unrelated', []],
         ]),
         byDir: [
             { dir: 'cymbal-proto', name: 'cymbal-proto' },
+            { dir: 'ingestion-worker-proto', name: 'ingestion-worker-proto' },
             { dir: 'kafka-assigner-proto', name: 'kafka-assigner-proto' },
             { dir: 'personhog-proto', name: 'personhog-proto' },
             { dir: 'personhog-consumer', name: 'personhog-consumer' },
+            { dir: 'prometheus-rw-proto', name: 'prometheus-rw-proto' },
+            { dir: 'usage-ingestion-proto', name: 'usage-ingestion-proto' },
             { dir: 'unrelated', name: 'unrelated' },
         ],
     },
@@ -141,9 +153,10 @@ test('a universal tripwire claims every known target', () => {
         // Read by pytest, jest, and playwright alike, so no one domain holds it.
         '.test_quarantine.json',
         // Trees that steer what every suite runs or what it runs against: the
-        // Depot copies of the workflows, the toolchain, the service configs the
-        // stack mounts, and the markdownlint config every tree's prose obeys.
-        '.depot/workflows/ci-backend.yml',
+        // Depot copies of the composite actions, the toolchain, the service
+        // configs the stack mounts, and the markdownlint config every tree's
+        // prose obeys.
+        '.depot/actions/paths-filter/action.yml',
         '.flox/env/manifest.toml',
         'docker/clickhouse/config.d/default.xml',
         'devenv/duckgres.yaml',
@@ -244,7 +257,10 @@ test('proto configuration at the root claims every tree', () => {
     for (const file of [
         'proto/personhog/types/v1/person.proto',
         'proto/cymbal/resolution/v1/resolution.proto',
+        'proto/ingestion/worker/v1/worker.proto',
         'proto/kafka_assigner/v1/service.proto',
+        'proto/prometheus/v1/remote_write.proto',
+        'proto/usage_ingestion/v1/service.proto',
     ]) {
         for (const target of computeTargets([file], PROTO_CONTEXT)) {
             union.add(target)
@@ -325,6 +341,11 @@ test('every proto tree is declared, with the crate that compiles it', () => {
 // land in today, so a tree that starts generating into one of them without
 // declaring the domain fails here. A consumer that generates into a root
 // neither of these names is still only caught by review.
+//
+// The equality runs both ways. Reading only from the table cannot see a stub
+// directory no tree claims, because a tree whose directory name differs from
+// its own name (usage_ingestion generates into usage-ingestion) reads as "no
+// stubs" and agrees with an empty domain list. The directory side catches that.
 test('every proto tree declaring a stub consumer has stubs there, and no other tree does', () => {
     const stubRoots = [
         ['posthog/personhog_client/proto/generated', PYTHON],
@@ -334,14 +355,25 @@ test('every proto tree declaring a stub consumer has stubs there, and no other t
         const generated = fs
             .readdirSync(path.join(REPO_ROOT, root), { withFileTypes: true })
             .filter((entry) => entry.isDirectory())
+            // __pycache__ is a build artifact of the python root, not a stub tree.
+            .filter((entry) => !entry.name.startsWith('__'))
             .map((entry) => entry.name)
-        for (const [tree, { domains }] of PROTO_TREES) {
+        const claimed = new Set()
+        for (const [tree, { domains, stubDir }] of PROTO_TREES) {
             assert.equal(
-                generated.includes(tree),
+                generated.includes(stubDir || tree),
                 domains.includes(domain),
                 `proto/${tree} stubs in ${root} must match its declared ${domain} consumer`
             )
+            if (domains.includes(domain)) {
+                claimed.add(stubDir || tree)
+            }
         }
+        assert.deepEqual(
+            generated.filter((dir) => !claimed.has(dir)),
+            [],
+            `every directory in ${root} must belong to a proto tree declaring its ${domain} consumer`
+        )
     }
 })
 
@@ -455,13 +487,136 @@ test('the cargo-dist manifest shares the cli lane', () => {
 })
 
 test('a single-language workflow claims that language rather than everything', () => {
+    const javascript = computeTargets(['.oxlintrc.json'], CONTEXT)
+    for (const workflow of [
+        'ci-frontend.yml',
+        'ci-mcp-ui-apps.yml',
+        'ci-docs-check.yml',
+        'browserslist.yml',
+        'publish-quill-npm.yml',
+        'update-ai-costs.yml',
+        'ci-playwright-container.yml',
+    ]) {
+        assert.deepEqual(computeTargets([`.github/workflows/${workflow}`], CONTEXT), javascript, workflow)
+    }
+    const python = computeTargets(['mypy.ini'], CONTEXT)
+    for (const workflow of [
+        'ci-backend.yml',
+        'ci-python.yml',
+        'ci-ai.yml',
+        'ci-replay-vision-evals.yml',
+        'ci-clickhouse-hcl-schema.yml',
+        'ci-clickhouse-multinode-migrations.yml',
+        'build-hogql-parser.yml',
+        'publish-hogli.yml',
+    ]) {
+        assert.deepEqual(computeTargets([`.github/workflows/${workflow}`], CONTEXT), python, workflow)
+    }
+    const rust = computeTargets(['.github/workflows/ci-rust.yml'], CONTEXT)
+    for (const workflow of [
+        'rust-docker-build.yml',
+        'rust-smoke-test-build.yml',
+        '_rust-build-images.yml',
+        'publish-replay-anonymizer-crate.yml',
+        'publish-symbol-data-crate.yml',
+    ]) {
+        assert.deepEqual(computeTargets([`.github/workflows/${workflow}`], CONTEXT), rust, workflow)
+    }
+    // The workflow gating tools/openapi-codegen takes the tree's own domain.
     assert.deepEqual(
-        computeTargets(['.github/workflows/ci-frontend.yml'], CONTEXT),
-        computeTargets(['.oxlintrc.json'], CONTEXT)
+        computeTargets(['.github/workflows/ci-openapi-codegen.yml'], CONTEXT),
+        computeTargets(['tools/openapi-codegen/package.json'], CONTEXT)
     )
+    // Workflows serving a standalone tree take that tree's own lanes. The
+    // equality against a file in the tree also guards the lane names: a
+    // typo'd lane widens the workflow to everything and fails here.
+    for (const [workflow, treeFile] of [
+        ['ci-cli.yml', 'cli/src/main.rs'],
+        ['release-cli.yml', 'cli/src/main.rs'],
+        ['ci-livestream.yml', 'livestream/main.go'],
+        ['ci-livestream-tui.yml', 'livestream/tui/main.go'],
+        ['build-livestream-tui.yml', 'livestream/tui/main.go'],
+        ['livestream-docker-image.yml', 'livestream/Dockerfile'],
+        ['terragrunt-posthog.yaml', 'terraform/team-devex/main.tf'],
+        ['ci-phrocs.yml', 'tools/phrocs/main.go'],
+        ['build-phrocs.yml', 'tools/phrocs/Makefile'],
+        ['hogbox-preview-cleanup.yml', 'tools/hogbox-preview/cli.py'],
+        ['release.yml', 'cli/src/main.rs'],
+    ]) {
+        assert.deepEqual(
+            computeTargets([`.github/workflows/${workflow}`], CONTEXT),
+            computeTargets([treeFile], CONTEXT),
+            workflow
+        )
+    }
+    // Service workflows take their service's lane. The base CONTEXT lists
+    // only two services, so the universe here has to know the real ones.
+    const serviceContext = {
+        ...CONTEXT,
+        products: [...CONTEXT.products, 'metrics'],
+        services: [...CONTEXT.services, 'agent-proxy', 'integration-service', 'llm-gateway'],
+    }
+    for (const [workflow, treeFile] of [
+        ['ci-llm-gateway.yml', 'services/llm-gateway/src/main.py'],
+        ['llm-gateway-cd.yml', 'services/llm-gateway/src/main.py'],
+        ['ci-agent-proxy.yml', 'services/agent-proxy/src/index.ts'],
+        ['cd-agent-proxy-image.yml', 'services/agent-proxy/src/index.ts'],
+        ['ci-integration-service.yml', 'services/integration-service/src/index.ts'],
+        ['cd-integration-service-image.yml', 'services/integration-service/src/index.ts'],
+        ['ci-oauth-proxy.yml', 'services/oauth-proxy/src/index.ts'],
+        ['ci-ml-mirror-image-scrub-container.yml', 'nodejs/src/index.ts'],
+    ]) {
+        assert.deepEqual(
+            computeTargets([`.github/workflows/${workflow}`], serviceContext),
+            computeTargets([treeFile], serviceContext),
+            workflow
+        )
+    }
+    assert.deepEqual(computeTargets(['.github/workflows/cd-metrics-agent-image.yml'], serviceContext), [
+        'fe:product:metrics',
+        'py:product:metrics',
+    ])
+    // The MCP image's readers are the product-surface set, same as the
+    // openapi-codegen workflow.
     assert.deepEqual(
-        computeTargets(['.github/workflows/ci-backend.yml'], CONTEXT),
-        computeTargets(['mypy.ini'], CONTEXT)
+        computeTargets(['.github/workflows/cd-mcp-image.yml'], CONTEXT),
+        computeTargets(['.github/workflows/ci-openapi-codegen.yml'], CONTEXT)
+    )
+    // Cross-domain workflows take the union of the families on each side,
+    // matching what the same change spelled as files would claim.
+    const pythonNodeRust = computeTargets(['mypy.ini', 'rust/Cargo.toml', 'nodejs/src/index.ts'], CONTEXT)
+    for (const workflow of ['ci-migrations-service-separation-check.yml', 'ci-proto.yml']) {
+        assert.deepEqual(computeTargets([`.github/workflows/${workflow}`], CONTEXT), pythonNodeRust, workflow)
+    }
+    const rustPython = computeTargets(['mypy.ini', 'rust/Cargo.toml'], CONTEXT)
+    for (const workflow of ['build-deltalite.yml', 'ci-deltalite-python.yml', 'build-hogql-parser-rs.yml']) {
+        assert.deepEqual(computeTargets([`.github/workflows/${workflow}`], CONTEXT), rustPython, workflow)
+    }
+    const pythonJavascript = computeTargets(['mypy.ini', '.oxlintrc.json'], CONTEXT)
+    for (const workflow of ['build-hogql-parser-npm.yml', 'ci-hog.yml', 'ci-agent-skills.yml']) {
+        assert.deepEqual(computeTargets([`.github/workflows/${workflow}`], CONTEXT), pythonJavascript, workflow)
+    }
+    // The desktop workflow family takes the desktop product's own two lanes,
+    // and widens in a context where no such product exists.
+    const desktopContext = {
+        ...CONTEXT,
+        products: [...CONTEXT.products, 'desktop'],
+        backendDetachedProducts: new Set(['desktop']),
+    }
+    assert.deepEqual(
+        computeTargets(['.github/workflows/desktop-ci.yml', '.github/workflows/desktop-release.yml'], desktopContext),
+        computeTargets(['products/desktop/apps/code/src/main.ts', 'products/desktop/tools/build.py'], desktopContext)
+    )
+    assert.deepEqual(computeTargets(['.github/workflows/desktop-ci.yml'], CONTEXT), EVERYTHING)
+    // The Depot shadows take their canonical twin's domain instead of the
+    // .depot/** universal rule, so a shadow-only or paired edit stays on the
+    // python lanes.
+    assert.deepEqual(
+        computeTargets(
+            ['.depot/workflows/ci-backend.yml', '.depot/workflows/ci-backend-update-test-timing.yml'],
+            CONTEXT
+        ),
+        python
     )
 })
 
@@ -554,7 +709,7 @@ test('every target the rules can emit appears in the enumerated universe', () =>
         '.stamphog/policy.yml',
         '.vscode/launch.json',
         'tools/phrocs/src/main.rs',
-        'tools/pr-approval-agent/policy.py',
+        'products/stamphog/packages/pr-approval-agent/policy.py',
         'common/hogvm/x.py',
         'common/storybook/x.ts',
         'common/__init__.py',
@@ -592,6 +747,9 @@ test('an incomplete context falls back to the ALL sentinel', () => {
     assert.equal(allKnownTargets({ ...CONTEXT, rustGraph: null }), null)
     assert.equal(allKnownTargets({ ...CONTEXT, services: null }), null)
     assert.equal(computeTargets(['some-new-toplevel/thing.go'], { ...CONTEXT, services: null }), ALL)
+    // An explicit-lanes rule cannot validate its names without the full
+    // universe, so it widens to the sentinel too.
+    assert.equal(computeTargets(['.github/workflows/ci-cli.yml'], { ...CONTEXT, services: null }), ALL)
 })
 
 test('tripwire domains are reported for telemetry', () => {
@@ -646,7 +804,7 @@ test('stamphog policy files claim the suite that validates them', () => {
     assert.deepEqual(computeTargets(['products/alpha/AGENT_APPROVALS.md'], CONTEXT), ['tools:pr-approval-agent'])
     assert.deepEqual(
         computeTargets(['.stamphog/policy.yml'], CONTEXT),
-        computeTargets(['tools/pr-approval-agent/policy.py'], CONTEXT)
+        computeTargets(['products/stamphog/packages/pr-approval-agent/policy.py'], CONTEXT)
     )
 })
 
@@ -659,6 +817,7 @@ test('editor and agent configuration shares one lane', () => {
         '.zed/debug.json',
         '.husky/pre-commit',
         '.claude/settings.json',
+        '.greptile/config.json',
         // The same class of file, one per root path rather than one per tree.
         '.cursorignore',
         '.editorconfig',
@@ -668,7 +827,6 @@ test('editor and agent configuration shares one lane', () => {
         '.watchmanconfig',
         '.worktreeinclude',
         'LICENSE',
-        'greptile.json',
     ]) {
         assert.deepEqual(computeTargets([file], CONTEXT), ['repo-config'], file)
     }
@@ -727,7 +885,8 @@ test('a crate that builds an npm package claims the lanes importing it', () => {
 // The cargo lockfile, the manifest, and the sqlx offline data resolve nothing
 // outside the cargo workspace, so the lanes they can break are the rust ones
 // plus whatever reaches them through a native module, rather than every lane in
-// the repo.
+// the repo. rust/Cargo.lock is in the list on its fallback: this context carries
+// no determinator answer, so it claims the same set. The narrowed case is below.
 test('the cargo workspace tripwires claim the rust lanes rather than every lane', () => {
     const bindingContext = {
         ...CONTEXT,
@@ -745,6 +904,67 @@ test('the cargo workspace tripwires claim the rust lanes rather than every lane'
         assert.equal(targets.includes('py:core'), false, `${file} should not claim the python lanes`)
         assert.equal(targets.includes('fe:core'), false, `${file} should not claim the frontend lanes`)
     }
+})
+
+// The seeds are the crates the determinator named; computeTargets owns the
+// closure over them. Without it, a resolution change in a crate every other
+// crate depends on would claim one lane.
+test('a narrowed lockfile change still claims the dependents of the crates it named', () => {
+    const targets = computeTargets(['rust/Cargo.lock'], { ...CONTEXT, cargoLockCrates: ['shared'] })
+    assert.deepEqual(
+        targets.filter((target) => target.startsWith('rust:crate:')),
+        ['rust:crate:consumer', 'rust:crate:shared']
+    )
+    assert.equal(targets.includes('rust:crate:unrelated'), false, 'a crate the resolution did not move keeps its lane')
+})
+
+// An answer naming no crate falls back rather than claiming nothing, because a
+// lockfile-only change set would otherwise reach the empty-set guard and widen
+// past the rust lanes entirely. This pins the fallback against that.
+test('a determinator answer naming no crate claims every crate, not every lane', () => {
+    const targets = computeTargets(['rust/Cargo.lock'], { ...CONTEXT, cargoLockCrates: [] })
+    assert.deepEqual(
+        targets.filter((target) => target.startsWith('rust:crate:')),
+        ['rust:crate:consumer', 'rust:crate:shared', 'rust:crate:unrelated']
+    )
+    assert.equal(targets.includes('py:core'), false, 'the empty-set guard should not have fired')
+})
+
+// Each of these is a way for the answer to arrive unusable, and reading one as
+// "no crate" would be narrower than reality, which is the direction that breaks
+// master. All of them have to read as unknown so the caller widens.
+test('an unusable determinator answer reads as unknown', () => {
+    for (const [name, raw] of [
+        ['a skipped or failed step', ''],
+        ['an unset variable', undefined],
+        ['output that is not JSON', 'shared,consumer'],
+        ['JSON that is not a list', '{"crates":["shared"]}'],
+        ['a list holding something other than a name', '["shared", 7]'],
+        ['a crate the graph does not hold', '["shared", "ghost"]'],
+    ]) {
+        assert.equal(parseCargoLockCrates(raw, CONTEXT.rustGraph), null, `${name} should read as unknown`)
+    }
+})
+
+test('a determinator answer the graph agrees with is used as it stands', () => {
+    assert.deepEqual(parseCargoLockCrates('["shared"]', CONTEXT.rustGraph), ['shared'])
+})
+
+// The determinator's workspace and this script's crate graph are built from the
+// same manifests by different code, so a name in one and not the other means one
+// of them is wrong. Reads the real graph, which is the only place that can drift.
+test('the crate graph holds every crate the determinator can name', () => {
+    const { rustGraph } = buildContext(REPO_ROOT)
+    const members = fs
+        .readFileSync(path.join(REPO_ROOT, 'rust/Cargo.toml'), 'utf8')
+        .split(/^\s*\[/m)
+        .find((section) => section.startsWith('workspace]'))
+        .match(/members\s*=\s*\[([^\]]*)\]/)[1]
+        .split(',')
+        .map((entry) => entry.trim().replace(/^"|"$/g, ''))
+        .filter(Boolean)
+    const missing = members.filter((dir) => !rustGraph.byDir.some((crate) => crate.dir === dir))
+    assert.deepEqual(missing, [], 'these workspace members are absent from the crate graph')
 })
 
 // The two lists below are the same rule written twice, once for the merge queue
@@ -796,6 +1016,29 @@ test('nodejs is still the only workspace package importing a rust binding', () =
             .map((entry) => path.posix.join(glob.slice(0, -2), entry.name))
     }
     const packageDirs = workspaceGlobs.flatMap(expand)
+
+    // An incomplete checkout (e.g. a sparse CI checkout missing workspace
+    // manifests) would silently shrink the inspection set: expand() and the
+    // existsSync checks below skip whatever is absent. The git index stays
+    // complete even when the working tree is sparse, so any tracked manifest
+    // inside the workspace that is not on disk means the checkout dropped it.
+    const matcher = compileWorkspaceMatcher(workspaceGlobs)
+    const trackedManifests = execFileSync('git', ['ls-files', '-z', '--', ':(glob)**/package.json', 'package.json'], {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+    })
+        .split('\0')
+        .filter(Boolean)
+    assert.ok(trackedManifests.length > 0, 'git ls-files found no manifests, so the checkout check below is vacuous')
+    for (const manifest of new Set(trackedManifests)) {
+        if (manifest !== 'package.json' && !matcher(manifest)) {
+            continue
+        }
+        assert.ok(
+            fs.existsSync(path.join(REPO_ROOT, manifest)),
+            `${manifest} is tracked by git but absent on disk — an incomplete checkout guts this guard`
+        )
+    }
 
     const bindingPackages = new Set()
     for (const dir of packageDirs) {
@@ -1032,6 +1275,32 @@ test('editing the declarations that define the gate always cascades', () => {
         const targets = computeTargets([file], context)
         assert.equal(targets.includes('py:product:gamma'), true, file)
     }
+})
+
+// Isolation is the claim that a product's change can be tested alone, and the
+// contract-check script alone does not back it: without a turbo.json the task
+// keeps the root inputs, which are the product's whole backend. turbo-discover
+// reads the same pair, so a reader that accepted the script alone would call a
+// product isolated in one place and not the other.
+test('isolation needs both the contract-check script and a narrowed turbo.json', () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'isolation-'))
+    const write = (product, files) => {
+        fs.mkdirSync(path.join(repoRoot, 'products', product), { recursive: true })
+        for (const [name, body] of Object.entries(files)) {
+            fs.writeFileSync(path.join(repoRoot, 'products', product, name), JSON.stringify(body))
+        }
+    }
+    const contractScript = { scripts: { 'backend:contract-check': 'true' } }
+    const narrowed = { tasks: { 'backend:contract-check': { inputs: ['backend/facade/**'] } } }
+    write('declared', { 'package.json': contractScript, 'turbo.json': narrowed })
+    write('script-only', { 'package.json': contractScript })
+    write('inputs-only', { 'turbo.json': narrowed })
+    write('neither', { 'package.json': {} })
+
+    const products = ['declared', 'inputs-only', 'neither', 'script-only']
+    const isolated = listIsolatedProducts(repoRoot, products, loadContractSurfaces(repoRoot, products))
+
+    assert.deepEqual([...isolated], ['declared'])
 })
 
 test('contract inputs honor negation and drop inputs outside the product', () => {

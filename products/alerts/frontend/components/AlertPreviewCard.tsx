@@ -1,8 +1,7 @@
 import { IconInfo } from '@posthog/icons'
 import { LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LineChart, ReferenceLines, useChartTheme } from '@posthog/quill-charts'
 
-import { Sparkline, SparklineReferenceLine } from 'lib/components/Sparkline'
-import type { AnyScaleOptions } from 'lib/components/Sparkline'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
@@ -15,39 +14,48 @@ import {
     TrendsAlertPreviewSeries,
 } from 'products/alerts/frontend/logic/trendsAlertPreview'
 import { isFunnelsAlertConfig, isHogQLAlertConfig, isTrendsAlertConfig } from 'products/alerts/frontend/types'
+import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { FunnelAlertPreviewBanner } from './AlertDefinitionFields'
-import { fromLogScale, shouldUseLogScale, thresholdReferenceLines, toLogScale } from './AlertPreviewCard.utils'
+import { AlertThresholdLine, shouldUseLogScale, thresholdReferenceLines } from './AlertPreviewCard.utils'
 import { HogQLAlertPreviewBanner } from './HogQLAlertPreview'
 
-function allowNegativeYScale(scale: AnyScaleOptions): AnyScaleOptions {
-    return { ...scale, min: undefined }
-}
+const handleChartError = makeChartErrorHandler('alerts-preview-chart')
 
-function AlertPreviewSparkline({
+function AlertPreviewChart({
     values,
     labels,
     referenceLines,
     relative,
-    renderTooltipValue,
+    useLogScale,
 }: {
     values: number[]
     labels?: string[]
-    referenceLines: SparklineReferenceLine[]
+    referenceLines: AlertThresholdLine[]
     relative: boolean
-    renderTooltipValue?: (value: number) => string
+    useLogScale: boolean
 }): JSX.Element {
+    const theme = useChartTheme()
     return (
-        <Sparkline
-            type="line"
-            data={values}
-            labels={labels}
-            maximumIndicator={false}
-            referenceLines={referenceLines}
-            renderTooltipValue={renderTooltipValue}
-            withYScale={relative ? allowNegativeYScale : undefined}
-            className="w-full h-24 flex flex-col"
-        />
+        <div className="w-full h-24 flex flex-col">
+            <LineChart
+                series={[{ key: 'preview', label: 'Value', data: values }]}
+                labels={labels ?? values.map((_, index) => String(index))}
+                theme={theme}
+                config={{
+                    hideXAxis: true,
+                    // The value axis only appears in relative mode, where it can dip below zero;
+                    // absolute previews stay axis-less and compact like the old sparkline.
+                    hideYAxis: !relative,
+                    floatBaseline: relative,
+                    yScaleType: useLogScale ? 'log' : 'linear',
+                    tooltip: { valueFormatter: (value) => humanFriendlyNumber(value) },
+                }}
+                onError={handleChartError}
+            >
+                <ReferenceLines lines={referenceLines.map((line) => ({ ...line, variant: 'alert' as const }))} />
+            </LineChart>
+        </div>
     )
 }
 
@@ -82,10 +90,6 @@ export function AlertPreviewCard({
         : null
     const referenceLines = thresholdReferenceLines(alertForm)
     const useLogScale = Boolean(trendsPreview && shouldUseLogScale(trendsPreview.values, referenceLines))
-    const previewValues = useLogScale ? trendsPreview?.values.map(toLogScale) : trendsPreview?.values
-    const previewReferenceLines = useLogScale
-        ? referenceLines.map((line) => ({ ...line, value: toLogScale(line.value) }))
-        : referenceLines
     const checkPreviewValues = checkPreview?.values
     const isUnconfiguredAbsoluteThreshold =
         !alertForm.detector_config &&
@@ -107,11 +111,12 @@ export function AlertPreviewCard({
         )
     } else if (checkPreviewValues && checkPreviewValues.length > 0) {
         body = (
-            <AlertPreviewSparkline
+            <AlertPreviewChart
                 values={checkPreviewValues}
                 labels={checkPreview.labels}
                 referenceLines={referenceLines}
                 relative={checkPreview.relative}
+                useLogScale={false}
             />
         )
     } else if (checkPreview !== undefined) {
@@ -126,14 +131,14 @@ export function AlertPreviewCard({
                 No activity to preview for this series.
             </div>
         )
-    } else if (isTrendsAlertConfig(config) && previewValues && previewValues.length > 0) {
+    } else if (isTrendsAlertConfig(config) && trendsPreview && trendsPreview.values.length > 0) {
         body = (
-            <AlertPreviewSparkline
-                values={previewValues}
-                labels={trendsPreview?.labels}
-                referenceLines={previewReferenceLines}
-                renderTooltipValue={useLogScale ? fromLogScale : undefined}
-                relative={!!trendsPreview?.relative}
+            <AlertPreviewChart
+                values={trendsPreview.values}
+                labels={trendsPreview.labels}
+                referenceLines={referenceLines}
+                relative={trendsPreview.relative}
+                useLogScale={useLogScale}
             />
         )
     } else if (isFunnelsAlertConfig(config) && funnelPreview) {

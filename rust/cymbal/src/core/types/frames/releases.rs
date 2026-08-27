@@ -189,6 +189,21 @@ fn pack_version(version: Option<&str>, build: Option<&str>) -> Option<String> {
     }
 }
 
+/// Split a packed release version back into the app version and the build number, inverting
+/// `pack_version`. Splitting on the last `+` recovers the build from a version that itself carries
+/// semver build metadata, such as `1.0.0+sha.abc` built as `1.0.0+sha.abc+42`.
+///
+/// The inverse is lossy in the one direction `pack_version` is: a release packed from a build
+/// alone is a bare build string on the way back out, and comes back as a version with no build.
+pub fn unpack_version(packed: &str) -> (&str, Option<&str>) {
+    match packed.rsplit_once('+') {
+        Some((version, build)) if !version.is_empty() && !build.is_empty() => {
+            (version, Some(build))
+        }
+        _ => (packed, None),
+    }
+}
+
 fn release_hash_id(name: &str, version: &str) -> String {
     let mut hasher = Sha512::new();
     hasher.update(name.as_bytes());
@@ -241,6 +256,30 @@ mod tests {
                 mobile_release_hash_id(name, version, build).as_deref(),
                 Some(expected),
                 "release hash_id drift for {name} {version:?}+{build:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn unpack_version_recovers_the_build_pack_version_folded_in() {
+        // (packed version, app version, build number)
+        let cases: [(&str, &str, Option<&str>); 5] = [
+            ("1.0+42", "1.0", Some("42")),
+            // Splitting on the last `+` is what keeps semver build metadata with the version.
+            ("1.0.0+sha.abc+42", "1.0.0+sha.abc", Some("42")),
+            ("2.3", "2.3", None),
+            // A version whose own metadata reads as a build number: the packing is ambiguous, and
+            // the build wins so a real `--build` is never dropped.
+            ("1.0.0+sha.abc", "1.0.0", Some("sha.abc")),
+            // An empty half is not a build, or events would carry an empty `$app_build`.
+            ("1.0+", "1.0+", None),
+        ];
+
+        for (packed, version, build) in cases {
+            assert_eq!(
+                unpack_version(packed),
+                (version, build),
+                "unpacking {packed}"
             );
         }
     }

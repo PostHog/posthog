@@ -12,14 +12,20 @@ from posthog.sync import database_sync_to_async
 
 from products.warehouse_sources.backend.types import (
     DIRECT_ENGINE_BY_SOURCE_TYPE,
+    ExternalDataSchemaSyncFrequency,
+    ExternalDataSourceAccessMethod,
+    ExternalDataSourceCreatedVia,
+    ExternalDataSourceStatus,
     ExternalDataSourceType,
     ManagedWarehouseSQLMode,
+    external_data_source_type_choices,
 )
 
 logger = structlog.get_logger(__name__)
 
 MANAGED_WAREHOUSE_SOURCE_PREFIX = "managed_warehouse"
 MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND = "project_reader"
+MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND = "duckgres_service"
 MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS = frozenset({"org_root", "stored_server_login"})
 SYSTEM_MANAGED_SOURCE_PREFIXES = frozenset({MANAGED_WAREHOUSE_SOURCE_PREFIX})
 
@@ -30,30 +36,13 @@ class ExternalDataSourceManager(models.Manager):
 
 
 class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
-    class AccessMethod(models.TextChoices):
-        WAREHOUSE = "warehouse", "warehouse"
-        DIRECT = "direct", "direct"
-
-    class CreatedVia(models.TextChoices):
-        WEB = "web", "web"
-        API = "api", "api"
-        MCP = "mcp", "mcp"
-        WIZARD = "wizard", "wizard"
-        SELF_DRIVING = "self_driving", "self_driving"
-
-    class Status(models.TextChoices):
-        RUNNING = "Running", "Running"
-        PAUSED = "Paused", "Paused"
-        ERROR = "Error", "Error"
-        COMPLETED = "Completed", "Completed"
-        CANCELLED = "Cancelled", "Cancelled"
+    # Kept on the model so the nested names and the `choices=` below stay unchanged.
+    AccessMethod = ExternalDataSourceAccessMethod
+    CreatedVia = ExternalDataSourceCreatedVia
+    Status = ExternalDataSourceStatus
 
     # Deprecated, use `ExternalDataSchema.SyncFrequency`
-    class SyncFrequency(models.TextChoices):
-        DAILY = "day", "Daily"
-        WEEKLY = "week", "Weekly"
-        MONTHLY = "month", "Monthly"
-        # TODO provide flexible schedule definition
+    SyncFrequency = ExternalDataSchemaSyncFrequency
 
     source_id = models.CharField(max_length=400)
     connection_id = models.CharField(max_length=400)
@@ -65,7 +54,7 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     # `status` is deprecated in favour of external_data_schema.status
     status = models.CharField(max_length=400)
-    source_type = models.CharField(max_length=128, choices=ExternalDataSourceType)
+    source_type = models.CharField(max_length=128, choices=external_data_source_type_choices)
     # Pinned vendor API version (opaque vendor label, e.g. a Stripe date version). NULL resolves
     # to the source's `default_version` at sync time. A dedicated column (not `job_inputs`) so the
     # pin is queryable via the `data_warehouse_sources` HogQL system table — `job_inputs` is
@@ -161,10 +150,23 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     @classmethod
     def ready_managed_warehouse_q(cls) -> models.Q:
+        return (
+            cls.managed_warehouse_identity_q()
+            & models.Q(direct_query_enabled=True)
+            & (
+                models.Q(connection_metadata__credential_kind=MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND)
+                | models.Q(
+                    connection_metadata__credential_kind=MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
+                    connection_metadata__reader_configured=True,
+                )
+            )
+        )
+
+    @classmethod
+    def dynamic_managed_warehouse_q(cls) -> models.Q:
         return cls.managed_warehouse_identity_q() & models.Q(
             direct_query_enabled=True,
-            connection_metadata__credential_kind=MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
-            connection_metadata__reader_configured=True,
+            connection_metadata__credential_kind=MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND,
         )
 
     def _has_valid_managed_warehouse_connection_inputs(self, *, expected_user: str | None = None) -> bool:
@@ -220,8 +222,25 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return self._has_valid_managed_warehouse_connection_inputs(expected_user=f"posthog_team_{self.team_id}")
 
     @property
+    def is_dynamic_managed_warehouse(self) -> bool:
+        metadata = self.connection_metadata
+        return (
+            self.is_managed_warehouse
+            and self.direct_query_enabled
+            and isinstance(metadata, dict)
+            and metadata.get("credential_kind") == MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND
+            and isinstance(metadata.get("lifecycle_generation"), int)
+            and not isinstance(metadata.get("lifecycle_generation"), bool)
+            and metadata["lifecycle_generation"] >= 0
+            and self.job_inputs == {}
+        )
+
+    @property
     def managed_warehouse_sql_mode(self) -> ManagedWarehouseSQLMode:
-        if self.is_managed_warehouse_ready:
+        # Accepted interim contract for the default-off rollout: provisioning already exposes organization-root
+        # access, so duckgres_service is intentionally the built-in organization connection. Project-scoped grants
+        # require future Duckgres authorization support.
+        if self.is_dynamic_managed_warehouse or self.is_managed_warehouse_ready:
             return ManagedWarehouseSQLMode.BUILT_IN
         if (
             self.is_legacy_managed_warehouse
@@ -361,4 +380,4 @@ def is_managed_warehouse_connection_ready(team_id: int, connection_id: str | Non
         .exclude(deleted=True)
         .first()
     )
-    return source is not None and source.is_managed_warehouse_ready
+    return source is not None and source.managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN

@@ -31,6 +31,9 @@ jobs:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
@@ -70,6 +73,7 @@ jobs:
                         - 'bin/**'
                         # Dev tools with dedicated pytest steps below
                         - 'tools/pr-approval-agent/**'
+                        - 'products/stamphog/packages/pr-approval-agent/**'
                         - 'tools/query-performance-ai/**'
                         # Stamphog policy files validated by the pr-approval-agent suite
                         - '.stamphog/**'
@@ -209,7 +213,22 @@ jobs:
 
                   - name: Run pr-approval-agent (stamphog) tests
                     shell: bash
-                    run: pytest tools/pr-approval-agent -v --junitxml=junit-pr-approval-agent.xml
+                    # Two candidate paths. The engine now lives under the stamphog product, but an
+                    # open PR that has not rebased still carries it under tools/, and this workflow
+                    # runs against that branch merged with master. The loop tests both trees when
+                    # both exist, because that merge can add a file at the old path next to the new
+                    # tree.
+                    run: |
+                        found=0
+                        for dir in products/stamphog/packages/pr-approval-agent tools/pr-approval-agent; do
+                          [ -d "$dir" ] || continue
+                          found=1
+                          pytest "$dir" -v --junitxml="junit-pr-approval-agent-$(echo "$dir" | tr / -).xml"
+                        done
+                        if [ "$found" = "0" ]; then
+                          echo "::error::pr-approval-agent engine not found at either path"
+                          exit 1
+                        fi
 
                   - name: Run dependency detection script tests
                     shell: bash
@@ -225,7 +244,7 @@ jobs:
                       junit-hogli-commands.xml
                       junit-owners.xml
                       junit-query-performance-ai.xml
-                      junit-pr-approval-agent.xml
+                      junit-pr-approval-agent-*.xml
 
             - name: Upload test results for dependency detection
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

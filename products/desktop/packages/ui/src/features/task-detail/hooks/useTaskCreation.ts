@@ -20,12 +20,17 @@ import {
   type WorkspaceMode,
 } from "@posthog/shared";
 import type { ExecutionMode, Task } from "@posthog/shared/domain-types";
+import {
+  getCurrentBrowserTabId,
+  navigateBrowserTab,
+} from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useTaskRepositoryDraftStore } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { waitForComposerExit } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { navigateToTaskPending } from "@posthog/ui/router/navigationBridge";
-import { openTask, openTaskInput } from "@posthog/ui/router/useOpenTask";
+import { openTask } from "@posthog/ui/router/useOpenTask";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import { useConnectivity } from "../../../hooks/useConnectivity";
@@ -62,6 +67,7 @@ import { useTourStore } from "../../tour/tourStore";
 import { createFirstTaskTour } from "../../tour/tours/createFirstTaskTour";
 import { useExistingWorktreeConfirmStore } from "../stores/existingWorktreeConfirmStore";
 import { useRemoteBranchConfirmStore } from "../stores/remoteBranchConfirmStore";
+import { restoreTaskInputTab } from "../taskInputTab";
 
 const log = logger.scope("task-creation");
 
@@ -89,12 +95,14 @@ interface UseTaskCreationOptions {
   customImageId?: string;
   signalReportId?: string;
   channelContext?: string;
+  channelContextPath?: string;
+  submissionBlocked?: boolean;
   channelName?: string;
   /** Backend channel UUID the created task is owned by (its feed home). */
   channelId?: string;
   /**
    * Desktop file-system folder id that owns the channel's CONTEXT.md (the
-   * `/website/$channelId` id, distinct from the feed `channelId`). Lets the
+   * `/spaces/$channelId` id, distinct from the feed `channelId`). Lets the
    * injected context address CONTEXT.md upkeep writes by a stable id.
    */
   channelContextId?: string;
@@ -115,6 +123,8 @@ interface UseTaskCreationOptions {
 
 interface UseTaskCreationReturn {
   isCreatingTask: boolean;
+  /** The task is on its way; the composer fades out before the chat replaces it. */
+  isExitingComposer: boolean;
   canSubmit: boolean;
   handleSubmit: (contentOverride?: EditorContent) => Promise<boolean>;
   additionalDirectories: string[];
@@ -194,6 +204,8 @@ export function useTaskCreation({
   customImageId,
   signalReportId,
   channelContext,
+  channelContextPath,
+  submissionBlocked = false,
   channelName,
   channelId,
   channelContextId,
@@ -202,6 +214,7 @@ export function useTaskCreation({
   onTaskCreatedEffect,
 }: UseTaskCreationOptions): UseTaskCreationReturn {
   const [isCreatingTask, setIsCreatingTask] = useState(false);
+  const [isExitingComposer, setIsExitingComposer] = useState(false);
   const hostClient = useHostTRPCClient();
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
@@ -230,11 +243,9 @@ export function useTaskCreation({
   // Used to name the task occupying a branch's worktree when reuse is blocked.
   const { data: tasks } = useTasks();
 
-  // Tasks created without a channel default into the user's private #me
-  // backend channel so they still surface in the Channels space instead of
-  // staying unfiled. The personal channel is per-user and provisioned lazily
-  // server-side on first list, so this can't collide across teammates. If it
-  // hasn't loaded yet the task is created unfiled, as before.
+  // Tasks created without a channel default into the user's private #me channel so they
+  // surface in the Channels space instead of staying unfiled. #me is per-user, so this
+  // cannot collide across teammates; before the list loads the task is created unfiled.
   const bluebirdEnabled = useFeatureFlag(
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
@@ -247,7 +258,11 @@ export function useTaskCreation({
       ? !!selectedRepository
       : !!selectedDirectory;
   const canSubmitBase =
-    isAuthenticated && isOnline && hasRequiredPath && !isCreatingTask;
+    isAuthenticated &&
+    isOnline &&
+    hasRequiredPath &&
+    !isCreatingTask &&
+    !submissionBlocked;
   const canSubmit = !!editorRef.current && canSubmitBase && !editorIsEmpty;
 
   const handleSubmit = useCallback(
@@ -256,6 +271,15 @@ export function useTaskCreation({
       if (!editor) return false;
       const allowSubmit = contentOverride ? canSubmitBase : canSubmit;
       if (!allowSubmit) return false;
+
+      // Capture everything owned by the mounted composer before the first
+      // await. Switching tabs unmounts it, but task creation must continue with
+      // the exact prompt and tab that the user submitted.
+      const originTabId = getCurrentBrowserTabId();
+      const content = contentOverride ?? editor.getContent();
+      const plainPromptText = contentToPlainText(content).trim();
+      const serializedContent = contentToXml(content).trim();
+      const filePaths = extractFilePaths(content);
 
       // Held for the whole submit, pre-flight awaits included, so a second
       // Enter lands after `canSubmitBase` has already gone false.
@@ -325,11 +349,6 @@ export function useTaskCreation({
           }
         }
 
-        const content = contentOverride ?? editor.getContent();
-        const plainPromptText = contentToPlainText(content).trim();
-        const serializedContent = contentToXml(content).trim();
-        const filePaths = extractFilePaths(content);
-
         const shouldShowPendingView = !onTaskCreated && !!plainPromptText;
         const pendingTaskKey = shouldShowPendingView
           ? generatePendingTaskKey()
@@ -343,19 +362,26 @@ export function useTaskCreation({
               label: a.label,
             })),
           });
-          navigateToTaskPending(pendingTaskKey);
-          if (!contentOverride) {
-            editor.clear();
-          }
+          // Fade the composer out before the chat fades in, so the phases
+          // hand over instead of cutting.
+          setIsExitingComposer(true);
+          await waitForComposerExit();
+          navigateBrowserTab(
+            originTabId,
+            {
+              href: `/tasks/pending/${pendingTaskKey}`,
+              title: "New task",
+            },
+            () => navigateToTaskPending(pendingTaskKey),
+          );
         }
 
         let createdTaskId: string | undefined;
 
         try {
           if (!contentOverride) {
-            const plainText = editor.getText()?.trim() ?? plainPromptText;
-            if (plainText) {
-              useTaskInputHistoryStore.getState().addPrompt(plainText);
+            if (plainPromptText) {
+              useTaskInputHistoryStore.getState().addPrompt(plainPromptText);
             }
           }
 
@@ -394,6 +420,7 @@ export function useTaskCreation({
             signalReportId,
             additionalDirectories,
             channelContext,
+            channelContextPath,
             channelName,
             channelId: channelId ?? defaultedChannelId,
             channelContextId,
@@ -440,11 +467,16 @@ export function useTaskCreation({
               if (pendingTaskKey) {
                 pendingTaskPromptStoreApi.move(pendingTaskKey, output.task.id);
               }
-              // Clear the draft BEFORE navigating away. When onTaskCreated
-              // navigates (e.g. channels), it can synchronously unmount/destroy
-              // the editor; clearing afterwards would throw in clearContent()
-              // before the persisted draft is wiped, leaving stale text behind.
-              if (!pendingTaskKey && !contentOverride) {
+              // Clear only the editor that submitted. The same component can
+              // render another browser tab before this callback runs; clearing
+              // it would erase that tab's draft. The origin's persisted draft
+              // is cleared by session id after task creation succeeds.
+              if (
+                !pendingTaskKey &&
+                !contentOverride &&
+                editorRef.current === editor &&
+                getCurrentBrowserTabId() === originTabId
+              ) {
                 editor.clear();
               }
               if (defaultedChannelId) {
@@ -460,7 +492,10 @@ export function useTaskCreation({
               if (onTaskCreated) {
                 onTaskCreated(output.task);
               } else {
-                void openTask(output.task);
+                void openTask(output.task, {
+                  channelId,
+                  tabId: originTabId,
+                });
               }
               useTourStore.getState().completeTour(createFirstTaskTour.id);
               // Pre-flight already ran above for cloud; skip the service's duplicate check.
@@ -519,9 +554,13 @@ export function useTaskCreation({
           }
 
           if (!result.success) {
+            track(ANALYTICS_EVENTS.TASK_CREATION_FAILED, {
+              error_type: "task_creation_failed",
+              failed_step: result.failedStep,
+            });
             // Usage-limit blocks already show the upgrade modal; don't also toast an error.
             if (isUsageLimitResult(result)) {
-              useUsageLimitStore.getState().show();
+              useUsageLimitStore.getState().show({ cause: "org_limit" });
               log.warn("Cloud task creation blocked by usage limit");
             } else {
               const title = getErrorTitle(result.failedStep);
@@ -536,11 +575,14 @@ export function useTaskCreation({
               if (createdTaskId) {
                 pendingTaskPromptStoreApi.clear(createdTaskId);
               }
-              openTaskInput({ initialPrompt: plainPromptText });
+              restoreTaskInputTab(originTabId, channelContextId ?? channelId);
             }
           }
           return result.success;
         } catch (error) {
+          track(ANALYTICS_EVENTS.TASK_CREATION_FAILED, {
+            error_type: "unexpected_error",
+          });
           toastError("Failed to create task", error);
           log.error("Unexpected error during task creation", { error });
           if (pendingTaskKey) {
@@ -548,12 +590,13 @@ export function useTaskCreation({
             if (createdTaskId) {
               pendingTaskPromptStoreApi.clear(createdTaskId);
             }
-            openTaskInput({ initialPrompt: plainPromptText });
+            restoreTaskInputTab(originTabId, channelContextId ?? channelId);
           }
           return false;
         }
       } finally {
         setIsCreatingTask(false);
+        setIsExitingComposer(false);
       }
     },
     [
@@ -581,6 +624,7 @@ export function useTaskCreation({
       signalReportId,
       additionalDirectories,
       channelContext,
+      channelContextPath,
       channelName,
       channelId,
       channelContextId,
@@ -603,6 +647,7 @@ export function useTaskCreation({
 
   return {
     isCreatingTask,
+    isExitingComposer,
     canSubmit,
     handleSubmit,
     additionalDirectories,

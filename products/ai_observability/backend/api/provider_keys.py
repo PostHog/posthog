@@ -7,7 +7,7 @@ from django.db.models import QuerySet
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
-from rest_framework import serializers, status, viewsets
+from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -17,9 +17,10 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.permissions import TeamMemberStrictManagementPermission
+from posthog.permissions import TeamMemberStrictManagementPermission, is_service_auth
 from posthog.plugins.plugin_server_api import reload_evaluations_on_workers, reload_taggers_on_workers
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 
 from ..llm.client import Client
 from ..llm.providers.azure_openai import (
@@ -276,7 +277,26 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
     def safely_get_queryset(self, queryset: QuerySet[LLMProviderKey]) -> QuerySet[LLMProviderKey]:
         return queryset.filter(team_id=self.team_id).select_related("created_by").order_by("-created_at")
 
+    def _require_evaluation_write_access(self) -> None:
+        if not is_service_auth(self.request) and not self.user_access_control.check_access_level_for_resource(
+            "evaluation", "editor"
+        ):
+            raise exceptions.PermissionDenied("You do not have editor access to evaluations.")
+
+    def _require_write_access_to_evaluations(self, evaluations: list[Evaluation]) -> None:
+        if is_service_auth(self.request):
+            return
+
+        if any(
+            not self.user_access_control.check_access_level_for_object(evaluation, "editor")
+            for evaluation in evaluations
+        ):
+            raise exceptions.PermissionDenied("You do not have editor access to all affected evaluations.")
+
     def perform_create(self, serializer):
+        if serializer.validated_data.get("set_as_active", False):
+            self._require_evaluation_write_access()
+
         instance = serializer.save()
         report_user_action(
             self.request.user,
@@ -427,6 +447,18 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         replacement_key_id = request.query_params.get("replacement_key_id")
+
+        if EvaluationConfig.objects.filter(team_id=self.team_id, active_provider_key=instance).exists():
+            self._require_evaluation_write_access()
+
+        affected_evaluations = list(
+            Evaluation.objects.filter(
+                team_id=self.team_id,
+                model_configuration__provider_key=instance,
+                deleted=False,
+            )
+        )
+        self._require_write_access_to_evaluations(affected_evaluations)
 
         if replacement_key_id:
             try:

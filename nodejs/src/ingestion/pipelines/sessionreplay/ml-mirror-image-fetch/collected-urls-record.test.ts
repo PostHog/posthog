@@ -1,114 +1,158 @@
-import { parseCollectedUrlsRecord } from './collected-urls-record'
+import {
+    FetchCandidate,
+    MAX_HOPS,
+    MAX_JOBS_PER_RECORD,
+    MAX_RECORD_BYTES,
+    parseCollectedUrlsRecord,
+    serializeFrontierRecord,
+} from './collected-urls-record'
 
-const TEAM = '0123456789abcdef0123456789abcdef'
-const HASH = 'a'.padEnd(22, '0')
+const REF = `imageurl:${'a'.repeat(22)}`
 
-function body(fields: string): Buffer {
+function candidate(overrides: Partial<FetchCandidate> = {}): FetchCandidate {
+    return {
+        originalRef: REF,
+        currentUrl: 'https://cdn.example.com/a.png',
+        host: 'cdn.example.com',
+        origin: 'https://cdn.example.com',
+        registrableDomain: 'example.com',
+        remainingHops: MAX_HOPS,
+        notBeforeMs: 0,
+        firstSeenAtMs: 1_700_000_000_000,
+        fetchCount: 0,
+        republishCount: 0,
+        lastRepublishReason: null,
+        ...overrides,
+    }
+}
+
+function record(overrides: Record<string, unknown> = {}): Buffer {
     return Buffer.from(
-        `{"v":1,"pseudoTeam":"${TEAM}",${fields},` +
-            `"urls":[{"ref":"imageurl:${TEAM}:${HASH}","url":"https://cdn.example.com/a.png","host":"cdn.example.com"}]}`
+        JSON.stringify({
+            v: 2,
+            jobs: [
+                {
+                    originalRef: REF,
+                    currentUrl: 'https://cdn.example.com/a.png',
+                    remainingHops: MAX_HOPS,
+                    notBeforeMs: 0,
+                    firstSeenAtMs: 1_700_000_000_000,
+                    fetchCount: 0,
+                    republishCount: 0,
+                    lastRepublishReason: null,
+                    ...overrides,
+                },
+            ],
+        })
     )
 }
 
-describe('parseCollectedUrlsRecord', () => {
-    it.each([
-        ['a magnitude no double can hold', '"capturedAtMs":-1e400'],
-        ['a positive one', '"capturedAtMs":1e400'],
-    ])('refuses %s rather than passing a non-finite timestamp on', (_name, fields) => {
-        // JSON.stringify cannot produce these, so this writes the record by hand. They parse to
-        // Infinity, which reaches a histogram as an infinite observation, and prom-client throws
-        // there. A throw inside a batch stops the consumer and replays the same record forever.
-        const parsed = parseCollectedUrlsRecord(body(fields), 'example.com')
+describe('frontier record', () => {
+    it('round trips the durable job state', () => {
+        const parsed = parseCollectedUrlsRecord(serializeFrontierRecord([candidate()]), 'example.com')
 
-        expect(parsed).toEqual({ ok: false, reason: 'malformed' })
+        expect(parsed).toEqual({ ok: true, candidates: [candidate()], urlCount: 1, rejected: [] })
+    })
+
+    it('round trips the optional low-origin-diversity marker', () => {
+        const marked = candidate({ lowOriginDiversityDeferred: true })
+
+        expect(parseCollectedUrlsRecord(serializeFrontierRecord([marked]), 'example.com')).toEqual({
+            ok: true,
+            candidates: [marked],
+            urlCount: 1,
+            rejected: [],
+        })
+    })
+
+    it('drops a job with a non-boolean low-origin-diversity marker', () => {
+        expect(parseCollectedUrlsRecord(record({ lowOriginDiversityDeferred: 'true' }), 'example.com')).toEqual({
+            ok: false,
+            reason: 'bad_url',
+        })
     })
 
     it.each([
-        ['a fully qualified host against a bare key', 'cdn.example.com.', 'example.com'],
-        ['a bare host against a fully qualified key', 'cdn.example.com', 'example.com.'],
-        ['both fully qualified', 'cdn.example.com.', 'example.com.'],
-    ])('keeps %s', (_name, host, key) => {
-        // politenessKey strips the trailing dot, so a record written before the canonicalizer did
-        // the same carries a dotted host against a bare key. A plain string comparison drops every
-        // such URL as foreign, and those records are already in the topic.
-        const value = Buffer.from(
-            `{"v":1,"pseudoTeam":"${TEAM}","capturedAtMs":1700000000000,` +
-                `"urls":[{"ref":"imageurl:${TEAM}:${HASH}","url":"https://${host}/a.png","host":"${host}"}]}`
-        )
-
-        const parsed = parseCollectedUrlsRecord(value, key)
-
-        expect(parsed.ok && parsed.candidates).toHaveLength(1)
+        ['missing value', null, 'example.com', 'malformed'],
+        ['missing key', record(), null, 'malformed'],
+        ['invalid JSON', Buffer.from('{'), 'example.com', 'malformed'],
+        ['unknown version', Buffer.from('{"v":3,"jobs":[]}'), 'example.com', 'unsupported_version'],
+        ['oversized bytes', Buffer.alloc(MAX_RECORD_BYTES + 1), 'example.com', 'oversized_record'],
+        [
+            'too many jobs',
+            Buffer.from(JSON.stringify({ v: 2, jobs: Array(MAX_JOBS_PER_RECORD + 1).fill({}) })),
+            'example.com',
+            'oversized_record',
+        ],
+    ])('refuses %s', (_name, value, key, reason) => {
+        expect(parseCollectedUrlsRecord(value, key)).toEqual({ ok: false, reason })
     })
 
     it.each([
-        ['a key that is a subdomain rather than the operator', 'cdn.example.com', 'cdn.example.com'],
-        ['a key belonging to another operator', 'cdn.example.com', 'other.net'],
-    ])('drops %s (requirement 3)', (_name, host, key) => {
-        // The key scopes the rate budget. One key for each subdomain would give one operator a
-        // multiple of the rate we promise it, and the record would be on the wrong partition too.
+        ['legacy team-scoped ref', `imageurl:${'b'.repeat(32)}:${'a'.repeat(22)}`, 'bad_ref'],
+        ['byte ref', `image:${'b'.repeat(32)}:${'a'.repeat(22)}`, 'bad_ref'],
+        ['credentials', 'https://user:pass@cdn.example.com/a.png', 'bad_url'],
+        ['HTTP', 'http://cdn.example.com/a.png', 'bad_url'],
+        ['non-default port', 'https://cdn.example.com:444/a.png', 'bad_url'],
+        ['private address', 'https://127.0.0.1/a.png', 'bad_url'],
+        ['non-canonical URL', 'https://CDN.EXAMPLE.COM/a.png', 'bad_url'],
+    ])('drops a job with %s', (_name, value, reason) => {
+        const overrides = value.startsWith('image') ? { originalRef: value } : { currentUrl: value }
+        const parsed = parseCollectedUrlsRecord(record(overrides), 'example.com')
+
+        expect(parsed).toEqual({ ok: false, reason })
+    })
+
+    it('drops a job placed on another registrable-domain partition', () => {
+        const parsed = parseCollectedUrlsRecord(record(), 'other.net')
+
+        expect(parsed).toEqual({ ok: false, reason: 'foreign_domain' })
+    })
+
+    it('converts a retained v1 record into durable candidates', () => {
+        const pseudoTeam = 'b'.repeat(32)
+        const legacyRef = `imageurl:${pseudoTeam}:${'c'.repeat(22)}`
         const value = Buffer.from(
-            `{"v":1,"pseudoTeam":"${TEAM}","capturedAtMs":1700000000000,` +
-                `"urls":[{"ref":"imageurl:${TEAM}:${HASH}","url":"https://${host}/a.png","host":"${host}"}]}`
+            JSON.stringify({
+                v: 1,
+                pseudoTeam,
+                capturedAtMs: 1_700_000_000_000,
+                hopsRemaining: 7,
+                notBeforeMs: 1_700_000_060_000,
+                urls: [
+                    {
+                        ref: legacyRef,
+                        url: 'https://CDN.EXAMPLE.COM./a.png',
+                        host: 'cdn.example.com.',
+                    },
+                ],
+            })
         )
 
-        const parsed = parseCollectedUrlsRecord(value, key)
-
-        expect(parsed.ok && parsed.candidates).toHaveLength(0)
-        expect(parsed.ok && parsed.rejected).toEqual([{ reason: 'foreign_domain' }])
+        expect(parseCollectedUrlsRecord(value, 'example.com.')).toEqual({
+            ok: true,
+            candidates: [
+                candidate({
+                    originalRef: legacyRef,
+                    remainingHops: 7,
+                    notBeforeMs: 1_700_000_060_000,
+                }),
+            ],
+            urlCount: 1,
+            rejected: [],
+        })
     })
 
     it.each([
-        ['plain HTTP', 'http://cdn.example.com/a.png'],
-        ['a scheme this lane never fetches', 'ftp://cdn.example.com/a.png'],
-    ])('drops %s (requirements 34 and 35)', (_name, url) => {
-        // The collector produces HTTPS only. Anything else means a wrong or stale producer, and a
-        // fetch would put an image on the wire in clear text.
-        const value = Buffer.from(
-            `{"v":1,"pseudoTeam":"${TEAM}","capturedAtMs":1700000000000,` +
-                `"urls":[{"ref":"imageurl:${TEAM}:${HASH}","url":"${url}","host":"cdn.example.com"}]}`
-        )
+        ['remainingHops', MAX_HOPS + 1],
+        ['notBeforeMs', -1],
+        ['firstSeenAtMs', Number.POSITIVE_INFINITY],
+        ['fetchCount', 1.5],
+        ['republishCount', Number.MAX_SAFE_INTEGER + 1],
+        ['lastRepublishReason', 'unknown'],
+    ])('drops an invalid %s', (field, value) => {
+        const parsed = parseCollectedUrlsRecord(record({ [field]: value }), 'example.com')
 
-        const parsed = parseCollectedUrlsRecord(value, 'example.com')
-
-        expect(parsed.ok && parsed.rejected).toEqual([{ reason: 'bad_url' }])
-    })
-
-    it.each([
-        ['a name that only resolves inside a network', 'wiki.corp'],
-        ['a link-local address', '169.254.169.254'],
-        ['a loopback address', '127.0.0.1'],
-    ])('drops %s (requirement 35)', (_name, host) => {
-        // The connect-time address check cannot refuse a name like wiki.corp whose DNS answer is
-        // public, so this is the only place that does.
-        const value = Buffer.from(
-            `{"v":1,"pseudoTeam":"${TEAM}","capturedAtMs":1700000000000,` +
-                `"urls":[{"ref":"imageurl:${TEAM}:${HASH}","url":"https://${host}/a.png","host":"${host}"}]}`
-        )
-
-        const parsed = parseCollectedUrlsRecord(value, host)
-
-        expect(parsed.ok && parsed.rejected).toEqual([{ reason: 'private_host' }])
-    })
-
-    it('keys one domain by one spelling, whatever the record key used', () => {
-        // The budget, the metrics, and the republish key all read this. Two spellings of one
-        // domain would take two budgets on the same pod, so each would get the full rate.
-        const value = Buffer.from(
-            `{"v":1,"pseudoTeam":"${TEAM}","capturedAtMs":1700000000000,` +
-                `"urls":[{"ref":"imageurl:${TEAM}:${HASH}","url":"https://cdn.example.com/a.png","host":"cdn.example.com"}]}`
-        )
-
-        const dotted = parseCollectedUrlsRecord(value, 'example.com.')
-        const bare = parseCollectedUrlsRecord(value, 'example.com')
-
-        expect(dotted.ok && dotted.candidates[0].domain).toBe('example.com')
-        expect(bare.ok && bare.candidates[0].domain).toBe('example.com')
-    })
-
-    it('accepts an ordinary timestamp', () => {
-        const parsed = parseCollectedUrlsRecord(body('"capturedAtMs":1700000000000'), 'example.com')
-
-        expect(parsed.ok).toBe(true)
+        expect(parsed).toEqual({ ok: false, reason: 'bad_url' })
     })
 })

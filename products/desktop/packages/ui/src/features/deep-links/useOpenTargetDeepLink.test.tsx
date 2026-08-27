@@ -47,12 +47,6 @@ vi.mock("@posthog/ui/primitives/toast", () => ({ toast: { error: vi.fn() } }));
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
   useFeatureFlag: () => false,
 }));
-vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
-  useChannels: () => ({ channels: [], isLoading: false }),
-}));
-vi.mock("@posthog/ui/features/canvas/hooks/useTaskChannelMap", () => ({
-  useTaskChannelMap: () => new Map(),
-}));
 
 import { useOpenTargetDeepLink } from "./useOpenTargetDeepLink";
 

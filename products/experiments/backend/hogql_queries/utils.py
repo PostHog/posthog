@@ -1,3 +1,4 @@
+import math
 from enum import Enum
 from typing import Any, Optional, TypeVar
 
@@ -105,6 +106,24 @@ def _validate_numeric_range(value: Any, min_val: float, max_val: float, default:
         return default
     except (TypeError, ValueError):
         return default
+
+
+def sanitize_non_finite(value: Any) -> Any:
+    """Replace non-finite floats (inf/-inf/nan) with None, recursively.
+
+    Stats can overflow to infinity (e.g. delta-method variance with a near-zero
+    denominator), json.dumps emits those as the nonstandard `Infinity`/`NaN`
+    tokens, and Postgres rejects them in jsonb columns — apply this to result
+    dicts at the storage boundary. None matches the schema: the affected fields
+    (confidence intervals etc.) are already nullable.
+    """
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {k: sanitize_non_finite(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [sanitize_non_finite(v) for v in value]
+    return value
 
 
 def get_experiment_stats_method(experiment) -> str:
@@ -273,6 +292,10 @@ def validate_variant_result(
         validation_failures.append(ExperimentStatsValidationFailure.NOT_ENOUGH_EXPOSURES)
 
     if isinstance(metric, (ExperimentFunnelMetric | ExperimentRetentionMetric)) and variant_result.sum < 5:
+        validation_failures.append(ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA)
+
+    # A zero denominator makes the ratio undefined, so no statistical result can be computed
+    if isinstance(metric, ExperimentRatioMetric) and not variant_result.denominator_sum:
         validation_failures.append(ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA)
 
     if is_baseline and variant_result.sum == 0:

@@ -103,7 +103,7 @@ The CLI uploads directly to S3 via presigned POST URLs — the backend never pro
 
 ### Commands
 
-**`vr submit`** — single-command flow. Scans a directory, hashes PNGs, creates a run with full manifest, uploads, and completes. Default `--purpose review` (gating, exits 1 on unapproved changes). Pass `--purpose observe` on master/non-PR runs for tracking-only (won't block, won't prompt for approval). Pass `--auto-approve` to approve everything and write the signed baseline (forces `--purpose review`).
+**`vr submit`** — single-command flow. Scans a directory, hashes PNGs, creates a run with full manifest, uploads, and completes. Default `--purpose review` (gating, exits 1 on unapproved changes). Pass `--purpose observe` on master/non-PR runs for tracking-only (no approval prompt). An observe run still exits 1 on snapshot drift, so pass `--tolerate-drift` too where a red job is not wanted. Pass `--auto-approve` to approve everything and write the signed baseline (forces `--purpose review`).
 
 **`vr verify`** — local baseline check without API. Hashes PNGs in a directory and compares against `snapshots.yml`. No backend involvement.
 
@@ -113,13 +113,16 @@ The CLI uploads directly to S3 via presigned POST URLs — the backend never pro
 
 **`vr run complete`** — triggers completion (classification, removal detection, diffs).
 Exits 1 if unapproved changes are detected, 0 if clean or `--auto-approve` is set, and 2 if the command itself failed (auth, network, timeout, backend processing).
-The exit code does not depend on `--purpose`: an `observe` run still exits 1 on unapproved changes, so a caller that wants tracking-only behavior has to tolerate exit 1 itself.
-`ci-storybook.yml` does exactly that on master pushes and merge-queue branches, and treats exit 2 as a failure everywhere.
+Pass the same `--purpose` the run was created with.
+On `--purpose observe` the command names the drifted identifiers, emits a `::warning::` annotation, and exits 1.
+The CLI has to be the one to say so: the backend reports zero unresolved for an observe run whatever drifted, so a clean run and a drifting one look identical to it.
+Add `--tolerate-drift` to report the drift and still exit 0. Use it on the default branch, where there is no merge left to stop and a red job would block the repair too.
 
 ### Run purposes
 
 - **`review`** (default) — approvable. Backend posts PR comment prompts; UI surfaces it under "needs review"; CLI gates on unapproved changes.
-- **`observe`** — tracking only. Backend rejects approval attempts; no PR comment; excluded from "needs review". The commit status is posted green (`success`, "Tracking only…") to a separate, non-gating `… (tracking)` context — never the gating `PostHog Visual Review / {run_type}` one. `purpose` is client-supplied, so greening the gating context would let an observe run bypass branch protection on a PR head SHA; the separate context keeps observe runs informational-only (like `(partial)` runs). The UI hides all approval affordances. Use on master pushes where there's no PR to approve.
+- **`observe`** — tracking only. Backend rejects approval attempts; no PR comment; excluded from "needs review". The commit status is posted green (`success`, "Tracking only…") to a separate, non-gating `… (tracking)` context — never the gating `PostHog Visual Review / {run_type}` one. `purpose` is client-supplied, so greening the gating context would let an observe run bypass branch protection on a PR head SHA; the separate context keeps observe runs informational-only (like `(partial)` runs). The UI hides all approval affordances. Use on master pushes and merge-queue branches, where there's no PR to approve.
+  The commit status never gates, but the exit code of `vr run complete` still does, and that is where a caller chooses. A merge-queue branch renders the tree about to land, so it lets drift fail the job. Master passes `--tolerate-drift` instead.
 
 ## Current state
 
@@ -131,6 +134,40 @@ Developers can also manually tolerate a snapshot from the UI.
 
 **Quarantine** — known-flaky identifiers can be quarantined per repo and run type.
 Quarantined snapshots are still captured and diffed but excluded from gating.
+A quarantined snapshot is not committed to the baseline, with one exception: a quarantined `new` snapshot that a person approved by identifier.
+This is the way to give a story a baseline entry when it has none and the quarantine must stay, because every run without the entry classifies the story `new`, and lifting the quarantine first fails every run until the entry lands.
+The procedure is: open a PR that renders the story, approve the `new` snapshot on that run by identifier (the API or the `visual-review-runs-approve-create` MCP tool; "Approve all" skips quarantined snapshots), finalize the run so the entry is committed to the PR branch, merge the PR, then lift the quarantine.
+
+**Flakiness tab** — scores each snapshot identity on the share of the last 7 days of default-branch runs that rendered it differently from its baseline.
+The share is split in two, because the two cost different things: a `hard` run failed the gate and blocked whoever was merging, and a `soft` run was absorbed by a toleration and blocked nobody.
+`hard` counts every result that is not `unchanged`, matching what `gating._is_unresolved` blocks on: a diff over a threshold, a baseline that was never committed or was dropped from the file, and a baseline whose story no longer renders.
+
+Rows are read over 30 days but rated over 7.
+The rate has to lapse before the history does, so a quarantine over a snapshot that stopped failing last week becomes liftable while the activity strip still shows what it used to do.
+
+The states are an urgency ladder, and each rung asks for a different fix:
+
+| State      | Meaning                                                        | Fix                                         |
+| ---------- | -------------------------------------------------------------- | ------------------------------------------- |
+| `broken`   | Fails nearly every run                                         | Correct the baseline; a quarantine hides it |
+| `unstable` | Fails some runs and not others                                 | Stabilize the story, or quarantine it       |
+| `at_risk`  | Never fails, but its worst absorbed diff is near the threshold | Fix it before it starts failing             |
+| `noisy`    | Renders variants, absorbed with room to spare                  | Nothing                                     |
+| `clean`    | Nothing failing or absorbed inside the rate span               | Nothing                                     |
+
+The page groups `noisy` and `clean` under one "Quiet" tile, so every listed entry is reachable from some tile.
+A row can be listed for history the rate span no longer counts, and it would otherwise sit in the totals with no way to display it.
+
+`at_risk` exists because always being absorbed is not a safety property.
+A snapshot passes only while it stays under both diff thresholds, so one absorbed at 0.01% will never cross and one absorbed just under the line is a hard failure waiting for the next unrelated restyle.
+`headroom` is what the worst absorbed run leaves free, measured against the pixel threshold: a `tolerated_hash` match copies the diff recorded when the variant was minted, and the image is byte-identical to that mint, so the number is exact rather than a re-measurement.
+
+Open quarantines appear in the same list, with extend and lift on the row.
+`needs a decision` flags one that has run out, is about to, or covers a snapshot that stopped failing the gate.
+It turns on hard failures rather than on variants: a snapshot only fails the gate when its diff is over a threshold, which is the one case that records no variant at all, so scoring on variants reported every quarantine still doing its job as covering a snapshot that had gone clean.
+
+`variant_count` stays scoped to the current baseline, because a `ToleratedHash` row is stored against a `baseline_hash` and the classifier only matches a row whose hash is still the baseline.
+Variants recorded against a superseded baseline can never match again.
 
 **Known gaps:**
 
@@ -138,6 +175,7 @@ Quarantined snapshots are still captured and diffed but excluded from gating.
 
 **Not yet built:**
 
+- Auto-release of a quarantine whose snapshot has gone clean (the flakiness tab flags it, a human still decides)
 - Retention / cleanup of old runs and artifacts
 - Server-side thumbnailing for the snapshot strip
 - Webhook-driven run creation (currently CLI-initiated only)

@@ -15,7 +15,7 @@ import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
-import { createOrganization, createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createOrganization, createTeam, getTeam } from '~/tests/helpers/sql'
 import { EventHeaders, InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
 
 import { createNormalizeEventStep } from './normalize-event-step'
@@ -77,7 +77,6 @@ describe('createProcessPersonlessStep', () => {
     let personsStore: BatchWritingPersonsStore
 
     beforeEach(async () => {
-        await resetTestDatabase()
         infra = await createIngestionTestInfra()
         const organizationId = await createOrganization(infra.postgres)
         teamId = await createTeam(infra.postgres, organizationId)
