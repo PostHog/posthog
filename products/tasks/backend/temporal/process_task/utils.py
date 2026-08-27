@@ -26,6 +26,8 @@ from products.tasks.backend.constants import (
     InitialPermissionMode,
     SnapshotKind,
     filter_user_sandbox_env_vars,
+    is_same_run_resume_idle_state,
+    is_same_run_resume_state,
 )
 from products.tasks.backend.exceptions import CredentialUnavailableError
 from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url as _resolve_mcp_url
@@ -389,8 +391,8 @@ class RunState(BaseModel, extra="allow"):
     context_window: str | None = None
     fast_mode: bool | None = None
     resume_from_run_id: str | None = None
-    handoff_resumed: bool = False
-    handoff_resume_idle: bool = False
+    same_run_resume: bool = False
+    same_run_resume_idle: bool = False
     snapshot_external_id: str | None = None
     snapshot_kind: str | None = None
     snapshot_mount_path: str | None = None
@@ -436,7 +438,10 @@ class RunState(BaseModel, extra="allow"):
 
 
 def parse_run_state(state: dict[str, Any] | None) -> RunState:
-    return RunState.model_validate(state or {})
+    normalized_state = dict(state or {})
+    normalized_state["same_run_resume"] = is_same_run_resume_state(state)
+    normalized_state["same_run_resume_idle"] = is_same_run_resume_idle_state(state)
+    return RunState.model_validate(normalized_state)
 
 
 @dataclass(frozen=True)
