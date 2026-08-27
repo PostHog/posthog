@@ -324,10 +324,10 @@ export class McpProxyService {
   }
 
   private isAuthErrorBody(bodyText: string, status: number): boolean {
-    if (
-      bodyText.includes('"authentication_failed"') ||
-      bodyText.includes('"authentication_error"')
-    ) {
+    // Only a rejected token carries `authentication_failed`. A permission denial
+    // shares `type: "authentication_error"` but carries `code: "permission_denied"`,
+    // and a fresh token cannot fix it, so it must not trigger a refresh.
+    if (bodyText.includes('"authentication_failed"')) {
       return true;
     }
     if (status < 400) return false;

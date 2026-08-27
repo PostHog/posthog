@@ -168,6 +168,10 @@ _PROVIDER_TIMEOUT_ACTIVITY_TYPES = frozenset(
 # surfaces here the render attempts are spent and the emptiness is a property of the recording, not of one attempt.
 _RASTERIZER_NO_SNAPSHOTS_TYPE = "NO_SNAPSHOTS"
 
+# The rasterizer refuses a recording whose snapshot blocks exceed its size cap, to keep an oversized render from
+# walking the pod into its memory limit. That size is a fixed property of the recording, so no retry helps.
+_RASTERIZER_TOO_LARGE_TYPE = "RECORDING_TOO_LARGE"
+
 
 def _activity_timeout_kind(e: BaseException) -> str | None:
     """Map an activity start-to-close/heartbeat timeout onto whichever side ran out of time."""
@@ -425,6 +429,14 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 # "nothing to analyze" as a session with no events, which we already gate as ineligible, so calling
                 # it a failure would point the user at support over a recording that can never produce a video.
                 raise IneligibleSessionError(_root_cause_message(e), kind=IneligibleSessionKind.NO_SNAPSHOTS) from e
+            # An in-flight history from before this branch existed already scheduled the failed-mark for an
+            # oversized recording. `patched` makes those histories skip this branch and keep the old path, so
+            # switching them to the ineligible-mark on replay cannot raise a non-determinism error.
+            if _failure_type(e) == _RASTERIZER_TOO_LARGE_TYPE and wf.patched(
+                "replay-vision-too-large-ineligible-2026-08"
+            ):
+                # Gate as ineligible, not failed, so the user reads "too large" instead of a "known issue" retry prompt.
+                raise IneligibleSessionError(_root_cause_message(e), kind=IneligibleSessionKind.TOO_LARGE) from e
             # Direct cause only: a nested activity timeout inside the child already bumped the
             # counter there, and matching it here would double-count one run.
             if (

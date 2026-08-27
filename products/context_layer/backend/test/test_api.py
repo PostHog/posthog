@@ -129,6 +129,27 @@ class TestContextLayerAPI(APIBaseTest):
         assert resolved.status_code == 200
         assert resolved.json() == {"path": path, "exists": True}
 
+    def test_enable_sanitizes_malformed_wikilinks_in_legacy_context(self, _flag) -> None:
+        with team_scope(self.team.id):
+            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="research", star=False)
+            assert channel is not None
+            tasks_facade.publish_channel_instructions(
+                channel.id,
+                self.team.id,
+                self.user.id,
+                content="Keep [[areas/insights]] current. Ignore [[../secrets]] and review [[unfinished notes.",
+                base_version=0,
+            )
+
+        self._enable()
+
+        path = f"projects/{self.team.id}/spaces/research.md"
+        page = self.client.get(f"{self.base_url}/pages/", {"path": path}).json()
+        assert "[[areas/insights]]" in page["content"]
+        assert "&#91;&#91;../secrets&#93;&#93;" in page["content"]
+        assert "&#91;&#91;unfinished notes." in page["content"]
+        assert "Some wiki-link brackets in this imported context were encoded" in page["content"]
+
     def test_enable_scaffolds_space_page_without_legacy_context(self, _flag) -> None:
         with team_scope(self.team.id):
             channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="empty-space", star=False)
@@ -238,6 +259,15 @@ class TestContextLayerAPI(APIBaseTest):
         ):
             response = self.client.post(f"{self.base_url}/enable/")
         assert response.status_code == 429
+
+    def test_enable_returns_503_when_git_binary_is_missing(self, _flag) -> None:
+        # A host without git makes every store write shell out to a missing
+        # binary. The endpoint must map that to a clean 503, not an unhandled 500.
+        with patch.object(
+            store.subprocess, "run", side_effect=FileNotFoundError(2, "No such file or directory", "git")
+        ):
+            response = self.client.post(f"{self.base_url}/enable/")
+        assert response.status_code == 503, response.content
 
     def test_endpoints_404_before_enablement(self, _flag) -> None:
         assert self.client.get(f"{self.base_url}/tree/").status_code == 404
