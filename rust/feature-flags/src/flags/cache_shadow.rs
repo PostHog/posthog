@@ -976,6 +976,16 @@ mod tests {
     }
 
     const TRACKER_TTL: Duration = Duration::from_secs(3600);
+    const PENDING_KEY_TEAM_7: &str = "posthog:1:feature_flags/shadow_mismatch/7";
+
+    /// A disagreement on the same flag with different content, so the fingerprint
+    /// differs from `mismatch_diffs`.
+    fn other_mismatch_diffs() -> Vec<ShadowDiff> {
+        let built = wrapper(vec![flag_from_json(base_flag_json(1))]);
+        let mut cached_json = base_flag_json(1);
+        cached_json["filters"]["groups"][0]["rollout_percentage"] = json!(25.0);
+        diff_live_entry(&built, &live(vec![flag_from_json(cached_json)]))
+    }
 
     fn tracker(redis: &MockRedisClient) -> MismatchTracker {
         MismatchTracker::new(Arc::new(redis.clone()), TRACKER_TTL)
@@ -986,6 +996,10 @@ mod tests {
     /// recorded writes into a fresh client is what models state that outlived the
     /// process which wrote it. The tracker holds nothing in memory, so a later
     /// build in the same pod and one in a new pod run the same code path.
+    ///
+    /// It replays *attempted* writes. The mock records a call whether or not it
+    /// returned an error, so a test that injects a write failure must build the
+    /// next store itself rather than call this.
     fn next_build(prior: &MockRedisClient) -> MockRedisClient {
         let mut next = MockRedisClient::new();
         for call in prior.get_calls() {
@@ -1033,6 +1047,17 @@ mod tests {
         let clean = tracker(&second_pod).observe(7, Vec::new()).await;
         assert!(clean.is_match());
 
+        // Asserted against the store, not against the next build: an unseeded mock
+        // reads as an absent key, so a later first sighting proves nothing about
+        // whether the clean build cleared anything.
+        assert_eq!(
+            calls_with_op(&second_pod, "del")
+                .iter()
+                .map(|call| call.key.as_str())
+                .collect::<Vec<_>>(),
+            vec![PENDING_KEY_TEAM_7]
+        );
+
         // The earlier sighting no longer counts — mismatch starts over.
         let third_pod = next_build(&second_pod);
         let after = tracker(&third_pod).observe(7, mismatch_diffs()).await;
@@ -1050,18 +1075,22 @@ mod tests {
         // on a cache entry the serve path reads.
         let writes = calls_with_op(&first_pod, "setex");
         assert_eq!(writes.len(), 1);
-        assert_eq!(writes[0].key, "posthog:1:feature_flags/shadow_mismatch/7");
+        assert_eq!(writes[0].key, PENDING_KEY_TEAM_7);
         match writes[0].value.clone() {
             MockRedisValue::StringWithTTL(_, ttl) => assert_eq!(ttl, TRACKER_TTL.as_secs()),
             other => panic!("expected a value with a TTL, got {other:?}"),
         }
 
-        // The mock has no clock, so a key the next build cannot read is expiry.
-        let late = tracker(&MockRedisClient::new())
-            .observe(7, mismatch_diffs())
-            .await;
+        // The mock has no clock, so expiry is modelled as the key being gone by the
+        // time the next build reads it. Stated rather than left to the mock's
+        // default, so the test still means this if that default changes.
+        let mut expired = next_build(&first_pod);
+        expired.get_ret(PENDING_KEY_TEAM_7, Err(CustomRedisError::NotFound));
+
+        let late = tracker(&expired).observe(7, mismatch_diffs()).await;
         assert!(late.confirmed.is_empty());
         assert_eq!(late.first_sight.len(), 1);
+        assert!(late.store_errors.is_empty());
     }
 
     #[tokio::test]
@@ -1071,13 +1100,10 @@ mod tests {
         let first_pod = MockRedisClient::new();
         tracker(&first_pod).observe(7, mismatch_diffs()).await;
 
-        let built = wrapper(vec![flag_from_json(base_flag_json(1))]);
-        let mut cached_json = base_flag_json(1);
-        cached_json["filters"]["groups"][0]["rollout_percentage"] = json!(25.0);
-        let other = diff_live_entry(&built, &live(vec![flag_from_json(cached_json)]));
-
         let second_pod = next_build(&first_pod);
-        let second = tracker(&second_pod).observe(7, other).await;
+        let second = tracker(&second_pod)
+            .observe(7, other_mismatch_diffs())
+            .await;
         assert!(second.confirmed.is_empty());
         assert_eq!(second.first_sight.len(), 1);
     }
@@ -1099,10 +1125,7 @@ mod tests {
         tracker(&first_pod).observe(7, mismatch_diffs()).await;
 
         let mut second_pod = next_build(&first_pod);
-        second_pod.get_ret(
-            "posthog:1:feature_flags/shadow_mismatch/7",
-            Err(CustomRedisError::Timeout),
-        );
+        second_pod.get_ret(PENDING_KEY_TEAM_7, Err(CustomRedisError::Timeout));
 
         let second = tracker(&second_pod).observe(7, mismatch_diffs()).await;
         assert!(second.confirmed.is_empty());
@@ -1111,32 +1134,35 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tracker_write_failure_leaves_nothing_to_confirm_against() {
-        let mut first_pod = MockRedisClient::new();
-        first_pod.set_ret(
-            "posthog:1:feature_flags/shadow_mismatch/7",
-            Err(CustomRedisError::Timeout),
-        );
+    async fn tracker_write_failure_clears_the_stale_observation() {
+        // A failed write leaves the previous build's fingerprints in place with
+        // their own TTL. Without the compensating clear, the team's next build
+        // compares against an observation from two builds ago and can confirm a
+        // disagreement the build in between did not see.
+        let mut second_pod = next_build(&{
+            let first_pod = MockRedisClient::new();
+            tracker(&first_pod).observe(7, mismatch_diffs()).await;
+            first_pod
+        });
+        second_pod.set_ret(PENDING_KEY_TEAM_7, Err(CustomRedisError::Timeout));
 
-        let first = tracker(&first_pod).observe(7, mismatch_diffs()).await;
-        assert_eq!(first.store_errors, vec![TrackerStoreOp::Write]);
-
-        // A fresh store, not `next_build`: the failed write left nothing behind,
-        // and the mock records the attempt whether it succeeded or not.
-        let second = tracker(&MockRedisClient::new())
-            .observe(7, mismatch_diffs())
+        let second = tracker(&second_pod)
+            .observe(7, other_mismatch_diffs())
             .await;
-        assert!(second.confirmed.is_empty());
-        assert_eq!(second.first_sight.len(), 1);
+        assert_eq!(second.store_errors, vec![TrackerStoreOp::Write]);
+        assert_eq!(
+            calls_with_op(&second_pod, "del")
+                .iter()
+                .map(|call| call.key.as_str())
+                .collect::<Vec<_>>(),
+            vec![PENDING_KEY_TEAM_7]
+        );
     }
 
     #[tokio::test]
     async fn tracker_clear_failure_is_reported() {
         let mut redis = MockRedisClient::new();
-        redis.del_ret(
-            "posthog:1:feature_flags/shadow_mismatch/7",
-            Err(CustomRedisError::Timeout),
-        );
+        redis.del_ret(PENDING_KEY_TEAM_7, Err(CustomRedisError::Timeout));
 
         let clean = tracker(&redis).observe(7, Vec::new()).await;
         assert!(clean.is_match());
