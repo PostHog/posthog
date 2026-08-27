@@ -1,7 +1,7 @@
 # ingestion-consumer
 
-Rust Kafka consumer that routes analytics events to Node.js ingestion workers over HTTP with sticky per-`distinct_id` assignment.
-It reads batches from Kafka, groups messages by `token:distinct_id`, pins each key to a worker (preserving per-person ordering), scatters sub-batches over HTTP, and commits offsets only after every message in the batch is accepted.
+Rust Kafka consumer that routes analytics events to Node.js ingestion workers over HTTP with sticky per-key assignment.
+It reads batches from Kafka, groups messages by Kafka message key, pins each key to a worker (preserving per-key ordering; unkeyed messages can go to any worker), scatters sub-batches over HTTP, and commits offsets only after every message in the batch is accepted.
 Worker health combines active `/_ready` probes with passive send outcomes; workers that leave the pool drain gracefully — in-flight work finishes, new work for their keys defers and re-routes to survivors in order.
 
 ## Ordering sentinels
