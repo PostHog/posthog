@@ -5629,25 +5629,25 @@ snapshots:
     scenes-app-ai-observability-conversation-display--tools--light:
         hash: v1.k794b7964.cc6f7770155f4b720ff0597c3dd5deff699a267cfbdd8fe76a131cb51740215d.lKCAOsQBSoBkK46EHSYdGmWxAi4CQ4wUrx2J1iRF_f0
     scenes-app-ai-observability-instrumentation-checklist-card--collecting--dark:
-        hash: v1.k794b7964.c4f5b5148bcc17e44b6e72815067fde77878dd618064191967b7485b5843df6a.xlqr51TE30nzHbgTDQmQXG-itFPZsWAJP3GSf28Ax34
+        hash: v1.k794b7964.6f9f209d5daaf8573020fb50615421d426055c8090d0ee73a2629487d30cbf29.g4iTGpNCX68yiOgdFhRMYO2xEGf0WhTu4ji2Rqijroc
     scenes-app-ai-observability-instrumentation-checklist-card--collecting--light:
-        hash: v1.k794b7964.fbb60870e2eed63a51ca288116a29daaef2bd96892232807944b2906eb7c1206.YQ5agsqB1dGW1YWMF8k8br-mOLNScEYwnBXkwtl6x7g
+        hash: v1.k794b7964.5b59fa66c967caa25a3b42447aef2a9cc28e7a7297f68bf2c6ef52f93868340b.Vu-uZ6ASRxq7Xtww0upiQBEtM7K4W8bW1n2NbiZzAlY
     scenes-app-ai-observability-instrumentation-checklist-card--first-load--dark:
-        hash: v1.k794b7964.a9558f278c6834b4a21e16392708556a3f4071f02a26e5d554c806d38126e83d.WuwC852o3LrlEjIVLpee7fv16Q7kD3Za9cMYpS4Vd1E
+        hash: v1.k794b7964.6f9f209d5daaf8573020fb50615421d426055c8090d0ee73a2629487d30cbf29.TYHHCod2JSAu1qqe-WenUDbqhn0YlDo5gRGxTyanWoc
     scenes-app-ai-observability-instrumentation-checklist-card--first-load--light:
-        hash: v1.k794b7964.2245669c97be5eb5f2e9e8ffaa0f3e3bf6461a65f474ee9b53b35b38494df47a.w_Ms5xx9wPGlSfGa7vJO8HX5NKLCkly9Dyg0Li2QktY
+        hash: v1.k794b7964.5b59fa66c967caa25a3b42447aef2a9cc28e7a7297f68bf2c6ef52f93868340b.Ecas14W8dqnPe5sx8n14DBpWhPgJlRnmlhunbzkynfQ
     scenes-app-ai-observability-instrumentation-checklist-card--passing--dark:
-        hash: v1.k794b7964.6c9b95ef85e267e2093b9c101c782f7e41d967db51cb0a670a7231809285c793.dgZRDYt5ENCPBBde3z7xDQQVjrDHMdzxwsa9rvXne-Y
+        hash: v1.k794b7964.6f9f209d5daaf8573020fb50615421d426055c8090d0ee73a2629487d30cbf29.3G8C6lRoRMCOFPTyHUc1fUVrQ9SWQSBU5GDHVxfxkK0
     scenes-app-ai-observability-instrumentation-checklist-card--passing--light:
-        hash: v1.k794b7964.91b86f8623414837ff64c87de7b0d33873b7150bbb3f444c1fb99525c5842ae0.qBDFLMcnuFW2YEKAkAqNJ2-EMh_2PVyRUN0E_QVypbA
+        hash: v1.k794b7964.5b59fa66c967caa25a3b42447aef2a9cc28e7a7297f68bf2c6ef52f93868340b.c-ITenm00lDNHO7YfYrQTyOgaWKwNMXQimGkVuPBJoo
     scenes-app-ai-observability-instrumentation-checklist-card--warnings--dark:
         hash: v1.k794b7964.6f9f209d5daaf8573020fb50615421d426055c8090d0ee73a2629487d30cbf29.U5AhEdEUppDlS_0j56Kjpl4cQqLYrXk-auBMToD6KV0
     scenes-app-ai-observability-instrumentation-checklist-card--warnings--light:
         hash: v1.k794b7964.5b59fa66c967caa25a3b42447aef2a9cc28e7a7297f68bf2c6ef52f93868340b.rtL19Q--FVLDDrBkmW1rNs9WmUOnseaz8nFeCHl6xEw
     scenes-app-ai-observability-instrumentation-checklist-card--warnings-with-a-dismissal--dark:
-        hash: v1.k794b7964.dc67c5936e9b7def82fde55b5670251815a6eef5fd1cd74441fc7d4d35a63527.rmUczglnF7ssVQHNMtfSUnC3OlJh9ExHJYJhPkmWEoM
+        hash: v1.k794b7964.6f9f209d5daaf8573020fb50615421d426055c8090d0ee73a2629487d30cbf29.stsWopH6BI50ASXjhDxCWn-Xa46oqy_cH4v0xAO4VIQ
     scenes-app-ai-observability-instrumentation-checklist-card--warnings-with-a-dismissal--light:
-        hash: v1.k794b7964.3f619b840fbc915515b480ed4a09c6c6ab6e589ca3d1a5412d52ee9c8b0cfb95.pb6TRwcHrYGbtfTTyD6NQxSwuUH33yPsKEx7OXpSJ6Q
+        hash: v1.k794b7964.5b59fa66c967caa25a3b42447aef2a9cc28e7a7297f68bf2c6ef52f93868340b.VU8b650GOEljJTYfBvHHLbvSMPSS35X5ZJzE63xAv6M
     scenes-app-ai-observability-prompts--empty-state--dark:
         hash: v1.k794b7964.34208d6347c35d9f570e8d107d47e7360aeed280aa1c87c92d25d25182ddeda5.JGg5hNoklZduz1RmWxJIGvp-ZKpgVuWio9YDjjPtGYU
     scenes-app-ai-observability-prompts--empty-state--light:
@@ -5749,9 +5749,9 @@ snapshots:
     scenes-app-ai-observability-sessions-empty-state--missing-session-instrumentation--light:
         hash: v1.k794b7964.a9311249692deb4f164fdd7fda156bd5e8430f54c579bcd19c25b9a6a00a6e6e.3Z54wi0q6UHa39V4Y7Jaqwd5eH8hqZPIa_7vF1_hWus
     scenes-app-ai-observability-sessions-empty-state--nothing-to-report--dark:
-        hash: v1.k794b7964.e1462455e28de1e4f36643878811b6e18b20126651ac3b6b7e6bfaec35ccbb34.TbtVphGp4qqtVmQClM1MWkCwd640rwEvn7A4w0fVy9M
+        hash: v1.k794b7964.f9a40c9c9f03ae241b4b55fc861c0fc470434eda5468b5048b5a99d47e146867.1_xlNXQFwOVz40TTjGKiUtC1KXVUSCh7xoBRPd5zz0M
     scenes-app-ai-observability-sessions-empty-state--nothing-to-report--light:
-        hash: v1.k794b7964.aef89afcb301ebab61c1515475a9d37f4ee4c11cb3cca1f786748cb206606619.1ftP8F16dW8sZQTZzwF2ZXver7_Dph5OGpQAKp2e9zk
+        hash: v1.k794b7964.a9311249692deb4f164fdd7fda156bd5e8430f54c579bcd19c25b9a6a00a6e6e.JnEBbVENuBOYVpulIIDVeeenCYSQ_6w03e2oYFCEHjs
     scenes-app-ai-observability-skills--skill-detail-side-by-side-above-2-xl-breakpoint--superwide--dark:
         hash: v1.k794b7964.39ca895c7d8f0aafdd041e9578ce552d37520442d6df7a2d6d554dfdc032b5ba.dqxACinzs4OesVScmWpwTnoPMejqxFaHIHSidJnXKOs
     scenes-app-ai-observability-skills--skill-detail-side-by-side-above-2-xl-breakpoint--superwide--light:
