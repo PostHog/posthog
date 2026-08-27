@@ -102,21 +102,26 @@ def _build_outcome_assets(
     return outcome_assets, successful_asset_ids
 
 
-def _summarize_export_failure_details(errors: list[ExportError]) -> dict[str, str | int | bool]:
+def _summarize_export_failure_details(errors: list[ExportError]) -> dict[str, str | int | list[str]]:
     """Summarize per-asset failure dimensions onto one subscription SLO event."""
 
     details = [error.failure_details for error in errors if error.failure_details]
-    categories = {str(detail["failure_category"]) for detail in details if "failure_category" in detail}
-    components = {str(detail["failure_component"]) for detail in details if "failure_component" in detail}
-    retryable_values = {detail["failure_retryable"] for detail in details if "failure_retryable" in detail}
+    categories = sorted({str(detail["failure_category"]) for detail in details if "failure_category" in detail})
+    components = sorted({str(detail["failure_component"]) for detail in details if "failure_component" in detail})
+    retryable_failure_count = sum(detail.get("failure_retryable") is True for detail in details)
+    unclassified_failure_count = len(errors) - len(details)
 
     return {
         "failure_stage": "asset_generation",
-        "failure_category": next(iter(categories)) if len(categories) == 1 else "mixed",
-        "failure_component": next(iter(components)) if len(components) == 1 else "mixed",
+        "failure_category": categories[0] if len(categories) == 1 else "mixed",
+        "failure_categories": categories,
+        "failure_component": components[0] if len(components) == 1 else "mixed",
+        "failure_components": components,
         "failed_asset_count": len(errors),
         "failure_category_count": len(categories),
-        "failure_retryable": next(iter(retryable_values)) if len(retryable_values) == 1 else False,
+        "retryable_failed_asset_count": retryable_failure_count,
+        "non_retryable_failed_asset_count": len(details) - retryable_failure_count,
+        "unclassified_failed_asset_count": unclassified_failure_count,
     }
 
 

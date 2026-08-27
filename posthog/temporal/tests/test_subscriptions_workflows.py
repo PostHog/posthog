@@ -31,6 +31,7 @@ from posthog.models.integration import Integration
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.exports.activities import export_asset_activity
+from posthog.temporal.exports.types import ExportError
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -78,6 +79,7 @@ from products.exports.backend.temporal.subscriptions.workflows import (
     ProcessAISubscriptionWorkflow,
     ProcessSubscriptionWorkflow,
     ScheduleAllSubscriptionsWorkflow,
+    _summarize_export_failure_details,
 )
 from products.product_analytics.backend.facade.models import Insight
 
@@ -104,6 +106,43 @@ async def test_subscription_workflows_accept_legacy_previous_target_payload() ->
 
     assert process_inputs.previous_target_value == "old@example.com"
     assert update_inputs.previous_target_value == "old@example.com"
+
+
+async def test_subscription_slo_failure_summary_preserves_mixed_failure_details() -> None:
+    summary = _summarize_export_failure_details(
+        [
+            ExportError(
+                exception_class="BrowserlessUnavailable",
+                failure_details={
+                    "failure_category": "renderer_rate_limited",
+                    "failure_component": "browserless",
+                    "failure_retryable": True,
+                },
+            ),
+            ExportError(
+                exception_class="RuntimeError",
+                failure_details={
+                    "failure_category": "application",
+                    "failure_component": "exporter",
+                    "failure_retryable": False,
+                },
+            ),
+            ExportError(exception_class="LegacyError"),
+        ]
+    )
+
+    assert summary == {
+        "failure_stage": "asset_generation",
+        "failure_category": "mixed",
+        "failure_categories": ["application", "renderer_rate_limited"],
+        "failure_component": "mixed",
+        "failure_components": ["browserless", "exporter"],
+        "failed_asset_count": 3,
+        "failure_category_count": 2,
+        "retryable_failed_asset_count": 1,
+        "non_retryable_failed_asset_count": 1,
+        "unclassified_failed_asset_count": 1,
+    }
 
 
 async def test_email_delivery_error_is_non_retryable(team, user) -> None:
@@ -2009,7 +2048,11 @@ async def test_partial_export_failure_delivers_successful_assets(
         assert props["failure_component"] == "exporter"
         assert props["failed_asset_count"] == 1
         assert props["failure_category_count"] == 1
-        assert props["failure_retryable"] is False
+        assert props["failure_categories"] == ["application"]
+        assert props["failure_components"] == ["exporter"]
+        assert props["retryable_failed_asset_count"] == 0
+        assert props["non_retryable_failed_asset_count"] == 1
+        assert props["unclassified_failed_asset_count"] == 0
     else:
         assert "error_type" not in props
         assert props["asset_errors"] == []
