@@ -22,6 +22,9 @@ class InsightVisitor(
         "dashboard",
         "dashboards",
         "subscriptions_dashboard_export",
+        # Reverse M2M from an AI report's context; not an owned relation to copy, and visiting its
+        # auto-created through model has no visitor. Mirrors subscriptions_dashboard_export above.
+        "contextual_ai_subscriptions",
         "short_id",
         "filters_hash",
         "refreshing",

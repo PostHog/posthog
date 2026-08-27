@@ -14,6 +14,9 @@ class DashboardVisitor(
         "last_accessed_at",
         "share_token",
         "is_shared",
+        # Reverse M2M from an AI report's context; not an owned relation to copy, and visiting its
+        # auto-created through model has no visitor. Mirrors subscriptions_dashboard_export on Insight.
+        "contextual_ai_subscriptions",
     ],
 ):
     @classmethod
