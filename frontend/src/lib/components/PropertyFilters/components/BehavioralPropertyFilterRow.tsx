@@ -104,8 +104,9 @@ export function BehavioralPropertyFilterRow({
 }: BehavioralPropertyFilterRowProps): JSX.Element {
     // Only mounted for behavioral filters, so surfaces without one never pay for the actions fetch
     const { actionsById } = useValues(actionsModel)
-    // Open by default when filters already exist, so API-created ones are never silently hidden
-    const [eventFiltersVisible, setEventFiltersVisible] = useState((filter.event_filters?.length ?? 0) > 0)
+    // Derived (not mount-time state) so a row reused for a different filter after a group deletion doesn't keep a stale open/closed state
+    const [userToggledEventFilters, setUserToggledEventFilters] = useState<boolean | null>(null)
+    const eventFiltersVisible = userToggledEventFilters ?? !!filter.event_filters?.length
 
     // Filters created via the API with explicit date bounds have no window controls to map onto
     if (!editable || filter.explicit_datetime) {
@@ -168,7 +169,7 @@ export function BehavioralPropertyFilterRow({
                                 icon={<IconFilter />}
                                 noPadding
                                 active={eventFiltersVisible}
-                                onClick={() => setEventFiltersVisible(!eventFiltersVisible)}
+                                onClick={() => setUserToggledEventFilters(!eventFiltersVisible)}
                                 disabledReason={!filter.key ? 'Please select an event first' : undefined}
                                 tooltip="Show filters"
                                 data-attr="behavioral-filter-show-event-filters"
