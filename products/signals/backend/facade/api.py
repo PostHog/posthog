@@ -474,10 +474,12 @@ def enable_onboarding_signal_sources(team_id: int, user_id: int) -> OnboardingSo
 # the product output rather than an arbitrary nested blob; see `scout_harness/tools/report.py`.
 _MAX_TELEMETRY_STR_LEN = 256
 
-# Keys that name a person rather than attribute a signal. A source may carry one on `extra` because
-# triage needs it (a GitHub issue's `author_login` separates a maintainer's report from a stranger's),
-# but no lifecycle event needs the identity, so the scalar passthrough drops it.
-_TELEMETRY_EXCLUDED_EXTRA_KEYS = frozenset({"author_login"})
+# Keys whose value is customer-derived rather than PostHog-authored attribution. A source may carry
+# one on `extra` for tenant-scoped use — triage needs `author_login` (a GitHub issue's reporter
+# separates a maintainer's report from a stranger's); grouping and steering need `host` (the customer
+# application hostname on an error-tracking origin signal) — but no lifecycle event needs it, so the
+# scalar passthrough drops it from telemetry while it stays in the signal `extra`.
+_TELEMETRY_EXCLUDED_EXTRA_KEYS = frozenset({"author_login", "host"})
 
 
 def _telemetry_props_from_extra(extra: dict | None) -> dict:
