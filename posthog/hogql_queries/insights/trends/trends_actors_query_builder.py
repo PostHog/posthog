@@ -54,6 +54,19 @@ class DateWhereExprs:
         return [self.date_from_expr, self.date_to_expr]
 
 
+@frozen
+class ActorsTimeWindow:
+    actors_from: datetime
+    actors_to: datetime
+    actors_to_op: ast.CompareOperationOp
+
+
+@frozen
+class ActiveUsersDateExprs:
+    actors_from_expr: ast.Expr
+    actors_to_expr: ast.Expr
+
+
 class TrendsActorsQueryBuilder:
     trends_query: TrendsQuery
     team: Team
@@ -422,15 +435,15 @@ class TrendsActorsQueryBuilder:
             date_range = self.trends_date_range
 
         query_from, query_to = date_range.date_from(), date_range.date_to()
-        actors_from, actors_to, actors_to_op = self._actors_time_window(date_range, query_from, query_to)
+        window = self._actors_time_window(date_range, query_from, query_to)
 
         if self.is_active_users_math:
-            actors_from_expr, actors_to_expr = self._active_users_date_exprs(
-                actors_from, actors_to, query_from, query_to
-            )
+            date_exprs = self._active_users_date_exprs(window.actors_from, window.actors_to, query_from, query_to)
+            actors_from_expr = date_exprs.actors_from_expr
+            actors_to_expr = date_exprs.actors_to_expr
         else:
-            actors_from_expr = ast.Constant(value=actors_from)
-            actors_to_expr = ast.Constant(value=actors_to)
+            actors_from_expr = ast.Constant(value=window.actors_from)
+            actors_to_expr = ast.Constant(value=window.actors_to)
 
         return DateWhereExprs(
             date_from_expr=ast.CompareOperation(
@@ -440,7 +453,7 @@ class TrendsActorsQueryBuilder:
             ),
             date_to_expr=ast.CompareOperation(
                 left=ast.Field(chain=["timestamp"]),
-                op=actors_to_op,
+                op=window.actors_to_op,
                 right=actors_to_expr,
             ),
         )
@@ -450,11 +463,13 @@ class TrendsActorsQueryBuilder:
         date_range: QueryDateRange | QueryCompareToDateRange | QueryPreviousPeriodDateRange,
         query_from: datetime,
         query_to: datetime,
-    ) -> tuple[datetime, datetime, ast.CompareOperationOp]:
+    ) -> ActorsTimeWindow:
         if self.is_total_value:
             if self.time_frame is not None:
                 raise QueryError("A `day` is forbidden for trends actors queries with total value aggregation")
-            return query_from, query_to, ast.CompareOperationOp.LtEq
+            return ActorsTimeWindow(
+                actors_from=query_from, actors_to=query_to, actors_to_op=ast.CompareOperationOp.LtEq
+            )
 
         if self.time_frame is None:
             raise QueryError("A `day` is required for trends actors queries without total value aggregation")
@@ -475,7 +490,7 @@ class TrendsActorsQueryBuilder:
                 actors_to_op = ast.CompareOperationOp.LtEq
                 actors_to = query_to
 
-        return actors_from, actors_to, actors_to_op
+        return ActorsTimeWindow(actors_from=actors_from, actors_to=actors_to, actors_to_op=actors_to_op)
 
     def _previous_time_frame(
         self,
@@ -501,7 +516,7 @@ class TrendsActorsQueryBuilder:
         actors_to: datetime,
         query_from: datetime,
         query_to: datetime,
-    ) -> tuple[ast.Expr, ast.Expr]:
+    ) -> ActiveUsersDateExprs:
         if self.is_total_value:
             # TRICKY: On total value (non-time-series) insights, WAU/MAU math is simply meaningless.
             # There's no intuitive way to define the semantics of such a combination, so what we do is just turn it
@@ -521,7 +536,7 @@ class TrendsActorsQueryBuilder:
             actors_from_expr = ast.Call(name="greatest", args=[actors_from_expr, ast.Constant(value=query_from)])
             actors_to_expr = ast.Call(name="least", args=[ast.Constant(value=actors_to), ast.Constant(value=query_to)])
 
-        return actors_from_expr, actors_to_expr
+        return ActiveUsersDateExprs(actors_from_expr=actors_from_expr, actors_to_expr=actors_to_expr)
 
     def _breakdown_where_expr(self) -> list[ast.Expr]:
         conditions: list[ast.Expr] = []
