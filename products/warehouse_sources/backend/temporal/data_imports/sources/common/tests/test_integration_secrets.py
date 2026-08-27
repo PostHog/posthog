@@ -13,6 +13,9 @@ from posthog.integration_secrets.errors import SecretMissingError
 from posthog.jwt import PosthogJwtAudience
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
+    TrackedHTTPAdapter,
+)
 
 SERVICE_SETTINGS: dict[str, Any] = {
     "INTEGRATION_SERVICE_URL": "http://integration-service.posthog.svc.cluster.local",
@@ -55,6 +58,7 @@ class TestSessionProperties(SimpleTestCase):
         adapters = [session.get_adapter("https://x"), session.get_adapter("http://x")]
         assert adapters, "expected tracked adapters to be mounted"
         for adapter in adapters:
+            assert isinstance(adapter, TrackedHTTPAdapter)
             assert adapter._capture is False
 
     # The service is an internal in-cluster address. Warehouse traffic otherwise goes through the
@@ -68,7 +72,9 @@ class TestSessionProperties(SimpleTestCase):
     # retries with backoff. Matches the shared internal session, whose adapter also doesn't retry.
     def test_the_transport_does_not_retry(self) -> None:
         session = integration_secrets._build_session()
-        assert session.get_adapter("https://x").max_retries.total == 0
+        adapter = session.get_adapter("https://x")
+        assert isinstance(adapter, TrackedHTTPAdapter)
+        assert adapter.max_retries.total == 0
 
 
 @override_settings(**SERVICE_SETTINGS)
