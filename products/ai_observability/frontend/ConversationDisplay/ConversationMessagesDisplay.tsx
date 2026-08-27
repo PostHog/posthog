@@ -72,11 +72,33 @@ function getInitialMessageShowStates(
     return { input: inputStates, output: outputStates }
 }
 
-// `$ai_output_tokens` arrives straight off untyped event properties, so a provider that reports it
+// Token counts arrive straight off untyped event properties, so a provider that reports one
 // as a string still has to reach the empty-output notice.
 function billedTokenCount(value: unknown): number | null {
     const parsed = typeof value === 'string' ? Number(value) : value
     return typeof parsed === 'number' && Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
+// Explains a generation the provider billed for but never sent content for. Providers disagree on
+// whether reasoning tokens sit inside the output count or beside it, so name each count that is
+// present rather than deriving one from the other.
+function describeBilledTokens(outputTokens: unknown, reasoningTokens: unknown): string | null {
+    const output = billedTokenCount(outputTokens)
+    const reasoning = billedTokenCount(reasoningTokens)
+    if (output === null && reasoning === null) {
+        return null
+    }
+
+    const counts = [
+        output !== null ? `${humanFriendlyNumber(output)} output tokens` : null,
+        reasoning !== null ? `${humanFriendlyNumber(reasoning)} reasoning tokens` : null,
+    ].filter(Boolean)
+    const cause =
+        reasoning !== null
+            ? 'The model may have spent its budget on reasoning.'
+            : 'The response may have been cut short, or the SDK may not have captured it.'
+
+    return `The provider reported ${counts.join(' and ')} but no content was captured. ${cause}`
 }
 
 export function ConversationMessagesDisplay({
@@ -87,6 +109,7 @@ export function ConversationMessagesDisplay({
     httpStatus,
     raisedError,
     outputTokens,
+    reasoningTokens,
     bordered = false,
     searchQuery,
     displayOption,
@@ -103,6 +126,8 @@ export function ConversationMessagesDisplay({
     raisedError?: boolean
     /** `$ai_output_tokens`, used to explain an output the provider billed for but never sent. */
     outputTokens?: unknown
+    /** `$ai_reasoning_tokens`. Some providers bill only these, so they alone can explain an empty output. */
+    reasoningTokens?: unknown
     bordered?: boolean
     searchQuery?: string
     displayOption?: ConversationDisplayOption
@@ -293,9 +318,9 @@ export function ConversationMessagesDisplay({
 
     const showOutputSection = outputNormalized.length > 0 || !raisedError
 
-    // Billed output tokens with nothing to render means the provider produced content that never
+    // Billed tokens with nothing to render means the provider charged for work whose content never
     // reached the event. Name that, so an empty box isn't mistaken for a provider that said nothing.
-    const billedOutputTokens = billedTokenCount(outputTokens)
+    const billedTokensExplanation = describeBilledTokens(outputTokens, reasoningTokens)
 
     return (
         <>
@@ -322,12 +347,8 @@ export function ConversationMessagesDisplay({
                         ) : (
                             <div className="rounded border text-default p-2 bg-[var(--bg-fill-error-tertiary)]">
                                 <div className="italic">No output</div>
-                                {billedOutputTokens !== null && (
-                                    <div className="mt-1 text-xs">
-                                        The provider reported {humanFriendlyNumber(billedOutputTokens)} output tokens
-                                        but no content was captured. This can happen when a response is cut short, or
-                                        when the model returns only reasoning tokens.
-                                    </div>
+                                {billedTokensExplanation && (
+                                    <div className="mt-1 text-xs">{billedTokensExplanation}</div>
                                 )}
                             </div>
                         )

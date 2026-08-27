@@ -471,12 +471,34 @@ describe('ConversationMessagesDisplay', () => {
         }
     })
 
-    it.each<[string, unknown, string | null]>([
-        ['tokens were billed', 2048, '2,048'],
-        ['a provider reported them as a string', '512', '512'],
-        ['the provider billed none', 0, null],
-        ['no token count arrived', undefined, null],
-    ])('empty output explains the gap when %s', (_label, outputTokens, expectedCount) => {
+    it.each<[string, unknown, unknown, string | null]>([
+        [
+            'only output tokens were billed',
+            2048,
+            undefined,
+            'The provider reported 2,048 output tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
+        ],
+        [
+            'only reasoning tokens were billed',
+            undefined,
+            442,
+            'The provider reported 442 reasoning tokens but no content was captured. The model may have spent its budget on reasoning.',
+        ],
+        [
+            'both counts were billed',
+            2048,
+            442,
+            'The provider reported 2,048 output tokens and 442 reasoning tokens but no content was captured. The model may have spent its budget on reasoning.',
+        ],
+        [
+            'a provider reported the count as a string',
+            '512',
+            undefined,
+            'The provider reported 512 output tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
+        ],
+        ['the provider billed nothing', 0, 0, null],
+        ['no token counts arrived', undefined, undefined, null],
+    ])('empty output explains the gap when %s', (_label, outputTokens, reasoningTokens, expected) => {
         render(
             <Provider>
                 <ConversationMessagesDisplay
@@ -485,14 +507,15 @@ describe('ConversationMessagesDisplay', () => {
                     errorData={null}
                     raisedError={false}
                     outputTokens={outputTokens}
+                    reasoningTokens={reasoningTokens}
                 />
             </Provider>
         )
 
         expect(screen.getByText('No output')).toBeInTheDocument()
-        const explanation = screen.queryByText(/output tokens but no content was captured/)
-        if (expectedCount !== null) {
-            expect(explanation).toHaveTextContent(`reported ${expectedCount} output tokens`)
+        const explanation = screen.queryByText(/no content was captured/)
+        if (expected !== null) {
+            expect(explanation).toHaveTextContent(expected)
         } else {
             expect(explanation).not.toBeInTheDocument()
         }

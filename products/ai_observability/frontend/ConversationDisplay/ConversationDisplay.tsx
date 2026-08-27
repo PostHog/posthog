@@ -101,6 +101,7 @@ export function ConversationDisplay({
                     httpStatus={eventProperties.$ai_http_status}
                     raisedError={eventProperties.$ai_is_error}
                     outputTokens={eventProperties.$ai_output_tokens}
+                    reasoningTokens={eventProperties.$ai_reasoning_tokens}
                     bordered
                     traceId={eventProperties.$ai_trace_id}
                     generationEventId={eventId}
