@@ -2,6 +2,7 @@ import { getAuthIdentity } from "@posthog/core/auth/authIdentity";
 import {
   cn,
   DropdownMenuCheckboxItem,
+  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
@@ -116,6 +117,9 @@ export function ActivityIncludeMenuSection(): ReactElement {
   const clearPriorityFilter = useActivityFilterStore(
     (state) => state.clearInboxPriorityFilter,
   );
+  const resetMenuFilters = useActivityFilterStore(
+    (state) => state.resetMenuFilters,
+  );
   const inboxAvailable = reportsInboxEnabled && authIdentity !== null;
   const sourceOptions = useInboxSourceFilterOptions(sourceProductFilter, {
     enabled: inboxAvailable && inboxEnabled,
@@ -128,6 +132,16 @@ export function ActivityIncludeMenuSection(): ReactElement {
     (option) =>
       option.field === sortField && option.direction === sortDirection,
   );
+  const filtersActive =
+    !mentionsEnabled ||
+    inboxEnabled ||
+    inboxScope !== "for-you" ||
+    sourceProductFilter.length > 0 ||
+    prFilter !== "all" ||
+    sortField !== "priority" ||
+    sortDirection !== "asc" ||
+    priorityFilter.length !== 1 ||
+    priorityFilter[0] !== "P1";
 
   return (
     <>
@@ -302,6 +316,18 @@ export function ActivityIncludeMenuSection(): ReactElement {
               ))}
             </DropdownMenuSubContent>
           </DropdownMenuSub>
+        </>
+      )}
+      {filtersActive && (
+        <>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            data-attr="clear-activity-filters"
+            variant="destructive"
+            onClick={() => resetMenuFilters(authIdentity)}
+          >
+            Clear filters
+          </DropdownMenuItem>
         </>
       )}
     </>

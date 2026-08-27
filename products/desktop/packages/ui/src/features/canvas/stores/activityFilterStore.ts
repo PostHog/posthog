@@ -33,6 +33,7 @@ interface ActivityFilterStore {
   ) => void;
   toggleInboxPriority: (priority: SignalReportPriority) => void;
   clearInboxPriorityFilter: () => void;
+  resetMenuFilters: (authIdentity: string | null) => void;
 }
 
 // Per-device preference shared by the Activity popover and the Activity page, so
@@ -79,6 +80,22 @@ export const useActivityFilterStore = create<ActivityFilterStore>()(
             : [...state.inboxPriorityFilter, priority],
         })),
       clearInboxPriorityFilter: () => set({ inboxPriorityFilter: [] }),
+      resetMenuFilters: (authIdentity) =>
+        set((state) => ({
+          mentionsEnabled: true,
+          inboxEnabledByAuthIdentity: authIdentity
+            ? {
+                ...state.inboxEnabledByAuthIdentity,
+                [authIdentity]: false,
+              }
+            : state.inboxEnabledByAuthIdentity,
+          inboxScope: "for-you",
+          inboxSourceProductFilter: [],
+          inboxPrFilter: "all",
+          inboxSortField: "priority",
+          inboxSortDirection: "asc",
+          inboxPriorityFilter: ["P1"],
+        })),
     }),
     {
       name: "activity-filter-storage",

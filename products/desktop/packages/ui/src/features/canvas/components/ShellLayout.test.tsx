@@ -13,14 +13,21 @@ vi.mock("@posthog/host-router/react", () => ({
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 
-const { useChannelTasks, useDashboard, useParams, usePathname, useTasks } =
-  vi.hoisted(() => ({
-    useChannelTasks: vi.fn(),
-    useDashboard: vi.fn(),
-    useParams: vi.fn(),
-    usePathname: vi.fn(),
-    useTasks: vi.fn(),
-  }));
+const {
+  useChannelTasks,
+  useDashboard,
+  useParams,
+  usePathname,
+  useSelectedCanvasId,
+  useTasks,
+} = vi.hoisted(() => ({
+  useChannelTasks: vi.fn(),
+  useDashboard: vi.fn(),
+  useParams: vi.fn(),
+  usePathname: vi.fn(),
+  useSelectedCanvasId: vi.fn(),
+  useTasks: vi.fn(),
+}));
 
 vi.mock("@tanstack/react-router", () => ({
   Outlet: () => null,
@@ -31,13 +38,29 @@ vi.mock("@tanstack/react-router", () => ({
   }: {
     select: (s: {
       location: { pathname: string };
-      matches: { routeId: string }[];
+      matches: {
+        routeId: string;
+        fullPath: string;
+        search: Record<string, unknown>;
+      }[];
     }) => unknown;
-  }) =>
-    select({
-      location: { pathname: usePathname() },
-      matches: [{ routeId: "/spaces/$channelId/tasks/$taskId" }],
-    }),
+  }) => {
+    const pathname = usePathname();
+    const selectedCanvasId = useSelectedCanvasId();
+    return select({
+      location: { pathname },
+      matches: [
+        {
+          routeId:
+            pathname === "/canvases"
+              ? "/_shell/canvases"
+              : "/spaces/$channelId/tasks/$taskId",
+          fullPath: pathname === "/canvases" ? "/canvases" : pathname,
+          search: pathname === "/canvases" ? { canvas: selectedCanvasId } : {},
+        },
+      ],
+    });
+  },
 }));
 
 vi.mock(
@@ -120,18 +143,22 @@ function renderLayout({
   tasks = [{ id: "task-1", title: "Fix the bug" }],
   channelTaskIds = tasks.map((task) => task.id),
   dashboard,
+  selectedCanvasId,
 }: {
   pathname: string;
   params: Record<string, string>;
   tasks?: { id: string; title: string }[];
   channelTaskIds?: string[];
   dashboard?: {
+    channelId?: string;
     name: string;
     templateId: string;
     generationTaskId: string | null;
   };
+  selectedCanvasId?: string;
 }) {
   usePathname.mockReturnValue(pathname);
+  useSelectedCanvasId.mockReturnValue(selectedCanvasId);
   useParams.mockReturnValue(params);
   useTasks.mockReturnValue({ data: tasks });
   useChannelTasks.mockReturnValue({
@@ -149,7 +176,7 @@ function renderLayout({
   );
 }
 
-describe("ShellLayout task header actions", () => {
+describe("ShellLayout headers", () => {
   it.each([
     ["while generating", "task-1"],
     ["after generation", null],
@@ -196,6 +223,30 @@ describe("ShellLayout task header actions", () => {
       collapsed: false,
       tab: "chat",
     });
+  });
+
+  it("renders the canvas toolbar for a Canvases rail selection", () => {
+    renderLayout({
+      pathname: "/canvases",
+      params: {},
+      selectedCanvasId: "canvas-1",
+      dashboard: {
+        channelId: "chan-1",
+        name: "Launch",
+        templateId: "freeform",
+        generationTaskId: "task-1",
+      },
+    });
+
+    expect(screen.getByText("project-bluebird")).toBeInTheDocument();
+    expect(screen.getByText("Launch")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Comments/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Canvas options" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
   });
 
   it("renders the task action row on a channel task detail", () => {
