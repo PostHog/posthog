@@ -32,8 +32,8 @@ Two traps:
 
 `auto` for `yAxis[].settings.display.displayType` suits most charts. Two mixes read well:
 
-- A line that annotates the bars in the same unit: rolling average, target, cumulative.
-- A series in a different unit or scale, pinned to the secondary axis. Label both axes (`leftYAxisSettings.label`, `rightYAxisSettings.label`).
+- A line that annotates the bars in the same unit and scale: a rolling average or a target.
+- A series in a different unit or scale, pinned to the secondary axis: another unit, or a cumulative total that outgrows the bars. Label both axes (`leftYAxisSettings.label`, `rightYAxisSettings.label`).
 
 ```json
 { "column": "conversion_rate", "settings": { "display": { "displayType": "line", "yAxisPosition": "right" } } }
