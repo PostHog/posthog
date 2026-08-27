@@ -9403,12 +9403,13 @@ describe("SessionService", () => {
       const service = getSessionService();
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
 
-      await service.setSessionConfigOption(
+      const result = await service.setSessionConfigOption(
         "task-123",
         "model",
         "claude-3-sonnet",
       );
 
+      expect(result).toBe(false);
       expect(mockTrpcAgent.setConfigOption.mutate).not.toHaveBeenCalled();
     });
 
@@ -9455,12 +9456,13 @@ describe("SessionService", () => {
         }),
       );
 
-      await service.setSessionConfigOption(
+      const result = await service.setSessionConfigOption(
         "task-123",
         "model",
         "claude-3-sonnet",
       );
 
+      expect(result).toBe(true);
       // Optimistic update
       expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
         "run-123",
@@ -9518,8 +9520,13 @@ describe("SessionService", () => {
         new Error("Failed"),
       );
 
-      await service.setSessionConfigOption("task-123", "mode", "acceptEdits");
+      const result = await service.setSessionConfigOption(
+        "task-123",
+        "mode",
+        "acceptEdits",
+      );
 
+      expect(result).toBe(false);
       expect(currentSession.configOptions).toEqual([
         expect.objectContaining({
           id: "mode",
@@ -9631,8 +9638,13 @@ describe("SessionService", () => {
         }),
       );
 
-      await service.setSessionConfigOption("task-123", "mode", "acceptEdits");
+      const result = await service.setSessionConfigOption(
+        "task-123",
+        "mode",
+        "acceptEdits",
+      );
 
+      expect(result).toBe(false);
       expect(mockTrpcAgent.setConfigOption.mutate).not.toHaveBeenCalled();
       expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledTimes(1);
       expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(

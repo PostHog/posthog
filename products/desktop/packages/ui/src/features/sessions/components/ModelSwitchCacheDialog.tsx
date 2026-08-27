@@ -26,7 +26,7 @@ interface ModelSwitchCacheDialogProps {
   toModelLabel: string;
   contextTokens?: number;
   sessionCostUsd?: number;
-  onConfirm: () => Promise<void>;
+  onConfirm: () => Promise<boolean>;
   onCompactAndConfirm?: () => Promise<boolean>;
   onCopyHandoffSummary?: () => Promise<void>;
   onCancel: () => void;
@@ -83,8 +83,7 @@ export function ModelSwitchCacheDialog({
     const token = requestTokenRef.current;
     setActiveAction("switch");
     try {
-      await onConfirm();
-      rememberChoice();
+      if (await onConfirm()) rememberChoice();
     } finally {
       if (requestTokenRef.current === token) setActiveAction(null);
     }

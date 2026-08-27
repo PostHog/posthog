@@ -25,8 +25,9 @@ interface UsePendingModelSwitchInput {
    */
   hasConversationStarted: boolean;
   contextTokens?: number;
-  /** Applies the queued switch unchanged once the dialog is confirmed. */
-  onApply: (configId: string, value: string) => Promise<void>;
+  /** Applies the queued switch unchanged once the dialog is confirmed.
+   *  Resolves `true` only when the change reached the agent. */
+  onApply: (configId: string, value: string) => Promise<boolean>;
   onCompactAndApply: (configId: string, value: string) => Promise<boolean>;
 }
 
@@ -37,7 +38,7 @@ interface UsePendingModelSwitchResult {
    * the change was intercepted, so the caller must not apply it itself.
    */
   interceptModelSwitch: (configId: string, value: string) => boolean;
-  confirmModelSwitch: () => Promise<void>;
+  confirmModelSwitch: () => Promise<boolean>;
   compactAndConfirmModelSwitch: () => Promise<boolean>;
   cancelModelSwitch: () => void;
 }
@@ -110,16 +111,21 @@ export function usePendingModelSwitch({
   );
 
   const confirmModelSwitch = useCallback(async () => {
-    if (!pendingModelSwitch) return;
-    await onApply(pendingModelSwitch.configId, pendingModelSwitch.value);
+    if (!pendingModelSwitch) return false;
+    const succeeded = await onApply(
+      pendingModelSwitch.configId,
+      pendingModelSwitch.value,
+    );
     track(ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_ACTION, {
       task_id: taskId,
       from_model: pendingModelSwitch.fromValue,
       to_model: pendingModelSwitch.value,
       context_tokens: contextTokens,
       action: "switch_now",
+      result: succeeded ? "succeeded" : "failed",
     });
-    setPendingModelSwitch(null);
+    if (succeeded) setPendingModelSwitch(null);
+    return succeeded;
   }, [pendingModelSwitch, onApply, taskId, contextTokens]);
 
   const compactAndConfirmModelSwitch = useCallback(async () => {

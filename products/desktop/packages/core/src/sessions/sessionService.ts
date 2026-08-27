@@ -5876,27 +5876,35 @@ export class SessionService {
    * Set a session configuration option with optimistic update and rollback.
    * This is the unified method for model, mode, thought level, etc.
    */
+  /**
+   * Returns whether the change reached the agent: `true` once the backend
+   * accepted it (or it was already set), `false` when the session is missing,
+   * the option is unknown, the change was skipped because the local session is
+   * offline, or the backend call failed and rolled back. Callers that gate a
+   * user action on the switch (the mid-session model switch) rely on this to
+   * tell success from a swallowed failure.
+   */
   async setSessionConfigOption(
     taskId: string,
     configId: string,
     value: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const session = this.d.store.getSessionByTaskId(taskId);
-    if (!session) return;
+    if (!session) return false;
 
     // Find the config option and save previous value for rollback
     const configOptions = session.configOptions ?? [];
     const optionIndex = configOptions.findIndex((opt) => opt.id === configId);
     if (optionIndex === -1) {
       this.d.log.warn("Config option not found", { taskId, configId });
-      return;
+      return false;
     }
 
     const previousValue = configOptions[optionIndex].currentValue;
 
     // Skip if value is already set — avoids expensive IPC round-trip (e.g. setModel ~2s)
     if (previousValue === value) {
-      return;
+      return true;
     }
 
     // Optimistic update
@@ -5916,7 +5924,7 @@ export class SessionService {
         session.status === "disconnected" ||
         session.status === "connecting")
     ) {
-      return;
+      return false;
     }
 
     try {
@@ -5932,6 +5940,7 @@ export class SessionService {
           value,
         });
       }
+      return true;
     } catch (error) {
       const latestConfigOptions =
         this.d.store.getSessionByTaskId(taskId)?.configOptions ?? [];
@@ -5959,6 +5968,7 @@ export class SessionService {
         error,
       });
       this.d.toast.error("Failed to change setting. Please try again.");
+      return false;
     }
   }
 

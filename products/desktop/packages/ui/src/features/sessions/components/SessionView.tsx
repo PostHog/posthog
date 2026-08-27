@@ -266,9 +266,9 @@ export function SessionView({
   );
 
   const applyConfigOption = useCallback(
-    async (configId: string, value: string): Promise<void> => {
-      if (!taskId) return;
-      await sessionService.setSessionConfigOption(taskId, configId, value);
+    async (configId: string, value: string): Promise<boolean> => {
+      if (!taskId) return false;
+      return await sessionService.setSessionConfigOption(taskId, configId, value);
     },
     [taskId, sessionService],
   );

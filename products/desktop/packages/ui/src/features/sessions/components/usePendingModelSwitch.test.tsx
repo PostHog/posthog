@@ -23,7 +23,7 @@ function modelOption(): SessionConfigOption {
 
 interface Props {
   taskId: string | undefined;
-  onApply: (configId: string, value: string) => Promise<void>;
+  onApply: (configId: string, value: string) => Promise<boolean>;
   onCompactAndApply: (configId: string, value: string) => Promise<boolean>;
   hasConversationStarted: boolean;
 }
@@ -63,7 +63,7 @@ describe("usePendingModelSwitch", () => {
   });
 
   it("queues a mid-session switch and applies it on confirm", async () => {
-    const onApply = vi.fn().mockResolvedValue(undefined);
+    const onApply = vi.fn().mockResolvedValue(true);
     const { result } = setup("task-a", onApply);
 
     let intercepted = false;
@@ -81,8 +81,27 @@ describe("usePendingModelSwitch", () => {
     expect(result.current.pendingModelSwitch).toBeNull();
   });
 
+  it("keeps the dialog open when the switch does not reach the agent", async () => {
+    const onApply = vi.fn().mockResolvedValue(false);
+    const { result } = setup("task-a", onApply);
+
+    act(() => {
+      result.current.interceptModelSwitch("model", "claude-sonnet-5");
+    });
+
+    let confirmResult: boolean | undefined;
+    await act(async () => {
+      confirmResult = await result.current.confirmModelSwitch();
+    });
+
+    expect(onApply).toHaveBeenCalledWith("model", "claude-sonnet-5");
+    expect(confirmResult).toBe(false);
+    // A failed switch leaves the queued switch in place instead of closing it.
+    expect(result.current.pendingModelSwitch).not.toBeNull();
+  });
+
   it("does not queue a switch before the conversation has started", () => {
-    const onApply = vi.fn().mockResolvedValue(undefined);
+    const onApply = vi.fn().mockResolvedValue(true);
     const { result } = setup("task-a", onApply, false);
 
     let intercepted = true;
@@ -103,7 +122,7 @@ describe("usePendingModelSwitch", () => {
   ] as const)(
     "clears the queued switch only when compaction %s",
     async (_name, compactSucceeded, expectCleared) => {
-      const onApply = vi.fn().mockResolvedValue(undefined);
+      const onApply = vi.fn().mockResolvedValue(true);
       const onCompactAndApply = vi.fn().mockResolvedValue(compactSucceeded);
       const { result } = setup("task-a", onApply, true, onCompactAndApply);
 
@@ -122,7 +141,7 @@ describe("usePendingModelSwitch", () => {
   );
 
   it("drops the queued switch when the task changes so confirm cannot apply it to another session", async () => {
-    const onApply = vi.fn().mockResolvedValue(undefined);
+    const onApply = vi.fn().mockResolvedValue(true);
     const { result, rerender } = setup("task-a", onApply);
 
     act(() => {
