@@ -86,7 +86,7 @@ export function GithubRepoSummary({
         <span className="min-w-0">
           {summary.label}
           {": "}
-          <span className="text-gray-12">{formatRepoPreview(repos)}</span>
+          <span className="text-foreground">{formatRepoPreview(repos)}</span>
         </span>
       </button>
       {meta ? <span className="min-w-0">{metaSuffix}</span> : null}
@@ -107,7 +107,7 @@ export function GithubRepoSummary({
           </div>
           <div className="flex min-w-0 flex-col gap-0.5">
             <div className="flex min-w-0 items-center gap-1.5">
-              <span className="truncate font-medium text-[13px] text-gray-12 leading-5">
+              <span className="truncate font-medium text-[13px] text-foreground leading-snug">
                 {accountLabel}
               </span>
               {isUnavailable ? (
@@ -116,7 +116,7 @@ export function GithubRepoSummary({
                 </span>
               ) : null}
             </div>
-            <div className="flex min-w-0 items-center gap-1 text-[12px] text-gray-10 leading-snug">
+            <div className="flex min-w-0 items-center gap-1 text-[12px] text-muted-foreground leading-snug">
               {status === "loading" ? <Spinner /> : descriptionLine}
             </div>
           </div>
