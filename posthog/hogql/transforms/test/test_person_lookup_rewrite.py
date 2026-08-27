@@ -85,11 +85,6 @@ class TestPersonLookupRewrite(BaseTest):
         ]
     )
     def test_outer_cte_shadowing_a_source_or_target_table_disables_the_rewrite(self, cte_name, predicate):
-        # `events` is what the rewrite reads; `persons` and `person_distinct_ids` are what
-        # it emits. A CTE with any of these names would capture the unresolved reference,
-        # so the lookup must stay on events. (Printing the events-shadowed variant is
-        # impossible — the CTE cannot resolve `person` — which is the point: a retarget
-        # would turn an invalid query into data.)
         node = rewrite_person_lookups(
             parse_select(
                 f"with {cte_name} as (select 1 as x) "
@@ -106,8 +101,6 @@ class TestPersonLookupRewrite(BaseTest):
         assert inner.select_from.table.chain == ["events"]
 
     def test_cte_on_one_union_branch_shadows_the_other_branches(self):
-        # The CTE attaches to the first branch's AST node, but stays in SQL scope for the
-        # whole set expression, so the later branch's `events` is the CTE too.
         node = rewrite_person_lookups(
             parse_select(
                 "with events as (select 1 as x) select x from events "
@@ -305,7 +298,5 @@ class TestPersonLookupRewriteExecution(ClickhouseTestMixin, BaseTest):
 
     def test_lookup_serves_current_properties_without_events(self):
         person = create_person(team=self.team, distinct_ids=["lookup-user"], properties={"email": "a@example.com"})
-        # The intentional exception: with no events the events scan finds nothing, while
-        # the rewritten lookup still answers from the persons table.
         assert self._lookup(person.uuid, rewrite=False) == [(None,)]
         assert self._lookup(person.uuid, rewrite=True) == [("a@example.com",)]
