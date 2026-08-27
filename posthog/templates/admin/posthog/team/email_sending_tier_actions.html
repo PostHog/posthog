@@ -1,0 +1,30 @@
+<div style="margin: 10px 0;">
+    <form method="post" action="{{ set_tier_url }}" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;"
+        onsubmit="this.querySelector('input[type=submit]').disabled = true;">
+        {% csrf_token %}
+        <label for="email_sending_tier">Tier</label>
+        <select id="email_sending_tier" name="tier">
+            {% for option in tiers %}
+            <option value="{{ option.tier }}" {% if option.selected %}selected{% endif %}>
+                {{ option.tier }} — {{ option.per_hour }}/hour, {{ option.per_day }}/day
+            </option>
+            {% endfor %}
+        </select>
+        <label for="email_sending_tier_pinned">
+            <input type="checkbox" id="email_sending_tier_pinned" name="pinned" {% if pinned %}checked{% endif %} />
+            Pin (stops automatic promotion and demotion)
+        </label>
+        <input type="submit" class="default" value="Save tier" />
+    </form>
+    <form method="post" action="{{ recompute_url }}" style="margin-top: 8px;"
+        onsubmit="this.querySelector('input[type=submit]').disabled = true;">
+        {% csrf_token %}
+        <input type="submit" class="button" value="Recompute now from sending history"
+            onclick="return confirm('Recompute the email sending tier for {{ team_name_escaped }} from its recent sending history?');" />
+    </form>
+    <p style="margin-top: 8px; color: #666; font-size: 12px;">
+        Saving a tier writes <code>email_sending_tier</code> on the team's workflows config and stamps
+        <code>email_sending_tier_updated_at</code>, which restarts the clock the promotion bar measures.
+        Recomputing applies the same rules the daily sweep uses and moves the team at most one tier.
+    </p>
+</div>

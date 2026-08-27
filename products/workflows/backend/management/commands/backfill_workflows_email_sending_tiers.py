@@ -1,0 +1,158 @@
+from collections import Counter
+from datetime import timedelta
+from typing import Any, Optional
+
+from django.core.management.base import BaseCommand
+from django.utils import timezone
+
+import structlog
+
+from posthog.models.team import Team
+from posthog.models.team.extensions import get_or_create_team_extension
+
+from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.services.email_sending_tier import (
+    TeamSendingHistory,
+    TierDecision,
+    build_sending_histories,
+    decide_tier,
+)
+from products.workflows.backend.utils.email_sending_tiers import (
+    MIN_EMAIL_SENDING_TIER,
+    get_email_sending_tier_limits,
+    max_email_sending_tier,
+)
+
+logger = structlog.get_logger(__name__)
+
+DEFAULT_HISTORY_DAYS = 90
+
+
+class Command(BaseCommand):
+    help = (
+        "Assign every team an initial workflow email sending tier from its recent sending history. "
+        "Uses the same promotion rules as the periodic task, minus the time-at-tier requirement and "
+        "the one-tier-per-run step, so an established high-volume sender lands at the top tier at "
+        "once instead of climbing for weeks. Teams with no sending history stay at tier 0. Prints a "
+        "tier distribution so the tier boundaries can be checked against reality before enforcement "
+        "is switched on. Read-only unless --apply is passed."
+    )
+
+    def add_arguments(self, parser: Any) -> None:
+        parser.add_argument(
+            "--days",
+            type=int,
+            default=DEFAULT_HISTORY_DAYS,
+            help=f"How many days of sending history to read. Defaults to {DEFAULT_HISTORY_DAYS}.",
+        )
+        parser.add_argument(
+            "--apply",
+            action="store_true",
+            help="Write the computed tiers. Without this the command only reports what it would do.",
+        )
+        parser.add_argument(
+            "--team-id",
+            type=int,
+            action="append",
+            dest="team_ids",
+            help="Restrict the backfill to this team. Repeatable.",
+        )
+
+    def handle(self, *args: Any, **options: Any) -> None:
+        days: int = options["days"]
+        apply_changes: bool = options["apply"]
+        team_ids: Optional[list[int]] = options.get("team_ids")
+
+        after = timezone.now() - timedelta(days=days)
+        histories = build_sending_histories(after=after, team_ids=team_ids)
+        decisions = self._decide(histories=histories, team_ids=team_ids)
+
+        if apply_changes:
+            self._apply(decisions)
+
+        self._report(decisions=decisions, histories=histories, days=days, applied=apply_changes)
+
+    def _decide(self, *, histories: dict[int, TeamSendingHistory], team_ids: Optional[list[int]]) -> list[TierDecision]:
+        configs = TeamWorkflowsConfig.objects.all()
+        if team_ids is not None:
+            configs = configs.filter(team_id__in=team_ids)
+        state_by_team = {
+            row["team_id"]: row for row in configs.values("team_id", "email_sending_tier", "email_sending_tier_pinned")
+        }
+
+        decisions: list[TierDecision] = []
+        for team_id in sorted(set(histories) | set(state_by_team)):
+            state = state_by_team.get(team_id)
+            if state and state["email_sending_tier_pinned"]:
+                continue
+            history = histories.get(team_id)
+            if history is None:
+                # No sending in the window, so there is nothing to earn a tier with. Tier 0 is right
+                # for a new team and harmless for a dormant one, which will not hit a cap anyway.
+                continue
+            decision = decide_tier(
+                history=history,
+                current_tier=state["email_sending_tier"] if state else MIN_EMAIL_SENDING_TIER,
+                tier_updated_at=None,
+                suspended=False,
+                require_time_at_tier=False,
+                single_step=False,
+            )
+            if decision.changed:
+                decisions.append(decision)
+        return decisions
+
+    def _apply(self, decisions: list[TierDecision]) -> None:
+        teams = {team.id: team for team in Team.objects.filter(id__in=[d.team_id for d in decisions])}
+        now = timezone.now()
+        for decision in decisions:
+            team = teams.get(decision.team_id)
+            if team is None:
+                continue
+            config = get_or_create_team_extension(team, TeamWorkflowsConfig)
+            config.email_sending_tier = decision.new_tier
+            config.email_sending_tier_updated_at = now
+            config.save(update_fields=["email_sending_tier", "email_sending_tier_updated_at"])
+            logger.info(
+                "workflows_email_sending_tier_backfilled",
+                team_id=decision.team_id,
+                previous_tier=decision.previous_tier,
+                new_tier=decision.new_tier,
+                reason=decision.reason,
+            )
+
+    def _report(
+        self,
+        *,
+        decisions: list[TierDecision],
+        histories: dict[int, TeamSendingHistory],
+        days: int,
+        applied: bool,
+    ) -> None:
+        moved_to = {decision.team_id: decision.new_tier for decision in decisions}
+        distribution: Counter[int] = Counter()
+        for team_id in histories:
+            distribution[moved_to.get(team_id, MIN_EMAIL_SENDING_TIER)] += 1
+
+        sending_teams = len(histories)
+        self.stdout.write(f"Read {days} days of history for {sending_teams} teams that sent workflow email.")
+        self.stdout.write("")
+        self.stdout.write("Tier distribution across those teams:")
+        for tier in range(max_email_sending_tier() + 1):
+            limits = get_email_sending_tier_limits(tier)
+            count = distribution.get(tier, 0)
+            share = (count / sending_teams * 100) if sending_teams else 0.0
+            self.stdout.write(
+                f"  tier {tier}: {count:>6} teams ({share:5.1f}%)  "
+                f"{limits.per_hour:>9,}/hour  {limits.per_day:>10,}/day  {limits.max_batch_audience:>10,} batch"
+            )
+        self.stdout.write("")
+
+        dirty = [team_id for team_id, history in histories.items() if not history.rates_are_clean]
+        self.stdout.write(f"Teams held at tier 0 by rates above the threshold: {len(dirty)}")
+        self.stdout.write(f"Teams whose tier would change: {len(decisions)}")
+
+        if applied:
+            self.stdout.write(self.style.SUCCESS(f"Wrote {len(decisions)} tier changes."))
+        else:
+            self.stdout.write(self.style.WARNING("Nothing written. Re-run with --apply to write these tiers."))
