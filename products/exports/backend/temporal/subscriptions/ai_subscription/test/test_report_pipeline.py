@@ -44,6 +44,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     PromptRejectedError,
     ReportWindow,
     StoredPlanInvalidError,
+    StoredPlanVersionChangedError,
 )
 from products.exports.backend.temporal.subscriptions.types import safe_error_message
 
@@ -824,6 +825,50 @@ async def test_invalid_stored_plan_self_heals_by_replanning(
     mock_bep.assert_called_once()  # self-healed by re-planning live
     assert result.markdown == "# Report"
     assert result.plan_to_persist is not None  # the fresh re-plan is frozen for next time
+
+
+@parameterized.expand(
+    [
+        # A version bump is a deliberate, self-healing invalidation, so it must not report an
+        # exception — otherwise every stale subscription floods error tracking on its next delivery.
+        # A malformed plan is a genuine defect and must still reach error tracking.
+        ("version_changed", StoredPlanVersionChangedError("stale"), False),
+        ("malformed_plan", StoredPlanInvalidError("malformed"), True),
+    ]
+)
+@patch(_SLO_CAPTURE)
+@patch(f"{_RP}.capture_exception")
+@patch(f"{_RP}.MaxChatOpenAI")
+@patch(f"{_RP}._run_steps", new_callable=AsyncMock)
+@patch(f"{_RP}.build_frozen_prompt")
+@patch(f"{_RP}.build_enriched_prompt")
+async def test_frozen_plan_invalidation_reports_only_genuine_defects(
+    _name: str,
+    exc: StoredPlanInvalidError,
+    should_capture: bool,
+    mock_bep: MagicMock,
+    mock_frozen: MagicMock,
+    mock_run: AsyncMock,
+    mock_chat: MagicMock,
+    mock_capture: MagicMock,
+    _mock_slo: MagicMock,
+) -> None:
+    mock_frozen.side_effect = exc
+    mock_bep.return_value = _spec_with_window_placeholder()
+    mock_run.return_value = PlanExecution(
+        rendered=["### s0\n\nok"],
+        failed_count=0,
+        diagnostics=[QueryStepDiagnostic("s0", "SELECT 1", True, None)],
+        charts=[],
+    )
+    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+
+    result = await generate_ai_report(
+        team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window(), ai_query_plan={"any": "plan"}
+    )
+
+    assert result.markdown == "# Report"  # self-heals either way
+    assert mock_capture.called is should_capture
 
 
 def _charted_spec(

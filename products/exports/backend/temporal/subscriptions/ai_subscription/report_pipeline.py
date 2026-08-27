@@ -62,6 +62,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     PromptRejectedError,
     ReportWindow,
     StoredPlanInvalidError,
+    StoredPlanVersionChangedError,
     build_enriched_prompt,
     build_frozen_prompt,
 )
@@ -240,9 +241,9 @@ async def generate_ai_report(
                     logger.warning(
                         "ai_report.frozen_plan_invalid_replanning", trace_correlation_id=trace_correlation_id
                     )
-                    # An anchor edit is a normal user action, not a defect; only genuinely invalid
-                    # plans reach error tracking.
-                    if not isinstance(exc, AnchorContentChangedError):
+                    # An anchor edit and a version bump are both expected, self-healing
+                    # invalidations, not defects; only genuinely invalid plans reach error tracking.
+                    if not isinstance(exc, (AnchorContentChangedError, StoredPlanVersionChangedError)):
                         capture_exception(
                             exc, {"trace_correlation_id": trace_correlation_id, "feature": "ai_subscription"}
                         )
