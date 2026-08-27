@@ -195,7 +195,10 @@ logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG = "legacy-insight-endpoints-disabled"
-LEGACY_INSIGHT_FILTERS_BLOCKED_FLAG = "legacy-insight-filters-disabled"
+
+# The wording the deprecation notice quoted to the last accounts still writing legacy filters.
+# Keep it verbatim: they were told to match on it.
+LEGACY_FILTERS_WRITE_REJECTED = "Creating or updating insights with legacy filters is not available for this user."
 
 
 EXPORT_QUERY_CACHE_MISS = Counter(
@@ -267,26 +270,6 @@ def is_legacy_insight_endpoint_blocked(user: Any, team: Team) -> bool:
 
     return feature_enabled_or_false(
         LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG,
-        str(distinct_id),
-        groups={
-            "organization": str(team.organization_id),
-            "project": str(team.id),
-        },
-        group_properties={
-            "organization": {"id": str(team.organization_id)},
-            "project": {"id": str(team.id)},
-        },
-        send_feature_flag_events=False,
-    )
-
-
-def is_legacy_insight_filters_blocked(user: Any, team: Team) -> bool:
-    distinct_id = getattr(user, "distinct_id", None)
-    if not distinct_id:
-        return False
-
-    return feature_enabled_or_false(
-        LEGACY_INSIGHT_FILTERS_BLOCKED_FLAG,
         str(distinct_id),
         groups={
             "organization": str(team.organization_id),
@@ -731,10 +714,14 @@ class InsightSerializer(InsightBasicSerializer):
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         query = attrs.get("query") if "query" in attrs else None
         using_legacy_filters = "filters" in attrs and attrs.get("filters") is not None and query in (None, {})
-        if using_legacy_filters and is_legacy_insight_filters_blocked(
-            self.context["request"].user, self.context["get_team"]()
-        ):
-            raise PermissionDenied("Creating or updating insights with legacy filters is not available for this user.")
+        if using_legacy_filters:
+            raise PermissionDenied(LEGACY_FILTERS_WRITE_REJECTED)
+
+        # A create with neither field stores an insight nothing can render. An update without a
+        # query is a rename, a favorite or a dashboard move, and must keep working on the rows
+        # that were left unconverted.
+        if self.instance is None and not query:
+            raise serializers.ValidationError({"query": "This field is required."})
 
         new_dashboard_ids = attrs.get("dashboards")
         if new_dashboard_ids is not None:
@@ -1504,11 +1491,6 @@ class MCPInsightSerializer(InsightSerializer):
     """
 
     query = QueryFieldSerializer(required=False, allow_null=True)
-
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        if self.context["view"].action == "create" and "query" not in attrs:
-            raise serializers.ValidationError({"query": "This field is required."})
-        return super().validate(attrs)
 
     def validate_query(self, value: dict[str, Any] | None) -> dict[str, Any]:
         # Raw HogQL → DataVisualizationNode

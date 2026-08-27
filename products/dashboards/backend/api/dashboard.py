@@ -1673,7 +1673,14 @@ class DashboardSerializer(DashboardMetadataSerializer):
             new_data.pop("dashboards", None)
             new_tags = new_data.pop("tags", None)
             insight_serializer = InsightSerializer(data=new_data, context=self.context)
-            insight_serializer.is_valid()
+            if not insight_serializer.is_valid():
+                # Reached when the source insight has no query anything can render, so the copy
+                # would be broken the same way. `save()` on an invalid serializer is a 500, and
+                # the field errors alone don't say which tile stopped the duplication.
+                raise exceptions.ValidationError(
+                    f'Insight "{existing_tile.insight.name or existing_tile.insight.derived_name or existing_tile.insight.short_id}" '
+                    f"cannot be copied: {insight_serializer.errors}"
+                )
             insight_serializer.save()
             insight = cast(Insight, insight_serializer.instance)
 

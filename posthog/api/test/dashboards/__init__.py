@@ -2,6 +2,7 @@ from typing import Any, Literal, Optional
 
 from rest_framework import status
 
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models.team import Team
 
 from products.dashboards.backend.widget_registry import DashboardWidgetType
@@ -149,8 +150,12 @@ class DashboardAPI:
         if team_id is None:
             team_id = self.team.id
 
-        if "filters" not in data and "query" not in data:
-            data["filters"] = {"events": [{"id": "$pageview"}]}
+        # The API no longer accepts legacy `filters` on write, so a caller that passes them gets
+        # the query they convert to. A test asserting the rejection itself posts directly
+        # instead of through this helper.
+        if "query" not in data:
+            filters = data.pop("filters", None) or {"events": [{"id": "$pageview"}]}
+            data["query"] = filter_to_query(filters).model_dump(exclude_none=True, mode="json")
 
         response = self.client.post(
             f"/api/projects/{team_id}/insights",

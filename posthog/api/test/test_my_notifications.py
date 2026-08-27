@@ -7,6 +7,7 @@ from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest
 
 from rest_framework import status
 
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import NotificationViewed, User
 
 
@@ -60,8 +61,10 @@ class TestMyNotifications(APIBaseTest, QueryMatchingTest):
         if team_id is None:
             team_id = self.team.id
 
-        if "filters" not in data:
-            data["filters"] = {"events": [{"id": "$pageview"}]}
+        # Legacy `filters` are no longer accepted on write, so send the query they convert to.
+        if "query" not in data:
+            filters = data.pop("filters", None) or {"events": [{"id": "$pageview"}]}
+            data["query"] = filter_to_query(filters).model_dump(exclude_none=True, mode="json")
 
         response = self.client.post(f"/api/projects/{team_id}/insights", data=data)
         self.assertEqual(response.status_code, expected_status)

@@ -64,6 +64,9 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile, Tex
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.product_analytics.backend.models.insight import InsightViewed
 
+QUERY_PAGEVIEW_TRENDS = InsightVizNode(source=TrendsQuery(series=[EventsNode(event="$pageview")])).model_dump()
+QUERY_RAGECLICK_TRENDS = InsightVizNode(source=TrendsQuery(series=[EventsNode(event="$rageclick")])).model_dump()
+
 
 class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     maxDiff = None
@@ -91,42 +94,41 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ]
         self.assertEqual(len(legacy_calls), 1)
 
-    def test_creating_legacy_filter_insight_blocked_with_feature_flag(self) -> None:
-        with patch(
-            "products.product_analytics.backend.presentation.insight.feature_enabled_or_false", return_value=True
-        ) as mock_feature_enabled:
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/insights/",
-                {"name": "Legacy filter insight", "filters": {"insight": "TRENDS", "events": [{"id": "$pageview"}]}},
-            )
+    @parameterized.expand([("create", "post"), ("update", "patch")])
+    def test_writing_legacy_filters_is_rejected(self, _name: str, method: str) -> None:
+        insight = Insight.objects.create(
+            team=self.team,
+            query=InsightVizNode(source=TrendsQuery(series=[EventsNode(event="$pageview")])).model_dump(),
+        )
+        url = f"/api/projects/{self.team.id}/insights/"
+        if method == "patch":
+            url = f"{url}{insight.id}/"
+
+        response = getattr(self.client, method)(
+            url,
+            {"name": "Legacy filter insight", "filters": {"insight": "TRENDS", "events": [{"id": "$pageview"}]}},
+        )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
             response.json()["detail"],
             "Creating or updating insights with legacy filters is not available for this user.",
         )
-        legacy_filter_calls = [
-            c for c in mock_feature_enabled.call_args_list if c[0][0] == "legacy-insight-filters-disabled"
-        ]
-        self.assertEqual(len(legacy_filter_calls), 1)
 
-    def test_creating_query_insight_not_blocked_by_legacy_filter_flag(self) -> None:
-        with patch(
-            "products.product_analytics.backend.presentation.insight.feature_enabled_or_false", return_value=True
-        ) as mock_feature_enabled:
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/insights/",
-                {
-                    "name": "Query insight",
-                    "query": InsightVizNode(source=TrendsQuery(series=[EventsNode(event="$pageview")])).model_dump(),
-                },
-            )
+    def test_creating_an_insight_without_a_query_is_rejected(self) -> None:
+        response = self.client.post(f"/api/projects/{self.team.id}/insights/", {"name": "No definition"})
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        legacy_filter_calls = [
-            c for c in mock_feature_enabled.call_args_list if c[0][0] == "legacy-insight-filters-disabled"
-        ]
-        self.assertEqual(len(legacy_filter_calls), 0)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "query")
+
+    def test_updating_an_insight_left_without_a_query_still_works(self) -> None:
+        # The backfill could not convert every row, and those still need renaming and deleting.
+        insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight.id}/", {"name": "Renamed"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["name"], "Renamed")
 
     def test_get_insight_items(self) -> None:
         filter_dict = {
@@ -215,7 +217,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         with freeze_time("2021-08-23T12:00:00Z"):
             response_1 = self.client.post(
                 f"/api/projects/{self.team.id}/insights/",
-                {"name": "test"},
+                {"name": "test", "query": QUERY_PAGEVIEW_TRENDS},
                 headers={"Referer": "https://posthog.com/my-referer", "X-Posthog-Session-Id": "my-session-id"},
             )
             self.assertEqual(response_1.status_code, status.HTTP_201_CREATED)
@@ -307,7 +309,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         with freeze_time("2021-10-21T12:00:00Z"):
             response_3 = self.client.patch(
                 f"/api/projects/{self.team.id}/insights/{insight_id}",
-                {"filters": {"events": []}},
+                {"query": QUERY_RAGECLICK_TRENDS},
             )
             self.assertEqual(response_3.status_code, status.HTTP_200_OK)
             self.assertLessEqual(
@@ -1274,10 +1276,14 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/insights",
             data={
                 "name": "a created dashboard",
-                "filters": {
-                    "events": [{"id": "$pageview"}],
-                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
-                    "date_from": "-90d",
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                        "properties": [{"key": "$browser", "value": "Mac OS X", "type": "event"}],
+                        "dateRange": {"date_from": "-90d"},
+                    },
                 },
             },
         )
@@ -1288,8 +1294,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         objects = Insight.objects.all()
         self.assertEqual(objects.count(), 1)
-        self.assertEqual(objects[0].filters["events"][0]["id"], "$pageview")
-        self.assertEqual(objects[0].filters["date_from"], "-90d")
+        source = (objects[0].query or {})["source"]
+        self.assertEqual(source["series"][0]["event"], "$pageview")
+        self.assertEqual(source["dateRange"]["date_from"], "-90d")
         self.assertEqual(len(objects[0].short_id), 8)
 
         self.assert_insight_activity(
@@ -1317,10 +1324,14 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights",
             data={
-                "filters": {
-                    "events": [{"id": "$pageview"}],
-                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
-                    "date_from": "-90d",
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                        "properties": [{"key": "$browser", "value": "Mac OS X", "type": "event"}],
+                        "dateRange": {"date_from": "-90d"},
+                    },
                 }
             },
         )
@@ -1761,10 +1772,14 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/insights",
             data={
                 "derived_name": "pageview unique users",
-                "filters": {
-                    "events": [{"id": "$pageview"}],
-                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
-                    "date_from": "-90d",
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                        "properties": [{"key": "$browser", "value": "Mac OS X", "type": "event"}],
+                        "dateRange": {"date_from": "-90d"},
+                    },
                 },
             },
         )
@@ -1914,36 +1929,18 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights",
             data={
-                "filters": {
-                    "insight": "FUNNELS",
-                    "events": [
-                        {
-                            "id": "$pageview",
-                            "math": None,
-                            "name": "$pageview",
-                            "type": "events",
-                            "order": 0,
-                            "properties": [],
-                            "math_hogql": None,
-                            "math_property": None,
-                        },
-                        {
-                            "id": "$rageclick",
-                            "math": None,
-                            "name": "$rageclick",
-                            "type": "events",
-                            "order": 2,
-                            "properties": [],
-                            "math_hogql": None,
-                            "math_property": None,
-                        },
-                    ],
-                    "display": "FunnelViz",
-                    "interval": "day",
-                    "date_from": "-30d",
-                    "actions": [],
-                    "new_entity": [],
-                    "layout": "horizontal",
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "FunnelsQuery",
+                        "series": [
+                            {"kind": "EventsNode", "event": "$pageview", "name": "$pageview"},
+                            {"kind": "EventsNode", "event": "$rageclick", "name": "$rageclick"},
+                        ],
+                        "interval": "day",
+                        "dateRange": {"date_from": "-30d"},
+                        "funnelsFilter": {"layout": "horizontal"},
+                    },
                 },
                 "name": "My Funnel One",
                 "dashboard": dashboard.pk,
@@ -1953,11 +1950,12 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         objects = Insight.objects.all()
         self.assertEqual(objects.count(), 1)
-        self.assertEqual(objects[0].filters["events"][1]["id"], "$rageclick")
-        self.assertEqual(objects[0].filters["display"], "FunnelViz")
-        self.assertEqual(objects[0].filters["interval"], "day")
-        self.assertEqual(objects[0].filters["date_from"], "-30d")
-        self.assertEqual(objects[0].filters["layout"], "horizontal")
+        source = (objects[0].query or {})["source"]
+        self.assertEqual(source["kind"], "FunnelsQuery")
+        self.assertEqual(source["series"][1]["event"], "$rageclick")
+        self.assertEqual(source["interval"], "day")
+        self.assertEqual(source["dateRange"]["date_from"], "-30d")
+        self.assertEqual(source["funnelsFilter"]["layout"], "horizontal")
         self.assertEqual(len(objects[0].short_id), 8)
 
     def test_insight_refreshing_legacy_conversion(self) -> None:
@@ -1984,22 +1982,23 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             )
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/insights",
-                data={
-                    "filters": {
-                        "events": [{"id": "$pageview"}],
-                        "properties": [
-                            {
-                                "key": "another",
-                                "value": "never_return_this",
-                                "operator": "is_not",
-                            }
-                        ],
-                    },
-                    "dashboards": [dashboard_id],
+            # The API no longer takes legacy filters, so this is a row the backfill left behind.
+            insight = Insight.objects.create(
+                team=self.team,
+                filters={
+                    "events": [{"id": "$pageview"}],
+                    "properties": [
+                        {
+                            "key": "another",
+                            "value": "never_return_this",
+                            "operator": "is_not",
+                        }
+                    ],
                 },
-            ).json()
+            )
+            DashboardTile.objects.create(dashboard_id=dashboard_id, insight=insight, team=self.team)
+
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}/").json()
             self.assertEqual(response["last_refresh"], None)
 
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{response['id']}/?refresh=true").json()
@@ -4738,7 +4737,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/insights/",
             {
                 "name": "My test insight in folder",
-                "filters": {"events": [{"id": "$pageview"}]},
+                "query": QUERY_PAGEVIEW_TRENDS,
                 "_create_in_folder": "Special Folder/Subfolder",
                 "saved": True,
             },
