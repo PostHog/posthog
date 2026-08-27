@@ -112,12 +112,14 @@ _NETWORK_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
     ),
 ]
 
-_FETCH_LITERAL_URL_RE = re.compile(r"\bfetch\s*\(\s*([\"'])(https://[^\"']+)\1")
+_FETCH_LITERAL_URL_RE = re.compile(r"\bfetch\s*\(\s*([\"'`])(https://[^\"'`]+)\1")
 _RESOURCE_TAG_RE = re.compile(
     r"<(?:img|audio|video|source|track|iframe|embed|object)\b[^>]*?"
-    r"\b(?:src|poster|data)\s*=\s*(?:\{\s*)?([\"'])(https://[^\"']+)\1",
+    r"\b(?:src|poster|data)\s*=\s*(?:\{\s*)?([\"'`])(https://[^\"'`]+)\1",
     re.IGNORECASE,
 )
+_SRCSET_TAG_RE = re.compile(r"<(?:img|source)\b[^>]*?\bsrcset\s*=\s*(?:\{\s*)?([\"'`])([^\"'`]+)\1", re.IGNORECASE)
+_SRCSET_URL_RE = re.compile(r"https://[^\s,]+")
 _LINK_TAG_RE = re.compile(r"<link\b[^>]*>", re.IGNORECASE)
 _REL_STYLESHEET_RE = re.compile(r"\brel\s*=\s*([\"'])stylesheet\1", re.IGNORECASE)
 _HREF_LITERAL_URL_RE = re.compile(r"\bhref\s*=\s*(?:\{\s*)?([\"'])(https://[^\"']+)\1", re.IGNORECASE)
@@ -256,6 +258,10 @@ def _literal_external_urls(content: str) -> list[tuple[str, int]]:
     urls: list[tuple[str, int]] = []
     for pattern in (_FETCH_LITERAL_URL_RE, _RESOURCE_TAG_RE, _CSS_URL_RE, _CSS_IMPORT_RE):
         urls.extend((match.group(2), match.start(2)) for match in pattern.finditer(content))
+    for srcset in _SRCSET_TAG_RE.finditer(content):
+        urls.extend(
+            (match.group(0), srcset.start(2) + match.start()) for match in _SRCSET_URL_RE.finditer(srcset.group(2))
+        )
     for tag in _LINK_TAG_RE.finditer(content):
         if _REL_STYLESHEET_RE.search(tag.group(0)) is None:
             continue

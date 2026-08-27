@@ -193,24 +193,52 @@ class TestCanvasSourceAdapter(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("fetch", 'fetch("https://api.example.com/v1/data");', CANVAS_COMPONENT_PATH),
-            ("image", '<img src="https://images.example.com/chart.png" />', CANVAS_COMPONENT_PATH),
+            ("fetch", 'fetch("https://api.example.com/v1/data");', CANVAS_COMPONENT_PATH, "https://api.example.com"),
+            (
+                "fetch_template_literal",
+                "fetch(`https://api.example.com/v1/${reportId}`);",
+                CANVAS_COMPONENT_PATH,
+                "https://api.example.com",
+            ),
+            (
+                "image",
+                '<img src="https://images.example.com/chart.png" />',
+                CANVAS_COMPONENT_PATH,
+                "https://images.example.com",
+            ),
+            (
+                "image_srcset",
+                '<img srcSet="/chart-small.png 1x, https://images.example.com/chart-large.png 2x" />',
+                CANVAS_COMPONENT_PATH,
+                "https://images.example.com",
+            ),
             (
                 "stylesheet",
                 '<link rel="stylesheet" href="https://styles.example.com/theme.css" />',
                 CANVAS_ENTRY_HTML,
+                "https://styles.example.com",
             ),
-            ("css_url", '.hero { background-image: url("https://images.example.com/hero.png"); }', "src/theme.css"),
-            ("css_import", '@import url("https://styles.example.com/base.css");', "src/theme.css"),
+            (
+                "css_url",
+                '.hero { background-image: url("https://images.example.com/hero.png"); }',
+                "src/theme.css",
+                "https://images.example.com",
+            ),
+            (
+                "css_import",
+                '@import url("https://styles.example.com/base.css");',
+                "src/theme.css",
+                "https://styles.example.com",
+            ),
         ]
     )
-    def test_literal_external_resources_require_declared_origin(self, _name, snippet, path):
+    def test_literal_external_resources_require_declared_origin(self, _name, snippet, path, expected_origin):
         candidate = project(files={CANVAS_COMPONENT_PATH: CODE, path: snippet})
 
         diagnostics = validate_source_project(candidate)
 
         entry = next(d for d in diagnostics if d["code"] == "capability_missing_network_origin")
-        self.assertIn("capabilities.network.origins", entry["message"])
+        self.assertIn(f'"{expected_origin}" in capabilities.network.origins', entry["message"])
         self.assertEqual(entry["path"], path)
 
     def test_declared_origin_covers_literal_external_resources(self):
