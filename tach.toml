@@ -886,6 +886,10 @@ expose = [
     "backend\\.teaching.*",
     "backend\\.artifacts.*",
     "backend\\.tasks.*",
+    # Temporal wiring the worker registers (start_temporal_worker.py) — the
+    # canvas analog of the backend.tasks Celery registration above. Canvas is
+    # not isolated yet, so this stays a legacy leak rather than a facade expose.
+    "backend\\.temporal\\.registry.*",
 ]
 from = [
     "products.canvas",
