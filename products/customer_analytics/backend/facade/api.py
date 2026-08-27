@@ -4414,6 +4414,25 @@ def end_account_relationship(
     return _to_account_relationship(relationship)
 
 
+def delete_account_relationship(
+    *,
+    team_id: int,
+    account_id: str | UUID,
+    relationship_id: str | UUID,
+    actor: "User | None" = None,
+) -> bool:
+    try:
+        _relationships_logic.delete_relationship(
+            team_id=team_id,
+            account_id=account_id,
+            relationship_id=str(relationship_id),
+            actor=actor,
+        )
+    except _relationships_logic.AccountRelationshipNotFound:
+        return False
+    return True
+
+
 # --- EventStream ---
 
 
