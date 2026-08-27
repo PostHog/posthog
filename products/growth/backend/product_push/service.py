@@ -38,6 +38,12 @@ logger = structlog.get_logger(__name__)
 # cadence of `calculate_product_activation`'s debounce.
 ACTIVATION_RECHECK_STALENESS = timedelta(days=1)
 
+# What a custom campaign does when the organization is already running one.
+ON_ACTIVE_SKIP = "skip"
+ON_ACTIVE_QUEUE = "queue"
+ON_ACTIVE_OVERRIDE = "override"
+ON_ACTIVE_POLICIES = (ON_ACTIVE_SKIP, ON_ACTIVE_QUEUE, ON_ACTIVE_OVERRIDE)
+
 
 @dataclass(frozen=True)
 class AdoptionResult:
@@ -53,15 +59,17 @@ class CloseBatchResult:
 
 
 @dataclass(kw_only=True)
-class ScheduleBatchResult:
+class CustomCampaignBatchResult:
     orgs_processed: int = 0
-    scheduled: int = 0
+    created: int = 0
     queued_behind_active: int = 0
+    overrode_active: int = 0
+    blocked_by_active: int = 0
     already_pending: int = 0
     already_adopted: int = 0
     in_retry_cooldown: int = 0
     conflicts: int = 0
-    would_schedule: int = 0  # dry-run only
+    would_create: int = 0  # dry-run only
 
 
 @dataclass(kw_only=True)
@@ -70,6 +78,7 @@ class StartBatchResult:
     started: int = 0
     no_candidate: int = 0
     not_eligible: int = 0
+    expired: int = 0
     conflicts: int = 0
     would_start: int = 0  # dry-run only
 
@@ -227,6 +236,16 @@ def start_campaigns_for_org_batch(
             result.not_eligible += 1
             continue
 
+        # A campaign carrying its own window can reach its end before it ever gets to
+        # start (the org was busy for the whole window). Retire it rather than show a
+        # push whose window has passed.
+        scheduled = selection.scheduled_campaign
+        if scheduled is not None and scheduled.ends_at is not None and now >= scheduled.ends_at:
+            if not dry_run:
+                cancel_campaigns([str(scheduled.id)], now)
+            result.expired += 1
+            continue
+
         if dry_run:
             result.would_start += 1
             logger.info(
@@ -256,28 +275,39 @@ def start_campaigns_for_org_batch(
     return result
 
 
-def schedule_campaigns_for_org_batch(
+def create_custom_campaigns_for_org_batch(
     organization_ids: list[str],
     product_key: str,
     now: datetime,
     *,
-    scheduled_for: date | None = None,
+    starts_on: date,
+    ends_at: datetime,
+    on_active_campaign: str,
     reason_text: str | None = None,
     skip_recently_pushed: bool = True,
     dry_run: bool = False,
-) -> ScheduleBatchResult:
-    """Queue a TAM push of one product for each org in the batch.
+) -> CustomCampaignBatchResult:
+    """Create a custom campaign pushing one product to each org in the batch.
 
-    The campaign lands as SCHEDULED, so the daily sweep starts it once the org has
-    no active campaign. A dated `scheduled_for` makes it a pin, which overrides the
-    signup grace period and the between-campaigns cooldown; leave it unset to let
-    the normal cadence decide when the push goes out.
+    The campaign lands as SCHEDULED with its own window: the daily sweep starts it
+    on or after `starts_on` and closes it at `ends_at`, instead of applying the
+    default campaign duration. Because the campaign is dated it also overrides the
+    signup grace period and the between-campaigns cooldown.
+
+    `on_active_campaign` decides what happens to an org that is already running a
+    campaign — the caller must pick one, since none of the three is a safe default:
+    `skip` writes nothing, `queue` starts the custom campaign once the running one
+    closes, and `override` cancels the running one so the custom campaign starts on
+    the next sweep.
 
     Re-running with the same org list is a no-op: an org that already holds a
     scheduled or active campaign for the product is counted and left alone.
     """
-    result = ScheduleBatchResult()
-    scheduled_rows: list[tuple[ProductPushCampaign, str]] = []
+    if on_active_campaign not in ON_ACTIVE_POLICIES:
+        raise ValueError(f"on_active_campaign must be one of {ON_ACTIVE_POLICIES}, got {on_active_campaign!r}")
+
+    result = CustomCampaignBatchResult()
+    created_rows: list[tuple[ProductPushCampaign, str]] = []
 
     organizations = Organization.objects.filter(id__in=organization_ids).only("id", "created_at")
 
@@ -303,39 +333,64 @@ def schedule_campaigns_for_org_batch(
             result.in_retry_cooldown += 1
             continue
 
-        has_active_campaign = ProductPushCampaign.objects.filter(
-            organization=organization, status=ProductPushCampaign.Status.ACTIVE
-        ).exists()
-
-        if dry_run:
-            result.would_schedule += 1
+        active = (
+            ProductPushCampaign.objects.filter(organization=organization, status=ProductPushCampaign.Status.ACTIVE)
+            .only("id")
+            .first()
+        )
+        if active is not None and on_active_campaign == ON_ACTIVE_SKIP:
+            result.blocked_by_active += 1
             logger.info(
-                "product_push_campaign_would_schedule",
+                "custom_campaign_blocked_by_active",
                 organization_id=str(organization.id),
                 product_key=product_key,
-                scheduled_for=str(scheduled_for) if scheduled_for else None,
-                behind_active_campaign=has_active_campaign,
+                active_campaign_id=str(active.id),
             )
             continue
 
-        campaign = _schedule_campaign(organization, product_key, scheduled_for=scheduled_for, reason_text=reason_text)
+        if dry_run:
+            result.would_create += 1
+            logger.info(
+                "custom_campaign_would_create",
+                organization_id=str(organization.id),
+                product_key=product_key,
+                starts_on=str(starts_on),
+                ends_at=str(ends_at),
+                on_active_campaign=on_active_campaign if active is not None else None,
+            )
+            continue
+
+        campaign = _create_custom_campaign(
+            organization,
+            product_key,
+            starts_on=starts_on,
+            ends_at=ends_at,
+            reason_text=reason_text,
+        )
         if campaign is None:
             result.conflicts += 1
             continue
 
-        result.scheduled += 1
-        if has_active_campaign:
-            result.queued_behind_active += 1
-        scheduled_rows.append((campaign, "scheduled"))
+        if active is not None:
+            if on_active_campaign == ON_ACTIVE_OVERRIDE:
+                cancel_campaigns([str(active.id)], now)
+                result.overrode_active += 1
+            else:
+                result.queued_behind_active += 1
+
+        result.created += 1
+        created_rows.append((campaign, "scheduled"))
         logger.info(
-            "product_push_campaign_scheduled",
+            "custom_campaign_created",
             campaign_id=str(campaign.id),
             organization_id=str(organization.id),
             product_key=product_key,
-            behind_active_campaign=has_active_campaign,
+            starts_on=str(starts_on),
+            ends_at=str(ends_at),
+            on_active_campaign=on_active_campaign if active is not None else None,
         )
 
-    _capture_campaign_events(scheduled_rows)
+    _capture_campaign_events(created_rows)
     return result
 
 
@@ -397,7 +452,10 @@ def _start_campaign(organization: Organization, selection: Selection, now: datet
                     return None
                 campaign.status = ProductPushCampaign.Status.ACTIVE
                 campaign.started_at = now
-                campaign.ends_at = ends_at
+                # A custom campaign carries the window its operator asked for; only
+                # fall back to the default duration when it has none.
+                if campaign.ends_at is None:
+                    campaign.ends_at = ends_at
                 campaign.save(update_fields=["status", "started_at", "ends_at", "updated_at"])
                 return campaign
             return ProductPushCampaign.objects.create(
@@ -414,14 +472,15 @@ def _start_campaign(organization: Organization, selection: Selection, now: datet
         return None
 
 
-def _schedule_campaign(
+def _create_custom_campaign(
     organization: Organization,
     product_key: str,
     *,
-    scheduled_for: date | None,
+    starts_on: date,
+    ends_at: datetime,
     reason_text: str | None,
 ) -> ProductPushCampaign | None:
-    """Queue a TAM campaign behind whatever the org already has scheduled."""
+    """Queue a custom campaign behind whatever the org already has scheduled."""
     try:
         with transaction.atomic():
             last_position = (
@@ -436,7 +495,8 @@ def _schedule_campaign(
                 status=ProductPushCampaign.Status.SCHEDULED,
                 source=ProductPushCampaign.Source.TAM,
                 position=last_position + 1,
-                scheduled_for=scheduled_for,
+                scheduled_for=starts_on,
+                ends_at=ends_at,
                 reason_text=reason_text,
             )
     except IntegrityError:
