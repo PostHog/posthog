@@ -753,6 +753,12 @@ database "posthog" {
     column "_record_count" {
       type = "UInt64"
     }
+    column "pattern" {
+      type = "String"
+    }
+    column "pattern_version" {
+      type = "UInt8"
+    }
     engine "distributed" {
       cluster_name    = "logs"
       remote_database = "posthog"

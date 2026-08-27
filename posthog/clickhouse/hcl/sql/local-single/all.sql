@@ -3513,7 +3513,9 @@ CREATE TABLE posthog.writable_logs34 (
   _offset UInt64,
   _bytes_uncompressed UInt64,
   _bytes_compressed UInt64,
-  _record_count UInt64
+  _record_count UInt64,
+  pattern String,
+  pattern_version UInt8
 ) ENGINE = Distributed('posthog_single_shard', 'posthog', 'logs34') SETTINGS background_insert_batch = 1;
 CREATE TABLE posthog.writable_person (
   id UUID,

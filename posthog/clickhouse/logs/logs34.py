@@ -146,7 +146,9 @@ CREATE TABLE IF NOT EXISTS {db}.writable_logs34
     `_offset` UInt64,
     `_bytes_uncompressed` UInt64,
     `_bytes_compressed` UInt64,
-    `_record_count` UInt64
+    `_record_count` UInt64,
+    `pattern` String,
+    `pattern_version` UInt8
 )
 ENGINE = {Distributed(data_table=TABLE_NAME, cluster=settings.CLICKHOUSE_LOGS_WRITE_CLUSTER)}
 SETTINGS background_insert_batch = 1

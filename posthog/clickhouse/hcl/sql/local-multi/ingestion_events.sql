@@ -212,7 +212,9 @@ CREATE TABLE posthog.writable_logs34 (
   _offset UInt64,
   _bytes_uncompressed UInt64,
   _bytes_compressed UInt64,
-  _record_count UInt64
+  _record_count UInt64,
+  pattern String,
+  pattern_version UInt8
 ) ENGINE = Distributed('logs', 'posthog', 'logs34') SETTINGS background_insert_batch = 1;
 CREATE MATERIALIZED VIEW posthog.events_json_table_mv TO posthog.writable_events_json (uuid UUID, event String, properties JSON, timestamp DateTime64(6, 'UTC'), team_id Int64, distinct_id String, elements_chain String, created_at DateTime64(6, 'UTC'), person_id UUID, person_created_at DateTime64(3), person_properties JSON, group0_properties String, group1_properties String, group2_properties String, group3_properties String, group4_properties String, group0_created_at DateTime64(3), group1_created_at DateTime64(3), group2_created_at DateTime64(3), group3_created_at DateTime64(3), group4_created_at DateTime64(3), person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2), historical_migration Bool, _timestamp Nullable(DateTime), _offset UInt64, consumer_breadcrumbs Array(String)) AS SELECT
   uuid,
