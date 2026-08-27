@@ -65616,16 +65616,6 @@ export namespace Schemas {
      */
     export type PatchedTaskRunUpdateStateAppend = { [key: string]: unknown };
 
-    /**
-     * * `local` - local
-     */
-    export type TaskRunUpdateEnvironmentEnum = typeof TaskRunUpdateEnvironmentEnum[keyof typeof TaskRunUpdateEnvironmentEnum];
-
-
-    export const TaskRunUpdateEnvironmentEnum = {
-      Local: 'local',
-    } as const;
-
     export interface PatchedTaskRunUpdate {
       /** Current execution status
        *
@@ -65659,10 +65649,6 @@ export namespace Schemas {
          * @nullable
          */
       error_message?: string | null;
-      /** Transition a cloud run to local. Use the resume_in_cloud action to move a run into cloud.
-       *
-       * * `local` - local */
-      environment?: TaskRunUpdateEnvironmentEnum;
     }
 
     /**
