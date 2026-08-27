@@ -364,94 +364,14 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         with self.timings.measure("columns"):
-            columns = []
-            group_by = []
-            aggregations = []
-            person_display_name_indices = []
-            for idx, expr in enumerate(self.input_columns()):
-                if self._is_person_display_name_column(expr):
-                    column = self._get_person_display_name_column()
-                    person_display_name_indices.append(idx)
-                else:
-                    column = parse_expr(expr)
-
-                if expr == "person.$delete":
-                    column = ast.Constant(value=1)
-                elif expr == self.strategy.field or expr == "actor":
-                    column = ast.Field(chain=[self.strategy.origin_id])
-                elif expr == "matched_recordings":
-                    # the underlying query used to match recordings compares to a selection of "matched events"
-                    # like `groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events`
-                    # we look up valid session ids and match them against the session ids in matching events
-                    column = ast.Field(chain=["matching_events"])
-
-                columns.append(column)
-                if has_aggregation(column):
-                    aggregations.append(column)
-                elif not isinstance(column, ast.Constant):
-                    group_by.append(column)
+            columns, aggregations, group_by, person_display_name_indices = self._build_columns()
             has_any_aggregation = len(aggregations) > 0
 
         with self.timings.measure("filters"):
-            filter_conditions = self.strategy.filter_conditions()
-            where_list = [expr for expr in filter_conditions if not has_aggregation(expr)]
-            if len(where_list) == 0:
-                where = None
-            elif len(where_list) == 1:
-                where = where_list[0]
-            else:
-                where = ast.And(exprs=where_list)
+            where, having = self._build_where_and_having()
 
-            having_list = [expr for expr in filter_conditions if has_aggregation(expr)]
-            if len(having_list) == 0:
-                having = None
-            elif len(having_list) == 1:
-                having = having_list[0]
-            else:
-                having = ast.And(exprs=having_list)
-
-        order_by: list[ast.OrderExpr]
         with self.timings.measure("order"):
-            if self.query.orderBy is not None:
-                strategy_order_by = self.strategy.order_by()
-                if strategy_order_by is not None:
-                    order_by = strategy_order_by
-                else:
-                    order_by = []
-                    for col in self.query.orderBy:
-                        if self._is_person_display_name_column(col):
-                            is_desc = col.upper().endswith("DESC")
-                            if not person_display_name_indices:
-                                order_expr = self._get_person_display_name_column()
-                            else:
-                                order_expr = ast.Constant(value=person_display_name_indices[0] + 1)
-
-                            order_by.append(ast.OrderExpr(expr=order_expr, order="DESC" if is_desc else "ASC"))
-                        else:
-                            order_by.append(parse_order_expr(col, timings=self.timings))
-            elif "count()" in self.input_columns():
-                order_by = [ast.OrderExpr(expr=parse_expr("count()"), order="DESC")]
-            elif len(aggregations) > 0:
-                order_by = [ast.OrderExpr(expr=self._remove_aliases(aggregations[0]), order="DESC")]
-            elif "created_at" in self.input_columns():
-                if (
-                    self.strategy.field == "person"
-                    and self.user
-                    and feature_enabled(
-                        "drop-person-list-order-by",
-                        distinct_id=str(self.user.distinct_id),
-                        groups={"organization": str(self.user.organization.id)}
-                        if self.user.organization and self.user.organization.id
-                        else None,
-                    )
-                ):
-                    order_by = [ast.OrderExpr(expr=ast.Field(chain=["id"]))]
-                else:
-                    order_by = [ast.OrderExpr(expr=ast.Field(chain=["created_at"]), order="DESC")]
-            elif len(columns) > 0:
-                order_by = [ast.OrderExpr(expr=self._remove_aliases(columns[0]), order="ASC")]
-            else:
-                order_by = []
+            order_by = self._build_order_by(columns, aggregations, person_display_name_indices)
 
         with self.timings.measure("select"):
             select_query = ast.SelectQuery(
@@ -464,102 +384,188 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
             )
             if not self.query.source:
                 select_query.select_from = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
+                return select_query
+            return self._apply_source_join(select_query)
+
+    def _build_columns(self) -> tuple[list[ast.Expr], list[ast.Expr], list[ast.Expr], list[int]]:
+        columns: list[ast.Expr] = []
+        group_by: list[ast.Expr] = []
+        aggregations: list[ast.Expr] = []
+        person_display_name_indices: list[int] = []
+        for idx, expr in enumerate(self.input_columns()):
+            if self._is_person_display_name_column(expr):
+                column = self._get_person_display_name_column()
+                person_display_name_indices.append(idx)
             else:
-                assert self.source_query_runner is not None  # For type checking
-                source_query = self.source_query_runner.to_actors_query()
-                source_id_chain = self.source_id_column(source_query)
-                if source_id_chain is None:
-                    # Cohort calculation with a source that exposes no id column: hand the source
-                    # query back so the cohort calculator resolves the actor id from its table.
-                    # Skipping the persons join is fine — we only need the set of actor ids.
-                    return source_query
-                source_distinct_id_column = self.source_distinct_id_column(source_query)
-                source_alias = "source"
+                column = parse_expr(expr)
 
-                # If we aren't joining with the origin, give the source the origin_id
-                for source in (
-                    [source_query] if isinstance(source_query, ast.SelectQuery) else source_query.select_queries()
-                ):
-                    source.select.append(
-                        ast.Alias(alias=self.strategy.origin_id, expr=ast.Field(chain=source_id_chain))
-                    )
-                select_query.select_from = ast.JoinExpr(
-                    table=source_query,
-                    alias=source_alias,
+            if expr == "person.$delete":
+                column = ast.Constant(value=1)
+            elif expr == self.strategy.field or expr == "actor":
+                column = ast.Field(chain=[self.strategy.origin_id])
+            elif expr == "matched_recordings":
+                # the underlying query used to match recordings compares to a selection of "matched events"
+                # like `groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events`
+                # we look up valid session ids and match them against the session ids in matching events
+                column = ast.Field(chain=["matching_events"])
+
+            columns.append(column)
+            if has_aggregation(column):
+                aggregations.append(column)
+            elif not isinstance(column, ast.Constant):
+                group_by.append(column)
+        return columns, aggregations, group_by, person_display_name_indices
+
+    def _build_where_and_having(self) -> tuple[ast.Expr | None, ast.Expr | None]:
+        filter_conditions = self.strategy.filter_conditions()
+        where_list = [expr for expr in filter_conditions if not has_aggregation(expr)]
+        having_list = [expr for expr in filter_conditions if has_aggregation(expr)]
+        return self._combine_with_and(where_list), self._combine_with_and(having_list)
+
+    @staticmethod
+    def _combine_with_and(exprs: list[ast.Expr]) -> ast.Expr | None:
+        if len(exprs) == 0:
+            return None
+        if len(exprs) == 1:
+            return exprs[0]
+        return ast.And(exprs=exprs)
+
+    def _build_order_by(
+        self, columns: list[ast.Expr], aggregations: list[ast.Expr], person_display_name_indices: list[int]
+    ) -> list[ast.OrderExpr]:
+        if self.query.orderBy is not None:
+            strategy_order_by = self.strategy.order_by()
+            if strategy_order_by is not None:
+                return strategy_order_by
+            return self._explicit_order_by(person_display_name_indices)
+        if "count()" in self.input_columns():
+            return [ast.OrderExpr(expr=parse_expr("count()"), order="DESC")]
+        if len(aggregations) > 0:
+            return [ast.OrderExpr(expr=self._remove_aliases(aggregations[0]), order="DESC")]
+        if "created_at" in self.input_columns():
+            if (
+                self.strategy.field == "person"
+                and self.user
+                and feature_enabled(
+                    "drop-person-list-order-by",
+                    distinct_id=str(self.user.distinct_id),
+                    groups={"organization": str(self.user.organization.id)}
+                    if self.user.organization and self.user.organization.id
+                    else None,
                 )
-                # If we're calculating, which involves hydrating for the actors modal, we include event_distinct_ids
-                # See https://github.com/PostHog/posthog/pull/27131
-                if (
-                    self.calculating
-                    and isinstance(self.query.source, InsightActorsQuery)
-                    and isinstance(self.query.source.source, TrendsQuery)
-                    and source_distinct_id_column is not None
-                    and all(getattr(field, "chain", None) != ["event_distinct_ids"] for field in select_query.select)
-                ):
-                    select_query.select.append(ast.Field(chain=[source_distinct_id_column]))
+            ):
+                return [ast.OrderExpr(expr=ast.Field(chain=["id"]))]
+            return [ast.OrderExpr(expr=ast.Field(chain=["created_at"]), order="DESC")]
+        if len(columns) > 0:
+            return [ast.OrderExpr(expr=self._remove_aliases(columns[0]), order="ASC")]
+        return []
 
-                try:
-                    prepare_and_print_ast(
-                        select_query,
-                        context=HogQLContext(
-                            team=self.team,
-                            enable_select_queries=True,
-                            timings=self.timings,
-                            modifiers=self.modifiers,
+    def _explicit_order_by(self, person_display_name_indices: list[int]) -> list[ast.OrderExpr]:
+        assert self.query.orderBy is not None  # For type checking
+        order_by: list[ast.OrderExpr] = []
+        for col in self.query.orderBy:
+            if self._is_person_display_name_column(col):
+                is_desc = col.upper().endswith("DESC")
+                if not person_display_name_indices:
+                    order_expr = self._get_person_display_name_column()
+                else:
+                    order_expr = ast.Constant(value=person_display_name_indices[0] + 1)
+
+                order_by.append(ast.OrderExpr(expr=order_expr, order="DESC" if is_desc else "ASC"))
+            else:
+                order_by.append(parse_order_expr(col, timings=self.timings))
+        return order_by
+
+    def _apply_source_join(self, select_query: ast.SelectQuery) -> ast.SelectQuery | ast.SelectSetQuery:
+        assert self.source_query_runner is not None  # For type checking
+        source_query = self.source_query_runner.to_actors_query()
+        source_id_chain = self.source_id_column(source_query)
+        if source_id_chain is None:
+            # Cohort calculation with a source that exposes no id column: hand the source
+            # query back so the cohort calculator resolves the actor id from its table.
+            # Skipping the persons join is fine — we only need the set of actor ids.
+            return source_query
+        source_distinct_id_column = self.source_distinct_id_column(source_query)
+        source_alias = "source"
+
+        # If we aren't joining with the origin, give the source the origin_id
+        for source in [source_query] if isinstance(source_query, ast.SelectQuery) else source_query.select_queries():
+            source.select.append(ast.Alias(alias=self.strategy.origin_id, expr=ast.Field(chain=source_id_chain)))
+        select_query.select_from = ast.JoinExpr(
+            table=source_query,
+            alias=source_alias,
+        )
+        # If we're calculating, which involves hydrating for the actors modal, we include event_distinct_ids
+        # See https://github.com/PostHog/posthog/pull/27131
+        if (
+            self.calculating
+            and isinstance(self.query.source, InsightActorsQuery)
+            and isinstance(self.query.source.source, TrendsQuery)
+            and source_distinct_id_column is not None
+            and all(getattr(field, "chain", None) != ["event_distinct_ids"] for field in select_query.select)
+        ):
+            select_query.select.append(ast.Field(chain=[source_distinct_id_column]))
+
+        try:
+            prepare_and_print_ast(
+                select_query,
+                context=HogQLContext(
+                    team=self.team,
+                    enable_select_queries=True,
+                    timings=self.timings,
+                    modifiers=self.modifiers,
+                ),
+                dialect="clickhouse",
+            )
+            return select_query
+        except Exception:
+            pass
+
+        origin = self.strategy.origin
+
+        join_on: ast.Expr = ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=[origin, self.strategy.origin_id]),
+            right=ast.Field(chain=[source_alias, *source_id_chain]),
+        )
+
+        # For some of our users, the persons table is large. If we're looking for person,
+        # help make the join smarter by limiting the people it has to look up
+        # The persons table inlines `in` conditions on the join (see `persons.py`)
+        # Funnels queries are very big. Don't do this for funnels as it blows up the query size.
+        if isinstance(self.strategy, PersonStrategy) and not (
+            isinstance(self.source_query_runner, InsightActorsQueryRunner)
+            and isinstance(self.source_query_runner.source_runner, FunnelsQueryRunner)
+        ):
+            join_on = ast.And(
+                exprs=[
+                    join_on,
+                    ast.CompareOperation(
+                        left=ast.Field(chain=[origin, self.strategy.origin_id]),
+                        right=ast.SelectQuery(
+                            select=[ast.Field(chain=[source_alias, *source_id_chain])],
+                            select_from=ast.JoinExpr(table=source_query, alias=source_alias),
                         ),
-                        dialect="clickhouse",
-                    )
-                    return select_query
-                except Exception:
-                    pass
-
-                origin = self.strategy.origin
-
-                join_on: ast.Expr = ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=[origin, self.strategy.origin_id]),
-                    right=ast.Field(chain=[source_alias, *source_id_chain]),
-                )
-
-                # For some of our users, the persons table is large. If we're looking for person,
-                # help make the join smarter by limiting the people it has to look up
-                # The persons table inlines `in` conditions on the join (see `persons.py`)
-                # Funnels queries are very big. Don't do this for funnels as it blows up the query size.
-                if isinstance(self.strategy, PersonStrategy) and not (
-                    isinstance(self.source_query_runner, InsightActorsQueryRunner)
-                    and isinstance(self.source_query_runner.source_runner, FunnelsQueryRunner)
-                ):
-                    join_on = ast.And(
-                        exprs=[
-                            join_on,
-                            ast.CompareOperation(
-                                left=ast.Field(chain=[origin, self.strategy.origin_id]),
-                                right=ast.SelectQuery(
-                                    select=[ast.Field(chain=[source_alias, *source_id_chain])],
-                                    select_from=ast.JoinExpr(table=source_query, alias=source_alias),
-                                ),
-                                op=ast.CompareOperationOp.In,
-                            ),
-                        ]
-                    )
-
-                # remove id, which now comes from the origin
-                for source in (
-                    [source_query] if isinstance(source_query, ast.SelectQuery) else source_query.select_queries()
-                ):
-                    source.select.pop()
-                select_query.select_from = ast.JoinExpr(
-                    table=source_query,
-                    alias=source_alias,
-                    next_join=ast.JoinExpr(
-                        table=ast.Field(chain=[origin]),
-                        join_type="INNER JOIN",
-                        constraint=ast.JoinConstraint(
-                            expr=join_on,
-                            constraint_type="ON",
-                        ),
+                        op=ast.CompareOperationOp.In,
                     ),
-                )
+                ]
+            )
+
+        # remove id, which now comes from the origin
+        for source in [source_query] if isinstance(source_query, ast.SelectQuery) else source_query.select_queries():
+            source.select.pop()
+        select_query.select_from = ast.JoinExpr(
+            table=source_query,
+            alias=source_alias,
+            next_join=ast.JoinExpr(
+                table=ast.Field(chain=[origin]),
+                join_type="INNER JOIN",
+                constraint=ast.JoinConstraint(
+                    expr=join_on,
+                    constraint_type="ON",
+                ),
+            ),
+        )
 
         return select_query
 
