@@ -12,8 +12,9 @@ from posthog.constants import AvailableFeature
 from posthog.event_usage import groups
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.temporal.oauth import MCP_READ_SCOPES
 
-from products.signals.backend.facade.api import enable_onboarding_signal_sources, visible_report_count
+from products.signals.backend.facade.api import enable_onboarding_signal_sources, waiting_reports
 from products.tasks.backend.facade.api import (
     create_and_run_task,
     desktop_users_in_team,
@@ -44,7 +45,7 @@ ONBOARDING_SESSION_TITLE = "Getting set up"
 ONBOARDING_SESSION_PAID_MODEL = "claude-opus-4-8"
 ONBOARDING_SESSION_FREE_MODEL = "@cf/zai-org/glm-5.2"
 ONBOARDING_SESSION_EFFORT = "medium"
-ONBOARDING_SESSION_SCOPES = ["task:read", "task:write", "canvas:read"]
+ONBOARDING_SESSION_SCOPES = [*MCP_READ_SCOPES, "task:write"]
 
 SPACES_FLAGS = ("code-spaces-layout", "project-bluebird")
 
@@ -83,13 +84,15 @@ def onboarding_session_model(team: Team) -> str:
 
 def gather_onboarding_facts(team: Team, user: User) -> tuple[OnboardingFacts, str]:
     sources = enable_onboarding_signal_sources(team.id, user.id)
+    waiting = waiting_reports(team.id)
 
     if organization_has_context(team.organization_id):
         return (
             OnboardingFacts(
                 org_has_context=True,
                 has_events=bool(team.ingested_event),
-                signal_reports_waiting=visible_report_count(team.id),
+                signal_reports_waiting=waiting.count,
+                reports_to_offer=waiting.offerable,
                 other_members=prose_list(desktop_users_in_team(team, user.id)),
                 sources_enabled=sources.labels,
                 sources_watching=sources.watches,
@@ -104,7 +107,8 @@ def gather_onboarding_facts(team: Team, user: User) -> tuple[OnboardingFacts, st
         org_has_context=False,
         research=research,
         has_events=bool(team.ingested_event),
-        signal_reports_waiting=visible_report_count(team.id),
+        signal_reports_waiting=waiting.count,
+        reports_to_offer=waiting.offerable,
         sources_enabled=sources.labels,
         sources_watching=sources.watches,
         sources_newly_enabled=sources.newly_enabled,
@@ -205,6 +209,7 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
             created = create_and_run_task(
                 team=team,
                 title=ONBOARDING_SESSION_TITLE,
+                title_manually_set=True,
                 description=description,
                 origin_product=Task.OriginProduct.USER_CREATED,
                 user_id=user.id,
@@ -232,5 +237,14 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
         research_outcome=facts.research.outcome if facts.research else None,
         sources_enabled=facts.sources_enabled,
         sources_newly_enabled=facts.sources_newly_enabled,
+    )
+    posthoganalytics.capture(
+        distinct_id=str(user.distinct_id),
+        event="Onboarding domain research completed",
+        properties={
+            "task_id": str(created.task_id),
+            "outcome": facts.research.outcome if facts.research else "not_applicable",
+        },
+        groups=groups(team.organization, team),
     )
     return created.task_id

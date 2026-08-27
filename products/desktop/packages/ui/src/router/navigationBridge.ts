@@ -124,6 +124,10 @@ export function navigateToInbox(): void {
   void getRouterOrNull()?.navigate({ to: "/inbox" });
 }
 
+export function navigateToInboxReports(): void {
+  void getRouterOrNull()?.navigate({ to: "/inbox/reports" });
+}
+
 export function navigateToInboxPullRequestDetail(reportId: string): void {
   void getRouterOrNull()?.navigate({
     to: "/inbox/pulls/$reportId",
@@ -142,6 +146,16 @@ export function navigateToInboxDismissedDetail(reportId: string): void {
   void getRouterOrNull()?.navigate({
     to: "/inbox/dismissed/$reportId",
     params: { reportId },
+  });
+}
+
+export function navigateToChannelReportDetail(
+  channelId: string,
+  reportId: string,
+): void {
+  void getRouterOrNull()?.navigate({
+    to: "/spaces/$channelId/reports/$reportId",
+    params: { channelId, reportId },
   });
 }
 

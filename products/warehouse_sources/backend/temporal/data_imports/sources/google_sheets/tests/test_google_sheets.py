@@ -66,7 +66,7 @@ def test_get_worksheet_backoff():
         assert mock_get_worksheet_by_id.call_count == 10
 
 
-@pytest.mark.parametrize("status_code", [429, 500, 502, 503, 504])
+@pytest.mark.parametrize("status_code", [409, 429, 500, 502, 503, 504])
 def test_get_worksheet_retries_transient_api_errors(status_code):
     """Transient API errors (quota 429s and 5xx server errors like
     "[500]: Internal error encountered.") should be retried with backoff, not
@@ -102,7 +102,7 @@ def test_get_worksheet_retries_transient_api_errors(status_code):
         assert mock_get_worksheet_by_id.call_count == 10
 
 
-@pytest.mark.parametrize("status_code", [429, 500, 502, 503, 504])
+@pytest.mark.parametrize("status_code", [409, 429, 500, 502, 503, 504])
 def test_get_schemas_retries_transient_api_errors(status_code):
     """Schema discovery (`open_by_url`/`worksheets`) hits the Sheets API just like
     `_get_worksheet`, so a transient quota 429 or 5xx server error (e.g.
@@ -231,10 +231,11 @@ def test_reraises_permission_error_with_message(call_site):
         assert "Spreadsheet access denied" in str(exc_info.value)
 
 
-@pytest.mark.parametrize("status_code", [429, 500, 502, 503, 504])
+@pytest.mark.parametrize("status_code", [409, 429, 500, 502, 503, 504])
 def test_retry_on_transient_api_error_retries_then_exhausts(status_code):
-    """The shared retry helper must retry transient API errors (quota 429s and 5xx
-    server errors like "[503]: The service is currently unavailable.") with backoff."""
+    """The shared retry helper must retry transient API errors (quota 429s, 5xx
+    server errors like "[503]: The service is currently unavailable.", and 409
+    concurrency conflicts) with backoff."""
     with mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.time"
     ):
@@ -530,7 +531,7 @@ def test_error_string_matches_a_non_retryable_key(error):
     assert any(key in str(error) for key in non_retryable_errors)
 
 
-@pytest.mark.parametrize("status_code", [429, 500, 502, 503, 504])
+@pytest.mark.parametrize("status_code", [409, 429, 500, 502, 503, 504])
 def test_error_string_matches_a_retryable_key(status_code):
     """`_retry_on_transient_api_error` already retries these status codes in-process before
     re-raising; the framework then logs at `warning` instead of `exception` only if the re-raised

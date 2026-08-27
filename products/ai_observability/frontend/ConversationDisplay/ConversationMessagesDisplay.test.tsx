@@ -5,7 +5,7 @@ import { Provider } from 'kea'
 
 import { initKeaTests } from '~/test/init'
 
-import { CompatMessage } from '../types'
+import { CompatMessage, MultiModalContentItem } from '../types'
 import {
     ConversationDisplayOption,
     ConversationMessagesDisplay,
@@ -134,6 +134,60 @@ describe('LLMMessageDisplay', () => {
         )
 
         expect(container.querySelector('img')?.getAttribute('src')).toBe(expectedSrc)
+    })
+
+    it('replaces a redacted sentinel reaching the JSON-string image path with a placeholder', () => {
+        const message: CompatMessage = {
+            role: 'assistant',
+            content: JSON.stringify({ type: 'image', content: { type: 'image', image: '[base64 image redacted]' } }),
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('img')).toBeNull()
+        expect(container.querySelector('[data-attr="ai-message-redacted-media"]')).not.toBeNull()
+    })
+
+    it('keeps the transcript when redacted audio replaces the player', () => {
+        const message: CompatMessage = {
+            role: 'user',
+            content: [
+                {
+                    type: 'audio',
+                    data: '[base64 audio redacted]',
+                    transcript: 'a spoken sentence',
+                    id: 'aud_1',
+                    expires_at: 0,
+                },
+            ],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('audio')).toBeNull()
+        expect(container.querySelector('[data-attr="ai-message-redacted-media"]')).not.toBeNull()
+        expect(screen.getByText('a spoken sentence')).toBeInTheDocument()
+    })
+
+    it('keeps the filename when a redacted file replaces the download link', () => {
+        const message: CompatMessage = {
+            role: 'user',
+            content: [{ type: 'file', file: { file_data: '[base64 file redacted]', filename: 'doc.pdf' } }],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('[data-attr="ai-message-redacted-media"]')).not.toBeNull()
+        expect(screen.getByText('doc.pdf')).toBeInTheDocument()
     })
 
     it('renders OpenAI Responses input_text/input_image content parts as text and an image', () => {
@@ -451,5 +505,78 @@ describe('ImageMessageDisplay', () => {
         const image = container.querySelector('img')
         expect(image).not.toBeNull()
         expect(image).toHaveAttribute('data-attr', 'ai-message-image')
+    })
+
+    const REDACTED = '[base64 image redacted]'
+    const redactedParts: [string, MultiModalContentItem, string][] = [
+        ['python image sentinel', { type: 'image_url', image_url: { url: REDACTED } }, 'Image'],
+        ['node image sentinel', { type: 'image_url', image_url: { url: '[base64 image/png redacted]' } }, 'Image'],
+        ['data-uri-wrapped sentinel', { type: 'image_url', image_url: { url: `data:;base64,${REDACTED}` } }, 'Image'],
+        ['vercel image sentinel', { type: 'image', image: REDACTED }, 'Image'],
+        ['input_image sentinel', { type: 'input_image', image_url: REDACTED }, 'Image'],
+        [
+            'anthropic image sentinel',
+            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: REDACTED } },
+            'Image',
+        ],
+        [
+            'gemini snake_case image sentinel',
+            { type: 'image', inline_data: { mime_type: 'image/png', data: REDACTED } },
+            'Image',
+        ],
+        [
+            'gemini camelCase image sentinel',
+            { type: 'image', inlineData: { mimeType: 'image/png', data: REDACTED } },
+            'Image',
+        ],
+        ['file sentinel', { type: 'file', file: { file_data: '[base64 file redacted]', filename: 'doc.pdf' } }, 'File'],
+        [
+            'anthropic document sentinel',
+            { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: REDACTED } },
+            'File',
+        ],
+        [
+            'gemini document sentinel',
+            { type: 'document', inline_data: { mime_type: 'application/pdf', data: REDACTED } },
+            'File',
+        ],
+        [
+            'audio sentinel',
+            { type: 'audio', data: '[base64 audio redacted]', transcript: '', id: 'aud_1', expires_at: 0 },
+            'Audio',
+        ],
+    ]
+
+    it.each(redactedParts)('replaces %s with a placeholder instead of a broken media element', (_name, part, label) => {
+        const message: CompatMessage = { role: 'user', content: [part] }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('img')).toBeNull()
+        expect(container.querySelector('[data-attr="ai-message-redacted-media"]')).not.toBeNull()
+        expect(screen.getByText(`${label} not captured.`)).toBeInTheDocument()
+        expect(screen.getByRole('link')).toHaveAttribute(
+            'href',
+            'https://posthog.com/docs/ai-observability/large-events'
+        )
+    })
+
+    it.each([
+        ['inline data uri', 'data:image/png;base64,iVBORw0KGgo='],
+        ['offloaded blob pointer', `phaiblob://v1/sha256/${'a'.repeat(64)}?mime=image%2Fpng&size=131072`],
+        ['plain remote https url', 'https://example.com/a.png'],
+    ])('keeps rendering an image for %s', (_name, url) => {
+        const message: CompatMessage = { role: 'user', content: [{ type: 'image_url', image_url: { url } }] }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('img')).not.toBeNull()
+        expect(container.querySelector('[data-attr="ai-message-redacted-media"]')).toBeNull()
     })
 })

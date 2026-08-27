@@ -391,6 +391,8 @@ describe("TaskCreationSaga", () => {
       runtime: "pi",
       model: "claude-sonnet",
       reasoningLevel: "medium",
+      customInstructions: "Keep the patch small.",
+      additionalDirectories: ["/tmp/shared"],
       allowNoRepo: true,
     });
 
@@ -399,8 +401,13 @@ describe("TaskCreationSaga", () => {
       expect.objectContaining({ runtime: "pi" }),
     );
     expect(piRunner.create).toHaveBeenCalledWith({
-      taskId: "task-123",
-      cwd: "/tmp/scratch/task-123",
+      taskContext: {
+        taskId: "task-123",
+        cwd: "/tmp/scratch/task-123",
+        customInstructions: "Keep the patch small.",
+        additionalDirectories: ["/tmp/shared"],
+        channelMode: true,
+      },
       projectTrustPath: "/tmp/scratch/task-123",
       prompt: "Draft a launch email",
       model: "claude-sonnet",
@@ -987,6 +994,7 @@ describe("TaskCreationSaga", () => {
       branch: "main",
       cloudRunSource: "signal_report",
       signalReportId: "report-123",
+      signalReportTaskRelationship: "discussion",
       githubIntegrationId: 123,
     });
 
@@ -996,6 +1004,13 @@ describe("TaskCreationSaga", () => {
         github_integration: 123,
         github_user_integration: undefined,
         origin_product: "signal_report",
+        // The backend 400s on a client-set repo for signal-report tasks (it
+        // resolves the repo server-side), so the input's repository must not
+        // reach the payload.
+        repository: undefined,
+        repositories: undefined,
+        signal_report: "report-123",
+        signal_report_task_relationship: "discussion",
       }),
     );
     expect(createTaskRunMock).toHaveBeenCalledWith(

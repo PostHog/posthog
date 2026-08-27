@@ -66,6 +66,7 @@ export type CommandMenuAction =
   | "open-archived"
   | "open-loops"
   | "open-usage"
+  | "open-cost-management"
   | "search-files"
   | "open-file"
   | "reload-window"
@@ -490,13 +491,11 @@ export interface TaskFeedbackProperties {
 
 // Onboarding events
 export type OnboardingStepId =
-  | "welcome"
   | "project-select"
   | "invite-code"
   | "consent"
   | "connect-github"
   | "install-cli"
-  | "import-config"
   | "select-repo";
 
 type OnboardingSkipReason = "no_repo_selected" | "dev_skip";
@@ -677,7 +676,8 @@ export type InboxReportActionType =
   | "add_suggested_reviewer"
   | "remove_suggested_reviewer"
   | "expand_task_section"
-  | "play_session_recording";
+  | "play_session_recording"
+  | "create_canvas";
 
 export type InboxReportActionSurface =
   | "detail_pane"

@@ -300,15 +300,25 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(response.truncatedCohorts, 90 - MAX_COHORTS)
         self.assertTrue(all(0 <= row.cohortIndex < MAX_COHORTS for row in response.results))
 
-    def test_an_inverted_date_range_returns_an_empty_table_instead_of_raising(self):
+    @parameterized.expand(
+        [
+            ("session_outside_the_aligned_window", "2023-01-01", WEEK_0),
+            # `cohort_starts` floors itself at one entry, and that cohort opens at the aligned start of
+            # date_to, which is days BEFORE date_to. A session in that gap is what an inverted range
+            # would still report on, and the case above cannot catch it: its session sits outside.
+            ("session_inside_the_aligned_window", "2023-01-11", "2023-01-09T12:00:00Z"),
+        ]
+    )
+    def test_an_inverted_date_range_returns_an_empty_table_instead_of_raising(self, _name, date_to, session_at):
         # A range ending before it starts spans no periods, and every expression anchors on the first
         # cohort start, so an empty cohort list would crash the query on an index error.
         create_person(team=self.team, distinct_ids=["p1"])
-        self._session("p1", WEEK_0, utm_source="google")
+        self._session("p1", session_at, utm_source="google")
 
-        response = self._run(date_from="2023-03-01", date_to="2023-01-01")
+        response = self._run(date_from="2023-03-01", date_to=date_to)
 
         self.assertEqual(response.results, [])
+        self.assertEqual(response.totalCohortSize, 0)
 
     @parameterized.expand(
         [

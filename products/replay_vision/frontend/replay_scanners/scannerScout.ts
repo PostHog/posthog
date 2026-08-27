@@ -96,7 +96,7 @@ interface ScoutFocus {
  * scanner id is the sole baked-in context; the scanner's name, type, and prompt are read live via
  * `vision-scanners-get`, so editing the scanner never requires touching the scout. */
 const DEFAULT_QUIET_VERDICT =
-    'When nothing clears the bar, still file the report, with the verdict `Nothing notable` and a short coverage line ("42 observations across 30 sessions, distributions steady").'
+    'When nothing clears the bar, still file the report: open with the verdict `Nothing notable`, then a short coverage line naming what you read and what it showed ("42 observations across 30 sessions, distributions steady").'
 
 const DEFAULT_REPORT_SHAPE = `- Open with the takeaway in one line, then at most three bullets ordered by impact.
 - Each bullet: what changed, with only the numbers needed to judge it; why it matters; the evidence-backed cause or best next investigation; and the specific next action.`
@@ -251,15 +251,17 @@ Lead the summary with whatever the window is actually about, and lean on:
 - A friction theme, complaint, or failure mode recurring across several distinct sessions.
 - A verdict rate, score distribution, or tag mix stepping away from the scanner's prior weeks.
 - A single session severe enough that the team should watch the recording today.`,
-                quiet: 'A window where nothing changed still has content: what users did, which themes dominated, and how the distribution sat against prior weeks. Say plainly that nothing stood out, then summarize the window anyway. `Nothing notable` on its own is not a digest.',
+                quiet: 'A window where nothing changed still has content: what users did, which themes dominated, and how the distribution sat against prior weeks.',
                 skip: `- Anything the scanner's own per-session signals already pushed to the inbox.
 - Observations whose own signals contradict the claim (a session marked \`friction: none\` is never evidence of an error).`,
                 quietVerdict:
                     'A digest has no bar to clear, so it never files a bare verdict. Say in the opening line that nothing stood out, then summarize the window as below.',
-                shape: `- Open with a two or three sentence read on the window: what users were doing, and what stood out.
-- Then a short section per theme, each a heading and two to four bullets. Order them by how much of the window they cover, and say roughly how many sessions each rests on.
+                shape: `- Open with one scope line naming the scanner and what you read: \`Summary for [<scanner name>](/project/<project_id>/replay-vision/${scannerId}) — 27 recordings since Aug 21, 2026 at 9:00 AM\`, in the project timezone. The link is how a reader reaches the scanner this came from, and the count and start time are how they judge what it covers.
+- Then \`**TL;DR:**\` and two or three sentences: what users were doing, and what stood out. A reader who stops here should still have the answer.
+- Then a short section per theme, each a heading and two to four bullets, ordered by how much of the window they cover. Bullets, never paragraphs: a digest is read at a glance, and prose hides the one line that mattered.
+- Every theme opens with how many sessions it rests on. A theme you cannot count is a theme you cannot weigh, and a reader has no way to tell the dominant pattern from the anecdote.
 - A theme resting on one or two observations is worth a sentence, not a section: say how thin it is rather than inflating it or dropping it.
-- Close with "What to look at": the few things worth someone's time, each naming the action.`,
+- Close with the detail behind the scope line (how the outcomes split, anything you could not cover), then "What to look at", listing only things a person would actually do, each naming the action and what it would settle. Nothing worth doing means no section: never pad it with "no action needed", and never file "keep monitoring", which is what the next run is for.`,
                 priority: 'Priority P3 by default; P2 when a severe problem is spreading.',
             }),
         },
@@ -276,7 +278,7 @@ Lead the summary with whatever the window is actually about, and lean on:
 - \`vision-scanners-observations-stats\` (scanner_id \`${scannerId}\`) for the distribution the scanner reports for itself.
 - \`vision-scanners-get\` — read \`scanner_version\` and \`updated_at\` before calling any shift a finding: a config edit near the onset explains it.`,
                 notable: lens.notable,
-                quiet: 'Holding steady is the expected outcome. When nothing has moved, refresh your `pattern:` baseline entries and file the digest with verdict `Nothing notable`, saying what you compared.',
+                quiet: 'Holding steady is the expected outcome. When nothing has moved, refresh your `pattern:` baseline entries and say what you compared.',
                 skip: `- Low-volume windows (under roughly 30 sessions in the week) — rates wobble there; write a \`pattern:\` note instead.
 - A shift explained by a scanner config edit, a sampling change, or the scanner being disabled.
 ${lens.skip}`,
@@ -302,7 +304,7 @@ ${lens.skip}`,
 - A failure, error, or friction theme appearing in this scanner's observations with no counterpart in your catalog, across at least two or three distinct sessions.
 - A single new occurrence severe enough to act on regardless of spread: a blocked purchase, lost work, a dead end with no way out.
 - A known problem reappearing after you recorded it as resolved — a regression is new again.`,
-                quiet: 'Most runs find nothing new, and that is the point: this scout is quiet by design. Refresh the catalog, then file the digest with verdict `Nothing notable`, saying what window you diffed.',
+                quiet: 'Most runs find nothing new, and that is the point: this scout is quiet by design. Refresh the catalog, and say what window you diffed.',
                 skip: `- Anything already in your catalog, even when its wording differs. Summaries are freeform prose, so match on what happened, not on how it was phrased.
 - A one-off single session below the severity bar. Note it in the catalog as seen; if it recurs next week, it is a pattern, not a novelty.
 - Something "new" that a scanner prompt or config edit near the onset explains: the scanner changed what it reports, the product did not change. Cite the edit and stop.
@@ -328,7 +330,7 @@ ${lens.skip}`,
                 notable: `<WHAT IS WORTH REPORTING>
 
 Be specific about the bar, so a quiet window stays quiet: how many distinct sessions it takes, how far from this scanner's own prior weeks, and how severe a single case has to be to count on its own.`,
-                quiet: 'A window that clears none of those bars is a normal outcome, and still files its digest: verdict `Nothing notable`, plus what you checked.',
+                quiet: 'A window that clears none of those bars is a normal outcome for this scout.',
                 skip: `- <WHAT THIS SCOUT SHOULD LEAVE ALONE>. Anything another scout or the scanner's own signals already reported belongs here, and so does anything resting on too little evidence to stand up.`,
                 priority: 'Priority P3 by default; P2 when something is severe or spreading.',
             }),
