@@ -14,7 +14,7 @@ from posthog.test.persons import create_person
 
 class TestPersonLookupRewrite(BaseTest):
     def _transform(self, query: str) -> str:
-        node = rewrite_person_lookups(parse_select(query))
+        node, _ = rewrite_person_lookups(parse_select(query))
         return " ".join(to_printed_hogql(node, self.team).split())
 
     @parameterized.expand(
@@ -85,13 +85,14 @@ class TestPersonLookupRewrite(BaseTest):
         ]
     )
     def test_outer_cte_shadowing_a_source_or_target_table_disables_the_rewrite(self, cte_name, predicate):
-        node = rewrite_person_lookups(
+        node, rewrote = rewrite_person_lookups(
             parse_select(
                 f"with {cte_name} as (select 1 as x) "
                 "select properties from "
                 f"(select any(person.properties) as properties from events where {predicate})"
             )
         )
+        assert not rewrote
         assert isinstance(node, ast.SelectQuery)
         assert node.select_from is not None
         inner = node.select_from.table
@@ -101,13 +102,14 @@ class TestPersonLookupRewrite(BaseTest):
         assert inner.select_from.table.chain == ["events"]
 
     def test_cte_on_one_union_branch_shadows_the_other_branches(self):
-        node = rewrite_person_lookups(
+        node, rewrote = rewrite_person_lookups(
             parse_select(
                 "with events as (select 1 as x) select x from events "
                 "union all "
                 "select any(person.properties) from events where person.id = '019cf684-0000-0000-0000-000000000000'"
             )
         )
+        assert not rewrote
         assert isinstance(node, ast.SelectSetQuery)
         later = node.subsequent_select_queries[0].select_query
         assert isinstance(later, ast.SelectQuery)
@@ -116,13 +118,14 @@ class TestPersonLookupRewrite(BaseTest):
         assert later.select_from.table.chain == ["events"]
 
     def test_union_branches_rewrite_when_nothing_is_shadowed(self):
-        node = rewrite_person_lookups(
+        node, rewrote = rewrite_person_lookups(
             parse_select(
                 "select any(person.properties) from events where person.id = '019cf684-0000-0000-0000-000000000000' "
                 "union all "
                 "select any(person.properties) from events where person.id = '019cf684-1111-0000-0000-000000000000'"
             )
         )
+        assert rewrote
         assert isinstance(node, ast.SelectSetQuery)
         for branch in node.select_queries():
             assert isinstance(branch, ast.SelectQuery)
@@ -216,7 +219,8 @@ class TestPersonLookupRewrite(BaseTest):
         assert result == expected
 
     def _assert_untouched_events_source(self, node) -> None:
-        rewritten = rewrite_person_lookups(node)
+        rewritten, rewrote = rewrite_person_lookups(node)
+        assert not rewrote
         assert isinstance(rewritten, ast.SelectQuery)
         assert rewritten.select_from is not None
         assert isinstance(rewritten.select_from.table, ast.Field)
@@ -274,11 +278,11 @@ class TestPersonLookupRewrite(BaseTest):
 
 
 class TestPersonLookupRewriteExecution(ClickhouseTestMixin, BaseTest):
-    def _lookup(self, person_uuid, rewrite: bool):
-        query = f"select any(person.properties.email) from events where person.id = '{person_uuid}'"
+    def _lookup(self, predicate: str, rewrite: bool):
+        query = f"select any(person.properties.email) from events where {predicate}"
         if rewrite:
             return execute_hogql_query(query, team=self.team).results
-        with mock.patch("posthog.hogql.query.rewrite_person_lookups", new=lambda node: node):
+        with mock.patch("posthog.hogql.query.rewrite_person_lookups", new=lambda node: (node, False)):
             return execute_hogql_query(query, team=self.team).results
 
     @parameterized.expand([("one_event", 1), ("multiple_events", 3)])
@@ -294,9 +298,27 @@ class TestPersonLookupRewriteExecution(ClickhouseTestMixin, BaseTest):
                 person_properties={"email": "a@example.com"},
             )
         flush_persons_and_events()
-        assert self._lookup(person.uuid, rewrite=True) == self._lookup(person.uuid, rewrite=False)
+        predicate = f"person.id = '{person.uuid}'"
+        assert self._lookup(predicate, rewrite=True) == self._lookup(predicate, rewrite=False)
+
+    def test_lookup_parity_by_distinct_id_across_merged_ids(self):
+        from posthog.test.base import _create_event, flush_persons_and_events
+
+        create_person(team=self.team, distinct_ids=["pdi-a", "pdi-b"], properties={"email": "a@example.com"})
+        for distinct_id in ["pdi-a", "pdi-b"]:
+            _create_event(
+                event="$pageview",
+                distinct_id=distinct_id,
+                team=self.team,
+                person_properties={"email": "a@example.com"},
+            )
+        flush_persons_and_events()
+        assert self._lookup("distinct_id = 'pdi-b'", rewrite=True) == self._lookup(
+            "distinct_id = 'pdi-b'", rewrite=False
+        )
+        assert self._lookup("distinct_id = 'pdi-b'", rewrite=True) == [("a@example.com",)]
 
     def test_lookup_serves_current_properties_without_events(self):
         person = create_person(team=self.team, distinct_ids=["lookup-user"], properties={"email": "a@example.com"})
-        assert self._lookup(person.uuid, rewrite=False) == [(None,)]
-        assert self._lookup(person.uuid, rewrite=True) == [("a@example.com",)]
+        assert self._lookup(f"person.id = '{person.uuid}'", rewrite=False) == [(None,)]
+        assert self._lookup(f"person.id = '{person.uuid}'", rewrite=True) == [("a@example.com",)]

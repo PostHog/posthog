@@ -25,8 +25,6 @@ from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.visitor import CloningVisitor
 
-from posthog.clickhouse.query_tagging import tag_queries
-
 _T_AST = TypeVar("_T_AST", bound=AST)
 
 # Person-sourced fields that exist on the persons table under the same name.
@@ -194,6 +192,7 @@ class _PersonLookupRewriter(CloningVisitor):
     def __init__(self):
         super().__init__(clear_types=True, clear_locations=False)
         self._cte_scope_names: list[set[str]] = []
+        self.rewrote = False
 
     def _push_scope(self, names: set[str]):
         self._cte_scope_names.append(names & _SHADOWABLE_NAMES)
@@ -217,7 +216,7 @@ class _PersonLookupRewriter(CloningVisitor):
         if not any(self._cte_scope_names):
             rewritten = _try_rewrite(node)
             if rewritten is not None:
-                tag_queries(person_lookup_rewrite=1)
+                self.rewrote = True
                 return rewritten
         self._push_scope(set(node.ctes.keys()) if node.ctes else set())
         try:
@@ -226,5 +225,7 @@ class _PersonLookupRewriter(CloningVisitor):
             self._cte_scope_names.pop()
 
 
-def rewrite_person_lookups(node: _T_AST) -> _T_AST:
-    return _PersonLookupRewriter().visit(node)
+def rewrite_person_lookups(node: _T_AST) -> tuple[_T_AST, bool]:
+    rewriter = _PersonLookupRewriter()
+    result = rewriter.visit(node)
+    return result, rewriter.rewrote

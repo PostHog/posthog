@@ -72,6 +72,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
+from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -115,6 +116,7 @@ class HogQLQueryExecutor:
     user: Optional[User] = None
     bypass_warehouse_access_control: bool = False
     user_access_control: Optional[UserAccessControl] = None
+    person_lookup_rewritten: bool = False
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
@@ -225,9 +227,17 @@ class HogQLQueryExecutor:
             != PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
         ):
             with self.timings.measure("person_lookup_rewrite"):
-                transformed_node = rewrite_person_lookups(self.select_query)
-                if isinstance(transformed_node, ast.SelectQuery) or isinstance(transformed_node, ast.SelectSetQuery):
-                    self.select_query = transformed_node
+                # Fail open: a bug in the pass must cost the optimization, not the query.
+                try:
+                    transformed_node, rewrote = rewrite_person_lookups(self.select_query)
+                except Exception as e:
+                    capture_exception(e)
+                else:
+                    if isinstance(transformed_node, ast.SelectQuery) or isinstance(
+                        transformed_node, ast.SelectSetQuery
+                    ):
+                        self.select_query = transformed_node
+                        self.person_lookup_rewritten = rewrote
 
         if self.query_modifiers.usePreaggregatedTableTransforms:
             with self.timings.measure("preaggregated_table_transforms"):
@@ -676,6 +686,8 @@ class HogQLQueryExecutor:
                 has_joins="JOIN" in self.clickhouse_sql,
                 has_json_operations="JSONExtract" in self.clickhouse_sql or "JSONHas" in self.clickhouse_sql,
                 hogql_features=hogql_features,
+                # Set or cleared on every execution so the tag cannot outlive the query it describes.
+                person_lookup_rewrite=1 if self.person_lookup_rewritten else None,
                 timings=timings_dict,
                 modifiers=(
                     {k: v for k, v in self.modifiers.model_dump().items() if v is not None} if self.modifiers else {}
