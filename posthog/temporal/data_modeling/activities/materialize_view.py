@@ -20,6 +20,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ParsingError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.exceptions_capture import capture_exception
@@ -68,11 +69,35 @@ LOGGER = get_logger(__name__)
 
 MB_100_IN_BYTES = 100 * 1000 * 1000
 
-# The cluster profile sets distributed_product_mode=global, which makes ClickHouse build every
-# IN/JOIN subquery as a GLOBAL temporary table while it plans the query. DESCRIBE plans the query
-# too, so it scans the source tables for those subqueries just to return the column types. "allow"
-# leaves the subqueries in place, so the DESCRIBE reads nothing.
+# ClickHouse builds every GLOBAL IN/JOIN subquery as a temporary table while it plans a query, and
+# DESCRIBE plans the query too, so the schema probe scans the source tables just to return column
+# types. The probe therefore prints a copy of the query with GLOBAL downgraded to plain IN/JOIN and
+# runs with "allow", which stops the cluster profile (distributed_product_mode=global) from adding
+# GLOBAL back. The materialization query itself is printed from the untouched AST.
 DESCRIBE_QUERY_SETTINGS = {"distributed_product_mode": "allow"}
+
+_LOCAL_COMPARE_OPS = {
+    ast.CompareOperationOp.GlobalIn: ast.CompareOperationOp.In,
+    ast.CompareOperationOp.GlobalNotIn: ast.CompareOperationOp.NotIn,
+}
+
+
+class _DowngradeGlobalSubqueries(CloningVisitor):
+    def __init__(self) -> None:
+        super().__init__(clear_types=False, clear_locations=False)
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> ast.CompareOperation:
+        cloned = super().visit_compare_operation(node)
+        cloned.op = _LOCAL_COMPARE_OPS.get(cloned.op, cloned.op)
+        return cloned
+
+    def visit_join_expr(self, node: ast.JoinExpr) -> ast.JoinExpr:
+        cloned = super().visit_join_expr(node)
+        if cloned.join_type is not None and cloned.join_type.startswith("GLOBAL "):
+            cloned.join_type = cloned.join_type.removeprefix("GLOBAL ")
+        return cloned
+
+
 CLICKHOUSE_MAX_BLOCK_SIZE_ROWS = 50 * 1000
 DELTA_TABLE_RETENTION_HOURS = 24
 
@@ -511,7 +536,7 @@ async def hogql_table(
         raise EmptyHogQLResponseColumnsError()
 
     printed = await database_sync_to_async_pool(print_prepared_ast)(
-        prepared_hogql_query,
+        _DowngradeGlobalSubqueries().visit(prepared_hogql_query),
         context=context,
         dialect="clickhouse",
         settings=settings,

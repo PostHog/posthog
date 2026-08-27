@@ -1644,9 +1644,12 @@ class _EmptyArrowClient:
         self.arrow_query_calls = 0
         self.schema_query_calls = 0
         self.describe_settings: dict[str, str] | None = None
+        self.describe_query: str | None = None
+        self.arrow_query: str | None = None
 
     async def astream_query_as_arrow(self, query, *data, query_parameters=None, query_id=None, on_schema=None):
         self.arrow_query_calls += 1
+        self.arrow_query = query
         if on_schema is not None:
             on_schema(self.schema)
         return
@@ -1656,6 +1659,7 @@ class _EmptyArrowClient:
     async def apost_query(self, query, *data, query_parameters=None, query_id=None, settings=None):
         if query.startswith("DESCRIBE TABLE"):
             self.describe_settings = settings
+            self.describe_query = query
             body = self.describe_body
         else:
             self.schema_query_calls += 1
@@ -1695,8 +1699,10 @@ class TestHogqlTableEmptyResults:
 
 
 class TestHogqlTableDescribeSettings:
-    async def test_describe_disables_the_global_subquery_rewrite(self, ateam):
-        client = _EmptyArrowClient(pa.schema([pa.field("id", pa.int64())]))
+    async def test_describe_probe_drops_global_subqueries(self, ateam):
+        client = _EmptyArrowClient(pa.schema([pa.field("distinct_id", pa.string())]))
+        client.describe_body = b"distinct_id\tString\n"
+        query = "SELECT distinct_id FROM events WHERE distinct_id IN (SELECT distinct_id FROM events WHERE event = 'x')"
 
         @contextlib.asynccontextmanager
         async def fake_get_client(**kwargs):
@@ -1705,9 +1711,11 @@ class TestHogqlTableDescribeSettings:
         with unittest.mock.patch(
             "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
         ):
-            _ = [batch async for batch in hogql_table("SELECT 1", ateam, LOGGER.bind())]
+            _ = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
 
         assert client.describe_settings == {"distributed_product_mode": "allow"}
+        assert client.describe_query is not None and "globalIn(" not in client.describe_query
+        assert client.arrow_query is not None and "globalIn(" in client.arrow_query
 
 
 class _SlowDescribeClient(_EmptyArrowClient):
