@@ -302,6 +302,44 @@ def _is_target_field(expr: ast.Expr, column: str) -> bool:
     return isinstance(expr, ast.Field) and bool(expr.chain) and expr.chain[-1] == column
 
 
+def _bound_and(expr: ast.And, column: str) -> Optional[set[str]]:
+    # An AND result satisfies every conjunct, so it lies within any bounded conjunct; intersect the
+    # bounded ones for the tightest still-correct superset, ignoring conjuncts we can't bound.
+    bound: Optional[set[str]] = None
+    for child in expr.exprs:
+        child_bound = _bound_table_names(child, column)
+        if child_bound is None:
+            continue
+        bound = child_bound if bound is None else (bound & child_bound)
+    return bound
+
+
+def _bound_or(expr: ast.Or, column: str) -> Optional[set[str]]:
+    # An OR result satisfies at least one branch, so every branch must be bounded to bound the
+    # union — a single unbounded branch makes the whole disjunction unbounded.
+    union: set[str] = set()
+    for child in expr.exprs:
+        child_bound = _bound_table_names(child, column)
+        if child_bound is None:
+            return None
+        union |= child_bound
+    return union
+
+
+def _bound_compare(expr: ast.CompareOperation, column: str) -> Optional[set[str]]:
+    if expr.op == ast.CompareOperationOp.Eq:
+        for field_side, value_side in ((expr.left, expr.right), (expr.right, expr.left)):
+            if _is_target_field(field_side, column):
+                value = _constant_str(value_side)
+                return {value} if value is not None else None
+        return None
+    if expr.op in (ast.CompareOperationOp.In, ast.CompareOperationOp.GlobalIn):
+        if _is_target_field(expr.left, column) and isinstance(expr.right, ast.Tuple | ast.Array):
+            values = [_constant_str(e) for e in expr.right.exprs]
+            return None if any(v is None for v in values) else {v for v in values if v is not None}
+    return None
+
+
 def _bound_table_names(expr: Optional[ast.Expr], column: str) -> Optional[set[str]]:
     """Best-effort *superset* of the `column` values a WHERE expr can match.
 
@@ -314,37 +352,11 @@ def _bound_table_names(expr: Optional[ast.Expr], column: str) -> Optional[set[st
         return None
     expr = _unwrap(expr)
     if isinstance(expr, ast.And):
-        # An AND result satisfies every conjunct, so it lies within any bounded conjunct; intersect
-        # the bounded ones for the tightest still-correct superset, ignoring conjuncts we can't bound.
-        bound: Optional[set[str]] = None
-        for child in expr.exprs:
-            child_bound = _bound_table_names(child, column)
-            if child_bound is None:
-                continue
-            bound = child_bound if bound is None else (bound & child_bound)
-        return bound
+        return _bound_and(expr, column)
     if isinstance(expr, ast.Or):
-        # An OR result satisfies at least one branch, so every branch must be bounded to bound the
-        # union — a single unbounded branch makes the whole disjunction unbounded.
-        union: set[str] = set()
-        for child in expr.exprs:
-            child_bound = _bound_table_names(child, column)
-            if child_bound is None:
-                return None
-            union |= child_bound
-        return union
+        return _bound_or(expr, column)
     if isinstance(expr, ast.CompareOperation):
-        if expr.op == ast.CompareOperationOp.Eq:
-            for field_side, value_side in ((expr.left, expr.right), (expr.right, expr.left)):
-                if _is_target_field(field_side, column):
-                    value = _constant_str(value_side)
-                    return {value} if value is not None else None
-            return None
-        if expr.op in (ast.CompareOperationOp.In, ast.CompareOperationOp.GlobalIn):
-            if _is_target_field(expr.left, column) and isinstance(expr.right, ast.Tuple | ast.Array):
-                values = [_constant_str(e) for e in expr.right.exprs]
-                return None if any(v is None for v in values) else {v for v in values if v is not None}
-            return None
+        return _bound_compare(expr, column)
     return None
 
 
