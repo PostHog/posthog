@@ -519,11 +519,17 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         user_access_control = self.context["view"].user_access_control
         turning_off = attrs.get("deleted") is True or attrs.get("enabled") is False
-        # Anchors are included: an AI report anchored to a resource injects that resource's
-        # insight definitions into the report, so writing one needs viewer access too.
-        for field in ("dashboard", "insight", "anchor_dashboard", "anchor_insight"):
+        for field in ("dashboard", "insight"):
             target = attrs.get(field) or getattr(existing, field, None)
             if target is not None and not (target.deleted and turning_off):
+                _require_viewer_access(user_access_control, target, field)
+        # Anchors need viewer access only when the write sets them: setting one injects the
+        # resource's insight definitions into the report. Existing anchors are not re-checked on
+        # unrelated edits, clearing (null), or disabling, so losing access to the anchor never
+        # locks a user out of their own subscription.
+        for field in ("anchor_dashboard", "anchor_insight"):
+            target = attrs.get(field)
+            if target is not None:
                 _require_viewer_access(user_access_control, target, field)
 
         if existing is None:
@@ -555,10 +561,11 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             raise ValidationError({"resource_type": [f"Unsupported resource_type: {resource_type}."]})
         if resource_type != Subscription.ResourceType.AI_PROMPT and attrs.get("ai_prompt_config"):
             raise ValidationError({"ai_prompt_config": ["AI report settings only apply to AI subscriptions."]})
-        if resource_type != Subscription.ResourceType.AI_PROMPT and (
-            attrs.get("anchor_dashboard") or attrs.get("anchor_insight")
-        ):
-            raise ValidationError({"anchor_dashboard": ["Anchors only apply to AI subscriptions."]})
+        if resource_type != Subscription.ResourceType.AI_PROMPT:
+            # Keyed on the field the request actually sent, so the error lands on the right input.
+            for anchor_field in ("anchor_dashboard", "anchor_insight"):
+                if attrs.get(anchor_field):
+                    raise ValidationError({anchor_field: ["Anchors only apply to AI subscriptions."]})
         validate_for_resource_type(attrs, existing)
 
         self._validate_dashboard_export_subscription(attrs)
@@ -1340,7 +1347,11 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                     insight_id__isnull=False,
                     insight__deleted=False,
                 ).values_list("insight_id", flat=True)
-                queryset = queryset.filter(insight_id__in=tile_insight_ids)
+                # AI subs anchored to a tile insight consume its definition, so they belong on
+                # this surface the same way subs that export it do.
+                queryset = queryset.filter(
+                    Q(insight_id__in=tile_insight_ids) | Q(anchor_insight_id__in=tile_insight_ids)
+                )
             elif key == "dashboard":
                 # Anchored AI subs belong to their dashboard's page too, so the filter spans both FKs.
                 dashboard_id = _parse_int_param(request_params["dashboard"], "dashboard")

@@ -567,10 +567,12 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             }),
             submit: async (subscription, breakpoint) => {
                 const isAi = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
-                const insightId = props.insightShortId ? await getInsightId(props.insightShortId) : undefined
                 // Anchors are set once, from the page the sub is created on; edits never resend them,
                 // so editing from the standalone subscriptions scene can't clear an existing anchor.
                 const isCreating = props.id === 'new'
+                // AI edits use the insight id for neither the resource nor the anchor; skip the lookup.
+                const needsInsightId = props.insightShortId && (!isAi || isCreating)
+                const insightId = needsInsightId ? await getInsightId(props.insightShortId!) : undefined
 
                 const payload = {
                     ...subscription,

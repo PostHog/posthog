@@ -28,6 +28,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipe
     _arequest_hogql_fix,
     _plan_to_freeze,
     _run_steps,
+    _spec_from_frozen_plan,
     generate_ai_report,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
@@ -579,6 +580,39 @@ async def test_unfrozen_run_returns_plan_to_persist(
     }
 
 
+@patch(f"{_RP}.build_frozen_prompt")
+async def test_anchor_unavailable_echoes_stored_hash_to_keep_frozen_plan(mock_bfp: MagicMock) -> None:
+    # A transient anchor-resolution failure must not read as "anchor removed": the stored hash is
+    # echoed back so the comparison passes and the frozen plan is reused (ungrounded for one run)
+    # instead of being invalidated and replaced by an ungrounded re-plan.
+    stored = {"version": AI_QUERY_PLAN_VERSION, "plan": {}, "anchor_hash": "abc123"}
+    await _spec_from_frozen_plan(
+        team=MagicMock(), prompt="p", window=_test_window(), ai_query_plan=stored, anchor=None, anchor_unavailable=True
+    )
+
+    assert mock_bfp.call_args.kwargs["anchor_hash"] == "abc123"
+
+
+def test_plan_to_freeze_skips_when_anchor_unavailable() -> None:
+    # A plan generated while the anchor failed to resolve is ungrounded; freezing it would replace
+    # a grounded plan until the next content change instead of re-planning when the anchor is back.
+    plan = QueryPlan(
+        overall_intent="i",
+        steps=[QueryPlanStep(description="s", hogql="SELECT count() FROM events WHERE {{date_range}}")],
+    )
+    result = _plan_to_freeze(
+        plan,
+        freshly_planned=True,
+        failed_count=0,
+        total_steps=1,
+        relevant_events=[],
+        anchor_hash=EMPTY_ANCHOR_HASH,
+        anchor_unavailable=True,
+        trace_correlation_id=None,
+    )
+    assert result is None
+
+
 @pytest.mark.parametrize(
     "total_steps,failed_count,should_freeze",
     [
@@ -608,6 +642,7 @@ def test_plan_to_freeze_requires_no_failures(total_steps: int, failed_count: int
         total_steps=total_steps,
         relevant_events=["export created"],
         anchor_hash=EMPTY_ANCHOR_HASH,
+        anchor_unavailable=False,
         trace_correlation_id=None,
     )
     if should_freeze:

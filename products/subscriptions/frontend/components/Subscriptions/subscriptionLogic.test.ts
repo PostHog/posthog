@@ -775,6 +775,37 @@ describe('subscriptionLogic', () => {
         expect(capturedBody?.dashboard).toBeUndefined()
     })
 
+    it('does not resend anchors when editing an AI subscription', async () => {
+        // Anchors are create-only in the payload. An edit that resent them (or sent undefined
+        // serialized keys) could clear or re-point an anchor from a page without that context.
+        let capturedBody: Record<string, unknown> | undefined
+        useMocks({
+            get: {
+                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                    resource_type: 'ai_prompt',
+                    prompt: 'Weekly gains',
+                    anchor_dashboard: 9,
+                }),
+            },
+            patch: {
+                '/api/environments/:team/subscriptions/1': async ({ request }) => {
+                    capturedBody = (await request.json()) as Record<string, unknown>
+                    return [200, { id: 1, ...capturedBody } as SubscriptionType]
+                },
+            },
+        })
+        const editLogic = subscriptionLogic({ dashboardId: 9, id: 1 })
+        editLogic.mount()
+        router.actions.push('/dashboard/9/subscriptions/1')
+        await expectLogic(editLogic).toFinishListeners().toDispatchActions(['loadSubscriptionSuccess'])
+        editLogic.actions.setSubscriptionValues({ title: 'Renamed' })
+        editLogic.actions.submitSubscription()
+        await expectLogic(editLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+        expect(capturedBody).not.toBeUndefined()
+        expect(capturedBody && 'anchor_dashboard' in capturedBody).toBe(false)
+        expect(capturedBody && 'anchor_insight' in capturedBody).toBe(false)
+    })
+
     it('drops a stale prompt when saving a non-AI subscription', async () => {
         // Toggling resource_type back to insight after typing a prompt leaves it in form state;
         // it must not be sent, else the backend rejects a non-AI sub that carries a prompt.

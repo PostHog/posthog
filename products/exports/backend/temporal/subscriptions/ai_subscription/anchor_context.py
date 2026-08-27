@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from posthog.security.llm_prompt_sanitization import sanitize_user_text
 
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import Subscription
 
 logger = structlog.get_logger(__name__)
@@ -36,6 +37,14 @@ class AnchorContext(BaseModel):
     content_hash: str
 
 
+class AnchorContextUnavailable(Exception):
+    """The anchor exists but could not be resolved this run (e.g. a DB error loading tiles).
+
+    Distinct from "no anchor configured" (None): the caller must keep a frozen plan instead of
+    invalidating it, and must not freeze a plan generated without the grounding.
+    """
+
+
 def _extract_event_names(node: object) -> Iterator[str]:
     # Insight queries reference events as {"event": "<name>"} nodes (TrendsQuery series, funnel
     # steps, property filters). A structural walk keeps this schema-agnostic.
@@ -57,9 +66,14 @@ def _insight_lines(insight, collected_events: list[str]) -> list[str]:
     if description:
         lines.append(f"    Description: {description}")
     if insight.query:
-        query_json = json.dumps(insight.query, separators=(",", ":"), sort_keys=True)
-        if len(query_json) > ANCHOR_QUERY_JSON_MAX_CHARS:
-            query_json = query_json[:ANCHOR_QUERY_JSON_MAX_CHARS] + "…(truncated)"
+        # The serialized query carries user-editable strings (custom names, breakdown values), so
+        # it gets the same LLM-marker stripping as names and descriptions. The stripped JSON is
+        # only read by the planner, never parsed back, so lost structure is acceptable.
+        query_json = sanitize_user_text(
+            json.dumps(insight.query, separators=(",", ":"), sort_keys=True),
+            ANCHOR_QUERY_JSON_MAX_CHARS,
+            truncate_marker="…(truncated)",
+        )
         lines.append(f"    Query definition (JSON): {query_json}")
         collected_events.extend(_extract_event_names(insight.query))
     return lines
@@ -73,15 +87,17 @@ def build_anchor_context(subscription: Subscription) -> AnchorContext | None:
     """
     try:
         return _build_anchor_context(subscription)
-    except Exception:
-        # Grounding is an enhancement; losing it must not fail the delivery.
+    except Exception as exc:
+        # Grounding is an enhancement; losing it must not fail the delivery. But a build failure
+        # must not read as "no anchor" either: that would invalidate a valid frozen plan and let
+        # an ungrounded plan replace it. The caller degrades this one run instead.
         logger.warning(
             "ai_subscription.anchor_context_failed",
             subscription_id=subscription.id,
             team_id=subscription.team_id,
             exc_info=True,
         )
-        return None
+        raise AnchorContextUnavailable from exc
 
 
 def _build_anchor_context(subscription: Subscription) -> AnchorContext | None:
@@ -96,12 +112,21 @@ def _build_anchor_context(subscription: Subscription) -> AnchorContext | None:
         description = sanitize_user_text(dashboard.description or "", ANCHOR_DESCRIPTION_MAX_LENGTH)
         if description:
             lines.append(f"  Description: {description}")
-        tiles = list(dashboard.tiles.select_related("insight").filter(insight__isnull=False, insight__deleted=False))
-        # Same layout order the dashboard renders in, so the planner sees tiles the way the user does.
-        tiles.sort(
-            key=lambda t: (
-                (t.layouts or {}).get("sm", {}).get("y", 100),
-                (t.layouts or {}).get("sm", {}).get("x", 100),
+        # order_by("id") gives ties (missing or equal layouts) a stable order; the layout sort is
+        # stable, so without this the blob hash flaps with Postgres heap order and every flap
+        # invalidates the frozen plan. only() keeps the big unused insight columns out of memory.
+        tiles = DashboardTile.sort_tiles_by_layout(
+            dashboard.tiles.select_related("insight")
+            .filter(insight__isnull=False, insight__deleted=False)
+            .order_by("id")
+            .only(
+                "id",
+                "layouts",
+                "insight__id",
+                "insight__name",
+                "insight__derived_name",
+                "insight__description",
+                "insight__query",
             )
         )
         for tile in tiles[:ANCHOR_TILES_LIMIT]:

@@ -2659,6 +2659,26 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "not both" in response.json()["detail"]
 
+    def test_patch_null_clears_the_anchor(self, *mocks: MagicMock):
+        # A null anchor is a clear, and must not require viewer access to the old anchor: after an
+        # access revoke, un-anchoring is the escape hatch and must never be blocked by the anchor.
+        self._mock_temporal(mocks[-1])
+        self._enable_ai()
+        dashboard = Dashboard.objects.create(team=self.team, name="Growth", created_by=self.user)
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(anchor_dashboard=dashboard.id),
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}",
+            {"anchor_dashboard": None},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["anchor_dashboard"] is None
+
     def test_cannot_anchor_to_another_teams_dashboard(self, *mocks: MagicMock):
         self._enable_ai()
         other_team = Team.objects.create(organization=self.organization, name="other")

@@ -111,6 +111,14 @@ class StoredPlanInvalidError(Exception):
     pass
 
 
+class AnchorContentChangedError(StoredPlanInvalidError):
+    """The frozen plan's anchor hash no longer matches the anchor's content. Same self-heal as any
+    invalid stored plan, but expected in normal use (users edit dashboards), so the caller logs it
+    without reporting an exception."""
+
+    pass
+
+
 @dataclass(frozen=True)
 class ReportWindow:
     """Half-open `[start, end)` analysis bounds for a report run, tz-aware in the team timezone.
@@ -634,7 +642,7 @@ def build_frozen_prompt(
     # written before anchors existed carry no key and read as EMPTY_ANCHOR_HASH, so unanchored
     # subscriptions are unaffected.
     if ai_query_plan.get("anchor_hash", EMPTY_ANCHOR_HASH) != anchor_hash:
-        raise StoredPlanInvalidError("Anchor content changed since the plan was frozen.")
+        raise AnchorContentChangedError("Anchor content changed since the plan was frozen.")
     try:
         plan = QueryPlan.model_validate(ai_query_plan.get("plan"))
     except ValidationError as exc:

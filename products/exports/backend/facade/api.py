@@ -110,11 +110,17 @@ def insight_ids_with_subscriptions(insight_ids: Collection[int]) -> set[int]:
     to deliver this insight again.
     """
     # Caller-supplied ids that are already team-scoped by the caller's own query; this only maps
-    # ids to ids and returns no row data.
+    # ids to ids and returns no row data. AI subscriptions anchored to the insight count too,
+    # matching the list API's insight filter.
     # nosemgrep: idor-lookup-without-team
-    return set(
-        Subscription.objects.filter(insight_id__in=insight_ids, deleted=False).values_list("insight_id", flat=True)
+    exported = Subscription.objects.filter(insight_id__in=insight_ids, deleted=False).values_list(
+        "insight_id", flat=True
     )
+    # nosemgrep: idor-lookup-without-team
+    anchored = Subscription.objects.filter(anchor_insight_id__in=insight_ids, deleted=False).values_list(
+        "anchor_insight_id", flat=True
+    )
+    return set(exported) | set(anchored)
 
 
 def dashboard_ids_with_subscriptions(dashboard_ids: Collection[int]) -> set[int]:
@@ -124,13 +130,17 @@ def dashboard_ids_with_subscriptions(dashboard_ids: Collection[int]) -> set[int]
     to deliver this dashboard again.
     """
     # Caller-supplied ids that are already team-scoped by the caller's own query; this only maps
-    # ids to ids and returns no row data.
+    # ids to ids and returns no row data. AI subscriptions anchored to the dashboard count too,
+    # matching the list API's dashboard filter.
     # nosemgrep: idor-lookup-without-team
-    return set(
-        Subscription.objects.filter(dashboard_id__in=dashboard_ids, deleted=False).values_list(
-            "dashboard_id", flat=True
-        )
+    exported = Subscription.objects.filter(dashboard_id__in=dashboard_ids, deleted=False).values_list(
+        "dashboard_id", flat=True
     )
+    # nosemgrep: idor-lookup-without-team
+    anchored = Subscription.objects.filter(anchor_dashboard_id__in=dashboard_ids, deleted=False).values_list(
+        "anchor_dashboard_id", flat=True
+    )
+    return set(exported) | set(anchored)
 
 
 # The limit contexts an export writer can pin, keyed by the string it stores in export_context.

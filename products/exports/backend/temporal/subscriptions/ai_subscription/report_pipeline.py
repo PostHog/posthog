@@ -58,6 +58,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     DEFAULT_PLANNER_MODEL,
     DEFAULT_SYNTHESIS_MODEL,
     WINDOW_PLACEHOLDERS,
+    AnchorContentChangedError,
     PromptRejectedError,
     ReportWindow,
     StoredPlanInvalidError,
@@ -206,6 +207,7 @@ async def generate_ai_report(
     window: ReportWindow,
     ai_query_plan: Optional[dict] = None,
     anchor: Optional[AnchorContext] = None,
+    anchor_unavailable: bool = False,
     trace_correlation_id: Optional[Union[int, str]] = None,
 ) -> AiReportResult:
     if user is None:
@@ -226,14 +228,24 @@ async def generate_ai_report(
             if ai_query_plan is not None:
                 try:
                     spec = await _spec_from_frozen_plan(
-                        team=team, prompt=prompt, window=window, ai_query_plan=ai_query_plan, anchor=anchor
+                        team=team,
+                        prompt=prompt,
+                        window=window,
+                        ai_query_plan=ai_query_plan,
+                        anchor=anchor,
+                        anchor_unavailable=anchor_unavailable,
                     )
                     freshly_planned = False
                 except StoredPlanInvalidError as exc:
                     logger.warning(
                         "ai_report.frozen_plan_invalid_replanning", trace_correlation_id=trace_correlation_id
                     )
-                    capture_exception(exc, {"trace_correlation_id": trace_correlation_id, "feature": "ai_subscription"})
+                    # An anchor edit is a normal user action, not a defect; only genuinely invalid
+                    # plans reach error tracking.
+                    if not isinstance(exc, AnchorContentChangedError):
+                        capture_exception(
+                            exc, {"trace_correlation_id": trace_correlation_id, "feature": "ai_subscription"}
+                        )
                     spec = await _plan(
                         team=team, user=user, prompt=prompt, window=window, anchor=anchor, trace_id=trace_correlation_id
                     )
@@ -318,6 +330,7 @@ async def generate_ai_report(
             total_steps=total_steps,
             relevant_events=spec.relevant_events,
             anchor_hash=anchor.content_hash if anchor else EMPTY_ANCHOR_HASH,
+            anchor_unavailable=anchor_unavailable,
             trace_correlation_id=trace_correlation_id,
             chart_failure_count=chart_spec_failures,
         )
@@ -355,9 +368,16 @@ def _plan_to_freeze(
     total_steps: int,
     relevant_events: Sequence[str],
     anchor_hash: str,
+    anchor_unavailable: bool,
     trace_correlation_id: Optional[Union[int, str]],
     chart_failure_count: int = 0,
 ) -> Optional[dict]:
+    # A plan generated while the anchor failed to resolve has no grounding; freezing it would
+    # replace a grounded plan with an ungrounded one until the next content change. Re-plan next
+    # run instead, when the anchor is hopefully back.
+    if anchor_unavailable:
+        logger.warning("ai_report.anchor_unavailable_not_frozen", trace_correlation_id=trace_correlation_id)
+        return None
     # Steps already carry their final HogQL by this point — see the write-back in `run_step`.
     # Never freeze a plan the next delivery is better off re-planning: a plan with any failed step would
     # replay that broken HogQL every run, and a step without any window placeholder would scan unbounded
@@ -434,7 +454,15 @@ async def _spec_from_frozen_plan(
     window: ReportWindow,
     ai_query_plan: dict,
     anchor: Optional[AnchorContext],
+    anchor_unavailable: bool = False,
 ) -> EnrichedPromptSpec:
+    # When the anchor failed to resolve this run, echo the stored hash so the comparison passes:
+    # a transient resolution failure must reuse the frozen plan (one ungrounded run) instead of
+    # invalidating it and paying an ungrounded re-plan.
+    if anchor_unavailable:
+        anchor_hash = ai_query_plan.get("anchor_hash", EMPTY_ANCHOR_HASH)
+    else:
+        anchor_hash = anchor.content_hash if anchor else EMPTY_ANCHOR_HASH
     try:
         return await database_sync_to_async(build_frozen_prompt, thread_sensitive=False)(
             team=team,
@@ -442,7 +470,7 @@ async def _spec_from_frozen_plan(
             window=window,
             ai_query_plan=ai_query_plan,
             anchor_blob=anchor.blob if anchor else "",
-            anchor_hash=anchor.content_hash if anchor else EMPTY_ANCHOR_HASH,
+            anchor_hash=anchor_hash,
         )
     except (PromptRejectedError, StoredPlanInvalidError):
         raise

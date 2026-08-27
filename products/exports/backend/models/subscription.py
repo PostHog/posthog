@@ -163,11 +163,14 @@ class Subscription(ModelActivityMixin, models.Model):
     # planner as grounding. It is not the exported resource, so resource_type stays derived from
     # the relations above. SET_NULL because deleting the anchor should only degrade the report
     # to project-wide, not delete the subscription.
+    # db_index=False so the ADD COLUMN takes no non-concurrent CREATE INDEX; the indexes are
+    # added concurrently in Meta.indexes (SET_NULL cascade and the list filters need them).
     anchor_dashboard = models.ForeignKey(
         "dashboards.Dashboard",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
+        db_index=False,
         related_name="anchored_ai_subscriptions",
     )
     anchor_insight = models.ForeignKey(
@@ -175,6 +178,7 @@ class Subscription(ModelActivityMixin, models.Model):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
+        db_index=False,
         related_name="anchored_ai_subscriptions",
     )
     integration = models.ForeignKey(
@@ -232,6 +236,8 @@ class Subscription(ModelActivityMixin, models.Model):
     class Meta:
         indexes = [
             models.Index(fields=["integration"], name="posthog_sub_integration_idx"),
+            models.Index(fields=["anchor_dashboard"], name="posthog_sub_anchor_dash_idx"),
+            models.Index(fields=["anchor_insight"], name="posthog_sub_anchor_ins_idx"),
         ]
         db_table = "posthog_subscription"
 
