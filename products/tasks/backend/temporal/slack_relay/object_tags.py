@@ -347,15 +347,41 @@ class StreamSplit:
     held: str
 
 
+def _unclosed_fence_start(text: str) -> int | None:
+    fence_char = ""
+    fence_length = 0
+    fence_start = 0
+    offset = 0
+    for line in text.split("\n"):
+        fence = _RE_FENCE_LINE.match(line)
+        if fence_char:
+            if (
+                fence is not None
+                and fence.group(1)[0] == fence_char
+                and len(fence.group(1)) >= fence_length
+                and line[fence.end() :].strip() == ""
+            ):
+                fence_char = ""
+        elif fence:
+            fence_char = fence.group(1)[0]
+            fence_length = len(fence.group(1))
+            fence_start = offset
+        offset += len(line) + 1
+    return fence_start if fence_char else None
+
+
 def split_incomplete_tag_suffix(text: str) -> StreamSplit:
-    """Split off a trailing object tag that has not finished arriving.
+    """Split off a trailing object tag, or code fence, that has not finished arriving.
 
     Used between streaming flushes so a tag split across two chunks is rewritten whole in the
-    next one. Nothing is held when that would leave nothing to send.
+    next one, and a tag inside a still-open fence is not rewritten at all. The whole text can be
+    held; the caller then waits for more instead of posting.
     """
-    held_from: int | None = None
+    held_from: int | None = _unclosed_fence_start(text)
     last_lt = text.rfind("<")
-    if last_lt != -1 and ">" not in text[last_lt:] and re.fullmatch(r"<(?:[a-z][\w-]*(?:\s[^>]*)?)?", text[last_lt:]):
+    if held_from is not None:
+        pass
+    elif last_lt != -1 and ">" not in text[last_lt:] and re.fullmatch(r"<(?:[a-z][\w-]*(?:\s[^>]*)?)?", text[last_lt:]):
         held_from = last_lt
     else:
         last_open = None
@@ -367,6 +393,6 @@ def split_incomplete_tag_suffix(text: str) -> StreamSplit:
             and re.search(rf"</{re.escape(last_open.group(1))}\s*>", text[last_open.end() :]) is None
         ):
             held_from = last_open.start()
-    if held_from is None or held_from == 0 or len(text) - held_from > _MAX_HELD_SUFFIX:
+    if held_from is None or len(text) - held_from > _MAX_HELD_SUFFIX:
         return StreamSplit(sendable=text, held="")
     return StreamSplit(sendable=text[:held_from], held=text[held_from:])

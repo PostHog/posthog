@@ -230,7 +230,14 @@ class TestSplitIncompleteTagSuffix(unittest.TestCase):
             ("self_closing_tag_is_sent", 'See <flag id="1"/> now', 'See <flag id="1"/> now', ""),
             ("comparison_is_not_a_tag", "a < b and c", "a < b and c", ""),
             ("unknown_tag_is_sent", "x <unknown>y", "x <unknown>y", ""),
-            ("nothing_held_when_nothing_would_be_sent", '<insight id="1">check', '<insight id="1">check', ""),
+            ("whole_text_is_held_when_it_is_all_one_open_tag", '<insight id="1">check', "", '<insight id="1">check'),
+            (
+                "open_fence_is_held",
+                'Example:\n```xml\n<insight id="1">x</insight>',
+                "Example:\n",
+                '```xml\n<insight id="1">x</insight>',
+            ),
+            ("closed_fence_is_sent", "```\nx\n```\ndone", "```\nx\n```\ndone", ""),
         ]
     )
     def test_split(self, _name: str, text: str, sendable: str, held: str) -> None:

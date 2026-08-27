@@ -184,12 +184,32 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
                     # Phase 1: stream narrative as markdown_text.
                     if not self._current_narrative:
                         continue
-                    # An object tag cut by the flush boundary would post as raw XML; keep its
-                    # start for the next flush. The dispatch decision above is unchanged, so
-                    # in-flight replays see the same command sequence.
-                    split = split_incomplete_tag_suffix(self._current_narrative)
-                    to_stream = split.sendable
-                    self._current_narrative = split.held
+                    if workflow.patched("slack-agent-design-hold-split-tags-2026-08"):
+                        # An object tag or code fence cut by the flush boundary would post as
+                        # raw XML; keep its start for the next flush. Patched because a history
+                        # recorded before this branch cleared the narrative here and then waited.
+                        split = split_incomplete_tag_suffix(self._current_narrative)
+                        if not split.sendable:
+                            held_length = len(self._current_narrative)
+                            try:
+                                await workflow.wait_condition(
+                                    lambda held_length=held_length: (
+                                        len(self._current_narrative) != held_length or self._turn_complete
+                                    ),
+                                    timeout=timedelta(minutes=TURN_IDLE_TIMEOUT_MINUTES),
+                                )
+                            except TimeoutError:
+                                workflow.logger.warning(
+                                    "slack_app_agent_design_relay_idle_timeout",
+                                    extra={"workflow_id": workflow.info().workflow_id},
+                                )
+                                return
+                            continue
+                        to_stream = split.sendable
+                        self._current_narrative = split.held
+                    else:
+                        to_stream = self._current_narrative
+                        self._current_narrative = ""
                     self._last_dispatched_at = workflow.now().timestamp()
 
                     if self._stream_ts is None:
