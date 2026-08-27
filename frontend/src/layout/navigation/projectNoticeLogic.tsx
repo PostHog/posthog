@@ -275,7 +275,7 @@ export interface projectNoticeLogicMeta {
             memberCount: number,
             internetConnectionIssue: boolean,
             hasProjectNoticeRestriction: boolean,
-            proxyRecords: ProxyRecord[] | null,
+            proxyRecords: import('products/platform_features/frontend/generated/api.schemas').ProxyRecordApi[] | null,
             effectiveBillingAlert: BillingAlertConfig | null,
             currentLocation: {
                 hash: string

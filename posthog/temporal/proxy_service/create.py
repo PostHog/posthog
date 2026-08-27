@@ -44,6 +44,7 @@ from posthog.temporal.proxy_service.common import (
     activity_send_proxy_created_email,
     activity_update_proxy_record,
     get_grpc_client,
+    get_record,
     record_exists,
     update_record,
     use_cloudflare_proxy,
@@ -289,11 +290,12 @@ async def create_cloudflare_custom_hostname(inputs: CreateCloudflareProxyInputs)
         inputs.domain,
     )
 
-    if not await record_exists(inputs.proxy_record_id):
+    record = await get_record(inputs.proxy_record_id)
+    if record is None:
         raise RecordDeletedException("proxy record was deleted while creating Cloudflare Custom Hostname")
 
     try:
-        result = await asyncio.to_thread(create_custom_hostname, inputs.domain)
+        result = await asyncio.to_thread(create_custom_hostname, inputs.domain, record.root_redirect_url)
         logger.info(
             "Created Cloudflare Custom Hostname %s for domain %s with status %s",
             result.id,

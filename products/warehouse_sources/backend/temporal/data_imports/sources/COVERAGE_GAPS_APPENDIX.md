@@ -2621,6 +2621,16 @@ Diffed against: <https://raw.githubusercontent.com/e2b-dev/infra/main/spec/opena
 
 Note: E2B's public API is genuinely small (~20 GET-able paths, most of them template build plumbing or admin/api-key management). The source is static: E2B_ENDPOINTS in settings.py hardcodes /v2/sandboxes, /v2/templates and /snapshots with no dynamic discovery, and correctly uses the v2 sandbox listing (all states) rather than the running-only v1.
 
+## Easybill — gaps
+
+Today (7): `Customers`, `CustomerGroups`, `DocumentPayments`, `Documents`, `IncomingDocuments`, `Positions`, `Projects`
+
+Diffed against: <https://api.easybill.de/rest/v1/swagger.json>
+
+- [x] `incoming-documents (GET /rest/v1/incoming-documents)` — received supplier invoices and credit notes with extracted amounts, supplier, status and payments; the accounts-payable side of the accounting data (medium)
+
+Note: `/incoming-documents` is read-only and its only list filter is `created_at`, so it syncs full-refresh like `/customers` (a `created_at` cursor would miss later edits). The sub-resources `/incoming-documents/{id}/files` and `.../download` are file-download plumbing (binary/URLs), not warehouse-table material, so they were excluded rather than reported as gaps.
+
 ## Easypost — gaps
 
 Today (9): `addresses`, `batches`, `events`, `insurances`, `pickups`, `refunds`, `scan_forms`, `shipments`, `trackers`
@@ -7684,10 +7694,12 @@ Note: The public smartreach.io/api_docs page only documents campaigns + prospect
 
 ## Smartsheet — **thin**
 
-Today (6): `contacts`, `reports`, `sheets`, `templates`, `users`, `workspaces`
+Today (8): `contacts`, `report_columns`, `report_scope`, `reports`, `sheets`, `templates`, `users`, `workspaces`
 
 Diffed against: <https://developers.smartsheet.com/sitemap.xml>
 
+- [x] `GET /reports/{reportId}/columns` — the columns of every report (title, type, index), fanned out across all reports (announced Jul-09-2026)
+- [x] `GET /reports/{reportId}/scope` — each report's source sheets and workspaces, fanned out across all reports (announced Jul-09-2026)
 - [ ] `GET /sheets/{sheetId} (rows + cells)` — the actual row/cell data inside every sheet - today only sheet metadata is synced, so no sheet content is queryable (high)
 - [ ] `GET /sheets/{sheetId}/columns` — lookup resolving the column ids that every cell references, including picklist options (high)
 - [ ] `GET /events (list-events, list-filtered-events)` — the org-wide activity event stream - who changed what and when (high)

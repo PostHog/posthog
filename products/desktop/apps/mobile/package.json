@@ -81,7 +81,7 @@
     "highlight.js": "^11.11.1",
     "nativewind": "^4.2.1",
     "phosphor-react-native": "^3.0.2",
-    "posthog-react-native": "^4.65.0",
+    "posthog-react-native": "^4.66.0",
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-native": "0.86.0",
