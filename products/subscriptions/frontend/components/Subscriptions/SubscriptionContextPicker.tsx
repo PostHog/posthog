@@ -6,13 +6,13 @@ import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopov
 import { IconEvent } from 'lib/lemon-ui/icons'
 
 import type { SubscriptionContextApi, SubscriptionContextItemApi } from '../../generated/api.schemas'
+import { MAX_CONTEXTS } from './utils'
 
 const CONTEXT_GROUP_TYPES = [
     TaxonomicFilterGroupType.Events,
     TaxonomicFilterGroupType.Insights,
     TaxonomicFilterGroupType.Dashboards,
 ]
-const MAX_CONTEXTS = 25
 
 interface PickableContextItem {
     id?: number
@@ -100,13 +100,9 @@ export function SubscriptionContextPicker({
                         className="flex items-center text-secondary max-w-48"
                         data-attr="ai-subscription-context"
                     >
-                        <Link
-                            to={`/data-management/events/${encodeURIComponent(eventName)}`}
-                            target="_blank"
-                            className="truncate min-w-0 flex-1"
-                        >
-                            {eventName}
-                        </Link>
+                        {/* Events carry only a name here, and the event-definition route resolves by
+                            UUID, so a name-based link dead-ends on "not found". Render plain text. */}
+                        <span className="truncate min-w-0 flex-1">{eventName}</span>
                     </LemonTag>
                 </Tooltip>
             ))}
