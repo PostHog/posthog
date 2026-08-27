@@ -1,5 +1,4 @@
 import type { Task } from "@posthog/shared/domain-types";
-import { Theme } from "@radix-ui/themes";
 import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -24,29 +23,6 @@ vi.mock(
     };
   },
 );
-vi.mock("@posthog/ui/features/auth/store", () => ({
-  useAuthStateValue: (selector: (state: { status: string }) => unknown) =>
-    selector({ status: "authenticated" }),
-}));
-vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
-  useFeatureFlag: () => true,
-}));
-vi.mock("@posthog/ui/features/sessions/useSession", () => ({
-  useSessionForTask: () => null,
-}));
-vi.mock("@posthog/ui/features/sessions/hooks/useSessionCallbacks", () => ({
-  useSessionCallbacks: () => ({ initiateHandoffToCloud: vi.fn() }),
-}));
-vi.mock("@posthog/ui/features/sessions/handoffDialogStore", () => ({
-  useHandoffDialogStore: (selector: (state: object) => unknown) =>
-    selector({
-      confirmOpen: false,
-      direction: null,
-      branchName: null,
-      openConfirm: vi.fn(),
-      closeConfirm: vi.fn(),
-    }),
-}));
 vi.mock("@posthog/ui/features/code-review/hooks/useDiffStatsToggle", () => ({
   useDiffStatsToggle: () => ({
     filesChanged: 0,
@@ -64,10 +40,6 @@ vi.mock(
   () => ({
     BranchSelector: () => null,
   }),
-);
-vi.mock(
-  "@posthog/ui/features/git-interaction/components/CloudGitInteractionHeader",
-  () => ({ CloudGitInteractionHeader: () => <div>cloud actions</div> }),
 );
 vi.mock(
   "@posthog/ui/features/git-interaction/components/TaskActionsMenu",
@@ -99,11 +71,7 @@ import { TaskHeaderActions } from "./TaskHeaderActions";
 function renderActions(
   task: Task = { id: "task-1", title: "Fix the bug" } as Task,
 ) {
-  render(
-    <Theme>
-      <TaskHeaderActions task={task} />
-    </Theme>,
-  );
+  render(<TaskHeaderActions task={task} />);
 }
 
 describe("TaskHeaderActions", () => {
@@ -113,7 +81,6 @@ describe("TaskHeaderActions", () => {
 
     renderActions();
 
-    expect(screen.queryByText("Continue in cloud")).not.toBeInTheDocument();
     expect(screen.queryByText("task menu")).not.toBeInTheDocument();
   });
 
@@ -124,9 +91,7 @@ describe("TaskHeaderActions", () => {
     renderActions();
 
     expect(screen.getByText("stop cloud run")).toBeInTheDocument();
-    expect(screen.getByText("cloud actions")).toBeInTheDocument();
     expect(screen.getByText("task menu")).toBeInTheDocument();
-    expect(screen.queryByText("Continue in cloud")).not.toBeInTheDocument();
   });
 
   it("shows cloud controls for a cloud run without a local workspace row", () => {
@@ -140,7 +105,5 @@ describe("TaskHeaderActions", () => {
     } as Task);
 
     expect(screen.getByText("stop cloud run")).toBeInTheDocument();
-    expect(screen.getByText("cloud actions")).toBeInTheDocument();
-    expect(screen.queryByText("Continue in cloud")).not.toBeInTheDocument();
   });
 });
