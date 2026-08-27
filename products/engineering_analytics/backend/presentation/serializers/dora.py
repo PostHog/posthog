@@ -87,7 +87,8 @@ class DoraOverviewSerializer(DataclassSerializer):
                 "production_environment), an exact environment name (the one passed, or the busiest persistent "
                 "environment when nothing is marked production), or 'persistent' (no persistent environment "
                 "deployed in the window, so every non-transient one counts). Transient environments (ephemeral "
-                "per-PR previews) never join a default scope."
+                "per-PR previews) never join a default scope. The scope resolves from deployments in the scan "
+                "window, so two different windows can resolve different scopes and are not always comparable."
             },
             "environments": {
                 "help_text": "Distinct persistent environments deployed to in the scan window, most-deployed "
@@ -109,11 +110,11 @@ class DoraOverviewSerializer(DataclassSerializer):
             },
             "deployment_count_prev": {"help_text": "Same count over the equal-length window before date_from."},
             "deployments_per_day": {
-                "help_text": "deployment_count normalized by the window length in days. Null when nothing deployed.",
+                "help_text": "deployment_count normalized by the window length in days. Null only when the deploy tables aren't synced.",
                 "allow_null": True,
             },
             "deployments_per_day_prev": {
-                "help_text": "Previous-window twin of deployments_per_day. Null when nothing deployed.",
+                "help_text": "Previous-window twin of deployments_per_day. Null only when the deploy tables aren't synced.",
                 "allow_null": True,
             },
             "median_merge_to_deploy_seconds": {

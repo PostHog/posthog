@@ -96,11 +96,7 @@ export function EngineeringAnalyticsHealth(): JSX.Element {
                     tooltip={`Successful deployments per day in the ${environmentScopeLabel} scope: ${dora?.deployment_count ?? 0} in this window.`}
                     value={dora?.deployments_per_day != null ? `${dora.deployments_per_day.toFixed(1)}/day` : '—'}
                     delta={{ value: percentChange(dora?.deployments_per_day, dora?.deployments_per_day_prev) }}
-                    sub={
-                        dora && dora.deployments_per_day == null
-                            ? 'No successful deployments in this window.'
-                            : undefined
-                    }
+                    sub={dora && dora.deployment_count === 0 ? 'No successful deployments in this window.' : undefined}
                     loading={firstLoad}
                 />
                 <MetricTile

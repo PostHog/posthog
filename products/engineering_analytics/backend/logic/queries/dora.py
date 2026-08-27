@@ -583,10 +583,8 @@ def query_dora_overview(
         github_teams=github_teams,
         deployment_count=outcomes.deployment_count,
         deployment_count_prev=outcomes.deployment_count_prev,
-        deployments_per_day=outcomes.deployment_count / window_days if outcomes.deployment_count else None,
-        deployments_per_day_prev=outcomes.deployment_count_prev / window_days
-        if outcomes.deployment_count_prev
-        else None,
+        deployments_per_day=outcomes.deployment_count / window_days,
+        deployments_per_day_prev=outcomes.deployment_count_prev / window_days,
         median_merge_to_deploy_seconds=lead.median_seconds,
         median_merge_to_deploy_seconds_prev=lead.median_seconds_prev,
         deployed_pr_count=lead.deployed_count,

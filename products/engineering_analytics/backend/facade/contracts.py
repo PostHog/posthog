@@ -1221,7 +1221,8 @@ class DoraOverview:
     # when nothing is marked production — the busiest persistent environment, so a multi-region
     # repo doesn't multiply every count), or 'persistent' (no persistent environment deployed in
     # the window at all, so every non-transient one counts). Transient environments (ephemeral
-    # per-PR previews) never join a default scope.
+    # per-PR previews) never join a default scope. The scope resolves from deployments in the
+    # scan window, so two different windows can resolve different scopes and are not always comparable.
     environment_scope: str
     # Distinct persistent environments deployed to in the scan window, most-deployed first — the
     # picker's options. Transient environments are omitted but stay reachable by exact name.
@@ -1233,7 +1234,7 @@ class DoraOverview:
     # Deployments whose first success status landed in the window, within the environment scope.
     deployment_count: int
     deployment_count_prev: int
-    # deployment_count normalized by the window length in days.
+    # deployment_count normalized by the window length in days. Null only when the deploy tables aren't synced.
     deployments_per_day: float | None
     deployments_per_day_prev: float | None
     # Median seconds from a PR's merge to the first successful deployment containing it —
