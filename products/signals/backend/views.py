@@ -931,6 +931,17 @@ class SignalReportViewSet(
             return False
         raise serializers.ValidationError({"include_all_statuses": f"Invalid value: {raw!r}. Allowed: true, false."})
 
+    def _count_only_requested(self) -> bool:
+        raw = self.request.query_params.get("count_only")
+        if raw is None or not raw.strip():
+            return False
+        value = raw.strip().lower()
+        if value in ("1", "true", "yes"):
+            return True
+        if value in ("0", "false", "no"):
+            return False
+        raise serializers.ValidationError({"count_only": f"Invalid value: {raw!r}. Allowed: true, false."})
+
     def _apply_signal_report_search_filter(self, queryset):
         search = self.request.query_params.get("search")
         if not search:
@@ -1584,7 +1595,17 @@ class SignalReportViewSet(
                 description=(
                     "Filter reports by whether a shipped implementation pull request exists. "
                     "'true' keeps only reports with a PR; 'false' keeps only those without. "
-                    "Pair with limit=1 to count PR reports cheaply."
+                    "Pair with count_only=true to return only the filtered total."
+                ),
+            ),
+            OpenApiParameter(
+                name="count_only",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Return the filtered total with an empty results page. Skips report ordering, "
+                    "serialization, and decorative metadata lookups. Defaults to false."
                 ),
             ),
         ],
@@ -1594,10 +1615,20 @@ class SignalReportViewSet(
         # The reports list is the primary inbox-load endpoint. Each phase gets its own child span
         # so a slow load can be attributed to Postgres (queryset annotations), ClickHouse (source
         # products), the task facade (PR urls), or serialization, rather than one opaque request.
+        count_only = self._count_only_requested()
+        trace.get_current_span().set_attribute("signals.reports.list.count_only", count_only)
+
         with tracer.start_as_current_span("signals.reports.list.queryset"):
             queryset = self.filter_queryset(self.get_queryset())
-            page = self.paginate_queryset(queryset)
-            reports = list(page if page is not None else queryset)
+            if count_only:
+                total_count = queryset.count()
+            else:
+                page = self.paginate_queryset(queryset)
+                reports = list(page if page is not None else queryset)
+
+        if count_only:
+            trace.get_current_span().set_attribute("signals.reports.list.total_count", total_count)
+            return Response({"count": total_count, "next": None, "previous": None, "results": []})
 
         report_ids = [str(r.id) for r in reports]
         trace.get_current_span().set_attribute("signals.reports.list.count", len(report_ids))

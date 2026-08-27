@@ -980,6 +980,25 @@ class TestSignalReportListAPI(APIBaseTest):
         assert body["count"] == 3
         assert len(body["results"]) == 1
 
+    def test_filter_has_implementation_pr_count_only_skips_report_enrichment(self):
+        for i in range(3):
+            report = self._create_report(title=f"PR report {i}")
+            self._create_implementation_task_with_run(report, pr_url=f"https://github.com/org/repo/pull/{i}")
+        self._create_report(title="No PR report")
+
+        with (
+            patch("products.signals.backend.views.fetch_source_products_for_reports") as fetch_source_products,
+            patch(
+                "products.signals.backend.views.fetch_implementation_pr_state_for_reports"
+            ) as fetch_implementation_prs,
+        ):
+            response = self.client.get(self._list_url(has_implementation_pr="true", count_only="true"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"count": 3, "next": None, "previous": None, "results": []}
+        fetch_source_products.assert_not_called()
+        fetch_implementation_prs.assert_not_called()
+
     def test_filter_has_implementation_pr_empty_value_is_noop(self):
         report_with_pr = self._create_report(title="Report with PR")
         report_without_pr = self._create_report(title="Report without PR")

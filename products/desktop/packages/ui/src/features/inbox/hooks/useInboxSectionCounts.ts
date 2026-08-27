@@ -31,9 +31,9 @@ export interface InboxSectionCounts {
  * At this dataset's real size (tens of thousands of live reports in a shared
  * project) any count derived from loaded pages is a count of a window, not of
  * reality — which is where every badge/section mismatch came from. So each
- * number here is a `limit: 1` count query on the dimensions the API can
- * actually filter server-side (status, PR presence, reviewer scope, source,
- * priority), and the sections are deliberately defined on those dimensions.
+ * number here is a count-only query on the dimensions the API can filter
+ * server-side (status, PR presence, reviewer scope, source, priority), and the
+ * sections are deliberately defined on those dimensions.
  *
  * Scope and the filter bar's source/priority choices are mirrored into every
  * query so the counts move with what the list shows. Search is not — it's a
@@ -71,7 +71,7 @@ export function useInboxSectionCounts(): InboxSectionCounts {
     suggested_reviewers: reviewerUuid
       ? buildSuggestedReviewerFilterParam([reviewerUuid])
       : undefined,
-    limit: 1,
+    count_only: true,
   };
   const options = {
     // "For you" must carry the user's reviewer filter; hold until it resolves.

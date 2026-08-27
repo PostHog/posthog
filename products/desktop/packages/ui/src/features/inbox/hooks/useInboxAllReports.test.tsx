@@ -121,6 +121,7 @@ describe("useInboxAllReports", () => {
     // the Reports tab routes elsewhere, which is what made the badge disagree
     // with the list it labels.
     expect(reportsCountParams()?.status).toBe("ready");
+    expect(reportsCountParams()?.count_only).toBe(true);
   });
 
   it("skips the Reports count query for consumers that only read the pulls badge", async () => {

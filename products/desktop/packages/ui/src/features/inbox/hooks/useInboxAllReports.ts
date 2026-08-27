@@ -144,8 +144,8 @@ export function useInboxAllReports(options?: {
   // True count of pull-request reports for the active scope. The infinite list
   // only holds the first page(s), so deriving pulls from loaded reports caps at
   // the page size and depends on ordering (a PR can sit past page 1). A cheap
-  // `limit: 1` count query with the server-side `has_implementation_pr` filter
-  // returns the real total regardless of page size.
+  // count-only query with the server-side `has_implementation_pr` filter returns
+  // the real total without fetching or enriching a report row.
   const pullRequestCountQuery = useInboxReports(
     {
       status: INBOX_PULL_REQUEST_STATUS_FILTER,
@@ -161,7 +161,7 @@ export function useInboxAllReports(options?: {
       suggested_reviewers: reviewerUuid
         ? buildSuggestedReviewerFilterParam([reviewerUuid])
         : undefined,
-      limit: 1,
+      count_only: true,
     },
     {
       enabled: enabled && (!isForYou || reviewerUuid != null),
@@ -172,7 +172,7 @@ export function useInboxAllReports(options?: {
   const pullRequestTotal = pullRequestCountQuery.data?.count ?? 0;
 
   // True count of Reports-tab reports for the active scope, on the same
-  // `limit: 1` pattern as the pull-request count above. Deriving it instead by
+  // count-only pattern as the pull-request count above. Deriving it instead by
   // subtracting from the pipeline total only works if every non-report item is
   // visible in the loaded pages, and the list is ordered `ready` first, so the
   // queued, live and failed runs sit past page 1 and never get subtracted.
@@ -188,7 +188,7 @@ export function useInboxAllReports(options?: {
       suggested_reviewers: reviewerUuid
         ? buildSuggestedReviewerFilterParam([reviewerUuid])
         : undefined,
-      limit: 1,
+      count_only: true,
     },
     {
       enabled:
