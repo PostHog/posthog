@@ -323,6 +323,17 @@ describe('sessionRecordingPlayerLogic', () => {
         })
     })
 
+    describe('end of recording', () => {
+        it('clears the inactivity-skip flag so the overlay does not stick over the final frame', async () => {
+            logic.actions.setSkippingInactivity(true)
+            expect(logic.values.isSkippingInactivity).toBe(true)
+
+            await expectLogic(logic, () => logic.actions.setEndReached(true)).toMatchValues({
+                isSkippingInactivity: false,
+            })
+        })
+    })
+
     describe('terminal data failures', () => {
         // Give-up signals must surface as a player error even when partial data already loaded —
         // otherwise the affected range buffers forever with no error shown.
