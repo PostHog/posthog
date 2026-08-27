@@ -1,20 +1,25 @@
 """OpenAI provider for LLM summarization, routed through the internal Go ai-gateway
 when configured, else the Python LLM gateway."""
 
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import structlog
-from openai.types.chat import ChatCompletionMessageParam
+from openai import APITimeoutError, RateLimitError
+from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 from rest_framework import exceptions
 
 from posthog.llm.gateway_client import build_openai_client, team_distinct_id
 
-from ..constants import SUMMARIZATION_TIMEOUT
+from ..constants import SUMMARIZATION_FLEX_TIMEOUT, SUMMARIZATION_TIMEOUT
 from ..models import OpenAIModel, SummarizationMode
 from ..utils import load_summarization_template
 from .schema import SummarizationResponse
 
 logger = structlog.get_logger(__name__)
+
+
+def _is_gpt5_model(model: OpenAIModel) -> bool:
+    return str(model).startswith("gpt-5")
 
 
 def summarize_with_openai(
@@ -23,6 +28,7 @@ def summarize_with_openai(
     mode: SummarizationMode,
     model: OpenAIModel,
     user_id: str | None = None,
+    flex: bool = False,
 ) -> SummarizationResponse:
     """Generate summary using OpenAI API via LLM gateway with structured outputs."""
     system_prompt = load_summarization_template(f"prompts/system_{mode}.djt", {})
@@ -41,12 +47,19 @@ def summarize_with_openai(
         {"role": "user", "content": user_prompt},
     ]
 
-    try:
-        response = client.chat.completions.create(
+    def _create(service_tier: Literal["flex"] | None, timeout: float) -> ChatCompletion:
+        extra: dict[str, Any] = {}
+        if _is_gpt5_model(model):
+            # gpt-5 models are reasoning models, and reasoning tokens bill as output
+            # tokens. Minimal effort keeps output volume at gpt-4.1 levels.
+            extra["reasoning_effort"] = "minimal"
+        if service_tier is not None:
+            extra["service_tier"] = service_tier
+        return client.chat.completions.create(
             model=str(model),
             messages=messages,
             user=resolved_distinct_id,
-            timeout=SUMMARIZATION_TIMEOUT,
+            timeout=timeout,
             response_format=cast(
                 Any,
                 {
@@ -58,7 +71,21 @@ def summarize_with_openai(
                     },
                 },
             ),
+            **extra,
         )
+
+    # Only gpt-5 family models accept service_tier="flex"; gpt-4.1 requests would be rejected.
+    use_flex = flex and _is_gpt5_model(model)
+    try:
+        if use_flex:
+            try:
+                response = _create("flex", SUMMARIZATION_FLEX_TIMEOUT)
+            except (RateLimitError, APITimeoutError):
+                # Flex runs on spare provider capacity, so OpenAI can refuse (429) or stall
+                # the request. Retry once at the standard tier so the window still gets its summary.
+                response = _create(None, SUMMARIZATION_TIMEOUT)
+        else:
+            response = _create(None, SUMMARIZATION_TIMEOUT)
 
         content = response.choices[0].message.content
         if not content:

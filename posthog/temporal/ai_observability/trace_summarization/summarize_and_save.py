@@ -209,12 +209,15 @@ async def summarize_and_save_activity(input: SummarizeAndSaveInput) -> Summariza
         model_enum = OpenAIModel(input.model) if input.model else None
 
         t0 = time.monotonic()
+        # The batch pipeline can wait for its summaries, so request the cheaper flex
+        # service tier. The provider falls back to the standard tier when flex is refused.
         summary_result = await database_sync_to_async(summarize, thread_sensitive=False)(
             text_repr=text_repr,
             team_id=input.team_id,
             mode=mode_enum,
             model=model_enum,
             user_id=f"temporal-workflow-team-{input.team_id}",
+            flex=True,
         )
         llm_duration_s = time.monotonic() - t0
         log.info(
