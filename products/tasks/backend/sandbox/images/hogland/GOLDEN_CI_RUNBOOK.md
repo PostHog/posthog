@@ -125,9 +125,10 @@ For **each** cluster the workflow targets (dev, then prod-us):
   - `HOG_TASKS_GOLDEN_PROD_ENABLED=true` — second arm for prod-targeting
     clusters. The prod-us leg stays a no-op until this is set, so it does not
     fail nightly before its own principal + TrustMapping exist.
-  - `HOGLAND_CLI_REF` (**required**) — the `PostHog/hogland` ref to build the CLI
-    from. Must be a released `v*-cli` tag; the workflow fails if it is unset or
-    not a `*-cli` tag (a moving branch like `main` is not reproducible).
+  - No `HOGLAND_CLI_REF` variable. The workflow resolves the latest published
+    `v*-cli` release of `PostHog/hogland` at runtime and builds the CLI from that
+    tag (never `main`), guarding that it is at least `v1.5.0-cli`. The CLI only
+    orchestrates the bake, so its version does not change the golden's contents.
   - The quiet-window guard's rollout workflow is **per cluster**, hardcoded in the
     bake matrix (dev: `deploy.yml`, prod-us: `promote-to-prod.yml`) — not a shared
     var, because the two clusters roll out through different workflows. The guard
@@ -138,9 +139,12 @@ For **each** cluster the workflow targets (dev, then prod-us):
     cluster means adding its rollout workflow file to the matrix.
   - `TS_HOGLAND_CI_CLIENT_ID`, `TS_HOGLAND_CI_AUDIENCE` — shared with
     `hogbox-preview-env.yml`; already present if preview is provisioned.
-- **Secrets** — a GitHub App with read access to `PostHog/hogland` (for the CLI
-  checkout), exposed as `GH_APP_HOGLAND_CLI_APP_ID` +
-  `GH_APP_HOGLAND_CLI_PRIVATE_KEY`. See `/managing-github-actions-secrets`.
+- **Secrets** — the `GH_APP_HOGLAND_DEPLOYER` GitHub App (org secrets
+  `GH_APP_HOGLAND_DEPLOYER_APP_ID` + `GH_APP_HOGLAND_DEPLOYER_PRIVATE_KEY`),
+  reused for the CLI checkout of `PostHog/hogland`. The minted token is scoped
+  to `contents: read` (`permission-contents: read`), so even though the deployer
+  app may hold write, a bake can never push to hogland. See
+  `/managing-github-actions-secrets`.
 
 ## Running it
 
