@@ -11,6 +11,16 @@ describe('log-pattern-mask', () => {
             ['timestamp iso Z', 'started at 2026-08-24T10:20:45.123Z ok', 'started at <TIMESTAMP> ok'],
             ['timestamp space comma millis', 'at 2026-08-24 10:20:45,123 done', 'at <TIMESTAMP> done'],
             ['timestamp offset', 'at 2026-08-24T10:20:45+02:00 done', 'at <TIMESTAMP> done'],
+            [
+                'klogtime info',
+                'I0827 11:39:40.307946 1 proxier.go:1484] reloading',
+                'I<KLOGTIME> <N> proxier.go:<N>] reloading',
+            ],
+            [
+                'klogtime error without micros',
+                'E0827 11:39:40 1 sync.go:12] failed',
+                'E<KLOGTIME> <N> sync.go:<N>] failed',
+            ],
             ['uuid', 'request 0f2d6faf-07e3-4cff-bf47-7efa1024aee2 failed', 'request <UUID> failed'],
             ['email', 'user alice@example.com rejected', 'user <EMAIL> rejected'],
             ['hex0x', 'fault at 0xdeadBEEF handler', 'fault at <HEX> handler'],
@@ -34,6 +44,16 @@ describe('log-pattern-mask', () => {
                 'dial capture.posthog.svc.cluster.local failed',
                 'dial <HOST> failed',
             ],
+            [
+                'klog header is not shredded by num, so the date cannot survive as a literal',
+                'I0827 11:39:40.307946 1 sync.go:12] ok',
+                'I<KLOGTIME> <N> sync.go:<N>] ok',
+            ],
+            [
+                'a count followed by a time of day is not claimed as klogtime',
+                'processed 1234 12:34:56 rows',
+                'processed <N> <N>:<N>:<N> rows',
+            ],
         ])('ordering: %s', (_name, input, expected) => {
             expect(maskString(input).masked).toEqual(expected)
         })
@@ -47,9 +67,26 @@ describe('log-pattern-mask', () => {
         })
 
         it('counts fires per rule', () => {
-            const { ruleFires } = maskString('a@example.com b@example.com via api.example.net from 10.0.0.1 in 12ms')
-            const byName = Object.fromEntries(MASK_RULES.map((rule, i) => [rule.name, ruleFires[i]]))
-            expect(byName).toEqual({ timestamp: 0, uuid: 0, email: 2, host: 1, hex0x: 0, hex: 0, ipv4: 1, num: 1 })
+            const { ruleFires } = maskString(
+                'I0827 11:39:40.3 a@example.com b@example.com via api.example.net from 10.0.0.1 in 12ms'
+            )
+            // Summed rather than keyed by assignment: klogtime is four rules, one per severity
+            // letter, so an overwriting fold would report only the last one's fires.
+            const byName = MASK_RULES.reduce<Record<string, number>>(
+                (acc, rule, i) => ({ ...acc, [rule.name]: (acc[rule.name] ?? 0) + ruleFires[i] }),
+                {}
+            )
+            expect(byName).toEqual({
+                timestamp: 0,
+                klogtime: 1,
+                uuid: 0,
+                email: 2,
+                host: 1,
+                hex0x: 0,
+                hex: 0,
+                ipv4: 1,
+                num: 1,
+            })
         })
     })
 
@@ -150,7 +187,7 @@ describe('log-pattern-mask', () => {
                 .update(MASK_RULES.map((rule) => `${rule.name}\0${rule.pattern}\0${rule.replacement}`).join('\x01'))
                 .digest('hex')
                 .slice(0, 16)
-            expect({ version: PATTERN_VERSION, digest }).toEqual({ version: 2, digest: 'cf5d13fd81dbf547' })
+            expect({ version: PATTERN_VERSION, digest }).toEqual({ version: 3, digest: 'e902e3a7060f935f' })
         })
     })
 
