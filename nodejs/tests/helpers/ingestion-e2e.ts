@@ -502,7 +502,7 @@ export function createTestWithTeamIngester<T extends IngesterLike>(
         config: TeamIngesterTestConfig = {},
         testFn: (ctx: TeamIngesterTestContext<T>) => Promise<void>
     ) => {
-        test(name, async () => {
+        test.concurrent(name, async () => {
             const infra = await createIngestionTestInfra({
                 ...baseConfig,
                 ...config.pluginServerConfig,
