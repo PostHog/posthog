@@ -285,7 +285,10 @@ export function NotificationsSettings() {
         </div>
       </SettingsSection>
 
-      <SettingsSection label="Sound">
+      <SettingsSection
+        label="Sound"
+        description="What plays when an agent finishes or needs you."
+      >
         <SettingsCard>
           <SettingsCardRow
             label="Completion sound"
@@ -803,7 +806,10 @@ function TestSection({
   };
 
   return (
-    <SettingsSection label="Test">
+    <SettingsSection
+      label="Test"
+      description="Send yourself an alert to check the channels above."
+    >
       <SettingsCard>
         <SettingsCardRow
           label="Send a test alert"

@@ -149,7 +149,10 @@ export function UpdatesSection() {
   );
 
   return (
-    <SettingsSection label="Updates">
+    <SettingsSection
+      label="Updates"
+      description="The version you are on and how new versions arrive."
+    >
       <SettingsCard>
         <SettingsCardRow
           label={

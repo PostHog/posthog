@@ -32,7 +32,10 @@ export function OnboardingTestTools(): ReactElement {
   };
 
   return (
-    <SettingsSection label="Onboarding test tools">
+    <SettingsSection
+      label="Onboarding test tools"
+      description="Replay the first-run flow to test it."
+    >
       <SettingsCard>
         <SettingsCardRow
           label="First-run session"

@@ -217,7 +217,10 @@ function FunSection() {
   );
 
   return (
-    <SettingsSection label="Fun">
+    <SettingsSection
+      label="Fun"
+      description="Extras that make the app a bit more playful."
+    >
       <SettingsCard>
         <SettingsCardRow
           label="Hedgehog mode"

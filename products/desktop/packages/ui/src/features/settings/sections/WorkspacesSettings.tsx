@@ -1,12 +1,16 @@
 import { Folder, X } from "@phosphor-icons/react";
 import { useHostTRPCClient } from "@posthog/host-router/react";
 import { Button } from "@posthog/quill";
+import {
+  SettingsCard,
+  SettingsCardRow,
+  SettingsSection,
+} from "@posthog/ui/features/settings/components/SettingsCard";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { toast } from "../../../primitives/toast";
 import { logger } from "../../../shell/logger";
 import { FolderPicker } from "../../folder-picker/FolderPicker";
-import { SettingRow } from "../SettingRow";
 
 const log = logger.scope("workspaces-settings");
 
@@ -83,25 +87,26 @@ export function WorkspacesSettings() {
   };
 
   return (
-    <div className="flex flex-col">
-      <SettingRow
-        label="Workspace location"
-        description="Directory where isolated workspaces are created for each task"
+    <div className="flex flex-col gap-7">
+      <SettingsCard>
+        <SettingsCardRow
+          label="Workspace location"
+          description="Directory where isolated workspaces are created for each task"
+        >
+          <div className="min-w-[200px]">
+            <FolderPicker
+              value={localWorktreeLocation}
+              onChange={handleWorktreeLocationChange}
+              placeholder="~/.posthog-code"
+            />
+          </div>
+        </SettingsCardRow>
+      </SettingsCard>
+      <SettingsSection
+        label="Default folders for new chats"
+        description="Folders the agent can access in every new chat on your device."
       >
-        <div className="min-w-[200px]">
-          <FolderPicker
-            value={localWorktreeLocation}
-            onChange={handleWorktreeLocationChange}
-            placeholder="~/.posthog-code"
-          />
-        </div>
-      </SettingRow>
-      <div className="flex flex-col gap-2 py-4">
-        <p className="font-medium text-sm">Default folders for new chats</p>
-        <p className="text-(--gray-11) text-[13px]">
-          Folders the agent can access in every new chat on your device.
-        </p>
-        <div className="mt-1 flex flex-col gap-2">
+        <div className="flex flex-col gap-2">
           {defaults.length === 0 && (
             <p className="text-(--gray-11) text-[12px]">No default folders.</p>
           )}
@@ -137,7 +142,7 @@ export function WorkspacesSettings() {
             </Button>
           </div>
         </div>
-      </div>
+      </SettingsSection>
     </div>
   );
 }

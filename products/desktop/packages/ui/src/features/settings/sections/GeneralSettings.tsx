@@ -276,7 +276,10 @@ export function GeneralSettings() {
         </SettingsCard>
       )}
 
-      <SettingsSection label="Appearance">
+      <SettingsSection
+        label="Appearance"
+        description="Theme and how the app looks."
+      >
         <ThemePicker value={theme} onChange={handleThemeChange} />
         {missionControl != null && missionControlSupported === true && (
           <SettingsCard>
@@ -370,7 +373,10 @@ export function GeneralSettings() {
         </SettingsCard>
       </SettingsSection>
 
-      <SettingsSection label="Composer">
+      <SettingsSection
+        label="Composer"
+        description="How the message box behaves while you type."
+      >
         <SettingsCard>
           <SettingsCardRow
             label="Send messages with"
@@ -417,7 +423,10 @@ export function GeneralSettings() {
         </SettingsCard>
       </SettingsSection>
 
-      <SettingsSection label="Editor">
+      <SettingsSection
+        label="Editor"
+        description="Where diffs open and what happens while agents run."
+      >
         <SettingsCard>
           <SettingsCardRow label="Open diffs in">
             <SettingsSelect
