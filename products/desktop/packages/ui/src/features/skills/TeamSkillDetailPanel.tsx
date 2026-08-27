@@ -1,21 +1,24 @@
-import { DownloadSimple, UsersThree, X } from "@phosphor-icons/react";
+import {
+  DownloadSimpleIcon,
+  FlowArrowIcon,
+  UsersThreeIcon,
+} from "@phosphor-icons/react";
 import type { TeamSkillInfo } from "@posthog/core/skills/teamSkillsService";
-import { stripFrontmatter } from "@posthog/shared";
+import { Button } from "@posthog/quill";
+import {
+  AGENT_FLOW_SKILL_FILE,
+  parseAgentFlowSkillFile,
+  stripFrontmatter,
+} from "@posthog/shared";
+import { FlowSummary } from "@posthog/ui/features/agent-flows/FlowSummary";
 import { CodeMirrorEditor } from "@posthog/ui/features/code-editor/components/CodeMirrorEditor";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
 import { toast } from "@posthog/ui/primitives/toast";
-import {
-  Badge,
-  Box,
-  Button,
-  Flex,
-  ScrollArea,
-  Text,
-  Tooltip,
-} from "@radix-ui/themes";
 import { useState } from "react";
 import { ReplaceSkillDialog } from "./ReplaceSkillDialog";
 import { SkillFileTree } from "./SkillFileTree";
+import { SkillChip, SkillPanelHeader } from "./SkillPanelHeader";
+import { SkillBodySkeleton } from "./SkillSkeletons";
 import { isSkillExistsError, skillErrorDescription } from "./skillErrors";
 import { useInstallTeamSkill } from "./useTeamSkillMutations";
 import { useTeamSkillDetail, useTeamSkillFile } from "./useTeamSkills";
@@ -31,6 +34,7 @@ export function TeamSkillDetailPanel({
   onClose,
 }: TeamSkillDetailPanelProps) {
   const [selectedFile, setSelectedFile] = useState("SKILL.md");
+  const [showFlowText, setShowFlowText] = useState(false);
   const [confirmOverwrite, setConfirmOverwrite] = useState(false);
   const { data: detail, isLoading } = useTeamSkillDetail(skill.name);
   const isSkillMd = selectedFile === "SKILL.md";
@@ -38,6 +42,14 @@ export function TeamSkillDetailPanel({
     skill.name,
     isSkillMd ? null : selectedFile,
   );
+  const hasFlowFile = (detail?.files ?? []).some(
+    (item) => item.path === AGENT_FLOW_SKILL_FILE,
+  );
+  const { data: flowFile } = useTeamSkillFile(
+    skill.name,
+    hasFlowFile ? AGENT_FLOW_SKILL_FILE : null,
+  );
+  const flow = flowFile ? parseAgentFlowSkillFile(flowFile.content) : null;
   const install = useInstallTeamSkill();
 
   const handleInstall = async (overwrite: boolean) => {
@@ -64,115 +76,110 @@ export function TeamSkillDetailPanel({
   ];
 
   return (
-    <>
-      <Flex
-        direction="column"
-        gap="2"
-        px="3"
-        py="2"
-        className="shrink-0 border-b border-b-(--gray-5)"
-      >
-        <Flex align="start" justify="between" gap="2">
-          <Text className="block min-w-0 break-words font-medium text-[13px]">
-            {skill.name}
-          </Text>
-          <Tooltip content="Close">
-            <button
-              type="button"
-              aria-label="Close"
-              onClick={onClose}
-              className="shrink-0 rounded p-0.5 text-gray-11 hover:bg-gray-3 hover:text-gray-12"
-            >
-              <X size={14} />
-            </button>
-          </Tooltip>
-        </Flex>
-
-        <Flex align="center" gap="2" wrap="wrap">
-          <Badge size="1" variant="soft" color="gray">
-            <UsersThree size={10} className="text-gray-9" />
-            Team
-          </Badge>
-          <Badge size="1" variant="soft" color="gray">
-            v{skill.version}
-          </Badge>
-          {skill.createdByEmail && (
-            <Badge size="1" variant="soft" color="gray">
-              {skill.createdByEmail}
-            </Badge>
-          )}
-          {skill.installedLocally && (
-            <Badge size="1" variant="soft" color="green">
-              Installed
-            </Badge>
-          )}
+    <div className="flex h-full min-h-0 flex-col">
+      <SkillPanelHeader
+        name={skill.name}
+        description={skill.description || undefined}
+        onClose={onClose}
+        actions={
           <Button
-            size="1"
-            variant="solid"
-            onClick={() => void handleInstall(false)}
+            type="button"
+            variant="primary"
+            size="sm"
             disabled={install.isPending || isLoading}
+            loading={install.isPending}
+            onClick={() => void handleInstall(false)}
           >
-            <DownloadSimple size={12} />
+            <DownloadSimpleIcon size={12} />
             {skill.installedLocally ? "Reinstall" : "Install"}
           </Button>
-        </Flex>
-      </Flex>
+        }
+        badges={
+          <>
+            <SkillChip>
+              <UsersThreeIcon size={10} />
+              Team
+            </SkillChip>
+            <SkillChip>v{skill.version}</SkillChip>
+            {flow ? (
+              <SkillChip>
+                <FlowArrowIcon size={10} />
+                {flow.steps.length}-step flow
+              </SkillChip>
+            ) : null}
+            {skill.createdByEmail ? (
+              <SkillChip>{skill.createdByEmail}</SkillChip>
+            ) : null}
+            {skill.installedLocally ? (
+              <SkillChip tone="positive">Installed</SkillChip>
+            ) : null}
+          </>
+        }
+      />
 
-      {treeFiles.length > 1 && (
-        <Box className="max-h-[40%] shrink-0 overflow-y-auto border-b border-b-(--gray-5) py-1">
+      {treeFiles.length > 1 ? (
+        <div className="max-h-[40%] shrink-0 overflow-y-auto border-gray-4 border-b">
           <SkillFileTree
             files={treeFiles}
             selectedPath={selectedFile}
             onSelect={setSelectedFile}
           />
-        </Box>
-      )}
+        </div>
+      ) : null}
 
-      <Box className="min-h-0 flex-1">
+      <div className="min-h-0 flex-1">
         {isSkillMd ? (
-          <ScrollArea
-            type="auto"
-            scrollbars="vertical"
-            className="scroll-area-constrain-width h-full"
-          >
-            <Flex direction="column" gap="3" p="3">
-              {skill.description && (
-                <Text className="text-[12px] text-gray-10">
-                  {skill.description}
-                </Text>
-              )}
-              {isLoading ? (
-                <Text className="text-[12px] text-gray-9">Loading...</Text>
-              ) : detail?.body ? (
-                <Box className="rounded border border-gray-5 bg-gray-1 px-4 py-3 text-[13px]">
+          <div className="flex h-full flex-col gap-2 overflow-y-auto px-3 py-2.5">
+            {isLoading ? (
+              <SkillBodySkeleton />
+            ) : flow && !showFlowText ? (
+              <>
+                <FlowSummary flow={flow} />
+                <button
+                  type="button"
+                  className="self-start text-[12px] text-gray-10 underline-offset-2 hover:underline"
+                  onClick={() => setShowFlowText(true)}
+                >
+                  Show SKILL.md text
+                </button>
+              </>
+            ) : detail?.body ? (
+              <>
+                <div className="text-[13px]">
                   <MarkdownRenderer content={stripFrontmatter(detail.body)} />
-                </Box>
-              ) : (
-                <Text className="text-[12px] text-gray-9">
-                  No content in SKILL.md
-                </Text>
-              )}
-            </Flex>
-          </ScrollArea>
+                </div>
+                {flow ? (
+                  <button
+                    type="button"
+                    className="self-start text-[12px] text-gray-10 underline-offset-2 hover:underline"
+                    onClick={() => setShowFlowText(false)}
+                  >
+                    Show the flow steps
+                  </button>
+                ) : null}
+              </>
+            ) : (
+              <p className="text-[12px] text-gray-9">No content in SKILL.md</p>
+            )}
+          </div>
         ) : isFileLoading ? (
-          <Box p="3">
-            <Text className="text-[12px] text-gray-9">Loading...</Text>
-          </Box>
+          <SkillBodySkeleton />
+        ) : file && selectedFile.toLowerCase().endsWith(".md") ? (
+          <div className="h-full overflow-y-auto px-3 py-2.5 text-[13px]">
+            <MarkdownRenderer content={file.content} />
+          </div>
         ) : file ? (
           <CodeMirrorEditor
             content={file.content}
             filePath={selectedFile}
-            relativePath={selectedFile}
             readOnly
           />
         ) : (
-          <Box p="3">
-            <Text className="text-[12px] text-gray-9">
-              Unable to display this file
-            </Text>
-          </Box>
+          <p className="p-3 text-[12px] text-gray-9">
+            Unable to display this file
+          </p>
         )}
-      </Box>
+      </div>
 
       <ReplaceSkillDialog
         open={confirmOverwrite}
@@ -181,6 +188,6 @@ export function TeamSkillDetailPanel({
         verb="Reinstalling"
         onConfirm={() => void handleInstall(true)}
       />
-    </>
+    </div>
   );
 }

@@ -1,11 +1,12 @@
 import {
   CaretDownIcon,
-  Lightbulb,
-  MagnifyingGlass,
-  Plus,
+  CaretRightIcon,
+  LightbulbIcon,
+  PlusIcon,
 } from "@phosphor-icons/react";
 import { analyzeSkills } from "@posthog/core/skills/analyzeSkills";
 import {
+  Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -13,21 +14,15 @@ import {
   Tabs,
   TabsList,
   TabsTrigger,
+  ToggleGroup,
+  ToggleGroupItem,
 } from "@posthog/quill";
 import {
   PI_HARNESS_FLAG,
   type SkillInfo,
   type SkillSource,
 } from "@posthog/shared";
-import {
-  Box,
-  Button,
-  Flex,
-  ScrollArea,
-  Text,
-  TextField,
-} from "@radix-ui/themes";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ResizableSidebar } from "../../primitives/ResizableSidebar";
 import type { AgentFlowModelOption } from "../agent-flows/AgentFlowEditor";
 import {
@@ -35,19 +30,25 @@ import {
   type FlowEditorState,
 } from "../agent-flows/FlowEditorPanel";
 import { FlowSkillCard } from "../agent-flows/FlowSkillCard";
-import { useAgentFlows } from "../agent-flows/useAgentFlows";
+import {
+  type AgentFlowRecord,
+  useAgentFlows,
+} from "../agent-flows/useAgentFlows";
 import { useFeatureFlag } from "../feature-flags/useFeatureFlag";
 import { usePiModelCatalog } from "../pi-sessions/usePiModelCatalog";
 import { MarketplaceBrowse } from "./MarketplaceBrowse";
 import { NewSkillDialog } from "./NewSkillDialog";
-import { SkillSection, SOURCE_CONFIG } from "./SkillCard";
+import { SkillCard, SOURCE_CONFIG } from "./SkillCard";
 import { SkillDetailPanel } from "./SkillDetailPanel";
+import { SkillListSkeleton } from "./SkillSkeletons";
+import { SkillsToolbar } from "./SkillsToolbar";
 import {
   useRequestedSkillName,
   useSkillsSelectionActions,
 } from "./skillsSelectionStore";
 import { useSkillsSidebarStore } from "./skillsSidebarStore";
 import { TeamSkillsTab } from "./TeamSkillsTab";
+import { useMarketplacePopular } from "./useMarketplace";
 import { useSkills } from "./useSkills";
 import { useSkillsWatcher } from "./useSkillsWatcher";
 import { useTeamSkills } from "./useTeamSkills";
@@ -60,9 +61,22 @@ const SOURCE_ORDER: SkillSource[] = [
   "bundled",
 ];
 
+const FLOW_SECTION = "flows";
+
 // Installed = on disk, usable by agents right now. Team and Marketplace are
 // remote catalogs; installing materializes a skill into Installed.
 type SkillsTab = "installed" | "team" | "marketplace";
+type StatusFilter = "all" | "on" | "off";
+
+type SkillRow =
+  | { kind: "flow"; path: string; flow: AgentFlowRecord }
+  | { kind: "skill"; path: string; skill: SkillInfo; showRepoBadge: boolean };
+
+interface SkillsSection {
+  key: string;
+  title: string;
+  rows: SkillRow[];
+}
 
 export function SkillsView() {
   const { data: skills = [], isLoading } = useSkills();
@@ -73,8 +87,11 @@ export function SkillsView() {
   const [scrollToPath, setScrollToPath] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState<SkillSource | "all">("all");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [collapsed, setCollapsed] = useState<string[]>([]);
   const [newSkillOpen, setNewSkillOpen] = useState(false);
   const [flowEditor, setFlowEditor] = useState<FlowEditorState | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const flowsEnabled = useFeatureFlag(PI_HARNESS_FLAG, import.meta.env.DEV);
   const { flows } = useAgentFlows();
@@ -84,13 +101,10 @@ export function SkillsView() {
     () => new Set(flows.map((flow) => flow.skillPath)),
     [flows],
   );
-  const visibleFlows = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    if (!query) return flows;
-    return flows.filter((flow) => flow.name.toLowerCase().includes(query));
-  }, [flows, searchQuery]);
 
-  const { data: teamListing } = useTeamSkills(skills);
+  const { data: teamListing, isLoading: teamLoading } = useTeamSkills(skills);
+  // Warm the marketplace list while you read the installed one.
+  useMarketplacePopular(true);
   const teamAvailable = teamListing?.available ?? false;
   // Team access revoked mid-session: fall back to Installed.
   const activeTab: SkillsTab =
@@ -107,6 +121,16 @@ export function SkillsView() {
     if (selectedPath === null || skills.length === 0) return null;
     return skills.find((s) => s.path === selectedPath) ?? null;
   }, [skills, selectedPath]);
+
+  const openFlow = useCallback((flow: AgentFlowRecord) => {
+    setSelectedPath(null);
+    setFlowEditor({
+      key: crypto.randomUUID(),
+      flow,
+      name: flow.name,
+      roles: flow.steps.map((step) => step.role),
+    });
+  }, []);
 
   const handleSelect = useCallback((path: string) => {
     setFlowEditor(null);
@@ -135,42 +159,153 @@ export function SkillsView() {
 
   const analysis = useMemo(() => analyzeSkills(skills), [skills]);
 
-  const grouped = useMemo(() => {
-    const map = new Map<SkillSource, SkillInfo[]>();
-    for (const source of SOURCE_ORDER) {
-      map.set(source, []);
-    }
+  const matchedSkills = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    for (const skill of skills) {
-      if (flowPaths.has(skill.path)) {
-        continue;
-      }
-      if (
-        query &&
-        !skill.name.toLowerCase().includes(query) &&
-        !(skill.description?.toLowerCase().includes(query) ?? false)
-      ) {
-        continue;
-      }
-      const list = map.get(skill.source);
-      if (list) {
-        list.push(skill);
-      }
-    }
-    return map;
-  }, [skills, searchQuery, flowPaths]);
+    return skills.filter((skill) => {
+      if (flowPaths.has(skill.path)) return false;
+      if (statusFilter === "on" && skill.enabled === false) return false;
+      if (statusFilter === "off" && skill.enabled !== false) return false;
+      if (!query) return true;
+      return (
+        skill.name.toLowerCase().includes(query) ||
+        (skill.description?.toLowerCase().includes(query) ?? false)
+      );
+    });
+  }, [skills, searchQuery, statusFilter, flowPaths]);
+
+  const matchedFlows = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (statusFilter === "off") return [];
+    if (!query) return flows;
+    return flows.filter((flow) => flow.name.toLowerCase().includes(query));
+  }, [flows, searchQuery, statusFilter]);
 
   const sourceCounts = useMemo(() => {
     const counts = new Map<SkillSource, number>();
-    for (const [source, items] of grouped) {
-      counts.set(source, items.length);
+    for (const source of SOURCE_ORDER) {
+      counts.set(
+        source,
+        matchedSkills.filter((skill) => skill.source === source).length,
+      );
     }
     return counts;
-  }, [grouped]);
+  }, [matchedSkills]);
+
+  const sections = useMemo<SkillsSection[]>(() => {
+    const result: SkillsSection[] = [];
+    const showFlows =
+      flowsEnabled &&
+      matchedFlows.length > 0 &&
+      (sourceFilter === "all" || sourceFilter === "user");
+    if (showFlows) {
+      result.push({
+        key: FLOW_SECTION,
+        title: "Flows",
+        rows: matchedFlows.map((flow) => ({
+          kind: "flow",
+          path: flow.skillPath,
+          flow,
+        })),
+      });
+    }
+    for (const source of SOURCE_ORDER) {
+      if (sourceFilter !== "all" && sourceFilter !== source) continue;
+      const items = matchedSkills.filter((skill) => skill.source === source);
+      if (items.length === 0) continue;
+      const repoNames = new Set(
+        items.map((skill) => skill.repoName).filter(Boolean),
+      );
+      const sharedRepo = repoNames.size === 1 ? [...repoNames][0] : undefined;
+      result.push({
+        key: source,
+        title: sharedRepo
+          ? `${SOURCE_CONFIG[source].sectionTitle} · ${sharedRepo}`
+          : SOURCE_CONFIG[source].sectionTitle,
+        rows: items.map((skill) => ({
+          kind: "skill",
+          path: skill.path,
+          skill,
+          showRepoBadge: !sharedRepo,
+        })),
+      });
+    }
+    return result;
+  }, [flowsEnabled, matchedFlows, matchedSkills, sourceFilter]);
+
+  const visibleRows = useMemo(
+    () =>
+      sections
+        .filter((section) => !collapsed.includes(section.key))
+        .flatMap((section) => section.rows),
+    [sections, collapsed],
+  );
+  const totalRows = sections.reduce(
+    (sum, section) => sum + section.rows.length,
+    0,
+  );
+
+  // Arrow keys walk the visible rows and open each one in the sidebar; "/"
+  // jumps to search, the way a long list is normally driven.
+  useEffect(() => {
+    if (activeTab !== "installed") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const typing =
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.isContentEditable;
+      if (event.key === "/" && !typing) {
+        event.preventDefault();
+        searchRef.current?.focus();
+        return;
+      }
+      if (typing) return;
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+      if (visibleRows.length === 0) return;
+      event.preventDefault();
+      const current = visibleRows.findIndex(
+        (row) =>
+          row.path === selectedPath || row.path === flowEditor?.flow?.skillPath,
+      );
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      const nextIndex =
+        current === -1
+          ? step === 1
+            ? 0
+            : visibleRows.length - 1
+          : Math.min(Math.max(current + step, 0), visibleRows.length - 1);
+      const next = visibleRows[nextIndex];
+      setScrollToPath(next.path);
+      if (next.kind === "flow") {
+        openFlow(next.flow);
+        return;
+      }
+      setFlowEditor(null);
+      setSelectedPath(next.path);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [activeTab, visibleRows, selectedPath, flowEditor, openFlow]);
+
+  const filterChips: Array<[SkillSource | "all", string, number]> = [
+    [
+      "all",
+      "All",
+      matchedFlows.length +
+        [...sourceCounts.values()].reduce((sum, item) => sum + item, 0),
+    ],
+    ...SOURCE_ORDER.filter((source) => (sourceCounts.get(source) ?? 0) > 0).map<
+      [SkillSource, string, number]
+    >((source) => [
+      source,
+      SOURCE_CONFIG[source].sectionTitle,
+      sourceCounts.get(source) ?? 0,
+    ]),
+  ];
 
   return (
-    <Flex direction="column" height="100%" className="overflow-hidden">
-      <Box px="4" className="shrink-0 border-b border-b-(--gray-5)">
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="shrink-0 border-gray-5 border-b px-4">
         <Tabs
           value={activeTab}
           onValueChange={(value: string) => setTab(value as SkillsTab)}
@@ -189,42 +324,61 @@ export function SkillsView() {
             </TabsTrigger>
           </TabsList>
         </Tabs>
-      </Box>
+      </div>
 
       {activeTab === "marketplace" ? (
         <MarketplaceBrowse />
       ) : activeTab === "team" ? (
-        <TeamSkillsTab skills={teamListing?.skills ?? []} />
+        <TeamSkillsTab
+          skills={teamListing?.skills ?? []}
+          loading={teamLoading}
+        />
       ) : (
-        <Flex className="min-h-0 flex-1">
-          <Box flexGrow="1" className="flex min-w-0 flex-col">
-            <Box className="shrink-0 border-b border-b-(--gray-4)">
-              <Box px="4" pt="3" className="mx-auto w-full max-w-5xl">
-                <Flex pb="3" gap="2" align="center">
-                  <Box flexGrow="1">
-                    <TextField.Root
-                      size="2"
-                      placeholder="Search skills..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="text-[13px]"
-                    >
-                      <TextField.Slot>
-                        <MagnifyingGlass size={14} />
-                      </TextField.Slot>
-                    </TextField.Root>
-                  </Box>
+        <div className="flex min-h-0 flex-1">
+          <div className="flex min-w-0 flex-1 flex-col">
+            <SkillsToolbar
+              placeholder="Search skills, or press /"
+              value={searchQuery}
+              onChange={setSearchQuery}
+              inputRef={searchRef}
+              actions={
+                <>
+                  <ToggleGroup
+                    value={[statusFilter]}
+                    onValueChange={(values: string[]) => {
+                      const next = values[0];
+                      if (next === "all" || next === "on" || next === "off") {
+                        setStatusFilter(next);
+                      }
+                    }}
+                    aria-label="Filter by state"
+                    className="h-8 shrink-0"
+                  >
+                    <ToggleGroupItem value="all" className="h-8 px-2.5">
+                      All
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value="on" className="h-8 px-2.5">
+                      On
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value="off" className="h-8 px-2.5">
+                      Off
+                    </ToggleGroupItem>
+                  </ToggleGroup>
                   <DropdownMenu>
                     <DropdownMenuTrigger
                       render={
-                        <Button size="2" variant="soft">
-                          <Plus size={14} />
+                        <Button
+                          type="button"
+                          variant="primary"
+                          size="sm"
+                          className="h-8"
+                        >
+                          <PlusIcon size={14} />
                           New
-                          <CaretDownIcon size={10} />
                         </Button>
                       }
                     />
-                    <DropdownMenuContent align="end" className="min-w-[260px]">
+                    <DropdownMenuContent align="end" className="min-w-[220px]">
                       <DropdownMenuItem onClick={() => setNewSkillOpen(true)}>
                         Blank skill
                       </DropdownMenuItem>
@@ -244,158 +398,125 @@ export function SkillsView() {
                       ) : null}
                     </DropdownMenuContent>
                   </DropdownMenu>
-                </Flex>
-                <Flex gap="1" pb="3" className="flex-wrap">
-                  {(
-                    [
-                      ["all", "All"] as const,
-                      ...SOURCE_ORDER.filter(
-                        (source) => (sourceCounts.get(source) ?? 0) > 0,
-                      ).map(
-                        (source) =>
-                          [source, SOURCE_CONFIG[source].sectionTitle] as const,
-                      ),
-                    ] as Array<[SkillSource | "all", string]>
-                  ).map(([value, label]) => {
-                    const isActive = sourceFilter === value;
-                    const count =
-                      value === "all"
-                        ? (visibleFlows.length ? visibleFlows.length : 0) +
-                          [...sourceCounts.values()].reduce(
-                            (sum, item) => sum + item,
-                            0,
-                          )
-                        : (sourceCounts.get(value) ?? 0);
-                    return (
-                      <button
-                        key={value}
-                        type="button"
-                        className={`rounded-full border px-2.5 py-1 text-[12px] transition-colors ${
-                          isActive
-                            ? "border-accent-8 bg-accent-3 text-accent-11"
-                            : "border-gray-5 bg-gray-1 text-gray-11 hover:bg-gray-3"
-                        }`}
-                        onClick={() => setSourceFilter(value)}
-                      >
-                        {label}
-                        <span
-                          className={`ml-1 ${isActive ? "text-accent-10" : "text-gray-8"}`}
-                        >
-                          {count}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </Flex>
-              </Box>
-            </Box>
-            <ScrollArea
-              type="auto"
-              className="scroll-area-constrain-width min-h-0 flex-1"
-            >
-              <Box px="4" pb="3" className="mx-auto w-full max-w-5xl">
-                {skills.length === 0 && !isLoading ? (
-                  <Flex
-                    align="center"
-                    justify="center"
-                    direction="column"
-                    gap="3"
-                    className="py-12"
+                </>
+              }
+              filters={filterChips.map(([value, label, count]) => {
+                const isActive = sourceFilter === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    className={`rounded-full border px-2.5 py-0.5 text-[12px] transition-colors ${
+                      isActive
+                        ? "border-accent-8 bg-accent-3 text-accent-11"
+                        : "border-gray-5 bg-gray-1 text-gray-11 hover:bg-gray-3"
+                    }`}
+                    onClick={() => setSourceFilter(value)}
                   >
-                    <Box className="rounded-lg border border-gray-6 border-dashed p-4">
-                      <Lightbulb size={24} className="text-gray-8" />
-                    </Box>
-                    <Text className="text-[13px] text-gray-10">
-                      No skills found
-                    </Text>
-                  </Flex>
-                ) : (
-                  <Flex direction="column" gap="5">
-                    {(sourceFilter === "all"
-                      ? [...sourceCounts.values()].reduce(
-                          (sum, item) => sum + item,
-                          0,
-                        ) + visibleFlows.length
-                      : (sourceCounts.get(sourceFilter) ?? 0)) === 0 ? (
-                      <Flex
-                        direction="column"
-                        align="center"
-                        gap="2"
-                        className="rounded-lg border border-gray-5 border-dashed py-8"
-                      >
-                        <Text className="text-[13px] text-gray-10">
-                          No skills match your search.
-                        </Text>
-                        <Button
-                          size="1"
-                          variant="soft"
-                          onClick={() => {
-                            setSearchQuery("");
-                            setSourceFilter("all");
-                          }}
-                        >
-                          Clear search and filters
-                        </Button>
-                      </Flex>
-                    ) : null}
-                    {flowsEnabled &&
-                    visibleFlows.length > 0 &&
-                    (sourceFilter === "all" || sourceFilter === "user") ? (
-                      <Flex direction="column" gap="1">
-                        <Flex align="center" gap="2" className="mb-1">
-                          <Text className="font-medium text-[12px] text-gray-9 uppercase tracking-wider">
-                            Flows
-                          </Text>
-                          <Text className="text-[11px] text-gray-8">
-                            {visibleFlows.length}
-                          </Text>
-                        </Flex>
-                        <Flex direction="column" gap="1">
-                          {visibleFlows.map((flow) => (
-                            <FlowSkillCard
-                              key={flow.skillPath}
-                              flow={flow}
-                              onClick={() => {
-                                setSelectedPath(null);
-                                setFlowEditor({
-                                  key: crypto.randomUUID(),
-                                  flow,
-                                  name: flow.name,
-                                  roles: flow.steps.map((step) => step.role),
-                                });
-                              }}
-                            />
-                          ))}
-                        </Flex>
-                      </Flex>
-                    ) : null}
-                    {SOURCE_ORDER.map((source) => {
-                      if (sourceFilter !== "all" && sourceFilter !== source) {
-                        return null;
-                      }
-                      const items = grouped.get(source);
-                      if (!items || items.length === 0) return null;
-                      const config = SOURCE_CONFIG[source];
+                    {label}
+                    <span
+                      className={`ml-1 ${isActive ? "text-accent-10" : "text-gray-8"}`}
+                    >
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            />
 
-                      return (
-                        <SkillSection
-                          key={source}
-                          hideHeader={sourceFilter === source}
-                          title={config.sectionTitle}
-                          skills={items}
-                          selectedPath={selectedSkill?.path ?? null}
-                          onSelect={handleSelect}
-                          scrollToPath={scrollToPath}
-                          onScrolledIntoView={handleScrolledIntoView}
-                          analysis={analysis}
-                        />
-                      );
-                    })}
-                  </Flex>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <div className="mx-auto w-full max-w-5xl px-4 pb-3">
+                {isLoading && skills.length === 0 ? (
+                  <div className="pt-2">
+                    <SkillListSkeleton />
+                  </div>
+                ) : skills.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center gap-3 py-12">
+                    <div className="rounded-lg border border-gray-6 border-dashed p-4">
+                      <LightbulbIcon size={24} className="text-gray-8" />
+                    </div>
+                    <p className="text-[13px] text-gray-10">No skills found</p>
+                  </div>
+                ) : totalRows === 0 ? (
+                  <div className="mt-3 flex flex-col items-center gap-2 rounded-lg border border-gray-5 border-dashed py-8">
+                    <p className="text-[13px] text-gray-10">
+                      No skills match your search.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setSearchQuery("");
+                        setSourceFilter("all");
+                        setStatusFilter("all");
+                      }}
+                    >
+                      Clear search and filters
+                    </Button>
+                  </div>
+                ) : (
+                  sections.map((section) => {
+                    const isCollapsed = collapsed.includes(section.key);
+                    return (
+                      <div key={section.key} className="flex flex-col">
+                        <button
+                          type="button"
+                          className="sticky top-0 z-10 flex items-center gap-1.5 bg-gray-1 py-1.5 text-left"
+                          onClick={() =>
+                            setCollapsed((current) =>
+                              current.includes(section.key)
+                                ? current.filter((key) => key !== section.key)
+                                : [...current, section.key],
+                            )
+                          }
+                        >
+                          {isCollapsed ? (
+                            <CaretRightIcon size={10} className="text-gray-9" />
+                          ) : (
+                            <CaretDownIcon size={10} className="text-gray-9" />
+                          )}
+                          <span className="font-medium text-[12px] text-gray-9 uppercase tracking-wider">
+                            {section.title}
+                          </span>
+                          <span className="text-[11px] text-gray-8">
+                            {section.rows.length}
+                          </span>
+                        </button>
+                        {isCollapsed ? null : (
+                          <div className="flex flex-col gap-0.5 pb-2">
+                            {section.rows.map((row) =>
+                              row.kind === "flow" ? (
+                                <FlowSkillCard
+                                  key={row.path}
+                                  flow={row.flow}
+                                  isSelected={
+                                    flowEditor?.flow?.skillPath === row.path
+                                  }
+                                  onClick={() => openFlow(row.flow)}
+                                />
+                              ) : (
+                                <SkillCard
+                                  key={row.path}
+                                  skill={row.skill}
+                                  showRepoBadge={row.showRepoBadge}
+                                  isSelected={selectedPath === row.path}
+                                  onClick={() => handleSelect(row.path)}
+                                  scrollIntoView={scrollToPath === row.path}
+                                  onScrolledIntoView={handleScrolledIntoView}
+                                  issues={analysis[row.path]}
+                                />
+                              ),
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
                 )}
-              </Box>
-            </ScrollArea>
-          </Box>
+              </div>
+            </div>
+          </div>
 
           <ResizableSidebar
             open={!!selectedSkill || !!flowEditor}
@@ -428,7 +549,7 @@ export function SkillsView() {
               />
             ) : null}
           </ResizableSidebar>
-        </Flex>
+        </div>
       )}
 
       <NewSkillDialog
@@ -436,6 +557,6 @@ export function SkillsView() {
         onOpenChange={setNewSkillOpen}
         onCreated={(path) => setSelectedPath(path)}
       />
-    </Flex>
+    </div>
   );
 }

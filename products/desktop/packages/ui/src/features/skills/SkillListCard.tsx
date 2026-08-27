@@ -1,4 +1,3 @@
-import { Box, Flex, Text } from "@radix-ui/themes";
 import type { ReactNode, Ref } from "react";
 
 interface SkillListCardProps {
@@ -17,7 +16,7 @@ interface SkillListCardProps {
   trailing?: ReactNode;
 }
 
-/** Shared card row for every skills list (local, team, marketplace). */
+/** One dense row, shared by every skills list (local, team, marketplace). */
 export function SkillListCard({
   cardRef,
   icon,
@@ -30,39 +29,35 @@ export function SkillListCard({
   trailing,
 }: SkillListCardProps) {
   return (
-    <Flex
+    <div
       ref={cardRef}
-      align="center"
-      gap="2"
-      px="3"
-      py="2"
-      className={`cursor-pointer rounded-lg border transition-colors ${
+      className={`flex items-center gap-2 rounded-md border px-2 py-1 transition-colors ${
         isSelected
           ? "border-accent-8 bg-accent-3"
-          : "border-gray-6 bg-gray-2 hover:border-gray-8 hover:bg-gray-3"
+          : "border-transparent hover:border-gray-5 hover:bg-gray-3"
       }`}
-      onClick={onClick}
     >
-      <Box
-        className={`flex shrink-0 items-center justify-center rounded p-1.5 ${iconClass ?? "bg-gray-4 text-gray-11"} ${dimmed ? "opacity-40" : ""}`}
+      <button
+        type="button"
+        className={`flex min-w-0 flex-1 cursor-pointer items-baseline gap-2 text-left ${dimmed ? "opacity-40" : ""}`}
+        onClick={onClick}
       >
-        {icon}
-      </Box>
-
-      <Flex
-        direction="column"
-        gap="0"
-        className={`min-w-0 flex-1 ${dimmed ? "opacity-40" : ""}`}
-      >
-        <Text className="truncate font-medium text-[13px] text-gray-12">
+        <span
+          className={`flex size-5 shrink-0 translate-y-0.5 items-center justify-center rounded ${iconClass ?? "bg-gray-4 text-gray-11"}`}
+        >
+          {icon}
+        </span>
+        <span className="min-w-0 max-w-[55%] truncate font-medium text-[13px] text-gray-12">
           {title}
-        </Text>
-        {subtitle && (
-          <Text className="truncate text-[12px] text-gray-10">{subtitle}</Text>
-        )}
-      </Flex>
+        </span>
+        {subtitle ? (
+          <span className="min-w-0 flex-1 truncate text-[12px] text-gray-10">
+            {subtitle}
+          </span>
+        ) : null}
+      </button>
 
       {trailing}
-    </Flex>
+    </div>
   );
 }

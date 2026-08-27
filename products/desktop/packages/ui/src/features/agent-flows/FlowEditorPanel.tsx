@@ -1,10 +1,4 @@
 import {
-  CloudArrowUpIcon,
-  FolderOpenIcon,
-  TrashIcon,
-  XIcon,
-} from "@phosphor-icons/react";
-import {
   AlertDialog,
   AlertDialogContent,
   AlertDialogDescription,
@@ -12,9 +6,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   Button,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
+  DropdownMenuItem,
 } from "@posthog/quill";
 import type { AgentFlowRole } from "@posthog/shared";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -72,74 +64,39 @@ export function FlowEditorPanel({
     }
   };
 
-  const iconAction = (
-    label: string,
-    icon: React.ReactNode,
-    onClick: () => void,
-  ) => (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            type="button"
-            variant="link-muted"
-            size="icon-sm"
-            aria-label={label}
-            onClick={onClick}
-          >
-            {icon}
-          </Button>
-        }
-      />
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
-  );
-
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center justify-between gap-2 border-gray-4 border-b px-3 py-2">
-        <span className="truncate font-semibold text-[13px] text-gray-12">
-          {existing ? existing.name : "New flow"}
-        </span>
-        <div className="flex shrink-0 items-center gap-0.5">
-          {existing && canPublish
-            ? iconAction(
-                "Publish to team",
-                <CloudArrowUpIcon size={14} />,
-                () => setConfirmPublish(true),
-              )
-            : null}
-          {existing
-            ? iconAction("Open files", <FolderOpenIcon size={14} />, () =>
-                onOpenFiles(existing.skillPath),
-              )
-            : null}
-          {existing
-            ? iconAction("Delete flow", <TrashIcon size={14} />, () =>
-                setConfirmDelete(true),
-              )
-            : null}
-          {iconAction("Close", <XIcon size={14} />, onClose)}
-        </div>
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-y-auto p-3">
-        <AgentFlowEditor
-          key={state.key}
-          compact
-          models={models}
-          flow={existing}
-          initialName={state.name}
-          initialRoles={state.roles}
-          saving={isSaving}
-          onCancel={onClose}
-          onSave={(flow) => {
-            void save({ flow, skillPath: existing?.skillPath })
-              .then(onClose)
-              .catch(() => {});
-          }}
-        />
-      </div>
+      <AgentFlowEditor
+        key={state.key}
+        models={models}
+        flow={existing}
+        initialName={state.name}
+        initialRoles={state.roles}
+        saving={isSaving}
+        onClose={onClose}
+        menuItems={
+          existing ? (
+            <>
+              {canPublish ? (
+                <DropdownMenuItem onClick={() => setConfirmPublish(true)}>
+                  Publish to team
+                </DropdownMenuItem>
+              ) : null}
+              <DropdownMenuItem onClick={() => onOpenFiles(existing.skillPath)}>
+                Open skill files
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setConfirmDelete(true)}>
+                Delete flow
+              </DropdownMenuItem>
+            </>
+          ) : null
+        }
+        onSave={(flow) => {
+          void save({ flow, skillPath: existing?.skillPath })
+            .then(onClose)
+            .catch(() => {});
+        }}
+      />
 
       <AlertDialog
         open={confirmDelete}

@@ -1,60 +1,68 @@
 import {
-  Folder,
-  Lightbulb,
-  Package,
-  Robot,
-  Storefront,
-  Warning,
+  FolderIcon,
+  LightbulbIcon,
+  PackageIcon,
+  RobotIcon,
+  StorefrontIcon,
+  WarningIcon,
 } from "@phosphor-icons/react";
-import type {
-  SkillAnalysis,
-  SkillIssue,
-} from "@posthog/core/skills/analyzeSkills";
-import { Switch } from "@posthog/quill";
+import type { SkillIssue } from "@posthog/core/skills/analyzeSkills";
+import {
+  Switch,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@posthog/quill";
 import type { SkillInfo, SkillSource } from "@posthog/shared";
-import { Badge, Flex, Text, Tooltip } from "@radix-ui/themes";
 import { useEffect, useRef } from "react";
 import { SkillListCard } from "./SkillListCard";
+import { SkillChip } from "./SkillPanelHeader";
 import { useSetSkillEnabled } from "./useSkillMutations";
 
 export const SOURCE_CONFIG: Record<
   SkillSource,
   {
-    icon: typeof Package;
+    icon: typeof PackageIcon;
     label: string;
     sectionTitle: string;
     chipClass: string;
+    dotClass: string;
   }
 > = {
   user: {
-    icon: Lightbulb,
+    icon: LightbulbIcon,
     label: "User",
     sectionTitle: "Your skills",
     chipClass: "bg-amber-3 text-amber-11",
+    dotClass: "bg-amber-9",
   },
   bundled: {
-    icon: Package,
+    icon: PackageIcon,
     label: "PostHog",
     sectionTitle: "PostHog",
     chipClass: "bg-orange-3 text-orange-11",
+    dotClass: "bg-orange-9",
   },
   repo: {
-    icon: Folder,
+    icon: FolderIcon,
     label: "Repo",
     sectionTitle: "Repository",
     chipClass: "bg-green-3 text-green-11",
+    dotClass: "bg-green-9",
   },
   marketplace: {
-    icon: Storefront,
+    icon: StorefrontIcon,
     label: "Marketplace",
     sectionTitle: "Marketplace",
     chipClass: "bg-blue-3 text-blue-11",
+    dotClass: "bg-blue-9",
   },
   codex: {
-    icon: Robot,
+    icon: RobotIcon,
     label: "Codex",
     sectionTitle: "Codex",
     chipClass: "bg-violet-3 text-violet-11",
+    dotClass: "bg-violet-9",
   },
 };
 
@@ -70,11 +78,6 @@ interface SkillCardProps {
   issues?: SkillIssue[];
 }
 
-function formatTokens(bytes: number): string {
-  const tokens = Math.max(1, Math.round(bytes / 4));
-  return tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : `${tokens}`;
-}
-
 export function SkillCard({
   skill,
   isSelected,
@@ -85,7 +88,7 @@ export function SkillCard({
   issues = [],
 }: SkillCardProps) {
   const config = SOURCE_CONFIG[skill.source];
-  const Icon = config?.icon ?? Package;
+  const Icon = config?.icon ?? PackageIcon;
   const setEnabled = useSetSkillEnabled();
   const isEnabled = skill.enabled !== false;
 
@@ -99,7 +102,7 @@ export function SkillCard({
   return (
     <SkillListCard
       cardRef={ref}
-      icon={<Icon size={14} weight="duotone" />}
+      icon={<Icon size={12} weight="duotone" />}
       iconClass={config?.chipClass}
       title={skill.name}
       subtitle={
@@ -112,58 +115,21 @@ export function SkillCard({
       onClick={onClick}
       trailing={
         <>
-          <Tooltip
-            content={`About ${formatTokens(skill.skillMdBytes)} tokens when the agent loads it. Skills load on demand.`}
-          >
-            <Text className="shrink-0 text-[11px] text-gray-8">
-              ≈{formatTokens(skill.skillMdBytes)} tok
-            </Text>
-          </Tooltip>
           {issues.length > 0 && (
-            <Tooltip
-              content={
-                <Flex direction="column" gap="1">
-                  {issues.map((issue) => (
-                    <Text key={issue.message} size="1">
-                      {issue.message}
-                    </Text>
-                  ))}
-                </Flex>
-              }
-            >
-              <Warning size={14} className="shrink-0 text-amber-11" />
-            </Tooltip>
+            <WarningIcon
+              size={13}
+              className="shrink-0 text-amber-11"
+              aria-label="This skill has issues"
+            />
           )}
           {skill.repoName && showRepoBadge && (
-            <Badge size="1" variant="soft" color="gray" className="shrink-0">
-              {skill.repoName}
-            </Badge>
+            <SkillChip>{skill.repoName}</SkillChip>
           )}
-          {skill.disableModelInvocation && (
-            <Tooltip content="The agent won't use this skill on its own. It runs only when you invoke it">
-              <Badge size="1" variant="soft" color="gray" className="shrink-0">
-                Manual
-              </Badge>
-            </Tooltip>
-          )}
-          {!isEnabled && (
-            <Badge size="1" variant="soft" color="gray" className="shrink-0">
-              Off
-            </Badge>
-          )}
+          {skill.disableModelInvocation && <SkillChip>Manual</SkillChip>}
           {skill.editable && skill.source !== "repo" && (
-            <Tooltip
-              content={
-                isEnabled
-                  ? "On. Agents can discover and use this skill."
-                  : "Off. Agents do not see this skill."
-              }
-            >
-              {/* biome-ignore lint/a11y/noStaticElementInteractions: stops row selection when toggling */}
-              <span
-                className="flex shrink-0 items-center"
-                onClick={(event) => event.stopPropagation()}
-                onKeyDown={(event) => event.stopPropagation()}
+            <Tooltip>
+              <TooltipTrigger
+                render={<span className="flex shrink-0 items-center" />}
               >
                 <Switch
                   checked={isEnabled}
@@ -176,66 +142,16 @@ export function SkillCard({
                     })
                   }
                 />
-              </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                {isEnabled
+                  ? "On. Agents can discover and use this skill."
+                  : "Off. Agents do not see this skill."}
+              </TooltipContent>
             </Tooltip>
           )}
         </>
       }
     />
-  );
-}
-
-interface SkillSectionProps {
-  title: string;
-  skills: SkillInfo[];
-  selectedPath: string | null;
-  onSelect: (path: string) => void;
-  scrollToPath: string | null;
-  onScrolledIntoView: () => void;
-  analysis?: SkillAnalysis;
-  /** Skips the section title (e.g. when a source chip already names it). */
-  hideHeader?: boolean;
-}
-
-export function SkillSection({
-  title,
-  skills,
-  selectedPath,
-  onSelect,
-  scrollToPath,
-  onScrolledIntoView,
-  analysis,
-  hideHeader,
-}: SkillSectionProps) {
-  const repoNames = new Set(
-    skills.map((skill) => skill.repoName).filter(Boolean),
-  );
-  const sharedRepo = repoNames.size === 1 ? [...repoNames][0] : undefined;
-  return (
-    <Flex direction="column" gap="1">
-      {hideHeader ? null : (
-        <Flex align="center" gap="2" className="mb-1">
-          <Text className="font-medium text-[12px] text-gray-9 uppercase tracking-wider">
-            {title}
-            {sharedRepo ? ` · ${sharedRepo}` : ""}
-          </Text>
-          <Text className="text-[11px] text-gray-8">{skills.length}</Text>
-        </Flex>
-      )}
-      <Flex direction="column" gap="1">
-        {skills.map((skill) => (
-          <SkillCard
-            key={skill.path}
-            skill={skill}
-            showRepoBadge={!sharedRepo}
-            isSelected={selectedPath === skill.path}
-            onClick={() => onSelect(skill.path)}
-            scrollIntoView={scrollToPath === skill.path}
-            onScrolledIntoView={onScrolledIntoView}
-            issues={analysis?.[skill.path]}
-          />
-        ))}
-      </Flex>
-    </Flex>
   );
 }

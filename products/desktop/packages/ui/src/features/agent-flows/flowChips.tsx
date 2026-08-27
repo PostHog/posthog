@@ -1,4 +1,4 @@
-import type { AgentFlowDefinition, AgentFlowRole } from "@posthog/shared";
+import type { AgentFlowRole } from "@posthog/shared";
 import { AGENT_FLOW_ROLE_META } from "./roleMeta";
 
 export const FLOW_PRESETS: Array<{
@@ -22,27 +22,6 @@ export const FLOW_PRESETS: Array<{
     roles: ["planner", "executor", "reviewer"],
   },
 ];
-
-export function FlowStepChain({ flow }: { flow: AgentFlowDefinition }) {
-  return (
-    <div className="flex min-w-0 flex-wrap items-center gap-y-1">
-      {flow.steps.map((step, stepIndex) => (
-        <div key={step.id} className="flex items-center">
-          {stepIndex > 0 ? (
-            <span className="h-px w-3 shrink-0 bg-gray-6" />
-          ) : null}
-          <span className="flex items-center gap-1.5 rounded-full border border-gray-5 bg-gray-1 px-2 py-0.5 text-[11px] text-gray-11">
-            <span
-              className={`size-1.5 rounded-full ${AGENT_FLOW_ROLE_META[step.role].dotClass}`}
-            />
-            {step.name}
-            <span className="text-gray-9">{step.model.name}</span>
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 export function FlowRoleDots({ roles }: { roles: AgentFlowRole[] }) {
   return (

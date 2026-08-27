@@ -148,6 +148,13 @@ export const skillsRouter = router({
     }
   }),
   marketplace: router({
+    popular: publicProcedure
+      .output(marketplaceSearchOutput)
+      .query(({ ctx }) =>
+        ctx.container
+          .get<SkillsMarketplaceService>(SKILLS_MARKETPLACE_SERVICE)
+          .popular(),
+      ),
     search: publicProcedure
       .input(marketplaceSearchInput)
       .output(marketplaceSearchOutput)

@@ -5,7 +5,17 @@ import {
   MagnifyingGlassIcon,
   WrenchIcon,
 } from "@phosphor-icons/react";
-import type { AgentFlowRole } from "@posthog/shared";
+import type { AgentFlowEffort, AgentFlowRole } from "@posthog/shared";
+
+export const AGENT_FLOW_EFFORT_LABELS: Record<AgentFlowEffort, string> = {
+  off: "No thinking",
+  minimal: "Minimal",
+  low: "Low effort",
+  medium: "Medium effort",
+  high: "High effort",
+  xhigh: "Extra high effort",
+  max: "Max effort",
+};
 
 export interface AgentFlowRoleMeta {
   label: string;

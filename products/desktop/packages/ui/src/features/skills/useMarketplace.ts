@@ -25,6 +25,18 @@ export function useMarketplaceSearch(query: string) {
   );
 }
 
+/** The default list, so the tab is never empty before you search. */
+export function useMarketplacePopular(enabled: boolean) {
+  const trpc = useHostTRPC();
+  return useQuery(
+    trpc.skills.marketplace.popular.queryOptions(undefined, {
+      enabled,
+      staleTime: 30 * 60_000,
+      retry: false,
+    }),
+  );
+}
+
 export function useMarketplacePreview(
   ref: { source: string; skillId: string } | null,
 ) {
