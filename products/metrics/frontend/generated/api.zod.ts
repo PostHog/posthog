@@ -560,3 +560,924 @@ export const MetricsSamplesCreateBody = /* @__PURE__ */ zod.object({
         })
         .describe('The raw-emissions query to execute.'),
 })
+
+/**
+ * Create a pipeline from a validated topology config.
+ */
+export const metricsPipelinesCreateBodyNameMax = 400
+
+export const metricsPipelinesCreateBodyDescriptionDefault = ``
+export const metricsPipelinesCreateBodyConfigOneNodesItemIdMax = 64
+
+export const metricsPipelinesCreateBodyConfigOneNodesItemNameMax = 120
+
+export const metricsPipelinesCreateBodyConfigOneNodesItemKindDefault = ``
+export const metricsPipelinesCreateBodyConfigOneNodesItemKindMax = 120
+
+export const metricsPipelinesCreateBodyConfigOneNodesItemStatsItemIdMax = 64
+
+export const metricsPipelinesCreateBodyConfigOneNodesItemStatsItemLabelMax = 120
+
+export const metricsPipelinesCreateBodyConfigOneNodesItemStatsItemFormatDefault = `count`
+export const metricsPipelinesCreateBodyConfigOneNodesItemStatsItemFormatMax = 16
+
+export const metricsPipelinesCreateBodyConfigOneNodesItemStatsItemMetricNameMax = 255
+
+export const metricsPipelinesCreateBodyConfigOneNodesItemStatsItemAggregationDefault = `sum`
+export const metricsPipelinesCreateBodyConfigOneNodesItemStatsItemAggregationMax = 32
+
+export const metricsPipelinesCreateBodyConfigOneNodesItemStatsItemQuantileMin = 0
+export const metricsPipelinesCreateBodyConfigOneNodesItemStatsItemQuantileMax = 1
+
+export const metricsPipelinesCreateBodyConfigOneNodesItemStatsItemMetricTypeMax = 32
+
+export const metricsPipelinesCreateBodyConfigOneNodesItemStatsItemFiltersItemKeyMax = 255
+
+export const metricsPipelinesCreateBodyConfigOneNodesItemStatsItemFiltersItemOpDefault = `eq`
+export const metricsPipelinesCreateBodyConfigOneNodesItemStatsItemFiltersItemOpMax = 16
+
+export const metricsPipelinesCreateBodyConfigOneNodesItemStatsItemFiltersItemValueMax = 1024
+
+export const metricsPipelinesCreateBodyConfigOneNodesItemStatsItemFiltersItemScopeDefault = `auto`
+export const metricsPipelinesCreateBodyConfigOneNodesItemStatsItemFiltersItemScopeMax = 16
+
+export const metricsPipelinesCreateBodyConfigOneNodesItemStatsItemBreakdownOneGroupByKeyMax = 255
+
+export const metricsPipelinesCreateBodyConfigOneNodesItemStatsItemBreakdownOneTopNDefault = 10
+export const metricsPipelinesCreateBodyConfigOneNodesItemStatsItemBreakdownOneTopNMax = 20
+
+export const metricsPipelinesCreateBodyConfigOneNodesItemStatsItemBreakdownOneScopeDefault = `auto`
+export const metricsPipelinesCreateBodyConfigOneNodesItemStatsItemBreakdownOneScopeMax = 16
+
+export const metricsPipelinesCreateBodyConfigOneNodesItemHeadlineStatIdsItemMax = 64
+
+export const metricsPipelinesCreateBodyConfigOneNodesItemLinksItemLabelMax = 120
+
+export const metricsPipelinesCreateBodyConfigOneNodesItemLinksItemUrlMax = 2048
+
+export const metricsPipelinesCreateBodyConfigOneNodesItemNoteDefault = ``
+export const metricsPipelinesCreateBodyConfigOneEdgesItemSourceMax = 64
+
+export const metricsPipelinesCreateBodyConfigOneEdgesItemTargetMax = 64
+
+export const metricsPipelinesCreateBodyConfigOneEdgesItemMetricNameMax = 255
+
+export const metricsPipelinesCreateBodyConfigOneEdgesItemAggregationDefault = `sum`
+export const metricsPipelinesCreateBodyConfigOneEdgesItemAggregationMax = 32
+
+export const metricsPipelinesCreateBodyConfigOneEdgesItemQuantileMin = 0
+export const metricsPipelinesCreateBodyConfigOneEdgesItemQuantileMax = 1
+
+export const metricsPipelinesCreateBodyConfigOneEdgesItemMetricTypeMax = 32
+
+export const metricsPipelinesCreateBodyConfigOneEdgesItemFiltersItemKeyMax = 255
+
+export const metricsPipelinesCreateBodyConfigOneEdgesItemFiltersItemOpDefault = `eq`
+export const metricsPipelinesCreateBodyConfigOneEdgesItemFiltersItemOpMax = 16
+
+export const metricsPipelinesCreateBodyConfigOneEdgesItemFiltersItemValueMax = 1024
+
+export const metricsPipelinesCreateBodyConfigOneEdgesItemFiltersItemScopeDefault = `auto`
+export const metricsPipelinesCreateBodyConfigOneEdgesItemFiltersItemScopeMax = 16
+
+export const metricsPipelinesCreateBodyConfigOneEdgesItemBaselineOffsetDefault = `-7d`
+export const metricsPipelinesCreateBodyConfigOneEdgesItemBaselineOffsetMax = 16
+
+export const metricsPipelinesCreateBodyConfigOneEdgesItemHotMultiplierDefault = 2
+export const metricsPipelinesCreateBodyConfigOneVariablesItemKeyMax = 64
+
+export const metricsPipelinesCreateBodyConfigOneVariablesItemLabelMax = 120
+
+export const metricsPipelinesCreateBodyConfigOneVariablesItemFilterKeyMax = 255
+
+export const metricsPipelinesCreateBodyConfigOneVariablesItemOptionsItemMax = 255
+
+export const metricsPipelinesCreateBodyConfigOneVariablesItemDefaultMax = 255
+
+export const metricsPipelinesCreateBodyEnabledDefault = true
+
+export const MetricsPipelinesCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod.string().max(metricsPipelinesCreateBodyNameMax).describe('Display name of the pipeline.'),
+        description: zod
+            .string()
+            .default(metricsPipelinesCreateBodyDescriptionDefault)
+            .describe('What this pipeline observes and who owns it.'),
+        config: zod
+            .object({
+                nodes: zod
+                    .array(
+                        zod.object({
+                            id: zod
+                                .string()
+                                .max(metricsPipelinesCreateBodyConfigOneNodesItemIdMax)
+                                .describe('Node id, unique within the pipeline; edges reference it.'),
+                            name: zod
+                                .string()
+                                .max(metricsPipelinesCreateBodyConfigOneNodesItemNameMax)
+                                .describe('Display name of the component.'),
+                            kind: zod
+                                .string()
+                                .max(metricsPipelinesCreateBodyConfigOneNodesItemKindMax)
+                                .default(metricsPipelinesCreateBodyConfigOneNodesItemKindDefault)
+                                .describe('Free-form component kind subtitle.'),
+                            stats: zod
+                                .array(
+                                    zod.object({
+                                        id: zod
+                                            .string()
+                                            .max(metricsPipelinesCreateBodyConfigOneNodesItemStatsItemIdMax)
+                                            .describe('Stat id, unique within its node.'),
+                                        label: zod
+                                            .string()
+                                            .max(metricsPipelinesCreateBodyConfigOneNodesItemStatsItemLabelMax)
+                                            .describe('Display label for the stat.'),
+                                        format: zod
+                                            .string()
+                                            .max(metricsPipelinesCreateBodyConfigOneNodesItemStatsItemFormatMax)
+                                            .default(metricsPipelinesCreateBodyConfigOneNodesItemStatsItemFormatDefault)
+                                            .describe(
+                                                "Display format hint: 'rate', 'bytes', 'pct', 'count', or 'duration'."
+                                            ),
+                                        metric_name: zod
+                                            .string()
+                                            .max(metricsPipelinesCreateBodyConfigOneNodesItemStatsItemMetricNameMax)
+                                            .describe('Exact ingested metric name this stat queries.'),
+                                        aggregation: zod
+                                            .string()
+                                            .max(metricsPipelinesCreateBodyConfigOneNodesItemStatsItemAggregationMax)
+                                            .default(
+                                                metricsPipelinesCreateBodyConfigOneNodesItemStatsItemAggregationDefault
+                                            )
+                                            .describe(
+                                                "Aggregation per time bucket: 'sum', 'avg', 'count', 'rate', 'increase', 'quantile', or 'histogram_quantile'."
+                                            ),
+                                        quantile: zod
+                                            .number()
+                                            .min(metricsPipelinesCreateBodyConfigOneNodesItemStatsItemQuantileMin)
+                                            .max(metricsPipelinesCreateBodyConfigOneNodesItemStatsItemQuantileMax)
+                                            .nullish()
+                                            .describe('Quantile in (0, 1) for the quantile aggregations.'),
+                                        metric_type: zod
+                                            .string()
+                                            .max(metricsPipelinesCreateBodyConfigOneNodesItemStatsItemMetricTypeMax)
+                                            .nullish()
+                                            .describe(
+                                                "Optional OTel metric type constraint (e.g. 'gauge', 'sum', 'histogram')."
+                                            ),
+                                        filters: zod
+                                            .array(
+                                                zod.object({
+                                                    key: zod
+                                                        .string()
+                                                        .max(
+                                                            metricsPipelinesCreateBodyConfigOneNodesItemStatsItemFiltersItemKeyMax
+                                                        )
+                                                        .describe("Attribute name to filter on (e.g. 'k8s.pod.name')."),
+                                                    op: zod
+                                                        .string()
+                                                        .max(
+                                                            metricsPipelinesCreateBodyConfigOneNodesItemStatsItemFiltersItemOpMax
+                                                        )
+                                                        .default(
+                                                            metricsPipelinesCreateBodyConfigOneNodesItemStatsItemFiltersItemOpDefault
+                                                        )
+                                                        .describe(
+                                                            "Comparison operator: one of 'eq', 'neq', 'regex', 'not_regex'."
+                                                        ),
+                                                    value: zod
+                                                        .string()
+                                                        .max(
+                                                            metricsPipelinesCreateBodyConfigOneNodesItemStatsItemFiltersItemValueMax
+                                                        )
+                                                        .describe(
+                                                            'Value to compare against; the pattern for regex operators.'
+                                                        ),
+                                                    scope: zod
+                                                        .string()
+                                                        .max(
+                                                            metricsPipelinesCreateBodyConfigOneNodesItemStatsItemFiltersItemScopeMax
+                                                        )
+                                                        .default(
+                                                            metricsPipelinesCreateBodyConfigOneNodesItemStatsItemFiltersItemScopeDefault
+                                                        )
+                                                        .describe(
+                                                            "Where the attribute lives: 'resource', 'attribute', or 'auto'."
+                                                        ),
+                                                })
+                                            )
+                                            .optional()
+                                            .describe("Label predicates ANDed onto the stat's query."),
+                                        thresholds: zod
+                                            .union([
+                                                zod.object({
+                                                    warn: zod
+                                                        .union([
+                                                            zod.object({
+                                                                lower: zod
+                                                                    .number()
+                                                                    .nullish()
+                                                                    .describe(
+                                                                        'Values below this breach the severity. Omit for no lower bound.'
+                                                                    ),
+                                                                upper: zod
+                                                                    .number()
+                                                                    .nullish()
+                                                                    .describe(
+                                                                        'Values above this breach the severity. Omit for no upper bound.'
+                                                                    ),
+                                                            }),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional()
+                                                        .describe('Bounds whose breach marks the stat degraded.'),
+                                                    crit: zod
+                                                        .union([
+                                                            zod.object({
+                                                                lower: zod
+                                                                    .number()
+                                                                    .nullish()
+                                                                    .describe(
+                                                                        'Values below this breach the severity. Omit for no lower bound.'
+                                                                    ),
+                                                                upper: zod
+                                                                    .number()
+                                                                    .nullish()
+                                                                    .describe(
+                                                                        'Values above this breach the severity. Omit for no upper bound.'
+                                                                    ),
+                                                            }),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional()
+                                                        .describe('Bounds whose breach marks the stat critical.'),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Warn\/crit bounds evaluated against the stat's latest value."),
+                                        breakdown: zod
+                                            .union([
+                                                zod.object({
+                                                    group_by_key: zod
+                                                        .string()
+                                                        .max(
+                                                            metricsPipelinesCreateBodyConfigOneNodesItemStatsItemBreakdownOneGroupByKeyMax
+                                                        )
+                                                        .describe(
+                                                            "Label to split the stat's breakdown table by (e.g. 'partition_id')."
+                                                        ),
+                                                    top_n: zod
+                                                        .number()
+                                                        .min(1)
+                                                        .max(
+                                                            metricsPipelinesCreateBodyConfigOneNodesItemStatsItemBreakdownOneTopNMax
+                                                        )
+                                                        .default(
+                                                            metricsPipelinesCreateBodyConfigOneNodesItemStatsItemBreakdownOneTopNDefault
+                                                        )
+                                                        .describe(
+                                                            "Rows shown before the remainder rolls into one 'others' row."
+                                                        ),
+                                                    scope: zod
+                                                        .string()
+                                                        .max(
+                                                            metricsPipelinesCreateBodyConfigOneNodesItemStatsItemBreakdownOneScopeMax
+                                                        )
+                                                        .default(
+                                                            metricsPipelinesCreateBodyConfigOneNodesItemStatsItemBreakdownOneScopeDefault
+                                                        )
+                                                        .describe(
+                                                            "Attribute scope: 'resource', 'attribute', or 'auto'."
+                                                        ),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Optional per-label breakdown table under the stat.'),
+                                    })
+                                )
+                                .describe('Health stats on this node (at most 12).'),
+                            headline_stat_ids: zod
+                                .array(
+                                    zod.string().max(metricsPipelinesCreateBodyConfigOneNodesItemHeadlineStatIdsItemMax)
+                                )
+                                .optional()
+                                .describe('Stat ids shown on the collapsed node card, in order.'),
+                            links: zod
+                                .array(
+                                    zod.object({
+                                        label: zod
+                                            .string()
+                                            .max(metricsPipelinesCreateBodyConfigOneNodesItemLinksItemLabelMax)
+                                            .describe('Link text shown on the drill panel.'),
+                                        url: zod
+                                            .string()
+                                            .max(metricsPipelinesCreateBodyConfigOneNodesItemLinksItemUrlMax)
+                                            .describe('Destination URL.'),
+                                    })
+                                )
+                                .optional()
+                                .describe('External deep links shown on the drill panel.'),
+                            note: zod
+                                .string()
+                                .default(metricsPipelinesCreateBodyConfigOneNodesItemNoteDefault)
+                                .describe('Free-form operator note shown on the drill panel.'),
+                        })
+                    )
+                    .describe('Topology nodes (at most 20).'),
+                edges: zod
+                    .array(
+                        zod.object({
+                            source: zod
+                                .string()
+                                .max(metricsPipelinesCreateBodyConfigOneEdgesItemSourceMax)
+                                .describe('Upstream node id.'),
+                            target: zod
+                                .string()
+                                .max(metricsPipelinesCreateBodyConfigOneEdgesItemTargetMax)
+                                .describe('Downstream node id.'),
+                            metric_name: zod
+                                .string()
+                                .max(metricsPipelinesCreateBodyConfigOneEdgesItemMetricNameMax)
+                                .describe('Metric measuring throughput along this edge.'),
+                            aggregation: zod
+                                .string()
+                                .max(metricsPipelinesCreateBodyConfigOneEdgesItemAggregationMax)
+                                .default(metricsPipelinesCreateBodyConfigOneEdgesItemAggregationDefault)
+                                .describe('Aggregation per time bucket; same vocabulary as stats.'),
+                            quantile: zod
+                                .number()
+                                .min(metricsPipelinesCreateBodyConfigOneEdgesItemQuantileMin)
+                                .max(metricsPipelinesCreateBodyConfigOneEdgesItemQuantileMax)
+                                .nullish()
+                                .describe('Quantile in (0, 1) for the quantile aggregations.'),
+                            metric_type: zod
+                                .string()
+                                .max(metricsPipelinesCreateBodyConfigOneEdgesItemMetricTypeMax)
+                                .nullish()
+                                .describe('Optional OTel metric type constraint.'),
+                            filters: zod
+                                .array(
+                                    zod.object({
+                                        key: zod
+                                            .string()
+                                            .max(metricsPipelinesCreateBodyConfigOneEdgesItemFiltersItemKeyMax)
+                                            .describe("Attribute name to filter on (e.g. 'k8s.pod.name')."),
+                                        op: zod
+                                            .string()
+                                            .max(metricsPipelinesCreateBodyConfigOneEdgesItemFiltersItemOpMax)
+                                            .default(metricsPipelinesCreateBodyConfigOneEdgesItemFiltersItemOpDefault)
+                                            .describe("Comparison operator: one of 'eq', 'neq', 'regex', 'not_regex'."),
+                                        value: zod
+                                            .string()
+                                            .max(metricsPipelinesCreateBodyConfigOneEdgesItemFiltersItemValueMax)
+                                            .describe('Value to compare against; the pattern for regex operators.'),
+                                        scope: zod
+                                            .string()
+                                            .max(metricsPipelinesCreateBodyConfigOneEdgesItemFiltersItemScopeMax)
+                                            .default(
+                                                metricsPipelinesCreateBodyConfigOneEdgesItemFiltersItemScopeDefault
+                                            )
+                                            .describe("Where the attribute lives: 'resource', 'attribute', or 'auto'."),
+                                    })
+                                )
+                                .optional()
+                                .describe("Label predicates ANDed onto the edge's query."),
+                            baseline_offset: zod
+                                .string()
+                                .max(metricsPipelinesCreateBodyConfigOneEdgesItemBaselineOffsetMax)
+                                .default(metricsPipelinesCreateBodyConfigOneEdgesItemBaselineOffsetDefault)
+                                .describe("How far back the comparison window sits, e.g. '-7d', '-24h', '-1w'."),
+                            hot_multiplier: zod
+                                .number()
+                                .default(metricsPipelinesCreateBodyConfigOneEdgesItemHotMultiplierDefault)
+                                .describe('Current\/baseline ratio at which the edge renders hot. Must exceed 1.'),
+                        })
+                    )
+                    .optional()
+                    .describe('Directed flows between nodes; the graph must stay acyclic.'),
+                variables: zod
+                    .array(
+                        zod.object({
+                            key: zod
+                                .string()
+                                .max(metricsPipelinesCreateBodyConfigOneVariablesItemKeyMax)
+                                .describe('Variable key referenced when evaluating.'),
+                            label: zod
+                                .string()
+                                .max(metricsPipelinesCreateBodyConfigOneVariablesItemLabelMax)
+                                .describe('Display label of the selector.'),
+                            filter_key: zod
+                                .string()
+                                .max(metricsPipelinesCreateBodyConfigOneVariablesItemFilterKeyMax)
+                                .describe("Metric label the chosen value filters on (e.g. 'k8s.cluster.name')."),
+                            options: zod
+                                .array(zod.string().max(metricsPipelinesCreateBodyConfigOneVariablesItemOptionsItemMax))
+                                .optional()
+                                .describe('Allowed values; empty accepts any value.'),
+                            default: zod
+                                .string()
+                                .max(metricsPipelinesCreateBodyConfigOneVariablesItemDefaultMax)
+                                .nullish()
+                                .describe('Value applied when none is passed to evaluate.'),
+                        })
+                    )
+                    .optional()
+                    .describe('Pipeline-level selectors injected into every query.'),
+            })
+            .describe('The topology: nodes with health stats, edges with baselines.'),
+        enabled: zod
+            .boolean()
+            .default(metricsPipelinesCreateBodyEnabledDefault)
+            .describe('Disabled pipelines stay listed but are not evaluated.'),
+    })
+    .describe(
+        'Write shape for create\/update. `config` is fully revalidated by\n`parse_pipeline_config` on every write.'
+    )
+
+/**
+ * Patch a pipeline; omitted fields stay unchanged. The config is fully revalidated.
+ */
+export const metricsPipelinesPartialUpdateBodyNameMax = 400
+
+export const metricsPipelinesPartialUpdateBodyDescriptionDefault = ``
+export const metricsPipelinesPartialUpdateBodyConfigOneNodesItemIdMax = 64
+
+export const metricsPipelinesPartialUpdateBodyConfigOneNodesItemNameMax = 120
+
+export const metricsPipelinesPartialUpdateBodyConfigOneNodesItemKindDefault = ``
+export const metricsPipelinesPartialUpdateBodyConfigOneNodesItemKindMax = 120
+
+export const metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemIdMax = 64
+
+export const metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemLabelMax = 120
+
+export const metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemFormatDefault = `count`
+export const metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemFormatMax = 16
+
+export const metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemMetricNameMax = 255
+
+export const metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemAggregationDefault = `sum`
+export const metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemAggregationMax = 32
+
+export const metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemQuantileMin = 0
+export const metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemQuantileMax = 1
+
+export const metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemMetricTypeMax = 32
+
+export const metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemFiltersItemKeyMax = 255
+
+export const metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemFiltersItemOpDefault = `eq`
+export const metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemFiltersItemOpMax = 16
+
+export const metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemFiltersItemValueMax = 1024
+
+export const metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemFiltersItemScopeDefault = `auto`
+export const metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemFiltersItemScopeMax = 16
+
+export const metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemBreakdownOneGroupByKeyMax = 255
+
+export const metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemBreakdownOneTopNDefault = 10
+export const metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemBreakdownOneTopNMax = 20
+
+export const metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemBreakdownOneScopeDefault = `auto`
+export const metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemBreakdownOneScopeMax = 16
+
+export const metricsPipelinesPartialUpdateBodyConfigOneNodesItemHeadlineStatIdsItemMax = 64
+
+export const metricsPipelinesPartialUpdateBodyConfigOneNodesItemLinksItemLabelMax = 120
+
+export const metricsPipelinesPartialUpdateBodyConfigOneNodesItemLinksItemUrlMax = 2048
+
+export const metricsPipelinesPartialUpdateBodyConfigOneNodesItemNoteDefault = ``
+export const metricsPipelinesPartialUpdateBodyConfigOneEdgesItemSourceMax = 64
+
+export const metricsPipelinesPartialUpdateBodyConfigOneEdgesItemTargetMax = 64
+
+export const metricsPipelinesPartialUpdateBodyConfigOneEdgesItemMetricNameMax = 255
+
+export const metricsPipelinesPartialUpdateBodyConfigOneEdgesItemAggregationDefault = `sum`
+export const metricsPipelinesPartialUpdateBodyConfigOneEdgesItemAggregationMax = 32
+
+export const metricsPipelinesPartialUpdateBodyConfigOneEdgesItemQuantileMin = 0
+export const metricsPipelinesPartialUpdateBodyConfigOneEdgesItemQuantileMax = 1
+
+export const metricsPipelinesPartialUpdateBodyConfigOneEdgesItemMetricTypeMax = 32
+
+export const metricsPipelinesPartialUpdateBodyConfigOneEdgesItemFiltersItemKeyMax = 255
+
+export const metricsPipelinesPartialUpdateBodyConfigOneEdgesItemFiltersItemOpDefault = `eq`
+export const metricsPipelinesPartialUpdateBodyConfigOneEdgesItemFiltersItemOpMax = 16
+
+export const metricsPipelinesPartialUpdateBodyConfigOneEdgesItemFiltersItemValueMax = 1024
+
+export const metricsPipelinesPartialUpdateBodyConfigOneEdgesItemFiltersItemScopeDefault = `auto`
+export const metricsPipelinesPartialUpdateBodyConfigOneEdgesItemFiltersItemScopeMax = 16
+
+export const metricsPipelinesPartialUpdateBodyConfigOneEdgesItemBaselineOffsetDefault = `-7d`
+export const metricsPipelinesPartialUpdateBodyConfigOneEdgesItemBaselineOffsetMax = 16
+
+export const metricsPipelinesPartialUpdateBodyConfigOneEdgesItemHotMultiplierDefault = 2
+export const metricsPipelinesPartialUpdateBodyConfigOneVariablesItemKeyMax = 64
+
+export const metricsPipelinesPartialUpdateBodyConfigOneVariablesItemLabelMax = 120
+
+export const metricsPipelinesPartialUpdateBodyConfigOneVariablesItemFilterKeyMax = 255
+
+export const metricsPipelinesPartialUpdateBodyConfigOneVariablesItemOptionsItemMax = 255
+
+export const metricsPipelinesPartialUpdateBodyConfigOneVariablesItemDefaultMax = 255
+
+export const metricsPipelinesPartialUpdateBodyEnabledDefault = true
+
+export const MetricsPipelinesPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(metricsPipelinesPartialUpdateBodyNameMax)
+            .optional()
+            .describe('Display name of the pipeline.'),
+        description: zod
+            .string()
+            .default(metricsPipelinesPartialUpdateBodyDescriptionDefault)
+            .describe('What this pipeline observes and who owns it.'),
+        config: zod
+            .object({
+                nodes: zod
+                    .array(
+                        zod.object({
+                            id: zod
+                                .string()
+                                .max(metricsPipelinesPartialUpdateBodyConfigOneNodesItemIdMax)
+                                .describe('Node id, unique within the pipeline; edges reference it.'),
+                            name: zod
+                                .string()
+                                .max(metricsPipelinesPartialUpdateBodyConfigOneNodesItemNameMax)
+                                .describe('Display name of the component.'),
+                            kind: zod
+                                .string()
+                                .max(metricsPipelinesPartialUpdateBodyConfigOneNodesItemKindMax)
+                                .default(metricsPipelinesPartialUpdateBodyConfigOneNodesItemKindDefault)
+                                .describe('Free-form component kind subtitle.'),
+                            stats: zod
+                                .array(
+                                    zod.object({
+                                        id: zod
+                                            .string()
+                                            .max(metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemIdMax)
+                                            .describe('Stat id, unique within its node.'),
+                                        label: zod
+                                            .string()
+                                            .max(metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemLabelMax)
+                                            .describe('Display label for the stat.'),
+                                        format: zod
+                                            .string()
+                                            .max(metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemFormatMax)
+                                            .default(
+                                                metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemFormatDefault
+                                            )
+                                            .describe(
+                                                "Display format hint: 'rate', 'bytes', 'pct', 'count', or 'duration'."
+                                            ),
+                                        metric_name: zod
+                                            .string()
+                                            .max(
+                                                metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemMetricNameMax
+                                            )
+                                            .describe('Exact ingested metric name this stat queries.'),
+                                        aggregation: zod
+                                            .string()
+                                            .max(
+                                                metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemAggregationMax
+                                            )
+                                            .default(
+                                                metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemAggregationDefault
+                                            )
+                                            .describe(
+                                                "Aggregation per time bucket: 'sum', 'avg', 'count', 'rate', 'increase', 'quantile', or 'histogram_quantile'."
+                                            ),
+                                        quantile: zod
+                                            .number()
+                                            .min(
+                                                metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemQuantileMin
+                                            )
+                                            .max(
+                                                metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemQuantileMax
+                                            )
+                                            .nullish()
+                                            .describe('Quantile in (0, 1) for the quantile aggregations.'),
+                                        metric_type: zod
+                                            .string()
+                                            .max(
+                                                metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemMetricTypeMax
+                                            )
+                                            .nullish()
+                                            .describe(
+                                                "Optional OTel metric type constraint (e.g. 'gauge', 'sum', 'histogram')."
+                                            ),
+                                        filters: zod
+                                            .array(
+                                                zod.object({
+                                                    key: zod
+                                                        .string()
+                                                        .max(
+                                                            metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemFiltersItemKeyMax
+                                                        )
+                                                        .describe("Attribute name to filter on (e.g. 'k8s.pod.name')."),
+                                                    op: zod
+                                                        .string()
+                                                        .max(
+                                                            metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemFiltersItemOpMax
+                                                        )
+                                                        .default(
+                                                            metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemFiltersItemOpDefault
+                                                        )
+                                                        .describe(
+                                                            "Comparison operator: one of 'eq', 'neq', 'regex', 'not_regex'."
+                                                        ),
+                                                    value: zod
+                                                        .string()
+                                                        .max(
+                                                            metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemFiltersItemValueMax
+                                                        )
+                                                        .describe(
+                                                            'Value to compare against; the pattern for regex operators.'
+                                                        ),
+                                                    scope: zod
+                                                        .string()
+                                                        .max(
+                                                            metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemFiltersItemScopeMax
+                                                        )
+                                                        .default(
+                                                            metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemFiltersItemScopeDefault
+                                                        )
+                                                        .describe(
+                                                            "Where the attribute lives: 'resource', 'attribute', or 'auto'."
+                                                        ),
+                                                })
+                                            )
+                                            .optional()
+                                            .describe("Label predicates ANDed onto the stat's query."),
+                                        thresholds: zod
+                                            .union([
+                                                zod.object({
+                                                    warn: zod
+                                                        .union([
+                                                            zod.object({
+                                                                lower: zod
+                                                                    .number()
+                                                                    .nullish()
+                                                                    .describe(
+                                                                        'Values below this breach the severity. Omit for no lower bound.'
+                                                                    ),
+                                                                upper: zod
+                                                                    .number()
+                                                                    .nullish()
+                                                                    .describe(
+                                                                        'Values above this breach the severity. Omit for no upper bound.'
+                                                                    ),
+                                                            }),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional()
+                                                        .describe('Bounds whose breach marks the stat degraded.'),
+                                                    crit: zod
+                                                        .union([
+                                                            zod.object({
+                                                                lower: zod
+                                                                    .number()
+                                                                    .nullish()
+                                                                    .describe(
+                                                                        'Values below this breach the severity. Omit for no lower bound.'
+                                                                    ),
+                                                                upper: zod
+                                                                    .number()
+                                                                    .nullish()
+                                                                    .describe(
+                                                                        'Values above this breach the severity. Omit for no upper bound.'
+                                                                    ),
+                                                            }),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional()
+                                                        .describe('Bounds whose breach marks the stat critical.'),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Warn\/crit bounds evaluated against the stat's latest value."),
+                                        breakdown: zod
+                                            .union([
+                                                zod.object({
+                                                    group_by_key: zod
+                                                        .string()
+                                                        .max(
+                                                            metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemBreakdownOneGroupByKeyMax
+                                                        )
+                                                        .describe(
+                                                            "Label to split the stat's breakdown table by (e.g. 'partition_id')."
+                                                        ),
+                                                    top_n: zod
+                                                        .number()
+                                                        .min(1)
+                                                        .max(
+                                                            metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemBreakdownOneTopNMax
+                                                        )
+                                                        .default(
+                                                            metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemBreakdownOneTopNDefault
+                                                        )
+                                                        .describe(
+                                                            "Rows shown before the remainder rolls into one 'others' row."
+                                                        ),
+                                                    scope: zod
+                                                        .string()
+                                                        .max(
+                                                            metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemBreakdownOneScopeMax
+                                                        )
+                                                        .default(
+                                                            metricsPipelinesPartialUpdateBodyConfigOneNodesItemStatsItemBreakdownOneScopeDefault
+                                                        )
+                                                        .describe(
+                                                            "Attribute scope: 'resource', 'attribute', or 'auto'."
+                                                        ),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Optional per-label breakdown table under the stat.'),
+                                    })
+                                )
+                                .describe('Health stats on this node (at most 12).'),
+                            headline_stat_ids: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(metricsPipelinesPartialUpdateBodyConfigOneNodesItemHeadlineStatIdsItemMax)
+                                )
+                                .optional()
+                                .describe('Stat ids shown on the collapsed node card, in order.'),
+                            links: zod
+                                .array(
+                                    zod.object({
+                                        label: zod
+                                            .string()
+                                            .max(metricsPipelinesPartialUpdateBodyConfigOneNodesItemLinksItemLabelMax)
+                                            .describe('Link text shown on the drill panel.'),
+                                        url: zod
+                                            .string()
+                                            .max(metricsPipelinesPartialUpdateBodyConfigOneNodesItemLinksItemUrlMax)
+                                            .describe('Destination URL.'),
+                                    })
+                                )
+                                .optional()
+                                .describe('External deep links shown on the drill panel.'),
+                            note: zod
+                                .string()
+                                .default(metricsPipelinesPartialUpdateBodyConfigOneNodesItemNoteDefault)
+                                .describe('Free-form operator note shown on the drill panel.'),
+                        })
+                    )
+                    .describe('Topology nodes (at most 20).'),
+                edges: zod
+                    .array(
+                        zod.object({
+                            source: zod
+                                .string()
+                                .max(metricsPipelinesPartialUpdateBodyConfigOneEdgesItemSourceMax)
+                                .describe('Upstream node id.'),
+                            target: zod
+                                .string()
+                                .max(metricsPipelinesPartialUpdateBodyConfigOneEdgesItemTargetMax)
+                                .describe('Downstream node id.'),
+                            metric_name: zod
+                                .string()
+                                .max(metricsPipelinesPartialUpdateBodyConfigOneEdgesItemMetricNameMax)
+                                .describe('Metric measuring throughput along this edge.'),
+                            aggregation: zod
+                                .string()
+                                .max(metricsPipelinesPartialUpdateBodyConfigOneEdgesItemAggregationMax)
+                                .default(metricsPipelinesPartialUpdateBodyConfigOneEdgesItemAggregationDefault)
+                                .describe('Aggregation per time bucket; same vocabulary as stats.'),
+                            quantile: zod
+                                .number()
+                                .min(metricsPipelinesPartialUpdateBodyConfigOneEdgesItemQuantileMin)
+                                .max(metricsPipelinesPartialUpdateBodyConfigOneEdgesItemQuantileMax)
+                                .nullish()
+                                .describe('Quantile in (0, 1) for the quantile aggregations.'),
+                            metric_type: zod
+                                .string()
+                                .max(metricsPipelinesPartialUpdateBodyConfigOneEdgesItemMetricTypeMax)
+                                .nullish()
+                                .describe('Optional OTel metric type constraint.'),
+                            filters: zod
+                                .array(
+                                    zod.object({
+                                        key: zod
+                                            .string()
+                                            .max(metricsPipelinesPartialUpdateBodyConfigOneEdgesItemFiltersItemKeyMax)
+                                            .describe("Attribute name to filter on (e.g. 'k8s.pod.name')."),
+                                        op: zod
+                                            .string()
+                                            .max(metricsPipelinesPartialUpdateBodyConfigOneEdgesItemFiltersItemOpMax)
+                                            .default(
+                                                metricsPipelinesPartialUpdateBodyConfigOneEdgesItemFiltersItemOpDefault
+                                            )
+                                            .describe("Comparison operator: one of 'eq', 'neq', 'regex', 'not_regex'."),
+                                        value: zod
+                                            .string()
+                                            .max(metricsPipelinesPartialUpdateBodyConfigOneEdgesItemFiltersItemValueMax)
+                                            .describe('Value to compare against; the pattern for regex operators.'),
+                                        scope: zod
+                                            .string()
+                                            .max(metricsPipelinesPartialUpdateBodyConfigOneEdgesItemFiltersItemScopeMax)
+                                            .default(
+                                                metricsPipelinesPartialUpdateBodyConfigOneEdgesItemFiltersItemScopeDefault
+                                            )
+                                            .describe("Where the attribute lives: 'resource', 'attribute', or 'auto'."),
+                                    })
+                                )
+                                .optional()
+                                .describe("Label predicates ANDed onto the edge's query."),
+                            baseline_offset: zod
+                                .string()
+                                .max(metricsPipelinesPartialUpdateBodyConfigOneEdgesItemBaselineOffsetMax)
+                                .default(metricsPipelinesPartialUpdateBodyConfigOneEdgesItemBaselineOffsetDefault)
+                                .describe("How far back the comparison window sits, e.g. '-7d', '-24h', '-1w'."),
+                            hot_multiplier: zod
+                                .number()
+                                .default(metricsPipelinesPartialUpdateBodyConfigOneEdgesItemHotMultiplierDefault)
+                                .describe('Current\/baseline ratio at which the edge renders hot. Must exceed 1.'),
+                        })
+                    )
+                    .optional()
+                    .describe('Directed flows between nodes; the graph must stay acyclic.'),
+                variables: zod
+                    .array(
+                        zod.object({
+                            key: zod
+                                .string()
+                                .max(metricsPipelinesPartialUpdateBodyConfigOneVariablesItemKeyMax)
+                                .describe('Variable key referenced when evaluating.'),
+                            label: zod
+                                .string()
+                                .max(metricsPipelinesPartialUpdateBodyConfigOneVariablesItemLabelMax)
+                                .describe('Display label of the selector.'),
+                            filter_key: zod
+                                .string()
+                                .max(metricsPipelinesPartialUpdateBodyConfigOneVariablesItemFilterKeyMax)
+                                .describe("Metric label the chosen value filters on (e.g. 'k8s.cluster.name')."),
+                            options: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(metricsPipelinesPartialUpdateBodyConfigOneVariablesItemOptionsItemMax)
+                                )
+                                .optional()
+                                .describe('Allowed values; empty accepts any value.'),
+                            default: zod
+                                .string()
+                                .max(metricsPipelinesPartialUpdateBodyConfigOneVariablesItemDefaultMax)
+                                .nullish()
+                                .describe('Value applied when none is passed to evaluate.'),
+                        })
+                    )
+                    .optional()
+                    .describe('Pipeline-level selectors injected into every query.'),
+            })
+            .optional()
+            .describe('The topology: nodes with health stats, edges with baselines.'),
+        enabled: zod
+            .boolean()
+            .default(metricsPipelinesPartialUpdateBodyEnabledDefault)
+            .describe('Disabled pipelines stay listed but are not evaluated.'),
+    })
+    .describe(
+        'Write shape for create\/update. `config` is fully revalidated by\n`parse_pipeline_config` on every write.'
+    )
+
+/**
+ * Evaluate every node stat and edge of the pipeline over one window and derive the alert strip.
+ */
+export const metricsPipelinesEvaluateCreateBodyVariablesMaxOne = 255
+
+export const MetricsPipelinesEvaluateCreateBody = /* @__PURE__ */ zod.object({
+    variables: zod
+        .record(
+            zod.string(),
+            zod
+                .string()
+                .max(metricsPipelinesEvaluateCreateBodyVariablesMaxOne)
+                .describe('Chosen value for the variable.')
+        )
+        .optional()
+        .describe('Variable values keyed by variable key; unset variables fall back to their defaults.'),
+    date_from: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe('Window start (ISO 8601). Defaults to 30 minutes ago.'),
+    date_to: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe('Window end (ISO 8601), exclusive. Defaults to now.'),
+})

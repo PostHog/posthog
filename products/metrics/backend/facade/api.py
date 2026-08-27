@@ -8,9 +8,14 @@ so import-linter's strict-mode contract holds.
 import math
 import datetime as dt
 from collections.abc import Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from django.core.exceptions import ValidationError
 
 from posthog.models import Team
+
+if TYPE_CHECKING:
+    from django.db.models import QuerySet
 
 from products.metrics.backend.anomaly import characterize_anomaly as _characterize_anomaly
 from products.metrics.backend.diagnostics import decompose_bucket as _decompose_bucket
@@ -27,6 +32,11 @@ from products.metrics.backend.facade.contracts import (
     MetricQueryRequest,
     MetricSeries,
     MetricsOverview,
+    MetricsPipelineRecord,
+    PipelineActor,
+    PipelineConfig,
+    PipelineEvaluation,
+    PipelineNotFoundError,
 )
 from products.metrics.backend.facade.enums import FilterOp, MetricAggregation, MetricType
 from products.metrics.backend.formula import evaluate, parse_formula
@@ -40,6 +50,9 @@ from products.metrics.backend.metric_event_samples_query_runner import MetricEve
 from products.metrics.backend.metric_names_query_runner import cached_metric_names
 from products.metrics.backend.metric_query_runner import MetricQueryRunner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
+from products.metrics.backend.models import MetricsPipeline
+from products.metrics.backend.pipeline_config import parse_pipeline_config as _parse_pipeline_config
+from products.metrics.backend.pipeline_evaluation import evaluate_pipeline as _evaluate_pipeline
 
 # MetricQueryRunner still speaks the legacy aggregation strings; this shrinks
 # as later PRs teach the runner the remaining MetricAggregation values.
@@ -211,6 +224,133 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
         return _evaluate_formula(request.formula, series_by_clause, grid)
 
     return [series for clause in request.clauses for series in series_by_clause[clause.name]]
+
+
+def _to_pipeline_record(pipeline: "MetricsPipeline") -> MetricsPipelineRecord:
+    created_by = None
+    if pipeline.created_by is not None:
+        created_by = PipelineActor(
+            id=pipeline.created_by.id,
+            email=pipeline.created_by.email,
+            first_name=pipeline.created_by.first_name,
+        )
+    return MetricsPipelineRecord(
+        id=str(pipeline.id),
+        name=pipeline.name,
+        description=pipeline.description,
+        config=pipeline.config,
+        enabled=pipeline.enabled,
+        created_at=pipeline.created_at.isoformat(),
+        created_by=created_by,
+        updated_at=pipeline.updated_at.isoformat() if pipeline.updated_at else None,
+    )
+
+
+def _pipeline_queryset(team: Team) -> "QuerySet[MetricsPipeline]":
+    return MetricsPipeline.objects.for_team(team.pk).filter(deleted=False).select_related("created_by")
+
+
+def list_pipelines(*, team: Team) -> list[MetricsPipelineRecord]:
+    """List the team's pipelines, newest first."""
+    return [_to_pipeline_record(p) for p in _pipeline_queryset(team).order_by("-created_at")]
+
+
+def get_pipeline(*, team: Team, pipeline_id: str) -> MetricsPipelineRecord:
+    """Fetch one pipeline. Raises `PipelineNotFoundError` for an unknown or
+    deleted id — the presentation layer surfaces it as a 404."""
+    try:
+        return _to_pipeline_record(_pipeline_queryset(team).get(id=pipeline_id))
+    except (MetricsPipeline.DoesNotExist, ValueError, ValidationError) as e:
+        raise PipelineNotFoundError(pipeline_id) from e
+
+
+def create_pipeline(
+    *, team: Team, created_by_id: int | None, name: str, description: str, config: dict, enabled: bool = True
+) -> MetricsPipelineRecord:
+    """Create a pipeline. Raises `ValueError` when `config` is invalid."""
+    _parse_pipeline_config(config)
+    pipeline = MetricsPipeline.objects.for_team(team.pk).create(
+        team_id=team.pk,
+        created_by_id=created_by_id,
+        name=name,
+        description=description,
+        config=config,
+        enabled=enabled,
+    )
+    return _to_pipeline_record(_pipeline_queryset(team).get(id=pipeline.id))
+
+
+def update_pipeline(
+    *,
+    team: Team,
+    pipeline_id: str,
+    name: str | None = None,
+    description: str | None = None,
+    config: dict | None = None,
+    enabled: bool | None = None,
+) -> MetricsPipelineRecord:
+    """Patch a pipeline; None leaves a field untouched. Raises
+    `PipelineNotFoundError` / `ValueError` like its siblings."""
+    try:
+        pipeline = _pipeline_queryset(team).get(id=pipeline_id)
+    except (MetricsPipeline.DoesNotExist, ValueError, ValidationError) as e:
+        raise PipelineNotFoundError(pipeline_id) from e
+    if config is not None:
+        _parse_pipeline_config(config)
+        pipeline.config = config
+    if name is not None:
+        pipeline.name = name
+    if description is not None:
+        pipeline.description = description
+    if enabled is not None:
+        pipeline.enabled = enabled
+    pipeline.save()
+    return _to_pipeline_record(pipeline)
+
+
+def soft_delete_pipeline(*, team: Team, pipeline_id: str) -> None:
+    """Soft-delete a pipeline: the row keeps its activity history and the
+    project-tree entry is removed. Raises `PipelineNotFoundError` for an
+    unknown id."""
+    try:
+        pipeline = _pipeline_queryset(team).get(id=pipeline_id)
+    except (MetricsPipeline.DoesNotExist, ValueError, ValidationError) as e:
+        raise PipelineNotFoundError(pipeline_id) from e
+    pipeline.deleted = True
+    pipeline.save()
+
+
+def parse_pipeline_config(data: object) -> "PipelineConfig":
+    """Parse and validate a stored pipeline topology config. Raises
+    `ValueError` with a path-qualified message on the first rejection — the
+    presentation layer surfaces these as 400s."""
+    return _parse_pipeline_config(data)
+
+
+def evaluate_pipeline(
+    *,
+    team: Team,
+    config: "PipelineConfig",
+    date_from: dt.datetime,
+    date_to: dt.datetime,
+    variable_values: dict[str, str] | None = None,
+) -> "PipelineEvaluation":
+    """Evaluate a pipeline topology's health over one window: every node
+    stat's value + warn/crit verdict, every edge's throughput vs its shifted
+    baseline window, and the derived alert strip. Raises `ValueError` for
+    unknown variable keys/values — the presentation layer surfaces these as
+    400s."""
+
+    def run_query(request: MetricQueryRequest) -> list[MetricSeries]:
+        return run_metric_query(team=team, request=request)
+
+    return _evaluate_pipeline(
+        config=config,
+        run_query=run_query,
+        date_from=date_from,
+        date_to=date_to,
+        variable_values=variable_values,
+    )
 
 
 def list_metric_names(

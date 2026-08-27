@@ -38,6 +38,7 @@ ActivityScope = Literal[
     "Person",
     "Group",
     "Insight",
+    "MetricsPipeline",
     "Plugin",
     "PluginConfig",
     "HogFunction",

@@ -13,7 +13,13 @@ import type {
     AppMetricsTotalsResponseApi,
     MetricsAttributeValuesRetrieveParams,
     MetricsAttributesRetrieveParams,
+    MetricsPipelineApi,
+    MetricsPipelineWriteApi,
     MetricsValuesRetrieveParams,
+    PatchedMetricsPipelineWriteApi,
+    PipelineEvaluateRequestApi,
+    PipelineEvaluationApi,
+    PipelineListResponseApi,
     _HasMetricsResponseApi,
     _MetricAnomalyReportApi,
     _MetricAnomalyRequestApi,
@@ -277,5 +283,116 @@ export const metricsValuesRetrieve = async (
     return apiMutator<_MetricNamesResponseApi>(getMetricsValuesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getMetricsPipelinesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics_pipelines/`
+}
+
+/**
+ * List the team's pipelines, newest first.
+ */
+export const metricsPipelinesList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<PipelineListResponseApi[]> => {
+    return apiMutator<PipelineListResponseApi[]>(getMetricsPipelinesListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMetricsPipelinesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics_pipelines/`
+}
+
+/**
+ * Create a pipeline from a validated topology config.
+ */
+export const metricsPipelinesCreate = async (
+    projectId: string,
+    metricsPipelineWriteApi: MetricsPipelineWriteApi,
+    options?: RequestInit
+): Promise<MetricsPipelineApi> => {
+    return apiMutator<MetricsPipelineApi>(getMetricsPipelinesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(metricsPipelineWriteApi),
+    })
+}
+
+export const getMetricsPipelinesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/metrics_pipelines/${id}/`
+}
+
+/**
+ * Fetch one pipeline.
+ */
+export const metricsPipelinesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<MetricsPipelineApi> => {
+    return apiMutator<MetricsPipelineApi>(getMetricsPipelinesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMetricsPipelinesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/metrics_pipelines/${id}/`
+}
+
+/**
+ * Patch a pipeline; omitted fields stay unchanged. The config is fully revalidated.
+ */
+export const metricsPipelinesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedMetricsPipelineWriteApi?: PatchedMetricsPipelineWriteApi,
+    options?: RequestInit
+): Promise<MetricsPipelineApi> => {
+    return apiMutator<MetricsPipelineApi>(getMetricsPipelinesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedMetricsPipelineWriteApi),
+    })
+}
+
+export const getMetricsPipelinesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/metrics_pipelines/${id}/`
+}
+
+/**
+ * Soft-delete a pipeline: it disappears from lists but keeps its activity history.
+ */
+export const metricsPipelinesDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getMetricsPipelinesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getMetricsPipelinesEvaluateCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/metrics_pipelines/${id}/evaluate/`
+}
+
+/**
+ * Evaluate every node stat and edge of the pipeline over one window and derive the alert strip.
+ */
+export const metricsPipelinesEvaluateCreate = async (
+    projectId: string,
+    id: string,
+    pipelineEvaluateRequestApi?: PipelineEvaluateRequestApi,
+    options?: RequestInit
+): Promise<PipelineEvaluationApi> => {
+    return apiMutator<PipelineEvaluationApi>(getMetricsPipelinesEvaluateCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(pipelineEvaluateRequestApi),
     })
 }

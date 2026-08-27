@@ -25,6 +25,7 @@
         "@testing-library/jest-dom": "*",
         "@testing-library/react": "*",
         "@types/react": "*",
+        "@xyflow/react": "*",
         "clsx": "*",
         "react": "*",
         "react-window": "*"
