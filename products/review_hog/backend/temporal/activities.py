@@ -97,6 +97,7 @@ from products.review_hog.backend.reviewer.skill_loader import (
     load_validation_skill_for_run,
 )
 from products.review_hog.backend.reviewer.status_comment import (
+    FinalizeStatusCommentInput,
     ensure_status_comment,
     fail_status_comment,
     finalize_status_comment,
@@ -428,19 +429,6 @@ class StatusCommentInput:
     report_id: str
 
 
-@dataclass
-class FinalizeStatusCommentInput:
-    team_id: int
-    report_id: str
-    run_index: int
-    # The run's snapshotted threshold, so the held-back explanation matches what publish enforced.
-    urgency_threshold: str
-    review_url: str | None = None
-    # Whose threshold gated the run ("author" / "override" / "default", from the resolve snapshot) —
-    # the held-back sentence must blame the right settings. Defaulted so pre-field payloads deserialize.
-    resolved_from: str = "author"
-
-
 # --- Setup activities ------------------------------------------------------------------------------
 
 
@@ -600,9 +588,10 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
     return ReviewMeta(
         report_id=report_id,
         head_sha=head_sha,
-        # Sandboxes check out this ref. For PRs use the pinned pull ref: refs/pull/N/head outlives the
-        # head branch (merging mid-review deletes it, killing every later sandbox checkout).
-        branch=f"pull/{pr_number}/head" if pr_number is not None else pr_metadata.head_branch,
+        # Sandboxes check out this branch by name. The Tasks checkout only resolves refs/heads/<name>;
+        # a pull ref like `pull/N/head` falls through to a fresh branch on the base tip, so every
+        # sandbox would review the base branch instead of the PR.
+        branch=pr_metadata.head_branch,
         repository=input.repository,
         run_index=run_index,
         snapshotted=snapshotted,
@@ -635,30 +624,25 @@ def _login_to_user_id(team_id: int, login: str | None) -> int | None:
     return user.id if user is not None else None
 
 
-def _resolve_acting_user(
-    team_id: int,
-    author_login: str,
-    override_user_id: int | None,
-    report_id: str | None = None,
-    trigger_source: str = TRIGGER_MANUAL,
-    default_user_id: int | None = None,
-) -> ResolveActingUserResult:
+def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResult:
     acting_user_id: int | None
-    if override_user_id is not None:
-        acting_user_id, resolved_from = override_user_id, "override"
+    if input.override_user_id is not None:
+        acting_user_id, resolved_from = input.override_user_id, "override"
     else:
-        acting_user_id, resolved_from = _login_to_user_id(team_id, author_login), "author"
+        acting_user_id, resolved_from = _login_to_user_id(input.team_id, input.author_login), "author"
         # Label-trigger fallback — someone explicitly asked for this review, so borrow the run user
         # the trigger already resolved. Other triggers keep the author-only contract and skip.
-        if acting_user_id is None and trigger_source == TRIGGER_LABEL:
-            acting_user_id, resolved_from = default_user_id, "default"
+        if acting_user_id is None and input.trigger_source == TRIGGER_LABEL:
+            acting_user_id, resolved_from = input.default_user_id, "default"
     if acting_user_id is None:
         return ResolveActingUserResult(acting_user_id=None)
     if resolved_from == "default":
-        logger.info("PR author %r has no PostHog user; acting as the default user %s", author_login, acting_user_id)
-    if report_id is not None:
-        ReviewReport.objects.for_team(team_id).filter(id=report_id).update(acting_user_id=acting_user_id)
-    settings = ReviewUserSettings.load(team_id, acting_user_id)
+        logger.info(
+            "PR author %r has no PostHog user; acting as the default user %s", input.author_login, acting_user_id
+        )
+    if input.report_id is not None:
+        ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(acting_user_id=acting_user_id)
+    settings = ReviewUserSettings.load(input.team_id, acting_user_id)
     return ResolveActingUserResult(
         acting_user_id=acting_user_id,
         # The labeled-PR opt-out protects authors ("don't review my PRs") — the borrowed default
@@ -692,14 +676,7 @@ async def resolve_acting_user_activity(input: ResolveActingUserInput) -> Resolve
     other triggers return None on an unmapped author and the parent skips the review.
     The CLI/eval passes an explicit `override_user_id` to test a known user's perspectives on any PR.
     """
-    return await database_sync_to_async(_resolve_acting_user, thread_sensitive=False)(
-        input.team_id,
-        input.author_login,
-        input.override_user_id,
-        input.report_id,
-        input.trigger_source,
-        input.default_user_id,
-    )
+    return await database_sync_to_async(_resolve_acting_user, thread_sensitive=False)(input)
 
 
 def _sync_review_skills(team_id: int) -> None:
@@ -1209,39 +1186,35 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
 # --- Build body + finalize + publish ---------------------------------------------------------------
 
 
-def _build_and_finalize(
-    team_id: int,
-    report_id: str,
-    head_sha: str,
-    run_index: int,
-    issue_ids: list[str],
-    urgency_threshold: str,
-    will_publish: bool,
-) -> None:
-    issues = load_run_issues(team_id=team_id, report_id=report_id, run_index=run_index, issue_ids=issue_ids)
+def _build_and_finalize(input: BuildBodyInput) -> None:
+    issues = load_run_issues(
+        team_id=input.team_id, report_id=input.report_id, run_index=input.run_index, issue_ids=input.issue_ids
+    )
     # Verdicts come from the DB (the same rows publish reads), so a partially-failed chunk shows the
     # same findings in the body and the posted comments.
-    validations = load_run_validations(team_id=team_id, report_id=report_id, run_index=run_index, issues=issues)
+    validations = load_run_validations(
+        team_id=input.team_id, report_id=input.report_id, run_index=input.run_index, issues=issues
+    )
     # The reviewed diff decides which valid findings can't be anchored inline — the body surfaces those
     # in an "Other findings" section (the same snapshot publish positions inline comments against).
-    snapshot = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=head_sha)
+    snapshot = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
     pr_files = snapshot.pr_files if snapshot is not None else []
     body = build_review_body(
         issues=issues,
         validations=validations,
         pr_files=pr_files,
-        published_priorities=published_priorities_for(IssuePriority(urgency_threshold)),
+        published_priorities=published_priorities_for(IssuePriority(input.urgency_threshold)),
     )
     finalize_review_report(
-        team_id=team_id,
-        report_id=report_id,
+        team_id=input.team_id,
+        report_id=input.report_id,
         body_markdown=body,
-        run_index=run_index,
-        head_sha=head_sha,
+        run_index=input.run_index,
+        head_sha=input.head_sha,
         # The same snapshot the body above and the publish gate consume — stamped so the detail view
         # buckets this turn's findings by the gate that actually ran.
-        urgency_threshold=urgency_threshold,
-        will_publish=will_publish,
+        urgency_threshold=input.urgency_threshold,
+        will_publish=input.will_publish,
     )
 
 
@@ -1250,38 +1223,21 @@ def _build_and_finalize(
 @close_db_connections
 async def build_body_activity(input: BuildBodyInput) -> None:
     """Render the review body and finalize the turn (store the body, bump the run watermark)."""
-    await database_sync_to_async(_build_and_finalize, thread_sensitive=False)(
-        input.team_id,
-        input.report_id,
-        input.head_sha,
-        input.run_index,
-        input.issue_ids,
-        input.urgency_threshold,
-        input.will_publish,
-    )
+    await database_sync_to_async(_build_and_finalize, thread_sensitive=False)(input)
 
 
-def _publish(
-    team_id: int,
-    report_id: str,
-    head_sha: str,
-    run_index: int,
-    owner: str,
-    repo: str,
-    pr_number: int,
-    urgency_threshold: str,
-) -> PublishResult:
-    token, installation_id = _installation_auth(team_id, f"{owner}/{repo}")
+def _publish(input: PublishInput) -> PublishResult:
+    token, installation_id = _installation_auth(input.team_id, f"{input.owner}/{input.repo}")
     outcome = publish_persisted_review(
-        team_id=team_id,
-        report_id=report_id,
-        head_sha=head_sha,
-        run_index=run_index,
-        owner=owner,
-        repo=repo,
-        pr_number=pr_number,
+        team_id=input.team_id,
+        report_id=input.report_id,
+        head_sha=input.head_sha,
+        run_index=input.run_index,
+        owner=input.owner,
+        repo=input.repo,
+        pr_number=input.pr_number,
         token=token,
-        urgency_threshold=IssuePriority(urgency_threshold),
+        urgency_threshold=IssuePriority(input.urgency_threshold),
         installation_id=installation_id,
     )
     return PublishResult(posted=outcome.posted, review_url=outcome.review_url)
@@ -1296,24 +1252,15 @@ async def publish_review_activity(input: PublishInput) -> PublishResult:
     The per-run publish gate lives in the workflow (`inputs.publish`): this activity is dispatched
     only when publishing is enabled and the turn has a PR to post to.
     """
-    return await database_sync_to_async(_publish, thread_sensitive=False)(
-        input.team_id,
-        input.report_id,
-        input.head_sha,
-        input.run_index,
-        input.owner,
-        input.repo,
-        input.pr_number,
-        input.urgency_threshold,
-    )
+    return await database_sync_to_async(_publish, thread_sensitive=False)(input)
 
 
-def _remove_trigger_label(team_id: int, owner: str, repo: str, pr_number: int) -> None:
-    token, installation_id = _installation_auth(team_id, f"{owner}/{repo}")
+def _remove_trigger_label(input: RemoveTriggerLabelInput) -> None:
+    token, installation_id = _installation_auth(input.team_id, f"{input.owner}/{input.repo}")
     try:
         github_api_request(
             "DELETE",
-            f"/repos/{owner}/{repo}/issues/{pr_number}/labels/reviewhog",
+            f"/repos/{input.owner}/{input.repo}/issues/{input.pr_number}/labels/reviewhog",
             token=token,
             endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels/{name}",
             installation_id=installation_id,
@@ -1328,9 +1275,7 @@ def _remove_trigger_label(team_id: int, owner: str, repo: str, pr_number: int) -
 @close_db_connections
 async def remove_trigger_label_activity(input: RemoveTriggerLabelInput) -> None:
     """Remove the label that started a label-triggered review, if it is still present."""
-    await database_sync_to_async(_remove_trigger_label, thread_sensitive=False)(
-        input.team_id, input.owner, input.repo, input.pr_number
-    )
+    await database_sync_to_async(_remove_trigger_label, thread_sensitive=False)(input)
 
 
 def _review_event_identity(report: ReviewReport) -> str:
@@ -1509,14 +1454,7 @@ async def post_status_comment_activity(input: StatusCommentInput) -> None:
 @close_db_connections
 async def finalize_status_comment_activity(input: FinalizeStatusCommentInput) -> None:
     """Rewrite the status comment with the turn's outcome: full found counts vs. what was published."""
-    await database_sync_to_async(finalize_status_comment, thread_sensitive=False)(
-        input.team_id,
-        input.report_id,
-        run_index=input.run_index,
-        urgency_threshold=input.urgency_threshold,
-        review_url=input.review_url,
-        resolved_from=input.resolved_from,
-    )
+    await database_sync_to_async(finalize_status_comment, thread_sensitive=False)(input)
 
 
 def _fail_run(team_id: int, report_id: str) -> None:

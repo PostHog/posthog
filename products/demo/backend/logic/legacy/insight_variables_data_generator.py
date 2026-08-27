@@ -2,8 +2,8 @@ from posthog.models import Person
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.models.insight import Insight
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.api import create_insight_variable
+from products.product_analytics.backend.facade.models import Insight
 
 from .data_generator import DataGenerator
 
@@ -16,17 +16,17 @@ class InsightVariablesDataGenerator(DataGenerator):
         pass
 
     def create_actions_dashboards(self):
-        var1 = InsightVariable.objects.create(
-            team=self.team, name="Variable 1", code_name="variable_1", default_value=10, type="Number"
+        var1 = create_insight_variable(
+            team_id=self.team.pk, name="Variable 1", code_name="variable_1", default_value=10, type="Number"
         )
-        var2 = InsightVariable.objects.create(
-            team=self.team, name="Variable 2", code_name="variable_2", default_value=10, type="Number"
+        var2 = create_insight_variable(
+            team_id=self.team.pk, name="Variable 2", code_name="variable_2", default_value=10, type="Number"
         )
-        var3 = InsightVariable.objects.create(
-            team=self.team, name="Variable 3", code_name="variable_3", default_value=10, type="Number"
+        var3 = create_insight_variable(
+            team_id=self.team.pk, name="Variable 3", code_name="variable_3", default_value=10, type="Number"
         )
-        var4 = InsightVariable.objects.create(
-            team=self.team, name="Variable 4", code_name="variable_4", default_value=10, type="Number"
+        var4 = create_insight_variable(
+            team_id=self.team.pk, name="Variable 4", code_name="variable_4", default_value=10, type="Number"
         )
 
         dashboard = Dashboard.objects.create(

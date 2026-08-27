@@ -301,23 +301,23 @@ def _apply_partitioning(
     )
 
     if partition_result is not None:
-        pa_table, partition_mode, partition_format, updated_partition_keys = partition_result
+        pa_table = partition_result.table
 
         if (
             not schema.partitioning_enabled
-            or schema.partition_mode != partition_mode
-            or schema.partition_format != partition_format
-            or schema.partitioning_keys != updated_partition_keys
+            or schema.partition_mode != partition_result.partition_mode
+            or schema.partition_format != partition_result.partition_format
+            or schema.partitioning_keys != partition_result.partition_keys
         ):
             logger.debug(
-                f"Setting partitioning_enabled on schema with: partition_keys={partition_keys}. partition_count={export_signal.partition_count}. partition_mode={partition_mode}. partition_format={partition_format}"
+                f"Setting partitioning_enabled on schema with: partition_keys={partition_keys}. partition_count={export_signal.partition_count}. partition_mode={partition_result.partition_mode}. partition_format={partition_result.partition_format}"
             )
             schema.set_partitioning_enabled(
-                updated_partition_keys,
+                partition_result.partition_keys,
                 export_signal.partition_count,
                 export_signal.partition_size,
-                partition_mode,
-                partition_format,
+                partition_result.partition_mode,
+                partition_result.partition_format,
             )
 
     return pa_table
@@ -898,7 +898,11 @@ def _process_message_reported(
 
         if existing_delta_table is not None:
             try:
-                pa_table = evolve_pyarrow_schema(pa_table, existing_delta_table.schema())
+                pa_table = evolve_pyarrow_schema(
+                    pa_table,
+                    existing_delta_table.schema(),
+                    merge_key_columns=[*(primary_keys or []), *(export_signal.partition_keys or [])],
+                )
             except SchemaColumnTypeChangedException as e:
                 # A safe numeric widening is mechanically recoverable: stamp reset_pipeline so the
                 # next scheduled sync resets and re-syncs the table, and reword the failure so
@@ -982,7 +986,6 @@ def _process_message_reported(
             file_count=len(delta_table.file_uris()),
         )
 
-        # Handle partial data loading for first-ever sync
         async_to_sync(_handle_partial_data_loading)(
             export_signal=export_signal,
             job=job,

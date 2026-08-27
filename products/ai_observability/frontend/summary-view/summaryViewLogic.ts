@@ -1,8 +1,8 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { ApiError } from 'lib/api-error'
-import { dayjs } from 'lib/dayjs'
+import { isAbortError } from 'lib/api'
+import { ApiError, NetworkError, isTransientServerError } from 'lib/api-error'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -11,6 +11,7 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { EnrichedTraceTreeNode } from '../aiObservabilityTraceDataLogic'
 import { llmAnalyticsSummarizationCreate } from '../generated/api'
 import type { StructuredSummaryApi, SummarizeRequestApi, SummarizeResponseApi } from '../generated/api.schemas'
+import { getSummarizationLookupDateRange } from '../utils'
 
 export type SummaryMode = NonNullable<SummarizeRequestApi['mode']>
 
@@ -104,35 +105,43 @@ export type summaryViewLogicType = MakeLogicType<
     summaryViewLogicMeta
 >
 
-/**
- * Days either side of the entity's own timestamp to search for it, instead of the endpoint's 30-day
- * default. Narrow keeps the lookup off traces that reuse a customer-supplied ID, and a single trace
- * rarely spans longer than this.
- */
-const LOOKUP_WINDOW_DAYS = 1
+const GENERIC_SUMMARY_ERROR = "Couldn't generate a summary. Try again, and if it keeps happening contact support."
 
-function lookupWindow(createdAt: string): Pick<SummarizeRequestApi, 'date_from' | 'date_to'> {
-    const timestamp = dayjs(createdAt)
-    return {
-        date_from: timestamp.subtract(LOOKUP_WINDOW_DAYS, 'day').toISOString(),
-        date_to: timestamp.add(LOOKUP_WINDOW_DAYS, 'day').toISOString(),
+const NETWORK_SUMMARY_ERROR = 'Lost the connection while generating this summary. Check your connection and try again.'
+
+/** Aborting with an `AbortError` keeps the cancellation out of toasts and error tracking. */
+const SUPERSEDED_SUMMARY_REQUEST = 'a newer summary request started'
+
+function bodylessStatusMessage(error: ApiError): string {
+    if (error.status === 413) {
+        return 'This trace is too large to summarize. Open a single generation and summarize that instead.'
     }
+    if (error.status === 504) {
+        return 'Generating this summary took too long. Try again in a moment.'
+    }
+    if (isTransientServerError(error)) {
+        return 'The summary service is busy right now. Try again in a moment.'
+    }
+    return GENERIC_SUMMARY_ERROR
 }
 
 /**
- * A gateway rejection or timeout carries no body, so `ApiError` has no `detail` to show and falls
- * back to its own `Non-OK response [POST ...] (status 504: )` string. The status is carried over so
- * transient gateway errors stay out of error tracking.
+ * Build the sentence the panel shows, rather than rewriting the rejected error into a new one.
+ * The error object continues to error tracking, and a `NetworkError` carries its failure reason in
+ * its own `name` and message, which is all `dropUnactionableNetworkExceptions` can match on.
+ * Rebuilding it as a plain `ApiError` erased both, so a request the browser dropped filed an issue
+ * that read as though summarization itself had broken.
  */
-function toReadableError(error: unknown): unknown {
-    if (!(error instanceof ApiError) || error.detail) {
-        return error
+function summaryErrorMessage(errorObject: unknown, fallback: string | null): string {
+    if (errorObject instanceof NetworkError) {
+        return NETWORK_SUMMARY_ERROR
     }
-    const message =
-        error.status === 504
-            ? 'Generating this summary took too long. Try again in a moment.'
-            : "Couldn't generate a summary. Try again, and if it keeps happening contact support."
-    return new ApiError(message, error.status, error.headers, error.data)
+    // `ApiError` falls back to `API request failed with status: 413` when the response carries no
+    // body. A response that does carry a `detail` says more than any status-keyed guess.
+    if (errorObject instanceof ApiError && !errorObject.detail) {
+        return bodylessStatusMessage(errorObject)
+    }
+    return fallback || GENERIC_SUMMARY_ERROR
 }
 
 export const summaryViewLogic = kea<summaryViewLogicType>([
@@ -197,8 +206,10 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
             {
                 generateSummary: () => null,
                 generateSummarySuccess: () => null,
-                generateSummaryFailure: (_, { error }) =>
-                    error || "Couldn't generate a summary. Try again, and if it keeps happening contact support.",
+                // A cancelled request is expected control flow, so it leaves the panel as the
+                // request that replaced it found it.
+                generateSummaryFailure: (state, { error, errorObject }) =>
+                    isAbortError(errorObject) ? state : summaryErrorMessage(errorObject, error),
             },
         ],
     }),
@@ -216,9 +227,12 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
             },
         ],
     }),
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, cache }) => ({
         summaryData: {
-            generateSummary: async ({ mode, forceRefresh }: { mode: SummaryMode; forceRefresh?: boolean }) => {
+            generateSummary: async (
+                { mode, forceRefresh }: { mode: SummaryMode; forceRefresh?: boolean },
+                breakpoint
+            ) => {
                 // Initialize here rather than in the function signature to avoid TS2371
                 // Kea should be fixed to avoid including the default value in the function signature
                 if (forceRefresh === undefined) {
@@ -245,12 +259,36 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
                     mode,
                     force_refresh: forceRefresh,
                     ...(props.trace ? { trace_id: entity.id } : { generation_id: entity.id }),
-                    ...lookupWindow(entity.createdAt),
+                    ...getSummarizationLookupDateRange(entity.createdAt),
                 }
 
-                const data = await llmAnalyticsSummarizationCreate(String(teamId), request).catch((error: unknown) => {
-                    throw toReadableError(error)
+                // Summarizing runs a model call, so the request outlives the tab strip: someone can
+                // switch modes or leave the trace long before it answers. Registering the controller
+                // as a disposable cancels it on unmount, and re-adding the key cancels the request
+                // the new one replaces, instead of leaving both to finish and race.
+                const abortController = new AbortController()
+                cache.disposables.add(
+                    () => () => abortController.abort(new DOMException(SUPERSEDED_SUMMARY_REQUEST, 'AbortError')),
+                    'summaryRequest',
+                    // A hidden tab must not cancel a summary the user is waiting on.
+                    { pauseOnPageHidden: false }
+                )
+
+                const data = await llmAnalyticsSummarizationCreate(String(teamId), request, {
+                    signal: abortController.signal,
+                }).catch((error: unknown) => {
+                    // The request that replaced this one owns the outcome now. kea-loaders keeps
+                    // one loading flag per loader, so settling this invocation as a failure would
+                    // clear the flag the replacement just set, and the panel would fall back to its
+                    // empty state for the rest of the model call. The breakpoint drops this
+                    // invocation instead of reporting it.
+                    if (isAbortError(error)) {
+                        breakpoint()
+                    }
+                    throw error
                 })
+                // Discard a response the user has already moved past.
+                breakpoint()
 
                 // The endpoint can resolve to an empty body (e.g. no summary available yet),
                 // so guard before reading fields to avoid a null dereference.

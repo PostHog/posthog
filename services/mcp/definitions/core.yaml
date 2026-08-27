@@ -268,9 +268,24 @@ tools:
     organizations-projects-settings-as-of-retrieve:
         operation: organizations_projects_settings_as_of_retrieve
         enabled: false
-    product-enablement-create:
+    products-enable:
         operation: product_enablement_create
-        enabled: false
+        enabled: true
+        scopes:
+            - product_enablement:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Enable PostHog products
+        description: >
+            Turn PostHog products on for the current project so they start collecting data. Pass one or more of
+            `session_replay`, `error_tracking`, or `conversations`. The server owns each product's setup, applying the
+            primary toggle plus conservative defaults, so this can never weaken privacy settings or change anything else
+            about the project. Safe to call more than once: each product comes back as either `enabled` or
+            `already_enabled`. Turning on `session_replay` flips the server-side recording toggle only. The app still
+            needs a PostHog SDK installed before recordings arrive. Enabling a product starts collecting data and
+            spending quota, so always confirm with the user before calling this.
     project-get:
         operation: organizations_projects_retrieve
         enabled: true
@@ -523,6 +538,12 @@ tools:
         enabled: false
     users-integrations-github-destroy:
         operation: users_integrations_github_destroy
+        enabled: false
+    users-integrations-github-install-requests-destroy:
+        operation: users_integrations_github_install_requests_destroy
+        enabled: false
+    users-integrations-github-install-requests-retrieve:
+        operation: users_integrations_github_install_requests_retrieve
         enabled: false
     users-integrations-github-prepare-callback-create:
         operation: users_integrations_github_prepare_callback_create

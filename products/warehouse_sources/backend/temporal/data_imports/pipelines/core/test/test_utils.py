@@ -20,6 +20,7 @@ from posthog.temporal.common.errors import NonReportableError
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     BillingLimitsWillBeReachedException,
+    BinaryColumnReporter,
     SchemaColumnTypeChangedException,
     _get_max_decimal_type,
     _to_list_array,
@@ -27,12 +28,14 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     apply_enabled_columns_projection,
     conditional_lru_cache_async,
     evolve_pyarrow_schema,
+    hex_encode_id_binary_columns,
     is_safe_numeric_widening,
     merge_observed_columns_into_schema_metadata,
     normalize_table_column_names,
     observe_and_project_table,
     observed_schema_metadata_columns,
     raise_on_nullability_drift,
+    relax_batch_nullability,
     restrict_schema_to_columns,
     source_uses_delta_write_column_selection,
     table_from_py_list,
@@ -58,6 +61,17 @@ def test_table_from_py_list_uuid():
             ]
         )
     )
+
+
+def test_table_from_py_list_schema_missing_uuid_column():
+    # A UUID column present in the batch but absent from the provided schema has its Arrow field
+    # inferred by `_python_type_to_pyarrow_type`, which must map UUID to string rather than raising.
+    uuid_ = uuid.uuid4()
+    schema = pa.schema(cast(Any, [pa.field("id", pa.int64())]))
+    table = table_from_py_list([{"id": 1, "uid": uuid_}], schema)
+
+    assert table.schema.field("uid").type == pa.string()
+    assert table.column("uid").to_pylist() == [str(uuid_)]
 
 
 def test_table_from_py_list_inconsistent_list():
@@ -153,10 +167,20 @@ def test_table_from_py_list_inconsistent_types_with_none():
     )
 
 
-def test_table_from_py_list_inconsistent_types_with_str_and_dict():
-    table = table_from_py_list([{"column": "hello"}, {"column": {"field": 1}}])
+@pytest.mark.parametrize(
+    "rows,expected",
+    [
+        ([{"column": "hello"}, {"column": {"field": 1}}], ["hello", '{"field":1}']),
+        # A third scalar type (e.g. int) alongside str and dict used to reach pa.array()
+        # unconverted and raise "ArrowTypeError: Expected bytes, got a 'int' object" — a free-form
+        # field that's sometimes a plain number is a real shape (e.g. an execution's JSON output).
+        ([{"column": "hello"}, {"column": {"field": 1}}, {"column": 5}], ["hello", '{"field":1}', "5"]),
+    ],
+)
+def test_table_from_py_list_inconsistent_types_with_str_and_dict(rows, expected):
+    table = table_from_py_list(rows)
 
-    assert table.equals(pa.table({"column": ["hello", '{"field":1}']}))
+    assert table.equals(pa.table({"column": expected}))
     assert table.schema.equals(
         pa.schema(
             [
@@ -323,6 +347,95 @@ def test_table_from_py_list_with_null_filled_binary_column():
 
 
 @pytest.mark.parametrize(
+    "column_name,primary_keys,expect_kept",
+    [
+        ("id", None, True),
+        ("ID", None, True),
+        ("order_id", None, True),
+        ("uuid", None, True),
+        ("guid", None, True),
+        ("token", ["token"], True),
+        ("token", None, False),
+        ("payload", None, False),
+    ],
+)
+def test_table_from_py_list_keeps_id_like_binary_columns_as_hex(
+    column_name: str, primary_keys: list[str] | None, expect_kept: bool
+):
+    table = table_from_py_list([{column_name: b"\xbd\xd6\x40", "other": 1.0}], primary_keys=primary_keys)
+
+    if expect_kept:
+        assert table.column(column_name).to_pylist() == ["bdd640"]
+        assert table.schema.field(column_name).type == pa.string()
+    else:
+        assert column_name not in table.schema.names
+
+
+def test_table_from_py_list_keeps_binary_id_column_with_schema():
+    schema = pa.schema(cast(Any, [pa.field("id", pa.binary()), pa.field("column", pa.string())]))
+    table = table_from_py_list([{"id": b"\x01\xff", "column": "hello"}, {"id": None, "column": "world"}], schema)
+
+    assert table.column("id").to_pylist() == ["01ff", None]
+    assert table.schema.field("id").type == pa.string()
+    assert table.column("column").to_pylist() == ["hello", "world"]
+
+
+@pytest.mark.parametrize(
+    "column_name,column_type,primary_keys,expected_values,expected_type",
+    [
+        ("id", pa.binary(), None, ["bdd640", None], pa.string()),
+        ("order_id", pa.binary(), None, ["bdd640", None], pa.string()),
+        ("sk_load", pa.binary(), ["sk_load"], ["bdd640", None], pa.string()),
+        ("sk_load", pa.large_binary(), ["sk_load"], ["bdd640", None], pa.large_string()),
+        ("sk_load", pa.binary(), None, [b"\xbd\xd6\x40", None], pa.binary()),
+        ("payload", pa.binary(), None, [b"\xbd\xd6\x40", None], pa.binary()),
+    ],
+)
+def test_hex_encode_id_binary_columns(
+    column_name: str,
+    column_type: pa.DataType,
+    primary_keys: list[str] | None,
+    expected_values: list[Any],
+    expected_type: pa.DataType,
+):
+    table = pa.table({column_name: pa.array([b"\xbd\xd6\x40", None], type=column_type), "other": [1.0, 2.0]})
+
+    converted = hex_encode_id_binary_columns(table, primary_keys)
+
+    assert converted.column(column_name).to_pylist() == expected_values
+    assert converted.column("other").to_pylist() == [1.0, 2.0]
+    assert converted.schema.field(column_name).type == expected_type
+
+
+def test_hex_encode_id_binary_columns_keeps_chunk_order_and_nulls():
+    chunked = pa.chunked_array(
+        [
+            pa.array([b"\xbd\xd6\x40", None], type=pa.binary()),
+            pa.array([None, b"\x01\xff"], type=pa.binary()),
+        ]
+    )
+    table = pa.table({"id": chunked})
+
+    converted = hex_encode_id_binary_columns(table)
+
+    assert converted.column("id").to_pylist() == ["bdd640", None, None, "01ff"]
+    assert converted.schema.field("id").type == pa.string()
+
+
+def test_binary_column_reporter_logs_each_column_once_across_batches():
+    logger = MagicMock()
+    reporter = BinaryColumnReporter(logger)
+
+    for _ in range(2):
+        table_from_py_list([{"id": b"\x01", "payload": b"\x02"}], binary_reporter=reporter)
+
+    assert logger.info.call_count == 1
+    assert "id" in logger.info.call_args[0][0]
+    assert logger.warning.call_count == 1
+    assert "payload" in logger.warning.call_args[0][0]
+
+
+@pytest.mark.parametrize(
     "value, expected_type",
     [
         (datetime.datetime(2024, 1, 2, 3, 4, 5), pa.timestamp("us")),
@@ -474,7 +587,6 @@ def test_get_max_decimal_type_returns_correct_decimal_type(
     decimals: list[decimal.Decimal],
     expected: pa.Decimal128Type | pa.Decimal256Type,
 ):
-    """Test whether expected PyArrow decimal type variant is returned."""
     result = _get_max_decimal_type(decimals)
     assert result == expected
 
@@ -862,6 +974,34 @@ def test_evolve_pyarrow_schema_whole_valued_floats_cast_into_stored_integer_colu
 
 
 @pytest.mark.parametrize(
+    "merge_key_columns,raises",
+    [
+        (["val"], True),
+        (None, False),
+    ],
+)
+def test_evolve_pyarrow_schema_guards_only_merge_keys_against_hex_text(
+    merge_key_columns: list[str] | None, raises: bool
+):
+    arrow_table = pa.table(
+        {
+            "id": pa.array([1, 2], type=pa.int64()),
+            "val": pa.array(["01ff", "02ff"], type=pa.string()),
+        }
+    )
+    delta_schema = deltalake.Schema.from_arrow(
+        pa.schema(cast(Any, [pa.field("id", pa.int64(), nullable=False), pa.field("val", pa.binary(), nullable=True)]))
+    )
+
+    if raises:
+        with pytest.raises(SchemaColumnTypeChangedException, match="merge key"):
+            evolve_pyarrow_schema(arrow_table, delta_schema, merge_key_columns=merge_key_columns)
+    else:
+        evolved = evolve_pyarrow_schema(arrow_table, delta_schema, merge_key_columns=merge_key_columns)
+        assert evolved.column("val").to_pylist() == [b"01ff", b"02ff"]
+
+
+@pytest.mark.parametrize(
     "delta_type, incoming_column",
     [
         # Non-numeric text arriving for a column stored as int (Failed to parse string).
@@ -990,8 +1130,67 @@ def test_raise_on_nullability_drift_permits_valid_batches(
     raise_on_nullability_drift(pa_table, delta_schema)
 
 
+@pytest.mark.parametrize(
+    "fields, columns, expected_nullable",
+    [
+        # The source declared the column NOT NULL but sent a null in it, so the claim is corrected.
+        (
+            [pa.field("id", pa.int64(), nullable=False), pa.field("v", pa.int64(), nullable=False)],
+            {"id": [1, 2], "v": [None, 5]},
+            {"id": False, "v": True},
+        ),
+        # No nulls arrived, so the source's NOT NULL claim is true and stands.
+        (
+            [pa.field("id", pa.int64(), nullable=False), pa.field("v", pa.int64(), nullable=False)],
+            {"id": [1, 2], "v": [4, 5]},
+            {"id": False, "v": False},
+        ),
+        # The column is already nullable, so there is nothing to correct.
+        (
+            [pa.field("id", pa.int64(), nullable=False), pa.field("v", pa.int64(), nullable=True)],
+            {"id": [1, 2], "v": [None, 5]},
+            {"id": False, "v": True},
+        ),
+        # Only the column that holds nulls is relaxed; its neighbours keep their declared nullability.
+        (
+            [
+                pa.field("id", pa.int64(), nullable=False),
+                pa.field("v", pa.int64(), nullable=False),
+                pa.field("name", pa.string(), nullable=False),
+            ],
+            {"id": [1, 2], "v": [None, 5], "name": ["a", "b"]},
+            {"id": False, "v": True, "name": False},
+        ),
+    ],
+)
+def test_relax_batch_nullability_corrects_only_columns_that_hold_nulls(
+    fields: list[pa.Field], columns: dict[str, list], expected_nullable: dict[str, bool]
+):
+    pa_table = pa.table(columns, schema=pa.schema(fields))
+
+    relaxed = relax_batch_nullability(pa_table)
+
+    assert {field.name: field.nullable for field in relaxed.schema} == expected_nullable
+    assert relaxed.to_pydict() == pa_table.to_pydict()
+    assert relaxed.schema.types == pa_table.schema.types
+
+
+def test_relax_batch_nullability_keeps_schema_metadata():
+    # The observed-column metadata rides on the schema, so rebuilding the schema must carry it over
+    # or the batch loses the column observations the sync persists.
+    metadata: dict[bytes | str, bytes | str] = {b"ph_observed_columns": b"[]"}
+    pa_table = pa.table(
+        {"v": [None, 5]},
+        schema=pa.schema([pa.field("v", pa.int64(), nullable=False)], metadata=metadata),
+    )
+
+    relaxed = relax_batch_nullability(pa_table)
+
+    assert relaxed.schema.field("v").nullable is True
+    assert relaxed.schema.metadata == metadata
+
+
 def test_evolve_pyarrow_schema_with_struct_containing_datetime_and_decimal():
-    """Test that evolve_pyarrow_schema can handle struct columns with non-JSON-serializable types."""
     metadata_struct_type = pa.struct(
         [
             ("role", pa.string()),
@@ -1030,7 +1229,6 @@ def test_evolve_pyarrow_schema_with_struct_containing_datetime_and_decimal():
 
 
 def test_evolve_pyarrow_schema_with_list_containing_datetime():
-    """Test that evolve_pyarrow_schema can handle list columns with non-JSON-serializable types."""
     arrow_table = pa.table(
         {
             "id": pa.array([1, 2], type=pa.int64()),
@@ -1214,9 +1412,8 @@ def test_append_partition_key_numerical_handles_null_key():
     )
 
     assert result is not None
-    partitioned_table, mode, _, _ = result
-    assert mode == "numerical"
-    assert partitioned_table.column(PARTITION_KEY).to_pylist() == ["1", "2", "null", "4"]
+    assert result.partition_mode == "numerical"
+    assert result.table.column(PARTITION_KEY).to_pylist() == ["1", "2", "null", "4"]
 
 
 def test_append_partition_key_numerical_handles_non_int_key():
@@ -1237,9 +1434,8 @@ def test_append_partition_key_numerical_handles_non_int_key():
     )
 
     assert result is not None
-    partitioned_table, mode, _, _ = result
-    assert mode == "numerical"
-    assert partitioned_table.column(PARTITION_KEY).to_pylist() == ["2", "0", "null"]
+    assert result.partition_mode == "numerical"
+    assert result.table.column(PARTITION_KEY).to_pylist() == ["2", "0", "null"]
 
 
 def _mock_schema(**overrides: Any) -> MagicMock:
@@ -1583,9 +1779,8 @@ def test_append_partition_key_datetime_string_column(value, expected):
     )
 
     assert result is not None
-    partitioned_table, mode, _, _ = result
-    assert mode == "datetime"
-    assert partitioned_table.column(PARTITION_KEY).to_pylist() == [expected]
+    assert result.partition_mode == "datetime"
+    assert result.table.column(PARTITION_KEY).to_pylist() == [expected]
 
 
 @pytest.mark.parametrize(
@@ -1671,9 +1866,8 @@ def test_append_partition_key_missing_column_buckets_into_fallback(
     )
 
     assert result is not None
-    partitioned_table, resolved_mode, _, _ = result
-    assert resolved_mode == mode
-    assert partitioned_table.column(PARTITION_KEY).to_pylist() == [expected, expected, expected]
+    assert result.partition_mode == mode
+    assert result.table.column(PARTITION_KEY).to_pylist() == [expected, expected, expected]
 
 
 def test_billing_limit_exception_is_non_reportable_error():

@@ -13,6 +13,6 @@ Events already carry the attribution a guard needs (`actor_type: "workflow"` + `
 
 ## Account tag events: emission blocks the request thread post-commit
 
-`$account_tag_added` is emitted synchronously inside `transaction.on_commit` (`_schedule_account_tags_added` in `facade/api.py`): one batched `capture_batch_internal` HTTP call per tag write, after the group-type lookup (Redis-cached). Happy path is single-digit ms; the degraded case (capture-rs slow or down) blocks the request for up to the 2s timeout times retries. A Celery offload was tried and reverted (`b6c62469ee9`) as too much overhead for this volume — tag adds are low-frequency, and this matches how conversation ticket events already emit.
+`$account_tag_added` and `$account_tag_removed` are emitted synchronously inside `transaction.on_commit` in `facade/api.py`. Each event type uses one batched `capture_batch_internal` HTTP call after the group-type lookup, which Redis caches. The degraded case blocks the request for up to the two-second timeout times retries when capture-rs is slow or down. A Celery offload was tried and reverted (`b6c62469ee9`) because tag changes are infrequent and conversation ticket events use the same pattern.
 
 Revisit if account tagging becomes bulk/high-frequency (e.g. CRM syncs tagging thousands of accounts). Cheapest fixes then: cap the worst case (`timeout=1, max_attempts=1` — drops instead of retries during a blip), or prebuild the payload in-request and POST from a small module-level thread pool so no ORM touches the worker thread.

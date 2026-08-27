@@ -1,3 +1,4 @@
+import type { Task } from "@posthog/shared/domain-types";
 import { describe, expect, it, vi } from "vitest";
 import { ApiRequestError } from "./fetcher";
 import {
@@ -5,9 +6,280 @@ import {
   CloudUsageLimitError,
   DESKTOP_BILLING_LIMIT_ERROR_CODE,
   PostHogAPIClient,
+  SESSION_LOGS_PAGE_TIMEOUT_MS,
 } from "./posthog-client";
 
 describe("PostHogAPIClient", () => {
+  describe("setUserSpendLimit", () => {
+    // The shared fetcher throws on non-2xx, so the endpoint's `detail` must be
+    // unwrapped for the settings toast rather than the raw fetcher string.
+    it("surfaces the endpoint detail when the gateway rejects the limit", async () => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            JSON.stringify({ detail: "Limit must be above current spend." }),
+            { status: 400, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      const error = await client
+        .setUserSpendLimit(10, 30 * 24 * 60 * 60)
+        .catch((e: unknown) => e);
+      // The exact clean detail, not the raw `Failed request: [400] {...}`.
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toBe(
+        "Limit must be above current spend.",
+      );
+    });
+  });
+
+  describe("getInsightDefinition", () => {
+    it("loads the saved insight with a blocking refresh and returns its result", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: 1,
+            short_id: "sdyR2Pn8",
+            name: "Unique users per variant",
+            derived_name: null,
+            description: "Feature flag calls",
+            query: { kind: "InsightVizNode", source: { kind: "TrendsQuery" } },
+            result: [
+              {
+                label: "$feature_flag_called - true",
+                data: [],
+                days: [],
+                aggregated_value: 2,
+              },
+            ],
+            columns: null,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(client.getInsightDefinition("sdyR2Pn8")).resolves.toEqual({
+        name: "Unique users per variant",
+        description: "Feature flag calls",
+        query: { kind: "InsightVizNode", source: { kind: "TrendsQuery" } },
+        response: {
+          results: [
+            {
+              label: "$feature_flag_called - true",
+              data: [],
+              days: [],
+              aggregated_value: 2,
+            },
+          ],
+          columns: [],
+        },
+      });
+      const url = fetch.mock.calls[0][0] as URL;
+      expect(url.pathname).toBe("/api/projects/42/insights/sdyR2Pn8/");
+      expect(url.searchParams.get("refresh")).toBe("blocking");
+    });
+
+    it("returns null when the saved insight does not exist", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ detail: "Not found." }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(client.getInsightDefinition("missing")).resolves.toBeNull();
+    });
+  });
+
+  describe("getEvidencePreview", () => {
+    it("retrieves a person by UUID instead of taking the first search result", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: 1,
+            uuid: "0192aaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            name: "Ann",
+            distinct_ids: ["ann-1"],
+            properties: { email: "ann@example.com" },
+            created_at: "2024-01-03T10:00:00Z",
+            last_seen_at: "2024-01-04T10:00:00Z",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(
+        client.getEvidencePreview(
+          "person",
+          "0192aaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        ),
+      ).resolves.toMatchObject({
+        title: "Ann",
+        resolvedId: "0192aaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      });
+      const url = fetch.mock.calls[0][0] as URL;
+      expect(url.pathname).toBe(
+        "/api/projects/42/persons/0192aaaa-bbbb-cccc-dddd-eeeeeeeeeeee/",
+      );
+    });
+
+    it("resolves a UUID-shaped distinct id when retrieve-by-uuid 404s", async () => {
+      const distinctId = "0192aaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ detail: "Not found." }), {
+            status: 404,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              results: [
+                {
+                  id: 1,
+                  uuid: "0192ffff-1111-2222-3333-444444444444",
+                  name: "Ann",
+                  distinct_ids: [distinctId],
+                  properties: { email: "ann@example.com" },
+                  created_at: "2024-01-03T10:00:00Z",
+                  last_seen_at: "2024-01-04T10:00:00Z",
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(
+        client.getEvidencePreview("person", distinctId),
+      ).resolves.toMatchObject({
+        title: "Ann",
+        resolvedId: "0192ffff-1111-2222-3333-444444444444",
+      });
+      expect((fetch.mock.calls[0][0] as URL).pathname).toBe(
+        `/api/projects/42/persons/${distinctId}/`,
+      );
+      const listUrl = fetch.mock.calls[1][0] as URL;
+      expect(listUrl.pathname).toBe("/api/projects/42/persons/");
+      expect(listUrl.searchParams.get("search")).toBe(distinctId);
+    });
+  });
+
+  it("fetches later task pages before reporting complete results", async () => {
+    const client = new PostHogAPIClient(
+      "https://app.posthog.test",
+      async () => "token",
+      async () => "token",
+      42,
+    );
+    const getTasksPage = vi
+      .spyOn(client, "getTasksPage")
+      .mockResolvedValueOnce({ tasks: [{ id: "task-1" } as Task], count: 2 })
+      .mockResolvedValueOnce({ tasks: [{ id: "task-2" } as Task], count: 2 });
+
+    await expect(
+      client.getTasksWithStatus(
+        { repository: "posthog/posthog" },
+        { maxPages: 2 },
+      ),
+    ).resolves.toMatchObject({
+      isComplete: true,
+      tasks: [{ id: "task-1" }, { id: "task-2" }],
+    });
+    expect(getTasksPage).toHaveBeenNthCalledWith(1, {
+      limit: 100,
+      offset: 0,
+      repository: "posthog/posthog",
+    });
+    expect(getTasksPage).toHaveBeenNthCalledWith(2, {
+      limit: 100,
+      offset: 1,
+      repository: "posthog/posthog",
+    });
+  });
+
+  it("reports partial task results after reaching the page cap", async () => {
+    const client = new PostHogAPIClient(
+      "https://app.posthog.test",
+      async () => "token",
+      async () => "token",
+      42,
+    );
+    vi.spyOn(client, "getTasksPage")
+      .mockResolvedValueOnce({ tasks: [{ id: "task-1" } as Task], count: 3 })
+      .mockResolvedValueOnce({ tasks: [{ id: "task-2" } as Task], count: 3 });
+
+    await expect(
+      client.getTasksWithStatus(undefined, { maxPages: 2 }),
+    ).resolves.toMatchObject({
+      isComplete: false,
+      tasks: [{ id: "task-1" }, { id: "task-2" }],
+    });
+  });
+
+  it.each([
+    ["pinned", { pinned: true }, "pinned", "true"],
+    ["commented-by", { commentedBy: 17 }, "commented_by", "17"],
+    ["mentions", { mentions: 19 }, "mentions", "19"],
+  ])("sends the %s task-list filter", async (_name, options, param, value) => {
+    const fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ results: [], count: 0 }), {
+        status: 200,
+      }),
+    );
+    const client = new PostHogAPIClient(
+      "https://app.posthog.test",
+      async () => "token",
+      async () => "token",
+      42,
+      { fetch },
+    );
+
+    await client.getTasksPage(options);
+
+    const url = fetch.mock.calls[0][0] as URL;
+    expect(url.pathname).toBe("/api/projects/42/tasks/");
+    expect(url.searchParams.get(param)).toBe(value);
+  });
+
   it.each([
     "user_message",
     "permission_response",
@@ -234,51 +506,6 @@ describe("PostHogAPIClient", () => {
         ],
       },
     );
-  });
-
-  it("uses the configured fetch implementation for task log URLs", async () => {
-    const fetch = vi
-      .fn()
-      .mockResolvedValue(
-        new Response(
-          '{"type":"notification","timestamp":"2026-07-21T00:00:00Z"}\n',
-          { status: 200 },
-        ),
-      );
-    const client = new PostHogAPIClient(
-      "http://localhost:8000",
-      async () => "token",
-      async () => "token",
-      123,
-      { fetch },
-    );
-    vi.spyOn(client, "getTask").mockResolvedValue({
-      id: "task-1",
-      task_number: 1,
-      slug: "task-1",
-      title: "Task",
-      description: "Task",
-      created_at: "2026-07-21T00:00:00Z",
-      updated_at: "2026-07-21T00:00:00Z",
-      origin_product: "user_created",
-      latest_run: {
-        id: "run-1",
-        task: "task-1",
-        team: 123,
-        branch: null,
-        status: "in_progress",
-        log_url: "https://logs.posthog.test/run-1.jsonl",
-        error_message: null,
-        output: null,
-        state: {},
-        created_at: "2026-07-21T00:00:00Z",
-        updated_at: "2026-07-21T00:00:00Z",
-        completed_at: null,
-      },
-    });
-
-    await expect(client.getTaskLogs("task-1")).resolves.toHaveLength(1);
-    expect(fetch).toHaveBeenCalledWith("https://logs.posthog.test/run-1.jsonl");
   });
 
   it.each([
@@ -965,6 +1192,80 @@ describe("PostHogAPIClient", () => {
     );
   });
 
+  it("registers PostHog references without file upload fields", async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        artifacts: [
+          {
+            id: "phref-1",
+            name: "Checkout funnel",
+            type: "reference",
+            source: "posthog_object",
+            uploaded_at: "2026-08-19T00:00:00Z",
+            metadata: {
+              reference_type: "posthog_object",
+              object_kind: "insight",
+              object_id: "9pQx3",
+              source_message_ids: ["turn-1"],
+              occurrence_count: 1,
+            },
+          },
+        ],
+      }),
+    });
+    const client = new PostHogAPIClient(
+      "http://localhost:8000",
+      async () => "token",
+      async () => "token",
+      123,
+    );
+    (
+      client as unknown as {
+        api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
+      }
+    ).api = {
+      baseUrl: "http://localhost:8000",
+      fetcher: { fetch },
+    };
+
+    await expect(
+      client.registerTaskRunPostHogReferences("task-123", "run-123", [
+        {
+          name: "Checkout funnel",
+          object_kind: "insight",
+          object_id: "9pQx3",
+          source_message_id: "turn-1",
+        },
+      ]),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: "phref-1",
+        type: "reference",
+        source: "posthog_object",
+        metadata: expect.objectContaining({ object_id: "9pQx3" }),
+      }),
+    ]);
+    expect(fetch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "post",
+        path: "/api/projects/123/tasks/task-123/runs/run-123/artifacts/references/",
+        overrides: {
+          body: JSON.stringify({
+            references: [
+              {
+                name: "Checkout funnel",
+                object_kind: "insight",
+                object_id: "9pQx3",
+                source_message_id: "turn-1",
+              },
+            ],
+          }),
+        },
+      }),
+    );
+  });
+
   it("presigns a task run artifact for preview", async () => {
     const fetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -1341,6 +1642,60 @@ describe("PostHogAPIClient", () => {
       const client = makeClient(fetch);
 
       await expect(client.getSignalReport("abc")).rejects.toThrow("[500]");
+    });
+  });
+
+  describe("clearTaskRunConversation", () => {
+    function makeClient(fetch: ReturnType<typeof vi.fn>) {
+      const client = new PostHogAPIClient(
+        "http://localhost:8000",
+        async () => "token",
+        async () => "token",
+        123,
+      );
+      (
+        client as unknown as {
+          api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
+        }
+      ).api = {
+        baseUrl: "http://localhost:8000",
+        fetcher: { fetch },
+      };
+      return client;
+    }
+
+    it("surfaces the backend's clean error message", async () => {
+      const fetch = vi
+        .fn()
+        .mockRejectedValue(
+          new Error(
+            'Failed request: [409] {"error":"Run is still active; send /clear to its agent instead"}',
+          ),
+        );
+      const client = makeClient(fetch);
+
+      await expect(
+        client.clearTaskRunConversation("task-1", "run-1"),
+      ).rejects.toThrow(
+        "Run is still active; send /clear to its agent instead",
+      );
+    });
+
+    it("falls back to a status-coded message on an older backend's generic 404", async () => {
+      // A pre-#76943 backend has no clear_conversation route, so DRF's router
+      // returns its generic {"detail":"Not found."} rather than a message
+      // this endpoint controls. Surfacing that verbatim would read as "Not
+      // found." with no indication a clear was attempted or what to do next.
+      const fetch = vi
+        .fn()
+        .mockRejectedValue(
+          new Error('Failed request: [404] {"detail":"Not found."}'),
+        );
+      const client = makeClient(fetch);
+
+      await expect(
+        client.clearTaskRunConversation("task-1", "run-1"),
+      ).rejects.toThrow("Couldn’t clear the conversation. (HTTP 404)");
     });
   });
 
@@ -1810,91 +2165,6 @@ describe("PostHogAPIClient", () => {
     });
   });
 
-  describe("agent model policy + catalog", () => {
-    function makeClient(fetch: ReturnType<typeof vi.fn>) {
-      const client = new PostHogAPIClient(
-        "http://localhost:8000",
-        async () => "token",
-        async () => "token",
-        123,
-      );
-      (
-        client as unknown as {
-          api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
-        }
-      ).api = { baseUrl: "http://localhost:8000", fetcher: { fetch } };
-      return client;
-    }
-
-    it("createAgentDraftRevisionFrom unwraps the { revision } envelope", async () => {
-      // Regression: new_draft returns `{ revision, source_revision_id }`, not a
-      // flat revision — returning the wrapper left `.id` undefined and broke the
-      // follow-up PATCH (404 on /revisions/undefined/).
-      const fetch = vi.fn().mockResolvedValue({
-        json: async () => ({
-          revision: { id: "draft-1", state: "draft" },
-          source_revision_id: "rev-0",
-        }),
-      });
-      const client = makeClient(fetch);
-
-      const rev = await client.createAgentDraftRevisionFrom("app-1", "rev-0");
-
-      expect(rev.id).toBe("draft-1");
-      expect(fetch).toHaveBeenCalledWith(
-        expect.objectContaining({
-          method: "post",
-          path: "/api/projects/123/agent_applications/app-1/revisions/new_draft/",
-          overrides: {
-            body: JSON.stringify({
-              application_id: "app-1",
-              source_revision_id: "rev-0",
-            }),
-          },
-        }),
-      );
-    });
-
-    it("updateAgentRevisionSpec PATCHes the revision with the full spec", async () => {
-      const fetch = vi.fn().mockResolvedValue({
-        json: async () => ({ id: "draft-1", state: "draft" }),
-      });
-      const client = makeClient(fetch);
-      const spec = { models: { mode: "auto", level: "high" } };
-
-      await client.updateAgentRevisionSpec(
-        "agent-slug",
-        "draft-1",
-        spec as never,
-      );
-
-      expect(fetch).toHaveBeenCalledWith(
-        expect.objectContaining({
-          method: "patch",
-          path: "/api/projects/123/agent_applications/agent-slug/revisions/draft-1/",
-          overrides: { body: JSON.stringify({ spec }) },
-        }),
-      );
-    });
-
-    it("getAgentModelCatalog GETs the project-level models endpoint", async () => {
-      const catalog = {
-        models: [{ model: "anthropic/claude-haiku-4.5" }],
-        levels: { low: ["anthropic/claude-haiku-4.5"] },
-      };
-      const fetch = vi.fn().mockResolvedValue({ json: async () => catalog });
-      const client = makeClient(fetch);
-
-      await expect(client.getAgentModelCatalog()).resolves.toEqual(catalog);
-      expect(fetch).toHaveBeenCalledWith(
-        expect.objectContaining({
-          method: "get",
-          path: "/api/projects/123/agent_applications/models/",
-        }),
-      );
-    });
-  });
-
   describe("batched scout emissions", () => {
     const EMISSIONS_PATH =
       "/api/projects/123/signals/scout/runs/emissions/batch/";
@@ -2006,7 +2276,7 @@ describe("PostHogAPIClient", () => {
     });
   });
 
-  describe("getTaskRunSessionLogs", () => {
+  describe("getTaskRunSessionLogsResult", () => {
     function makeClient(fetch: ReturnType<typeof vi.fn>) {
       const client = new PostHogAPIClient(
         "http://localhost:8000",
@@ -2030,11 +2300,19 @@ describe("PostHogAPIClient", () => {
       }));
     }
 
-    function page(entries: unknown[], hasMore: boolean) {
+    function page(
+      entries: unknown[],
+      hasMore: boolean,
+      matchingCount?: number,
+    ) {
+      const headers = new Headers({ "X-Has-More": String(hasMore) });
+      if (matchingCount !== undefined) {
+        headers.set("X-Matching-Count", String(matchingCount));
+      }
       return {
         ok: true,
         json: async () => entries,
-        headers: new Headers({ "X-Has-More": String(hasMore) }),
+        headers,
       };
     }
 
@@ -2062,11 +2340,9 @@ describe("PostHogAPIClient", () => {
       const fetch = vi.fn().mockResolvedValue(page(makeEntries(3, "a"), false));
       const client = makeClient(fetch);
 
-      const result = await client.getTaskRunSessionLogs(
-        "task-1",
-        "run-1",
-        options,
-      );
+      const result = (
+        await client.getTaskRunSessionLogsResult("task-1", "run-1", options)
+      ).entries;
 
       expect(result).toHaveLength(3);
       expect(fetch).toHaveBeenCalledTimes(1);
@@ -2083,9 +2359,11 @@ describe("PostHogAPIClient", () => {
         .mockResolvedValueOnce(page(makeEntries(10, "c"), false));
       const client = makeClient(fetch);
 
-      const result = await client.getTaskRunSessionLogs("task-1", "run-1", {
-        limit: 100000,
-      });
+      const result = (
+        await client.getTaskRunSessionLogsResult("task-1", "run-1", {
+          limit: 100000,
+        })
+      ).entries;
 
       expect(result).toHaveLength(210);
       expect(fetch).toHaveBeenCalledTimes(3);
@@ -2106,9 +2384,11 @@ describe("PostHogAPIClient", () => {
         .mockResolvedValueOnce(page(makeEntries(1000, "b"), true));
       const client = makeClient(fetch);
 
-      const result = await client.getTaskRunSessionLogs("task-1", "run-1", {
-        limit: 6000,
-      });
+      const result = (
+        await client.getTaskRunSessionLogsResult("task-1", "run-1", {
+          limit: 6000,
+        })
+      ).entries;
 
       expect(result).toHaveLength(6000);
       expect(fetch).toHaveBeenCalledTimes(2);
@@ -2125,7 +2405,7 @@ describe("PostHogAPIClient", () => {
         .mockResolvedValueOnce(page(makeEntries(5, "b"), false));
       const client = makeClient(fetch);
 
-      await client.getTaskRunSessionLogs("task-1", "run-1", {
+      await client.getTaskRunSessionLogsResult("task-1", "run-1", {
         limit: 100000,
         after: "2026-07-01T00:00:00Z",
       });
@@ -2139,6 +2419,185 @@ describe("PostHogAPIClient", () => {
         offset: "10",
         after: "2026-07-01T00:00:00Z",
       });
+    });
+
+    it("fetches the newest entries when the log exceeds the requested cap", async () => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(page(makeEntries(5000, "head"), true, 9000))
+        .mockResolvedValueOnce(page(makeEntries(5000, "tail-a"), true, 9000))
+        .mockResolvedValueOnce(page(makeEntries(1000, "tail-b"), false, 9000));
+      const client = makeClient(fetch);
+
+      const result = await client.getTaskRunSessionLogsResult(
+        "task-1",
+        "run-1",
+        { limit: 6000 },
+      );
+
+      expect(result.complete).toBe(true);
+      expect(result.truncatedHeadCount).toBe(3000);
+      expect(result.entries).toHaveLength(6000);
+      expect(
+        (result.entries[0] as { notification: { method: string } }).notification
+          .method,
+      ).toBe("tail-a-0");
+      expect(fetch).toHaveBeenCalledTimes(3);
+      expect(requestedParams(fetch.mock.calls[1][0])).toEqual({
+        limit: "5000",
+        offset: "3000",
+      });
+      expect(requestedParams(fetch.mock.calls[2][0])).toEqual({
+        limit: "1000",
+        offset: "8000",
+      });
+    });
+
+    it("does not refetch when the matching count equals the cap", async () => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValue(page(makeEntries(5000, "a"), false, 5000));
+      const client = makeClient(fetch);
+
+      const result = await client.getTaskRunSessionLogsResult(
+        "task-1",
+        "run-1",
+        { limit: 5000 },
+      );
+
+      expect(result.complete).toBe(true);
+      expect(result.truncatedHeadCount).toBe(0);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("retries a rejected page fetch once and keeps paginating", async () => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(page(makeEntries(50, "a"), true))
+        .mockRejectedValueOnce(new Error("socket hang up"))
+        .mockResolvedValueOnce(page(makeEntries(10, "b"), false));
+      const client = makeClient(fetch);
+
+      const result = await client.getTaskRunSessionLogsResult(
+        "task-1",
+        "run-1",
+        { limit: 100000 },
+      );
+
+      expect(result.complete).toBe(true);
+      expect(result.entries).toHaveLength(60);
+      expect(fetch).toHaveBeenCalledTimes(3);
+      expect(
+        (fetch.mock.calls[0][0] as { overrides: { signal: unknown } }).overrides
+          .signal,
+      ).toBeInstanceOf(AbortSignal);
+    });
+
+    it("reports a null matching count when the header is absent", async () => {
+      const fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => makeEntries(10, "a"),
+        headers: new Headers({ "X-Has-More": "true" }),
+      });
+      const client = makeClient(fetch);
+
+      const result = await client.getTaskRunSessionLogsPage("task-1", "run-1", {
+        limit: 10,
+      });
+
+      expect(result.matchingCount).toBeNull();
+      expect(result.hasMore).toBe(true);
+    });
+
+    it("does not retry a definite client error", async () => {
+      const fetch = vi.fn().mockRejectedValue(new ApiRequestError(404, "{}"));
+      const client = makeClient(fetch);
+
+      const result = await client.getTaskRunSessionLogsResult(
+        "task-1",
+        "run-1",
+        { limit: 100000 },
+      );
+
+      expect(result.complete).toBe(false);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("gives up after a second rejection on the same page", async () => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(page(makeEntries(50, "a"), true))
+        .mockRejectedValue(new Error("socket hang up"));
+      const client = makeClient(fetch);
+
+      const result = await client.getTaskRunSessionLogsResult(
+        "task-1",
+        "run-1",
+        { limit: 100000 },
+      );
+
+      expect(result.complete).toBe(false);
+      expect(result.entries).toHaveLength(50);
+      expect(fetch).toHaveBeenCalledTimes(3);
+    });
+
+    it("retries a page whose body read fails", async () => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => {
+            throw new Error("terminated");
+          },
+          headers: new Headers({ "X-Has-More": "true" }),
+        })
+        .mockResolvedValueOnce(page(makeEntries(10, "a"), false));
+      const client = makeClient(fetch);
+
+      const result = await client.getTaskRunSessionLogsResult(
+        "task-1",
+        "run-1",
+        { limit: 100000 },
+      );
+
+      expect(result.complete).toBe(true);
+      expect(result.entries).toHaveLength(10);
+      expect(fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("aborts a page whose body stalls after the headers arrive", async () => {
+      vi.useFakeTimers();
+      try {
+        const fetch = vi
+          .fn()
+          .mockImplementation((call: { overrides: { signal: AbortSignal } }) =>
+            Promise.resolve({
+              ok: true,
+              json: () =>
+                new Promise((_resolve, reject) => {
+                  call.overrides.signal.addEventListener("abort", () =>
+                    reject(call.overrides.signal.reason),
+                  );
+                }),
+              headers: new Headers({ "X-Has-More": "false" }),
+            }),
+          );
+        const client = makeClient(fetch);
+
+        const pending = client.getTaskRunSessionLogsResult("task-1", "run-1", {
+          limit: 100000,
+        });
+        // Once for the first attempt, once for its retry.
+        await vi.advanceTimersByTimeAsync(SESSION_LOGS_PAGE_TIMEOUT_MS);
+        await vi.advanceTimersByTimeAsync(SESSION_LOGS_PAGE_TIMEOUT_MS);
+
+        const result = await pending;
+        expect(result.complete).toBe(false);
+        expect(result.entries).toHaveLength(0);
+        expect(fetch).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("marks entries collected before a failed page as incomplete", async () => {
@@ -2159,7 +2618,11 @@ describe("PostHogAPIClient", () => {
         { limit: 100000 },
       );
 
-      expect(result).toEqual({ entries: expect.any(Array), complete: false });
+      expect(result).toEqual({
+        entries: expect.any(Array),
+        complete: false,
+        truncatedHeadCount: 0,
+      });
       expect(result.entries).toHaveLength(50);
       expect(fetch).toHaveBeenCalledTimes(2);
     });
@@ -2172,9 +2635,11 @@ describe("PostHogAPIClient", () => {
       });
       const client = makeClient(fetch);
 
-      const result = await client.getTaskRunSessionLogs("task-1", "run-1", {
-        limit: 100000,
-      });
+      const result = (
+        await client.getTaskRunSessionLogsResult("task-1", "run-1", {
+          limit: 100000,
+        })
+      ).entries;
 
       expect(result).toHaveLength(10);
       expect(fetch).toHaveBeenCalledTimes(1);
@@ -2184,249 +2649,14 @@ describe("PostHogAPIClient", () => {
       const fetch = vi.fn().mockResolvedValue(page([], true));
       const client = makeClient(fetch);
 
-      const result = await client.getTaskRunSessionLogs("task-1", "run-1", {
-        limit: 100000,
-      });
+      const result = (
+        await client.getTaskRunSessionLogsResult("task-1", "run-1", {
+          limit: 100000,
+        })
+      ).entries;
 
       expect(result).toHaveLength(0);
       expect(fetch).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  describe("custom tool authoring", () => {
-    function makeClient(fetch: ReturnType<typeof vi.fn>) {
-      const client = new PostHogAPIClient(
-        "http://localhost:8000",
-        async () => "token",
-        async () => "token",
-        123,
-      );
-      (
-        client as unknown as {
-          api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
-        }
-      ).api = { baseUrl: "http://localhost:8000", fetcher: { fetch } };
-      return client;
-    }
-
-    // The shared fetcher throws `Failed request: [<status>] <json>` on non-2xx.
-    const failWith = (status: number, body: unknown) =>
-      new Error(`Failed request: [${status}] ${JSON.stringify(body)}`);
-
-    describe("putRevisionTool", () => {
-      it("returns an ok result with capabilities on 200", async () => {
-        const fetch = vi.fn().mockResolvedValue({
-          json: async () => ({
-            ok: true,
-            tool_id: "t1",
-            capabilities: {
-              secret_refs: ["API_KEY"],
-              dynamic_secret_refs: false,
-            },
-          }),
-        });
-        const client = makeClient(fetch);
-
-        await expect(
-          client.putRevisionTool("agent", "rev-1", "t1", {
-            description: "d",
-            args_schema: {},
-            source: "export default {}",
-          }),
-        ).resolves.toEqual({
-          ok: true,
-          tool_id: "t1",
-          capabilities: {
-            secret_refs: ["API_KEY"],
-            dynamic_secret_refs: false,
-          },
-        });
-        const call = fetch.mock.calls[0][0];
-        expect(call.method).toBe("put");
-        expect(call.path).toBe(
-          "/api/projects/123/agent_applications/agent/revisions/rev-1/tools/t1/",
-        );
-      });
-
-      it("returns a typed compile-failed result on 422 (not a throw)", async () => {
-        const errors = [
-          {
-            kind: "parse_failed",
-            message: "Unexpected token",
-            line: 3,
-            column: 5,
-          },
-        ];
-        const fetch = vi.fn().mockRejectedValue(
-          failWith(422, {
-            error: "tool_compile_failed",
-            tool_id: "t1",
-            errors,
-          }),
-        );
-        const client = makeClient(fetch);
-
-        await expect(
-          client.putRevisionTool("agent", "rev-1", "t1", {
-            description: "d",
-            args_schema: {},
-            source: "bad(",
-          }),
-        ).resolves.toEqual({
-          ok: false,
-          error: "tool_compile_failed",
-          tool_id: "t1",
-          errors,
-        });
-      });
-
-      it("rethrows non-422 failures (e.g. 409 sealed revision)", async () => {
-        const fetch = vi
-          .fn()
-          .mockRejectedValue(failWith(409, { error: "revision_sealed" }));
-        const client = makeClient(fetch);
-
-        await expect(
-          client.putRevisionTool("agent", "rev-1", "t1", {
-            description: "d",
-            args_schema: {},
-            source: "x",
-          }),
-        ).rejects.toThrow("[409]");
-      });
-    });
-
-    describe("deleteRevisionTool", () => {
-      it("resolves on 200", async () => {
-        const fetch = vi.fn().mockResolvedValue({ json: async () => ({}) });
-        const client = makeClient(fetch);
-        await expect(
-          client.deleteRevisionTool("agent", "rev-1", "t1"),
-        ).resolves.toBeUndefined();
-        expect(fetch.mock.calls[0][0].method).toBe("delete");
-      });
-
-      it("treats a 404 (tool_not_found) as success", async () => {
-        const fetch = vi
-          .fn()
-          .mockRejectedValue(failWith(404, { error: "tool_not_found" }));
-        const client = makeClient(fetch);
-        await expect(
-          client.deleteRevisionTool("agent", "rev-1", "gone"),
-        ).resolves.toBeUndefined();
-      });
-
-      it("rethrows other failures", async () => {
-        const fetch = vi.fn().mockRejectedValue(failWith(500, "boom"));
-        const client = makeClient(fetch);
-        await expect(
-          client.deleteRevisionTool("agent", "rev-1", "t1"),
-        ).rejects.toThrow("[500]");
-      });
-    });
-
-    describe("dryRunRevisionTool", () => {
-      it("returns a completed envelope on a 200 success", async () => {
-        const envelope = {
-          ok: true,
-          tool_id: "t1",
-          result: { hello: "world" },
-          duration_ms: 42,
-        };
-        const fetch = vi.fn().mockResolvedValue({ json: async () => envelope });
-        const client = makeClient(fetch);
-
-        await expect(
-          client.dryRunRevisionTool("agent", "rev-1", "t1", { args: {} }),
-        ).resolves.toEqual({ outcome: "completed", envelope });
-      });
-
-      it("returns a completed envelope for a 200 with ok:false (tool threw)", async () => {
-        const envelope = {
-          ok: false,
-          tool_id: "t1",
-          error: { code: "timeout", message: "wall clock exceeded" },
-          duration_ms: 5000,
-        };
-        const fetch = vi.fn().mockResolvedValue({ json: async () => envelope });
-        const client = makeClient(fetch);
-
-        await expect(
-          client.dryRunRevisionTool("agent", "rev-1", "t1", { args: {} }),
-        ).resolves.toEqual({ outcome: "completed", envelope });
-      });
-
-      it("surfaces a 500 envelope as completed (infra failure carries error.code)", async () => {
-        const envelope = {
-          ok: false,
-          tool_id: "t1",
-          error: { code: "sandbox_acquire_failed", message: "no sandbox" },
-          duration_ms: 12,
-        };
-        const fetch = vi.fn().mockRejectedValue(failWith(500, envelope));
-        const client = makeClient(fetch);
-
-        await expect(
-          client.dryRunRevisionTool("agent", "rev-1", "t1", { args: {} }),
-        ).resolves.toEqual({ outcome: "completed", envelope });
-      });
-
-      it("returns a throttled outcome on 429 (never throws, carries max_concurrent)", async () => {
-        const fetch = vi
-          .fn()
-          .mockRejectedValue(
-            failWith(429, { error: "dry_run_throttled", max_concurrent: 2 }),
-          );
-        const client = makeClient(fetch);
-
-        await expect(
-          client.dryRunRevisionTool("agent", "rev-1", "t1", { args: {} }),
-        ).resolves.toEqual({ outcome: "throttled", max_concurrent: 2 });
-      });
-
-      it("throttles without a count when max_concurrent is absent", async () => {
-        const fetch = vi
-          .fn()
-          .mockRejectedValue(failWith(429, { error: "dry_run_throttled" }));
-        const client = makeClient(fetch);
-
-        const result = await client.dryRunRevisionTool("agent", "rev-1", "t1", {
-          args: {},
-        });
-        expect(result).toEqual({ outcome: "throttled" });
-        expect(
-          (result as { max_concurrent?: number }).max_concurrent,
-        ).toBeUndefined();
-      });
-
-      it("returns an unavailable outcome on 503", async () => {
-        const fetch = vi
-          .fn()
-          .mockRejectedValue(failWith(503, "not configured"));
-        const client = makeClient(fetch);
-
-        await expect(
-          client.dryRunRevisionTool("agent", "rev-1", "t1", { args: {} }),
-        ).resolves.toEqual({ outcome: "unavailable" });
-      });
-
-      it("passes mock_secrets through in the request body", async () => {
-        const fetch = vi.fn().mockResolvedValue({
-          json: async () => ({ ok: true, tool_id: "t1", duration_ms: 1 }),
-        });
-        const client = makeClient(fetch);
-
-        await client.dryRunRevisionTool("agent", "rev-1", "t1", {
-          args: { q: 1 },
-          mock_secrets: { API_KEY: "placeholder" },
-        });
-
-        const body = JSON.parse(fetch.mock.calls[0][0].overrides.body);
-        expect(body).toEqual({
-          args: { q: 1 },
-          mock_secrets: { API_KEY: "placeholder" },
-        });
-      });
     });
   });
 

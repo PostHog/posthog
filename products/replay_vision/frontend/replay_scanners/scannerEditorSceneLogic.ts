@@ -6,6 +6,8 @@ import { urls } from 'scenes/urls'
 import { tagsModel } from '~/models/tagsModel'
 import { Breadcrumb } from '~/types'
 
+import { VISION_ROOT_BREADCRUMB, scannerBreadcrumb } from '../utils/breadcrumbs'
+
 export type ScannerEditorStep = 'template' | 'details' | 'configure' | 'triggers' | 'budget'
 export const SCANNER_EDITOR_STEPS: readonly ScannerEditorStep[] = [
     'template',
@@ -20,6 +22,13 @@ export const SCANNER_EDITOR_STEP_ORDER: Record<ScannerEditorStep, number> = {
     configure: 2,
     triggers: 3,
     budget: 4,
+}
+export const STEP_LABELS: Record<ScannerEditorStep, string> = {
+    template: 'Template',
+    details: 'Details',
+    configure: 'Configure',
+    triggers: 'Recordings',
+    budget: 'Budget',
 }
 
 export interface ScannerFieldErrors {
@@ -99,7 +108,12 @@ export interface scannerEditorSceneLogicActions {
 export interface scannerEditorSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isNew: (scannerId: string) => boolean
-        breadcrumbs: (scannerId: string, isNew: boolean) => Breadcrumb[]
+        breadcrumbs: (
+            scannerId: string,
+            isNew: boolean,
+            step: ScannerEditorStep,
+            searchParams: Record<string, any>
+        ) => Breadcrumb[]
     }
 }
 
@@ -140,34 +154,34 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
     selectors({
         isNew: [(s) => [s.scannerId], (scannerId: string): boolean => scannerId === 'new'],
         breadcrumbs: [
-            (s) => [s.scannerId, s.isNew],
-            (scannerId: string, isNew: boolean): Breadcrumb[] => {
-                const crumbs: Breadcrumb[] = [
-                    {
-                        key: 'replay-vision',
-                        name: 'Replay vision',
-                        path: urls.replayVision(),
-                        iconType: 'replay_vision',
-                    },
-                ]
+            (s) => [s.scannerId, s.isNew, s.step, router.selectors.searchParams],
+            (
+                scannerId: string,
+                isNew: boolean,
+                step: ScannerEditorStep,
+                searchParams: Record<string, any>
+            ): Breadcrumb[] => {
+                const crumbs: Breadcrumb[] = [VISION_ROOT_BREADCRUMB]
                 if (isNew) {
-                    crumbs.push({ key: 'new-scanner', name: 'New scanner', path: urls.replayVision('new') })
+                    // The back arrow targets the second-to-last crumb, so past the template step the
+                    // 'New scanner' crumb points at the template picker and the current step trails it.
+                    crumbs.push({
+                        key: 'new-scanner',
+                        name: 'New scanner',
+                        path: scannerStepUrlWithParams('template', scannerId, searchParams),
+                    })
+                    if (step !== 'template') {
+                        crumbs.push({ key: 'new-scanner-step', name: STEP_LABELS[step] })
+                    }
                     return crumbs
                 }
                 // Editing an existing scanner: surface the detail page (on its Configuration tab, where the
                 // Edit button lives) as an intermediate crumb so the back arrow returns there, not to the list.
-                crumbs.push(
-                    {
-                        key: `scanner-${scannerId}`,
-                        name: 'Scanner',
-                        path: `${urls.replayVision(scannerId)}?tab=configuration`,
-                    },
-                    {
-                        key: `scanner-${scannerId}-edit`,
-                        name: 'Edit',
-                        path: urls.replayVisionScannerConfigure(scannerId),
-                    }
-                )
+                crumbs.push(scannerBreadcrumb(scannerId, null, 'configuration'), {
+                    key: `scanner-${scannerId}-edit`,
+                    name: 'Edit',
+                    path: urls.replayVisionScannerConfigure(scannerId),
+                })
                 return crumbs
             },
         ],

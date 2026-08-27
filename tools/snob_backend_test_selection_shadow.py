@@ -20,10 +20,18 @@ precision reasonable (don't run everything on every PR):
 Validated against pytest-testmon runtime coverage data (PR #56370).
 The import graph alone covers ~33% of real test dependencies. The AST
 heuristics close the URL-dispatch gap (~4%). Django-aware expansion closes
-signals, middleware, and same-app fallback gaps (~12%). The remainder is
-migration noise and framework-level indirection covered by FULL_RUN_PATTERNS.
+signals, middleware, and same-app fallback gaps (~12%). FULL_RUN_PATTERNS covers
+the rest of the framework-level indirection.
 
-Shadow mode: outputs JSON to stdout, does not affect CI pass/fail.
+Known gap: a migration reaches no test through the import graph and matches no
+full-run pattern, so a migration-only diff narrows to whatever else changed. That
+is deliberate for now, not an oversight — forcing a full run on every migration
+would cover a failure mode we have not actually observed, at the cost of the
+narrowing on a very common kind of PR.
+
+Outputs JSON to stdout. The "shadow" in the filename is historical — ci-backend's
+turbo-discover job now acts on this output, so a test this misses is a test that does not
+run on the PR. Recall beats precision: when in doubt, add a FULL_RUN_PATTERNS entry.
 """
 
 from __future__ import annotations
@@ -66,6 +74,9 @@ FULL_RUN_PATTERNS = (
     "pytest.ini",
     "mypy.ini",
     ".test_durations",
+    # Un-quarantining must re-run the tests it un-skips, and the import graph can't
+    # see that edge. turbo-discover.js documents this as a live invariant.
+    ".test_quarantine.json",
     # CI / Docker infrastructure
     ".github/workflows/ci-backend.yml",
     ".github/clickhouse-versions.json",
@@ -79,6 +90,12 @@ FULL_RUN_PATTERNS = (
     "frontend/public/email/",
     "rust/feature-flags/src/properties/property_models.rs",
     "common/plugin_transpiler/src",
+    # C++ parser and HogQL VM: no Python import edge reaches them, but they change
+    # what every HogQL query evaluates to.
+    "common/hogql_parser/",
+    "common/hogvm/",
+    # Generates frontend/src/products.json, which is a full-run pattern in its own right.
+    "manifest.tsx",
 )
 
 # Patterns that indicate "broad API tests needed" but not full suite.
@@ -583,47 +600,71 @@ def estimate_duration(test_files: list[str], durations: dict[str, float]) -> flo
     return total
 
 
-_TEMPORAL_PREFIXES = (
-    "posthog/temporal/",
-    "products/batch_exports/backend/tests/temporal/",
-    "products/tasks/backend/temporal/",
-    "products/signals/backend/emission/",
-)
+_TEMPORAL_PREFIXES = ("posthog/temporal/", "products/signals/backend/emission/")
 _POE_PREFIXES = (
     "posthog/clickhouse/",
     "posthog/queries/",
     "ee/clickhouse/",
-    "products/product_analytics/backend/api/test/",
+    "products/product_analytics/backend/tests/api/",
 )
-_CORE_IGNORED_PREFIXES = ("posthog/dags/", "common/hogvm/python/test/")
+_CORE_IGNORED_PREFIXES = ("posthog/dags/", "common/hogvm/python/test/", "posthog/test/repo_invariants/")
 
 
 def segments_for_test_file(path: str) -> frozenset[str]:
     """Which Django matrix segments run a given test file. Mirrors the Core/POE/Temporal
-    partition in ci-backend.yml's select-tests `classify` step — POE files run in both the
-    Core matrix and the person-on-events matrix, so they belong to both segments. An empty
-    result means no draft-narrowable matrix runs the file (a product/turbo test, or an
-    explicitly ignored path)."""
+    partition of the pytest invocations in ci-backend.yml — POE files run in both the
+    Core matrix and the legacy-mode safeguard matrix (the allowlist that keeps the joined
+    person mode covered), so they belong to both segments. An empty
+    result means no narrowable matrix runs the file (a product/turbo test, or an explicitly
+    ignored path). Compat is not a segment here: it re-runs POE-scope files against older
+    ClickHouse servers, so it adds no files to the universe this partitions."""
     if path.startswith(_TEMPORAL_PREFIXES):
         return frozenset({"temporal"})
     if path.startswith(_CORE_IGNORED_PREFIXES):
         return frozenset()
-    is_poe = (
-        path.startswith(_POE_PREFIXES)
-        or path.startswith("posthog/api/test/test_insight")
-        or path == "posthog/api/test/dashboards/test_dashboard.py"
-    )
-    if is_poe:
+    if path.startswith(_POE_PREFIXES) or path == "posthog/api/test/dashboards/test_dashboard.py":
         return frozenset({"core", "poe"})
     if path.startswith(("posthog/", "ee/")):
         return frozenset({"core"})
     return frozenset()
 
 
+def compat_prefixes() -> tuple[str, ...]:
+    """Path prefixes the ClickHouse compat matrix re-runs, from the same env var that
+    feeds its pytest invocation, so widening one cannot silently under-select the other."""
+    return tuple(f"{target.rstrip('/')}/" for target in os.environ.get("CLICKHOUSE_COMPAT_PYTEST_TARGETS", "").split())
+
+
+def selected_files_by_segment(test_files: list[str]) -> dict[str, list[str]]:
+    """Selected test files per Django matrix segment. turbo-discover.js hands each list
+    to the matching pytest invocation, so a file that lands in no segment runs nowhere.
+    Compat overlaps the POE scope rather than partitioning with it, so it is collected
+    alongside the Core/POE/Temporal partition instead of inside it."""
+    prefixes = compat_prefixes()
+    by_segment: dict[str, list[str]] = {"core": [], "poe": [], "temporal": [], "compat": []}
+    for path in test_files:
+        for segment in segments_for_test_file(path):
+            by_segment[segment].append(path)
+        if prefixes and path.startswith(prefixes):
+            by_segment["compat"].append(path)
+    return by_segment
+
+
+def selected_seconds_by_segment(test_files: list[str], durations: dict[str, float]) -> dict[str, int]:
+    """Selected test-execution seconds per Django matrix segment.
+    turbo-discover.js runs these through its shard sizing, so a narrowed run gets the same
+    per-shard budget as a full one instead of a fixed single shard. POE files count in both
+    core and poe, matching the two matrix legs that run them."""
+    return {
+        segment: round(estimate_duration([f for f in test_files if segment in segments_for_test_file(f)], durations))
+        for segment in ("core", "poe", "temporal")
+    }
+
+
 def narrowable_baseline_seconds(durations: dict[str, float]) -> float:
-    """Total test-execution seconds across the Core/POE/Temporal universe that draft
+    """Total test-execution seconds across the Core/POE/Temporal universe that
     selection can narrow. Excludes product/turbo tests, which run regardless of selection,
-    so this is the honest denominator for how much a draft skipped. This is raw pytest
+    so this is the honest denominator for how much a run skipped. This is raw pytest
     execution time from the sharding-balance file — it is not real CI minutes (no per-job
     overhead, setup, or concurrency); the minutes model lives downstream in the dashboard."""
     total = 0.0
@@ -656,6 +697,10 @@ def build_result(base_ref: str) -> dict[str, object]:
         "combined": {
             "tests": combined_tests,
             "count": len(combined_tests),
+            # Product directories with a selected test file. ci-backend narrows the
+            # product matrix to them on a legacy diff.
+            "products": sorted({p for p in map(_product_name, combined_tests) if p}),
+            "segments": selected_files_by_segment(combined_tests),
             "duration_seconds": round(selected_seconds),
         },
         "durations": {
@@ -667,6 +712,7 @@ def build_result(base_ref: str) -> dict[str, object]:
             "narrowable_baseline_seconds": round(baseline_seconds),
             "selected_seconds": round(selected_seconds),
             "skipped_seconds": round(max(baseline_seconds - selected_seconds, 0.0)),
+            "selected_seconds_by_segment": selected_seconds_by_segment(combined_tests, durations),
         },
     }
 

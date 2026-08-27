@@ -2,6 +2,7 @@ import {
   Check,
   Copy,
   FileText,
+  Robot,
   Scroll,
   SlackLogo,
 } from "@phosphor-icons/react";
@@ -21,10 +22,15 @@ import { extractCanvasInstructions } from "./canvasInstructions";
 import { extractChannelContext } from "./channelContext";
 import { extractCustomInstructions } from "./customInstructions";
 import {
+  extractOnboardingBrief,
+  ONBOARDING_BRIEF_LABEL,
+} from "./onboardingBrief";
+import {
   hasFileMentions,
   MentionChip,
   parseFileMentions,
 } from "./parseFileMentions";
+import { extractPeerAgentMessage } from "./peerAgentMessage";
 import { collapsePiSkillInvocation } from "./piSkillInvocation";
 
 interface UserMessageProps {
@@ -76,13 +82,21 @@ export const UserMessage = memo(function UserMessage({
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
-  const channelContext = useMemo(
-    () => extractChannelContext(content),
+  // A message relayed from another agent run renders with a provenance chip and
+  // neutral accent instead of masquerading as this run's user. The envelope
+  // boilerplate never renders; only the sender-authored body flows on.
+  const peerAgentMessage = useMemo(
+    () => extractPeerAgentMessage(content),
     [content],
+  );
+  const baseContent = peerAgentMessage ? peerAgentMessage.body : content;
+  const channelContext = useMemo(
+    () => extractChannelContext(baseContent),
+    [baseContent],
   );
   const afterChannelContext = channelContext
     ? channelContext.stripped
-    : content;
+    : baseContent;
   const canvasInstructions = useMemo(
     () => extractCanvasInstructions(afterChannelContext),
     [afterChannelContext],
@@ -94,8 +108,15 @@ export const UserMessage = memo(function UserMessage({
     () => extractCustomInstructions(afterCanvasInstructions),
     [afterCanvasInstructions],
   );
+  const afterCustomInstructions = customInstructions
+    ? customInstructions.stripped
+    : afterCanvasInstructions;
+  const onboardingBrief = useMemo(
+    () => extractOnboardingBrief(afterCustomInstructions),
+    [afterCustomInstructions],
+  );
   const displayContent = collapsePiSkillInvocation(
-    customInstructions ? customInstructions.stripped : afterCanvasInstructions,
+    onboardingBrief ? onboardingBrief.stripped : afterCustomInstructions,
   );
   const showChannelContextTag = !!channelContext && bluebirdEnabled;
   const showCanvasInstructionsTag = !!canvasInstructions && bluebirdEnabled;
@@ -131,7 +152,9 @@ export const UserMessage = memo(function UserMessage({
     >
       <Box
         className={`group/msg relative border-l-2 bg-gray-2 py-2 pl-3 transition-shadow ${keyboardFocused ? "ring-(--accent-9) ring-2 ring-offset-(--gray-2) ring-offset-2" : ""}`}
-        style={{ borderColor: "var(--accent-9)" }}
+        style={{
+          borderColor: peerAgentMessage ? "var(--gray-8)" : "var(--accent-9)",
+        }}
       >
         <CollapsibleMessageContent contentClassName="font-medium text-[13px] [&_p]:leading-[1.9]">
           {containsFileMentions ? (
@@ -139,12 +162,27 @@ export const UserMessage = memo(function UserMessage({
           ) : (
             <MarkdownRenderer content={displayContent} />
           )}
-          {(showChannelContextTag || showCanvasInstructionsTag) && (
+          {(!!peerAgentMessage ||
+            showChannelContextTag ||
+            showCanvasInstructionsTag ||
+            !!onboardingBrief) && (
             <Flex
               wrap="wrap"
               gap="1"
               className={displayContent ? "mt-1.5" : ""}
             >
+              {peerAgentMessage && (
+                <MentionChip
+                  icon={<Robot size={12} />}
+                  label={`From agent: ${peerAgentMessage.senderTaskTitle}`}
+                />
+              )}
+              {onboardingBrief && (
+                <MentionChip
+                  icon={<FileText size={12} />}
+                  label={ONBOARDING_BRIEF_LABEL}
+                />
+              )}
               {showChannelContextTag && channelContext && (
                 <MentionChip
                   icon={<FileText size={12} />}
