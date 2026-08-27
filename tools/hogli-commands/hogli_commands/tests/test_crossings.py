@@ -10,6 +10,7 @@ import pytest
 
 from hogli_commands.product import crossings
 from hogli_commands.product.crossings import CrossingClass, classify_use, kind_is_allowed
+from parameterized import parameterized
 
 ALERT = CrossingClass("alerts", "AlertConfiguration", "products.alerts.backend.models.alert")
 LOOKUP = {ALERT.label.lower(): ALERT.label}
@@ -543,6 +544,62 @@ class TestGarageDrives:
         assert names.enum_bases == frozenset({"NodeKind"})
         assert crossings.kind_drives(ast.parse(source), KINDS, names) == {}
 
+    def test_package_qualified_enum_counts_by_its_kind(self) -> None:
+        source = textwrap.dedent(
+            """
+            from posthog import schema
+
+            def test_paths(team):
+                process_query_dict(team, {"kind": schema.NodeKind.PATHS_QUERY})
+            """
+        )
+        names = crossings._kind_names(crossings._read_imports(source.encode(), "posthog.test"), KINDS)
+        drives = crossings.kind_drives(ast.parse(source), KINDS, names)
+        assert {(d.product, d.kind): n for d, n in drives.items()} == {("product_analytics", "PathsQuery"): 1}
+
+    def test_enum_member_value_counts_once(self) -> None:
+        source = textwrap.dedent(
+            """
+            from posthog.schema import NodeKind
+
+            def test_paths(team):
+                process_query_dict(team, {"kind": NodeKind.PATHS_QUERY.value})
+            """
+        )
+        names = crossings._kind_names(crossings._read_imports(source.encode(), "posthog.test"), KINDS)
+        drives = crossings.kind_drives(ast.parse(source), KINDS, names)
+        assert {(d.product, d.kind): n for d, n in drives.items()} == {("product_analytics", "PathsQuery"): 1}
+
+    def test_aliased_dispatcher_still_executes(self) -> None:
+        source = textwrap.dedent(
+            """
+            from posthog.schema import PathsQuery
+            from posthog.api.services.query import process_query_dict as run_query
+
+            def test_paths(team):
+                run_query(team, PathsQuery(pathsFilter={}))
+            """
+        )
+        imports = crossings._read_imports(source.encode(), "posthog.test")
+        names = crossings._kind_names(imports, KINDS)
+        assert "run_query" in names.dispatchers
+        drives = crossings.kind_drives(ast.parse(source), KINDS, names)
+        assert {(d.product, d.kind): n for d, n in drives.items()} == {("product_analytics", "PathsQuery"): 1}
+
+    def test_every_node_kind_enum_is_read(self) -> None:
+        source = textwrap.dedent(
+            """
+            class InsightNodeKind(StrEnum):
+                PATHS_QUERY = "PathsQuery"
+
+
+            class NodeKind(StrEnum):
+                EVENTS_NODE = "EventsNode"
+            """
+        )
+        assert set(crossings._node_kind_enums(source)) == {"InsightNodeKind", "NodeKind"}
+        assert crossings._node_kind_values(source) == {"PATHS_QUERY": "PathsQuery", "EVENTS_NODE": "EventsNode"}
+
     def test_module_object_imports_count_as_drives(self) -> None:
         source = textwrap.dedent(
             """
@@ -577,3 +634,112 @@ class TestGarageDrives:
         )
         assert crossings.driven_wiring_locations("product_analytics", baseline) == {"backend/hogql_queries/"}
         assert crossings.driven_wiring_locations("error_tracking", baseline) == frozenset()
+
+
+class TestUnresolvedKindDrives:
+    """The floor under the spellings `_kind_of` reads: a kind the scan cannot read still counts."""
+
+    @staticmethod
+    def _count(body: str) -> int:
+        source = textwrap.dedent(body)
+        names = crossings._kind_names(crossings._read_imports(source.encode(), "posthog.test"), KINDS)
+        return crossings.unresolved_kind_drives(ast.parse(source), KINDS, names)
+
+    def test_unreadable_kind_reaching_a_dispatcher_counts(self) -> None:
+        assert (
+            self._count(
+                """
+                from posthog.api.services.query import process_query_dict
+
+                def test_paths(team, kind):
+                    process_query_dict(team, {"kind": kind})
+                """
+            )
+            == 1
+        )
+
+    def test_unreadable_kind_posted_to_the_client_counts(self) -> None:
+        assert (
+            self._count(
+                """
+                class TestPaths:
+                    def test_paths(self):
+                        self.client.post("/api/environments/1/query/", {"query": {"kind": self.kind}})
+                """
+            )
+            == 1
+        )
+
+    @parameterized.expand(
+        [
+            ("a kind the scan reads", '{"kind": "PathsQuery"}'),
+            ("a kind that belongs to no product", '{"kind": "EventsQuery"}'),
+            ("an enum member", '{"kind": NodeKind.PATHS_QUERY}'),
+        ]
+    )
+    def test_a_readable_kind_does_not_count(self, _name: str, payload: str) -> None:
+        assert (
+            self._count(
+                f"""
+                from posthog.schema import NodeKind
+                from posthog.api.services.query import process_query_dict
+
+                def test_paths(team):
+                    process_query_dict(team, {payload})
+                """
+            )
+            == 0
+        )
+
+    def test_a_scope_that_names_a_kind_does_not_count(self) -> None:
+        """A parametrized test names its kinds in the decorator, which stands as the evidence."""
+        assert (
+            self._count(
+                """
+                from posthog.api.services.query import process_query_dict
+
+                @parameterized.expand([("PathsQuery",)])
+                def test_paths(team, kind):
+                    process_query_dict(team, {"kind": kind})
+                """
+            )
+            == 0
+        )
+
+    def test_a_constant_default_is_readable(self) -> None:
+        assert (
+            self._count(
+                """
+                from posthog.api.services.query import process_query_dict
+
+                def test_paths(team, kind="DataTableNode"):
+                    process_query_dict(team, {"kind": kind})
+                """
+            )
+            == 0
+        )
+
+    def test_a_kind_that_never_executes_does_not_count(self) -> None:
+        assert (
+            self._count(
+                """
+                def test_paths(kind):
+                    payload = {"query": {"kind": kind}}
+                    assert payload["query"]["kind"] == kind
+                """
+            )
+            == 0
+        )
+
+    def test_an_unrelated_kind_key_does_not_count(self) -> None:
+        """`kind` names many things; only a dict in query position is a query."""
+        assert (
+            self._count(
+                """
+                class TestEmail:
+                    def test_email(self):
+                        self.client.post("/api/environments/1/query/", {"kind": self.channel.kind})
+                """
+            )
+            == 0
+        )

@@ -29,7 +29,10 @@ A test outside the product can therefore execute a runner in the wiring location
 no such test exists. Each such test is counted as the disallowed kind `drives(<Kind>)`, and
 `hogli product:lint` keeps the location in the contract-check inputs while a line for it stands. A
 test that imports anything the location defines, through the facade or directly, is counted as
-`drives(<Name>)`.
+`drives(<Name>)`. Python spells a kind in more ways than a scan can read, and a kind it cannot read
+yields no line at all, which reads the same as no dependency. Such a test is counted as
+`drives(unresolved-kind)` against every query location it could reach, so the unreadable case holds
+the inputs rather than releasing them in silence.
 """
 
 from __future__ import annotations
@@ -288,6 +291,7 @@ class _Candidate:
     imports: _ImportTable
     mentions_get_model: bool
     mentions_query_kind: bool = False
+    mentions_dispatcher: bool = False
 
 
 # One import statement, parenthesized or not. Imports are the only thing the first pass reads, and
@@ -356,9 +360,18 @@ def _candidates(kind_hint: _KindHint | None = None) -> list[_Candidate]:
             source = path.read_bytes()
             dotted = _dotted_module(path)
             package = dotted if path.name == "__init__.py" else dotted.rsplit(".", 1)[0]
-            mentions_kind = kind_hint is not None and _is_test_module(path) and kind_hint.matches(source)
+            is_test = _is_test_module(path)
+            mentions_kind = kind_hint is not None and is_test and kind_hint.matches(source)
+            mentions_dispatch = is_test and any(call in source for call in _DISPATCH_CALL_BYTES)
             found.append(
-                _Candidate(path, dotted, _read_imports(source, package), b"get_model" in source, mentions_kind)
+                _Candidate(
+                    path,
+                    dotted,
+                    _read_imports(source, package),
+                    b"get_model" in source,
+                    mentions_kind,
+                    mentions_dispatch,
+                )
             )
     return found
 
@@ -607,7 +620,7 @@ def _get_model_uses(tree: ast.Module, product_by_label: dict[str, str], label_by
 # `NodeKind` enum instead of a literal; the enum values are read off the generated module.
 QUERY_DISPATCHER = REPO_ROOT / "posthog" / "hogql_queries" / "query_runner.py"
 NODE_KIND_ENUM = REPO_ROOT / "posthog" / "schema_enums.py"
-_NODE_KIND_CLASS_RE = re.compile(r"^class NodeKind\(.*?\):\n(.*?)(?=^class |\Z)", re.MULTILINE | re.DOTALL)
+_NODE_KIND_CLASS_RE = re.compile(r"^class (\w*NodeKind)\(.*?\):\n(.*?)(?=^class |\Z)", re.MULTILINE | re.DOTALL)
 _ENUM_MEMBER_RE = re.compile(r"^\s+(\w+)\s*=\s*[\"'](\w+)[\"']", re.MULTILINE)
 QUERY_WIRING_LOCATION = "backend/hogql_queries/"
 assert QUERY_WIRING_LOCATION in COMPUTED_WIRING_LOCATIONS
@@ -625,6 +638,9 @@ DISPATCH_CALLS: frozenset[str] = frozenset(
         "execute_hogql_query",
     }
 )
+
+# Read as text in the first pass, to admit a test that calls a dispatcher but names no kind.
+_DISPATCH_CALL_BYTES: tuple[bytes, ...] = tuple(sorted(call.encode() for call in DISPATCH_CALLS))
 
 # The Django test client runs a request in-process, so a query posted to any endpoint that executes
 # queries (query, insights, endpoints, exports) reaches the runner the same way.
@@ -664,10 +680,20 @@ class _ModuleDrive:
     module: str  # the module's own name, e.g. "web_overview"
 
 
+def _node_kind_enums(source: str) -> dict[str, dict[str, str]]:
+    """Enum class name -> its member name -> kind string, read off the source without importing it.
+
+    `NodeKind` is not the only enum that carries query kinds. `InsightNodeKind` repeats the insight
+    subset, and a test reaches the same runner through either one, so both must be read."""
+    return {name: dict(_ENUM_MEMBER_RE.findall(body)) for name, body in _NODE_KIND_CLASS_RE.findall(source)}
+
+
 def _node_kind_values(source: str) -> dict[str, str]:
-    """`NodeKind` member name -> kind string, read off the enum's source without importing it."""
-    match = _NODE_KIND_CLASS_RE.search(source)
-    return dict(_ENUM_MEMBER_RE.findall(match.group(1))) if match else {}
+    """Member name -> kind string, across every enum that carries query kinds."""
+    values: dict[str, str] = {}
+    for members in _node_kind_enums(source).values():
+        values |= members
+    return values
 
 
 def _kinds_in_dispatcher(source: str, node_kinds: Mapping[str, str] | None = None) -> dict[str, frozenset[str]]:
@@ -718,7 +744,8 @@ class _QueryKinds:
     A test names a kind either way (`"PathsQuery"` or `NodeKind.PATHS_QUERY`); both must count."""
 
     products: Mapping[str, frozenset[str]]  # kind -> products whose runners it can reach
-    members: Mapping[str, str]  # NodeKind member -> kind, for the kinds in `products`
+    members: Mapping[str, str]  # enum member -> kind, for the kinds in `products`
+    enums: frozenset[str] = frozenset({"NodeKind"})  # the enum classes those members live on
 
     def __bool__(self) -> bool:
         return bool(self.products)
@@ -726,12 +753,17 @@ class _QueryKinds:
 
 def product_query_kinds(products: Iterable[str] | None = None) -> _QueryKinds:
     """The query kinds that reach product runners, read off core's dispatch table."""
+    enums = _node_kind_enums(NODE_KIND_ENUM.read_text(encoding="utf-8"))
     node_kinds = _node_kind_values(NODE_KIND_ENUM.read_text(encoding="utf-8"))
     kinds = _kinds_in_dispatcher(QUERY_DISPATCHER.read_text(encoding="utf-8"), node_kinds)
     if products is not None:
         wanted = frozenset(products)
         kinds = {kind: owners & wanted for kind, owners in kinds.items() if owners & wanted}
-    return _QueryKinds(kinds, {member: kind for member, kind in node_kinds.items() if kind in kinds})
+    return _QueryKinds(
+        kinds,
+        {member: kind for member, kind in node_kinds.items() if kind in kinds},
+        frozenset(enums),
+    )
 
 
 def _wiring_location_exports(product: str, location: str) -> dict[_Export, str]:
@@ -848,11 +880,20 @@ def _kind_mentions(tree: ast.Module, kinds: _QueryKinds, names: _KindNames | Non
 
     `names` maps the local names the module binds back to their kinds; without it, a constructor
     counts by its own name only and the enum counts only as `NodeKind`."""
-    names = names or _KIND_NAMES_UNIMPORTED
+    names = names or _unimported_kind_names(kinds)
     by_local = {kind: kind for kind in kinds.products} | dict(names.constructors)
     tag = re.compile(r"<(" + "|".join(sorted(re.escape(k) for k in kinds.products)) + r")\b") if kinds else None
+    # `NodeKind.PATHS_QUERY.value` holds the member node inside the `.value` node, and a walk
+    # reaches both. The outer node stands for the whole spelling, so the member counts once.
+    consumed = {
+        id(node.value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute) and node.attr == "value" and isinstance(node.value, ast.Attribute)
+    }
     found: list[tuple[ast.AST, str]] = []
     for node in ast.walk(tree):
+        if id(node) in consumed:
+            continue
         if isinstance(node, ast.Constant | ast.Attribute):
             kind = _kind_of(node, kinds, names.enum_bases)
             if kind is not None:
@@ -868,31 +909,57 @@ def _kind_mentions(tree: ast.Module, kinds: _QueryKinds, names: _KindNames | Non
 
 @dataclass(frozen=True)
 class _KindNames:
-    """The local names one module binds to a query kind: schema constructors, and `NodeKind` itself.
+    """The local names one module binds to the parts of a drive: schema constructors, the `NodeKind`
+    enum, and the dispatchers that execute a query.
 
-    Either import can carry an alias (`from posthog.schema import PathsQuery as Query`, `NodeKind as
-    Kind`), and both spellings reach the dispatcher unchanged, so both must resolve back to a kind."""
+    Each of the three can carry an alias (`from posthog.schema import PathsQuery as Query`,
+    `NodeKind as Kind`, `process_query_dict as run_query`). An alias reaches the runner exactly like
+    the plain spelling, so each one must resolve back to the name it was imported under."""
 
     constructors: Mapping[str, str]  # local name -> kind
-    enum_bases: frozenset[str]  # local names bound to `NodeKind`
+    enum_bases: frozenset[str]  # local names that carry the `NodeKind` members
+    dispatchers: frozenset[str]  # local names that execute a query
 
 
-# A module that reads the enum off a package path (`schema.NodeKind.PATHS_QUERY`) binds no name for
-# it, so the unaliased spelling stays a base on its own.
-_KIND_NAMES_UNIMPORTED = _KindNames({}, frozenset({"NodeKind"}))
+def _unimported_kind_names(kinds: _QueryKinds) -> _KindNames:
+    """The spellings that need no import of their own, because a module can reach them through a
+    package path (`schema.NodeKind.PATHS_QUERY`) or call them as a method."""
+    return _KindNames({}, kinds.enums, DISPATCH_CALLS)
 
 
 def _kind_names(imports: _ImportTable, kinds: _QueryKinds) -> _KindNames:
     """The kind-bearing names a module binds, under whatever local name it imports them."""
+    unimported = _unimported_kind_names(kinds)
     constructors = {edge.bound: edge.exported for edge in imports.edges if edge.exported in kinds.products}
-    aliases = {edge.bound for edge in imports.edges if edge.exported == "NodeKind"}
-    return _KindNames(constructors, frozenset(aliases) | _KIND_NAMES_UNIMPORTED.enum_bases)
+    enum_bases = {edge.bound for edge in imports.edges if edge.exported in kinds.enums}
+    dispatchers = {edge.bound for edge in imports.edges if edge.exported in DISPATCH_CALLS}
+    return _KindNames(
+        constructors,
+        frozenset(enum_bases) | unimported.enum_bases,
+        frozenset(dispatchers) | unimported.dispatchers,
+    )
+
+
+def _base_name(value: ast.expr) -> str | None:
+    """The last name segment of a reference: `NodeKind` and `schema.NodeKind` both give `NodeKind`.
+
+    A module that imports the enum's package rather than the enum itself reads the members off a
+    dotted path, and the segment before the member is the only part that identifies the enum."""
+    if isinstance(value, ast.Name):
+        return value.id
+    if isinstance(value, ast.Attribute):
+        return value.attr
+    return None
 
 
 def _kind_of(value: ast.expr, kinds: _QueryKinds, enum_bases: frozenset[str]) -> str | None:
     if isinstance(value, ast.Constant) and value.value in kinds.products:
         return str(value.value)
-    if isinstance(value, ast.Attribute) and isinstance(value.value, ast.Name) and value.value.id in enum_bases:
+    # `NodeKind.PATHS_QUERY.value` names the same member as `NodeKind.PATHS_QUERY`; a `StrEnum`
+    # member and its string are interchangeable at the dispatcher, and tests spell it both ways.
+    if isinstance(value, ast.Attribute) and value.attr == "value":
+        value = value.value
+    if isinstance(value, ast.Attribute) and _base_name(value.value) in enum_bases:
         return kinds.members.get(value.attr)
     return None
 
@@ -913,9 +980,9 @@ def _enclosing(node: ast.AST, parents: dict[int, ast.AST]) -> tuple[_Function | 
     return function, None
 
 
-def _executes_directly(scope: ast.AST) -> bool:
+def _executes_directly(scope: ast.AST, dispatchers: frozenset[str]) -> bool:
     return any(
-        isinstance(node, ast.Call) and (_callee_name(node) in DISPATCH_CALLS or _is_test_client_call(node))
+        isinstance(node, ast.Call) and (_callee_name(node) in dispatchers or _is_test_client_call(node))
         for node in ast.walk(scope)
     )
 
@@ -931,10 +998,11 @@ class _Executions:
 
     def _executes_directly(self, function: _Function) -> bool:
         if id(function) not in self._direct:
-            self._direct[id(function)] = _executes_directly(function)
+            self._direct[id(function)] = _executes_directly(function, self._dispatchers)
         return self._direct[id(function)]
 
-    def __init__(self, tree: ast.Module) -> None:
+    def __init__(self, tree: ast.Module, dispatchers: frozenset[str]) -> None:
+        self._dispatchers = dispatchers
         self._direct: dict[int, bool] = {}
         self._module_helpers = {node.name: node for node in tree.body if isinstance(node, _Function)}
         self._classes = {node.name: node for node in tree.body if isinstance(node, ast.ClassDef)}
@@ -994,11 +1062,12 @@ def kind_drives(tree: ast.Module, kinds: _QueryKinds, names: _KindNames | None =
     a test function counts when that function executes (itself or through a helper it calls); a
     kind built elsewhere, a `setUp` fixture or a class attribute, counts when any function of the
     enclosing class (or of the module, outside a class) executes."""
+    names = names or _unimported_kind_names(kinds)
     mentions = _kind_mentions(tree, kinds, names)
     if not mentions:
         return Counter()
     parents = _parent_map(tree)
-    executions = _Executions(tree)
+    executions = _Executions(tree, names.dispatchers)
     scope_executes: dict[int, bool] = {}
     found: Counter[_KindDrive] = Counter()
     for node, kind in mentions:
@@ -1008,11 +1077,102 @@ def kind_drives(tree: ast.Module, kinds: _QueryKinds, names: _KindNames | None =
             executes = executions.executes(function, scope)
         else:
             if id(scope) not in scope_executes:
-                scope_executes[id(scope)] = _executes_directly(scope)
+                scope_executes[id(scope)] = _executes_directly(scope, names.dispatchers)
             executes = scope_executes[id(scope)]
         if executes:
             for product in kinds.products[kind]:
                 found[_KindDrive(product, kind)] += 1
+    return found
+
+
+# The dict keys that hold a query. Core reads `kind` at the top of a payload, and nests the real
+# query under `query` (the endpoint envelope) or `source` (an insight's viz node). The key `kind`
+# on its own is far too common to use as the signal: products name unrelated enums with it.
+QUERY_DICT_KEYS: frozenset[str] = frozenset({"query", "source"})
+
+UNRESOLVED_KIND_DRIVE = "drives(unresolved-kind)"
+
+
+def _constant_parameters(function: _Function | None) -> set[str]:
+    """The parameters whose signature binds them to a constant.
+
+    A helper that takes `kind="DataTableNode"` and posts it names its kind statically, even though
+    the body reads a variable."""
+    if function is None:
+        return set()
+    args = function.args
+    positional = args.posonlyargs + args.args
+    pairs = list(zip(positional[len(positional) - len(args.defaults) :], args.defaults))
+    pairs += [(arg, default) for arg, default in zip(args.kwonlyargs, args.kw_defaults) if default is not None]
+    return {arg.arg for arg, default in pairs if isinstance(default, ast.Constant)}
+
+
+def _kind_is_resolvable(value: ast.expr, enum_bases: frozenset[str], function: _Function | None) -> bool:
+    """Whether the scan can tell what kind this expression names, even when the answer is "none".
+
+    A constant and a known enum member are both answers: the scan reads the kind, and a kind that
+    belongs to no product is a decision, not a gap. A name the scan cannot follow is different,
+    because the kind it carries at run time stays unknown."""
+    if isinstance(value, ast.Constant):
+        return True
+    if isinstance(value, ast.Name) and value.id in _constant_parameters(function):
+        return True
+    inner = value.value if isinstance(value, ast.Attribute) and value.attr == "value" else value
+    return isinstance(inner, ast.Attribute) and _base_name(inner.value) in enum_bases
+
+
+def _query_position_dicts(tree: ast.Module, dispatchers: frozenset[str]) -> Iterator[ast.Dict]:
+    """Every dict that sits where a query goes: a dispatcher argument, or under a `query`/`source` key."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and _callee_name(node) in dispatchers:
+            yield from (arg for arg in node.args if isinstance(arg, ast.Dict))
+        elif isinstance(node, ast.Dict):
+            for key, value in zip(node.keys, node.values):
+                if isinstance(key, ast.Constant) and key.value in QUERY_DICT_KEYS and isinstance(value, ast.Dict):
+                    yield value
+
+
+def unresolved_kind_drives(tree: ast.Module, kinds: _QueryKinds, names: _KindNames | None = None) -> int:
+    """How many times this module runs a query whose kind the scan cannot resolve.
+
+    A drive line needs a kind, so a kind the scan cannot read produces no line at all. That silence
+    then reads as "no outside test drives this location", which is the one wrong answer available:
+    the location leaves the contract-check inputs while a test still runs a runner inside it, and
+    nothing reports it. Counting the unreadable case instead keeps every query wiring location
+    watched until a person spells the kind out.
+
+    Python has more ways to name a kind than a scan can follow, so this is the floor under the
+    spellings `_kind_of` does read, not a substitute for reading them. A scope that already names a
+    kind the scan resolved is not counted: the evidence for that scope stands on the resolved kind,
+    and a parametrized test names its kinds in the decorator."""
+    names = names or _unimported_kind_names(kinds)
+    # Almost every module spells its kinds out, and the parent map and the mention pass are not
+    # free, so the constants are dropped before either one is built.
+    pending = [
+        value
+        for node in _query_position_dicts(tree, names.dispatchers)
+        for key, value in zip(node.keys, node.values)
+        if isinstance(key, ast.Constant) and key.value == "kind" and not isinstance(value, ast.Constant)
+    ]
+    if not pending:
+        return 0
+    parents = _parent_map(tree)
+    executions = _Executions(tree, names.dispatchers)
+    resolved = {id(_enclosing(node, parents)[0]) for node, _ in _kind_mentions(tree, kinds, names)}
+    scope_executes: dict[int, bool] = {}
+    found = 0
+    for value in pending:
+        function, class_def = _enclosing(value, parents)
+        if _kind_is_resolvable(value, names.enum_bases, function) or id(function) in resolved:
+            continue
+        scope: ast.AST = class_def if class_def is not None else tree
+        if function is not None and function.name.startswith("test"):
+            executes = executions.executes(function, scope)
+        else:
+            if id(scope) not in scope_executes:
+                scope_executes[id(scope)] = _executes_directly(scope, names.dispatchers)
+            executes = scope_executes[id(scope)]
+        found += bool(executes)
     return found
 
 
@@ -1158,7 +1318,11 @@ def scan_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUs
             continue
         names = {name: label for name, label in _bound_names(candidate, origins).items() if (":" in label) == is_test}
         aliases = {a.alias: a.module for a in candidate.imports.module_aliases if a.module in origin_modules}
-        hinted = candidate.mentions_query_kind if is_test else candidate.mentions_get_model
+        # A dispatcher call admits a test with no kind literal: an unreadable kind is exactly the
+        # case that leaves nothing to hint on.
+        hinted = (
+            candidate.mentions_query_kind or candidate.mentions_dispatcher if is_test else candidate.mentions_get_model
+        )
         if is_test:
             for drive, count in module_drives(candidate.imports, locations).items():
                 if not candidate.path.is_relative_to(owning_dir[drive.label]):
@@ -1188,8 +1352,16 @@ def scan_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUs
             else:
                 parents = parents or _parent_map(tree)
                 counts[(label, candidate.dotted, classify_use(node, parents))] += 1
-        if is_test and candidate.mentions_query_kind:
-            for drive, count in kind_drives(tree, kinds, _kind_names(candidate.imports, kinds)).items():
+        if is_test and (candidate.mentions_query_kind or candidate.mentions_dispatcher):
+            kind_names = _kind_names(candidate.imports, kinds)
+            # An unreadable kind names no product, so it counts against every location it could reach.
+            unresolved = unresolved_kind_drives(tree, kinds, kind_names)
+            for product in query_products if unresolved else ():
+                if candidate.path.is_relative_to(PRODUCTS_DIR / product):
+                    continue
+                label = wiring_location_label(product, QUERY_WIRING_LOCATION)
+                counts[(label, candidate.dotted, UNRESOLVED_KIND_DRIVE)] += unresolved
+            for drive, count in kind_drives(tree, kinds, kind_names).items():
                 if drive.product in query_products and not candidate.path.is_relative_to(PRODUCTS_DIR / drive.product):
                     counts[
                         (

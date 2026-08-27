@@ -103,6 +103,7 @@ These cross the boundary as classes — allowed only under all three rules:
    The full suite matters only while such a test exists.
    For `backend/hogql_queries/` that is measured.
    Core dispatches runners by query kind, so `hogli product:crossings` reads the dispatch table and records every outside test that runs one of the product's kinds, or imports anything from the location, as a `drives(...)` line in the crossings baseline.
+   A test whose kind the scan cannot read statically counts as `drives(unresolved-kind)` against every query location it could reach, so an unreadable spelling holds the inputs instead of releasing them in silence.
    `hogli product:lint` keeps the location in the inputs while a line for it stands, and lets it go when none does.
    Nothing is declared. Move the driving tests into the product, regenerate the baseline, and the input may leave.
    The other locations stay in the inputs by presence until their channel (Celery task names, Temporal workflow names, Max tool names) is read the same way.
