@@ -112,6 +112,20 @@ test('the backend test selector routes files with the same partition', () => {
     assert.deepEqual(sorted([...ignored, ...claimedFromCore]), sorted(DJANGO_SEGMENTS.Core.exclude))
 })
 
+// CorePOE re-runs a slice of Core under the legacy joined person mode, and Core
+// runs the same files under the customer-default mode. A CorePOE path outside
+// Core's pool therefore runs in the legacy mode only, so a regression under the
+// mode customers use goes uncaught. Product tests belong in the product's own
+// turbo lane, which is where that path would otherwise be reaching for coverage.
+test("the safeguard allowlist stays inside Core's pool", () => {
+    for (const prefix of DJANGO_SEGMENTS.CorePOE.include) {
+        assert.ok(
+            DJANGO_SEGMENTS.Core.include.some((include) => prefix.startsWith(include)),
+            `${prefix} is in CorePOE but not under any Core include, so it never runs in the default person mode`
+        )
+    }
+})
+
 // Isolation is the claim that a product can be tested without the Django suite.
 // A product that ships the contract-check script but no turbo.json of its own
 // leaves the task on the root definition, whose inputs are its whole backend,
