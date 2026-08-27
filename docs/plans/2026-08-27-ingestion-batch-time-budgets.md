@@ -24,7 +24,7 @@ The worker cannot do better today even if it wanted to:
 ## Design overview
 
 Invert who enforces time.
-The worker gets a per-sub-batch **budget** and always acks before the consumer's watchdog would fire.
+The worker gets a per-sub-batch **budget** sized so it acks well before the consumer's watchdog fires.
 When the budget expires, the framework stops _starting_ work: events not yet processed complete as a new result type, `INCOMPLETE`, and the ack carries per-message dispositions so the consumer redelivers only the unfinished remainder.
 The watchdog stays as what it should be: a dead-worker detector.
 
@@ -132,8 +132,9 @@ export interface CompletedSubBatch {
 }
 ```
 
-`WorkerIngestServer` creates the `BatchBudget` when it reads the frame — before the admission wait — so a sub-batch that spends its life parked in the FIFO admission queue surfaces as an ordered `PARTIAL` (everything incomplete, redelivered cleanly) instead of a watchdog fence.
-It acks `PARTIAL` when `incomplete` is non-empty, `OK` otherwise.
+`WorkerIngestServer` creates the `BatchBudget` when it reads the frame — before the admission wait — and races the admission wait against it.
+A sub-batch whose budget expires while parked in the FIFO admission queue is acked `PARTIAL` with every message incomplete, without ever being fed: nothing entered the pipeline, so no worker state exists, and the consumer redelivers through the deferral path.
+The ordinary path acks after `settled` resolves: `PARTIAL` when `incomplete` is non-empty, `OK` otherwise.
 
 ## The ordering hazard, and the order gate
 
@@ -145,13 +146,17 @@ If N's K-events go incomplete while N+1's K-events process (N+1's budget is youn
 
 The fix is a per-key **order gate** in the grouping stage, activated only for keys that produced an incomplete result:
 
-- When an element of key K resolves incomplete, record `poison[K] = offset of its first incomplete message`.
-- While poisoned, an arriving K-element with offset **greater than** the poison point is stale in-flight work — resolve it incomplete without processing (its own sub-batch acks it as incomplete, and the consumer's cascade-deferral queues it behind K's earlier messages).
-- An arriving K-element with offset **at or before** the poison point is the redelivery (or a full replay after a reconnect) — clear the poison and process normally.
+- When an element of key K resolves incomplete, record the offset of its first incomplete message and the set of sub-batches currently in flight in the pipeline.
+- While the gate is active, an arriving K-element with offset **greater than** the poison point is stale in-flight work — resolve it incomplete without processing (its own sub-batch acks it as incomplete, and the consumer's cascade-deferral queues it behind K's earlier messages).
+- The gate clears in either of two ways:
+  - **The in-flight window drains**: every sub-batch that was in flight at poisoning time has completed. After that, no stale K-element can exist — the consumer holds K's newer messages behind the deferred ones until the redelivery resolves, so anything arriving later is already ordered.
+  - **The redelivery returns here**: a K-element arrives with offset at or before the poison point, restoring per-key contiguity directly.
 
 Kafka offsets are per-partition monotone and a key lives on one partition, so "at or before the poison point" is exactly "restores per-key contiguity".
-The stream's ordering guarantees make the rule airtight: everything fed between the poisoning and the redelivery was sent before the consumer learned of it, and the redelivery necessarily arrives after.
-The gate is generic in the framework (`concurrentlyPerGroup` gains an optional per-item sequence extractor; the analytics pipeline supplies the Kafka offset from the element context) and holds state only for poisoned keys, with a TTL eviction plus metric as a safety net for redeliveries that never come.
+The offset clause alone is not sufficient, and the window-drain clause is not an optimization: the redelivery is a deferral flush, and the dispatcher's sticky pin escapes to another worker when the pinned one is unhealthy or heavily loaded — which a budget-blowing worker often is.
+The redelivery then lands elsewhere and this worker never sees an offset at or before the poison point; without the window-drain clause it would gate fresh, correctly ordered K traffic forever, feeding a redeliver-and-gate livelock against the consumer's flush-stall bail.
+The gate is generic in the framework (`concurrentlyPerGroup` gains an optional per-item sequence extractor; the analytics pipeline supplies the Kafka offset from the element context) and holds state only for poisoned keys.
+A TTL eviction plus metric remains as a bug net, but it is not load-bearing for correctness and never needs to race `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS`.
 
 A simpler fallback exists if the gate proves troublesome: on budget expiry, cancel every not-yet-started element in the pipeline (all keys, all in-flight sub-batches).
 That over-cancels but needs no per-key state; the in-flight window is small.
@@ -184,11 +189,20 @@ message SubBatchAck {
 
 Compatibility is already designed in: a consumer that predates `PARTIAL` treats it like `BUSY` — fence the lane in order as retriable and replay the tail — so a budget-enabled worker never corrupts an old consumer, it just wastes the partial progress.
 
+The ack shape carries a hard invariant, validated fail-closed on the consumer: `PARTIAL` requires a non-empty `incomplete` and `accepted + incomplete.len() == messages.len()`; `OK` requires an empty one.
+An ack violating either is a protocol error handled like `FAILED` — fence the stream and replay.
+The consumer must never derive acceptance from the `incomplete` list without that validation: proto3 cannot distinguish an unset `incomplete` from an empty one, so trusting it would turn a worker bug into silently lost messages, where fencing turns it into a replay.
+
 ## Consumer changes
 
+This is the largest piece outside the framework.
+The stash, cascade-deferral, and ordered flush are reused as-is, but everything between the ack and the stash needs real work:
+
 - Regenerate the proto; stamp `budget_ms` on each `SubBatch` from new config (suggested: `INGESTION_WORKER_BATCH_BUDGET_MS`, default 0 = disabled; when set, sized at roughly half `INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS`).
-- `handle_ack` on `PARTIAL`: resolve the ledger entry with per-message dispositions — completed messages count as accepted, incomplete messages go into the existing per-batch stash (the `defer_failed` path, but for a subset).
-  The dispatcher's cascade-deferral already queues the key's newer messages behind them, and `flush_deferred` already replays in order with `replay = true`, which the feed-order sentinel already tolerates.
+- **A per-message reply shape.** The transport reply today is all-or-nothing (`Accepted { accepted, messages }`), and a sub-batch the transport split into size-bounded chunks acks per chunk — the transport must remap each chunk's `incomplete` indices back to sub-batch positions and merge the chunk dispositions into one resolution.
+- **A mixed resolve path.** Today a sub-batch resolves fully (release keys, advance counts) or fails fully (`defer_failed` stashes everything). Partial acceptance needs a resolve that releases completed messages and stashes the rest while preserving the dispatcher's outstanding-count invariants (the count nets to unchanged for stashed keys and never dips to zero mid-handoff).
+- **Per-key acked watermarks computed from completed messages only.** The order sentinel advances a key's watermark using the key's maximum offset in the sub-batch; on a partial ack that would advance past unprocessed offsets and flag the redelivery as a resend-after-ack violation. The watermark must come from the completed subset.
+- **An escalation ladder for events that never fit the budget.** A poison event would otherwise redeliver forever — the deferral path has no attempt cap — with each round ending in the flush-stall bail and a process restart, the watchdog fully masked. Stash entries produced by partial acks carry an attempt count; after N budget-limited attempts the message resends with `budget_ms = 0`, degrading to exactly today's semantics (full watchdog window, fence on overrun) for that message alone, with a counter so the poison event is visible instead of masked.
 - Offset commit accounting is unchanged in kind: partially accepted sub-batches hold commits exactly the way deferred groups do today, just for fewer messages.
 
 ## What this deliberately does not do
@@ -201,14 +215,17 @@ Compatibility is already designed in: a consumer that predates `PARTIAL` treats 
 - **No hard per-step timeouts.**
   Racing a timer against a stateful step orphans a continuation that later mutates shared state.
   Per-step time control is cooperative only: the signal, plus a soft-timeout metric to surface steps that routinely exceed expectations.
+- **The watchdog is narrowed, not eliminated.**
+  The consumer arms each frame's ack deadline at send time, so wire time, unread-queue time behind slow predecessors, and a wedged `settled` barrier (side effects the budget cannot bound) all consume watchdog time the worker's budget never sees.
+  Budgets make the fence rare; the 0.5 × sizing is margin, not proof, and the fence remains the fail-safe.
 
 ## Observability
 
 - `ingestion_batch_budget_exhausted_total` — budgets that expired before the batch completed.
 - Incomplete results by last step (existing `ingestion_pipeline_result` counter gains the label value).
 - Overrun histogram — time from budget expiry to batch completion; this is the tail the checkpoints cannot cut, and the input for choosing which steps adopt the signal.
-- Order-gate metrics — keys poisoned, stale elements gated, poison evictions by TTL.
-- Consumer side — partial acks, messages redelivered after partial.
+- Order-gate metrics — keys poisoned, stale elements gated, clears by window-drain vs offset vs TTL.
+- Consumer side — partial acks, messages redelivered after partial, budget-exempt escalations.
 
 Shadow mode (`enforce: false`) records all of the above without changing any result, so budgets can run in production before the first cancelled event.
 
@@ -220,7 +237,7 @@ Shadow mode (`enforce: false`) records all of the above without changing any res
    Inert without budgets.
 3. **Wire + worker** — proto fields, `PARTIAL` acks in `WorkerIngestServer`, dispositions in `GrpcStreamIngestDriver`, worker-side cap config.
    Run shadow in production; read the overrun and would-have-cancelled metrics.
-4. **Consumer** — proto regen, `budget_ms` stamping, `PARTIAL` handling into the stash, e2e coverage in `grpc_transport_test.rs` and the integration harness.
+4. **Consumer** — proto regen, `budget_ms` stamping, the per-message reply shape with chunk index remapping, the mixed resolve path, completed-only watermarks, the escalation ladder, and e2e coverage in `grpc_transport_test.rs` and the integration harness.
    Enable end to end, budget ≈ 0.5 × watchdog.
 5. **Step adoption** — thread `StepContext.signal` into the steps the overrun metrics indict (person merge internals, hog transformer fetches); derive per-call deadlines from `remainingMs()`.
 
