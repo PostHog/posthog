@@ -65,6 +65,19 @@ export interface AIPromptConfigApi {
 }
 
 /**
+ * Shape of `anchor_info`. Declared for the schema only; the value is built in
+ * `Subscription.anchor_info` and serialized by the method field.
+ */
+export interface AnchorInfoApi {
+    /** Either 'Dashboard' or 'Insight'. */
+    kind: string
+    /** The anchor's display name. */
+    name: string
+    /** Link to the anchored resource. */
+    url: string
+}
+
+/**
  * * `email` - Email
  * * `slack` - Slack
  */
@@ -213,6 +226,8 @@ export interface SubscriptionApi {
      * @nullable
      */
     anchor_insight?: number | null
+    /** The dashboard or insight grounding an AI report, for display: kind, name, and url. Null when the subscription has no anchor or the anchor was deleted. */
+    readonly anchor_info: AnchorInfoApi | null
     /** Delivery channel: email or slack.
      *
      * * `email` - Email
@@ -371,6 +386,8 @@ export interface PatchedSubscriptionApi {
      * @nullable
      */
     anchor_insight?: number | null
+    /** The dashboard or insight grounding an AI report, for display: kind, name, and url. Null when the subscription has no anchor or the anchor was deleted. */
+    readonly anchor_info?: AnchorInfoApi | null
     /** Delivery channel: email or slack.
      *
      * * `email` - Email

@@ -262,6 +262,15 @@ class AIPromptConfigSerializer(serializers.Serializer):
     )
 
 
+class AnchorInfoSerializer(serializers.Serializer):
+    """Shape of `anchor_info`. Declared for the schema only; the value is built in
+    `Subscription.anchor_info` and serialized by the method field."""
+
+    kind = serializers.CharField(help_text="Either 'Dashboard' or 'Insight'.")
+    name = serializers.CharField(help_text="The anchor's display name.")
+    url = serializers.CharField(help_text="Link to the anchored resource.")
+
+
 class SubscriptionSerializer(serializers.ModelSerializer):
     """Standard Subscription serializer."""
 
@@ -310,6 +319,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     )
     insight_short_id = serializers.SerializerMethodField()
     resource_name = serializers.SerializerMethodField()
+    anchor_info = serializers.SerializerMethodField(
+        help_text=(
+            "The dashboard or insight grounding an AI report, for display: kind, name, and url. "
+            "Null when the subscription has no anchor or the anchor was deleted."
+        )
+    )
     resource_type = serializers.ChoiceField(
         choices=Subscription.ResourceType.choices,
         read_only=True,
@@ -335,6 +350,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "ai_prompt_config",
             "anchor_dashboard",
             "anchor_insight",
+            "anchor_info",
             "target_type",
             "target_value",
             "frequency",
@@ -365,6 +381,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "summary",
             "insight_short_id",
             "resource_name",
+            "anchor_info",
         ]
         extra_kwargs = {
             "prompt": {
@@ -436,6 +453,11 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if obj.insight_id and obj.insight is not None:
             return obj.insight.short_id
         return None
+
+    @extend_schema_field(AnchorInfoSerializer(allow_null=True))
+    def get_anchor_info(self, obj: Subscription) -> Optional[dict]:
+        info = obj.anchor_info
+        return {"kind": info.kind, "name": info.name, "url": info.url} if info else None
 
     def get_resource_name(self, obj: Subscription) -> Optional[str]:
         info = obj.resource_info

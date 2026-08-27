@@ -2679,6 +2679,31 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["anchor_dashboard"] is None
 
+    def test_anchor_info_carries_the_name_for_display(self, *mocks: MagicMock):
+        # The form pins the anchor by name; without this field it only has the id and cannot
+        # render anything the user recognises.
+        self._mock_temporal(mocks[-1])
+        self._enable_ai()
+        dashboard = Dashboard.objects.create(team=self.team, name="Growth", created_by=self.user)
+
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(anchor_dashboard=dashboard.id),
+        )
+
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        assert created.json()["anchor_info"] == {
+            "kind": "Dashboard",
+            "name": "Growth",
+            "url": dashboard.url,
+        }
+
+        # A deleted anchor grounds nothing, so it must not be pinned either.
+        dashboard.deleted = True
+        dashboard.save(update_fields=["deleted"])
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}")
+        assert retrieved.json()["anchor_info"] is None
+
     def test_cannot_anchor_to_a_deleted_dashboard(self, *mocks: MagicMock):
         # A deleted anchor resolves to no grounding at delivery, so accepting it would leave the
         # user believing the report is anchored when it silently is not.

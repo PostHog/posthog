@@ -458,6 +458,22 @@ class Subscription(ModelActivityMixin, models.Model):
         return None
 
     @property
+    def anchor_info(self) -> Optional[SubscriptionResource]:
+        """The resource grounding an AI report, for display. Distinct from `resource_info`, which
+        describes what the subscription delivers; the anchor is what it reads for context."""
+        if self.anchor_dashboard_id and self.anchor_dashboard and not self.anchor_dashboard.deleted:
+            return SubscriptionResource(
+                "Dashboard", self.anchor_dashboard.name or "Dashboard", self.anchor_dashboard.url
+            )
+        if self.anchor_insight_id and self.anchor_insight and not self.anchor_insight.deleted:
+            return SubscriptionResource(
+                "Insight",
+                self.anchor_insight.name or self.anchor_insight.derived_name or "Insight",
+                self.anchor_insight.url,
+            )
+        return None
+
+    @property
     def display_name(self) -> str:
         info = self.resource_info
         if info is not None:

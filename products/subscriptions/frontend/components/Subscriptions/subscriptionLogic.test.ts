@@ -806,6 +806,36 @@ describe('subscriptionLogic', () => {
         expect(capturedBody && 'anchor_insight' in capturedBody).toBe(false)
     })
 
+    it('sends null anchors when the user clears the anchor', async () => {
+        // Edits otherwise omit anchors entirely, so clearing needs to send an explicit null or
+        // the stored anchor survives and the report keeps using it.
+        let capturedBody: Record<string, unknown> | undefined
+        useMocks({
+            get: {
+                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                    resource_type: 'ai_prompt',
+                    prompt: 'Weekly gains',
+                    anchor_dashboard: 9,
+                }),
+            },
+            patch: {
+                '/api/environments/:team/subscriptions/1': async ({ request }) => {
+                    capturedBody = (await request.json()) as Record<string, unknown>
+                    return [200, { id: 1, ...capturedBody } as SubscriptionType]
+                },
+            },
+        })
+        const editLogic = subscriptionLogic({ dashboardId: 9, id: 1 })
+        editLogic.mount()
+        router.actions.push('/dashboard/9/subscriptions/1')
+        await expectLogic(editLogic).toFinishListeners().toDispatchActions(['loadSubscriptionSuccess'])
+        editLogic.actions.clearAnchor()
+        editLogic.actions.submitSubscription()
+        await expectLogic(editLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+        expect(capturedBody?.anchor_dashboard).toBeNull()
+        expect(capturedBody?.anchor_insight).toBeNull()
+    })
+
     it('drops a stale prompt when saving a non-AI subscription', async () => {
         // Toggling resource_type back to insight after typing a prompt leaves it in form state;
         // it must not be sent, else the backend rejects a non-AI sub that carries a prompt.
