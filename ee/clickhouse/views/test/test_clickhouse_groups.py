@@ -1522,10 +1522,10 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 200)
 
         group_type_mapping = get_group_type_mapping_instance(project_id=self.team.project_id, group_type_index=0)
-        self.assertNotEqual(group_type_mapping.detail_dashboard_id, dashboard.id)
-        self.assertTrue(
-            Dashboard.objects.filter(id=group_type_mapping.detail_dashboard_id, team_id=self.team.id).exists()
-        )
+        new_dashboard_id = group_type_mapping.detail_dashboard_id
+        assert new_dashboard_id is not None
+        self.assertNotEqual(new_dashboard_id, dashboard.id)
+        self.assertTrue(Dashboard.objects.filter(id=new_dashboard_id, team_id=self.team.id).exists())
 
     def test_create_detail_dashboard_not_found(self):
         response = self.client.put(
