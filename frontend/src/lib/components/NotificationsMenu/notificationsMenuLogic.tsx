@@ -146,6 +146,11 @@ export const notificationsMenuLogic = kea<notificationsMenuLogicType>([
             actions.showLayoutPanel(true)
         },
         openToUnread: () => {
+            // A critical toast can be clicked while the panel is already open. That only switches
+            // to the unread tab (the reducer above), so it must not report a panel open.
+            if (values.isNotificationsPanelActive) {
+                return
+            }
             actions.openNotificationsPanel('critical_toast')
         },
     })),

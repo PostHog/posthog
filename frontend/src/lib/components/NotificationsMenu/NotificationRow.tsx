@@ -158,7 +158,8 @@ export function NotificationRow({
 
     const hasNavigationTarget = !!sourcePathForNotification(notification)
     const handleOpen = (): void => {
-        // Fires for every deliberate click, including notifications with nothing to navigate to
+        // Sits outside the navigation guard below: a click on a notification with no target
+        // is still engagement
         notificationClicked(notification)
         // Clicking the card marks it read and navigates to its source
         if (!notification.read) {

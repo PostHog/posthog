@@ -57,6 +57,17 @@ describe('notificationsMenuLogic', () => {
         expect(logic.values.activeTab).toEqual('unread')
     })
 
+    it('does not report an open when a critical toast fires with the panel already open', () => {
+        logic.actions.toggleNotificationsPanel('bell')
+        captureSpy.mockClear()
+
+        logic.actions.openToUnread()
+
+        // The toast still switches to the unread tab, but no panel opened, so nothing to report
+        expect(captureSpy).not.toHaveBeenCalled()
+        expect(logic.values.activeTab).toEqual('unread')
+    })
+
     it('does not report an open when the bell closes the panel', () => {
         logic.actions.toggleNotificationsPanel('bell')
         captureSpy.mockClear()
