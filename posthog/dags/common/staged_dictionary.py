@@ -12,7 +12,6 @@ comparing their checksums means something.
 """
 
 from collections.abc import Sequence
-from dataclasses import dataclass
 from functools import partial
 from typing import Protocol
 
@@ -23,6 +22,7 @@ from clickhouse_driver import Client
 
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import ClickhouseCluster
+from posthog.dataclasses import frozen
 
 
 def _dictionary_s3_args(key: str, structure: str) -> str:
@@ -47,7 +47,7 @@ def _dictionary_s3_args(key: str, structure: str) -> str:
     return f"'{url}', {creds}'Parquet', '{escaped}'"
 
 
-@dataclass(frozen=True, kw_only=True)
+@frozen
 class StagedDictionary:
     """A dictionary's rows copied to one Parquet object, for clusters that share no Keeper.
 
