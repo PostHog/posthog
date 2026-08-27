@@ -247,6 +247,7 @@ rules:
                               |MessageSuppression
                               |MessageTemplate
                               |Metric
+                              |MetricsPipeline
                               |RelationshipProposal
                               |MCPAnalyticsSubmission
                               |MCPAuditEvent
@@ -617,6 +618,7 @@ rules:
                         |MessageSuppression
                         |MessageTemplate
                         |Metric
+                        |MetricsPipeline
                         |RelationshipProposal
                         |MCPAuditEvent
                         |MCPGatewayServer

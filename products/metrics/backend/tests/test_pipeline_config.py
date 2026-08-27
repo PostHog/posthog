@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 
 from parameterized import parameterized
@@ -6,7 +8,7 @@ from products.metrics.backend.facade.contracts import MAX_PIPELINE_EDGES
 from products.metrics.backend.facade.enums import HealthState, MetricAggregation
 from products.metrics.backend.pipeline_config import parse_pipeline_config, parse_relative_offset
 
-VALID_CONFIG = {
+VALID_CONFIG: dict[str, Any] = {
     "variables": [
         {
             "key": "environment",

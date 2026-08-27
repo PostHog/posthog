@@ -15,11 +15,12 @@ import type {
     MetricsAttributesRetrieveParams,
     MetricsPipelineApi,
     MetricsPipelineWriteApi,
+    MetricsPipelinesListParams,
     MetricsValuesRetrieveParams,
+    PaginatedMetricsPipelineListApi,
     PatchedMetricsPipelineWriteApi,
     PipelineEvaluateRequestApi,
     PipelineEvaluationApi,
-    PipelineListResponseApi,
     _HasMetricsResponseApi,
     _MetricAnomalyReportApi,
     _MetricAnomalyRequestApi,
@@ -286,8 +287,20 @@ export const metricsValuesRetrieve = async (
     })
 }
 
-export const getMetricsPipelinesListUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/metrics_pipelines/`
+export const getMetricsPipelinesListUrl = (projectId: string, params?: MetricsPipelinesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/metrics_pipelines/?${stringifiedParams}`
+        : `/api/projects/${projectId}/metrics_pipelines/`
 }
 
 /**
@@ -295,9 +308,10 @@ export const getMetricsPipelinesListUrl = (projectId: string) => {
  */
 export const metricsPipelinesList = async (
     projectId: string,
+    params?: MetricsPipelinesListParams,
     options?: RequestInit
-): Promise<PipelineListResponseApi[]> => {
-    return apiMutator<PipelineListResponseApi[]>(getMetricsPipelinesListUrl(projectId), {
+): Promise<PaginatedMetricsPipelineListApi> => {
+    return apiMutator<PaginatedMetricsPipelineListApi>(getMetricsPipelinesListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -367,7 +381,7 @@ export const getMetricsPipelinesDestroyUrl = (projectId: string, id: string) => 
 }
 
 /**
- * Soft-delete a pipeline: it disappears from lists but keeps its activity history.
+ * Soft-delete a pipeline: the row is retained but stops appearing in lists.
  */
 export const metricsPipelinesDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getMetricsPipelinesDestroyUrl(projectId, id), {

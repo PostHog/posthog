@@ -1,6 +1,6 @@
 import { Handle, NodeProps, Position } from '@xyflow/react'
 
-import { PipelineHealthState, PipelineNodeResultType, PipelineNodeType, formatStatValue } from './types'
+import { PipelineHealthState, PipelineNodeApi, PipelineNodeResultApi, formatStatValue, toHealthState } from './types'
 
 export const HEALTH_COLORS: Record<PipelineHealthState, string> = {
     healthy: 'var(--success)',
@@ -10,8 +10,8 @@ export const HEALTH_COLORS: Record<PipelineHealthState, string> = {
 }
 
 export interface PipelineNodeCardData {
-    node: PipelineNodeType
-    result?: PipelineNodeResultType
+    node: PipelineNodeApi
+    result?: PipelineNodeResultApi
     isSelected?: boolean
     onClick?: () => void
     [key: string]: unknown
@@ -19,7 +19,7 @@ export interface PipelineNodeCardData {
 
 export function PipelineNodeCard({ data }: NodeProps): JSX.Element {
     const { node, result, isSelected, onClick } = data as PipelineNodeCardData
-    const state: PipelineHealthState = result?.state ?? 'no_data'
+    const state: PipelineHealthState = toHealthState(result?.state ?? 'no_data')
     const accent = HEALTH_COLORS[state]
     const statsById = Object.fromEntries((result?.stats ?? []).map((stat) => [stat.id, stat]))
     const headlineIds = node.headline_stat_ids?.length
@@ -55,7 +55,7 @@ export function PipelineNodeCard({ data }: NodeProps): JSX.Element {
                             <span
                                 style={
                                     stat && (stat.state === 'degraded' || stat.state === 'critical')
-                                        ? { color: HEALTH_COLORS[stat.state] }
+                                        ? { color: HEALTH_COLORS[toHealthState(stat.state)] }
                                         : undefined
                                 }
                             >

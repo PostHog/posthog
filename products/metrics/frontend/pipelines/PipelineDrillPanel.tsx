@@ -5,13 +5,14 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
 import { HEALTH_COLORS } from './PipelineNodeCard'
 import {
-    PipelineBreakdownRowType,
-    PipelineConfigType,
-    PipelineEdgeResultType,
-    PipelineEvaluationType,
+    PipelineBreakdownRowApi,
+    PipelineConfigApi,
+    PipelineEdgeResultApi,
+    PipelineEvaluationApi,
     PipelineHealthState,
-    PipelineStatResultType,
+    PipelineStatResultApi,
     formatStatValue,
+    toHealthState,
 } from './types'
 
 const STATE_TAG: Record<PipelineHealthState, 'success' | 'warning' | 'danger' | 'muted'> = {
@@ -44,10 +45,13 @@ function Sparkline({ points }: { points: { value: number | null }[] }): JSX.Elem
     )
 }
 
-function StatCard({ stat }: { stat: PipelineStatResultType }): JSX.Element {
+function StatCard({ stat }: { stat: PipelineStatResultApi }): JSX.Element {
     return (
         <div className="border rounded p-2 bg-surface-primary">
-            <div className="font-mono text-base font-semibold" style={{ color: HEALTH_COLORS[stat.state] }}>
+            <div
+                className="font-mono text-base font-semibold"
+                style={{ color: HEALTH_COLORS[toHealthState(stat.state)] }}
+            >
                 {formatStatValue(stat.value, stat.format)}
             </div>
             <div className="text-[10px] uppercase tracking-wide text-muted mt-0.5">{stat.label}</div>
@@ -60,8 +64,8 @@ function BreakdownTable({
     others,
     groupByKey,
 }: {
-    rows: PipelineBreakdownRowType[]
-    others: PipelineBreakdownRowType | null
+    rows: PipelineBreakdownRowApi[]
+    others: PipelineBreakdownRowApi | null
     groupByKey: string
 }): JSX.Element {
     const allRows = others ? [...rows, others] : rows
@@ -79,8 +83,8 @@ function BreakdownTable({
 }
 
 export interface PipelineDrillPanelProps {
-    config: PipelineConfigType
-    evaluation: PipelineEvaluationType | null
+    config: PipelineConfigApi
+    evaluation: PipelineEvaluationApi | null
     selectedNodeId: string | null
     selectedEdgeKey: string | null
 }
@@ -102,11 +106,11 @@ export function PipelineDrillPanel({
                 <div className="flex items-center gap-2 border-b pb-2 mb-3">
                     <span
                         className="inline-block w-2.5 h-2.5 rounded-full"
-                        style={{ backgroundColor: HEALTH_COLORS[result?.state ?? 'no_data'] }}
+                        style={{ backgroundColor: HEALTH_COLORS[toHealthState(result?.state ?? 'no_data')] }}
                     />
                     <span className="font-semibold">{node.name}</span>
                     <span className="font-mono text-xs text-muted">{node.kind}</span>
-                    {result ? <LemonTag type={STATE_TAG[result.state]}>{result.state}</LemonTag> : null}
+                    {result ? <LemonTag type={STATE_TAG[toHealthState(result.state)]}>{result.state}</LemonTag> : null}
                 </div>
                 <div className="grid gap-2 grid-cols-2 md:grid-cols-4">
                     {(result?.stats ?? []).map((stat) => (
@@ -145,7 +149,7 @@ export function PipelineDrillPanel({
     }
 
     if (selectedEdgeKey) {
-        const edgeResult: PipelineEdgeResultType | undefined = evaluation?.edges.find(
+        const edgeResult: PipelineEdgeResultApi | undefined = evaluation?.edges.find(
             (edge) => `${edge.source}>${edge.target}` === selectedEdgeKey
         )
         const [source, target] = selectedEdgeKey.split('>')

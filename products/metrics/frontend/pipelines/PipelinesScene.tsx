@@ -15,7 +15,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { pipelinesFeaturePreviewGate } from '../featurePreviewGate'
 import { pipelinesLogic } from './pipelinesLogic'
-import { MetricsPipelineType } from './types'
+import { MetricsPipelineApi } from './types'
 
 export const scene: SceneExport = {
     component: MetricsPipelinesScene,
@@ -60,7 +60,7 @@ function MetricsPipelinesSceneContent(): JSX.Element {
                     {
                         title: 'Name',
                         dataIndex: 'name',
-                        render: (_, pipeline: MetricsPipelineType) => (
+                        render: (_, pipeline: MetricsPipelineApi) => (
                             <LemonButton to={urls.metricsPipeline(pipeline.id)} size="small">
                                 {pipeline.name}
                             </LemonButton>
@@ -69,19 +69,19 @@ function MetricsPipelinesSceneContent(): JSX.Element {
                     { title: 'Description', dataIndex: 'description' },
                     {
                         title: 'Nodes',
-                        render: (_, pipeline: MetricsPipelineType) => pipeline.config.nodes.length,
+                        render: (_, pipeline: MetricsPipelineApi) => pipeline.config.nodes.length,
                     },
                     {
                         title: 'Created by',
-                        render: (_, pipeline: MetricsPipelineType) => pipeline.created_by?.email ?? '—',
+                        render: (_, pipeline: MetricsPipelineApi) => pipeline.created_by?.email ?? '—',
                     },
-                    createdAtColumn<MetricsPipelineType>() as LemonTableColumn<
-                        MetricsPipelineType,
-                        keyof MetricsPipelineType | undefined
+                    createdAtColumn<MetricsPipelineApi>() as LemonTableColumn<
+                        MetricsPipelineApi,
+                        keyof MetricsPipelineApi | undefined
                     >,
                     {
                         title: '',
-                        render: (_, pipeline: MetricsPipelineType) => (
+                        render: (_, pipeline: MetricsPipelineApi) => (
                             <LemonButton
                                 size="small"
                                 status="danger"

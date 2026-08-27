@@ -3,7 +3,7 @@ import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, p
 
 import { getFormattedNodes } from 'scenes/data-warehouse/scene/modeling/autolayout'
 
-import { PipelineEdgeType, PipelineNodeType } from './types'
+import { PipelineEdgeApi, PipelineNodeApi } from './types'
 
 const NODE_WIDTH = 190
 const NODE_HEIGHT = 110
@@ -14,18 +14,18 @@ export interface PipelineGraphLayout {
 }
 
 export interface PipelineGraphLogicProps {
-    nodes: PipelineNodeType[]
-    edges: PipelineEdgeType[]
+    nodes: PipelineNodeApi[]
+    edges: PipelineEdgeApi[]
 }
 
-export function edgeKey(edge: PipelineEdgeType): string {
+export function edgeKey(edge: PipelineEdgeApi): string {
     return `${edge.source}>${edge.target}`
 }
 
 // Layout depends only on the graph's structure — health states, selection,
 // and callbacks are decorated onto the laid-out nodes at render time so a
 // refresh tick never retriggers the ELK pass.
-async function layoutGraph(nodes: PipelineNodeType[], edges: PipelineEdgeType[]): Promise<PipelineGraphLayout> {
+async function layoutGraph(nodes: PipelineNodeApi[], edges: PipelineEdgeApi[]): Promise<PipelineGraphLayout> {
     const rfNodes: ReactFlowNode[] = nodes.map((node) => ({
         id: node.id,
         type: 'pipeline',

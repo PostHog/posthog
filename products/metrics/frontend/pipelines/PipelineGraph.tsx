@@ -9,11 +9,11 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { edgeKey, pipelineGraphLogic } from './pipelineGraphLogic'
 import { PIPELINE_NODE_TYPES, PipelineNodeCardData } from './PipelineNodeCard'
-import { PipelineConfigType, PipelineEvaluationType, PipelineNodeType, formatStatValue } from './types'
+import { PipelineConfigApi, PipelineEvaluationApi, PipelineNodeApi, formatStatValue } from './types'
 
 export interface PipelineGraphProps {
-    config: PipelineConfigType
-    evaluation: PipelineEvaluationType | null
+    config: PipelineConfigApi
+    evaluation: PipelineEvaluationApi | null
     selectedNodeId: string | null
     selectedEdgeKey: string | null
     onSelectNode: (nodeId: string | null) => void
@@ -22,7 +22,7 @@ export interface PipelineGraphProps {
 
 function PipelineGraphContent(props: PipelineGraphProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
-    const { layout } = useValues(pipelineGraphLogic({ nodes: props.config.nodes, edges: props.config.edges }))
+    const { layout } = useValues(pipelineGraphLogic({ nodes: props.config.nodes, edges: props.config.edges ?? [] }))
 
     if (!layout) {
         return (
@@ -40,7 +40,7 @@ function PipelineGraphContent(props: PipelineGraphProps): JSX.Element {
     // Cheap per-render pass: verdicts, selection, and click handlers change
     // without retriggering the ELK layout.
     const decoratedNodes = layout.nodes.map((rfNode) => {
-        const node = (rfNode.data as PipelineNodeCardData).node as PipelineNodeType
+        const node = (rfNode.data as PipelineNodeCardData).node as PipelineNodeApi
         return {
             ...rfNode,
             data: {

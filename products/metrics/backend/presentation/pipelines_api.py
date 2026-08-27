@@ -107,7 +107,7 @@ class PipelineBreakdownSerializer(serializers.Serializer):
 
 class PipelineStatSerializer(serializers.Serializer):
     id = serializers.CharField(max_length=64, help_text="Stat id, unique within its node.")
-    label = serializers.CharField(max_length=120, help_text="Display label for the stat.")
+    label = serializers.CharField(max_length=120, help_text="Display label for the stat.")  # type: ignore[assignment]  # field named `label` shadows DRF Field.label
     format = serializers.CharField(
         max_length=16,
         required=False,
@@ -146,7 +146,7 @@ class PipelineStatSerializer(serializers.Serializer):
 
 
 class PipelineLinkSerializer(serializers.Serializer):
-    label = serializers.CharField(max_length=120, help_text="Link text shown on the drill panel.")
+    label = serializers.CharField(max_length=120, help_text="Link text shown on the drill panel.")  # type: ignore[assignment]  # field named `label` shadows DRF Field.label
     url = serializers.CharField(max_length=2048, help_text="Destination URL.")
 
 
@@ -174,7 +174,7 @@ class PipelineNodeSerializer(serializers.Serializer):
 
 
 class PipelineEdgeSerializer(serializers.Serializer):
-    source = serializers.CharField(max_length=64, help_text="Upstream node id.")
+    source = serializers.CharField(max_length=64, help_text="Upstream node id.")  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
     target = serializers.CharField(max_length=64, help_text="Downstream node id.")
     metric_name = serializers.CharField(max_length=255, help_text="Metric measuring throughput along this edge.")
     aggregation = serializers.CharField(
@@ -206,7 +206,7 @@ class PipelineEdgeSerializer(serializers.Serializer):
 
 class PipelineVariableSerializer(serializers.Serializer):
     key = serializers.CharField(max_length=64, help_text="Variable key referenced when evaluating.")
-    label = serializers.CharField(max_length=120, help_text="Display label of the selector.")
+    label = serializers.CharField(max_length=120, help_text="Display label of the selector.")  # type: ignore[assignment]  # field named `label` shadows DRF Field.label
     filter_key = serializers.CharField(
         max_length=255, help_text="Metric label the chosen value filters on (e.g. 'k8s.cluster.name')."
     )
@@ -271,11 +271,6 @@ class MetricsPipelineWriteSerializer(serializers.Serializer):
         return value
 
 
-class PipelineListResponseSerializer(serializers.Serializer):
-    count = serializers.IntegerField(help_text="Total pipelines for the team.")
-    results = MetricsPipelineSerializer(many=True, help_text="The team's pipelines, newest first.")
-
-
 class PipelineEvaluateRequestSerializer(serializers.Serializer):
     variables = serializers.DictField(
         child=serializers.CharField(max_length=255, help_text="Chosen value for the variable."),
@@ -302,13 +297,13 @@ class PipelineEvaluateRequestSerializer(serializers.Serializer):
 
 
 class PipelineBreakdownRowSerializer(serializers.Serializer):
-    label = serializers.CharField(help_text="Label value of the row (e.g. the partition id).")
+    label = serializers.CharField(help_text="Label value of the row (e.g. the partition id).")  # type: ignore[assignment]  # field named `label` shadows DRF Field.label
     value = serializers.FloatField(help_text="Latest reported value for the row.")
 
 
 class PipelineStatResultSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Stat id from the config.")
-    label = serializers.CharField(help_text="Display label from the config.")
+    label = serializers.CharField(help_text="Display label from the config.")  # type: ignore[assignment]  # field named `label` shadows DRF Field.label
     format = serializers.CharField(help_text="Display format hint from the config.")
     value = serializers.FloatField(allow_null=True, help_text="Latest reported value; null when the stat is silent.")
     state = serializers.CharField(help_text="Health verdict: 'healthy', 'degraded', 'critical', or 'no_data'.")
@@ -332,7 +327,7 @@ class PipelinePointSerializer(serializers.Serializer):
 
 
 class PipelineEdgeResultSerializer(serializers.Serializer):
-    source = serializers.CharField(help_text="Upstream node id.")
+    source = serializers.CharField(help_text="Upstream node id.")  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
     target = serializers.CharField(help_text="Downstream node id.")
     current_value = serializers.FloatField(allow_null=True, help_text="Mean throughput over the current window.")
     baseline_value = serializers.FloatField(allow_null=True, help_text="Mean throughput over the baseline window.")
@@ -358,11 +353,13 @@ class PipelineEvaluationSerializer(serializers.Serializer):
     date_to = serializers.CharField(help_text="Evaluated window end, ISO 8601.")
 
 
-class MetricsPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+class MetricsPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Model-free viewset: the metrics product is isolated, so all data access
     goes through the facade's pipeline functions and their contracts."""
 
     scope_object = "metrics"
+    scope_object_read_actions = ["list", "retrieve", "evaluate"]
+    scope_object_write_actions = ["create", "partial_update", "destroy"]
     serializer_class = MetricsPipelineSerializer
     lookup_value_regex = r"[^/]+"
     # Pipelines gate independently of the base metrics viewer so the surface
@@ -372,12 +369,15 @@ class MetricsPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     permission_classes = [PostHogFeatureFlagPermission]
 
     @extend_schema(
-        responses={200: PipelineListResponseSerializer},
+        responses={200: MetricsPipelineSerializer(many=True)},
         description="List the team's pipelines, newest first.",
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
-        records = list_pipelines(team=self.team)
-        return Response({"count": len(records), "results": [asdict(record) for record in records]})
+        records = [asdict(record) for record in list_pipelines(team=self.team)]
+        page = self.paginate_queryset(records)
+        if page is not None:
+            return self.get_paginated_response(page)
+        return Response(records)
 
     @extend_schema(
         request=MetricsPipelineWriteSerializer,

@@ -1,150 +1,51 @@
-// Wire types for the metrics pipelines API. These mirror the serializers in
-// products/metrics/backend/presentation/pipelines_api.py until `hogli
-// build:openapi` publishes generated equivalents to swap in.
+// Wire types come from the generated client; this module only re-exports them
+// under local names and holds the display helpers that have no server side.
 
+import type {
+    MetricsPipelineApi,
+    PipelineAlertApi,
+    PipelineBreakdownRowApi,
+    PipelineConfigApi,
+    PipelineEdgeApi,
+    PipelineEdgeResultApi,
+    PipelineEvaluationApi,
+    PipelineNodeApi,
+    PipelineNodeResultApi,
+    PipelinePointApi,
+    PipelineStatApi,
+    PipelineStatResultApi,
+    PipelineThresholdsApi,
+    PipelineVariableApi,
+} from '../generated/api.schemas'
+
+export type {
+    MetricsPipelineApi,
+    PipelineAlertApi,
+    PipelineBreakdownRowApi,
+    PipelineConfigApi,
+    PipelineEdgeApi,
+    PipelineEdgeResultApi,
+    PipelineEvaluationApi,
+    PipelineNodeApi,
+    PipelineNodeResultApi,
+    PipelinePointApi,
+    PipelineStatApi,
+    PipelineStatResultApi,
+    PipelineThresholdsApi,
+    PipelineVariableApi,
+}
+
+// The serializer keeps these as free-form strings so the OpenAPI spec does not
+// grow a component per vocabulary, so the closed sets live here.
 export type PipelineHealthState = 'healthy' | 'degraded' | 'critical' | 'no_data'
 export type PipelineStatFormat = 'rate' | 'bytes' | 'pct' | 'count' | 'duration'
 
-export interface PipelineFilterType {
-    key: string
-    op?: 'eq' | 'neq' | 'regex' | 'not_regex'
-    value: string
-    scope?: 'resource' | 'attribute' | 'auto'
+/** Narrow a server-sent state string, falling back to no_data for anything unrecognised. */
+export function toHealthState(state: string): PipelineHealthState {
+    return state === 'healthy' || state === 'degraded' || state === 'critical' ? state : 'no_data'
 }
 
-export interface PipelineThresholdBoundsType {
-    lower?: number | null
-    upper?: number | null
-}
-
-export interface PipelineThresholdsType {
-    warn?: PipelineThresholdBoundsType | null
-    crit?: PipelineThresholdBoundsType | null
-}
-
-export interface PipelineBreakdownType {
-    group_by_key: string
-    top_n?: number
-    scope?: 'resource' | 'attribute' | 'auto'
-}
-
-export interface PipelineStatType {
-    id: string
-    label: string
-    format?: PipelineStatFormat
-    metric_name: string
-    aggregation?: string
-    quantile?: number | null
-    metric_type?: string | null
-    filters?: PipelineFilterType[]
-    thresholds?: PipelineThresholdsType | null
-    breakdown?: PipelineBreakdownType | null
-}
-
-export interface PipelineLinkType {
-    label: string
-    url: string
-}
-
-export interface PipelineNodeType {
-    id: string
-    name: string
-    kind?: string
-    stats: PipelineStatType[]
-    headline_stat_ids?: string[]
-    links?: PipelineLinkType[]
-    note?: string
-}
-
-export interface PipelineEdgeType {
-    source: string
-    target: string
-    metric_name: string
-    aggregation?: string
-    quantile?: number | null
-    metric_type?: string | null
-    filters?: PipelineFilterType[]
-    baseline_offset?: string
-    hot_multiplier?: number
-}
-
-export interface PipelineVariableType {
-    key: string
-    label: string
-    filter_key: string
-    options?: string[]
-    default?: string | null
-}
-
-export interface PipelineConfigType {
-    nodes: PipelineNodeType[]
-    edges: PipelineEdgeType[]
-    variables?: PipelineVariableType[]
-}
-
-export interface MetricsPipelineType {
-    id: string
-    name: string
-    description: string
-    config: PipelineConfigType
-    enabled: boolean
-    created_at: string
-    created_by: { id: number; email: string; first_name?: string } | null
-    updated_at: string | null
-}
-
-export interface PipelineBreakdownRowType {
-    label: string
-    value: number
-}
-
-export interface PipelineStatResultType {
-    id: string
-    label: string
-    format: PipelineStatFormat
-    value: number | null
-    state: PipelineHealthState
-    breakdown_rows: PipelineBreakdownRowType[]
-    breakdown_others: PipelineBreakdownRowType | null
-}
-
-export interface PipelineNodeResultType {
-    id: string
-    state: PipelineHealthState
-    stats: PipelineStatResultType[]
-}
-
-export interface PipelinePointType {
-    time: string
-    value: number | null
-}
-
-export interface PipelineEdgeResultType {
-    source: string
-    target: string
-    current_value: number | null
-    baseline_value: number | null
-    multiplier: number | null
-    hot: boolean
-    points: PipelinePointType[]
-}
-
-export interface PipelineAlertType {
-    severity: 'warning' | 'critical'
-    node_id: string
-    stat_id: string
-    message: string
-}
-
-export interface PipelineEvaluationType {
-    nodes: PipelineNodeResultType[]
-    edges: PipelineEdgeResultType[]
-    alerts: PipelineAlertType[]
-    date_from: string
-    date_to: string
-}
-
-export function formatStatValue(value: number | null, format: PipelineStatFormat): string {
+export function formatStatValue(value: number | null, format: string): string {
     if (value === null) {
         return '—'
     }

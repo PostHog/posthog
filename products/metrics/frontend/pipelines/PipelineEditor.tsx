@@ -22,7 +22,7 @@ import {
     withUpperBound,
 } from './configEdits'
 import { PipelineLogicProps, pipelineLogic } from './pipelineLogic'
-import { PipelineConfigType, PipelineStatFormat } from './types'
+import { PipelineConfigApi, PipelineStatFormat } from './types'
 
 const AGGREGATION_OPTIONS = ['sum', 'avg', 'count', 'rate', 'increase', 'quantile', 'histogram_quantile'].map(
     (value) => ({ value, label: value })
@@ -38,7 +38,7 @@ export function PipelineEditor({ id }: PipelineLogicProps): JSX.Element {
         return <></>
     }
     const config = draft.config
-    const setConfig = (next: PipelineConfigType): void => setDraft({ ...draft, config: next })
+    const setConfig = (next: PipelineConfigApi): void => setDraft({ ...draft, config: next })
     const nodeOptions = config.nodes.map((node) => ({ value: node.id, label: node.name || node.id }))
 
     return (
@@ -268,7 +268,7 @@ export function PipelineEditor({ id }: PipelineLogicProps): JSX.Element {
                         onClick={() => {
                             const edge = emptyEdge(config)
                             if (edge) {
-                                setConfig({ ...config, edges: [...config.edges, edge] })
+                                setConfig({ ...config, edges: [...(config.edges ?? []), edge] })
                             }
                         }}
                         data-attr="pipeline-editor-add-edge"
@@ -276,7 +276,7 @@ export function PipelineEditor({ id }: PipelineLogicProps): JSX.Element {
                         Add edge
                     </LemonButton>
                 </div>
-                {config.edges.map((edge, edgeIndex) => (
+                {(config.edges ?? []).map((edge, edgeIndex) => (
                     <div key={edgeIndex} className="border rounded p-2 mb-2 grid grid-cols-6 gap-2 items-end">
                         <div>
                             <LemonLabel>From</LemonLabel>

@@ -3,12 +3,12 @@
 // setDraft action, so every edit stays a plain reducer update.
 
 import {
-    PipelineConfigType,
-    PipelineEdgeType,
-    PipelineNodeType,
-    PipelineStatType,
-    PipelineThresholdsType,
-    PipelineVariableType,
+    PipelineConfigApi,
+    PipelineEdgeApi,
+    PipelineNodeApi,
+    PipelineStatApi,
+    PipelineThresholdsApi,
+    PipelineVariableApi,
 } from './types'
 
 let nextSuffix = 1
@@ -21,7 +21,7 @@ function uniqueId(prefix: string, taken: string[]): string {
     return candidate
 }
 
-export function emptyStat(node: PipelineNodeType): PipelineStatType {
+export function emptyStat(node: PipelineNodeApi): PipelineStatApi {
     return {
         id: uniqueId(
             'new_stat',
@@ -35,7 +35,7 @@ export function emptyStat(node: PipelineNodeType): PipelineStatType {
     }
 }
 
-export function emptyNode(config: PipelineConfigType): PipelineNodeType {
+export function emptyNode(config: PipelineConfigApi): PipelineNodeApi {
     const id = uniqueId(
         'new_node',
         config.nodes.map((n) => n.id)
@@ -43,7 +43,7 @@ export function emptyNode(config: PipelineConfigType): PipelineNodeType {
     return { id, name: 'New node', kind: '', stats: [], headline_stat_ids: [], links: [], note: '' }
 }
 
-export function emptyEdge(config: PipelineConfigType): PipelineEdgeType | null {
+export function emptyEdge(config: PipelineConfigApi): PipelineEdgeApi | null {
     if (config.nodes.length < 2) {
         return null
     }
@@ -57,22 +57,22 @@ export function emptyEdge(config: PipelineConfigType): PipelineEdgeType | null {
     }
 }
 
-export function emptyVariable(): PipelineVariableType {
+export function emptyVariable(): PipelineVariableApi {
     return { key: 'environment', label: 'Environment', filter_key: '', options: [] }
 }
 
 export function updateNode(
-    config: PipelineConfigType,
+    config: PipelineConfigApi,
     index: number,
-    patch: Partial<PipelineNodeType>
-): PipelineConfigType {
+    patch: Partial<PipelineNodeApi>
+): PipelineConfigApi {
     const previousId = config.nodes[index].id
     const nodes = config.nodes.map((node, i) => (i === index ? { ...node, ...patch } : node))
     // Renaming a node id keeps its edges attached.
     const newId = patch.id
     const edges =
         newId && newId !== previousId
-            ? config.edges.map((edge) => ({
+            ? (config.edges ?? []).map((edge) => ({
                   ...edge,
                   source: edge.source === previousId ? newId : edge.source,
                   target: edge.target === previousId ? newId : edge.target,
@@ -81,12 +81,12 @@ export function updateNode(
     return { ...config, nodes, edges }
 }
 
-export function removeNode(config: PipelineConfigType, index: number): PipelineConfigType {
+export function removeNode(config: PipelineConfigApi, index: number): PipelineConfigApi {
     const removedId = config.nodes[index].id
     return {
         ...config,
         nodes: config.nodes.filter((_, i) => i !== index),
-        edges: config.edges.filter((edge) => edge.source !== removedId && edge.target !== removedId),
+        edges: (config.edges ?? []).filter((edge) => edge.source !== removedId && edge.target !== removedId),
     }
 }
 
@@ -95,10 +95,10 @@ export function removeNode(config: PipelineConfigType, index: number): PipelineC
  * object would silently drop a lower bound set through the API. Clearing the
  * input drops the severity only when there is no lower bound left to keep. */
 export function withUpperBound(
-    thresholds: PipelineThresholdsType | null | undefined,
+    thresholds: PipelineThresholdsApi | null | undefined,
     severity: 'warn' | 'crit',
     upper: number | undefined
-): PipelineThresholdsType {
+): PipelineThresholdsApi {
     const existing = thresholds?.[severity]
     const lower = existing?.lower ?? null
     if (upper === undefined) {
@@ -108,11 +108,11 @@ export function withUpperBound(
 }
 
 export function updateStat(
-    config: PipelineConfigType,
+    config: PipelineConfigApi,
     nodeIndex: number,
     statIndex: number,
-    patch: Partial<PipelineStatType>
-): PipelineConfigType {
+    patch: Partial<PipelineStatApi>
+): PipelineConfigApi {
     return {
         ...config,
         nodes: config.nodes.map((node, i) =>
@@ -123,7 +123,7 @@ export function updateStat(
     }
 }
 
-export function removeStat(config: PipelineConfigType, nodeIndex: number, statIndex: number): PipelineConfigType {
+export function removeStat(config: PipelineConfigApi, nodeIndex: number, statIndex: number): PipelineConfigApi {
     return {
         ...config,
         nodes: config.nodes.map((node, i) =>
@@ -139,28 +139,28 @@ export function removeStat(config: PipelineConfigType, nodeIndex: number, statIn
 }
 
 export function updateEdge(
-    config: PipelineConfigType,
+    config: PipelineConfigApi,
     index: number,
-    patch: Partial<PipelineEdgeType>
-): PipelineConfigType {
-    return { ...config, edges: config.edges.map((edge, i) => (i === index ? { ...edge, ...patch } : edge)) }
+    patch: Partial<PipelineEdgeApi>
+): PipelineConfigApi {
+    return { ...config, edges: (config.edges ?? []).map((edge, i) => (i === index ? { ...edge, ...patch } : edge)) }
 }
 
-export function removeEdge(config: PipelineConfigType, index: number): PipelineConfigType {
-    return { ...config, edges: config.edges.filter((_, i) => i !== index) }
+export function removeEdge(config: PipelineConfigApi, index: number): PipelineConfigApi {
+    return { ...config, edges: (config.edges ?? []).filter((_, i) => i !== index) }
 }
 
 export function updateVariable(
-    config: PipelineConfigType,
+    config: PipelineConfigApi,
     index: number,
-    patch: Partial<PipelineVariableType>
-): PipelineConfigType {
+    patch: Partial<PipelineVariableApi>
+): PipelineConfigApi {
     return {
         ...config,
         variables: (config.variables ?? []).map((variable, i) => (i === index ? { ...variable, ...patch } : variable)),
     }
 }
 
-export function removeVariable(config: PipelineConfigType, index: number): PipelineConfigType {
+export function removeVariable(config: PipelineConfigApi, index: number): PipelineConfigApi {
     return { ...config, variables: (config.variables ?? []).filter((_, i) => i !== index) }
 }

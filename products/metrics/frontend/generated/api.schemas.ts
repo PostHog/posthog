@@ -1021,10 +1021,12 @@ export interface MetricsPipelineApi {
     updated_at: string | null
 }
 
-export interface PipelineListResponseApi {
-    /** Total pipelines for the team. */
+export interface PaginatedMetricsPipelineListApi {
     count: number
-    /** The team's pipelines, newest first. */
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
     results: MetricsPipelineApi[]
 }
 
@@ -1251,4 +1253,15 @@ export type MetricsValuesRetrieveParams = {
      * @maxLength 255
      */
     value?: string
+}
+
+export type MetricsPipelinesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }

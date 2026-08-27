@@ -53948,6 +53948,15 @@ export namespace Schemas {
       results: MessageTemplate[];
     }
 
+    export interface PaginatedMetricsPipelineList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MetricsPipeline[];
+    }
+
     export interface PaginatedNodeList {
       count: number;
       /** @nullable */
@@ -67739,13 +67748,6 @@ export namespace Schemas {
       date_from: string;
       /** Evaluated window end, ISO 8601. */
       date_to: string;
-    }
-
-    export interface PipelineListResponse {
-      /** Total pipelines for the team. */
-      count: number;
-      /** The team's pipelines, newest first. */
-      results: MetricsPipeline[];
     }
 
     export interface PlainThreadSignalExtra {
@@ -95723,6 +95725,17 @@ export namespace Schemas {
      * @maxLength 255
      */
     value?: string;
+    };
+
+    export type MetricsPipelinesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type NotebooksListParams = {
