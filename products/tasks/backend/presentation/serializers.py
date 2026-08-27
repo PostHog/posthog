@@ -2031,6 +2031,54 @@ class OnboardingSessionSerializer(serializers.Serializer):
     task_id = serializers.UUIDField(help_text="The agent session opened in the team's #general space.")
 
 
+class OnboardingSessionTestResponseSerializer(OnboardingSessionSerializer):
+    channel_id = serializers.UUIDField(help_text="The requester's personal space containing the session.")
+
+
+class OnboardingSessionTestSerializer(serializers.Serializer):
+    company_domain = serializers.CharField(
+        required=False,
+        default="",
+        allow_blank=True,
+        max_length=253,
+        help_text="Company domain to research. Blank simulates a personal email address.",
+    )
+    joining_existing_organization = serializers.BooleanField(
+        default=False,
+        help_text="Whether the user is joining an organization that already has shared context.",
+    )
+    has_events = serializers.BooleanField(default=False, help_text="Whether the project has ingested events.")
+    signal_reports_waiting = serializers.IntegerField(
+        default=0, min_value=0, max_value=10000, help_text="Number of findings waiting in #general."
+    )
+    other_members = serializers.ListField(
+        child=serializers.CharField(max_length=100),
+        default=list,
+        max_length=25,
+        help_text="Display names of other Desktop users in the organization.",
+    )
+    sources_enabled = serializers.ListField(
+        child=serializers.CharField(max_length=100),
+        default=list,
+        max_length=25,
+        help_text="Signal sources that were already enabled.",
+    )
+    sources_watching = serializers.ListField(
+        child=serializers.CharField(max_length=100),
+        default=list,
+        max_length=25,
+        help_text="Signal sources the onboarding flow is watching.",
+    )
+    sources_newly_enabled = serializers.BooleanField(
+        default=False, help_text="Whether onboarding enabled any signal sources."
+    )
+
+
+class TeachingCanvasSerializer(serializers.Serializer):
+    canvas_id = serializers.UUIDField(help_text="The teaching canvas that was resolved or created.")
+    channel_id = serializers.UUIDField(help_text="The requester's personal space containing the canvas.")
+
+
 class ProvisionedChannelsSerializer(serializers.Serializer):
     """The requester's default channels, plus whether this call is what created them."""
 
@@ -3766,8 +3814,12 @@ class TaskRunSessionLogsQuerySerializer(serializers.Serializer):
     )
 
 
+# One serializer for every read. The list used to carry a subset, and because the settings
+# page edits an environment straight off the list, each field missing there read as unset
+# rather than as unfetched: a saved variable set looked empty. Both also generated the same
+# OpenAPI component, so the narrower one is what downstream clients were typed against.
 class SandboxEnvironmentSerializer(DataclassSerializer):
-    """Detail/create/update response for a sandbox environment."""
+    """A sandbox environment, as returned by list, detail, create and update."""
 
     created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
 
@@ -3781,6 +3833,7 @@ class SandboxEnvironmentSerializer(DataclassSerializer):
             "include_default_domains",
             "repositories",
             "has_environment_variables",
+            "environment_variable_keys",
             "private",
             "internal",
             "effective_domains",
@@ -3791,30 +3844,16 @@ class SandboxEnvironmentSerializer(DataclassSerializer):
             "custom_image_name",
             "custom_image_status",
         ]
-
-
-class SandboxEnvironmentListSerializer(DataclassSerializer):
-    """List response for sandbox environments (subset of fields)."""
-
-    created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
-
-    class Meta:
-        dataclass = SandboxEnvironmentDTO
-        fields = [
-            "id",
-            "name",
-            "network_access_level",
-            "allowed_domains",
-            "repositories",
-            "private",
-            "internal",
-            "created_by",
-            "created_at",
-            "updated_at",
-            "custom_image_id",
-            "custom_image_name",
-            "custom_image_status",
-        ]
+        extra_kwargs = {
+            "has_environment_variables": {
+                "help_text": "Whether any environment variables are set on this environment."
+            },
+            "environment_variable_keys": {
+                "help_text": (
+                    "Names of the environment variables that are set, sorted. Values are write-only and never returned."
+                )
+            },
+        }
 
 
 class SandboxEnvironmentWriteSerializer(serializers.Serializer):

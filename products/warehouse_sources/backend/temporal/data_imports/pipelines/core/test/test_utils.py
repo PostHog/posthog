@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     apply_enabled_columns_projection,
     conditional_lru_cache_async,
     evolve_pyarrow_schema,
+    hex_encode_id_binary_columns,
     is_safe_numeric_widening,
     merge_observed_columns_into_schema_metadata,
     normalize_table_column_names,
@@ -377,6 +378,48 @@ def test_table_from_py_list_keeps_binary_id_column_with_schema():
     assert table.column("id").to_pylist() == ["01ff", None]
     assert table.schema.field("id").type == pa.string()
     assert table.column("column").to_pylist() == ["hello", "world"]
+
+
+@pytest.mark.parametrize(
+    "column_name,column_type,primary_keys,expected_values,expected_type",
+    [
+        ("id", pa.binary(), None, ["bdd640", None], pa.string()),
+        ("order_id", pa.binary(), None, ["bdd640", None], pa.string()),
+        ("sk_load", pa.binary(), ["sk_load"], ["bdd640", None], pa.string()),
+        ("sk_load", pa.large_binary(), ["sk_load"], ["bdd640", None], pa.large_string()),
+        ("sk_load", pa.binary(), None, [b"\xbd\xd6\x40", None], pa.binary()),
+        ("payload", pa.binary(), None, [b"\xbd\xd6\x40", None], pa.binary()),
+    ],
+)
+def test_hex_encode_id_binary_columns(
+    column_name: str,
+    column_type: pa.DataType,
+    primary_keys: list[str] | None,
+    expected_values: list[Any],
+    expected_type: pa.DataType,
+):
+    table = pa.table({column_name: pa.array([b"\xbd\xd6\x40", None], type=column_type), "other": [1.0, 2.0]})
+
+    converted = hex_encode_id_binary_columns(table, primary_keys)
+
+    assert converted.column(column_name).to_pylist() == expected_values
+    assert converted.column("other").to_pylist() == [1.0, 2.0]
+    assert converted.schema.field(column_name).type == expected_type
+
+
+def test_hex_encode_id_binary_columns_keeps_chunk_order_and_nulls():
+    chunked = pa.chunked_array(
+        [
+            pa.array([b"\xbd\xd6\x40", None], type=pa.binary()),
+            pa.array([None, b"\x01\xff"], type=pa.binary()),
+        ]
+    )
+    table = pa.table({"id": chunked})
+
+    converted = hex_encode_id_binary_columns(table)
+
+    assert converted.column("id").to_pylist() == ["bdd640", None, None, "01ff"]
+    assert converted.schema.field("id").type == pa.string()
 
 
 def test_binary_column_reporter_logs_each_column_once_across_batches():
@@ -928,6 +971,34 @@ def test_evolve_pyarrow_schema_whole_valued_floats_cast_into_stored_integer_colu
 
     assert evolved_table.schema.field("val").type == pa.int64()
     assert evolved_table.column("val").to_pylist() == [10, 20]
+
+
+@pytest.mark.parametrize(
+    "merge_key_columns,raises",
+    [
+        (["val"], True),
+        (None, False),
+    ],
+)
+def test_evolve_pyarrow_schema_guards_only_merge_keys_against_hex_text(
+    merge_key_columns: list[str] | None, raises: bool
+):
+    arrow_table = pa.table(
+        {
+            "id": pa.array([1, 2], type=pa.int64()),
+            "val": pa.array(["01ff", "02ff"], type=pa.string()),
+        }
+    )
+    delta_schema = deltalake.Schema.from_arrow(
+        pa.schema(cast(Any, [pa.field("id", pa.int64(), nullable=False), pa.field("val", pa.binary(), nullable=True)]))
+    )
+
+    if raises:
+        with pytest.raises(SchemaColumnTypeChangedException, match="merge key"):
+            evolve_pyarrow_schema(arrow_table, delta_schema, merge_key_columns=merge_key_columns)
+    else:
+        evolved = evolve_pyarrow_schema(arrow_table, delta_schema, merge_key_columns=merge_key_columns)
+        assert evolved.column("val").to_pylist() == [b"01ff", b"02ff"]
 
 
 @pytest.mark.parametrize(

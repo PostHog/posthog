@@ -24,6 +24,7 @@ from posthog.models.user_integration import UserIntegration
 
 from products.signals.backend.models import InvalidStatusTransition, SignalReport
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
+from products.tasks.backend.constants import PR_LOOP_ENABLED_STATE_KEY
 from products.tasks.backend.facade.api import post_pr_created_thread_update, signal_workflow_completion
 from products.tasks.backend.facade.cancellation import cancel_task_run
 from products.tasks.backend.metrics import (
@@ -380,10 +381,10 @@ def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:
     # log batches at exactly this moment — and append_log's read-modify-write would race it.
     # Tolerant: a stream hiccup must not fail the webhook; clients recover on refetch.
     try:
-        for event in (
-            task_run.build_progress_event("pr", "completed", "Opened pull request", "setup", detail=pr_url),
-            task_run.build_progress_event("ci", "in_progress", "Keeping CI green", "setup"),
-        ):
+        events = [task_run.build_progress_event("pr", "completed", "Opened pull request", "setup", detail=pr_url)]
+        if (task_run.state or {}).get(PR_LOOP_ENABLED_STATE_KEY):
+            events.append(task_run.build_progress_event("ci", "in_progress", "Keeping CI green", "setup"))
+        for event in events:
             task_run.publish_stream_event(event)
         task_run.publish_stream_state_event()
     except Exception:

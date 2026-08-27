@@ -731,6 +731,7 @@ class SandboxEnvironmentDTO:
     repositories: list[str] = Field(default_factory=list)
     effective_domains: list[str] = Field(default_factory=list)
     has_environment_variables: bool = False
+    environment_variable_keys: list[str] = Field(default_factory=list)
     created_by: TaskUserBasicInfo | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
