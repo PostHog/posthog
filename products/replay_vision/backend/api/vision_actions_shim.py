@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 from urllib.parse import urlparse
 
+from django.db import transaction
 from django.utils import timezone
 
 from rest_framework.exceptions import NotFound, ValidationError
@@ -39,6 +40,8 @@ from products.replay_vision.backend.models.vision_alert import VisionAlertConfig
 from products.replay_vision.backend.scout_source import SCOUT_SOURCE_PRODUCT
 from products.signals.backend.facade import api as signals_facade
 from products.signals.backend.facade.api import ScoutSummary
+
+MAX_ENABLED_ALERTS_PER_SCANNER = 10
 
 _CRON_DAY_TO_RRULE = {"0": "SU", "1": "MO", "2": "TU", "3": "WE", "4": "TH", "5": "FR", "6": "SA", "7": "SU"}
 
@@ -282,12 +285,18 @@ def render_scout_as_action(summary: ScoutSummary, *, can_edit: bool = True) -> d
     }
 
 
-def list_actions(team: Team, scanner_ids: list[str], *, can_edit: bool = True) -> list[dict[str, Any]]:
+def list_actions(
+    team: Team, scanner_ids: list[str], *, editable_scanner_ids: set[str] | None = None
+) -> list[dict[str, Any]]:
     """Every alert and scout on the caller's accessible scanners, in the legacy shape.
 
-    `scanner_ids` is the caller's accessible set, resolved by the viewset — an empty list means
-    nothing is visible, so the surface stays closed rather than falling back to "all".
+    `scanner_ids` is the caller's accessible set and `editable_scanner_ids` the subset they may
+    edit, both resolved by the viewset. An empty accessible set means nothing is visible, so the
+    surface stays closed rather than falling back to "all". Edit access is per scanner because a
+    resource-level editor can still hold an object-level restriction on one scanner, and that
+    scanner's webhook URLs must stay redacted for them.
     """
+    editable = editable_scanner_ids if editable_scanner_ids is not None else set(scanner_ids)
     if not scanner_ids:
         return []
     alerts = (
@@ -300,11 +309,20 @@ def list_actions(team: Team, scanner_ids: list[str], *, can_edit: bool = True) -
         (team.parent_team or team).id, SCOUT_SOURCE_PRODUCT, source_ids=scanner_ids
     )
     alert_rows = list(alerts)
-    deliveries = _delivery_configs_for_alerts(team.id, [str(alert.id) for alert in alert_rows], can_edit=can_edit)
+    deliveries = {
+        **_delivery_configs_for_alerts(
+            team.id, [str(a.id) for a in alert_rows if str(a.scanner_id) in editable], can_edit=True
+        ),
+        **_delivery_configs_for_alerts(
+            team.id, [str(a.id) for a in alert_rows if str(a.scanner_id) not in editable], can_edit=False
+        ),
+    }
     return [
-        render_alert_as_action(alert, can_edit=can_edit, delivery_config=deliveries.get(str(alert.id)))
+        render_alert_as_action(
+            alert, can_edit=str(alert.scanner_id) in editable, delivery_config=deliveries.get(str(alert.id))
+        )
         for alert in alert_rows
-    ] + [render_scout_as_action(scout, can_edit=can_edit) for scout in scouts]
+    ] + [render_scout_as_action(scout, can_edit=str(scout.source_id) in editable) for scout in scouts]
 
 
 def _resolve(team: Team, pk: str) -> tuple[str, Any] | None:
@@ -393,10 +411,28 @@ def _legacy_destination_data(entry: dict[str, Any]) -> "AlertDestinationData | N
     return None
 
 
+def _enforce_enabled_alert_cap(team: Team, scanner_id: str, *, exclude_id: str | None = None) -> None:
+    """The legacy serializer's per-scanner cap, counted on the table the shim actually writes.
+
+    `VisionActionSerializer._validate_alert_cap` counts VisionAction rows, and the shim creates
+    none, so the cap it enforces is vacuous here. Alerts evaluate on the scanner's sweep, so the
+    fan-out this bounds is real work.
+    """
+    others = VisionAlertConfiguration.objects.for_team(team.id).filter(scanner_id=scanner_id, enabled=True)
+    if exclude_id is not None:
+        others = others.exclude(id=exclude_id)
+    if others.count() >= MAX_ENABLED_ALERTS_PER_SCANNER:
+        raise ValidationError(
+            {"enabled": f"A scanner can have at most {MAX_ENABLED_ALERTS_PER_SCANNER} enabled alerts."}
+        )
+
+
 def _create_alert(team: Team, user: User, data: dict[str, Any]) -> dict[str, Any]:
     config = data.get("alert_config") or {}
     frequency = config.get("frequency", "every_match")
     scanner_id = _validated_scanner_id(data)
+    if data.get("enabled", True):
+        _enforce_enabled_alert_cap(team, scanner_id)
     kwargs: dict[str, Any] = {
         "team_id": team.id,
         "scanner_id": scanner_id,
@@ -420,8 +456,15 @@ def _create_alert(team: Team, user: User, data: dict[str, Any]) -> dict[str, Any
         kwargs.update(kind=VisionAlertKind.MATCH, threshold=None)
     alert = VisionAlertConfiguration.objects.for_team(team.id).create(**kwargs)
 
+    _provision_alert_destinations(team, user, alert, data.get("delivery_config") or [])
+    return render_alert_as_action(alert)
+
+
+def _provision_alert_destinations(
+    team: Team, user: User, alert: VisionAlertConfiguration, entries: list[dict[str, Any]]
+) -> None:
     kinds = MATCH_EVENT_KINDS if alert.kind == VisionAlertKind.MATCH else METRIC_EVENT_KINDS
-    for entry in data.get("delivery_config") or []:
+    for entry in entries:
         destination = _legacy_destination_data(entry)
         if destination is None:
             continue
@@ -442,7 +485,6 @@ def _create_alert(team: Team, user: User, data: dict[str, Any]) -> dict[str, Any
             alert_id=str(alert.id),
             allowed_event_ids=VISION_ALERT_EVENT_IDS,
         )
-    return render_alert_as_action(alert)
 
 
 def _scout_destinations_from_legacy(data: dict[str, Any]) -> dict[str, Any]:
@@ -493,25 +535,36 @@ def _create_scout(team: Team, user: User, data: dict[str, Any]) -> dict[str, Any
     return retrieve_action(team, str(result.config.id))
 
 
-def update_action(team: Team, pk: str, data: dict[str, Any]) -> dict[str, Any]:
+def update_action(team: Team, pk: str, data: dict[str, Any], user: User) -> dict[str, Any]:
     resolved = _resolve(team, pk)
     if resolved is None:
         raise NotFound()
     kind, entity = resolved
     if kind == "alert":
+        if data.get("enabled") and not entity.enabled:
+            _enforce_enabled_alert_cap(team, str(entity.scanner_id), exclude_id=str(entity.id))
         update_fields: list[str] = []
-        for source_key, target_key in (("name", "name"), ("enabled", "enabled"), ("selection", "selection")):
-            if source_key in data:
-                setattr(entity, target_key, data[source_key])
-                update_fields.append(target_key)
+        for key in ("name", "enabled", "selection"):
+            if key in data:
+                setattr(entity, key, data[key])
+                update_fields.append(key)
         config = data.get("alert_config")
         if config and entity.kind == VisionAlertKind.METRIC:
             for key in ("metric", "direction", "threshold", "window_days"):
                 if key in config:
                     setattr(entity, key, config[key])
                     update_fields.append(key)
-        if update_fields:
-            entity.save(update_fields=[*update_fields, "updated_at"])
+        with transaction.atomic():
+            if update_fields:
+                entity.save(update_fields=[*update_fields, "updated_at"])
+            if "delivery_config" in data:
+                # Destinations are hog functions, not columns: without rebuilding them, a caller
+                # who edits delivery_config gets a 200 while notifications keep going to the old
+                # channel.
+                soft_delete_all_alert_destinations(
+                    team_id=team.id, alert_id=str(entity.id), allowed_event_ids=VISION_ALERT_EVENT_IDS
+                )
+                _provision_alert_destinations(team, user, entity, data.get("delivery_config") or [])
         return render_alert_as_action(entity)
 
     cron = None
@@ -521,6 +574,16 @@ def update_action(team: Team, pk: str, data: dict[str, Any]) -> dict[str, Any]:
             cron = rrule_to_cron(rrule)
         except ValueError as error:
             raise ValidationError({"trigger_config": str(error)})
+    unsupported = sorted({"name", "selection", "synthesis_config", "mode", "scanner"} & set(data))
+    if unsupported:
+        # Better a clear refusal than a 200 that keeps the old values: a scout's name and prompt are
+        # its skill, and editing a skill has its own authoring bar that this surface cannot clear.
+        raise ValidationError(
+            {
+                unsupported[0]: f"Edit {', '.join(unsupported)} on the scout itself; this surface can change "
+                "the schedule, enablement, and delivery targets."
+            }
+        )
     destinations = _scout_destinations_from_legacy(data) if "delivery_config" in data else None
     if not signals_facade.update_scout_for_source(
         (team.parent_team or team).id,

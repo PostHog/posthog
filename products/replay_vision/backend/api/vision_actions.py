@@ -34,7 +34,10 @@ from products.replay_vision.backend.api import vision_actions_shim
 from products.replay_vision.backend.api.delivery import archive_delivery, provision_delivery
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_process_vision_action_workflow
-from products.replay_vision.backend.api.vision_actions_shim import redact_webhook_url as _redact_webhook_url
+from products.replay_vision.backend.api.vision_actions_shim import (
+    MAX_ENABLED_ALERTS_PER_SCANNER,
+    redact_webhook_url as _redact_webhook_url,
+)
 from products.replay_vision.backend.digest import digest_name_for_scanner, unique_digest_name
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
@@ -242,7 +245,6 @@ class DeliveryTargetSerializer(serializers.Serializer):
 
 # Alerts ride the scanner's sweep, so each enabled alert adds evaluation work to every sweep tick —
 # cap the fan-out one scanner can accumulate.
-MAX_ENABLED_ALERTS_PER_SCANNER = 10
 
 # Each delivery target provisions one enabled HogFunction that POSTs to its destination on every run,
 # so cap the list to stop a single action from being turned into a webhook fan-out to many hosts.
@@ -723,8 +725,12 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         requested = request.query_params.get("scanner")
         if requested:
             scanner_ids = [scanner_id for scanner_id in scanner_ids if scanner_id == requested]
-        can_edit = self.user_access_control.check_access_level_for_resource("replay_scanner", "editor")
-        actions = vision_actions_shim.list_actions(self.team, scanner_ids, can_edit=can_edit)
+        editable = {
+            scanner_id
+            for scanner_id in scanner_ids
+            if self._can_edit_scanner(ReplayScanner(id=scanner_id, team_id=self.team_id))
+        }
+        actions = vision_actions_shim.list_actions(self.team, scanner_ids, editable_scanner_ids=editable)
         return Response({"count": len(actions), "next": None, "previous": None, "results": actions})
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -751,7 +757,9 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         validated = self._validated_legacy_payload(request, partial=True)
         if "scanner" in validated:
             _check_action_scanner_access(self, validated["scanner"], validated.get("selection"))
-        return Response(vision_actions_shim.update_action(self.team, self.kwargs["pk"], validated))
+        return Response(
+            vision_actions_shim.update_action(self.team, self.kwargs["pk"], validated, cast(User, request.user))
+        )
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if not self._serves_new_systems():

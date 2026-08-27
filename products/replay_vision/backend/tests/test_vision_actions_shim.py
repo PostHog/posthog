@@ -257,10 +257,7 @@ class TestVisionActionsShim(APIBaseTest):
         with (
             patch(f"{_SHIM}.signals_facade.list_scouts_for_source", return_value=[summary]),
             patch(f"{_VIEWSET}.VisionActionViewSet._accessible_scanner_ids", return_value=[str(self.scanner.id)]),
-            patch(
-                "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource",
-                side_effect=lambda resource, required_level="viewer", **kwargs: required_level != "editor",
-            ),
+            patch(f"{_VIEWSET}.VisionActionViewSet._can_edit_scanner", return_value=False),
         ):
             response = self.client.get(self.base_url)
         assert response.status_code == 200, response.json()
@@ -333,6 +330,53 @@ class TestVisionActionsShim(APIBaseTest):
             response = self.client.get(self.base_url)
         assert response.status_code == 200
         assert response.json()["results"] == []
+
+    def test_patch_rebuilds_alert_destinations(self) -> None:
+        alert = VisionAlertConfiguration.objects.for_team(self.team.id).create(
+            team_id=self.team.id, scanner=self.scanner, name="Rewired", kind=VisionAlertKind.MATCH, selection={}
+        )
+        with (
+            patch(f"{_SHIM}.soft_delete_all_alert_destinations") as soft_delete,
+            patch(f"{_SHIM}.create_alert_destination_hog_functions") as create_destinations,
+        ):
+            response = self.client.patch(
+                f"{self.base_url}{alert.id}/",
+                {
+                    "delivery_config": [
+                        {"type": "slack", "integration_id": self.integration.id, "channel": "C_NEW|#moved"}
+                    ]
+                },
+                format="json",
+            )
+        assert response.status_code == 200, response.json()
+        soft_delete.assert_called_once()
+        assert "C_NEW" in str(create_destinations.call_args.args[0][0].payload)
+
+    def test_enabled_alert_cap_counts_new_alerts(self) -> None:
+        with patch(f"{_SHIM}.MAX_ENABLED_ALERTS_PER_SCANNER", 1):
+            VisionAlertConfiguration.objects.for_team(self.team.id).create(
+                team_id=self.team.id, scanner=self.scanner, name="First", kind=VisionAlertKind.MATCH, selection={}
+            )
+            response = self.client.post(
+                self.base_url,
+                {
+                    "name": "Second",
+                    "scanner": str(self.scanner.id),
+                    "mode": "alert",
+                    "alert_config": {"frequency": "every_match"},
+                },
+                format="json",
+            )
+        assert response.status_code == 400, response.json()
+
+    def test_scout_patch_refuses_edits_it_cannot_apply(self) -> None:
+        summary = _scout(source_id=str(self.scanner.id))
+        with patch(f"{_SHIM}.signals_facade.list_scouts_for_source", return_value=[summary]):
+            response = self.client.patch(
+                f"{self.base_url}{summary.config_id}/", {"name": "Renamed digest"}, format="json"
+            )
+        assert response.status_code == 400, response.json()
+        assert "scout" in str(response.json()).lower()
 
     def test_unflagged_requests_keep_legacy_behavior(self) -> None:
         self._flag.stop()
