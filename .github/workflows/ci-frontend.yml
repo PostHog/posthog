@@ -824,8 +824,10 @@ jobs:
                   retention-days: 1
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on jest failure" step below is
-            # the verdict, so a Trunk outage can't red a passing shard. FOSS and EE share test files,
-            # so each segment uploads under its own variant. Internal PRs only (needs the secret).
+            # the verdict, so a Trunk outage can't red a passing shard. Internal PRs only (needs the secret).
+            # EE only: FOSS is the same test files with ee removed, and both segments reported an
+            # identical set of test ids, so uploading both doubled Trunk volume for no extra coverage.
+            # FOSS now carries no flake history, so a FOSS failure reds the shard via the verdict below.
             # TRUNK_UPLOAD_ENABLED is the master kill-switch: when it is not 'true' this gate
             # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
             # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
@@ -833,7 +835,7 @@ jobs:
             - name: Quarantine gate
               id: quarantine_gate
               continue-on-error: true
-              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
+              if: ${{ !cancelled() && matrix.segment == 'EE' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: junit-results/junit-${{ matrix.segment }}-${{ matrix.chunk }}.xml
@@ -841,7 +843,8 @@ jobs:
                   previous-step-outcome: ${{ steps.run-jest.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
             # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
-            # also covers the skipped gate on fork/Dependabot. Passing shards never red here.
+            # also covers the gate being skipped — on fork/Dependabot, and on every FOSS shard.
+            # Passing shards never red here.
             - name: Fail on jest failure
               if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success') }}
               shell: bash
