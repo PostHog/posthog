@@ -51735,6 +51735,11 @@ export namespace Schemas {
       /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
       members_can_see_org_members?: boolean;
       allow_publicly_shared_resources?: boolean;
+      /**
+         * When True, requests through the PostHog MCP server can read but not change this organization's data.
+         * @nullable
+         */
+      read_only_mcp_access?: boolean | null;
       readonly member_count: number;
       /** @nullable */
       is_ai_data_processing_approved?: boolean | null;
@@ -62826,6 +62831,11 @@ export namespace Schemas {
       /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
       members_can_see_org_members?: boolean;
       allow_publicly_shared_resources?: boolean;
+      /**
+         * When True, requests through the PostHog MCP server can read but not change this organization's data.
+         * @nullable
+         */
+      read_only_mcp_access?: boolean | null;
       readonly member_count?: number;
       /** @nullable */
       is_ai_data_processing_approved?: boolean | null;
