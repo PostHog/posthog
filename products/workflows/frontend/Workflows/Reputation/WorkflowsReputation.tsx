@@ -241,9 +241,22 @@ export function WorkflowsReputation(): JSX.Element {
                         title: 'Workflow',
                         key: 'workflow',
                         render: (_, snapshot: WorkflowEmailSendingRatesApi) => (
-                            <Link to={urls.workflow(snapshot.hog_flow_id, 'workflow')} className="font-semibold">
-                                {snapshot.hog_flow_name || snapshot.hog_flow_id}
-                            </Link>
+                            <span className="inline-flex items-center gap-2">
+                                <Link to={urls.workflow(snapshot.hog_flow_id, 'workflow')} className="font-semibold">
+                                    {snapshot.hog_flow_name || snapshot.hog_flow_id}
+                                </Link>
+                                {/* Without this, a workflow we paused ourselves reads as healthy here,
+                                    because the rest of this tab reports the provider's verdict only. */}
+                                {snapshot.email_sending_paused && (
+                                    <Tooltip
+                                        title={`${snapshot.email_sending_paused_reason} Open the workflow to resume sending.`}
+                                    >
+                                        <LemonTag type="danger" size="small">
+                                            Paused
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
+                            </span>
                         ),
                     },
                     {
