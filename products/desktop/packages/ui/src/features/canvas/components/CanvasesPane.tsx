@@ -102,8 +102,9 @@ export function CanvasesPane({
         currentUser
           ? { uuid: currentUser.uuid, name: userDisplayName(currentUser) }
           : undefined,
+        settings.spaceIds,
       ),
-    [currentUser, dashboards],
+    [currentUser, dashboards, settings.spaceIds],
   );
   const shown = useMemo(
     () =>
@@ -124,15 +125,30 @@ export function CanvasesPane({
   );
   const optionValues = shown.map((canvas) => canvas.id);
   const changeSettings = (nextSettings: CanvasListSettings): void => {
+    const availableCreatorUuids = new Set(
+      buildCanvasCreatorOptions(
+        dashboards,
+        currentUser
+          ? { uuid: currentUser.uuid, name: userDisplayName(currentUser) }
+          : undefined,
+        nextSettings.spaceIds,
+      ).flatMap((option) => (option.value !== null ? [option.value] : [])),
+    );
+    const normalizedSettings = {
+      ...nextSettings,
+      creatorUuids: nextSettings.creatorUuids.filter((uuid) =>
+        availableCreatorUuids.has(uuid),
+      ),
+    };
     if (
       settings.sort !== DEFAULT_CANVAS_LIST_SORT &&
-      nextSettings.sort === DEFAULT_CANVAS_LIST_SORT
+      normalizedSettings.sort === DEFAULT_CANVAS_LIST_SORT
     ) {
       setRecentlyViewedSortSnapshot({
         ...useCanvasViewedStore.getState().lastViewedAtByCanvasId,
       });
     }
-    setSettings(nextSettings);
+    setSettings(normalizedSettings);
   };
   const open = (canvas: DashboardRecord): void => {
     track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
