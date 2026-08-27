@@ -33,6 +33,7 @@ export interface AppView {
   taskInputRequestId?: string;
   initialPrompt?: string;
   initialContent?: EditorContent;
+  recoveredFromKey?: string;
   initialCloudRepository?: string;
   initialModel?: string;
   initialMode?: string;
@@ -153,6 +154,7 @@ export function useAppView(): AppView {
         folderRepository: prefill.folderRepository,
         initialPrompt: prefill.initialPrompt,
         initialContent: prefill.initialContent,
+        recoveredFromKey: prefill.recoveredFromKey,
         initialCloudRepository: prefill.initialCloudRepository,
         initialModel: prefill.initialModel,
         initialMode: prefill.initialMode,

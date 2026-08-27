@@ -52,6 +52,7 @@ import { useConnectivity } from "../../../hooks/useConnectivity";
 import { DotPatternBackground } from "../../../primitives/DotPatternBackground";
 import { toast } from "../../../primitives/toast";
 import { useActiveRepoStore } from "../../../shell/activeRepoStore";
+import { pendingTaskPromptStoreApi } from "../../../shell/pendingTaskPromptStore";
 import { FOCUSABLE_SELECTOR } from "../../../utils/overlay";
 import { useAuthStateValue } from "../../auth/store";
 import { AutoresearchComposerControls } from "../../autoresearch/AutoresearchComposerControls";
@@ -130,6 +131,8 @@ interface TaskInputProps {
   initialPrompt?: string;
   /** Full editor content to prefill (chips + attachments), preferred over initialPrompt. */
   initialContent?: EditorContent;
+  /** Pending-prompt record to clear once this prefill is applied (interrupted-prompt recovery). */
+  recoveredFromKey?: string;
   initialPromptKey?: string;
   initialCloudRepository?: string;
   initialModel?: string;
@@ -199,6 +202,7 @@ export function TaskInput({
   onTaskCreatedEffect,
   initialPrompt,
   initialContent,
+  recoveredFromKey,
   initialPromptKey,
   initialCloudRepository,
   initialModel,
@@ -380,6 +384,12 @@ export function TaskInput({
         segments: [{ type: "text", text: initialPrompt ?? "" }],
       },
     );
+    // Clear the recovered prompt's durable record only now that its content is
+    // in the composer, so an interrupted-then-recovered prompt is never lost to
+    // a crash before this point.
+    if (recoveredFromKey) {
+      pendingTaskPromptStoreApi.clear(recoveredFromKey);
+    }
     if (initialPromptKey) {
       useTaskInputPrefillStore.getState().consumePrompt(initialPromptKey);
     }
@@ -388,6 +398,7 @@ export function TaskInput({
     initialPrompt,
     initialPromptKey,
     prefillRequestKey,
+    recoveredFromKey,
     sessionId,
   ]);
 

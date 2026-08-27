@@ -18,6 +18,12 @@ export interface TaskInputPrefill {
    * prompt); initialPrompt stays for plain-text callers.
    */
   initialContent?: EditorContent;
+  /**
+   * Pending-prompt record key this prefill was recovered from. The composer
+   * clears that record once it applies the content, so the durable record
+   * outlives the transient prefill until the prompt is safely in the composer.
+   */
+  recoveredFromKey?: string;
   initialCloudRepository?: string;
   initialModel?: string;
   initialMode?: string;
@@ -61,6 +67,7 @@ export const useTaskInputPrefillStore = create<PrefillStoreState>((set) => ({
               ...s.prefill,
               initialPrompt: undefined,
               initialContent: undefined,
+              recoveredFromKey: undefined,
               requestId: undefined,
             },
           }

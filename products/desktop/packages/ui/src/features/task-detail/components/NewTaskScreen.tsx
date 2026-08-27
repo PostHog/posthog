@@ -24,6 +24,7 @@ export function NewTaskScreen() {
       sessionId={sessionId}
       initialPrompt={view.initialPrompt}
       initialContent={view.initialContent}
+      recoveredFromKey={view.recoveredFromKey}
       initialPromptKey={view.taskInputRequestId}
       initialCloudRepository={view.initialCloudRepository}
       initialModel={view.initialModel}
