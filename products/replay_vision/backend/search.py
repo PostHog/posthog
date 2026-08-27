@@ -23,7 +23,11 @@ from products.replay_vision.backend.embeddings import (
     EMBEDDING_PRODUCT,
     OBSERVATION_EMBEDDING_MODEL,
 )
-from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
+from products.replay_vision.backend.models.replay_observation import (
+    ObservationStatus,
+    ReplayObservation,
+    hydrate_for_serialization,
+)
 from products.replay_vision.backend.scanner_access import accessible_observations
 from products.replay_vision.backend.tags import clickhouse_slugify_sql, slugify_tag
 
@@ -214,6 +218,6 @@ def fetch_ranked_observations(
         status=ObservationStatus.SUCCEEDED,
         id__in=ordered_ids,
     )
-    rows = accessible_observations(access, team_id, rows).select_related("triggered_by_user", "label")
+    rows = hydrate_for_serialization(accessible_observations(access, team_id, rows))
     observations = {str(obs.id): obs for obs in rows}
     return [obs for observation_id in ordered_ids if (obs := observations.get(observation_id)) is not None]

@@ -74,7 +74,12 @@ ClickHouse has no S3 dictionary source, but that source runs its query locally, 
 - Nothing changes on a deployment where every target sits on the cluster the job connects to. The handle in hand is probed first, and no object is written.
 - The source tables stay where they are. `pending_deletes_<timestamp>` also carries the Postgres `AsyncDeletion` row ids that `mark_deletions_verified` reads back, and those never enter a dictionary.
 - `load_and_verify_deletes_dictionary` loads on every host of every cluster and fails the run unless all of them checksum alike. That is what catches a stale or missing object: without it the mutation there joins an empty dictionary, deletes nothing, and reports success.
-- Retention belongs to the bucket lifecycle policy, set through `DELETES_DICTIONARY_S3_*`. Nothing deletes the objects.
+- Retention belongs to the bucket lifecycle policy, set through `DICTIONARY_STAGING_S3_*`. Nothing deletes the objects.
+
+The same staging carries the person-overrides squash, which is not a deletion but has the identical problem.
+`squash_person_overrides` rewrites `person_id` on `sharded_events` and `sharded_events_json` through a mutation that joins a snapshot dictionary, then deletes the overrides it just applied.
+Skipping the second table there is worse than under-deleting: the overrides that record the correct `person_id` are gone in the next op, so the divergence is permanent.
+`posthog/dags/common/staged_dictionary.py` holds the piece both jobs share.
 
 ## Covered tables
 
