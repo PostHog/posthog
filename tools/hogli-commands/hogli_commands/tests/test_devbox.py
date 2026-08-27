@@ -630,15 +630,6 @@ class TestDiagnoseUnreachableCoder:
         assert diagnosis.code == "dns_lookup_failed"
         assert "Tailscale tailnet: <unknown>" in diagnosis.facts
 
-    def test_dns_failure_next_step_steers_off_exit_nodes(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Exit nodes route all traffic through infra and mask the real DNS cause."""
-        monkeypatch.setattr(coder, "_tailscale_status", lambda: {"CurrentTailnet": {"Name": "posthog.com"}})
-        monkeypatch.setattr(coder, "_resolve_host_ip", lambda host: None)
-
-        diagnosis = coder._diagnose_unreachable_coder()
-        assert "exit node" in diagnosis.next_step.lower()
-        assert "1.1.1.1" in diagnosis.next_step
-
     def test_dns_failure_dominates_other_causes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(coder, "_tailscale_status", lambda: {"CurrentTailnet": {"Name": "posthog.com"}})
         monkeypatch.setattr(coder, "_resolve_host_ip", lambda host: None)
@@ -652,6 +643,9 @@ class TestDiagnoseUnreachableCoder:
         assert diagnosis.code == "dns_lookup_failed"
         assert "DNS lookup" in diagnosis.cause
         assert "MagicDNS" in diagnosis.next_step
+        # Exit nodes route all traffic through infra and mask the real DNS cause.
+        assert "exit node" in diagnosis.next_step.lower()
+        assert "1.1.1.1" in diagnosis.next_step
         assert "Tailscale tailnet: posthog.com" in diagnosis.facts
 
     def test_tcp_open_signals_tls_or_clock(self, monkeypatch: pytest.MonkeyPatch) -> None:

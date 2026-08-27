@@ -50,7 +50,7 @@ Full write-up, kept current by Team Cloud Foundations: [wiki.posthog.com/access/
 hogli devbox:doctor          # read-only: tailnet access, reachability, auth, ssh config, saved setup
 ```
 
-A safe probe — it never prompts or mutates host config (unlike `devbox:setup`). It names the active tailnet on its own line (`Tailnet is posthog.com (found: …)`) and reports `Cause: wrong_tailnet` when that's the problem — trust that over any other symptom. If it flags the control plane unreachable, resolve the tailnet (and then the ACL grant) before anything else. For more detail: `hogli devbox:list` (your boxes), `hogli devbox:status` (state, template freshness), `hogli devbox:secret:list` (secret names only).
+A safe probe — it never prompts or mutates host config (unlike `devbox:setup`). It names the active tailnet on its own line (`Tailnet: … (need posthog.com)`) and, when that's the problem, says so outright (`Cause: Signed into the 'dev' tailnet, not 'posthog.com'.`) — trust that over any other symptom. If it flags the control plane unreachable, resolve the tailnet (and then the ACL grant) before anything else. For more detail: `hogli devbox:list` (your boxes), `hogli devbox:status` (state, template freshness), `hogli devbox:secret:list` (secret names only).
 
 ### 2. One-time local setup — `hogli devbox:setup`
 

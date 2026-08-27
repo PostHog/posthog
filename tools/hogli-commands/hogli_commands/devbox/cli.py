@@ -44,7 +44,6 @@ from .coder import (
     coder_ssh_alias_configured,
     create_task,
     create_workspace,
-    current_tailnet_name,
     delete_user_secret,
     delete_workspace,
     ensure_coder_authenticated,
@@ -88,7 +87,7 @@ from .coder import (
     ssh_replace,
     start_workspace,
     stop_workspace,
-    tailscale_connected,
+    tailscale_state,
     unshare_workspace,
     update_workspace,
     update_workspace_parameters,
@@ -738,13 +737,13 @@ def devbox_doctor() -> None:
     click.echo(f"  Coder URL: {get_coder_url()}")
     click.echo()
 
-    _doctor_check("Tailscale connected", tailscale_connected())
+    connected, tailnet = tailscale_state()
+    _doctor_check("Tailscale connected", connected)
 
     # Being on a per-environment tailnet looks identical to "connected" but
     # routes nowhere near a devbox, and nothing prompts you about it after the
     # first sign-in — so name the active tailnet on its own line.
-    tailnet = current_tailnet_name()
-    _doctor_check(f"Tailnet is {EXPECTED_TAILNET} (found: {tailnet or 'unknown'})", tailnet == EXPECTED_TAILNET)
+    _doctor_check(f"Tailnet: {tailnet or 'unknown'} (need {EXPECTED_TAILNET})", tailnet == EXPECTED_TAILNET)
 
     reachable = coder_reachable()
     _doctor_check("Coder control plane reachable", reachable)

@@ -366,9 +366,8 @@ def _tailscale_status() -> dict[str, Any] | None:
         return None
 
 
-def tailscale_connected() -> bool:
-    """Check if Tailscale is running and connected."""
-    status = _tailscale_status()
+def _backend_running(status: dict[str, Any] | None) -> bool:
+    """Return whether a `tailscale status --json` blob reports a live backend."""
     return bool(status and status.get("BackendState") == "Running")
 
 
@@ -381,24 +380,20 @@ def _tailnet_name(status: dict[str, Any] | None) -> str | None:
     return name if isinstance(name, str) and name else None
 
 
-def current_tailnet_name() -> str | None:
-    """Return the tailnet the host is signed into, or ``None`` if unknown."""
-    return _tailnet_name(_tailscale_status())
+def tailscale_connected() -> bool:
+    """Check if Tailscale is running and connected."""
+    return _backend_running(_tailscale_status())
 
 
-def tailnet_switch_hint() -> str:
-    """Return the command for moving to the PostHog tailnet.
+def tailscale_state() -> tuple[bool, str | None]:
+    """Return ``(connected, tailnet name)`` from a single `tailscale status` probe.
 
-    On macOS the GUI is how most people signed in, and `tailscale` is often
-    not on PATH at all -- so lead with the app-bundle path there.
+    Bundled because each `_tailscale_status()` call is a subprocess, and the
+    two facts are always reported next to each other. The name is ``None``
+    when Tailscale is down or the blob does not name a tailnet.
     """
-    cli = _MACOS_TAILSCALE_CLI if sys.platform == "darwin" and shutil.which("tailscale") is None else "tailscale"
-    return (
-        f"`{cli} switch {EXPECTED_TAILNET}` if you have signed into it before, "
-        f"otherwise `{cli} logout && {cli} login` and pick {EXPECTED_TAILNET} "
-        "at the tailnet picker (in the GUI: Add account, sign in, select "
-        f"{EXPECTED_TAILNET})."
-    )
+    status = _tailscale_status()
+    return _backend_running(status), _tailnet_name(status)
 
 
 def _tailscale_install_hint() -> str:
@@ -426,6 +421,21 @@ def _tailscale_connect_hint() -> str:
 def _tailscale_cli_missing_on_macos() -> bool:
     """Return whether macOS has the Tailscale app but no CLI on PATH."""
     return sys.platform == "darwin" and shutil.which("tailscale") is None and os.path.isfile(_MACOS_TAILSCALE_CLI)
+
+
+def _tailnet_switch_hint() -> str:
+    """Return the command for moving to the PostHog tailnet.
+
+    On macOS the GUI is how most people signed in, and `tailscale` is often
+    not on PATH at all -- so name the app-bundle CLI there instead.
+    """
+    cli = _MACOS_TAILSCALE_CLI if _tailscale_cli_missing_on_macos() else "tailscale"
+    return (
+        f"`{cli} switch {EXPECTED_TAILNET}` if you have signed into it before, "
+        f"otherwise `{cli} logout && {cli} login` and pick {EXPECTED_TAILNET} "
+        "at the tailnet picker (in the GUI: Add account, sign in, select "
+        f"{EXPECTED_TAILNET})."
+    )
 
 
 def ensure_tailscale_connected(setup_hint: str = RUNTIME_SETUP_HINT) -> None:
@@ -597,7 +607,7 @@ def _diagnose_unreachable_coder() -> CoderReachabilityDiagnosis:
             cause=f"Signed into the '{tailnet_name}' tailnet, not '{EXPECTED_TAILNET}'.",
             next_step=(
                 f"Devboxes only exist on '{EXPECTED_TAILNET}' — the other tailnets are for CI "
-                f"runners and subnet routers. Switch: {tailnet_switch_hint()} "
+                f"runners and subnet routers. Switch: {_tailnet_switch_hint()} "
                 f"Details: {_TAILSCALE_RUNBOOK_URL}"
             ),
             facts=facts,
