@@ -25,23 +25,28 @@ export function getCodexHomeDir(
 }
 
 /**
- * Removes what {@link prepareCodexHome} built for a task run. Safe for any
- * adapter — a no-op when the directory was never created. Codex's own state in
- * the directory stays: `sessions/` holds the thread rollouts that
- * `thread/resume` needs after the app relaunches.
+ * Empties a task run's private CODEX_HOME except `sessions/`, the thread
+ * rollouts `thread/resume` needs after the app relaunches. Safe for any
+ * adapter — a no-op when the directory was never created.
  */
 export async function cleanupCodexHome(
   appDataPath: string,
   taskRunId: string,
 ): Promise<void> {
   const codexHome = getCodexHomeDir(appDataPath, taskRunId);
-  await Promise.all([
-    fs.promises.rm(path.join(codexHome, "skills"), {
+  let entries: string[];
+  try {
+    entries = await fs.promises.readdir(codexHome);
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (entry === "sessions") continue;
+    await fs.promises.rm(path.join(codexHome, entry), {
       recursive: true,
       force: true,
-    }),
-    fs.promises.rm(path.join(codexHome, "config.toml"), { force: true }),
-  ]);
+    });
+  }
 }
 
 /**
