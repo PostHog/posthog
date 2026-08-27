@@ -122,6 +122,7 @@ def create_workflow_task(
     origin_key: str | None = None,
     event: dict[str, Any] | None = None,
     slack_context: contracts.WorkflowTaskSlackContext | None = None,
+    end_run_when_done: bool = False,
 ) -> contracts.WorkflowTaskDTO:
     """Create a workflow-origin task and start its agent run.
 
@@ -136,7 +137,10 @@ def create_workflow_task(
     the workflow or its team reached the daily created-task cap. A replayed
     `origin_key` bypasses the gate and every cap.
 
-    `event` is rendered into the agent's prompt as data. `slack_context` binds the run to
+    `event` is rendered into the agent's prompt as data. `end_run_when_done` exposes the
+    `finish` tool to the agent, ending the run the moment the agent is done; by default the
+    run stays live until its inactivity timeout, so its Slack reply can relay and the
+    sandbox stays open for thread replies. `slack_context` binds the run to
     the Slack thread that triggered the workflow. The task is created either way: a context
     is dropped, rather than failing the create, when it resolves to no Slack integration of
     this team, when the channel is externally shared without an approval, or when another
@@ -192,6 +196,10 @@ def create_workflow_task(
             }
         },
         "inactivity_timeout_seconds": WORKFLOW_RUN_IDLE_TIMEOUT_SECONDS,
+        # Read by the agent server at boot: only a state opt-in exposes the `finish` tool
+        # to a workflow-origin run, because finish ends the run mid-turn and the Slack
+        # reply relay refuses terminal runs (see the finish tool's isEnabled gate).
+        **({"end_run_when_done": True} if end_run_when_done else {}),
         # The boot-path override, not pending_user_message: the agent server self-delivers a
         # pending message at boot AND forward_pending_user_message forwards it, and the two
         # deliveries carry no shared idempotency id, so a cold-start background run gets the

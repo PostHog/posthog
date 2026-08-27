@@ -64,6 +64,17 @@ describe("finish tool", () => {
       expected: false,
     },
     {
+      name: "workflow-origin run with the end-run opt-in",
+      ctx: { cwd: "/repo", requestFinish },
+      meta: {
+        environment: "cloud",
+        background: true,
+        taskOriginProduct: "workflow",
+        endRunWhenDone: true,
+      },
+      expected: true,
+    },
+    {
       name: "non-workflow-origin background cloud run",
       ctx: { cwd: "/repo", requestFinish },
       meta: {

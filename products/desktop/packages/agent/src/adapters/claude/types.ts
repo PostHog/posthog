@@ -237,6 +237,8 @@ export type NewSessionMeta = {
    */
   channelMode?: boolean;
   taskOriginProduct?: string;
+  /** Workflow-action opt-in: exposes the `finish` tool to a workflow-origin run. */
+  endRunWhenDone?: boolean;
   /**
    * The user's spoken-narration setting at session start. Gates the speak
    * tool and its prompt instructions. Unset falls back by environment: cloud
