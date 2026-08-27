@@ -15,7 +15,7 @@ use tracing::{info, warn};
 
 use crate::config::{CaptureMode, Config};
 use crate::event_restrictions::{EventRestrictionService, Pipeline, RedisRestrictionsRepository};
-use crate::global_rate_limiter::GlobalRateLimiter;
+use crate::global_rate_limiter::{ai_byte_limit_window, GlobalRateLimiter};
 use crate::prometheus::setup_metrics_recorder;
 use crate::quota_limiters::{
     is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter,
@@ -493,7 +493,7 @@ fn warn_if_ai_byte_budget_below_max_event(config: &Config) {
     if max_event_bytes == 0 {
         return;
     }
-    let window_secs = config.global_rate_limit_window_interval_secs;
+    let (window_secs, _) = ai_byte_limit_window(config);
     let window_budget = ai_byte_limit_per_second(config).saturating_mul(window_secs);
     if window_budget < max_event_bytes {
         warn!(

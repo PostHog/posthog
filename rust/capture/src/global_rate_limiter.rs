@@ -84,6 +84,21 @@ struct LimiterSpec<'a> {
     dry_run: bool,
 }
 
+/// The window the AI byte budget is enforced over, and the env var that
+/// supplied it. `AI_BYTE_LIMIT_WINDOW_INTERVAL_SECS` wins when set; otherwise
+/// the shared limiter window applies. Every place that derives the AI byte
+/// budget from a window must call this, so the enforced budget and any
+/// diagnostic computed from it cannot disagree.
+pub fn ai_byte_limit_window(config: &Config) -> (u64, &'static str) {
+    match config.ai_byte_limit_window_interval_secs {
+        Some(secs) => (secs, "AI_BYTE_LIMIT_WINDOW_INTERVAL_SECS"),
+        None => (
+            config.global_rate_limit_window_interval_secs,
+            "GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS",
+        ),
+    }
+}
+
 pub struct GlobalRateLimiter {
     limiter: Box<dyn CommonGlobalRateLimiter>,
     dry_run: bool,
@@ -168,13 +183,7 @@ impl GlobalRateLimiter {
     ) -> anyhow::Result<Self> {
         // `build` refuses to boot on a zero window, so this scaling never
         // divides a budget down to nothing.
-        let (window_secs, window_env_var) = match config.ai_byte_limit_window_interval_secs {
-            Some(secs) => (secs, "AI_BYTE_LIMIT_WINDOW_INTERVAL_SECS"),
-            None => (
-                config.global_rate_limit_window_interval_secs,
-                "GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS",
-            ),
-        };
+        let (window_secs, window_env_var) = ai_byte_limit_window(config);
         let metrics_scope = format!("{}_ai_bytes", config.capture_mode.as_tag());
         Self::build(
             config,
