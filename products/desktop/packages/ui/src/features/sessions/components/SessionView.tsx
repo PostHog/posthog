@@ -16,7 +16,6 @@ import {
 import { useService } from "@posthog/di/react";
 import {
   type AcpMessage,
-  ASSISTED_MODEL_SWITCH_FLAG,
   FAST_MODE_FLAG,
   sessionSupportsSideQuestion,
 } from "@posthog/shared";
@@ -199,8 +198,6 @@ export function SessionView({
   const sessionModelOption = useModelConfigOptionForTask(taskId);
   const adapter = useAdapterForTask(taskId);
   const fastModeFlagEnabled = useFeatureFlag(FAST_MODE_FLAG);
-  const assistedModelSwitchEnabled =
-    useFeatureFlag(ASSISTED_MODEL_SWITCH_FLAG) || import.meta.env.DEV;
   const liveFastModeOption = useConfigOptionForTask(
     taskId,
     FAST_MODE_OPTION_CATEGORY,
@@ -984,14 +981,12 @@ export function SessionView({
         }
         onConfirm={confirmModelSwitch}
         onCompactAndConfirm={
-          assistedModelSwitchEnabled && !isPromptPending && !isCompacting
+          !isPromptPending && !isCompacting
             ? compactAndConfirmModelSwitch
             : undefined
         }
         onCopyHandoffSummary={
-          assistedModelSwitchEnabled && canCopyHandoffSummary
-            ? handleCopyHandoffSummary
-            : undefined
+          canCopyHandoffSummary ? handleCopyHandoffSummary : undefined
         }
         onCancel={cancelModelSwitch}
       />

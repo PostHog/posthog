@@ -38,8 +38,6 @@ export const TASK_ANALYSIS_FLAG = "posthog-code-task-analysis";
 export const KIMI_MODEL_FLAG = "tasks-kimi-k3";
 /** Gates the Fast Mode section of the reasoning dropdown. */
 export const FAST_MODE_FLAG = "posthog-desktop-fast-mode";
-export const ASSISTED_MODEL_SWITCH_FLAG =
-  "posthog-desktop-assisted-model-switch";
 /** Spoken narration (agent speaks via the `speak` tool). Gated for a staged rollout. */
 export const SPOKEN_NARRATION_FLAG = "posthog-code-spoken-narration";
 // Gates importing and relaying local MCP servers into cloud task runs.
