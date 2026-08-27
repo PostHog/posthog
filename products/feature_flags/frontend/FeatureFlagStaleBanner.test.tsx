@@ -143,10 +143,22 @@ describe('FeatureFlagStaleBanner', () => {
             says: /Its rollout is 40% of all users\./,
         },
         {
-            name: 'a multivariate flag that splits everyone across its variants',
+            // A boolean flag whose only condition omits its percentage evaluates to 100% at runtime,
+            // so max_rollout_percentage is 100 while effectively_full_rollout stays false. It still
+            // reaches everyone, and the banner must say so rather than fall silent.
+            name: 'a boolean flag whose condition omits its rollout percentage',
+            flag: buildFlag({ last_called_at: CALLED_AT }),
+            rollout: { ...NO_ROLLOUT },
+            says: /It rolls out to all users\./,
+        },
+        {
+            // is_multivariate reports only that variants exist, not how traffic divides. A single
+            // 100% variant produces the same summary as a real split, so the banner cannot claim a
+            // split; it states the coverage both shapes share.
+            name: 'a multivariate flag that covers everyone',
             flag: buildFlag({ last_called_at: CALLED_AT }),
             rollout: { ...NO_ROLLOUT, is_multivariate: true },
-            says: /It rolls out to all users, split across its variants\./,
+            says: /It rolls out to all users\./,
         },
         {
             // `effectively_full_rollout` is true for a flag with no release conditions, so a

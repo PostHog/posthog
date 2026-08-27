@@ -49,9 +49,13 @@ function rolloutSentence(
     if (percentage < 100) {
         return `Its rollout is ${percentage}% of all ${targets}.`
     }
-    // A rollout that covers everyone without meeting the full-rollout check, which happens when a
-    // multivariate flag splits a 100% condition across variants.
-    return rollout.is_multivariate ? `It rolls out to all ${targets}, split across its variants.` : null
+    // The highest condition has no property filters and rolls out to 100% (an explicit 100, or an
+    // omitted percentage that evaluates to 100% at runtime), so the flag reaches everyone. This
+    // covers a usage-stale boolean flag that would otherwise fall through with no line. Without
+    // usage data a fully-rolled-out flag is stale by the config route and its reason already carries
+    // the fact, as in the `effectively_full_rollout` branch. The summary reports only that variants
+    // exist, not how traffic divides, so the banner cannot claim a split.
+    return hasUsageData ? `It rolls out to all ${targets}.` : null
 }
 
 export function FeatureFlagStaleBanner(): JSX.Element | null {
