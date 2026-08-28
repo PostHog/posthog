@@ -236,6 +236,59 @@ describe("createCanvasHostMessageRouter", () => {
     );
   });
 
+  it("runs a queued request against the handler that received it, not the current one", async () => {
+    const post = vi.fn();
+    const resolvers = new Map<string, (value: unknown) => void>();
+    // Canvas A's handler stays in flight so it occupies slots; canvas B's must
+    // never be reached by a request A issued.
+    const handlerA = vi.fn(
+      (_method: string, payload: unknown) =>
+        new Promise<unknown>((resolve) =>
+          resolvers.set((payload as { key: string }).key, resolve),
+        ),
+    );
+    const handlerB = vi.fn().mockResolvedValue({ from: "B" });
+    let activeHandler = handlerA;
+    const route = createCanvasHostMessageRouter({
+      post,
+      callbacks: () => ({ onDataRequest: activeHandler }),
+      hasUserActivation: () => true,
+      openExternal: vi.fn(),
+    });
+    const tick = (): Promise<void> =>
+      new Promise((resolve) => setTimeout(resolve, 0));
+    const fire = (key: string): Promise<void> =>
+      route({
+        channel: "posthog-canvas",
+        type: "data-request",
+        id: key,
+        method: "stateGet",
+        payload: { scope: "user", key },
+      });
+
+    // Fill all 8 slots, then queue a 9th while canvas A is still current.
+    for (let i = 0; i < 8; i++) {
+      void fire(`slot-${i}`);
+    }
+    void fire("queued");
+    await tick();
+    expect(handlerA).toHaveBeenCalledTimes(8);
+
+    // The warm pool swaps the live handler to canvas B before a slot frees.
+    activeHandler = handlerB;
+    resolvers.get("slot-0")?.(null);
+    await tick();
+
+    // The queued request must run against A — the canvas that issued it — even
+    // though B is now the router's current handler.
+    expect(handlerA).toHaveBeenCalledTimes(9);
+    expect(handlerA).toHaveBeenLastCalledWith("stateGet", {
+      scope: "user",
+      key: "queued",
+    });
+    expect(handlerB).not.toHaveBeenCalled();
+  });
+
   it("rejects a data request once the wait queue is also full", async () => {
     const post = vi.fn();
     // Nothing ever resolves, so every slot and queue place stays occupied.

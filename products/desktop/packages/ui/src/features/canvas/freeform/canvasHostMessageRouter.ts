@@ -167,14 +167,19 @@ export function createCanvasHostMessageRouter(
           });
           break;
         }
+        // Bind the handler to the canvas that SENT this request, before the
+        // await below. The warm-frame pool reuses one router across canvases (a
+        // code-swap, not a remount), so its live callbacks are reassigned on a
+        // canvas switch. Reading them after acquireSlot() would run a queued
+        // read/write/action against whichever canvas is current when the slot
+        // frees, not the one that issued it.
+        const onDataRequest = options.callbacks().onDataRequest;
         // Over-cap requests wait here for a slot; the timeout below only starts
         // once the request actually runs, so a queued request isn't timed out
         // while waiting.
         if (holdsSlot) await acquireSlot();
         try {
-          const call = options
-            .callbacks()
-            .onDataRequest(message.method, message.payload);
+          const call = onDataRequest(message.method, message.payload);
           // agentRequest settles only when a viewer approves or cancels the
           // request in a dialog, which can take arbitrarily long. Racing it
           // against the generic timeout would tell the canvas the request
