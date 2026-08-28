@@ -7,7 +7,10 @@ import type {
   FeedbackType,
 } from "@posthog/shared/analytics-events";
 
-/** Caps pasted feedback so one giant comment cannot push the event over capture's payload limit. */
+/** Sanity cap shared with the inbox note's FEEDBACK_NOTE_MAX_LENGTH. Capture only
+ * rejects megabyte-scale events (and drops them whole, not truncated), so the cap
+ * is a product bound, not a technical one. The editor enforces it before capture;
+ * the slice here is the last-resort guard for other callers. */
 export const AI_FEEDBACK_TEXT_MAX_LENGTH = 4000;
 
 export interface AiFeedbackRunRef {

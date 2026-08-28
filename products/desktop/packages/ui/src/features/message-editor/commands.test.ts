@@ -1,3 +1,4 @@
+import { AI_FEEDBACK_TEXT_MAX_LENGTH } from "@posthog/core/analytics/aiFeedback";
 import { describe, expect, it, vi } from "vitest";
 import {
   getCodeCommandInputError,
@@ -98,6 +99,19 @@ describe("feedback commands", () => {
     expect(track).not.toHaveBeenCalled();
     expect(toastError).toHaveBeenCalledWith(
       expect.stringContaining("Add a comment after /feedback"),
+    );
+  });
+
+  it("rejects an over-limit comment instead of silently truncating it", async () => {
+    track.mockClear();
+    toastError.mockClear();
+    const oversized = "x".repeat(AI_FEEDBACK_TEXT_MAX_LENGTH + 1);
+    expect(await tryExecuteCodeCommand(`/feedback ${oversized}`, context)).toBe(
+      true,
+    );
+    expect(track).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledWith(
+      expect.stringContaining("Shorten your comment"),
     );
   });
 
