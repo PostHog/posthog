@@ -161,6 +161,22 @@ Tracked after sandbox and agent server are provisioned.
 | `agent_session_dependencies_ms` | `int`  | Skill, resume, relay, and PR checkout preparation         |
 | `agent_session_create_ms`       | `int`  | ACP session creation or resumption time                   |
 
+### `agent_shadow_observed`
+
+Tracked after the shadow observer finishes or the result read times out. Use `run_id`, `task_id`, and `sandbox_id` to correlate this event with `sandbox_started`.
+
+| Property              | Type   | Description                                  |
+| --------------------- | ------ | -------------------------------------------- |
+| `run_id`              | `str`  | UUID of the run                              |
+| `task_id`             | `str`  | UUID of the task                             |
+| `sandbox_id`          | `str`  | Sandbox identifier                           |
+| `launched`            | `bool` | Whether the matching observer launch started |
+| `outcome`             | `str`  | Observer outcome: `ready` or `failed`        |
+| `observed_ready_ms`   | `int`  | Observer readiness time on ready outcomes    |
+| `production_ready_ms` | `int`  | Production readiness time on ready outcomes  |
+| `failure_class`       | `str`  | Allowlisted observer failure category        |
+| `read_timed_out`      | `bool` | Whether result collection timed out          |
+
 ### Modal VM rollout payload
 
 The `tasks-modal-vm-sandbox` payload supports gradual rollout by origin product:
