@@ -66,8 +66,11 @@ function getInlineNotebookAIContextMarkdown(markdown: string): string {
 
         const { media: _media, ...resultWithoutMedia } = result
         removedMedia = true
+        // The serializer re-emits `raw` verbatim when a node carries parse errors, which would
+        // restore the media we just dropped. Discard `raw`/`errors` so serialization uses the props.
+        const { raw: _raw, errors: _errors, ...nodeWithoutRaw } = node
         return {
-            ...node,
+            ...nodeWithoutRaw,
             props: {
                 ...node.props,
                 result: resultWithoutMedia,

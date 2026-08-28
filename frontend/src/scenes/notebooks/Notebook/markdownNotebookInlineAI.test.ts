@@ -1,3 +1,4 @@
+import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
 import { ThreadMessage } from 'scenes/max/maxThreadLogic'
 
 import { AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
@@ -65,5 +66,34 @@ describe('markdown notebook inline AI completion', () => {
         expect(contextMarkdown).toContain('"stdout":"done"')
         expect(contextMarkdown).not.toContain('"media"')
         expect(markdown).toContain(imageData)
+    })
+
+    it('strips media even when a malformed prop makes the serializer prefer raw', () => {
+        const imageData = 'a'.repeat(120_000)
+        // A trailing unterminated quote makes the tag parse with an error, so it keeps `raw` and
+        // `errors` alongside a fully parsed `result.media`.
+        const markdown = `<PythonV2 code="print('chart')" result={{"columns":[],"stdout":"done","media":[{"mime_type":"image/png","data":"${imageData}"}]}} broken="unterminated />`
+
+        // Guard the precondition: without errors + raw the serializer never hits the raw branch.
+        const parsed = parseMarkdownNotebook(markdown)
+        const componentNode = parsed.nodes.find((node) => node.type === 'component')
+        expect(componentNode?.type).toBe('component')
+        if (componentNode?.type === 'component') {
+            expect(componentNode.errors?.length).toBeGreaterThan(0)
+            expect(componentNode.raw).toContain(imageData)
+            expect((componentNode.props.result as { media?: unknown[] }).media?.length).toBeGreaterThan(0)
+        }
+
+        const uiContext = getInlineNotebookAIUIContext({
+            notebookShortId: 'test-notebook',
+            notebookTitle: 'Test notebook',
+            markdown,
+            conversationId: 'test-conversation',
+        })
+        const contextMarkdown = uiContext?.notebooks?.[0].markdown_with_insertion_placeholder ?? ''
+
+        expect(contextMarkdown).not.toContain(imageData)
+        expect(contextMarkdown).not.toContain('"media"')
+        expect(contextMarkdown).toContain(`code="print('chart')"`)
     })
 })
