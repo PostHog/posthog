@@ -49,6 +49,11 @@ const NO_OP_SET_VALUE = (): void => undefined
 
 const MASKED_CREDENTIAL_PLACEHOLDER = '••••••••'
 
+// Where a rendered field's credential lives. Source fields sit in the source `job_inputs`; webhook
+// fields sit in the webhook's own inputs. Only the source update path clears a saved credential on
+// a connection change, so the two contexts show different help.
+type CredentialFieldContext = 'source' | 'webhook'
+
 // A saved credential reloads empty because the backend redacts it. In update mode, mask the input
 // and tell the user that a blank field keeps the stored value, so they don't re-enter it. Only do
 // this for required fields: a required credential must already be saved, but an optional one may
@@ -56,7 +61,8 @@ const MASKED_CREDENTIAL_PLACEHOLDER = '••••••••'
 // field would claim a stored value that may not exist.
 const credentialFieldDisplay = (
     field: SourceFieldInputConfig,
-    isUpdateMode?: boolean
+    isUpdateMode?: boolean,
+    fieldContext: CredentialFieldContext = 'source'
 ): { placeholder: string; help: JSX.Element | undefined } => {
     const caption = field.caption ? <LemonMarkdown className="text-xs">{field.caption}</LemonMarkdown> : undefined
     if (!isUpdateMode || !isSensitiveCredentialField(field) || !field.required) {
@@ -68,8 +74,11 @@ const credentialFieldDisplay = (
             <div className="flex flex-col gap-1">
                 {caption}
                 <span className="text-xs">
-                    Leave blank to keep the saved value, or enter a new one to replace it. If you change the connection
-                    details or authentication method, you'll need to enter it again.
+                    Leave blank to keep the saved value, or enter a new one to replace it.
+                    {/* A source connection or auth change clears saved source credentials, but not webhook
+                        secrets, which live in the webhook's own inputs. */}
+                    {fieldContext === 'source' &&
+                        " If you change the connection details or authentication method, you'll need to enter it again."}
                 </span>
             </div>
         ),
@@ -175,7 +184,8 @@ export const sourceFieldToElement = (
     lastValue?: any,
     isUpdateMode?: boolean,
     setSourceConnectionDetailsValue?: (key: FieldName, value: any) => void,
-    oauthRedirectUrl?: string
+    oauthRedirectUrl?: string,
+    fieldContext: CredentialFieldContext = 'source'
 ): JSX.Element => {
     // Hidden fields stay in the config tree (their stored values parse and prefill) but never render.
     if ('hidden' in field && field.hidden) {
@@ -249,7 +259,8 @@ export const sourceFieldToElement = (
                                             lastValue?.[field.name],
                                             isUpdateMode,
                                             setSourceConnectionDetailsValue,
-                                            oauthRedirectUrl
+                                            oauthRedirectUrl,
+                                            fieldContext
                                         )
                                     )}
                                 </Group>
@@ -299,7 +310,8 @@ export const sourceFieldToElement = (
                         lastValue?.[optionField.name],
                         isUpdateMode,
                         setSourceConnectionDetailsValue,
-                        oauthRedirectUrl
+                        oauthRedirectUrl,
+                        fieldContext
                     )
                 )
 
@@ -328,7 +340,7 @@ export const sourceFieldToElement = (
     }
 
     if (field.type === 'textarea') {
-        const { placeholder, help } = credentialFieldDisplay(field, isUpdateMode)
+        const { placeholder, help } = credentialFieldDisplay(field, isUpdateMode, fieldContext)
         return (
             <LemonField key={field.name} name={field.name} label={field.label} help={help}>
                 {({ value, onChange }) => (
@@ -428,11 +440,12 @@ export const sourceFieldToElement = (
             lastValue,
             isUpdateMode,
             setSourceConnectionDetailsValue,
-            oauthRedirectUrl
+            oauthRedirectUrl,
+            fieldContext
         )
     }
 
-    const { placeholder, help } = credentialFieldDisplay(field, isUpdateMode)
+    const { placeholder, help } = credentialFieldDisplay(field, isUpdateMode, fieldContext)
     return (
         <LemonField key={field.name} name={field.name} label={field.label} help={help}>
             {({ value, onChange }) => (

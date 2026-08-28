@@ -63,6 +63,18 @@ const scalarFieldRender = (
     return { placeholder: input.props.placeholder, hasHelp: !!element.props.help }
 }
 
+// Reads the credential help sentence(s) a masked field renders in update mode. The webhook form
+// reuses this renderer, and its secrets must not claim a connection change requires re-entering them.
+const credentialHelpText = (field: SourceFieldInputConfig, fieldContext?: 'source' | 'webhook'): string => {
+    const element = sourceFieldToElement(field, SOURCE_CONFIG, undefined, true, undefined, undefined, fieldContext)
+    const helpChildren = element.props.help.props.children
+    const span = (Array.isArray(helpChildren) ? helpChildren : [helpChildren]).find(
+        (child: any) => child?.props?.className === 'text-xs'
+    )
+    const spanChildren = Array.isArray(span.props.children) ? span.props.children : [span.props.children]
+    return spanChildren.filter((child: any) => typeof child === 'string').join('')
+}
+
 const SECRET_FIELD: SourceFieldInputConfig = {
     type: 'password',
     name: 'api_key',
@@ -94,6 +106,18 @@ describe('sourceFieldToElement', () => {
             placeholder: 'Your API key',
         }
         expect(scalarFieldRender(optionalSecret, true)).toEqual({ placeholder: 'Your API key', hasHelp: false })
+    })
+
+    // The webhook config form reuses this renderer with isUpdateMode true. Its secrets live in the
+    // webhook's own inputs, so the source connection-change caveat is wrong there; show it only for
+    // source credentials.
+    it.each([
+        ['source' as const, true],
+        ['webhook' as const, false],
+    ])('shows the connection-change caveat only for %s credentials', (fieldContext, expectCaveat) => {
+        const text = credentialHelpText(SECRET_FIELD, fieldContext)
+        expect(text).toContain('Leave blank to keep the saved value')
+        expect(text.includes('you change the connection details')).toBe(expectCaveat)
     })
 
     it('does not mask a non-sensitive field when editing a source', () => {
