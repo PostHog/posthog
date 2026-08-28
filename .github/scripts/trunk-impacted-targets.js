@@ -15,7 +15,7 @@
 // The intersection Trunk computes is identical, but the uploaded list says
 // which lanes the PR claimed, so the telemetry can compare it against the lanes
 // the PR should have claimed. "ALL" is kept for the cases where the set cannot
-// be built at all — an unreadable crate graph or services/ listing here, and a
+// be built at all — an unreadable crate inventory or services/ listing here, and a
 // failed diff in the workflow, which never reaches this script. That is a
 // different statement from "everything": it means "unknown".
 //
@@ -26,10 +26,20 @@
 // call to the old name, and master breaks on a combination neither run held.
 //
 //   1. A product change claims its own lane plus its direct importers, rather
-//      than every backend lane. tach.toml is the enforced Python module graph
-//      (`tach check` runs in CI), so for a product it declares, the modules
-//      that may import it are exactly the ones listing it in `depends_on`. A
-//      product absent from that graph is unconstrained and still widens.
+//      than every backend lane. The tach map is the real Python import graph
+//      (`tach map` reads the imports that `tach check` enforces in CI), so for
+//      a product it walked, the products that import it are known from the
+//      files. A product absent from that map has no known importer set and
+//      still widens.
+//
+//      ACCEPTED RISK: the map is read from each PR's own tree, so an importer
+//      that does not exist yet is not in it. PR A renames a symbol in X, PR B
+//      adds the first call from Y to X, and neither lane names the other's
+//      product; master holds the combination untested. The declared graph in
+//      tach.toml covered only the slice of this where Y had listed X in
+//      `depends_on` before importing it, and closing it fully would make every
+//      PR claim what its products import as well, which lands nearly every
+//      product PR in the hub products' lanes.
 //
 //      This does NOT require the product to be isolated. Isolation is the
 //      stronger claim that a change inside the product can only break the
@@ -59,7 +69,7 @@
 //      product_analytics, which depends on warehouse_sources) is no longer
 //      serialized, and master's post-merge run is the only net for it. The
 //      transitive closure was not a usable alternative: a 31-product cycle in
-//      tach.toml means every member reaches every other, so any seed inside it
+//      the product graph means every member reaches every other, so any seed inside it
 //      expanded to the whole backend and the cascade could not distinguish
 //      products at all.
 //
@@ -138,9 +148,73 @@ const PROTO = 'proto'
 const SEMGREP = 'semgrep'
 
 // rust/Cargo.lock, answered by the cargo determinator rather than by the path.
-// Its own domain because the answer is a crate list rather than a fixed set of
-// lanes, and it degrades to RUST when that list is absent.
+// Its own domain because the file names no crate directory to seed from, so
+// its radius is whatever the determinator's answer says the resolution change
+// moved, degrading to every crate when that answer is absent.
 const CARGO_LOCK = 'cargo-lock'
+
+// The nodejs lane on its own, for files whose only reader is the ingestion
+// suite or an image built purely from nodejs/ sources. The rust and proto
+// rules also use it to name that lane without dragging in the frontend.
+const NODE = 'node'
+
+// Suites that run the backend and the frontend together: E2E, Hog, and the
+// builds of the images those suites run inside. Both language families in
+// full, which still leaves the rust crates and the standalone trees free
+// (E2E runs prebuilt capture containers from rust/, but rust/** is outside
+// its paths filter, so that gap is the filter's, not this lane's).
+const FULLSTACK = 'fullstack'
+
+// Release and CD workflows. See addDeployLane for why one shared lane is safe.
+const DEPLOY = 'deploy'
+
+// The hobby deployment: its install scripts and the smoke test that runs them.
+const HOBBY = 'hobby'
+
+// The desktop product's own CI and release workflows.
+const DESKTOP = 'desktop'
+
+// ci-cli.yml and the reusable cargo-dist plan it calls, which build the CLI
+// from services/mcp sources. The same pair STANDALONE_TREES gives cli/ itself.
+const CLI_ARTIFACTS = 'cli-artifacts'
+
+// The hogbox preview-environment workflows, which read the hogbox tooling.
+const HOGBOX_PREVIEW = 'hogbox-preview'
+
+// Bot, report, sync, and canary workflows plus the scripts they run. None of
+// them is a required check, so a break costs a bot action rather than a merge
+// gate, and one shared lane keeps a script and the workflow that runs it
+// serialized against each other.
+const REPO_AUTOMATION = 'repo-automation'
+
+// The local development stack: hogli start, the mprocs process lists, the
+// readiness checks, and the developer-only helper scripts. No required check
+// runs any of it except its own selftest workflows, which share the lane.
+const DEV_ENV = 'dev-env'
+
+// Entrypoints and configuration baked into the unified app image, which backs
+// the E2E suites, the hobby deployment, and production alike.
+const APP_IMAGE = 'app-image'
+
+// Suites that gate documentation changes, which claim the prose lane. Their
+// tooling has to share it, or a docs-check change and the docs PR it breaks
+// against merge in parallel.
+const PROSE_SUITE = 'prose-suite'
+
+// The ownership data and the suite that validates it. No other suite's outcome
+// depends on ownership jointly with a second PR's changes: the root owners.yaml
+// is a fallback, so nothing can become unowned, and the readers outside the
+// validation suite are review-routing bots. Two ownership edits can conflict
+// with each other (a team renamed under a reference), which one shared lane
+// serializes. A product's own owners.yaml keeps its product lane.
+const OWNERSHIP = 'ownership'
+
+// The vendored paths-filter action and its CI. It decides which jobs run
+// inside a single run's own diff, so no run's outcome depends on it jointly
+// with another queue entry: parallel entries never share a run, and master
+// pushes skip the filters and run the suites in full. Its own tests pair with
+// it in the lane.
+const CI_TOOLING = 'ci-tooling'
 
 const TRIPWIRE_RULES = [
     // Markdown in these trees compiles into nothing and no suite reads it, so
@@ -159,9 +233,10 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/trunk-impacted-targets.yml', UNIVERSAL],
     ['turbo.json', UNIVERSAL],
 
-    // tach.toml is one of those graphs, so it carries the same self-gating
-    // hazard, but every edge it can move lands on a python lane: `tach check`
-    // runs in ci-backend.yml, and the two readers of the graph, this script and
+    // tach.toml shapes one of those graphs (its exclude list decides what
+    // `tach map` walks), so it carries the same self-gating hazard, but every
+    // edge it can move lands on a python lane: `tach check` runs in
+    // ci-backend.yml, and the two readers of the map, this script and
     // turbo-discover, use it only to cascade python product lanes. `python`
     // claims all of them, so a PR editing the graph still overlaps every PR
     // whose lanes were computed against the old one.
@@ -183,6 +258,256 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/ci-dagster.yml', PYTHON],
     ['.github/workflows/ci-rust.yml', RUST],
     ['.github/workflows/ci-rust-flags-integration.yml', RUST],
+    // These two gate suites that run only Python: the tools and
+    // approval-agent pytest suites, and the ClickHouse multinode migration
+    // smoke.
+    ['.github/workflows/ci-python.yml', PYTHON],
+    ['.github/workflows/ci-clickhouse-multinode-migrations.yml', PYTHON],
+    // Blocks Django or sqlx migrations landing beside nodejs/ or other rust/
+    // changes, so all three families interact with an edit to the gate.
+    ['.github/workflows/ci-migrations-service-separation-check.yml', [PYTHON, NODE, RUST]],
+    // Suites that run the backend and the frontend together, and the builds of
+    // the images those suites run inside. cd-sandbox-base-image is here rather
+    // than on the deploy lane because it builds on pull requests from product
+    // code, so it is a PR suite despite the cd- name, and it has to precede
+    // the cd-*-image rule below.
+    ['.github/workflows/ci-e2e-playwright.yml', FULLSTACK],
+    ['.github/workflows/ci-e2e-playwright-audit.yml', FULLSTACK],
+    ['.github/workflows/ci-hog.yml', FULLSTACK],
+    ['.github/workflows/container-images-ci.yml', FULLSTACK],
+    ['.github/workflows/cd-sandbox-base-image.yml', FULLSTACK],
+    ['.github/workflows/ci-recording-rasterizer-container.yml', FULLSTACK],
+    // The ml-mirror-image-scrub sidecar is built from nodejs/ sources only.
+    ['.github/workflows/ci-ml-mirror-image-scrub-container.yml', NODE],
+    // The skills build renders templates that import product Python, and the
+    // embedded-payload job runs the services/mcp generator that writes into
+    // products/*/frontend/generated/. It does not gate .agents/.
+    ['.github/workflows/ci-agent-skills.yml', [PYTHON, JAVASCRIPT]],
+    // buf lint and the stub drift checks span every proto tree, which is the
+    // radius proto/buf.yaml gets.
+    ['.github/workflows/ci-proto.yml', PROTO],
+    // Suites owned by one service directory.
+    ['.github/workflows/ci-llm-gateway.yml', 'service:llm-gateway'],
+    ['.github/workflows/ci-oauth-proxy.yml', 'service:oauth-proxy'],
+    ['.github/workflows/ci-agent-proxy.yml', 'service:agent-proxy'],
+    // The UI apps build reads services/mcp and every products/*/mcp tree,
+    // which are the readers the product-surface domain already names.
+    ['.github/workflows/ci-mcp-ui-apps.yml', PRODUCT_SURFACE],
+    ['.github/workflows/ci-cli.yml', CLI_ARTIFACTS],
+    ['.github/workflows/release.yml', CLI_ARTIFACTS],
+    // The hobby smoke test and the installer CI are the only suites that read
+    // the hobby scripts, so they share the hobby lane with them (the bin/
+    // rules below).
+    ['.github/workflows/ci-hobby.yml', HOBBY],
+    ['.github/workflows/ci-hobby-installer.yml', HOBBY],
+    // The desktop product's whole CI and release family builds and tests only
+    // products/desktop.
+    ['.github/workflows/desktop-*.yml', DESKTOP],
+    // Release and CD workflows: they publish artifacts from master pushes,
+    // tags, or opt-in labels, and none of them is a required check on a pull
+    // request or in the merge queue. See addDeployLane.
+    ['.github/workflows/container-images-cd.yml', DEPLOY],
+    ['.github/workflows/cd-*-image.yml', DEPLOY],
+    ['.github/workflows/rust-docker-build.yml', DEPLOY],
+    ['.github/workflows/release-cli.yml', DEPLOY],
+    ['.github/workflows/publish-hogli.yml', DEPLOY],
+    // Also read by rust-compute-affected in ci-rust and ci-nodejs, so it takes
+    // the rust lanes on top of deploy: those PR checks parse it, even though
+    // only the image builds act on what it maps.
+    ['.github/rust-images.yml', [RUST, DEPLOY]],
+    // The hogbox preview environment gates no check, and its deploys read the
+    // hogbox tooling, which owns a lane already.
+    ['.github/workflows/hogbox-preview-env.yml', HOGBOX_PREVIEW],
+    ['.github/workflows/hogbox-preview-cleanup.yml', HOGBOX_PREVIEW],
+    // CI scripts held to the workflows that run them: the backend test-timing
+    // pair and the IDOR coverage check run only in ci-backend and its timing
+    // workflow, while report_test_timings is read by the backend, frontend,
+    // and nodejs workflows alike.
+    ['.github/scripts/optimize_test_durations.py', PYTHON],
+    ['.github/scripts/test_optimize_test_durations.py', PYTHON],
+    ['.github/scripts/check-idor-model-coverage.py', PYTHON],
+    ['.github/scripts/report_test_timings.py', FULLSTACK],
+    ['.github/scripts/test_report_test_timings.py', FULLSTACK],
+    // Bot, report, sync, and canary workflows. None is a required check; each
+    // failure costs a bot action, a Slack post, or a canary signal. Their
+    // scripts and config sit on the same lane further down.
+    ['.github/workflows/auto-assign-labels.yml', REPO_AUTOMATION],
+    ['.github/workflows/auto-assign-reviewers.yml', REPO_AUTOMATION],
+    ['.github/workflows/browserslist.yml', REPO_AUTOMATION],
+    ['.github/workflows/canary-flags-enable.yml', REPO_AUTOMATION],
+    ['.github/workflows/ci-alerts-devex.yml', REPO_AUTOMATION],
+    ['.github/workflows/ci-geoip-canary.yml', REPO_AUTOMATION],
+    ['.github/workflows/ci-master-run-traces.yml', REPO_AUTOMATION],
+    ['.github/workflows/eng-analytics-weekly-digest.yml', REPO_AUTOMATION],
+    ['.github/workflows/foss-sync.yml', REPO_AUTOMATION],
+    ['.github/workflows/inkeep-agent.yml', REPO_AUTOMATION],
+    ['.github/workflows/monitor-github-rate-limit.yml', REPO_AUTOMATION],
+    ['.github/workflows/pr-autoresolve-conflicts.yml', REPO_AUTOMATION],
+    ['.github/workflows/pr-cleanup.yml', REPO_AUTOMATION],
+    ['.github/workflows/pr-closed.yml', REPO_AUTOMATION],
+    ['.github/workflows/pr-opened.yml', REPO_AUTOMATION],
+    ['.github/workflows/pr-posthog-js-reviewer.yml', REPO_AUTOMATION],
+    ['.github/workflows/pr-priority-review.yml', REPO_AUTOMATION],
+    ['.github/workflows/pr-resolve-outdated-bot-comments.yml', REPO_AUTOMATION],
+    ['.github/workflows/pr-updated.yml', REPO_AUTOMATION],
+    ['.github/workflows/private-sync.yml', REPO_AUTOMATION],
+    ['.github/workflows/review-hog.yml', REPO_AUTOMATION],
+    ['.github/workflows/stale.yaml', REPO_AUTOMATION],
+    ['.github/workflows/test-quarantine.yml', REPO_AUTOMATION],
+    ['.github/workflows/update-ai-costs.yml', REPO_AUTOMATION],
+    ['.github/workflows/update-bot-ips.yml', REPO_AUTOMATION],
+    ['.github/workflows/weekly-flaky-report.yml', REPO_AUTOMATION],
+    ['.github/workflows/weekly-slow-tests-report.yml', REPO_AUTOMATION],
+    // More single-suite workflows, held to the trees their suites read: the AI
+    // evals, replay-vision evals, and ClickHouse HCL checks are Python; the
+    // hogql parser builds wheels (python), an npm package (both families), and
+    // a crate (rust); deltalite spans its crates and the wheel's python
+    // consumers.
+    ['.github/workflows/ci-ai.yml', PYTHON],
+    ['.github/workflows/ci-replay-vision-evals.yml', PYTHON],
+    ['.github/workflows/ci-clickhouse-hcl-schema.yml', PYTHON],
+    ['.github/workflows/build-hogql-parser.yml', PYTHON],
+    ['.github/workflows/build-hogql-parser-npm.yml', FULLSTACK],
+    ['.github/workflows/build-hogql-parser-rs.yml', RUST],
+    ['.github/workflows/rust-smoke-test-build.yml', RUST],
+    ['.github/workflows/publish-replay-anonymizer-crate.yml', RUST],
+    ['.github/workflows/build-deltalite.yml', [RUST, PYTHON]],
+    ['.github/workflows/ci-deltalite-python.yml', [RUST, PYTHON]],
+    // Standalone trees whose suites already own a lane.
+    ['.github/workflows/build-livestream-tui.yml', 'livestream-suite'],
+    ['.github/workflows/ci-livestream.yml', 'livestream-suite'],
+    ['.github/workflows/ci-livestream-tui.yml', 'livestream-suite'],
+    ['.github/workflows/livestream-docker-image.yml', 'livestream-suite'],
+    ['.github/workflows/build-phrocs.yml', 'phrocs-suite'],
+    ['.github/workflows/ci-phrocs.yml', 'phrocs-suite'],
+    ['.github/workflows/terragrunt-posthog.yaml', 'terraform-suite'],
+    ['.github/workflows/build-hobby-installer.yml', HOBBY],
+    ['.github/workflows/ci-integration-service.yml', 'service:integration-service'],
+    ['.github/workflows/ci-openapi-codegen.yml', PRODUCT_SURFACE],
+    // Publish and CD workflows found after the first deploy pass.
+    ['.github/workflows/llm-gateway-cd.yml', DEPLOY],
+    ['.github/workflows/publish-quill-npm.yml', DEPLOY],
+    ['.github/workflows/publish-symbol-data-crate.yml', DEPLOY],
+    ['.github/workflows/clickhouse-udfs.yml', DEPLOY],
+    // A scheduled mirror of the upstream Playwright image; no suite runs it.
+    ['.github/workflows/ci-playwright-container.yml', DEPLOY],
+    // The dev-environment checks: the flox boot check and the sandbox
+    // selftests, which are the only suites reading the dev-stack scripts.
+    ['.github/workflows/ci-dev-setup.yml', DEV_ENV],
+    ['.github/workflows/dev-sandbox-selftest.yml', DEV_ENV],
+    // The docs suites gate documentation PRs, which claim the prose lane.
+    // ci-docs-check is reusable but its one caller is the survey check, whose
+    // radius spans the frontend sources it compares against the docs.
+    ['.github/workflows/docs-preview-trigger.yml', PROSE_SUITE],
+    ['.github/workflows/ci-survey-sdk-check.yml', [JAVASCRIPT, PROSE_SUITE]],
+    ['.github/workflows/ci-docs-check.yml', [JAVASCRIPT, PROSE_SUITE]],
+    // Scripts and config on the automation lane above.
+    ['.github/scripts/assign-reviewers.js', REPO_AUTOMATION],
+    ['.github/scripts/assign-reviewers.test.js', REPO_AUTOMATION],
+    ['.github/scripts/codeowners.js', REPO_AUTOMATION],
+    ['.github/scripts/label-pr-from-title.js', REPO_AUTOMATION],
+    ['.github/scripts/label-pr-from-title.test.js', REPO_AUTOMATION],
+    ['.github/scripts/minimize-superseded-comments.mjs', REPO_AUTOMATION],
+    ['.github/scripts/autoresolve/**', REPO_AUTOMATION],
+    ['.github/scripts/monitor-github-rate-limit.js', REPO_AUTOMATION],
+    ['.github/scripts/monitor-github-rate-limit.test.js', REPO_AUTOMATION],
+    ['.github/scripts/weekly-*.mjs', REPO_AUTOMATION],
+    ['.github/scripts/eng-analytics-weekly-digest.mjs', REPO_AUTOMATION],
+    ['.github/scripts/ci-alerts-devex.js', REPO_AUTOMATION],
+    ['.github/scripts/ci-alerts-devex.test.js', REPO_AUTOMATION],
+    ['.github/scripts/ci_flake_overseer.py', REPO_AUTOMATION],
+    ['.github/scripts/test_ci_flake_overseer.py', REPO_AUTOMATION],
+    ['.github/scripts/compare-ci-runners.py', REPO_AUTOMATION],
+    ['.github/scripts/report_workflow_run_traces.py', REPO_AUTOMATION],
+    ['.github/scripts/test_report_workflow_run_traces.py', REPO_AUTOMATION],
+    ['.github/auto-assign-labels.json', REPO_AUTOMATION],
+    ['.github/dependabot.yml', REPO_AUTOMATION],
+    ['.github/renovate.json5', REPO_AUTOMATION],
+    // Scripts run only by ci-backend, ci-python, or ci-dagster.
+    ['.github/scripts/check-dagster-paths.py', PYTHON],
+    ['.github/scripts/test_check_dagster_paths.py', PYTHON],
+    ['.github/scripts/check-dwh-source-agnostic.py', PYTHON],
+    ['.github/scripts/check-operator-parity.py', PYTHON],
+    ['.github/scripts/check-version-specifiers.py', PYTHON],
+    ['.github/scripts/coverage_report.py', PYTHON],
+    ['.github/scripts/coverage_report.py.lock', PYTHON],
+    ['.github/scripts/test_coverage_report.py', PYTHON],
+    ['.github/scripts/list-removed-renamed-paths.sh', PYTHON],
+    ['.github/scripts/migration-deletion-allowlist.txt', PYTHON],
+    ['.github/scripts/signal-fanout', PYTHON],
+    ['.github/scripts/verify-new-snapshots.sh', PYTHON],
+    ['.github/scripts/post-ch-migration-section.mjs', PYTHON],
+    ['.github/scripts/post-django-migration-section.mjs', PYTHON],
+    ['.github/scripts/post-coverage-section.mjs', PYTHON],
+    ['.github/scripts/post-eval-section.mjs', PYTHON],
+    // CI-report sections and helpers owned by one suite each.
+    ['.github/scripts/post-playwright-section.mjs', FULLSTACK],
+    ['.github/scripts/verify-playwright-new-tests-and-snapshots.sh', FULLSTACK],
+    ['.github/scripts/post-snapshot-section.mjs', FULLSTACK],
+    ['.github/scripts/count-snapshot-changes.sh', FULLSTACK],
+    ['.github/scripts/fixtures/**', FULLSTACK],
+    ['.github/scripts/verify-storybook-new-stories.sh', JAVASCRIPT],
+    ['.github/scripts/post-hobby-section.mjs', HOBBY],
+    ['.github/scripts/desktop/**', DESKTOP],
+    ['.github/scripts/patch-cli-npm-installer.mjs', DEPLOY],
+    ['.github/scripts/patch-cli-npm-installer.test.mjs', DEPLOY],
+    ['.github/scripts/check-docs-links.js', PROSE_SUITE],
+    ['.github/scripts/trigger-vercel-preview.sh', PROSE_SUITE],
+    ['.github/scripts/post-docs-preview-section.mjs', PROSE_SUITE],
+    // Validates the AGENTS.md symlinks that the agents lane's build reads.
+    ['.github/scripts/check-agents-md-symlinks.sh', 'agents-lane'],
+    // Run only by the husky pre-commit hook, whose config already sits on the
+    // repo-config lane. No CI suite executes them.
+    ['.github/scripts/check-access-control-doc-sync.sh', 'repo-config-lane'],
+    ['.github/scripts/check-fixture-provenance.sh', 'repo-config-lane'],
+    ['.github/scripts/check-product-scaffold.sh', 'repo-config-lane'],
+    // Composite actions held to the workflows that use them. The setup and
+    // helper actions used across language families (pnpm-install, paths-filter,
+    // setup-sqlx-cli, setup-protoc, setup-sccache, docker-meta, semgrep-ci) and
+    // the lane-feeding rust-compute-affected stay on the blanket below.
+    ['.github/actions/build-n-cache-image/**', FULLSTACK],
+    ['.github/actions/commit-snapshots/**', FULLSTACK],
+    ['.github/actions/trunk-quarantine-gate/**', FULLSTACK],
+    ['.github/actions/setup-emsdk/**', FULLSTACK],
+    ['.github/actions/desktop-build-agent-release/**', DESKTOP],
+    ['.github/actions/desktop-restore-turbo-cache/**', DESKTOP],
+    ['.github/actions/setup-python-cached/**', PYTHON],
+    // Also used by ci-scripts.yml, which is universal, so the node lane is the
+    // only radius left to claim.
+    ['.github/actions/report-jest-timings/**', NODE],
+    ['.github/actions/get-pr-labels/**', APP_IMAGE],
+    ['.github/actions/wait-for-check/**', HOBBY],
+    // Problem matchers and coverage config registered only by the Python
+    // suites, and the ClickHouse version matrix the backend, dagster, and E2E
+    // suites test against.
+    ['.github/mypy-problem-matcher.json', PYTHON],
+    ['.github/ty-problem-matcher.json', PYTHON],
+    ['.github/openapi-problem-matcher.json', PYTHON],
+    ['.github/coverage-core.cfg', PYTHON],
+    ['.github/clickhouse-versions.json', FULLSTACK],
+    ['.github/dockerignore-drop-allowlist.txt', FULLSTACK],
+    // Issue templates render on github.com and compile into nothing.
+    ['.github/ISSUE_TEMPLATE/**', 'repo-config-lane'],
+    // Deployment templates with no in-repo reader; nothing tests them.
+    ['.github/pr-deploy/**', DEPLOY],
+    // Ownership data on the shared ownership lane (see OWNERSHIP): the
+    // CODEOWNERS the review bots read, and .github/'s own tree ownership.
+    ['.github/CODEOWNERS', OWNERSHIP],
+    ['.github/owners.yaml', OWNERSHIP],
+    // The vendored paths-filter action and its CI (see CI_TOOLING). The
+    // .depot/ shadow of the action follows through canonicalPath.
+    ['.github/actions/paths-filter/**', CI_TOOLING],
+    ['.github/workflows/ci-paths-filter.yml', CI_TOOLING],
+    // Feed turbo-discover's backend product selection, so they take the
+    // python lanes the same way the snob selector does.
+    ['.github/scripts/schema-impact.js', PYTHON],
+    ['.github/scripts/schema-impact.test.js', PYTHON],
+    ['.github/scripts/schema_usage_scan.py', PYTHON],
+    ['.github/scripts/test_schema_usage_scan.py', PYTHON],
+    // Reusable image builder called by the rust smoke build and the rust
+    // image CD (ci-frontend only names it in a comment), so it spans exactly
+    // those two radii.
+    ['.github/workflows/_rust-build-images.yml', [RUST, DEPLOY]],
 
     // Lint rules that run repo-wide: a new rule fails code that merged in a
     // parallel lane, which is the same conflict .oxlintrc.json is here for. The
@@ -206,6 +531,9 @@ const TRIPWIRE_RULES = [
     ['webpack.config.js', JAVASCRIPT],
     ['.oxlintrc.json', JAVASCRIPT],
     ['.oxfmtrc*', JAVASCRIPT],
+    // Prettier still formats the nodejs tree (ci-nodejs runs its check), so
+    // its ignore file is a JS toolchain setting like the two above.
+    ['.prettierignore', JAVASCRIPT],
     ['.nvmrc', JAVASCRIPT],
     ['postcss.config.js', JAVASCRIPT],
     ['.stylelintrc.js', JAVASCRIPT],
@@ -269,10 +597,21 @@ const TRIPWIRE_RULES = [
     ['hogli.yaml', UNIVERSAL],
     ['.github/**', UNIVERSAL],
     ['docker-compose*.yml', UNIVERSAL],
-    ['Dockerfile*', UNIVERSAL],
-    // Decides what lands in the build context of every image built from the
-    // repository root, so it belongs with the Dockerfiles above.
-    ['.dockerignore', UNIVERSAL],
+    // Single-purpose images ahead of the fallback: each is read by exactly one
+    // workflow or suite, whose rule above already carries the radius.
+    // Dockerfile.llm-analytics is built only by its master-push CD workflow,
+    // Dockerfile.ml-mirror-image-scrub only from nodejs/ sources, and the
+    // playwright and sandbox images host suites that run both language
+    // families. Everything else at the root, the unified app image included,
+    // backs E2E, hobby, and production, which is the app-image radius; no
+    // rust suite builds from a root Dockerfile. The build-context ignore file
+    // belongs with them.
+    ['Dockerfile.llm-analytics', DEPLOY],
+    ['Dockerfile.ml-mirror-image-scrub', NODE],
+    ['Dockerfile.playwright', FULLSTACK],
+    ['Dockerfile.sandbox', FULLSTACK],
+    ['Dockerfile*', APP_IMAGE],
+    ['.dockerignore', APP_IMAGE],
     ['proto/**', PROTO],
     ['frontend/src/queries/schema.json', PRODUCT_SURFACE],
     ['posthog/schema.py', PRODUCT_SURFACE],
@@ -294,27 +633,142 @@ const TRIPWIRE_RULES = [
     // Generates the frontend API types from the backend serializers, so a
     // change lands on both sides of the fe/py split at once.
     ['tools/openapi-codegen/**', PRODUCT_SURFACE],
-    // Ownership data read by the backend, frontend, and script suites alike.
-    // The root owners.yaml is the fallback every path resolves through when no
-    // nearer file claims it, so it has the same readers as the tooling. A
-    // product's own owners.yaml is not here: it keeps its product lane.
-    ['tools/owners/**', UNIVERSAL],
-    ['owners.yaml', UNIVERSAL],
-    // Left universal: the quarantine list covers all three suites at once, and
-    // playwright.quarantine.ts and replay-shared's jest.config.js read it
-    // alongside pytest, so an entry for a flaky frontend test moves a
-    // frontend lane.
-    ['.test_quarantine.json', UNIVERSAL],
-    // bin/ appears in the backend, frontend, and E2E path filters alike.
+    // The per-suite test-selection scripts at the root of tools/, ahead of the
+    // catch-all that widens anything else there. Each decides which of one
+    // suite's tests run on a PR, so an under-selection can only mask conflicts
+    // that suite's lanes already serialize: the snob shadow, its verdict, and
+    // the testmon fanout list select Django tests, the dagster selector its
+    // own suite, and the playwright pair the E2E specs.
+    ['tools/snob_backend_test_selection_shadow.py', PYTHON],
+    ['tools/test_snob_backend_test_selection_shadow.py', PYTHON],
+    ['tools/test_selection_verdict.py', PYTHON],
+    ['tools/test_test_selection_verdict.py', PYTHON],
+    ['tools/dagster_test_selection.py', PYTHON],
+    ['tools/test_dagster_test_selection.py', PYTHON],
+    ['tools/testmon_high_fanout_files.txt', PYTHON],
+    ['tools/playwright_spec_selection.py', FULLSTACK],
+    ['tools/test_playwright_spec_selection.py', FULLSTACK],
+    ['tools/playwright_area_map.json', FULLSTACK],
+    // The ownership data and its validation tooling share one lane. The root
+    // owners.yaml is the fallback every path resolves through when no nearer
+    // file claims it. A product's own owners.yaml is not here: it keeps its
+    // product lane.
+    ['tools/owners/**', OWNERSHIP],
+    ['owners.yaml', OWNERSHIP],
+    // The quarantine list covers the pytest, jest, and playwright suites at
+    // once, and turbo-discover reads it to drop products from the backend
+    // matrix. Every reader sits inside the two language families; no rust
+    // suite consumes it. A schema change and an entry in the old format meet
+    // in the same file, which git serializes as a textual conflict.
+    ['.test_quarantine.json', FULLSTACK],
+    // The hobby install scripts, ahead of the bin/ blanket. Only the hobby
+    // smoke test and the installer CI read them, and both workflows sit on the
+    // same lane above, so a hobby change and the workflow change that runs it
+    // stay serialized against each other and nothing else.
+    ['bin/hobby-installer/**', HOBBY],
+    ['bin/hobby-ci.py', HOBBY],
+    ['bin/hobby-ci-setup-user.py', HOBBY],
+    ['bin/deploy-hobby', HOBBY],
+    ['bin/upgrade-hobby', HOBBY],
+    ['bin/migrate-storage-hobby', HOBBY],
+    ['bin/migrate-session-recordings-hobby', HOBBY],
+    // Called by the hobby storage-migration scripts above, so it has to share
+    // their lane.
+    ['bin/migrate-minio-to-seaweedfs', HOBBY],
+    // Entrypoints and configuration the unified app image bakes in, plus the
+    // scripts docker-compose.base.yml runs as service commands. The image
+    // backs E2E, hobby, and production, which is the app-image radius. The
+    // exact-name rows precede the wildcard rows that would otherwise claim
+    // them for the dev stack.
+    ['bin/docker-server*', APP_IMAGE],
+    ['bin/docker-worker*', APP_IMAGE],
+    ['bin/docker-migrate', APP_IMAGE],
+    ['bin/migrate', APP_IMAGE],
+    ['bin/migrate-check', APP_IMAGE],
+    ['bin/celery-queues.env', APP_IMAGE],
+    ['bin/posthog-node', APP_IMAGE],
+    ['bin/temporal-django-worker', APP_IMAGE],
+    ['bin/granian_metrics.py', APP_IMAGE],
+    ['bin/unit_metrics.py', APP_IMAGE],
+    ['bin/start-backend', APP_IMAGE],
+    ['bin/start-frontend', APP_IMAGE],
+    // The schema and taxonomy codegen pipeline, which turns
+    // frontend/src/queries/schema.json into posthog/schema.py and the other
+    // generated artifacts both families read.
+    ['bin/build-*', PRODUCT_SURFACE],
+    ['bin/patch-schema-*', PRODUCT_SURFACE],
+    ['bin/split-schema-enums.py', PRODUCT_SURFACE],
+    // Scripts run only by the Python suites.
+    ['bin/check_uv_python_compatibility.py', PYTHON],
+    ['bin/find_python_dependencies.py', PYTHON],
+    ['bin/test/**', PYTHON],
+    ['bin/ruff.sh', PYTHON],
+    // Scripts run only by the frontend and storybook suites, plus the pnpm
+    // lifecycle hook package.json declares.
+    ['bin/find-affected-stories', JAVASCRIPT],
+    ['bin/find-affected-stories.test.mjs', JAVASCRIPT],
+    ['bin/frontend-exclude-filter', JAVASCRIPT],
+    ['bin/validate-setup-tasks.mjs', JAVASCRIPT],
+    ['bin/lint-feature-flag-sorting.mjs', JAVASCRIPT],
+    ['bin/fix-rdkafka-paths', JAVASCRIPT],
+    ['bin/create-notebook-node.sh', JAVASCRIPT],
+    // The Hog CLI backs the Hog suite, the jest-timing helpers feed
+    // report_test_timings, the dockerignore check runs in container-images-ci,
+    // and the sandbox scripts are baked into the sandbox image; all of those
+    // sit on the fullstack lanes already.
+    ['bin/hog', FULLSTACK],
+    ['bin/hoge', FULLSTACK],
+    ['bin/report-jest-timings', FULLSTACK],
+    ['bin/render-jest-timings-example', FULLSTACK],
+    ['bin/dockerignore-drop-check', FULLSTACK],
+    ['bin/sandbox*', FULLSTACK],
+    ['bin/sandbox-shims/**', FULLSTACK],
+    ['bin/generate_personhog_proto.sh', PROTO],
+    // Runs in the bot-IP update workflow on the automation lane.
+    ['bin/update-bots-list', REPO_AUTOMATION],
+    // The local development stack: process lists, launchers, readiness checks,
+    // storage upgrades, and developer helpers. Nothing in CI reads them except
+    // the dev-setup check and the sandbox selftests, which share the lane.
+    ['bin/mprocs*.yaml', DEV_ENV],
+    ['bin/e2e-test-runner', DEV_ENV],
+    ['bin/start', DEV_ENV],
+    ['bin/start-*', DEV_ENV],
+    ['bin/dev-*', DEV_ENV],
+    ['bin/check_*', DEV_ENV],
+    ['bin/clickhouse-*', DEV_ENV],
+    ['bin/docker-*', DEV_ENV],
+    ['bin/temporal-*', DEV_ENV],
+    ['bin/verify-*', DEV_ENV],
+    ['bin/upgrade-*', DEV_ENV],
+    ['bin/helpers/**', DEV_ENV],
+    ['bin/wait-for-postgres-tables', DEV_ENV],
+    ['bin/ensure-local-setup', DEV_ENV],
+    ['bin/dump_hogvmrs_stl', DEV_ENV],
+    ['bin/download-sentiment-model', DEV_ENV],
+    ['bin/inject_mcp_intents.py', DEV_ENV],
+    ['bin/install-hogli-completion', DEV_ENV],
+    ['bin/phw', DEV_ENV],
+    ['bin/posthog-worktree', DEV_ENV],
+    ['bin/rust-jumphost', DEV_ENV],
+    ['bin/send-dev-metrics.sh', DEV_ENV],
+    ['bin/setup-gateway-e2e', DEV_ENV],
+    ['bin/sync-storage', DEV_ENV],
+    ['bin/warm-flags-cache', DEV_ENV],
+    // bin/ appears in the backend, frontend, and E2E path filters alike, and
+    // what remains here is read across families: hogli and turbo drive the
+    // suites, bin/docker is the image entrypoint, and download-mmdb and the
+    // wait-for-docker pair run in backend, frontend, nodejs, and rust CI.
     ['bin/**', UNIVERSAL],
-    ['patches/**', UNIVERSAL],
-    // Holds the Depot-runner copies of the workflows and composite actions in
-    // .github/, so it decides what runs for everyone the same way.
-    ['.depot/**', UNIVERSAL],
+    // pnpm patches resolve inside the JS workspace the same way pnpm-lock.yaml
+    // does, and the python suites never execute the patched packages.
+    ['patches/**', JAVASCRIPT],
     // Names the Depot project every container build and runner is billed and
-    // cached against. rust/depot.json is deliberately not here: it configures
-    // builds of that workspace only, and the rust rules below hold it to them.
-    ['depot.json', UNIVERSAL],
+    // cached against, which is infrastructure routing rather than anything a
+    // suite reads: a wrong project fails its own PR's builds alone, never
+    // jointly with another PR. rust/depot.json is deliberately not here: it
+    // configures builds of that workspace only, and the rust rules below hold
+    // it to them.
+    ['depot.json', 'repo-config-lane'],
     // The toolchain every suite runs inside. ci-python.yml gates on
     // .flox/env/manifest.toml for that reason.
     ['.flox/**', UNIVERSAL],
@@ -420,6 +874,10 @@ const REPO_CONFIG_DIRS = [
     '.interface-design',
     '.posthog-code',
     '.run',
+    // Configures the local Trunk CLI only (merge / status / cancel); linting
+    // is deliberately disabled there. The queue's own behavior lives
+    // server-side and in the lane rules, which stay universal.
+    '.trunk',
     '.vscode',
     '.zed',
 ]
@@ -471,11 +929,24 @@ function globToRegExp(glob) {
 
 const TRIPWIRE_MATCHERS = TRIPWIRE_RULES.map(([glob, domain]) => [globToRegExp(glob), domain])
 
+// .depot/ holds Depot-runner shadows of the workflows and composite actions in
+// .github/, kept apples-to-apples with their canonicals by the shadow-drift
+// check, and their statuses are non-blocking. A shadow can only affect what
+// its canonical affects, so it resolves through the canonical's rules: the
+// ci-backend shadow takes the python lanes, and a shadow of something unplaced
+// still lands on the .github/** blanket.
+const DEPOT_MIRROR_PREFIX = '.depot/'
+
+function canonicalPath(file) {
+    return file.startsWith(DEPOT_MIRROR_PREFIX) ? `.github/${file.slice(DEPOT_MIRROR_PREFIX.length)}` : file
+}
+
 // The domain of the first rule matching the file, or null when no rule claims
 // it and when a rule claims it as an explicit non-tripwire. Both mean the same
 // thing to every caller: the file falls through to the ordinary rules.
 function tripwireDomain(file) {
-    const matched = TRIPWIRE_MATCHERS.find(([re]) => re.test(file))
+    const resolved = canonicalPath(file)
+    const matched = TRIPWIRE_MATCHERS.find(([re]) => re.test(resolved))
     return matched ? matched[1] : null
 }
 
@@ -755,8 +1226,8 @@ function isInProductWorkspace(product, file, productWorkspaces) {
 //      filter, but a filter tuned to over-run is not a safe source for lane
 //      assignment, while an --ignore is a statement that the suite does not
 //      cover the path at all.
-//   2. The product is absent from tach.toml, the enforced Python module graph,
-//      so no declared module may import it.
+//   2. The product is absent from the tach map, the real Python import graph,
+//      so no Python file under a source root imports it.
 //
 // A product satisfying both cannot fail another product's backend suite, so
 // its files claim its own lanes instead of all of them. Either condition
@@ -791,15 +1262,14 @@ function loadBackendDetachedProducts(repoRoot, products, tachGraph) {
     return detached
 }
 
-// tach spells its modules both ways across the file, so a product counts as
-// declared under either spelling. A product absent from the graph, or a graph
-// that could not be read at all, is not constrained by `tach check` and so has
-// no bounded importer set.
+// A product the tach map walked has a known importer set. One absent from the
+// map (no Python with an import edge under a source root, or excluded by
+// tach.toml), or a map that could not be read at all, has none.
 function isTachDeclared(product, tachGraph) {
     if (!tachGraph) {
         return false
     }
-    return tachGraph.graph.has(product) || tachGraph.graph.has(product.replace(/_/g, '-'))
+    return tachGraph.graph.has(product)
 }
 
 function listTachDeclaredProducts(products, tachGraph) {
@@ -941,11 +1411,11 @@ function touchesContractSurface(product, file, contractSurfaces) {
     return matcher(relativePath)
 }
 
-// --- Rust crate graph ---
+// --- Rust crate inventory ---
 
 // Discovers workspace crates as (directory, crate name) pairs. Crate names can
 // differ from directory names, and file paths only carry the directory, so both
-// are needed to translate a changed path into a graph node.
+// are needed to translate a changed path into a crate.
 function discoverRustCrates(repoRoot) {
     const crates = []
     const walk = (dir, depth) => {
@@ -964,13 +1434,12 @@ function discoverRustCrates(repoRoot) {
                 if (!relative) {
                     continue
                 }
-                const text = fs.readFileSync(full, 'utf8')
-                const name = parseCrateName(text)
+                const name = parseCrateName(fs.readFileSync(full, 'utf8'))
                 if (name) {
                     // A package.json beside the Cargo.toml means the crate also
                     // builds an npm package, so its lane extends past rust/.
                     const publishesNpmPackage = fs.existsSync(path.join(dir, 'package.json'))
-                    crates.push({ dir: relative, name, text, publishesNpmPackage })
+                    crates.push({ dir: relative, name, publishesNpmPackage })
                 }
             }
         }
@@ -988,166 +1457,37 @@ function parseCrateName(tomlText) {
     return match ? match[1] : null
 }
 
-// Collects the intra-workspace crates a Cargo.toml depends on. Dependencies
-// declared as `foo.workspace = true` resolve through the workspace table to the
-// same crate name, so matching on the dependency key covers both that form and
-// a direct path dependency.
+// The dependency edges between crates deliberately live elsewhere:
+// rust/affected-services, the determinator ci-rust.yml selects tests with,
+// is the sole authority on which crates a change set affects, and its answer
+// reaches this script through RUST_AFFECTED_CRATES. The inventory only names
+// the crates: it maps a changed path to the crate holding it, enumerates the
+// full set a widening claims, and flags the crates that also publish npm
+// packages.
 //
-// A `package = "..."` key renames the dependency, so the real crate is that
-// value rather than the key. Most uses point at an external crate under a
-// version-suffixed alias (prost14 = { package = "prost" }), which contributes
-// no intra-workspace edge, but resolving through it is what keeps a renamed
-// workspace crate from being dropped.
-// Classifies a section header, returning null when it carries no dependencies.
-// Cargo spells dependency sections four ways, and the ones where the dependency
-// name lives in the header rather than in a body key are easy to miss:
-//
-//   [dependencies]                                  -> body keys are the names
-//   [dev-dependencies] / [build-dependencies]       -> body keys are the names
-//   [target.'cfg(...)'.dependencies]                -> body keys are the names
-//   [dependencies.<name>]                           -> the header carries the name
-//
-// `[workspace.dependencies]` is excluded: it declares versions for the whole
-// workspace rather than this crate's own edges.
-function dependencySectionName(header) {
-    if (header.startsWith('workspace.')) {
-        return null
-    }
-    const match = header.match(/(?:^|\.)(?:dev-|build-)?dependencies(?:\.(.+))?$/)
-    if (!match) {
-        return null
-    }
-    return { named: match[1] ? match[1].replace(/^["']|["']$/g, '') : null }
-}
-
-function parseCrateDependencies(tomlText, crateNames) {
-    const deps = new Set()
-    const sections = tomlText.split(/^\s*\[/m)
-    for (const section of sections) {
-        const header = section.split(']')[0]
-        const dependencySection = dependencySectionName(header)
-        if (!dependencySection) {
-            continue
-        }
-        const body = section.slice(section.indexOf(']') + 1)
-
-        // In a [dependencies.<name>] table the body holds attributes (path,
-        // version, features), not dependency names, so scanning its keys would
-        // both miss the real edge and risk matching an attribute that happens
-        // to share a crate name.
-        if (dependencySection.named) {
-            const renamed = body.match(/^\s*package\s*=\s*"([^"]+)"/m)
-            const name = renamed ? renamed[1] : dependencySection.named
-            if (crateNames.has(name)) {
-                deps.add(name)
-            }
-            continue
-        }
-
-        for (const line of body.split('\n')) {
-            const stripped = line.replace(/#.*$/, '').trim()
-            if (!stripped) {
-                continue
-            }
-            const renamed = stripped.match(/\bpackage\s*=\s*"([^"]+)"/)
-            if (renamed) {
-                if (crateNames.has(renamed[1])) {
-                    deps.add(renamed[1])
-                }
-                continue
-            }
-            const match = stripped.match(/^([A-Za-z0-9_-]+)\s*(?:\.[A-Za-z-]+)?\s*=/)
-            if (match && crateNames.has(match[1])) {
-                deps.add(match[1])
-            }
-        }
-    }
-    return [...deps]
-}
-
-// Dependencies no Cargo.toml declares, because they are not compile-time edges:
-// the key crate spawns the listed ones as binaries at run time. The cargo graph
-// cannot see that, so the reverse closure would stop short of the spawner and
-// leave it free to merge in parallel with a change to a service it executes.
-//
-// Mirrors the [[package-rule]] on-affected block in
-// rust/affected-services/determinator-rules.toml, which exists for this same
-// blind spot on the CI side. The two lists have to be changed together, which a
-// test asserts, and loadRustGraph gives up the whole graph rather than dropping
-// an edge if a crate named here stops existing.
-const RUNTIME_SPAWN_EDGES = new Map([
-    [
-        'personhog-test-harness',
-        ['personhog-replica', 'personhog-router', 'personhog-leader', 'personhog-writer', 'personhog-identity'],
-    ],
-])
-
-// Returns null when the crate graph can't be built. Callers must treat null as
-// "unknown dependents" and widen to every target, never as "no dependents".
-// Widening past the rust lanes is deliberate: without the graph the script
-// cannot tell which crate a rust path belongs to either, so the rust targets
-// alone would not be a superset of what the change can break.
-function loadRustGraph(repoRoot) {
+// Returns null when the inventory can't be built. Callers must treat null as
+// "unknown crates" and widen to every target, never as "no crates". Widening
+// past the rust lanes is deliberate: without the inventory the script cannot
+// tell which crate a rust path belongs to either, so the rust targets alone
+// would not be a superset of what the change can break.
+function loadRustInventory(repoRoot) {
     try {
         const crates = discoverRustCrates(repoRoot)
         if (crates.length === 0) {
             return null
         }
         const crateNames = new Set(crates.map((crate) => crate.name))
-        const dependsOn = new Map()
-        for (const crate of crates) {
-            dependsOn.set(crate.name, parseCrateDependencies(crate.text, crateNames))
-        }
-        // A crate renamed out from under the runtime map would otherwise drop
-        // its edge silently, which is the under-reporting direction, so an
-        // unresolvable entry gives up the whole graph instead.
-        for (const [spawner, spawned] of RUNTIME_SPAWN_EDGES) {
-            const unknown = [spawner, ...spawned].filter((crate) => !crateNames.has(crate))
-            if (unknown.length > 0) {
-                console.error(
-                    `Runtime spawn edges name crates that no longer exist (${unknown.join(', ')}); ` +
-                        'widening to every target until RUNTIME_SPAWN_EDGES is updated'
-                )
-                return null
-            }
-            dependsOn.set(spawner, [...new Set([...dependsOn.get(spawner), ...spawned])])
-        }
         const nativeBindings = new Set(crates.filter((crate) => crate.publishesNpmPackage).map((crate) => crate.name))
         // Longest directory first so rust/common/hogvm resolves to its own crate
         // rather than to rust/common.
         const byDir = crates
             .map((crate) => ({ dir: crate.dir, name: crate.name }))
             .sort((a, b) => b.dir.length - a.dir.length)
-        return { dependsOn, byDir, nativeBindings }
+        return { crateNames, byDir, nativeBindings }
     } catch (error) {
-        console.error(`Rust crate graph unavailable (${error.message}); widening to every target`)
+        console.error(`Rust crate inventory unavailable (${error.message}); widening to every target`)
         return null
     }
-}
-
-function reverseClosure(seeds, dependsOn) {
-    const reverse = new Map()
-    for (const [node, deps] of dependsOn) {
-        for (const dep of deps) {
-            if (!reverse.has(dep)) {
-                reverse.set(dep, [])
-            }
-            reverse.get(dep).push(node)
-        }
-    }
-    const reached = new Set(seeds)
-    const queue = [...seeds]
-    while (queue.length > 0) {
-        const current = queue.shift()
-        for (const dependent of reverse.get(current) || []) {
-            if (reached.has(dependent)) {
-                continue
-            }
-            reached.add(dependent)
-            queue.push(dependent)
-        }
-    }
-    return [...reached]
 }
 
 // --- Target computation ---
@@ -1155,6 +1495,12 @@ function reverseClosure(seeds, dependsOn) {
 const pyProduct = (product) => `py:product:${product}`
 const feProduct = (product) => `fe:product:${product}`
 const rustCrate = (crate) => `rust:crate:${crate}`
+
+// Internal sentinel for a file whose crate radius only the determinator's
+// answer can state, because the path names no crate directory to seed from
+// (rust/Cargo.lock). Consumed by the determinator resolution at the end of
+// computeTargets and never uploaded.
+const RUST_DETERMINATOR = 'rust:determinator'
 
 // The lanes that import a native module built from the cargo workspace.
 // nodejs/package.json is the only dependent of the two binding packages
@@ -1177,11 +1523,22 @@ const NATIVE_BINDING_CONSUMER_LANES = ['node:ingestion']
 // dynamic parts (products, services, crates) are read rather than listed for
 // that reason, and a missing one returns null so the caller falls back to ALL.
 function allKnownTargets(context) {
-    const { products, services, rustGraph } = context
-    if (!rustGraph || !services) {
+    const { products, services, rustInventory } = context
+    if (!rustInventory || !services) {
         return null
     }
-    const targets = new Set(['py:core', 'fe:core', 'node:ingestion', 'agents'])
+    const targets = new Set([
+        'py:core',
+        'fe:core',
+        'node:ingestion',
+        'agents',
+        'deploy',
+        'hobby',
+        'repo-automation',
+        'dev-env',
+        'ownership',
+        'ci-tooling',
+    ])
     for (const product of products) {
         targets.add(pyProduct(product))
         targets.add(feProduct(product))
@@ -1197,7 +1554,7 @@ function allKnownTargets(context) {
             targets.add(target)
         }
     }
-    for (const crate of rustGraph.dependsOn.keys()) {
+    for (const crate of rustInventory.crateNames) {
         targets.add(rustCrate(crate))
     }
     // "ALL" overlapped the prose lane too, so a docs PR serialized behind a
@@ -1281,44 +1638,104 @@ function addProductSurfaceLanes(targets, context) {
 }
 
 function addRustLanes(targets, context) {
-    if (!context.rustGraph) {
+    if (!context.rustInventory) {
         return false
     }
-    for (const crate of context.rustGraph.dependsOn.keys()) {
+    for (const crate of context.rustInventory.crateNames) {
         targets.add(rustCrate(crate))
     }
     return true
 }
 
-// The crates the determinator says the change set moved, or every crate when it
-// could not say. computeTargets runs its reverse closure over whatever lands
-// here, so these are seeds rather than a finished answer.
-//
-// An answer naming no crate is a real verdict on a lockfile edit that moved no
-// resolution, but claiming nothing for it costs more than it saves. A change set
-// of only rust/Cargo.lock would then reach computeTargets' empty-set guard,
-// which reads a target-less set as a path no rule claimed and widens to every
-// lane in the repo — worse than the every-crate fallback, for a case rare enough
-// not to be worth the lanes.
+// rust/Cargo.lock sits in no crate directory, so its radius is whatever the
+// determinator's answer says the resolution change moved. The sentinel defers
+// to that answer, which the resolution at the end of computeTargets reads,
+// falling back to every crate when it is missing, empty, or in disagreement.
 function addCargoLockLanes(targets, context) {
-    const crates = context.cargoLockCrates
-    if (!crates || crates.length === 0) {
-        return addRustLanes(targets, context)
+    if (!context.rustInventory) {
+        return false
     }
-    for (const crate of crates) {
-        targets.add(rustCrate(crate))
-    }
+    targets.add(RUST_DETERMINATOR)
     return true
 }
-
-// The nodejs lane on its own. No tripwire resolves to it, because a file that
-// can break the ingestion suite can almost always break more than that. The
-// rust and proto rules still need to name it without dragging in the frontend.
-const NODE = 'node'
 
 function addNodeLanes(targets) {
     targets.add('node:ingestion')
     return true
+}
+
+function addFullstackLanes(targets, context) {
+    return addPythonLanes(targets, context) && addJavaScriptLanes(targets, context)
+}
+
+// Release and CD workflows publish artifacts from master pushes, tags, or
+// opt-in labels. No required pull-request or merge-queue check runs them, so a
+// conflict between one of them and any other PR is not a combination the queue
+// can test, and serializing the two buys no coverage. One shared lane, on the
+// same reasoning as repo-config.
+function addDeployLane(targets) {
+    targets.add('deploy')
+    return true
+}
+
+function addHobbyLane(targets) {
+    targets.add('hobby')
+    return true
+}
+
+function addHogboxPreviewLane(targets) {
+    targets.add('tools:hogbox-preview')
+    return true
+}
+
+function addCliArtifactLanes(targets) {
+    targets.add('cli')
+    targets.add('svc:mcp')
+    return true
+}
+
+// The desktop-* workflows build and test only products/desktop, so their
+// radius is that product's two lanes. The guard widens when the product is
+// gone, because the lanes would then name targets no other PR can claim.
+function addDesktopLanes(targets, context) {
+    if (!context.products.includes('desktop')) {
+        return false
+    }
+    targets.add(pyProduct('desktop'))
+    targets.add(feProduct('desktop'))
+    return true
+}
+
+// A workflow that defines one service's suite can be held to that service's
+// lane. The guard widens when the directory no longer exists, so a renamed
+// service does not leave its workflow claiming a lane no other PR can reach.
+function addServiceSuiteLane(service) {
+    return (targets, context) => {
+        if (!context.services || !context.services.includes(service)) {
+            return false
+        }
+        targets.add(`svc:${service}`)
+        return true
+    }
+}
+
+// A domain whose lanes are a fixed list of always-known targets. Only for
+// targets allKnownTargets carries unconditionally (the static base set,
+// STANDALONE_TREES values, and TOOLS_INDEPENDENT); a dynamic target needs a
+// guarded function like the service one above.
+function laneOf(...targetNames) {
+    return (targets) => {
+        for (const name of targetNames) {
+            targets.add(name)
+        }
+        return true
+    }
+}
+
+function addAppImageLanes(targets, context) {
+    targets.add('hobby')
+    targets.add('deploy')
+    return addFullstackLanes(targets, context)
 }
 
 // Each proto tree and the consumers that generate from it. proto/README.md's
@@ -1352,21 +1769,24 @@ const PROTO_TREES = new Map([
 ])
 
 // A file directly under proto/ is treated as impacting all trees, since it's not
-// scoped to a single proto subdirectory. A subdirectory the table does not name
-// has unknown consumers and widens, which is what makes adding a tree without
-// declaring it here safe rather than silent.
+// scoped to a single proto subdirectory, and so is a file outside proto/
+// entirely (the Proto CI workflow reaches this domain that way). A subdirectory
+// the table does not name has unknown consumers and widens, which is what makes
+// adding a tree without declaring it here safe rather than silent.
 function addProtoLanes(targets, context, file) {
     const segments = file.split('/')
     const trees =
-        segments.length === 2 ? [...PROTO_TREES.keys()] : [segments[1]].filter((tree) => PROTO_TREES.has(tree))
-    if (trees.length === 0 || !context.rustGraph) {
+        segments[0] !== 'proto' || segments.length === 2
+            ? [...PROTO_TREES.keys()]
+            : [segments[1]].filter((tree) => PROTO_TREES.has(tree))
+    if (trees.length === 0 || !context.rustInventory) {
         return false
     }
     for (const tree of trees) {
         const { crates, domains } = PROTO_TREES.get(tree)
         // A crate renamed out from under the table would drop the rust half
         // silently, which is the under-reporting direction.
-        if (crates.some((crate) => !context.rustGraph.dependsOn.has(crate))) {
+        if (crates.some((crate) => !context.rustInventory.crateNames.has(crate))) {
             console.error(
                 `No crate named for proto tree ${tree}; widening to every target until PROTO_TREES is updated`
             )
@@ -1392,11 +1812,37 @@ const DOMAIN_LANES = new Map([
     [NODE, addNodeLanes],
     [PRODUCT_SURFACE, addProductSurfaceLanes],
     [PROTO, addProtoLanes],
+    [FULLSTACK, addFullstackLanes],
+    [DEPLOY, addDeployLane],
+    [HOBBY, addHobbyLane],
+    [HOGBOX_PREVIEW, addHogboxPreviewLane],
+    [CLI_ARTIFACTS, addCliArtifactLanes],
+    [DESKTOP, addDesktopLanes],
+    [REPO_AUTOMATION, laneOf('repo-automation')],
+    [DEV_ENV, laneOf('dev-env')],
+    [OWNERSHIP, laneOf('ownership')],
+    [CI_TOOLING, laneOf('ci-tooling')],
+    [APP_IMAGE, addAppImageLanes],
+    [PROSE_SUITE, laneOf('prose')],
+    ['livestream-suite', laneOf('livestream')],
+    ['phrocs-suite', laneOf('tools:phrocs')],
+    ['terraform-suite', laneOf('terraform')],
+    ['repo-config-lane', laneOf('repo-config')],
+    ['agents-lane', laneOf('agents')],
 ])
+for (const service of ['llm-gateway', 'oauth-proxy', 'agent-proxy', 'integration-service']) {
+    DOMAIN_LANES.set(`service:${service}`, addServiceSuiteLane(service))
+}
 
 // Returns false when the file's domain is universal, which is the caller's cue
-// to abandon the per-file accumulation and report the whole set.
+// to abandon the per-file accumulation and report the whole set. A rule may
+// carry a list of domains for a file read on both sides of a split; the file
+// claims every listed domain's lanes, and one that cannot enumerate widens the
+// whole set as it would alone.
 function applyTripwireDomain(domain, file, targets, context) {
+    if (Array.isArray(domain)) {
+        return domain.every((entry) => applyTripwireDomain(entry, file, targets, context))
+    }
     const resolved = domain === SEMGREP ? (context.semgrepDomains || new Map()).get(file) || UNIVERSAL : domain
     const addLanes = DOMAIN_LANES.get(resolved)
     return addLanes ? addLanes(targets, context, file) : false
@@ -1442,12 +1888,13 @@ function computeTargets(changedFiles, context) {
     const {
         products,
         isolatedProducts,
-        rustGraph,
+        rustInventory,
         tachGraph,
         contractSurfaces = new Map(),
         productWorkspaces = new Map(),
         backendDetachedProducts = new Set(),
         tachDeclaredProducts = listTachDeclaredProducts(products, tachGraph),
+        deletedFiles = new Set(),
     } = context
     const targets = new Set()
 
@@ -1486,9 +1933,10 @@ function computeTargets(changedFiles, context) {
         // a README under posthog/ into the backend lane.
         //
         // The exception is markdown that is a build input: `hogli build:skills`
-        // zips products/*/skills/*, ci-agent-skills.yml gates on those paths and
-        // on .agents/, and ci-python.yml runs the pr-approval-agent suite over
-        // .stamphog/. All of them fall through to their directory rules below.
+        // zips products/*/skills/* (which ci-agent-skills.yml gates), the
+        // skills build syncs .agents/skills/, and ci-python.yml runs the
+        // pr-approval-agent suite over .stamphog/. All of them fall through to
+        // their directory rules below.
         const isBuildInput =
             top === '.agents' || top === '.stamphog' || (top === 'products' && segments[2] === 'skills')
 
@@ -1590,11 +2038,11 @@ function computeTargets(changedFiles, context) {
             return everything(context)
         }
         if (top === 'rust') {
-            if (!rustGraph) {
+            if (!rustInventory) {
                 targets.add('rust:unresolved')
                 continue
             }
-            const crate = rustGraph.byDir.find(
+            const crate = rustInventory.byDir.find(
                 (entry) => file.startsWith(`rust/${entry.dir}/`) || file === `rust/${entry.dir}`
             )
             if (crate) {
@@ -1638,7 +2086,13 @@ function computeTargets(changedFiles, context) {
                 targets.add(feProduct(product))
             }
             if (isBackend || (!isBackend && !isFrontend && !isWorkspaceOnly)) {
-                if (isolatedProducts.has(product)) {
+                if (isBackend && deletedFiles.has(file)) {
+                    // The tach map is read from the head tree, so a deleted or
+                    // renamed-away file is not in it and its importers are
+                    // unknown. The PR that removes a facade module beside a
+                    // caller it missed is the exact conflict lanes exist for.
+                    allPyProducts()
+                } else if (isolatedProducts.has(product)) {
                     targets.add(pyProduct(product))
                     if (touchesContractSurface(product, file, contractSurfaces)) {
                         cascadeSeeds.add(product)
@@ -1668,9 +2122,9 @@ function computeTargets(changedFiles, context) {
                     // product can be too unsealed to skip the suite and still
                     // have a bounded importer set.
                     //
-                    // The bound only holds for a product tach declares. One
-                    // absent from the graph is unconstrained by `tach check`,
-                    // so anything may import it and it still widens below.
+                    // The bound only holds for a product the tach map walked.
+                    // One absent from the map has no known importer set, so
+                    // it still widens below.
                     targets.add(pyProduct(product))
                     cascadeSeeds.add(product)
                 } else {
@@ -1708,19 +2162,38 @@ function computeTargets(changedFiles, context) {
         }
     }
 
-    if (rustGraph && [...targets].some((target) => target.startsWith('rust:crate:'))) {
-        const seeds = [...targets]
-            .filter((target) => target.startsWith('rust:crate:'))
-            .map((target) => target.slice('rust:crate:'.length))
-        const affectedCrates = reverseClosure(seeds, rustGraph.dependsOn)
+    // The rust:crate: targets accumulated above are seeds: the crates the
+    // changed paths sit in, plus the ones the proto and workspace rules named.
+    // The dependency closure over them is the determinator's answer, the same
+    // rust/affected-services run ci-rust.yml selects tests with, delivered
+    // through RUST_AFFECTED_CRATES. This script holds no crate dependency
+    // edges of its own, so a missing answer widens to every crate, and so does
+    // an answer that omits a seed, which means the determinator and this
+    // script disagree about the workspace. An answer naming no crate widens
+    // too: it is a real verdict on a lockfile edit that moved no resolution,
+    // but claiming nothing for it would reach the empty-set guard below and
+    // widen past the rust lanes entirely.
+    const needsDeterminator = targets.delete(RUST_DETERMINATOR)
+    const rustSeeds = [...targets]
+        .filter((target) => target.startsWith('rust:crate:'))
+        .map((target) => target.slice('rust:crate:'.length))
+    if (needsDeterminator || rustSeeds.length > 0) {
+        if (!rustInventory) {
+            return everything(context)
+        }
+        const answer = context.rustAffectedCrates
+        const affectedCrates =
+            answer && answer.length > 0 && rustSeeds.every((seed) => answer.includes(seed))
+                ? answer
+                : [...rustInventory.crateNames]
         for (const crate of affectedCrates) {
             targets.add(rustCrate(crate))
         }
         // A crate that also builds an npm package compiles into a native module
-        // the JS workspace imports, so the closure does not end at rust/. The
+        // the JS workspace imports, so the radius does not end at rust/. The
         // dependents are found through package.json rather than Cargo.toml,
-        // which is why the crate graph alone stops one edge short.
-        const bindings = rustGraph.nativeBindings || new Set()
+        // which is why the determinator's answer alone stops one edge short.
+        const bindings = rustInventory.nativeBindings || new Set()
         if (affectedCrates.some((crate) => bindings.has(crate))) {
             for (const target of NATIVE_BINDING_CONSUMER_LANES) {
                 targets.add(target)
@@ -1730,8 +2203,8 @@ function computeTargets(changedFiles, context) {
 
     if (targets.has('rust:unresolved')) {
         targets.delete('rust:unresolved')
-        if (rustGraph) {
-            for (const crate of rustGraph.dependsOn.keys()) {
+        if (rustInventory) {
+            for (const crate of rustInventory.crateNames) {
                 targets.add(rustCrate(crate))
             }
         } else {
@@ -1756,9 +2229,10 @@ function computeTargets(changedFiles, context) {
     return [...targets].sort()
 }
 
-// tach.toml is the enforced Python module graph (`tach check` runs in CI, so it
-// cannot drift from what is importable). Turbo-style dashed names cross the
-// boundary in both directions; product directories are underscored.
+// The tach map is the real Python import graph (`tach map` reads the imports
+// that `tach check` enforces in CI, so it cannot drift from what is
+// importable). Turbo-style dashed names cross the boundary in both directions;
+// product directories are underscored.
 function tachDependentProducts(changedProducts, tachGraph) {
     if (!tachGraph) {
         return null
@@ -1777,14 +2251,9 @@ function tachDependentProducts(changedProducts, tachGraph) {
 }
 
 function loadTachGraph(repoRoot) {
-    try {
-        const { parseTachModules, tachDependents } = require('./turbo-discover')
-        const text = fs.readFileSync(path.join(repoRoot, 'tach.toml'), 'utf8')
-        return { graph: parseTachModules(text), tachDependents }
-    } catch (error) {
-        console.error(`tach.toml graph unavailable (${error.message}); backend changes widen to all products`)
-        return null
-    }
+    const { loadTachModuleGraph, tachDependents } = require('./turbo-discover')
+    const graph = loadTachModuleGraph(repoRoot)
+    return graph === null ? null : { graph, tachDependents }
 }
 
 // Every directory under services/ holds a lane, so the list has to be read
@@ -1803,39 +2272,41 @@ function listServices(repoRoot) {
     }
 }
 
-// The crate list rust-compute-affected produced for this diff, as a JSON array.
-// The workflow only runs the determinator when the change set holds
-// rust/Cargo.lock, so on every other PR this is unset and never read.
-const CARGO_LOCK_CRATES_ENV = 'CARGO_LOCK_CRATES'
+// The crate list rust-compute-affected produced for this diff, as a JSON
+// array. It is the determinator's affected set (the changed crates plus the
+// closure of their dependents, with the runtime spawn edges its rules
+// declare), so it arrives as a finished answer rather than as seeds to close
+// over. The workflow only runs the determinator when the change set touches
+// rust/ or proto/, so on every other PR this is unset and never read.
+const RUST_AFFECTED_CRATES_ENV = 'RUST_AFFECTED_CRATES'
 
-// Returns null for unknown, which the caller widens on. The determinator answers
-// for the whole diff rather than for the lockfile alone, so this is a superset
-// of the lockfile's own contribution — the safe direction, and the union with
-// the path rules is what lands either way.
+// Returns null for unknown, which the caller widens on. The determinator
+// answers for the whole diff rather than for the rust paths alone, so this is
+// a superset of their own contribution, which is the safe direction.
 //
-// A name the crate graph does not know means the two disagree about the
+// A name the crate inventory does not know means the two disagree about the
 // workspace, and a disagreement resolves to unknown rather than to a lane list
 // built from half of it.
-function parseCargoLockCrates(raw, rustGraph) {
-    if (!rustGraph || !raw) {
+function parseRustAffectedCrates(raw, rustInventory) {
+    if (!rustInventory || !raw) {
         return null
     }
     let crates
     try {
         crates = JSON.parse(raw)
     } catch (error) {
-        console.error(`${CARGO_LOCK_CRATES_ENV} is not JSON (${error.message}); a lockfile change claims every crate`)
+        console.error(`${RUST_AFFECTED_CRATES_ENV} is not JSON (${error.message}); a rust change claims every crate`)
         return null
     }
     if (!Array.isArray(crates) || crates.some((crate) => typeof crate !== 'string')) {
-        console.error(`${CARGO_LOCK_CRATES_ENV} is not a list of crate names; a lockfile change claims every crate`)
+        console.error(`${RUST_AFFECTED_CRATES_ENV} is not a list of crate names; a rust change claims every crate`)
         return null
     }
-    const unknown = crates.filter((crate) => !rustGraph.dependsOn.has(crate))
+    const unknown = crates.filter((crate) => !rustInventory.crateNames.has(crate))
     if (unknown.length > 0) {
         console.error(
-            `The determinator named crates the graph does not hold (${unknown.join(', ')}); ` +
-                'a lockfile change claims every crate'
+            `The determinator named crates the inventory does not hold (${unknown.join(', ')}); ` +
+                'a rust change claims every crate'
         )
         return null
     }
@@ -1845,11 +2316,11 @@ function parseCargoLockCrates(raw, rustGraph) {
 function buildContext(repoRoot) {
     const products = listProducts(repoRoot)
     const tachGraph = loadTachGraph(repoRoot)
-    const rustGraph = loadRustGraph(repoRoot)
+    const rustInventory = loadRustInventory(repoRoot)
     const contractSurfaces = loadContractSurfaces(repoRoot, products)
     return {
         products,
-        cargoLockCrates: parseCargoLockCrates(process.env[CARGO_LOCK_CRATES_ENV], rustGraph),
+        rustAffectedCrates: parseRustAffectedCrates(process.env[RUST_AFFECTED_CRATES_ENV], rustInventory),
         services: listServices(repoRoot),
         isolatedProducts: listIsolatedProducts(repoRoot, products, contractSurfaces),
         contractSurfaces,
@@ -1857,7 +2328,7 @@ function buildContext(repoRoot) {
         backendDetachedProducts: loadBackendDetachedProducts(repoRoot, products, tachGraph),
         tachDeclaredProducts: listTachDeclaredProducts(products, tachGraph),
         semgrepDomains: loadSemgrepDomains(repoRoot),
-        rustGraph,
+        rustInventory,
         tachGraph,
     }
 }
@@ -1873,25 +2344,28 @@ module.exports = {
     isTripwire,
     listIsolatedProducts,
     loadContractSurfaces,
-    parseCrateDependencies,
     parseCrateName,
     parsePytestIgnores,
     parseSemgrepLanguages,
     parseWorkspacePackageGlobs,
-    reverseClosure,
     semgrepDomain,
     stripJsonComments,
     tripwireDomain,
-    parseCargoLockCrates,
+    parseRustAffectedCrates,
     ALL,
     CARGO_LOCK,
+    CLI_ARTIFACTS,
+    DEPLOY,
+    DESKTOP,
+    FULLSTACK,
+    HOBBY,
+    HOGBOX_PREVIEW,
     JAVASCRIPT,
     NATIVE_BINDING_CONSUMER_LANES,
     NODE,
     PROTO_TREES,
     PYTHON,
     REPO_ROOT,
-    RUNTIME_SPAWN_EDGES,
     RUST,
     UNIVERSAL,
 }
@@ -1908,7 +2382,9 @@ if (require.main === module) {
             console.error('No changed files on stdin; reporting ALL')
             result = ALL
         } else {
-            result = computeTargets(changedFiles, buildContext(REPO_ROOT))
+            // The change list carries deleted paths too; the tree no longer does.
+            const deletedFiles = new Set(changedFiles.filter((file) => !fs.existsSync(path.join(REPO_ROOT, file))))
+            result = computeTargets(changedFiles, { ...buildContext(REPO_ROOT), deletedFiles })
         }
     } catch (error) {
         // Any unexpected failure has to widen rather than narrow, because a

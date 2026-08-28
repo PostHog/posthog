@@ -5,6 +5,8 @@ description: Plan and execute product isolation migrations to a facade plus cont
 
 # Isolating a product with facade and contracts
 
+Before you choose a product to isolate, check [things already tried](../../../docs/internal/ci-things-already-tried.md). It records which product was the first candidate, and why the field test moved to another one.
+
 Use this skill to migrate an existing product to the isolated architecture used by Visual review.
 Optimize for short calendar exposure, not small diffs: authoring is cheap and the verification
 chain catches mechanical breakage, while human review latency and a fast-moving master are the
@@ -138,8 +140,16 @@ coupling escape it — none is a dead end, each has a defined move. After the
 backend sweep, `git grep "products.<name>"` (not just `.backend`) and read the
 scan's string-reference section to find them.
 
-**Test-infrastructure coupling.** Core tests reach into the product's test
-helpers, which no facade re-export naturally covers:
+**Test-infrastructure coupling.** Tests are in tach's interface graph but not
+in its dependency graph (`hogli lint:tach` runs the two passes CI runs). A test
+may import any product's public surface without a `depends_on` entry, and a
+test that imports another product's internals fails CI the same way production
+code does. Such a test gets one of the moves below. When the product cannot
+offer the move yet, a legacy-leak `[[interfaces]]` block that names the debt and
+the exit demotes the product until the block is drained; the block is never a
+facade module that hands the internals out under a sanctioned name. Core tests
+reach into the product's test helpers, which no facade re-export naturally
+covers:
 
 - _Monkeypatch targets_ — a core test base patches a product module attribute
   (e.g. `posthog/test/base.py` patches `execute_hogql_query` on each runner
@@ -382,7 +392,7 @@ records the decrease. See `products/architecture.md` § Wiring couplings.
      preserved by a re-export shim in the original module; the shim's residual
      exposure (the frozen migration still imports the model module) must be
      documented honestly in the block comment, not papered over by the marker.
-   - Verify with `tach check --dependencies --interfaces`, `lint-imports`
+   - Verify with `hogli lint:tach`, `lint-imports`
      (import-linter contract for presentation → facade), and `hogli product:lint <name>`.
    - Use `hogli product:maturity <name>` for a detailed breakdown of remaining
      isolation work scored across models, facade, presentation, boundaries, codegen.
@@ -514,7 +524,7 @@ Treat migration as complete only when:
 - The product is listed in the shared `[[interfaces]]` block in `tach.toml`
   exposing `backend.facade.*` and `backend.presentation.views.*` — no legacy
   leak block remains.
-- `tach check --dependencies --interfaces` passes with no violations for this product.
+- `hogli lint:tach` passes with no violations for this product.
 - `lint-imports` passes **with no `ignore_imports` entries left for this product** in the
   `pyproject.toml` TODO section — entries are tracked architectural debt from deferred
   view modules; the presentation wave deletes them.

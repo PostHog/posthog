@@ -28,7 +28,12 @@ import {
     recordingMetaJson,
     setupSessionRecordingTest,
 } from './__mocks__/test-setup'
-import { findNewEvents, findSegmentForTimestamp, stripRrwebScriptShims } from './sessionRecordingPlayerLogic'
+import {
+    findNewEvents,
+    findSegmentForTimestamp,
+    INSTANT_SKIP_INACTIVITY_THRESHOLD_MS,
+    stripRrwebScriptShims,
+} from './sessionRecordingPlayerLogic'
 import { markLoaded } from './snapshot-store/test-utils'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import { deleteRecording as deleteRecordingMock } from './utils/playerUtils'
@@ -269,6 +274,68 @@ describe('sessionRecordingPlayerLogic', () => {
                 sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }),
                 playerSettingsLogic,
             ])
+        })
+    })
+
+    describe('inactivity segment traversal', () => {
+        const START = 1682952380877
+        const inactiveSegment = (kind: 'gap' | 'window', durationMs: number): RecordingSegment =>
+            ({
+                kind,
+                isActive: false,
+                startTimestamp: START,
+                endTimestamp: START + durationMs,
+                durationMs,
+                windowId: kind === 'window' ? 1 : undefined,
+            }) as RecordingSegment
+
+        it.each([
+            [
+                'seeks over a gap past the threshold while playing',
+                'gap',
+                INSTANT_SKIP_INACTIVITY_THRESHOLD_MS + 1,
+                true,
+                true,
+            ],
+            ['fast-forwards a gap exactly at the threshold', 'gap', INSTANT_SKIP_INACTIVITY_THRESHOLD_MS, true, false],
+            [
+                'does not seek when paused, even over the threshold',
+                'gap',
+                INSTANT_SKIP_INACTIVITY_THRESHOLD_MS + 1,
+                false,
+                false,
+            ],
+            ['fast-forwards a dense inactive window of any length', 'window', 35 * 3600 * 1000, true, false],
+        ] as const)('%s', async (_name, kind, durationMs, playing, expectSeek) => {
+            if (!playing) {
+                logic.actions.setPause()
+            }
+            logic.actions.setCurrentTimestamp(START)
+            const segment = inactiveSegment(kind, durationMs)
+            const expectation = expectLogic(logic, () => logic.actions.setCurrentSegment(segment))
+            if (expectSeek) {
+                await expectation.toDispatchActions([logic.actionCreators.seekToTimestamp(segment.endTimestamp)])
+            } else {
+                await expectation
+                    .toDispatchActions([logic.actionCreators.setSkippingInactivity(true)])
+                    .toNotHaveDispatchedActions(['seekToTimestamp'])
+            }
+        })
+    })
+
+    describe('end of recording', () => {
+        // Reaching the end pauses the player, and currentPlayerState only reports SKIP while playing,
+        // so the rewind control already replaces the "Skipping inactivity" overlay without touching the
+        // flag. The flag also drives playerSpeed, so it must survive end-of-recording: a rewind back into
+        // a trailing inactive stretch lands in the same segment, which does not recompute it, and clearing
+        // it there would make that dead time play at 1x.
+        it('keeps the inactivity-skip flag so a rewind into a trailing inactive stretch still skips', async () => {
+            logic.actions.setSkippingInactivity(true)
+            expect(logic.values.isSkippingInactivity).toBe(true)
+
+            await expectLogic(logic, () => logic.actions.setEndReached(true)).toMatchValues({
+                isSkippingInactivity: true,
+            })
         })
     })
 
