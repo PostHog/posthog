@@ -595,7 +595,7 @@ class TestMemoryCollectorNode(ClickhouseTestMixin, NonAtomicBaseTest):
     def setUp(self):
         super().setUp()
         self.core_memory = CoreMemory.objects.create(team=self.team)
-        self.core_memory.text = "Test product core memory"
+        self.core_memory.text = "Test product core memory & taxonomy"
         self.core_memory.scraping_status = CoreMemory.ScrapingStatus.COMPLETED
         self.core_memory.save()
         self.node = MemoryCollectorNode(team=self.team, user=self.user)
@@ -661,12 +661,14 @@ class TestMemoryCollectorNode(ClickhouseTestMixin, NonAtomicBaseTest):
                 # hold neither the tenant memory nor the date - both vary between calls and
                 # would break the cache prefix if placed here.
                 stable_prefix = messages[0].content
-                self.assertNotIn("Test product core memory", stable_prefix)
+                self.assertNotIn("Test product core memory & taxonomy", stable_prefix)
                 self.assertNotIn("2024-01-01", stable_prefix)
 
                 # The dynamic fields go in the following message, after the stable prefix.
+                # The ampersand must reach the model unescaped, or `core_memory_replace`
+                # cannot match a fragment the model quotes back.
                 context_message = messages[1].content
-                self.assertIn("Test product core memory", context_message)
+                self.assertIn("Test product core memory & taxonomy", context_message)
                 self.assertIn("2024-01-01", context_message)
 
                 # Verify conversation messages

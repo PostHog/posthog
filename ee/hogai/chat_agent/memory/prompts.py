@@ -163,11 +163,13 @@ When you receive new information, begin your response with an information proces
 
 # Dynamic fields go in a message after the stable prompt above, so the stable
 # prefix stays identical across calls and OpenAI can serve it from cache.
+# Triple braces keep the memory unescaped, because `core_memory_replace` can only
+# match a fragment the model read verbatim.
 MEMORY_COLLECTOR_CONTEXT_PROMPT = """
 Here is the initial core memory about the user's product:
 
 <product_core_memory>
-{{core_memory}}
+{{{core_memory}}}
 </product_core_memory>
 
 Today's date is {{{date}}}.
