@@ -1,10 +1,10 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import {
-  applyMachineClaudeConfigDir,
-  MACHINE_AUTH_STRIPPED_KEYS,
-  machineClaudeAuthEnv,
-} from "./machine-config-dir";
+  applyMachineClaudeAuth,
+  type MachineClaudeAuth,
+  machineClaudeAuthShellEnv,
+} from "./machine-auth";
 
 export type ClaudeAuthAction = "login" | "logout";
 
@@ -20,13 +20,14 @@ function shellQuote(value: string): string {
 export function claudeAuthTerminalCommand(
   action: ClaudeAuthAction,
   claudeCliPath: string,
+  machineAuth: MachineClaudeAuth,
 ): ClaudeAuthTerminalCommand {
   const args = action === "login" ? ["auth", "login"] : ["auth", "logout"];
   const isLegacyJs = claudeCliPath.endsWith(".js");
   const parts = isLegacyJs
     ? [process.execPath, claudeCliPath, ...args]
     : [claudeCliPath, ...args];
-  const env = machineClaudeAuthEnv();
+  const env = machineClaudeAuthShellEnv(machineAuth);
   if (isLegacyJs && process.versions.electron) {
     env.set.ELECTRON_RUN_AS_NODE = "1";
   }
@@ -41,6 +42,7 @@ const STATUS_TIMEOUT_MS = 15_000;
 
 export interface ClaudeLoginCheckOptions {
   claudeCliPath: string;
+  machineAuth: MachineClaudeAuth;
   logger?: ClaudeLoginCheckLogger;
   timeoutMs?: number;
 }
@@ -62,10 +64,7 @@ export async function hasClaudeLogin(
     : ["auth", "status"];
 
   const env: NodeJS.ProcessEnv = { ...process.env };
-  for (const key of MACHINE_AUTH_STRIPPED_KEYS) {
-    delete env[key];
-  }
-  applyMachineClaudeConfigDir(env);
+  applyMachineClaudeAuth(env, options.machineAuth);
   if (process.versions.electron || process.env.ELECTRON_RUN_AS_NODE) {
     env.ELECTRON_RUN_AS_NODE = "1";
   }

@@ -50,21 +50,39 @@ export function clearPersistedSessionIds(persistedState: unknown) {
   return {
     ...state,
     terminalStates: Object.fromEntries(
-      Object.entries(state.terminalStates)
-        .filter(([key]) => !isSensitiveKey(key))
-        .map(([key, value]) => [
-          key,
-          {
-            ...value,
-            sessionId: null,
-          },
-        ]),
+      Object.entries(state.terminalStates).map(([key, value]) => [
+        key,
+        {
+          ...value,
+          sessionId: null,
+        },
+      ]),
     ),
   };
 }
 
-function isSensitiveKey(key: string): boolean {
-  return key.startsWith("claude-auth-");
+export function clearPersistedTranscripts(persistedState: unknown) {
+  if (!persistedState || typeof persistedState !== "object") {
+    return persistedState;
+  }
+
+  const state = persistedState as {
+    terminalStates?: Record<string, Partial<TerminalState>>;
+  };
+
+  if (!state.terminalStates || typeof state.terminalStates !== "object") {
+    return persistedState;
+  }
+
+  return {
+    ...state,
+    terminalStates: Object.fromEntries(
+      Object.entries(state.terminalStates).map(([key, value]) => [
+        key,
+        { ...value, serializedState: null },
+      ]),
+    ),
+  };
 }
 
 export const useTerminalStore = create<TerminalStoreState>()(
@@ -135,16 +153,20 @@ export const useTerminalStore = create<TerminalStoreState>()(
     {
       name: "terminal-store",
       version: 2,
-      migrate: (persistedState) =>
-        clearPersistedSessionIds(persistedState) as PersistedTerminalStoreState,
+      migrate: (persistedState, version) => {
+        const withoutSessionIds = clearPersistedSessionIds(persistedState);
+        return (
+          version < 2
+            ? clearPersistedTranscripts(withoutSessionIds)
+            : withoutSessionIds
+        ) as PersistedTerminalStoreState;
+      },
       partialize: (state): PersistedTerminalStoreState => ({
         terminalStates: Object.fromEntries(
-          Object.entries(state.terminalStates)
-            .filter(([k]) => !isSensitiveKey(k))
-            .map(([k, v]) => [
-              k,
-              { serializedState: v.serializedState, sessionId: null },
-            ]),
+          Object.entries(state.terminalStates).map(([k, v]) => [
+            k,
+            { serializedState: v.serializedState, sessionId: null },
+          ]),
         ),
       }),
     },

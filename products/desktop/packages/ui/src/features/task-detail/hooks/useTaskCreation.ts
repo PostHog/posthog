@@ -16,7 +16,6 @@ import {
   type Adapter,
   type AgentRuntime,
   ANALYTICS_EVENTS,
-  type CodexModelAccess,
   type ModelAccess,
   PROJECT_BLUEBIRD_FLAG,
   type TaskCreationInput,
@@ -31,13 +30,9 @@ import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChanne
 import { useTaskRepositoryDraftStore } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import {
-  effectiveClaudeModelAccess,
-  useClaudeSubscription,
-} from "@posthog/ui/features/settings/useClaudeSubscription";
-import {
-  effectiveCodexModelAccess,
-  useCodexSubscription,
-} from "@posthog/ui/features/settings/useCodexSubscription";
+  effectiveModelAccess,
+  useAdapterSubscription,
+} from "@posthog/ui/features/settings/adapterSubscription";
 import { waitForComposerExit } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { navigateToTaskPending } from "@posthog/ui/router/navigationBridge";
@@ -145,7 +140,7 @@ async function trackTaskCreated(
   input: TaskCreationInput,
   selectedDirectory: string,
   hostClient: HostTrpcClient,
-  codexModelAccess?: CodexModelAccess,
+  codexModelAccess?: ModelAccess,
   claudeModelAccess?: ModelAccess,
 ): Promise<void> {
   try {
@@ -230,8 +225,8 @@ export function useTaskCreation({
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [isExitingComposer, setIsExitingComposer] = useState(false);
   const hostClient = useHostTRPCClient();
-  const codexSubscription = useCodexSubscription();
-  const claudeSubscription = useClaudeSubscription();
+  const codexSubscription = useAdapterSubscription("codex");
+  const claudeSubscription = useAdapterSubscription("claude");
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
   const defaultAdditionalDirectoriesQuery = useQuery(
@@ -419,7 +414,7 @@ export function useTaskCreation({
           );
           const codexModelAccess =
             runtime !== "pi" && adapter === "codex"
-              ? effectiveCodexModelAccess({
+              ? effectiveModelAccess({
                   flagEnabled: codexSubscription.flagEnabled,
                   subscriptionOn: codexSubscription.subscriptionOn,
                   loggedIn: codexSubscription.loggedIn,
@@ -428,7 +423,7 @@ export function useTaskCreation({
               : undefined;
           const claudeModelAccess =
             runtime !== "pi" && adapter === "claude"
-              ? effectiveClaudeModelAccess({
+              ? effectiveModelAccess({
                   flagEnabled: claudeSubscription.flagEnabled,
                   subscriptionOn: claudeSubscription.subscriptionOn,
                   loggedIn: claudeSubscription.loggedIn,

@@ -30,9 +30,8 @@ import {
 } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
+import { useAdapterSubscription } from "@posthog/ui/features/settings/adapterSubscription";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
-import { useClaudeSubscription } from "@posthog/ui/features/settings/useClaudeSubscription";
-import { useCodexSubscription } from "@posthog/ui/features/settings/useCodexSubscription";
 import { NEW_TASK_COMPOSER_FADE_MS } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
 import type { TaskInputReportAssociation } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
@@ -368,8 +367,8 @@ export function TaskInput({
     !!channelContextSource && !channelContextDismissed;
 
   const adapter = lastUsedAdapter;
-  const codexSubscription = useCodexSubscription();
-  const claudeSubscription = useClaudeSubscription();
+  const codexSubscription = useAdapterSubscription("codex");
+  const claudeSubscription = useAdapterSubscription("claude");
   const prefillRequestKey = initialPromptKey ?? initialPrompt;
 
   // Applying a prefilled prompt replaces whatever the composer had, so it must

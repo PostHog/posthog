@@ -1,10 +1,10 @@
 import type { Contribution } from "@posthog/di/contribution";
 import {
+  type Adapter,
   CLAUDE_OWN_SUBSCRIPTION_FLAG,
   CODEX_OWN_SUBSCRIPTION_FLAG,
 } from "@posthog/shared";
-import { registerClaudeSubscriptionAtBoot } from "@posthog/ui/features/settings/useClaudeSubscription";
-import { registerCodexSubscriptionAtBoot } from "@posthog/ui/features/settings/useCodexSubscription";
+import { registerSubscriptionAtBoot } from "@posthog/ui/features/settings/adapterSubscription";
 import {
   initializePostHog,
   posthogFeatureFlags,
@@ -16,6 +16,23 @@ import { logger } from "@utils/logger";
 import { injectable } from "inversify";
 
 const log = logger.scope("app-boot");
+
+const SUBSCRIPTION_BOOT: {
+  adapter: Adapter;
+  flag: string;
+  fetchStatus: () => Promise<{ loggedIn: boolean }>;
+}[] = [
+  {
+    adapter: "codex",
+    flag: CODEX_OWN_SUBSCRIPTION_FLAG,
+    fetchStatus: () => trpcClient.agent.codexSubscriptionStatus.query(),
+  },
+  {
+    adapter: "claude",
+    flag: CLAUDE_OWN_SUBSCRIPTION_FLAG,
+    fetchStatus: () => trpcClient.agent.claudeSubscriptionStatus.query(),
+  },
+];
 
 @injectable()
 export class AnalyticsBootContribution implements Contribution {
@@ -40,31 +57,19 @@ export class AnalyticsBootContribution implements Contribution {
       } catch (error) {
         log.warn("Failed to register host info super properties", { error });
       }
-      try {
-        const codexFlagEnabled =
-          posthogFeatureFlags.isEnabled(CODEX_OWN_SUBSCRIPTION_FLAG) ||
-          import.meta.env.DEV;
-        await registerCodexSubscriptionAtBoot(
-          () => trpcClient.agent.codexSubscriptionStatus.query(),
-          codexFlagEnabled,
-        );
-      } catch (error) {
-        log.warn("Failed to register codex subscription super properties", {
-          error,
-        });
-      }
-      try {
-        const claudeFlagEnabled =
-          posthogFeatureFlags.isEnabled(CLAUDE_OWN_SUBSCRIPTION_FLAG) ||
-          import.meta.env.DEV;
-        await registerClaudeSubscriptionAtBoot(
-          () => trpcClient.agent.claudeSubscriptionStatus.query(),
-          claudeFlagEnabled,
-        );
-      } catch (error) {
-        log.warn("Failed to register claude subscription super properties", {
-          error,
-        });
+      for (const { adapter, flag, fetchStatus } of SUBSCRIPTION_BOOT) {
+        try {
+          await registerSubscriptionAtBoot(
+            adapter,
+            fetchStatus,
+            posthogFeatureFlags.isEnabled(flag) || import.meta.env.DEV,
+          );
+        } catch (error) {
+          log.warn(
+            `Failed to register ${adapter} subscription super properties`,
+            { error },
+          );
+        }
       }
     })();
   }

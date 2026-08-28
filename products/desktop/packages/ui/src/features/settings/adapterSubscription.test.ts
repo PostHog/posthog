@@ -1,40 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
-  claudeNeedsConnection,
-  effectiveClaudeModelAccess,
-  shouldShowClaudeSubscriptionControls,
-} from "./useClaudeSubscription";
+  effectiveModelAccess,
+  subscriptionNeedsConnection,
+} from "./adapterSubscription";
 
-const status = (loggedIn: boolean) => ({
-  loggedIn,
-});
+const status = (loggedIn: boolean) => ({ loggedIn });
 
-describe("claude subscription gating", () => {
-  it.each([
-    [
-      "flag off hides everything",
-      { flagEnabled: false, adapter: "claude" as const },
-      false,
-    ],
-    [
-      "codex harness hides everything",
-      { flagEnabled: true, adapter: "codex" as const },
-      false,
-    ],
-    [
-      "no adapter selected hides everything",
-      { flagEnabled: true, adapter: undefined },
-      false,
-    ],
-    [
-      "claude under the flag shows so a fresh user can reach the login instructions",
-      { flagEnabled: true, adapter: "claude" as const },
-      true,
-    ],
-  ])("%s", (_name, input, expected) => {
-    expect(shouldShowClaudeSubscriptionControls(input)).toBe(expected);
-  });
-
+describe("adapter subscription gating", () => {
   it.each([
     [
       "cloud tasks never bill the subscription",
@@ -47,7 +19,7 @@ describe("claude subscription gating", () => {
       "posthog-gateway",
     ],
     [
-      "not logged in falls back to the gateway",
+      "not signed in falls back to the gateway",
       {
         flagEnabled: true,
         subscriptionOn: true,
@@ -87,22 +59,22 @@ describe("claude subscription gating", () => {
       "own-subscription",
     ],
   ])("%s", (_name, input, expected) => {
-    expect(effectiveClaudeModelAccess(input)).toBe(expected);
+    expect(effectiveModelAccess(input)).toBe(expected);
   });
 
   it.each([
     [
-      "unknown status while loading is not treated as logged out",
+      "unknown status while loading is not treated as signed out",
       { flagEnabled: true, subscriptionOn: true, status: undefined },
       false,
     ],
     [
-      "confirmed logged out needs connection",
+      "confirmed signed out needs connection",
       { flagEnabled: true, subscriptionOn: true, status: status(false) },
       true,
     ],
     [
-      "logged in does not need connection",
+      "signed in does not need connection",
       { flagEnabled: true, subscriptionOn: true, status: status(true) },
       false,
     ],
@@ -117,6 +89,6 @@ describe("claude subscription gating", () => {
       false,
     ],
   ])("%s", (_name, input, expected) => {
-    expect(claudeNeedsConnection(input)).toBe(expected);
+    expect(subscriptionNeedsConnection(input)).toBe(expected);
   });
 });

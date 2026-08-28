@@ -42,23 +42,7 @@ export function Terminal({
   );
   const terminalGpuRendering = useSettingsStore((s) => s.terminalGpuRendering);
 
-  // Create instance (idempotent)
-  useEffect(() => {
-    if (!terminalManager.has(sessionId)) {
-      terminalManager.create({
-        sessionId,
-        persistenceKey,
-        cwd,
-        initialState,
-        taskId,
-        command,
-        additionalEnv,
-        unsetEnv,
-        sensitive,
-      });
-    }
-  }, [
-    sessionId,
+  const createOptions = useRef({
     persistenceKey,
     cwd,
     initialState,
@@ -67,7 +51,22 @@ export function Terminal({
     additionalEnv,
     unsetEnv,
     sensitive,
-  ]);
+  });
+  createOptions.current = {
+    persistenceKey,
+    cwd,
+    initialState,
+    taskId,
+    command,
+    additionalEnv,
+    unsetEnv,
+    sensitive,
+  };
+
+  useEffect(() => {
+    if (terminalManager.has(sessionId)) return;
+    terminalManager.create({ sessionId, ...createOptions.current });
+  }, [sessionId]);
 
   // Attach/detach from DOM
   useEffect(() => {
