@@ -692,8 +692,12 @@ class _LogsServiceAggregateSerializer(serializers.Serializer):
 
 class _LogsServicesSparklineBucketSerializer(serializers.Serializer):
     time = serializers.CharField(help_text="Bucket start time (ISO 8601).")
-    service_name = serializers.CharField()
-    count = serializers.IntegerField()
+    service_name = serializers.CharField(help_text="Service that emitted the logs in this bucket.")
+    count = serializers.IntegerField(help_text="Total log entries from this service in the bucket.")
+    debug = serializers.IntegerField(help_text='Entries in the bucket at severity "trace" or "debug".')
+    info = serializers.IntegerField(help_text='Entries in the bucket at severity "info".')
+    warn = serializers.IntegerField(help_text='Entries in the bucket at severity "warn" or "warning".')
+    error = serializers.IntegerField(help_text='Entries in the bucket at severity "error" or "fatal".')
 
 
 class _LogsServicesSummarySerializer(serializers.Serializer):
@@ -714,6 +718,9 @@ class _LogsServicesResponseSerializer(serializers.Serializer):
         many=True,
         help_text=(
             "Time-bucketed counts broken down by service, for plotting volume over time. "
+            "Each bucket carries its total in `count` plus counts for the four coarse severity "
+            "bands, so a chart can stack them. The bands sum to `count` unless a service emits a "
+            "severity outside trace, debug, info, warn, warning, error and fatal. "
             "Covers only the top 25 services in this response; re-request with `serviceNames` "
             "to get sparklines for specific services."
         ),

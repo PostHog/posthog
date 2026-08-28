@@ -1,6 +1,7 @@
 import os
 import json
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from freezegun import freeze_time
@@ -9,6 +10,8 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
+
+from posthog.schema import LogsQuery
 
 from posthog.clickhouse.client import sync_execute
 
@@ -301,6 +304,86 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual({s["service_name"] for s in result["services"]}, expected_names)
         self.assertEqual(result["total_services"], len(expected_names))
+
+
+class TestServicesSparklineSeverity(ClickhouseTestMixin, APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = True
+
+    # Mixed case and both spellings of warn are deliberate: the sparkline query has no
+    # inner subquery to lowercase severity_text in, unlike the aggregates query.
+    CHECKOUT_MIX = {"trace": 3, "debug": 5, "info": 11, "WARN": 7, "warning": 2, "error": 4, "Fatal": 6}
+    BILLING_MIX = {"Trace": 2, "FATAL": 3}
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        rows = [
+            *cls._rows("checkout", "2025-12-16 10:10:00.000000", cls.CHECKOUT_MIX),
+            *cls._rows("billing", "2025-12-16 10:20:00.000000", cls.BILLING_MIX),
+        ]
+        sync_execute(f"INSERT INTO logs FORMAT JSONEachRow\n{''.join(rows)}")
+
+    @classmethod
+    def _rows(cls, service_name: str, timestamp: str, mix: dict[str, int]) -> list[str]:
+        rows = []
+        for severity_text, count in mix.items():
+            for i in range(count):
+                rows.append(
+                    json.dumps(
+                        {
+                            "uuid": str(uuid4()),
+                            "team_id": cls.team.id,
+                            "timestamp": timestamp,
+                            "observed_timestamp": timestamp,
+                            "body": f"{service_name} {severity_text} {i}",
+                            "severity_text": severity_text,
+                            "severity_number": 9,
+                            "service_name": service_name,
+                            "resource_attributes": {"service.name": service_name},
+                            "resource_id": "",
+                            "instrumentation_scope": "@",
+                            "event_name": "",
+                        }
+                    )
+                    + "\n"
+                )
+        return rows
+
+    QUERY = {
+        "dateRange": {"date_from": "2025-12-16T10:00:00Z", "date_to": "2025-12-16T11:00:00Z"},
+        "severityLevels": [],
+        "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+        "serviceNames": [],
+    }
+
+    # trace+debug, info, warn+warning, error+fatal, matching the severity mix bar.
+    EXPECTED_BANDS = {
+        "checkout": {"count": 38, "debug": 8, "info": 11, "warn": 9, "error": 10},
+        "billing": {"count": 5, "debug": 2, "info": 0, "warn": 0, "error": 3},
+    }
+
+    def _sparkline(self) -> dict[str, dict]:
+        response = self.client.post(f"/api/projects/{self.team.id}/logs/services", data={"query": self.QUERY})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return {row["service_name"]: row for row in response.json()["sparkline"]}
+
+    def test_sparkline_buckets_split_count_by_severity(self):
+        buckets = self._sparkline()
+        self.assertEqual(set(buckets), set(self.EXPECTED_BANDS))
+
+        for service_name, expected in self.EXPECTED_BANDS.items():
+            bucket = buckets[service_name]
+            self.assertEqual({k: bucket[k] for k in expected}, expected)
+            self.assertEqual(bucket["debug"] + bucket["info"] + bucket["warn"] + bucket["error"], bucket["count"])
+
+    def test_sparkline_raises_instead_of_truncating(self):
+        runner = services_query_runner.ServicesQueryRunner(
+            team=self.team,
+            query=LogsQuery.model_validate(self.QUERY),
+        )
+        with patch.object(services_query_runner, "SPARKLINE_ROW_LIMIT", 1):
+            with self.assertRaises(services_query_runner.SparklineTruncated):
+                runner.calculate()
 
 
 if __name__ == "__main__":

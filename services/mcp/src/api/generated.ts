@@ -83544,8 +83544,18 @@ export namespace Schemas {
     export interface _LogsServicesSparklineBucket {
       /** Bucket start time (ISO 8601). */
       time: string;
+      /** Service that emitted the logs in this bucket. */
       service_name: string;
+      /** Total log entries from this service in the bucket. */
       count: number;
+      /** Entries in the bucket at severity "trace" or "debug". */
+      debug: number;
+      /** Entries in the bucket at severity "info". */
+      info: number;
+      /** Entries in the bucket at severity "warn" or "warning". */
+      warn: number;
+      /** Entries in the bucket at severity "error" or "fatal". */
+      error: number;
     }
 
     export interface _LogsServicesSummary {
@@ -83558,7 +83568,7 @@ export namespace Schemas {
     export interface _LogsServicesResponse {
       /** Per-service aggregates, ordered by log_count descending. Capped at 10000 services. */
       services: _LogsServiceAggregate[];
-      /** Time-bucketed counts broken down by service, for plotting volume over time. Covers only the top 25 services in this response; re-request with `serviceNames` to get sparklines for specific services. */
+      /** Time-bucketed counts broken down by service, for plotting volume over time. Each bucket carries its total in `count` plus counts for the four coarse severity bands, so a chart can stack them. The bands sum to `count` unless a service emits a severity outside trace, debug, info, warn, warning, error and fatal. Covers only the top 25 services in this response; re-request with `serviceNames` to get sparklines for specific services. */
       sparkline: _LogsServicesSparklineBucket[];
       /** True distinct service count for the window and filters, unaffected by the 10000-service cap on `services`. Greater than the length of `services` when the response is truncated. */
       total_services: number;
