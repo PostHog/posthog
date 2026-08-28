@@ -8,6 +8,10 @@ import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 import { cn } from 'lib/utils/css-classes'
 
+import { TableCell } from './components/TableColumns/TableCell'
+import { TableHeaderCell } from './components/TableColumns/TableHeaderCell'
+import { ResizableColumns, useResizableColumns } from './components/TableColumns/useResizableColumns'
+
 // Config-driven virtualized table: owns react-window virtualization, client-side sort, and the
 // header/row layout; callers pass column definitions + data. Extracted from TraceCompareTable so
 // the compare view and the operations view share one implementation. The column-def contract
@@ -16,76 +20,73 @@ import { cn } from 'lib/utils/css-classes'
 
 const ROW_HEIGHT = 44
 const HEADER_HEIGHT = 32
-// Min width a flex (width-less) column reserves when computing the horizontal-scroll row width.
-const FLEX_MIN_WIDTH = 200
 
 export type VirtualizedSortOrder = 1 | -1
 
 export interface VirtualizedTableColumn<T> {
     key: string
     title: ReactNode
-    /** Fixed column width in px. Omit to flex-fill the remaining space. */
-    width?: number
+    /** Default column width in px, before anyone resizes it. */
+    width: number
+    /** Takes the space left over in the viewport, up to a cap. At most one column per table. */
+    grow?: boolean
     align?: 'right'
     /** Header tooltip. */
     tooltip?: string
+    /** Plain-text column name for the resize handle, when `title` is not a string. */
+    label?: string
     render: (record: T) => ReactNode
     /** Provide to make the column sortable. */
     sorter?: (a: T, b: T) => number
 }
 
-function Cell({ width, align, children }: { width?: number; align?: 'right'; children: ReactNode }): JSX.Element {
-    return (
-        <div
-            className={cn(
-                'shrink-0 truncate px-2 text-xs',
-                width === undefined && 'flex-1 min-w-0',
-                align === 'right' && 'text-right'
-            )}
-            // eslint-disable-next-line react/forbid-dom-props
-            style={width !== undefined ? { width } : undefined}
-        >
-            {children}
-        </div>
-    )
-}
-
 function HeaderCell({
     column,
+    width,
+    resizable,
+    columns,
     sortKey,
     sortOrder,
     onSort,
 }: {
     column: VirtualizedTableColumn<any>
+    width: number
+    resizable: boolean
+    columns: ResizableColumns
     sortKey: string | null
     sortOrder: VirtualizedSortOrder
     onSort: (key: string) => void
 }): JSX.Element {
     const label = column.tooltip ? <Tooltip title={column.tooltip}>{column.title}</Tooltip> : column.title
-    if (!column.sorter) {
-        return (
-            <Cell width={column.width} align={column.align}>
-                {label}
-            </Cell>
-        )
-    }
+    const resize = resizable
+        ? {
+              columnLabel: column.label ?? (typeof column.title === 'string' ? column.title : column.key),
+              onResizeStart: (event: React.PointerEvent) => columns.startResize(column.key, event),
+              onNudge: (direction: -1 | 1) => columns.nudgeWidth(column.key, direction),
+              onReset: () => columns.resetWidth(column.key),
+          }
+        : undefined
     const active = sortKey === column.key
     return (
-        <Cell width={column.width} align={column.align}>
-            <button
-                type="button"
-                className={cn(
-                    'flex items-center cursor-pointer hover:text-default',
-                    column.align === 'right' && 'ml-auto',
-                    active && 'text-default'
-                )}
-                onClick={() => onSort(column.key)}
-                data-attr={`virtualized-table-sort-${column.key}`}
-            >
-                <span>{label}</span>
-                <SortingIndicator order={active ? sortOrder : null} />
-            </button>
-        </Cell>
+        <TableHeaderCell width={width} align={column.align} resize={resize}>
+            {column.sorter ? (
+                <button
+                    type="button"
+                    className={cn(
+                        'flex items-center cursor-pointer hover:text-default',
+                        column.align === 'right' && 'ml-auto',
+                        active && 'text-default'
+                    )}
+                    onClick={() => onSort(column.key)}
+                    data-attr={`virtualized-table-sort-${column.key}`}
+                >
+                    <span>{label}</span>
+                    <SortingIndicator order={active ? sortOrder : null} />
+                </button>
+            ) : (
+                label
+            )}
+        </TableHeaderCell>
     )
 }
 
@@ -93,6 +94,7 @@ function HeaderCell({
 // column-definition site (`columns: VirtualizedTableColumn<T>[]`), not inside the row renderer.
 interface VirtualizedRowProps {
     columns: VirtualizedTableColumn<any>[]
+    widths: Record<string, number>
     dataSource: any[]
     rowKey: (record: any) => string
     onRowClick?: (record: any) => void
@@ -103,6 +105,7 @@ function VirtualizedRow({
     index,
     style,
     columns,
+    widths,
     dataSource,
     rowKey,
     onRowClick,
@@ -142,9 +145,9 @@ function VirtualizedRow({
                 tabIndex={onRowClick ? 0 : undefined}
             >
                 {columns.map((column) => (
-                    <Cell key={column.key} width={column.width} align={column.align}>
+                    <TableCell key={column.key} width={widths[column.key]} align={column.align}>
                         {column.render(record)}
-                    </Cell>
+                    </TableCell>
                 ))}
             </div>
         </div>
@@ -152,6 +155,8 @@ function VirtualizedRow({
 }
 
 export interface VirtualizedTableProps<T> {
+    /** Identifies the table's stored column widths. Pinned: renaming resets everyone's widths. */
+    tableKey: string
     columns: VirtualizedTableColumn<T>[]
     dataSource: T[]
     loading: boolean
@@ -163,6 +168,7 @@ export interface VirtualizedTableProps<T> {
 }
 
 export function VirtualizedTable<T>({
+    tableKey,
     columns,
     dataSource,
     loading,
@@ -174,11 +180,7 @@ export function VirtualizedTable<T>({
 }: VirtualizedTableProps<T>): JSX.Element {
     const [sortKey, setSortKey] = useState<string | null>(defaultSort?.columnKey ?? null)
     const [sortOrder, setSortOrder] = useState<VirtualizedSortOrder>(defaultSort?.order ?? -1)
-
-    const minRowWidth = useMemo(
-        () => columns.reduce((sum, column) => sum + (column.width ?? FLEX_MIN_WIDTH), 0),
-        [columns]
-    )
+    const resizableColumns = useResizableColumns(tableKey, columns)
 
     const rows = useMemo(() => {
         const sorter = columns.find((column) => column.key === sortKey)?.sorter
@@ -197,11 +199,6 @@ export function VirtualizedTable<T>({
         }
     }
 
-    const rowProps = useMemo(
-        (): VirtualizedRowProps => ({ columns, dataSource: rows, rowKey, onRowClick }),
-        [columns, rows, rowKey, onRowClick]
-    )
-
     if (rows.length === 0) {
         return (
             <div className="flex items-center justify-center p-8 text-muted border rounded bg-bg-light">
@@ -217,10 +214,11 @@ export function VirtualizedTable<T>({
                     if (!width || !height) {
                         return null
                     }
-                    const rowWidth = Math.max(width, minRowWidth)
+                    const { widths, totalWidth } = resizableColumns.resolveWidths(width)
+                    const rowWidth = Math.max(width, totalWidth)
                     return (
                         // The viewport is fixed to the available box; inner content can be wider
-                        // (minRowWidth) so columns scroll horizontally and rows align with the header.
+                        // (totalWidth) so columns scroll horizontally and rows align with the header.
                         // eslint-disable-next-line react/forbid-dom-props
                         <div className="overflow-x-auto" style={{ width, height }}>
                             {/* eslint-disable-next-line react/forbid-dom-props */}
@@ -230,10 +228,13 @@ export function VirtualizedTable<T>({
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{ height: HEADER_HEIGHT }}
                                 >
-                                    {columns.map((column) => (
+                                    {columns.map((column, index) => (
                                         <HeaderCell
                                             key={column.key}
                                             column={column}
+                                            width={widths[column.key]}
+                                            resizable={index < columns.length - 1}
+                                            columns={resizableColumns}
                                             sortKey={sortKey}
                                             sortOrder={sortOrder}
                                             onSort={onSort}
@@ -246,7 +247,7 @@ export function VirtualizedTable<T>({
                                     rowCount={rows.length}
                                     rowHeight={ROW_HEIGHT}
                                     rowComponent={VirtualizedRow}
-                                    rowProps={rowProps}
+                                    rowProps={{ columns, widths, dataSource: rows, rowKey, onRowClick }}
                                 />
                             </div>
                         </div>

@@ -42,13 +42,15 @@ function buildColumns(windowMs: number): VirtualizedTableColumn<AggregatedSpanRo
         {
             key: 'service_name',
             title: 'Service',
-            width: 150,
+            width: 200,
             sorter: (a, b) => a.service_name.localeCompare(b.service_name),
             render: (row) => <span className="font-mono">{row.service_name}</span>,
         },
         {
             key: 'name',
             title: 'Operation',
+            width: 320,
+            grow: true,
             sorter: (a, b) => a.name.localeCompare(b.name),
             render: (row) => <span className="font-mono">{row.name}</span>,
         },
@@ -145,6 +147,8 @@ export function OperationsTable({ rows, loading, windowMs, onRowClick }: Operati
     const columns = useMemo(() => buildColumns(windowMs), [windowMs])
     return (
         <VirtualizedTable<AggregatedSpanRow>
+            // pinned: identifies stored column widths — renaming resets everyone's widths
+            tableKey="operations"
             columns={columns}
             dataSource={rows}
             loading={loading}
