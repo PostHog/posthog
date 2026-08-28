@@ -2056,6 +2056,34 @@ describe("AgentServer HTTP Mode", () => {
       testServer.session = null;
     });
 
+    it("strips pi-only descriptions before forwarding to the ACP adapter", async () => {
+      // claude and codex validate session params against the ACP schema, which does not
+      // declare a server description; only pi reads it.
+      const testServer = exposeRefresh(createServer());
+      const extMethod = vi.fn(async () => ({ refreshed: true }));
+      testServer.session = { clientConnection: { extMethod } };
+      testServer.mcpRelayServer = null;
+
+      await testServer.executeCommand("refresh_session", {
+        mcpServers: [
+          {
+            type: "http",
+            name: "posthog",
+            url: "https://mcp",
+            headers: [],
+            description: "Query PostHog insights and dashboards.",
+          },
+        ],
+      });
+
+      const forwarded = (extMethod.mock.calls[0] as unknown[])[1] as {
+        mcpServers: Array<Record<string, unknown>>;
+      };
+      expect(forwarded.mcpServers[0]).not.toHaveProperty("description");
+
+      testServer.session = null;
+    });
+
     it("does not duplicate a relay entry already present in the refresh list", async () => {
       const testServer = exposeRefresh(createServer());
       const extMethod = vi.fn(async () => ({ refreshed: true }));

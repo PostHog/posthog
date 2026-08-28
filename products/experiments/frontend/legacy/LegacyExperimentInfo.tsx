@@ -11,13 +11,13 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Label } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
 import { CONCLUSION_DISPLAY_CONFIG } from 'scenes/experiments/constants'
-import { getExperimentStatus, isExperimentPaused } from 'scenes/experiments/experimentStatus'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ExperimentStatsMethod, ExperimentStatus } from '~/types'
 
 import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
+import { getExperimentStatus, isExperimentPaused } from 'products/experiments/frontend/experimentStatus'
 import { LegacyExperimentDates, legacyExperimentLogic } from 'products/experiments/frontend/legacy'
 import { isSingleVariantShipped, getShippedVariantKey } from 'products/experiments/frontend/scenes/experimentsLogic'
 /**

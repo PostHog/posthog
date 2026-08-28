@@ -6,9 +6,16 @@ import type {
 
 /** Spacing between adjacent tab positions, leaving room to insert without reindex. */
 export const POSITION_GAP = 1000;
+export const DEFAULT_TAB_HREF = "/activity";
 
 type Clock = () => number;
 type IdFactory = () => string;
+
+export type NewTabOptions = {
+  href: string;
+  makeId: IdFactory;
+  now: Clock;
+};
 
 export type OpenTabResult = {
   snapshot: TabsSnapshot;
@@ -17,7 +24,7 @@ export type OpenTabResult = {
 
 export type CloseTabResult = {
   snapshot: TabsSnapshot;
-  /** Tab focused after the close, or null for the channels landing. */
+  /** Tab focused after the close, or null when no primary tab changed. */
   nextActiveTabId: string | null;
   /** Set when closing the last tab of a secondary window should close it. */
   closedWindowId: string | null;
@@ -32,6 +39,28 @@ function tabsInWindow(snapshot: TabsSnapshot, windowId: string): BrowserTab[] {
 /** The primary window, falling back to the first one (web has a single window). */
 export function primaryWindow(snapshot: TabsSnapshot) {
   return snapshot.windows.find((w) => w.isPrimary) ?? snapshot.windows[0];
+}
+
+export function ensureWindowHasTab(
+  snapshot: TabsSnapshot,
+  input: NewTabOptions & { windowId: string },
+): TabsSnapshot {
+  if (!snapshot.windows.some((window) => window.id === input.windowId)) {
+    return snapshot;
+  }
+  if (snapshot.tabs.some((tab) => tab.windowId === input.windowId)) {
+    return snapshot;
+  }
+  return openTab(snapshot, {
+    windowId: input.windowId,
+    href: input.href,
+    viewState: null,
+    dashboardId: null,
+    taskId: null,
+    channelId: null,
+    makeId: input.makeId,
+    now: input.now,
+  }).snapshot;
 }
 
 function setActiveTab(
@@ -248,12 +277,13 @@ export function setTabTarget(
 
 /**
  * Close a tab. Focus moves to the nearest sibling. Closing the last tab of a
- * secondary window signals that the window should close; closing the last tab
- * of the primary window leaves it on the channels landing (activeTabId null).
+ * secondary window signals that the window should close. Closing the last tab
+ * of the primary window opens a fresh tab so the main window never has none.
  */
 export function closeTab(
   snapshot: TabsSnapshot,
   tabId: string,
+  newTab: NewTabOptions,
 ): CloseTabResult {
   const tab = snapshot.tabs.find((t) => t.id === tabId);
   if (!tab) {
@@ -278,14 +308,24 @@ export function closeTab(
         closedWindowId: tab.windowId,
       };
     }
-    // Primary window → channels landing.
+    const withoutClosedTab = setActiveTab(
+      { ...snapshot, tabs: removedTabs },
+      tab.windowId,
+      null,
+    );
+    const replacement = openTab(withoutClosedTab, {
+      windowId: tab.windowId,
+      href: newTab.href,
+      viewState: null,
+      dashboardId: null,
+      taskId: null,
+      channelId: null,
+      makeId: newTab.makeId,
+      now: newTab.now,
+    });
     return {
-      snapshot: setActiveTab(
-        { ...snapshot, tabs: removedTabs },
-        tab.windowId,
-        null,
-      ),
-      nextActiveTabId: null,
+      snapshot: replacement.snapshot,
+      nextActiveTabId: replacement.tabId,
       closedWindowId: null,
     };
   }
@@ -304,8 +344,8 @@ export function closeTab(
 /**
  * Close several tabs at once — the bulk primitive behind "close other tabs" /
  * "close tabs to the right/left". Composes {@link closeTab} so the per-window
- * succession rules (survivor focus, secondary-window drop, primary lands on
- * channels) live in exactly one place.
+ * succession rules (survivor focus, secondary-window drop, primary replacement)
+ * live in exactly one place.
  *
  * `focusTabId` is the bulk close's anchor (the right-clicked tab, which always
  * survives these operations). When a window's active tab is among those closed,
@@ -316,6 +356,7 @@ export function closeTab(
 export function closeTabs(
   snapshot: TabsSnapshot,
   tabIds: string[],
+  newTab: NewTabOptions,
   focusTabId?: string | null,
 ): TabsSnapshot {
   const ids = new Set(tabIds);
@@ -330,7 +371,7 @@ export function closeTabs(
 
   let next = snapshot;
   for (const id of ids) {
-    next = closeTab(next, id).snapshot;
+    next = closeTab(next, id, newTab).snapshot;
   }
 
   if (focusTabId) {

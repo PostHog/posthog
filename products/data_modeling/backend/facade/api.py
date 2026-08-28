@@ -41,6 +41,7 @@ _LAZY = {
     "tiered_schedules_enabled": "logic.schedule_reconcile",
     "declared_targets_by_saved_query": "logic.node_frequency",
     "get_declared_target": "logic.node_frequency",
+    "set_declared_target": "logic.node_frequency",
     "saved_query_target_bounds": "logic.node_frequency",
     "clear_node_suspension": "logic.node_suspension",
     "is_node_suspended": "logic.node_suspension",
