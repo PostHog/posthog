@@ -1,21 +1,24 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCheckCircle, IconClock, IconRefresh, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { dataColorVars } from 'lib/colors'
 import { ExplorerHog } from 'lib/components/hedgehogs'
-import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { urls } from 'scenes/urls'
 
+import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
+import { Query } from '~/queries/Query/Query'
+
 import { Card } from '../dashboard/Card'
-import { formatMs, formatNumber } from '../dashboard/formatters'
+import { formatNumber } from '../dashboard/formatters'
 import { HarnessLogo } from '../dashboard/harness'
 import type { MCPIntentThemeApi } from '../generated/api.schemas'
 import { METRICS_UNLOCK_LIFETIME_CALLS, mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
-import type { ChecklistItem, EarlyRecentCall } from './mcpEarlyDataLogic'
+import { MCP_ACTIVITY_DATA_COLLECTION_ID, MCP_ACTIVITY_MAX_ROWS } from './mcpActivityQuery'
+import type { ChecklistItem } from './mcpEarlyDataLogic'
 import { mcpEarlyDataLogic } from './mcpEarlyDataLogic'
 
 /**
@@ -99,82 +102,34 @@ function SummaryCard(): JSX.Element {
 }
 
 function LiveActivityCard(): JSX.Element {
-    const { recentCalls, overviewLoading } = useValues(mcpEarlyDataLogic)
+    const { activityQuery } = useValues(mcpEarlyDataLogic)
+    const { setActivityQuery } = useActions(mcpEarlyDataLogic)
 
     return (
-        <Card title="Live activity" className="h-full lg:absolute lg:inset-0" flush>
+        <LemonCard hoverEffect={false} className="flex h-full flex-col overflow-hidden p-0 lg:absolute lg:inset-0">
+            <h3 className="m-0 border-b border-primary px-3 py-2 text-sm font-semibold">Live activity</h3>
             {/* Fills the card so the feed ends where the sidebar does; the rest scrolls. Stacked
                 layouts have no sidebar to match, so they fall back to a fixed cap. */}
             <div className="flex-1 min-h-0 max-h-[36rem] lg:max-h-none overflow-y-auto">
-                <LemonTable<EarlyRecentCall>
-                    embedded
-                    dataSource={recentCalls}
-                    loading={overviewLoading && recentCalls.length === 0}
-                    rowKey={(row, index) => `${row.timestamp}-${row.tool}-${index}`}
-                    emptyState="Waiting for the next tool call…"
-                    columns={[
-                        {
-                            title: 'When',
-                            key: 'timestamp',
-                            width: 130,
-                            render: (_, row) => <TZLabel time={row.timestamp} />,
+                <Query
+                    attachTo={mcpEarlyDataLogic}
+                    uniqueKey="mcp-analytics-activity"
+                    query={activityQuery}
+                    setQuery={setActivityQuery}
+                    context={{
+                        dataTableMaxPaginationLimit: MCP_ACTIVITY_MAX_ROWS,
+                        emptyStateDetail: 'Adjust the date range or filters, or wait for agents to call a tool.',
+                        emptyStateHeading: 'No MCP tool calls in this period',
+                        extraDataTableQueryFeatures: [QueryFeature.showCount],
+                        insightProps: {
+                            dashboardItemId: 'new-mcp-analytics-activity',
+                            dataNodeCollectionId: MCP_ACTIVITY_DATA_COLLECTION_ID,
                         },
-                        {
-                            title: 'Tool',
-                            key: 'tool',
-                            render: (_, row) => (
-                                <span className="flex items-center gap-1 font-mono text-sm">
-                                    {row.tool}
-                                    {row.isError ? <LemonTag type="danger">error</LemonTag> : null}
-                                </span>
-                            ),
-                        },
-                        {
-                            title: 'Agent intent',
-                            key: 'intent',
-                            render: (_, row) => (
-                                <div>
-                                    {row.intent ? (
-                                        <span className="text-base">{row.intent}</span>
-                                    ) : (
-                                        <span className="text-muted text-base">—</span>
-                                    )}
-                                    {row.errorMessage ? (
-                                        <div
-                                            className="text-danger text-sm mt-0.5 line-clamp-2"
-                                            title={row.errorMessage}
-                                        >
-                                            {row.errorMessage}
-                                        </div>
-                                    ) : null}
-                                </div>
-                            ),
-                        },
-                        {
-                            title: 'Duration',
-                            key: 'duration',
-                            width: 90,
-                            align: 'right',
-                            render: (_, row) => (row.durationMs == null ? '—' : formatMs(row.durationMs)),
-                        },
-                        {
-                            title: 'Client',
-                            key: 'client',
-                            width: 150,
-                            render: (_, row) =>
-                                row.clientName ? (
-                                    <span className="flex items-center gap-1.5">
-                                        <HarnessLogo category={row.clientName} className="h-3.5 w-3.5" />
-                                        <span className="truncate">{row.clientName}</span>
-                                    </span>
-                                ) : (
-                                    <span className="text-muted">unknown</span>
-                                ),
-                        },
-                    ]}
+                        showOpenEditorButton: false,
+                    }}
                 />
             </div>
-        </Card>
+        </LemonCard>
     )
 }
 
