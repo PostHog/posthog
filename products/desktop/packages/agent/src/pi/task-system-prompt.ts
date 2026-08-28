@@ -134,11 +134,8 @@ export function buildTaskSystemPrompt(
     buildTaskContextPrompt(context.taskId),
   ];
 
-  if (context.environment === "local") {
-    sections.push(buildLocalAttributionPrompt(context.taskId));
-  }
-
   sections.push(
+    buildLocalAttributionPrompt(context.taskId),
     buildQuestionsPrompt(capabilities.structuredInput === true),
     buildPullRequestLinksPrompt(),
     buildShellEfficiencyPrompt(),

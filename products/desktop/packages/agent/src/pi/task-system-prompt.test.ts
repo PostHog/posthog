@@ -24,7 +24,7 @@ describe("buildTaskSystemPrompt", () => {
     expect(prompt).toContain("## Channel task");
   });
 
-  it("does not give local source-control instructions to cloud tasks", () => {
+  it("includes attribution instructions for cloud tasks", () => {
     const prompt = buildTaskSystemPrompt({
       projectId: 42,
       apiHost: "https://us.posthog.com",
@@ -34,7 +34,8 @@ describe("buildTaskSystemPrompt", () => {
       additionalInstructions: "Use the existing pull request.",
     });
 
-    expect(prompt).not.toContain("Generated-By: PostHog Desktop");
+    expect(prompt).toContain("Generated-By: PostHog Desktop");
+    expect(prompt).toContain("Task-Id: task-123");
     expect(prompt).toContain("Use the existing pull request.");
   });
 });
