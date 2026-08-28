@@ -44695,20 +44695,54 @@ export namespace Schemas {
       results: MCPToolQualityRowItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
+      /** Number of tools matching the date, category, and search filters. */
+      totalCount: number;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
+    export type MCPToolQualitySortColumn = typeof MCPToolQualitySortColumn[keyof typeof MCPToolQualitySortColumn];
+
+
+    export const MCPToolQualitySortColumn = {
+      TotalCalls: 'total_calls',
+      ErrorRatePct: 'error_rate_pct',
+      P50DurationMs: 'p50_duration_ms',
+      P95DurationMs: 'p95_duration_ms',
+      P99DurationMs: 'p99_duration_ms',
+      Users: 'users',
+      Sessions: 'sessions',
+      LastSeen: 'last_seen',
+    } as const;
+
+    export type MCPToolQualitySortDirection = typeof MCPToolQualitySortDirection[keyof typeof MCPToolQualitySortDirection];
+
+
+    export const MCPToolQualitySortDirection = {
+      Asc: 'ASC',
+      Desc: 'DESC',
+    } as const;
+
     export interface MCPToolQualityRowsQuery {
       /** Restrict to these $mcp_tool_category values; empty or omitted means all categories. */
       categories?: string[] | null;
       dateRange?: DateRange | null;
       kind?: 'MCPToolQualityRowsQuery';
+      /** Page size. The server defaults to 50 and caps this at 100. */
+      limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Number of matching tools to skip. */
+      offset?: number | null;
       response?: MCPToolQualityRowsQueryResponse | null;
+      /** Case-insensitive substring search on the effective tool name. */
+      search?: string | null;
+      /** Aggregate column used to order tools. Defaults to total_calls. */
+      sortColumn?: MCPToolQualitySortColumn | null;
+      /** Sort direction. Defaults to DESC. */
+      sortDirection?: MCPToolQualitySortDirection | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -45715,15 +45749,18 @@ export namespace Schemas {
       client_secret?: string;
       install_source?: InstallSourceEnum;
       posthog_code_callback_url?: string;
-      /** 'personal' is per-user; 'shared' makes the credential available to project members. Agent access is granted separately.
+      /** 'personal' is per-user; 'shared' makes the credential available to project members. PostHog agents get access to the connection automatically; see agent_scope.
        *
        * * `personal` - personal
        * * `shared` - shared */
       scope?: MCPInstallationScopeEnum;
       /** Whether the server starts enabled for the whole team. Non-default values are admin-only. */
       team_enabled?: boolean;
-      /** Service accounts to share the server with at install time. Available to members when team settings allow member-managed agent access. */
-      agent_ids?: string[];
+      /** How far the automatic agent grants for this connection reach. 'personal' (the default) lets PostHog agents use it only on runs for you; 'team' lets every agent run in the project use it. Grants are created when the caller may manage agent access: project admins always, members when team settings allow it. Sending a value without that permission is rejected.
+       *
+       * * `personal` - Personal
+       * * `team` - Team */
+      agent_scope?: MCPAgentGrantScopeEnum;
       /** In-app path to land back on after the OAuth round-trip. Must be a same-app relative path. */
       return_path?: string;
     }
@@ -45733,15 +45770,18 @@ export namespace Schemas {
       api_key?: string;
       install_source?: InstallSourceEnum;
       posthog_code_callback_url?: string;
-      /** 'personal' is per-user; 'shared' makes the credential available to project members. Agent access is granted separately.
+      /** 'personal' is per-user; 'shared' makes the credential available to project members. PostHog agents get access to the connection automatically; see agent_scope.
        *
        * * `personal` - personal
        * * `shared` - shared */
       scope?: MCPInstallationScopeEnum;
       /** Whether the server starts enabled for the whole team. Non-default values are admin-only. */
       team_enabled?: boolean;
-      /** Service accounts to share the server with at install time. Available to members when team settings allow member-managed agent access. */
-      agent_ids?: string[];
+      /** How far the automatic agent grants for this connection reach. 'personal' (the default) lets PostHog agents use it only on runs for you; 'team' lets every agent run in the project use it. Grants are created when the caller may manage agent access: project admins always, members when team settings allow it. Sending a value without that permission is rejected.
+       *
+       * * `personal` - Personal
+       * * `team` - Team */
+      agent_scope?: MCPAgentGrantScopeEnum;
       /** In-app path to land back on after the OAuth round-trip. Must be a same-app relative path. */
       return_path?: string;
     }
@@ -73001,6 +73041,8 @@ export namespace Schemas {
       results: MCPToolQualityRowItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
+      /** Number of tools matching the date, category, and search filters. */
+      totalCount: number;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */

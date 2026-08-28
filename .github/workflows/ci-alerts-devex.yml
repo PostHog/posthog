@@ -7,6 +7,11 @@ name: Master CI Alerts
 # wall-clock arm only opens while master is being pushed (ACTIVITY_WINDOW_MINUTES),
 # so a quiet weekend doesn't page.
 #
+# A workflow is read as one lane per trigger event, each with its own streak and thresholds.
+# Backend CI has two: master push (the per-commit checks) and the hourly scheduled run (the test
+# matrices). Without the second lane a broken matrix never pages, because the push lane it shares
+# a workflow with stays green.
+#
 # The script owns the whole flow: it recomputes master health from the GitHub
 # API every tick and reconciles a single Slack incident (Slack is the source of
 # truth — the open anchor is found via message metadata, so there is no cache
@@ -15,7 +20,8 @@ name: Master CI Alerts
 on:
     # Reconcile ~a minute after master CI finishes; GitHub throttles the cron below to ~hourly under
     # load. A reconcile reads all gating workflows anyway, so one hook on Backend CI (the long-pole on
-    # ~every push) suffices. branches:[master] skips PR completions; cron stays a backstop.
+    # ~every push, and the workflow that runs the hourly master matrices) suffices.
+    # branches:[master] skips PR completions; cron stays a backstop.
     workflow_run:
         workflows: ['Backend CI']
         types: [completed]
@@ -50,13 +56,30 @@ env:
     # so this push-based alerter can't observe them.)
     # Every workflow listed MUST run on every master push (no path filters) — the script verifies
     # runs freshness against master's newest commit; one that legitimately lags would wedge resolution.
+    # A workflow whose master coverage moved to a cron belongs in SCHEDULED_GATING_WORKFLOWS below,
+    # and stays here only for whatever it still runs per commit.
     GATING_WORKFLOWS: 'ci-python.yml,ci-backend.yml,ci-nodejs.yml,ci-frontend.yml,ci-storybook.yml,ci-security.yaml,ci-dagster.yml,ci-e2e-playwright.yml,ci-rust.yml,ci-mcp.yml,ci-llm-gateway.yml'
+    # Workflows that also cover master from a `schedule` trigger. Each gets a second lane, read and
+    # evaluated on its own, so a green master-push run can't mask a red scheduled run. Backend CI is
+    # split this way: master push runs only the per-commit checks (migrations, OpenAPI types, repo
+    # checks), and the test matrices run hourly.
+    SCHEDULED_GATING_WORKFLOWS: 'ci-backend.yml'
+    # A scheduled lane produces one run an hour, so it needs its own arms: the push streak of 5
+    # would take 5 hours to trip, while the push wall-clock arm of 60 minutes pages on a single
+    # flaky run held for one tick. Two red ticks in a row, or red across two ticks, is the honest
+    # sustained signal. Both arms are gated on recent master activity, because a cron keeps
+    # producing runs when nobody is pushing.
+    SCHEDULED_FAILURE_STREAK_THRESHOLD: '2'
+    SCHEDULED_FAILURE_MINUTES_THRESHOLD: '150'
 
 jobs:
     check-master:
-        # only reconcile on push completions (branches:[master] already scopes the trigger to master)
+        # Only reconcile on the master run completions the alerter reads: pushes and the hourly
+        # scheduled matrices (branches:[master] already scopes the trigger to master).
         if: >-
-            github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push'
+            github.event_name != 'workflow_run' ||
+            github.event.workflow_run.event == 'push' ||
+            github.event.workflow_run.event == 'schedule'
         runs-on: ubuntu-latest
         timeout-minutes: 5
         steps:
