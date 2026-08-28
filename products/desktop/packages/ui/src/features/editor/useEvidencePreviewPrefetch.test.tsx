@@ -28,11 +28,8 @@ vi.mock("./evidencePreviewAnalytics", () => ({
   fetchEvidencePreviewTimed: prefetchSpy,
 }));
 
-// jsdom has neither IntersectionObserver nor requestIdleCallback; stub both
-// for the file so tests can drive "the link entered the viewport" and "the
-// view went idle" directly, with a cancel that really removes a queued idle
-// callback. Module-scope stubs avoid racing component cleanups against
-// afterEach unstubbing.
+// jsdom has neither API. Module scope, not beforeEach: afterEach unstubbing
+// runs before unmount cleanups, which call the stubs.
 type IOCallback = (entries: Array<{ isIntersecting: boolean }>) => void;
 const io = vi.hoisted(() => ({
   callback: null as IOCallback | null,
@@ -114,7 +111,6 @@ describe("useEvidencePreviewPrefetch", () => {
 
     expect(io.observed).toHaveBeenCalledWith(element);
     intersect(true);
-    // Visibility alone fetches nothing: the fetch waits for the view to idle.
     expect(prefetchSpy).not.toHaveBeenCalled();
     runIdleCallbacks();
 
@@ -154,7 +150,6 @@ describe("useEvidencePreviewPrefetch", () => {
       () => useEvidencePreviewPrefetch({ kind: "insight", id: "x" }, element),
       { wrapper },
     );
-    // Below the fold: a non-intersecting entry must not schedule anything.
     intersect(false);
     runIdleCallbacks();
 
@@ -226,7 +221,6 @@ describe("whenViewSettles", () => {
     expect(ran).toBe(false);
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(ran).toBe(true);
-    // Restore the stubs for any later runs in this file.
     vi.stubGlobal("requestIdleCallback", (callback: () => void) => {
       const id = ++idle.nextId;
       idle.callbacks.set(id, callback);

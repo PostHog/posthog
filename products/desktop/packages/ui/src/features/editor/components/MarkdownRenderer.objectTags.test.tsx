@@ -29,8 +29,6 @@ vi.mock("../../../hooks/useAuthenticatedQuery", () => ({
 
 import { MarkdownRenderer } from "./MarkdownRenderer";
 
-// The evidence chip's eager-load hook reads a query client; tests have no app
-// shell, so mount a bare one.
 const queryClient = new QueryClient();
 
 function renderMarkdown(content: string) {

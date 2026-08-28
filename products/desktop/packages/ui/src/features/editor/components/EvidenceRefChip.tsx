@@ -330,10 +330,8 @@ export function EvidenceHoverCard({
 
 /**
  * Fetching wrapper around the card. Mounted only while the tooltip is open,
- * so the lookup stays lazy with eager loading off: a transcript full of
- * references costs nothing until one is hovered, and react-query caches the
- * result across hovers. When the viewport prefetch (useEvidencePreviewPrefetch)
- * ran earlier, the same query key means the card opens on cached data.
+ * so the lookup is lazy: a transcript full of references costs nothing until
+ * one is hovered, and react-query caches the result across hovers.
  */
 function EvidenceHoverCardLoader({
   target,
@@ -348,7 +346,6 @@ function EvidenceHoverCardLoader({
 }) {
   const client = useOptionalAuthenticatedClient();
   const queryClient = useQueryClient();
-  // One event per card opening (StrictMode would fire the mount effect twice).
   const shownTrackedRef = useRef(false);
   const kind = target.kind;
   const id = target.id;
@@ -368,9 +365,8 @@ function EvidenceHoverCardLoader({
       refetchOnWindowFocus: false,
       retry: 1,
       // The card unmounts when the tooltip closes, so without this a preview
-      // that already failed (including a failed prefetch) would refetch on
-      // every hover (re-running a hogql or error lookup against /query/);
-      // the static fallback covers the miss.
+      // that already failed would refetch on every hover (re-running a hogql
+      // or error lookup against /query/); the static fallback covers the miss.
       retryOnMount: false,
     },
   );
@@ -424,8 +420,6 @@ export function EvidenceRefChip({
   const [triggerElement, setTriggerElement] = useState<HTMLElement | null>(
     null,
   );
-  // Flag-gated: starts the preview lookup when the link enters the viewport
-  // (deferred to an idle moment), so opening the card usually hits the cache.
   useEvidencePreviewPrefetch(target, triggerElement);
   const expand =
     taskId && objectKind
@@ -518,10 +512,7 @@ export function EvidenceRefChip({
       {open && (
         <Popover.Portal>
           {/* Self-styled like primitives/Tooltip: quill's popover CSS isn't
-              loaded on every surface that renders chips (see ChatMarkdown).
-              The popup portals outside the app root but inherits the gray
-              tokens from the theme class on <html>, so it follows the active
-              light/dark theme (themeStore syncs it; no local override). */}
+              loaded on every surface that renders chips (see ChatMarkdown). */}
           <Popover.Positioner side="top" sideOffset={8} className="z-[9999]">
             <Popover.Popup
               data-testid="evidence-hover-card"

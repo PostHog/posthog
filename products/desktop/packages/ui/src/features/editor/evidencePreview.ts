@@ -10,11 +10,10 @@ import {
 import type { EvidenceLinkTarget } from "../../utils/evidenceLinks";
 
 /**
- * What the evidence hover card shows for a resolved reference: object kinds
- * resolve their live name and status, query-backed kinds (hogql, insight)
- * run their query and reduce the result to a headline and a sparkline.
- * Loading starts on hover, or earlier via the viewport prefetch
- * (useEvidencePreviewPrefetch); either way it lands in this react-query slot.
+ * What the evidence hover card shows for a resolved reference. Built lazily
+ * when the card mounts: object kinds resolve their live name and status,
+ * query-backed kinds (hogql, insight) run their query and reduce the result
+ * to a headline and a sparkline.
  */
 export interface EvidenceCardData {
   title: string;
@@ -48,11 +47,6 @@ export interface EvidenceCardData {
 
 const MAX_SPARK_POINTS = 60;
 
-/**
- * Shared react-query pieces for the hover card and the viewport prefetch:
- * one query key + one staleness window keeps the hover lookup, the prefetch,
- * and the project-switch purge (AUTH_SCOPED_QUERY_META) in agreement.
- */
 export const EVIDENCE_PREVIEW_STALE_TIME = 5 * 60 * 1000;
 
 export function evidencePreviewQueryKey(target: EvidenceLinkTarget) {
@@ -83,9 +77,7 @@ function fromChartData(
     };
   }
   if (data.type === "table") {
-    // Table columns are the query's raw column titles — for a HogQL-backed
-    // insight that is SQL text (e.g. `arrayJoin(events.event)`), not a
-    // readable label, so the card shows counts instead of echoing them.
+    // Column titles are raw SQL for HogQL sources, not labels; show counts.
     return {
       title: `${data.rows.length.toLocaleString("en-US")} ${data.rows.length === 1 ? "row" : "rows"}`,
       facts:

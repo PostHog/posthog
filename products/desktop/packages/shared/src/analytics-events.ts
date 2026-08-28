@@ -1369,24 +1369,17 @@ export interface AnnouncementProperties {
   announcement_style: "banner" | "modal";
 }
 
-/**
- * Evidence (insight link) hover-preview events. Privacy rule: these never
- * carry the referenced id, name, query text, or result data — for a `hogql`
- * reference the id is the SQL itself. `kind` is the registry slug only
- * ("insight", "hogql", "flag", ...).
- */
+// Privacy: these events never carry the referenced id, name, query text, or
+// result data. For a hogql reference the id is the SQL itself.
 export interface EvidencePreviewShownProperties {
   kind: string;
-  /** Whether the preview was already resolved in the local query cache. */
   cache: "hit" | "miss";
 }
 
 export interface EvidencePreviewReadyProperties {
   kind: string;
-  /** What triggered the load: a hover, or the viewport-driven prefetch. */
   source: "hover" | "prefetch";
   latency_ms: number;
-  /** False when the reference resolved to nothing (unknown id, empty result). */
   has_preview: boolean;
 }
 

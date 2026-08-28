@@ -8,21 +8,12 @@ import {
 import type { EvidenceLinkTarget } from "../../utils/evidenceLinks";
 import { type EvidenceCardData, fetchEvidencePreview } from "./evidencePreview";
 
-/**
- * Instrumentation around evidence (insight link) preview loading:
- * `shown` when the hover card opens, `ready`/`failed` when a load settles,
- * each with only the kind slug and the load latency — never the referenced
- * id, name, query text, or result data (see analytics-events.ts).
- *
- * The tracker is resolved through the optional root seam rather than
- * useService: chips render on the quick-ask panel too, whose container binds
- * no ANALYTICS_TRACKER, and tracking must no-op there instead of crashing.
- */
+// Optional resolution: the quick-ask panel binds no ANALYTICS_TRACKER, and
+// tracking must no-op there, not throw.
 function tracker(): AnalyticsTracker | null {
   return resolveServiceOptional<AnalyticsTracker>(ANALYTICS_TRACKER);
 }
 
-/** The hover card opened. `cached` tells whether data was already resolved. */
 export function trackEvidencePreviewShown(kind: string, cached: boolean): void {
   tracker()?.track(ANALYTICS_EVENTS.EVIDENCE_PREVIEW_SHOWN, {
     kind,
@@ -56,11 +47,6 @@ function trackEvidencePreviewFailed(
   });
 }
 
-/**
- * fetchEvidencePreview with ready/failed tracking and load latency. Shared
- * by the hover card (`source: "hover"`) and the viewport prefetch, so the
- * events attribute each load to what triggered it.
- */
 export async function fetchEvidencePreviewTimed(
   client: PostHogAPIClient,
   target: EvidenceLinkTarget,

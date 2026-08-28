@@ -31,9 +31,8 @@ describe("evidence preview analytics", () => {
   });
 
   it("no-ops the tracking when no analytics service is bound", async () => {
-    // Surfaces like the quick-ask panel bind no ANALYTICS_TRACKER; this must
-    // be silent, never a crash. (Runs before any bindTracker call: the root
-    // container is still unset.)
+    // Order-dependent: setRootContainer has no reset, so this must run
+    // before any bindTracker call or it silently tests nothing.
     vi.mocked(fetchEvidencePreview).mockResolvedValue({ title: "Anything" });
     await expect(
       fetchEvidencePreviewTimed(client, { kind: "flag", id: "42" }, "hover"),
@@ -42,8 +41,6 @@ describe("evidence preview analytics", () => {
   });
 
   it("reports ready with kind, source and load latency — and no reference contents", async () => {
-    // The insight's id and name are deliberately tell-tale: they must never
-    // appear in the event payload.
     const target: EvidenceLinkTarget = { kind: "insight", id: "9pQx3" };
     vi.mocked(fetchEvidencePreview).mockResolvedValue({
       title: "Acme Corp checkout funnel",
@@ -71,8 +68,6 @@ describe("evidence preview analytics", () => {
       kind: "hogql",
       id: "SELECT secret_column FROM secret_table",
     };
-    // A failure can echo the query text; the event still carries only
-    // kind/source/latency.
     vi.mocked(fetchEvidencePreview).mockRejectedValue(
       new Error("Query failed: SELECT secret_column FROM secret_table"),
     );

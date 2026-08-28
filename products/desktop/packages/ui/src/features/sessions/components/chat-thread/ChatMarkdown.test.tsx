@@ -3,8 +3,6 @@ import type { ReactNode } from "react";
 import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-// The evidence chip's eager-load hook reads a query client; static-markup
-// rendering has no app shell, so mount a bare client.
 const queryClient = new QueryClient();
 function renderStatic(node: ReactNode) {
   return renderMarkup(
@@ -12,9 +10,8 @@ function renderStatic(node: ReactNode) {
   );
 }
 
-// Chart cards and reference chips resolve their data through the app shell;
-// without it they stay in their loading state, which is all the dispatch
-// tests need.
+// Chart cards resolve their data through the app shell's query client; here
+// they stay in their loading state, which is all the dispatch tests need.
 vi.mock("../../../../hooks/useAuthenticatedQuery", () => ({
   useAuthenticatedQuery: () => ({
     isPending: true,

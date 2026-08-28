@@ -38,8 +38,6 @@ const queryClient = new QueryClient({
 });
 
 function renderInTheme(node: React.ReactNode) {
-  // The chip's eager-load hook reads a query client; the loader and cache
-  // assertions need the same one.
   return render(
     <QueryClientProvider client={queryClient}>
       <Theme>{node}</Theme>
@@ -57,8 +55,6 @@ function signIn() {
   });
 }
 
-// Binding a bare tracker makes preview analytics observable; the root
-// container is per-file, so this stays local to these tests.
 function bindTracker() {
   const track = vi.fn();
   const container = new Container();
@@ -152,8 +148,6 @@ describe("EvidenceRefChip", () => {
       </EvidenceRefChip>,
     );
     fireEvent.focus(screen.getByRole("link", { name: "Checkout funnel" }));
-    // themeStore syncs the theme class onto <html>; the popup must inherit
-    // the active theme from there, never pin "dark" on itself.
     const popup = screen.getByTestId("evidence-hover-card");
     expect(popup.className.split(" ")).not.toContain("dark");
   });

@@ -13,30 +13,9 @@ import {
 } from "./evidencePreview";
 import { fetchEvidencePreviewTimed } from "./evidencePreviewAnalytics";
 
-/**
- * Viewport-driven background loading of an evidence (insight link) preview.
- *
- * The hover card fetches only while open; with eager loading enabled this
- * hook watches the chip element and starts the same lookup as soon as the
- * link scrolls into the viewport, so opening the card usually finds the
- * preview already in the react-query cache. The fetch is deliberately
- * deferred: it fires from an idle callback (setTimeout fallback), so a
- * transcript full of references never fires queries while the surrounding
- * view is still rendering or streaming.
- *
- * Safety rails: gated by EVIDENCE_PREVIEW_EAGER_LOADING_FLAG, no-op without
- * an authenticated client or while offline, at most one prefetch per mount,
- * and a fresh cache hit skips the fetch. prefetchQuery swallows fetch
- * errors, so a failed background load surfaces only as the card's static
- * fallback on hover.
- */
-
-/** ms the idle wait can absorb before prefetching anyway. */
 const SETTLE_TIMEOUT_MS = 2000;
-/** Fallback delay for environments without requestIdleCallback. */
 const SETTLE_FALLBACK_MS = 250;
 
-/** Run `callback` once the surrounding view is idle; returns a canceler. */
 export function whenViewSettles(
   callback: () => void,
   timeoutMs = SETTLE_TIMEOUT_MS,
@@ -96,8 +75,6 @@ export function useEvidencePreviewPrefetch(
           void prefetchEvidencePreview(queryClient, client, { kind, id });
         });
       },
-      // The trigger is the actual viewport entry, not a lead-in margin.
-      { rootMargin: "0px" },
     );
     observer.observe(element);
 
