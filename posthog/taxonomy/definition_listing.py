@@ -13,11 +13,12 @@ from django.db import DEFAULT_DB_ALIAS, router
 
 from rest_framework.pagination import LimitOffsetPagination
 
-# Listing runs two raw queries (a count, then a page fetch) that take seconds on projects with
-# very many definitions. The app database sets no statement_timeout, so a slow one keeps
-# consuming database CPU for the full request until the gateway gives up at 120s, long after the
-# client stopped waiting for it. Bounding each statement well below that ceiling sheds the load
-# instead of queueing it, and returns a 503 the caller can retry or report.
+# Listing runs two raw queries (a count, then a page fetch) that take tens of seconds on projects
+# with very many definitions. The app database sets no statement_timeout, so a slow one keeps
+# consuming database CPU for the whole request, long after the client stopped waiting for it.
+# Bounding each statement sheds that load instead of queueing it, and returns a 503 the caller can
+# retry or report. The bound is deliberately shorter than any request ceiling above it, so the
+# database stops working at a point we choose rather than whenever the caller happens to hang up.
 DEFINITION_LIST_STATEMENT_TIMEOUT_MS = 25_000
 
 # Postgres reports a statement cancelled by statement_timeout as SQLSTATE 57014. psycopg2 exposes
