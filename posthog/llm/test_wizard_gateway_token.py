@@ -156,6 +156,42 @@ class TestMintWizardGatewayToken:
                 mint_wizard_gateway_token(obo="org_1", user="user_1")
         assert post.call_args.kwargs["json"]["cap_usd"] == "20.000000"
 
+    @pytest.mark.parametrize(
+        "raised,token_may_exist",
+        [
+            # Never reached the gateway, so nothing was issued.
+            (requests.exceptions.ConnectionError("refused"), False),
+            (requests.exceptions.ConnectTimeout("connect timed out"), False),
+            # The request may have landed; the gateway could hold a token.
+            (requests.exceptions.ReadTimeout("read timed out"), True),
+        ],
+    )
+    def test_transport_failures_report_whether_a_token_may_exist(self, raised, token_may_exist):
+        with patch("posthog.llm.wizard_gateway_token.requests.post", side_effect=raised):
+            with pytest.raises(WizardGatewayMintError) as excinfo:
+                mint_wizard_gateway_token(obo="org_1", user="user_1")
+        assert excinfo.value.token_may_exist is token_may_exist
+
+    def test_a_refusal_reports_that_no_token_exists(self):
+        with patch(
+            "posthog.llm.wizard_gateway_token.requests.post",
+            return_value=_Response(400, {"error": "bad request"}),
+        ):
+            with pytest.raises(WizardGatewayMintError) as excinfo:
+                mint_wizard_gateway_token(obo="org_1", user="user_1")
+        assert excinfo.value.token_may_exist is False
+
+    def test_an_unreadable_201_reports_that_a_token_may_exist(self):
+        # The gateway said it minted; we just could not read it back. Refunding the
+        # slot here would let the ceiling be exceeded by a token that is live.
+        with patch(
+            "posthog.llm.wizard_gateway_token.requests.post",
+            return_value=_Response(201, {"not": "a token"}),
+        ):
+            with pytest.raises(WizardGatewayMintError) as excinfo:
+                mint_wizard_gateway_token(obo="org_1", user="user_1")
+        assert excinfo.value.token_may_exist is True
+
     @override_settings(WIZARD_GATEWAY_TOKEN_CAP_USD="12.5")
     def test_in_contract_cap_is_sent_as_fixed_point(self):
         minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}

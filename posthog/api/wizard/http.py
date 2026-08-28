@@ -47,6 +47,7 @@ from posthog.rate_limit import (
     SetupWizardCloudRunSustainedRateThrottle,
     SetupWizardGatewayTokenRateThrottle,
     SetupWizardQueryRateThrottle,
+    refund_wizard_mint,
     reserve_wizard_mint,
 )
 from posthog.storage.gateway_credential_cache import (
@@ -180,8 +181,8 @@ class SetupWizardViewSet(viewsets.ViewSet):
         return []
 
     def throttled(self, request: Request, wait: float) -> NoReturn:
-        # 429s never reach the action body, so without this the kickoff counter is blind to
-        # rate-limited users and throttle pressure is invisible in dashboards.
+        # A rejection from DRF's own throttle check returns before the action body, so
+        # it counts here. A reservation that raises inside a body counts there instead.
         if self.action == "cloud_run":
             WIZARD_CLOUD_RUN_REQUESTS_TOTAL.labels(outcome="throttled").inc()
         if self.action == "gateway_token":
@@ -427,12 +428,18 @@ class SetupWizardViewSet(viewsets.ViewSet):
             raise exceptions.NotFound("Wizard gateway tokens are not available.")
 
         authenticator = OAuthAccessTokenAuthentication()
-        result = authenticator.authenticate(request)
-        if not result:
-            raise AuthenticationFailed("Invalid access token.")
-        user, _ = result
-        if not user:
-            raise AuthenticationFailed("Invalid access token.")
+        # authenticate() raises its own AuthenticationFailed (expired, disabled user,
+        # no application), so the count wraps the call, not just the checks.
+        try:
+            result = authenticator.authenticate(request)
+            if not result:
+                raise AuthenticationFailed("Invalid access token.")
+            user, _ = result
+            if not user:
+                raise AuthenticationFailed("Invalid access token.")
+        except AuthenticationFailed:
+            WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="invalid_token").inc()
+            raise
 
         access_token = authenticator.access_token
         # llm_gateway:read is on every sandbox and agent token, so the scope alone
@@ -455,7 +462,8 @@ class SetupWizardViewSet(viewsets.ViewSet):
             raise exceptions.ValidationError("Access token must be scoped to exactly one team.")
         team = Team.objects.select_related("organization").filter(id=scoped_team_ids[0]).first()
         if team is None:
-            # 404 means "not rolled out" to the CLI, which downgrades to legacy.
+            # Deliberately 403: a 404 would read as "not rolled out" and downgrade
+            # the run to legacy, but a vanished team is an authorization failure.
             WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="team_missing").inc()
             raise exceptions.PermissionDenied(ERROR_PROJECT_NOT_FOUND)
 
@@ -479,16 +487,26 @@ class SetupWizardViewSet(viewsets.ViewSet):
         # Refusing keeps every pinned node one that carries a budget.
         product = wizard_product_node(request.data.get("program") if isinstance(request.data, dict) else None)
         if product is None:
-            # The CLI falls back only on 404, so an unlisted program keeps running
-            # on legacy instead of dying. It still cannot mint.
+            # 404 and not 400: the CLI falls back only on 404, so an unlisted
+            # program keeps running on legacy instead of dying. It still cannot mint.
             WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="program_unknown").inc()
             raise exceptions.NotFound("Unrecognized wizard program.")
         # After every gate and before the mint: a refused request spends nothing,
         # and the reservation is atomic so parallel requests cannot share a slot.
-        reserve_wizard_mint(request, self)
+        try:
+            reserved = reserve_wizard_mint(request, self)
+        except exceptions.Throttled:
+            # The reservation raises after check_throttles ran, so the throttled()
+            # hook never sees it.
+            WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="throttled").inc()
+            raise
         try:
             minted = mint_wizard_gateway_token(obo=str(team.organization_id), user=distinct_id, product=product)
         except WizardGatewayMintError as e:
+            # Only a failure that proves no token was issued returns the slot; an
+            # ambiguous one keeps it rather than risk exceeding the daily ceiling.
+            if not e.token_may_exist:
+                refund_wizard_mint(reserved)
             WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="mint_failed").inc()
             capture_exception(e, {"ai_product": "wizard", "team_id": team.id})
             return Response({"error": "Gateway token mint failed."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)

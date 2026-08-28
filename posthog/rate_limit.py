@@ -1098,37 +1098,66 @@ class SetupWizardGatewayTokenRateThrottle(SimpleRateThrottle):
         return f"throttle_wizard_gateway_token_{hashlib.sha256(ident.encode()).hexdigest()}"
 
 
-def reserve_wizard_mint(request, view) -> None:
+def reserve_wizard_mint(request, view) -> str | None:
     """Atomically consume one of this user's daily mints for this program, or raise.
 
-    Called immediately before the mint, after every gate, so a request that never
-    mints spends nothing, while parallel requests cannot all slip under the
-    ceiling the way a read-then-charge throttle lets them. Same shape as the
-    sibling cloud-run attempt reservation.
+    Called immediately before the mint, after every gate, so a request refused by a
+    gate spends nothing, while parallel requests cannot all slip under the ceiling
+    the way a read-then-charge throttle lets them. A mint that then fails keeps its
+    slot unless the failure proves no token was issued; see refund_wizard_mint.
+
+    Returns the counter it charged so the refund targets that exact key. Recomputing
+    the window at refund time would decrement the next day's counter for a request
+    spanning 00:00 UTC, handing out a free slot.
 
     Fails open on a cache error: this bounds spend that the per-token cap and the
     wallet also bound, and a Redis blip must not turn a minted token into a 500.
     """
     throttle = SetupWizardGatewayTokenRateThrottle()
     if throttle.rate is None:
-        return
+        return None
     try:
         key = throttle.get_cache_key(request, view)
         if key is None:
-            return
+            return None
         window = int(time.time()) // throttle.duration
         counter = f"{key}:{window}"
         cache.add(counter, 0, timeout=throttle.duration)
         try:
             count = cache.incr(counter)
         except ValueError:
-            # Expired between add and incr; this request is the window's first.
+            # The key vanished between add and incr, so the incr wrote nothing.
+            # Persist the charge as the window's first rather than leaving it
+            # implicit: the counter this returns is refundable, and a handle for a
+            # charge that was never stored would debit a concurrent request's slot.
+            cache.set(counter, 1, timeout=throttle.duration)
             count = 1
     except Exception as e:
         capture_exception(e)
-        return
+        return None
     if count > throttle.num_requests:
         raise exceptions.Throttled(detail="This wizard program has used its daily run limit. Try again tomorrow.")
+    return counter
+
+
+def refund_wizard_mint(counter: str | None) -> None:
+    """Return a reserved mint slot after a failure that issued no token.
+
+    Only for failures that prove the gateway holds nothing: refunding one it did
+    mint would let a user exceed the daily ceiling. Swallows cache errors so a
+    refund can never turn the 503 the caller is already answering into a 500.
+    """
+    if counter is None:
+        return
+    try:
+        cache.decr(counter)
+    except ValueError:
+        # The window that owned the charge is gone, so there is nothing to return.
+        pass
+    except Exception as e:
+        # A lost refund costs the user a slot until the window rolls, and looks
+        # identical to a moot one; the sibling reserve reports its errors the same way.
+        capture_exception(e)
 
 
 class SetupWizardCloudRunOutcomeAwareThrottle(UserRateThrottle):

@@ -26,7 +26,8 @@ _MINT_TIMEOUT_SECONDS = 10
 # The gateway refuses a TTL outside these bounds with a 400, so clamp locally: a
 # misconfigured setting should not turn every mint into a 503.
 # Far above the gateway's own 60s floor: a run's holders capture the bearer once
-# and cannot re-resolve, so a token must outlive the whole run.
+# and cannot re-resolve, so a token must outlive the whole run. Clamping to that
+# floor would turn a misconfigured knob into mid-run 401s.
 _MIN_TTL_SECONDS = 3600
 _MAX_TTL_SECONDS = 86400
 
@@ -46,7 +47,7 @@ def wizard_product_node(program: str | None) -> str | None:
     The setting is authoritative: an unrecognized program is refused rather than
     folded into a generic node. Gateway budgets match a node value exactly, so
     folding would report a new program's spend as plain wizard spend and leave the
-    program itself with no budget of its own, and the drift would be silent. A
+    program itself with no budget of its own, and the drift would be silent.
     A refusal is visible in the mint outcome counter, and the endpoint answers it
     with a 404, the one status the CLI falls back on: a program this deploy has
     not been told about keeps running on the legacy gateway rather than having
@@ -68,7 +69,16 @@ WIZARD_GATEWAY_MINTS = Counter(
 
 
 class WizardGatewayMintError(Exception):
-    """The gateway refused or failed the mint; the caller answers 503."""
+    """The gateway refused or failed the mint; the caller answers 503.
+
+    token_may_exist is False only when the failure proves no token was issued,
+    so the caller can return the daily mint slot. It defaults True: refunding a
+    slot for a token the gateway did mint would let the ceiling be exceeded.
+    """
+
+    def __init__(self, message: str, *, token_may_exist: bool = True) -> None:
+        super().__init__(message)
+        self.token_may_exist = token_may_exist
 
 
 def wizard_gateway_configured() -> bool:
@@ -115,12 +125,32 @@ def mint_wizard_gateway_token(*, obo: str, user: str, product: str = WIZARD_PROD
     except requests.RequestException as e:
         WIZARD_GATEWAY_MINTS.labels(outcome="unreachable").inc()
         logger.warning("wizard_gateway_token: mint transport failure", error=str(e))
-        raise WizardGatewayMintError("gateway unreachable") from e
+        # Only a failure after the request was transmitted can leave a token behind.
+        # URL and schema errors raise before any byte is sent, and a connect-level
+        # failure never established the session; ConnectTimeout subclasses
+        # ConnectionError, while a ReadTimeout's request may have landed.
+        #
+        # Not a clean split: requests re-raises a body-phase read timeout as
+        # ConnectionError, so that case refunds despite the request landing. The
+        # token it may leave behind is never delivered, and a cap is a ceiling
+        # rather than a reservation, so an unheld token spends nothing.
+        never_sent = isinstance(
+            e,
+            (
+                requests.exceptions.ConnectionError,
+                requests.exceptions.URLRequired,
+                requests.exceptions.MissingSchema,
+                requests.exceptions.InvalidSchema,
+                requests.exceptions.InvalidURL,
+            ),
+        )
+        raise WizardGatewayMintError("gateway unreachable", token_may_exist=not never_sent) from e
 
     if response.status_code != 201:
         WIZARD_GATEWAY_MINTS.labels(outcome="refused").inc()
         logger.warning("wizard_gateway_token: mint refused", status=response.status_code)
-        raise WizardGatewayMintError(f"mint refused with HTTP {response.status_code}")
+        # The gateway answered and refused, so no token was issued.
+        raise WizardGatewayMintError(f"mint refused with HTTP {response.status_code}", token_may_exist=False)
     try:
         minted = response.json()
     except ValueError as e:

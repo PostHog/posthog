@@ -10,6 +10,7 @@ from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
 
+from prometheus_client import REGISTRY
 from rest_framework import status
 from rest_framework.exceptions import Throttled
 from rest_framework.request import Request
@@ -20,7 +21,7 @@ from posthog.cloud_utils import get_api_host
 from posthog.llm.wizard_gateway_token import WizardGatewayMintError
 from posthog.models import Organization, PersonalAPIKey, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.rate_limit import SetupWizardGatewayTokenRateThrottle, reserve_wizard_mint
+from posthog.rate_limit import SetupWizardGatewayTokenRateThrottle, refund_wizard_mint, reserve_wizard_mint
 
 
 class SetupWizardTests(APIBaseTest):
@@ -775,6 +776,59 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         )
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
+    def _reserved_counter_value(self, key="refund-test-key"):
+        """The live value of the reservation counter for a pinned cache key."""
+        import time
+
+        from django.core.cache import cache as django_cache
+
+        from posthog.rate_limit import SetupWizardGatewayTokenRateThrottle
+
+        window = int(time.time()) // SetupWizardGatewayTokenRateThrottle().duration
+        return django_cache.get(f"{key}:{window}")
+
+    @patch.object(SetupWizardGatewayTokenRateThrottle, "get_cache_key", return_value="refund-test-key")
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_a_failure_that_issued_no_token_returns_the_slot(
+        self, mock_authentication, mock_flag, mock_authorized, mock_key
+    ):
+        # The refund only runs through the view's exception handler, so nothing
+        # below the helper's own unit tests covers deleting or inverting it.
+        self._mock_oauth(mock_authentication)
+        with patch(
+            "posthog.api.wizard.http.mint_wizard_gateway_token",
+            side_effect=WizardGatewayMintError("refused", token_may_exist=False),
+        ):
+            response = self.client.post(
+                self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+            )
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert self._reserved_counter_value() == 0
+
+    @patch.object(SetupWizardGatewayTokenRateThrottle, "get_cache_key", return_value="refund-test-key")
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_a_failure_that_may_have_issued_a_token_keeps_the_slot(
+        self, mock_authentication, mock_flag, mock_authorized, mock_key
+    ):
+        # The paired negative: refunding here would return a slot for a token the
+        # gateway may hold, which is what the guard exists to prevent.
+        self._mock_oauth(mock_authentication)
+        with patch(
+            "posthog.api.wizard.http.mint_wizard_gateway_token",
+            side_effect=WizardGatewayMintError("unreadable", token_may_exist=True),
+        ):
+            response = self.client.post(
+                self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+            )
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert self._reserved_counter_value() == 1
+
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token")
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
     @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
@@ -816,6 +870,45 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
         mock_mint.assert_not_called()
 
+    @override_settings(DEBUG=False)
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_a_throttled_mint_is_counted(self, mock_authentication, mock_flag, mock_mint, mock_authorized):
+        # The reservation raises inside the action body, after DRF's own throttle
+        # check admitted the request, so the throttled() hook never sees this one.
+        self._mock_oauth(mock_authentication)
+        before = _gateway_token_outcome("throttled")
+
+        for _ in range(5):
+            self.client.post(
+                self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+            )
+        response = self.client.post(
+            self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+        )
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert _gateway_token_outcome("throttled") == before + 1
+
+    def test_an_unresolvable_bearer_is_counted(self):
+        # The authenticator raises on its own, before any gate that counts, so a
+        # rejected bearer would otherwise leave no sample at all.
+        before = _gateway_token_outcome("invalid_token")
+
+        response = self.client.post(
+            self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_unknown"}
+        )
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert _gateway_token_outcome("invalid_token") == before + 1
+
+
+def _gateway_token_outcome(outcome: str) -> float:
+    """Current value of one outcome counter. An unrecorded label reads as zero."""
+    return REGISTRY.get_sample_value("posthog_wizard_gateway_token_requests_total", {"outcome": outcome}) or 0.0
+
 
 class TestReserveWizardMint:
     """The ceiling is atomic and sits on the mint, not on arrival."""
@@ -839,6 +932,53 @@ class TestReserveWizardMint:
                 reserve_wizard_mint(req, None)
             with pytest.raises(Throttled):
                 reserve_wizard_mint(req, None)
+
+    def test_the_reservation_returns_the_counter_it_charged(self):
+        from django.core.cache import cache as django_cache
+
+        django_cache.clear()
+        req = self._request()
+        with patch.object(SetupWizardGatewayTokenRateThrottle, "get_cache_key", return_value="k"):
+            counter = reserve_wizard_mint(req, None)
+        assert counter is not None
+        assert counter.startswith("k:")
+        assert django_cache.get(counter) == 1
+
+    def test_a_refund_returns_the_slot_to_that_counter(self):
+        from django.core.cache import cache as django_cache
+
+        django_cache.clear()
+        req = self._request()
+        with patch.object(SetupWizardGatewayTokenRateThrottle, "get_cache_key", return_value="k"):
+            counter = reserve_wizard_mint(req, None)
+            refund_wizard_mint(counter)
+            # The refunded slot is spendable again rather than merely not charged.
+            for _ in range(5):
+                reserve_wizard_mint(req, None)
+            with pytest.raises(Throttled):
+                reserve_wizard_mint(req, None)
+
+    def test_a_vanished_key_is_re_established_so_its_counter_is_refundable(self):
+        from django.core.cache import cache as django_cache
+
+        django_cache.clear()
+        req = self._request()
+        with patch.object(SetupWizardGatewayTokenRateThrottle, "get_cache_key", return_value="k"):
+            # incr raises when the key expired between add and incr. The branch has
+            # to persist the charge, or it hands back a counter whose decr would
+            # debit whatever a concurrent request charged next.
+            with patch("posthog.rate_limit.cache.incr", side_effect=ValueError("no key")):
+                counter = reserve_wizard_mint(req, None)
+
+        assert counter is not None
+        assert django_cache.get(counter) == 1
+        refund_wizard_mint(counter)
+        assert django_cache.get(counter) == 0
+
+    def test_a_refund_without_a_counter_is_a_no_op(self):
+        # reserve returns None when it charged nothing, and the caller refunds
+        # unconditionally on an unambiguous failure.
+        refund_wizard_mint(None)
 
     def test_a_cache_failure_fails_open(self):
         # Load-shedding posture: the per-token cap and the wallet also bound this,
