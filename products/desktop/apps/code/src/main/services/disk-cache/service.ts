@@ -101,13 +101,16 @@ export class DiskCacheNamespace {
       };
     } catch (error) {
       if (!isNotFound(error)) {
-        log.warn("Dropping unreadable cache entry", { key, error });
+        // Log the hashed on-disk path, not the raw key: a key can be a signed
+        // URL, and this logger exports off-device. The path still points at the
+        // exact file to inspect.
+        log.warn("Dropping unreadable cache entry", { path: base, error });
         // Cleanup is best effort. A locked file or bad permissions must not
         // reject get(), or the caller loses its network fallback and the
         // image request hard-fails.
         await this.delete(key).catch((deleteError) => {
           log.warn("Could not delete unreadable cache entry", {
-            key,
+            path: base,
             error: deleteError,
           });
         });
