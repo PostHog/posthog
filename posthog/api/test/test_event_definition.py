@@ -19,6 +19,7 @@ from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.models import ActivityLog, EventDefinition, Organization, Tag, TaggedItem, Team
+from posthog.settings import EE_AVAILABLE
 
 from products.actions.backend.models.action import Action
 
@@ -713,7 +714,10 @@ class TestEventDefinitionListQueryShape(APIBaseTest):
         assert row_queries and all("LIMIT" in sql for sql in row_queries)
         # A FULL OUTER JOIN stops the planner from pushing the project predicate below the join, so
         # the scope filter runs over the whole tenant-shared table instead of seeking
-        # `event_definition_proj_uniq`.
+        # `event_definition_proj_uniq`. Assert the join we do want too, or this passes for free on
+        # a build without the enterprise extension, where no join is emitted at all.
+        if EE_AVAILABLE:
+            assert all("LEFT JOIN ee_enterpriseeventdefinition" in sql for sql in definition_queries)
         assert not any("FULL OUTER JOIN" in sql for sql in definition_queries)
 
     @parameterized.expand(
@@ -763,7 +767,7 @@ class TestEventDefinitionListStatementTimeout(APIBaseTest):
 
         with (
             patch("posthog.api.event_definition.create_event_definitions_count_sql", return_value=slow_count_sql),
-            patch("posthog.api.event_definition.DEFINITION_LIST_STATEMENT_TIMEOUT_MS", 250),
+            patch("posthog.taxonomy.definition_listing.DEFINITION_LIST_STATEMENT_TIMEOUT_MS", 250),
         ):
             response = self.client.get(f"/api/projects/{self.team.pk}/event_definitions/")
 

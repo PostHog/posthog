@@ -304,6 +304,10 @@ export type EventDefinitionsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Return only events carrying at least one of these tags, as a JSON array of strings (for example `["billing","pii"]`). Ignored when the value is not a JSON array.
+     */
+    tags?: string
 }
 
 export type EventDefinitionsByNameRetrieveParams = {
