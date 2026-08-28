@@ -66,11 +66,18 @@ const grpcConnectionsRejected = new Counter({
     labelNames: ['reason'],
 })
 
-/** A batch the pipeline finished processing. */
+/**
+ * A batch the pipeline finished processing. The two counts are the ack's
+ * disposition of every message: `accepted` is what the consumer may commit,
+ * and the index list is what it must redeliver.
+ */
 export interface CompletedSubBatch {
     streamId: number
     seq: number
+    /** `messages.length - timedOut.length`. */
     accepted: number
+    /** Positions in the sub-batch's messages the budget cut off, in feed order. */
+    timedOut: number[]
     /**
      * Resolves when the batch's side effects are durably done — the ack
      * barrier. Kept as a promise (not awaited inside `next()`) so the pump
@@ -622,8 +629,15 @@ export class WorkerIngestServer {
             return
         }
         stream.inFlight.delete(completed.seq)
-        stream.acks.push(okAck(completed.seq, completed.accepted))
-        grpcSubBatches.inc({ status: 'ok' })
+        // A timed-out message makes the whole ack PARTIAL: `accepted` alone
+        // cannot say which messages the consumer must redeliver.
+        if (completed.timedOut.length > 0) {
+            stream.acks.push(partialAck(completed.seq, completed.accepted, completed.timedOut))
+            grpcSubBatches.inc({ status: 'partial' })
+        } else {
+            stream.acks.push(okAck(completed.seq, completed.accepted))
+            grpcSubBatches.inc({ status: 'ok' })
+        }
         grpcMessagesProcessed.inc(completed.accepted)
         this.maybeFinish(stream)
     }

@@ -5,6 +5,7 @@ import { SerializedKafkaMessage } from '~/ingestion/api/types'
 import { BatchBudget, budgetDeadline } from '~/ingestion/framework/batch-budget'
 import { FeedResult } from '~/ingestion/framework/batching-pipeline'
 import { createKafkaDebugContext, createOkContext } from '~/ingestion/framework/helpers'
+import { isTimeoutResult } from '~/ingestion/framework/results'
 import {
     JoinedIngestionPipelineContext,
     JoinedIngestionPipelineInput,
@@ -63,10 +64,19 @@ export class GrpcStreamIngestDriver implements StreamIngestDriver {
             await Promise.all(result.sideEffects ?? [])
             await this.promiseScheduler.waitForAll()
         })()
+        // The elements are in feed order, so their positions are the message
+        // positions the consumer sent.
+        const timedOut: number[] = []
+        result.elements.forEach((element, index) => {
+            if (isTimeoutResult(element.result)) {
+                timedOut.push(index)
+            }
+        })
         return {
             streamId: result.batchContext.grpcStreamId,
             seq: result.batchContext.grpcSeq,
-            accepted: result.elements.length,
+            accepted: result.elements.length - timedOut.length,
+            timedOut,
             settled,
         }
     }
