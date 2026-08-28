@@ -113,8 +113,11 @@ class TestCostModel:
         # costs 577s, not 600s, worth of Depot minutes.
         labels = ["depot-ubuntu-latest"]
         billed = billed_elapsed_seconds(600, 23)
-        assert estimate_job_cost_usd(labels, billed) == pytest.approx(577 / 60 * REFERENCE_RATE_USD_PER_MIN)
-        assert estimate_job_cost_usd(labels, billed) < estimate_job_cost_usd(labels, 600)
+        cost_billed = estimate_job_cost_usd(labels, billed)
+        cost_wall_clock = estimate_job_cost_usd(labels, 600)
+        assert cost_billed is not None and cost_wall_clock is not None
+        assert cost_billed == pytest.approx(577 / 60 * REFERENCE_RATE_USD_PER_MIN)
+        assert cost_billed < cost_wall_clock
 
     def test_estimate_job_cost_is_none_for_a_rerun_copy(self):
         # GitHub re-lists an already-passed job under the next run_attempt with the earlier attempt's
