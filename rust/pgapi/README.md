@@ -33,7 +33,8 @@ headers, in priority order (`src/auth.rs`):
 2. `x-amzn-oidc-data` — ALB + Cognito (`ingress.internal: true`); verified
    ES256 against `https://public-keys.auth.elb.<region>.amazonaws.com/<kid>`,
    issuer must be a Cognito pool in `PGAPI_ALB_REGION`, the token must be for
-   `PGAPI_ALB_CLIENT_ID` (required together), `email_verified` must be true.
+   `PGAPI_ALB_CLIENT_ID` and signed by `PGAPI_ALB_ARN` (the JOSE `signer`;
+   all three required together), `email_verified` must be true.
    Browser path.
 3. `X-Auth-Request-Email` — the in-cluster auth gateway, if/when adopted
    (`PGAPI_TRUST_GATEWAY=1`).
@@ -43,7 +44,8 @@ Authorisation: `PGAPI_ALLOWED_DOMAINS` (default `posthog.com`) and/or
 `PGAPI_ALLOWED_EMAILS`. Everything is read-only; the DB session is forced
 `default_transaction_read_only`, and the raw-SQL tool runs each statement in a
 read-only transaction with a 15 s timeout followed by `DISCARD ALL`, so
-advisory locks or session settings cannot outlive a request, and refuses calls
+advisory locks or session settings cannot outlive a request, streams rows
+under an 8 MiB response budget, and refuses calls
 to known side-effecting functions (`pg_sleep`, advisory locks, `set_config`,
 backend signalling, stats resets, file/backup functions, `dblink`). Every request is
 logged with the caller's email and identity source.

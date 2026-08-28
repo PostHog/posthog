@@ -74,6 +74,7 @@ env:
   # Both required together to enable the Cognito/ALB path:
   PGAPI_ALB_REGION: us-east-1
   PGAPI_ALB_CLIENT_ID: 7d7earg8ande8rgp1coal63rva   # Cognito app client for the env (charts/argocd/ingress/values)
+  # PGAPI_ALB_ARN: arn:aws:elasticloadbalancing:us-east-1:<account>:loadbalancer/app/<internal-alb>/<id>   # tokens from any other ALB are rejected
   PGAPI_ALLOWED_DOMAINS: posthog.com
   # PGAPI_ALLOWED_HOSTS: pgapi.prod-us.posthog.dev,pgapi-prod-us.hedgehog-kitefin.ts.net   # DNS-rebinding guard
   RUST_LOG: info

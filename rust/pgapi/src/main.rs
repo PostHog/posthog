@@ -43,11 +43,14 @@ struct Cli {
     tailscale_hosts: Vec<String>,
     /// Verify ALB/Cognito `x-amzn-oidc-data` tokens (region for the ALB public key endpoint).
     /// Requires PGAPI_ALB_CLIENT_ID.
-    #[arg(long, env = "PGAPI_ALB_REGION", requires = "alb_client_id")]
+    #[arg(long, env = "PGAPI_ALB_REGION", requires_all = ["alb_client_id", "alb_arn"])]
     alb_region: Option<String>,
     /// Cognito app client id the ALB tokens must be minted for.
     #[arg(long, env = "PGAPI_ALB_CLIENT_ID")]
     alb_client_id: Option<String>,
+    /// ARN of the ALB in front of this service; tokens signed by any other ALB are rejected.
+    #[arg(long, env = "PGAPI_ALB_ARN")]
+    alb_arn: Option<String>,
     /// Trust `X-Auth-Request-Email` from the in-cluster auth gateway (heimdall).
     #[arg(long, env = "PGAPI_TRUST_GATEWAY", default_value = "false", value_parser = parse_bool)]
     trust_gateway: bool,
@@ -105,10 +108,11 @@ async fn main() -> Result<()> {
             .filter(|h| !h.is_empty())
             .collect(),
         trust_gateway: cli.trust_gateway,
-        alb: match (cli.alb_region, cli.alb_client_id) {
-            (Some(region), Some(client_id)) => Some(auth::AlbConfig {
+        alb: match (cli.alb_region, cli.alb_client_id, cli.alb_arn) {
+            (Some(region), Some(client_id), Some(arn)) => Some(auth::AlbConfig {
                 region,
                 client_id,
+                arn,
                 keys: Default::default(),
             }),
             _ => None,

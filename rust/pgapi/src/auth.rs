@@ -34,6 +34,10 @@ pub struct Principal {
 pub struct AlbConfig {
     pub region: String,
     pub client_id: String,
+    /// ARN of the ALB that fronts this service; the token's `signer` header must match,
+    /// otherwise a token minted by another ALB in the region with the same client id
+    /// would be accepted.
+    pub arn: String,
     /// kid → PEM public key, cached.
     pub keys: RwLock<HashMap<String, String>>,
 }
@@ -206,10 +210,17 @@ async fn verify_alb_token(alb: &AlbConfig, token: &str) -> anyhow::Result<String
         "unexpected issuer {}",
         data.claims.iss
     );
-    // The token must be minted for our app client; the ALB records it in the JOSE header.
-    let got =
-        header_client(&token).ok_or_else(|| anyhow::anyhow!("token has no client in header"))?;
+    // The token must be minted for our app client by our ALB; both are recorded in the
+    // JOSE header (`client`, `signer`) that the signature covers.
+    let got = header_field(&token, "client")
+        .ok_or_else(|| anyhow::anyhow!("token has no client in header"))?;
     anyhow::ensure!(alb.client_id == got, "token for another client ({got})");
+    let signer = header_field(&token, "signer")
+        .ok_or_else(|| anyhow::anyhow!("token has no signer in header"))?;
+    anyhow::ensure!(
+        alb.arn == signer,
+        "token signed by another load balancer ({signer})"
+    );
     let email = data
         .claims
         .email
@@ -225,8 +236,8 @@ async fn verify_alb_token(alb: &AlbConfig, token: &str) -> anyhow::Result<String
     Ok(email)
 }
 
-/// ALB puts the Cognito app client id in the JOSE header as `client`.
-fn header_client(token: &str) -> Option<String> {
+/// ALB puts the Cognito app client id (`client`) and its own ARN (`signer`) in the JOSE header.
+fn header_field(token: &str, key: &str) -> Option<String> {
     use base64::Engine;
     let h = token.split('.').next()?;
     let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
@@ -234,7 +245,7 @@ fn header_client(token: &str) -> Option<String> {
         .ok()?;
     serde_json::from_slice::<serde_json::Value>(&bytes)
         .ok()?
-        .get("client")?
+        .get(key)?
         .as_str()
         .map(str::to_string)
 }

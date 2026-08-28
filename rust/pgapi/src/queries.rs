@@ -388,9 +388,14 @@ const DENIED_FUNCTIONS: &[&str] = &[
 ];
 
 fn denied_function(sql: &str) -> Option<&'static str> {
+    static COMMENT: once_cell::sync::Lazy<regex::Regex> =
+        once_cell::sync::Lazy::new(|| regex::Regex::new(r"(?s)/\*.*?\*/|--[^\n]*").unwrap());
     static CALL: once_cell::sync::Lazy<regex::Regex> =
         once_cell::sync::Lazy::new(|| regex::Regex::new(r"(?i)\b([a-z_][a-z0-9_]*)\s*\(").unwrap());
-    CALL.captures_iter(sql).find_map(|c| {
+    // Comments are legal between a function name and its parenthesis (`pg_sleep/**/(1)`),
+    // so scan the statement with them removed.
+    let stripped = COMMENT.replace_all(sql, " ");
+    CALL.captures_iter(&stripped).find_map(|c| {
         let name = c[1].to_ascii_lowercase();
         DENIED_FUNCTIONS.iter().copied().find(|d| *d == name)
     })
@@ -422,5 +427,14 @@ mod tests {
             None
         );
         assert_eq!(denied_function("select pg_sleepy from t"), None);
+        assert_eq!(denied_function("select pg_sleep/**/(1)"), Some("pg_sleep"));
+        assert_eq!(
+            denied_function("select pg_sleep -- x\n(1)"),
+            Some("pg_sleep")
+        );
+        assert_eq!(
+            denied_function("select pg_catalog.pg_advisory_lock/* c */ (1)"),
+            Some("pg_advisory_lock")
+        );
     }
 }

@@ -27,8 +27,8 @@ headers, each source bound to the ingress that sets it:
    proxy pods.
 2. `x-amzn-oidc-data` — ALB + Cognito JWT, verified ES256 against the regional
    ALB key endpoint; issuer must be a Cognito pool in `PGAPI_ALB_REGION`, the
-   token must be minted for `PGAPI_ALB_CLIENT_ID`, and `email_verified` must be
-   true.
+   token must be minted for `PGAPI_ALB_CLIENT_ID` and signed by the ALB in
+   `PGAPI_ALB_ARN` (JOSE `signer`), and `email_verified` must be true.
 3. `X-Auth-Request-Email` — in-cluster auth gateway, only with
    `PGAPI_TRUST_GATEWAY=1`.
 4. `PGAPI_DEV_USER` with `PGAPI_DEV_MODE=1` — local development only.
@@ -49,7 +49,9 @@ authenticate. Keep the audience to engineering.
 
 `GET /api/v1/sql` and the `query_stats_db` MCP tool run a single
 `SELECT`/`WITH`/`EXPLAIN` against the stats database inside a read-only
-transaction with a 15 s timeout, then `DISCARD ALL` the session. Calls to
+transaction with a 15 s timeout under an 8 MiB serialised-response budget
+(rows are streamed and the query cancelled past it), then `DISCARD ALL` the
+session. Calls to
 side-effecting functions (`pg_sleep`, advisory locks, `set_config`,
 `pg_terminate_backend`, stats resets, file/backup functions, `dblink`, …) are
 refused up front. The database

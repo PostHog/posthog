@@ -8954,6 +8954,7 @@ dependencies = [
  "chrono",
  "clap",
  "deadpool-postgres",
+ "futures-util",
  "humantime",
  "jsonwebtoken",
  "once_cell",

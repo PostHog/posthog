@@ -12,6 +12,7 @@ base64 = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true, features = ["env"] }
 deadpool-postgres = "0.14"
+futures-util = { workspace = true }
 humantime = { workspace = true }
 jsonwebtoken = "8"
 once_cell = { workspace = true }

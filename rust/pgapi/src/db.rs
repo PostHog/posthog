@@ -8,6 +8,10 @@ use serde_json::{json, Map, Value};
 use tokio_postgres::types::{ToSql, Type};
 use tokio_postgres::NoTls;
 
+/// Serialised-response ceiling for raw SQL. Row count is bounded by LIMIT; this bounds
+/// bytes so a wide or `repeat()`-style query can't exhaust the pod's memory.
+pub const RAW_SQL_MAX_BYTES: usize = 8 * 1024 * 1024;
+
 #[derive(Clone)]
 pub struct Db {
     pool: Pool,
@@ -65,12 +69,30 @@ impl Db {
             let tx = c.build_transaction().read_only(true).start().await?;
             tx.batch_execute("SET LOCAL statement_timeout = 15000; SET LOCAL lock_timeout = 1000")
                 .await?;
-            let rows = tx
-                .query(sql, &[])
+            // Stream rows and stop once the serialised response would exceed the budget;
+            // dropping the stream and rolling back cancels the server side. Row count is
+            // capped by the caller's LIMIT, bytes are capped here.
+            use futures_util::TryStreamExt;
+            let params: [&(dyn ToSql + Sync); 0] = [];
+            let stream = tx
+                .query_raw(sql, params)
                 .await
                 .with_context(|| format!("query failed: {}", sql.lines().next().unwrap_or("")))?;
+            let mut stream = std::pin::pin!(stream);
+            let mut out = Vec::new();
+            let mut bytes = 0usize;
+            while let Some(row) = stream.try_next().await.context("query failed")? {
+                let v = row_to_json(&row)?;
+                bytes += serde_json::to_vec(&v).map(|b| b.len()).unwrap_or(0);
+                anyhow::ensure!(
+                    bytes <= RAW_SQL_MAX_BYTES,
+                    "result exceeds {} MiB; narrow the query or select fewer columns",
+                    RAW_SQL_MAX_BYTES / (1024 * 1024)
+                );
+                out.push(v);
+            }
             tx.rollback().await?;
-            rows.iter().map(row_to_json).collect::<Result<Vec<_>>>()
+            Ok::<_, anyhow::Error>(out)
         }
         .await;
         if c.batch_execute(
