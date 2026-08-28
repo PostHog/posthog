@@ -319,6 +319,9 @@ export interface logsViewerDataLogicActions {
     pollForNewLogs: () => {
         value: true
     }
+    refreshQuery: () => {
+        value: true
+    }
     runQuery: (debounce?: integer) => {
         debounce: number | undefined
     }
@@ -496,6 +499,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             extraProps,
         }),
         runQuery: (debounce?: integer) => ({ debounce }),
+        refreshQuery: true,
         fetchNextLogsPage: (limit?: number) => ({ limit }),
         truncateLogs: (limit: number) => ({ limit }),
         clearLogs: true,
@@ -1094,8 +1098,14 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             actions.clearLogs()
             actions.fetchLogs()
             actions.fetchSparkline()
-            actions.bumpFacetRefresh()
             actions.cancelInProgressLiveTail(null)
+        },
+        // Only a manual refresh re-probes the facet rail. runQuery also fires on filter, order, and
+        // column changes, and bumping the nonce there would refetch every facet, including the one
+        // just clicked, whose own selection the backend strips from its own query anyway.
+        refreshQuery: () => {
+            actions.runQuery()
+            actions.bumpFacetRefresh()
         },
         cancelInProgressLogs: ({ logsAbortController }) => {
             if (values.logsAbortController !== null) {
