@@ -610,6 +610,11 @@ export interface AiConsentGateShownProperties {
   surface: "onboarding_step" | "standalone_gate";
 }
 
+export interface ConsentAdminLinkCopiedProperties {
+  consent_type: "ai" | "desktop_beta_terms";
+  success: boolean;
+}
+
 // Setup / onboarding events
 type SetupDiscoveredTaskCategory =
   | "bug"
@@ -1528,6 +1533,7 @@ export const ANALYTICS_EVENTS = {
   AI_CONSENT_GATE_SHOWN: "Ai consent gate shown",
   AI_CONSENT_APPROVED: "Ai consent approved",
   AI_CONSENT_GRANTED_INAPP: "Ai consent granted in-app",
+  CONSENT_ADMIN_LINK_COPIED: "Consent admin link copied",
   DESKTOP_BETA_TERMS_ACCEPTED: "Desktop beta terms accepted",
   DESKTOP_BETA_TERMS_ACCEPTED_INAPP: "Desktop beta terms accepted in-app",
 
@@ -1728,6 +1734,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.AI_CONSENT_GATE_SHOWN]: AiConsentGateShownProperties;
   [ANALYTICS_EVENTS.AI_CONSENT_APPROVED]: never;
   [ANALYTICS_EVENTS.AI_CONSENT_GRANTED_INAPP]: never;
+  [ANALYTICS_EVENTS.CONSENT_ADMIN_LINK_COPIED]: ConsentAdminLinkCopiedProperties;
   [ANALYTICS_EVENTS.DESKTOP_BETA_TERMS_ACCEPTED]: never;
   [ANALYTICS_EVENTS.DESKTOP_BETA_TERMS_ACCEPTED_INAPP]: never;
 

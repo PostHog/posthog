@@ -377,6 +377,27 @@ class TestEventDefinitionAPI(APIBaseTest):
         detail = cast(dict[str, Any], activity_log.detail)
         assert detail["name"] == "my_custom_event"
 
+    @patch("posthog.api.event_definition.EE_AVAILABLE", False)
+    def test_create_event_definition_rejects_enterprise_metadata_without_ee(self):
+        response = self.client.post(
+            "/api/projects/@current/event_definitions/",
+            {
+                "name": "event_with_unsupported_metadata",
+                "description": "This cannot be stored without EE.",
+                "verified": True,
+                "hidden": False,
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "This field is not supported by this deployment.",
+            "attr": "description",
+        }
+        assert not EventDefinition.objects.filter(name="event_with_unsupported_metadata", team=self.demo_team).exists()
+
     def test_create_event_definition_duplicate_name(self):
         """Test that creating an event with a duplicate name fails"""
         EventDefinition.objects.create(team=self.demo_team, name="existing_event")
