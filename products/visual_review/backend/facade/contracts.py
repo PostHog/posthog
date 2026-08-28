@@ -353,6 +353,9 @@ class QuarantinedIdentifierEntry:
     identifier: str
     run_type: str
     reason: str
+    # Who opened it: a person in the UI, or an agent through MCP. `created_by` is
+    # the delegating user either way, so it cannot answer this on its own.
+    source: str
     expires_at: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -454,6 +457,7 @@ class BaselineQuarantineSummary:
 
     id: UUID
     reason: str
+    source: str
     expires_at: datetime | None
     created_at: datetime
     created_by: UserBasicInfo | None = None

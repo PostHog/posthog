@@ -111,7 +111,8 @@ class _BaseEvalRun:
     """
 
     trace_namespace = "evals"
-    """Prefix for the experiment name in scorer trace metadata."""
+    """How this run labels itself in PostHog: the experiment-name prefix on every emitted
+    event, and the `$ai_eval_source` on evaluation events. Subclasses set it per run kind."""
 
     def __init__(
         self,
@@ -244,7 +245,12 @@ class _BaseEvalRun:
         if self.posthog_client and result.results:
             try:
                 emit_evaluation_events(
-                    self.posthog_client, self.experiment_id, self.experiment_name, result.results, self.scorer_traces
+                    self.posthog_client,
+                    self.experiment_id,
+                    self.experiment_name,
+                    result.results,
+                    namespace=self.trace_namespace,
+                    scorer_traces=self.scorer_traces,
                 )
                 # Emit $ai_trace root events now that scores are available
                 for eval_result in result.results:
@@ -258,6 +264,7 @@ class _BaseEvalRun:
                             experiment_id=self.experiment_id,
                             experiment_name=self.experiment_name,
                             case_name=case_name,
+                            namespace=self.trace_namespace,
                             prompt=meta["prompt"],
                             duration=meta["duration"],
                             first_timestamp=meta["first_timestamp"],
@@ -427,6 +434,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
                         experiment_name=self.experiment_name,
                         case_name=eval_case.name,
                         parsed=parsed,
+                        namespace=self.trace_namespace,
                     )
                     # Store metadata for emit_trace_root (called after scoring)
                     self.case_trace_meta[eval_case.name] = {
