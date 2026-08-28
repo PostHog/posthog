@@ -70,7 +70,15 @@ pub fn row_to_json(r: &tokio_postgres::Row) -> Result<Value> {
             Type::BOOL => r.try_get::<_, Option<bool>>(i)?.map(Value::from),
             Type::INT2 => r.try_get::<_, Option<i16>>(i)?.map(Value::from),
             Type::INT4 => r.try_get::<_, Option<i32>>(i)?.map(Value::from),
-            Type::INT8 => r.try_get::<_, Option<i64>>(i)?.map(Value::from),
+            // JavaScript numbers lose precision past 2^53; query/plan ids are full
+            // int64 hashes, so ship those as strings.
+            Type::INT8 => r.try_get::<_, Option<i64>>(i)?.map(|v| {
+                if v.unsigned_abs() > (1u64 << 53) {
+                    Value::from(v.to_string())
+                } else {
+                    Value::from(v)
+                }
+            }),
             Type::OID => r.try_get::<_, Option<u32>>(i)?.map(Value::from),
             Type::FLOAT4 => r.try_get::<_, Option<f32>>(i)?.map(|x| json!(x)),
             Type::FLOAT8 => r.try_get::<_, Option<f64>>(i)?.map(|x| json!(x)),

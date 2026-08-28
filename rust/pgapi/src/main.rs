@@ -4,6 +4,7 @@ mod config;
 mod db;
 mod mcp;
 mod queries;
+mod ui;
 
 use anyhow::Result;
 use axum::{middleware, routing::get, Router};
@@ -124,6 +125,7 @@ async fn main() -> Result<()> {
     });
 
     let protected = Router::new()
+        .route("/", get(ui::index))
         .nest("/api/v1", api::router())
         .nest_service("/mcp", mcp::service(state.clone()))
         .route_layer(middleware::from_fn_with_state(
