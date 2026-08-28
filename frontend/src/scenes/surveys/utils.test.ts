@@ -41,6 +41,7 @@ import {
     sanitizeSurveyAppearance,
     sanitizeSurveyDisplayConditions,
     splitChoicesOnPaste,
+    surveyEmitsPartialSentEvents,
     validateCSSProperty,
     validateSurveyAppearance,
 } from './utils'
@@ -242,6 +243,22 @@ describe('survey utils', () => {
                 value: PropertyOperator.IsNotSet,
                 operator: PropertyOperator.IsNotSet,
             })
+        })
+    })
+
+    // An API survey's `survey sent` events come from the integrator's own code, which has no reason
+    // to set `$survey_completed` — so requiring it left the notification silently matching nothing.
+    describe('surveyEmitsPartialSentEvents', () => {
+        it.each([
+            [SurveyType.Popover, true, true],
+            [SurveyType.Popover, false, false],
+            [SurveyType.Widget, true, true],
+            [SurveyType.API, true, false],
+            [SurveyType.API, false, false],
+        ])('%s with partial responses %s', (type, enablePartialResponses, expected) => {
+            expect(surveyEmitsPartialSentEvents({ type, enable_partial_responses: enablePartialResponses })).toBe(
+                expected
+            )
         })
     })
 

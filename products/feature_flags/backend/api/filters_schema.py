@@ -8,19 +8,9 @@ Rust poisons the whole team's flag cache, so these serializers reject exactly wh
 reject: no DRF type coercion (`"true"` is not a bool, `"42"` is not an int, `NaN` is not a
 valid rollout percentage).
 
-Modeled on the OpenAPI-only `FeatureFlagFiltersSchemaSerializer` in `posthog/api/documentation.py`
-(which can't validate at runtime — it relies on `PolymorphicProxySerializer`). The two are meant
-to converge: once this serializer is wired into `FeatureFlagSerializer` (phase 3 of #50084), it
-becomes the OpenAPI source of truth and the documentation.py one is retired. Not wired in yet:
-enforcement is gated on the `audit_flag_filters` management command reporting zero violations.
-
-Phase 3 wiring notes:
-- When `feature_flag.py` starts importing this module, move `FEATURE_FLAG_SUPPORTED_OPERATORS`
-  and `FEATURE_FLAG_OPERATOR_ALIASES` here and re-export from `feature_flag.py` to avoid an
-  import cycle.
-- `type` and `operator` are collision-prone enum field names for drf-spectacular; before wiring
-  this serializer into `@extend_schema`, run `python manage.py find_enum_collisions` and add
-  `ENUM_NAME_OVERRIDES` entries as needed.
+The runtime serializer validates the merged filters state in `FeatureFlagSerializer.validate_filters`.
+The public OpenAPI schema stays permissive until enforcement defaults on, so generated clients
+cannot reject inputs that the staged server rollout still accepts.
 """
 
 import json
@@ -31,12 +21,52 @@ from typing import Any, ClassVar, Protocol, cast
 import structlog
 from rest_framework import serializers
 
-from products.feature_flags.backend.api.feature_flag import (
-    FEATURE_FLAG_OPERATOR_ALIASES,
-    FEATURE_FLAG_SUPPORTED_OPERATORS,
-)
+from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
 
 logger = structlog.get_logger(__name__)
+
+# Operators the Rust feature-flag evaluation service supports (OperatorType in property_models.rs).
+# None means "no operator specified" which defaults to exact.
+FEATURE_FLAG_SUPPORTED_OPERATORS: frozenset[str | None] = frozenset(
+    {
+        None,
+        "exact",
+        "is_not",
+        "icontains",
+        "not_icontains",
+        "icontains_multi",
+        "not_icontains_multi",
+        "regex",
+        "not_regex",
+        "gt",
+        "gte",
+        "lt",
+        "lte",
+        "semver_gt",
+        "semver_gte",
+        "semver_lt",
+        "semver_lte",
+        "semver_eq",
+        "semver_neq",
+        "semver_tilde",
+        "semver_caret",
+        "semver_wildcard",
+        "is_set",
+        "is_not_set",
+        "is_date_exact",
+        "is_date_after",
+        "is_date_before",
+        "in",
+        "not_in",
+        "flag_evaluates_to",
+    }
+    | set(STRING_PREFIX_SUFFIX_OPERATORS)
+)
+
+FEATURE_FLAG_OPERATOR_ALIASES: dict[str, str] = {
+    "min": "gte",
+    "max": "lte",
+}
 
 # The Rust PropertyType enum also accepts "person_metadata"; the locked inventory in #50084
 # deliberately excludes it. If the audit shows stored flags using it, amend the inventory in
@@ -57,8 +87,12 @@ I64_MIN, I64_MAX = -(2**63), 2**63 - 1
 
 # Serializer-context keys shared with the audit command; constants so a typo on either side
 # fails loudly at import instead of silently under-reporting unknown keys.
+MAX_LOGGED_UNKNOWN_KEYS = 20
+MAX_LOGGED_UNKNOWN_KEY_CHARS = 100
+
 UNKNOWN_KEYS_SINK_CONTEXT_KEY = "unknown_keys_sink"
 FLAG_ID_CONTEXT_KEY = "flag_id"
+PRESERVE_UNKNOWN_KEYS_CONTEXT_KEY = "preserve_unknown_keys"
 
 
 class UnknownKeySink(Protocol):
@@ -73,14 +107,19 @@ def _record_dropped_unknown_keys(level: str, keys: Sequence[str], context: Mappi
     sink: UnknownKeySink | None = context.get(UNKNOWN_KEYS_SINK_CONTEXT_KEY)
     flag_id: int | None = context.get(FLAG_ID_CONTEXT_KEY)
     if sink is not None:
+        # The audit sink gets everything: it counts offline against a stored corpus, not
+        # against request bodies, so there is no caller to flood it.
         sink.record(level=level, keys=keys, flag_id=flag_id)
         return
     non_legacy = [key for key in keys if not is_legacy_unknown_key(level, key)]
     if non_legacy:
+        # Keys are caller-controlled and a request body can carry megabytes of them, so the
+        # log line is capped in both dimensions. key_count keeps the true size visible.
         logger.warning(
             "feature_flag_filters_unknown_keys_dropped",
             level=level,
-            keys=non_legacy,
+            key_count=len(non_legacy),
+            keys=[key[:MAX_LOGGED_UNKNOWN_KEY_CHARS] for key in non_legacy[:MAX_LOGGED_UNKNOWN_KEYS]],
             flag_id=flag_id,
         )
 
@@ -96,12 +135,22 @@ class DropsUnknownKeysMixin:
     unknown_key_level: ClassVar[str]
 
     def to_internal_value(self, data: Any) -> Any:
+        unknown_keys: list[str] = []
         if isinstance(data, dict):
             serializer = cast(serializers.Serializer, self)
             unknown_keys = sorted(set(data) - set(serializer.fields))
             if unknown_keys:
                 _record_dropped_unknown_keys(self.unknown_key_level, unknown_keys, serializer.context)
-        return super().to_internal_value(data)  # type: ignore[misc]
+        validated_data = super().to_internal_value(data)  # type: ignore[misc]
+        if (
+            isinstance(data, dict)
+            and isinstance(validated_data, dict)
+            and cast(serializers.Serializer, self).context.get(PRESERVE_UNKNOWN_KEYS_CONTEXT_KEY)
+        ):
+            validated_data.update(
+                {key: data[key] for key in unknown_keys if not is_legacy_unknown_key(self.unknown_key_level, key)}
+            )
+        return validated_data
 
 
 class StrictCharField(serializers.CharField):
@@ -162,20 +211,24 @@ class PropertyKeyField(serializers.CharField):
         return super().to_internal_value(data)
 
 
-class FiniteFloatField(serializers.FloatField):
-    """FloatField that rejects bools, numeric strings, and non-finite values.
+class FinitePercentageField(serializers.FloatField):
+    """Percentage field that rejects bools, numeric strings, and non-finite values.
 
     JSON parsed with stdlib `json.loads` can contain NaN/Infinity tokens, which compare
     False against min_value/max_value and then crash percentage math downstream.
+
+    Whole numbers stay ints. Validated filters are persisted and then served verbatim to
+    SDKs, and the .NET and Java clients type rollout percentages as int, so widening 100
+    to 100.0 here breaks their local evaluation.
     """
 
-    def to_internal_value(self, data: Any) -> float:
-        if isinstance(data, bool) or not isinstance(data, (int, float)):
+    def to_internal_value(self, data: Any) -> int | float:
+        if isinstance(data, bool) or not isinstance(data, int | float):
             self.fail("invalid")
         value = float(data)
         if not math.isfinite(value):
             self.fail("invalid")
-        return value
+        return int(value) if value.is_integer() else value
 
 
 def _reject_json_constant(name: str) -> None:
@@ -219,6 +272,8 @@ class FlagPayloadsField(serializers.DictField):
 
 
 class FlagPropertySerializer(DropsUnknownKeysMixin, serializers.Serializer):
+    """A property condition inside a release condition group."""
+
     unknown_key_level = "property"
 
     key = PropertyKeyField(
@@ -253,6 +308,33 @@ class FlagPropertySerializer(DropsUnknownKeysMixin, serializers.Serializer):
         allow_null=True,
         help_text="Whether the property condition is negated.",
     )
+    # Display-only passthrough (#50084 inventory addendum): the UI stores these inside filters
+    # and Rust round-trips them via its extras map, but this serializer drops undeclared keys,
+    # so they must be declared to survive writes. Deliberately permissive: display data.
+    # (`label` is also passthrough but is injected in get_fields — a class attribute named
+    # `label` would shadow DRF's Field.label, the field's own display label, with an
+    # incompatible type.)
+    cohort_name = StrictCharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Display name of the referenced cohort. Injected on read and echoed back by clients.",
+    )
+    group_key_names = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text="Display names for group keys, keyed by group key. Injected on read and echoed back by clients.",
+    )
+
+    def get_fields(self) -> dict[str, serializers.Field]:
+        fields = super().get_fields()
+        fields["label"] = StrictCharField(
+            required=False,
+            allow_null=True,
+            allow_blank=True,
+            help_text="Display-only label for this property filter, shown in the UI.",
+        )
+        return fields
 
     def to_internal_value(self, data: Any) -> dict[str, Any]:
         # Canonicalize operator aliases before field validation so everything downstream
@@ -267,6 +349,8 @@ class FlagPropertySerializer(DropsUnknownKeysMixin, serializers.Serializer):
 
 
 class FlagConditionGroupSerializer(DropsUnknownKeysMixin, serializers.Serializer):
+    """A release condition group: who the flag rolls out to, at what percentage."""
+
     unknown_key_level = "group"
 
     # allow_null: Rust reads properties as Option<Vec<PropertyFilter>> with #[serde(default)],
@@ -279,7 +363,7 @@ class FlagConditionGroupSerializer(DropsUnknownKeysMixin, serializers.Serializer
         default=list,
         help_text="Property conditions for this release condition group.",
     )
-    rollout_percentage = FiniteFloatField(
+    rollout_percentage = FinitePercentageField(
         min_value=0,
         max_value=100,
         required=False,
@@ -303,6 +387,34 @@ class FlagConditionGroupSerializer(DropsUnknownKeysMixin, serializers.Serializer
         help_text="Group type index for this condition set. Null means person-level aggregation; "
         "absent falls back to the flag-level value.",
     )
+    # Display-only passthrough (#50084 inventory addendum) — see FlagPropertySerializer.
+    description = StrictCharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Display-only description for this condition group, shown in the UI.",
+    )
+    sort_key = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text="Opaque UI ordering key for this condition group (string or number). Preserved as-is.",
+    )
+    # Experiment freeze-exposure stamps (products/feature_flags/backend/facade/filters.py
+    # restriction markers, written via update_flag): load-bearing, not display data —
+    # Experiment.is_exposure_frozen and the unfreeze strip read them back from stored
+    # filters, so dropping them as unknown keys would silently unfreeze every experiment.
+    exposure_frozen = StrictBooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Set when an experiment froze exposure by narrowing this group to a snapshot cohort.",
+    )
+    exposure_frozen_cohort = StrictIntegerField(
+        min_value=I64_MIN,
+        max_value=I64_MAX,
+        required=False,
+        allow_null=True,
+        help_text="ID of the snapshot cohort this group was narrowed to when experiment exposure was frozen.",
+    )
 
     def validate_properties(self, value: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
         # Null means "no properties" (Rust treats it like absent); normalize so cross-field
@@ -311,23 +423,43 @@ class FlagConditionGroupSerializer(DropsUnknownKeysMixin, serializers.Serializer
 
 
 class FlagMultivariateVariantSerializer(DropsUnknownKeysMixin, serializers.Serializer):
+    """A variant of a multivariate feature flag."""
+
     unknown_key_level = "variant"
 
-    key = StrictCharField(help_text="Unique key for this variant.")
+    # No charset rule, deliberately. The flag editor has restricted variant keys since the
+    # multivariate UI shipped, but the API never has, and hundreds of stored flags rely on
+    # that: variant keys double as config values (LLM routing keys like "provider/model-1.2")
+    # and plenty carry spaces. Enforcing the form's charset here would make those flags
+    # uneditable through every path their owners have left. Flag keys keep their charset —
+    # that one is genuinely server-enforced.
+    key = StrictCharField(
+        max_length=400,
+        help_text="Unique key for this variant. At most 400 characters.",
+    )
     name = StrictCharField(
         required=False,
         allow_null=True,
         allow_blank=True,
         help_text="Human-readable name for this variant.",
     )
-    rollout_percentage = FiniteFloatField(
+    rollout_percentage = FinitePercentageField(
         min_value=0,
         max_value=100,
         help_text="Variant rollout percentage, between 0 and 100.",
     )
+    # Display-only passthrough (#50084 inventory addendum) — see FlagPropertySerializer.
+    description = StrictCharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Display-only description for this variant, shown in the UI.",
+    )
 
 
 class FlagMultivariateSerializer(DropsUnknownKeysMixin, serializers.Serializer):
+    """Multivariate configuration for variant-based rollouts."""
+
     unknown_key_level = "multivariate"
 
     variants = FlagMultivariateVariantSerializer(
@@ -338,6 +470,8 @@ class FlagMultivariateSerializer(DropsUnknownKeysMixin, serializers.Serializer):
 
 
 class FlagHoldoutSerializer(DropsUnknownKeysMixin, serializers.Serializer):
+    """Experiment holdout configuration for a feature flag."""
+
     unknown_key_level = "holdout"
 
     id = StrictIntegerField(
@@ -345,7 +479,7 @@ class FlagHoldoutSerializer(DropsUnknownKeysMixin, serializers.Serializer):
         max_value=I64_MAX,
         help_text="ID of the experiment holdout this flag belongs to.",
     )
-    exclusion_percentage = FiniteFloatField(
+    exclusion_percentage = FinitePercentageField(
         min_value=0,
         max_value=100,
         help_text="Percentage of users held out from the flag, between 0 and 100.",
@@ -353,6 +487,8 @@ class FlagHoldoutSerializer(DropsUnknownKeysMixin, serializers.Serializer):
 
 
 class FeatureFlagFiltersSerializer(DropsUnknownKeysMixin, serializers.Serializer):
+    """Feature flag targeting configuration: release condition groups, multivariate variants, and payloads."""
+
     unknown_key_level = "filters"
 
     groups = FlagConditionGroupSerializer(

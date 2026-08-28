@@ -1,8 +1,11 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, NotRequired, Optional, TypedDict
 
 from requests import Session
+
+from posthog.dataclasses import frozen
 
 from .auth import (
     APIKeyAuth,
@@ -44,6 +47,41 @@ PaginatorType = Literal[
     "offset",
     "page_number",
 ]
+
+
+@frozen
+class ParentRowFilter:
+    """Bounds a warehouse parent scan to rows the parent API would still list.
+
+    The API path's row set is shaped by the vendor's server-side list semantics (default
+    windows, retention), which a full snapshot scan does not reproduce: an incremental
+    parent table accumulates every row ever seen, so children fan out over parents the API
+    stopped listing long ago. `field` is the parent's API field name; rows where it is NULL
+    are kept, matching the per-row cutoff the Sentry tag-values iterator established.
+    Omit the filter only for parents whose API genuinely returns the full collection.
+
+    `not_older_than` is the vendor's list window, relative to scan time. `not_before` is an
+    absolute floor a caller already computed, typically an incremental watermark, which lets
+    a child skip parents it has processed before instead of reading and discarding them.
+    Setting both floors the scan at whichever is tighter; at least one is required.
+    """
+
+    field: str
+    not_older_than: timedelta | None = None
+    not_before: datetime | None = None
+
+    def __post_init__(self) -> None:
+        if self.not_older_than is None and self.not_before is None:
+            raise ValueError("ParentRowFilter needs not_older_than, not_before, or both")
+
+    def floor(self, now: datetime) -> datetime:
+        """The earliest value of `field` a row may carry and still be scanned."""
+        floors = [] if self.not_older_than is None else [now - self.not_older_than]
+        if self.not_before is not None:
+            # A naive floor can't be compared against the timezone-aware scan time, and the
+            # API timestamps this tracks are UTC.
+            floors.append(self.not_before if self.not_before.tzinfo else self.not_before.replace(tzinfo=UTC))
+        return max(floors)
 
 
 class PaginatorTypeConfig(TypedDict, total=True):
@@ -186,6 +224,12 @@ class ClientConfig(TypedDict, total=False):
     # source pointed at a customer-controlled host that stalls holds an import worker forever.
     # A single float applies to both connect and read; a tuple sets them separately.
     request_timeout: Optional[float | tuple[float, float]]
+    # When False, this client's default tracked session is built with HTTP sample capture
+    # disabled — for endpoints whose bodies carry sensitive PII the name-based sample scrubbers
+    # aren't guaranteed to catch (e.g. student/HR records). Requests are still metered and
+    # logged. Left unset, capture follows the operator-configured sample rules as normal. No
+    # effect when a pre-built `session` is supplied instead.
+    capture: bool
 
 
 class IncrementalArgs(TypedDict, total=False):
@@ -300,6 +344,10 @@ class EndpointResourceBase(ResourceBase, total=False):
     # a row the selector can't express (e.g. flattening JSON:API ``attributes`` into the row root).
     # Wired through to ``Resource.add_map``; must be dict -> dict (1:1).
     data_map: Optional[Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]]
+    # When set, the resource's pages come from this callable instead of HTTP pagination —
+    # ``endpoint`` is kept only for dependency-graph bookkeeping. Used to drive a fan-out
+    # child from an already-synced warehouse parent table.
+    data_iterator: Optional[Callable[[], Iterator[list[dict[str, Any]]]]]
 
 
 class EndpointResource(EndpointResourceBase, total=False):

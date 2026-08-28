@@ -142,6 +142,7 @@ const subscriptionsDeliveriesList = (): ToolBase<
                     'recipient_results',
                     'error',
                     'ai_report',
+                    'ai_report_prompt',
                     'ai_report_diagnostics',
                 ])
             ),

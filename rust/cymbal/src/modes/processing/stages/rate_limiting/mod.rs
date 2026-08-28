@@ -30,7 +30,7 @@ use crate::{
 
 use crate::modes::processing::rules::bypass::BypassRule;
 use crate::modes::processing::rules::rate_limit::RateLimitSettings;
-pub use limiter::{RateLimitDecision, RedisRateLimiter, ScriptRunner, RATE_LIMIT_LUA};
+pub use limiter::{RateLimitDecision, RedisRateLimiter, RATE_LIMIT_LUA};
 
 /// Ceiling on concurrent Redis admits per batch — bounds the pathological tail (many
 /// tiny, all-distinct issues). Normal batches stay under it and fan out fully.
@@ -222,6 +222,9 @@ async fn apply_rate_limits(
                 // Fail open: keep everything, but record it so we can alert on it.
                 warn!("error-tracking rate limiter failed open for team {team_id}: {e}");
                 counter!(RATE_LIMIT_FAIL_OPEN).increment(indices.len() as u64);
+                if crate::modes::processing::redis_heal::is_connection_error(&e) {
+                    limiter.spawn_heal();
+                }
                 continue;
             }
         };
@@ -595,7 +598,7 @@ mod tests {
         ExceptionList,
     };
     use async_trait::async_trait;
-    use common_redis::CustomRedisError;
+    use common_redis::{CustomRedisError, ScriptRunner};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     /// A `ScriptRunner` that never touches Redis: returns a canned reply, or an

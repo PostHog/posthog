@@ -3,12 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 const toastMock = vi.hoisted(() => ({ error: vi.fn() }));
 vi.mock("@posthog/ui/primitives/toast", () => ({ toast: toastMock }));
 
-import {
-  serializeError,
-  summarizeError,
-  toastError,
-  useErrorDetailsStore,
-} from "./errorDetails";
+import { serializeError, summarizeError, toastError } from "./errorDetails";
 
 describe("serializeError", () => {
   it("pretty-prints plain objects", () => {
@@ -117,25 +112,18 @@ describe("toastError", () => {
   const rawError =
     'Failed request: [400] {"detail":"This field is required.","attr":"model"}';
 
-  it("shows a summary in the toast, not the raw payload, with a Details action", () => {
+  it("shows a summary in the toast and forwards the complete payload", () => {
     toastMock.error.mockClear();
-    useErrorDetailsStore.getState().close();
 
     toastError("Couldn't start generation", rawError);
 
     const [title, options] = toastMock.error.mock.calls[0] as [
       string,
-      { description: string; action: { label: string; onClick: () => void } },
+      { description: string; error: unknown },
     ];
     expect(title).toBe("Couldn't start generation");
     expect(options.description).toBe(summarizeError(rawError));
     expect(options.description.length).toBeLessThanOrEqual(141);
-
-    expect(options.action.label).toBe("Details");
-    options.action.onClick();
-    const detail = useErrorDetailsStore.getState().detail;
-    expect(detail?.title).toBe("Couldn't start generation");
-    expect(detail?.error).toBe(rawError);
-    useErrorDetailsStore.getState().close();
+    expect(options.error).toBe(rawError);
   });
 });

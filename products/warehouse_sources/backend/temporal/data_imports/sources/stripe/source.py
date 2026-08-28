@@ -289,6 +289,10 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             # / 'plan_read'). The customer must add the scope in Stripe — retrying won't help. Surface
             # Stripe's raw message (None) since it names the exact scope to enable.
             "does not have the required permissions for this endpoint": None,
+            # The customer pasted a publishable key (pk_...) instead of a secret/restricted key.
+            # Publishable keys can't authenticate any of the read endpoints we sync, so every retry
+            # fails identically — match Stripe's stable rejection text (the request id varies).
+            "This API call cannot be made with a publishable API key": "Your Stripe API key is a publishable key, which cannot be used to sync data. Please use a secret or restricted key instead, then reconnect.",
             # A non-Connect key was sent with a `stripe_account` header (the source's "Account id"),
             # so Stripe rejects the whole request for the account rather than a specific scope.
             "Only Stripe Connect platforms can work with other accounts": "Stripe rejected the request because your API key isn't authorized for the configured Stripe account. The 'Account id' in your source settings only applies to Stripe Connect platform accounts — remove or correct it if your key belongs directly to the account, then reconnect.",

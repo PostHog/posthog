@@ -39,6 +39,10 @@ import {
   EXTERNAL_APPS_WORKSPACE_CLIENT,
   type ExternalAppsWorkspaceClient,
 } from "@posthog/core/external-apps/identifiers";
+import {
+  FILE_READ_CLIENT,
+  type FileReadClient,
+} from "@posthog/core/files/identifiers";
 import type {
   GitInteractionEffects,
   GitInteractionService,
@@ -93,26 +97,14 @@ import {
   type ResolveSkillBundleDependencies,
 } from "@posthog/core/sessions/cloudArtifactIdentifiers";
 import {
-  LOCAL_HANDOFF_DIALOG,
-  LOCAL_HANDOFF_HOST,
-  LOCAL_HANDOFF_NOTIFIER,
-  LOCAL_HANDOFF_SERVICE,
-  type LocalHandoffDialog,
-  type LocalHandoffHost,
-  type LocalHandoffNotifier,
-  type LocalHandoffService,
-} from "@posthog/core/sessions/localHandoffService";
-import {
   SESSION_SERVICE,
   type SessionService,
 } from "@posthog/core/sessions/sessionService";
 import type {
-  FileReadClient,
   GithubPrTitleClient,
   TitleGeneratorLogger,
 } from "@posthog/core/sessions/titleGeneratorIdentifiers";
 import {
-  TITLE_GENERATOR_FILE_READ_CLIENT,
   TITLE_GENERATOR_GITHUB_PR_TITLE_CLIENT,
   TITLE_GENERATOR_LOGGER,
 } from "@posthog/core/sessions/titleGeneratorIdentifiers";
@@ -230,6 +222,10 @@ import {
   SPEECH_NOTIFY_SETTINGS,
 } from "@posthog/ui/features/notifications/identifiers";
 import {
+  QUICK_ASK_SETTINGS_CLIENT,
+  type QuickAskSettingsClient,
+} from "@posthog/ui/features/quick-ask/identifiers";
+import {
   AGENT_PROMPT_SENDER,
   type AgentPromptSender,
 } from "@posthog/ui/features/sessions/agentPromptSender";
@@ -300,6 +296,7 @@ export interface RendererBindings {
   [CONNECTIVITY_CLIENT]: ConnectivityClient;
   [BROWSER_TABS_CLIENT]: BrowserTabsClient;
   [DISCORD_PRESENCE_CLIENT]: DiscordPresenceClient;
+  [QUICK_ASK_SETTINGS_CLIENT]: QuickAskSettingsClient;
   [MISSION_CONTROL_CLIENT]: MissionControlClient;
   [SHELL_CLIENT]: ShellClient;
   [FOCUS_CONTROLLER_DEPS]: FocusControllerDeps;
@@ -321,10 +318,6 @@ export interface RendererBindings {
   [TASK_SERVICE]: TaskService;
   [WORKSPACE_SETUP_SAGA]: WorkspaceSetupSaga;
   [SESSION_SERVICE]: SessionService;
-  [LOCAL_HANDOFF_HOST]: LocalHandoffHost;
-  [LOCAL_HANDOFF_DIALOG]: LocalHandoffDialog;
-  [LOCAL_HANDOFF_NOTIFIER]: LocalHandoffNotifier;
-  [LOCAL_HANDOFF_SERVICE]: LocalHandoffService;
   [GIT_WRITE_CLIENT]: IGitWriteClient;
   [GIT_INTERACTION_EFFECTS]: GitInteractionEffects;
   [GIT_INTERACTION_SERVICE]: GitInteractionService;
@@ -347,7 +340,7 @@ export interface RendererBindings {
   [CLOUD_ARTIFACT_RESOLVE_SKILL_DEPENDENCIES]: ResolveSkillBundleDependencies;
   [CLOUD_ARTIFACT_READ_FILE_AS_BASE64]: ReadFileAsBase64;
   [LLM_GATEWAY_SERVICE]: LlmGatewayService;
-  [TITLE_GENERATOR_FILE_READ_CLIENT]: FileReadClient;
+  [FILE_READ_CLIENT]: FileReadClient;
   [TITLE_GENERATOR_GITHUB_PR_TITLE_CLIENT]: GithubPrTitleClient;
   [TITLE_GENERATOR_LOGGER]: TitleGeneratorLogger;
 

@@ -64,7 +64,8 @@ from products.signals.backend.scout_harness.config_registry import live_scout_sk
 from products.signals.backend.scout_harness.profile.schema import Inventory
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
 from products.surveys.backend.models import Survey
-from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataJobStatus
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = logging.getLogger(__name__)
@@ -246,7 +247,7 @@ def _external_data_sources(team: Team) -> list[dict[str, Any]]:
     rows = (
         ExternalDataSource.objects.filter(team=team, deleted=False)
         .annotate(
-            last_run_at=Max("jobs__created_at", filter=Q(jobs__status=ExternalDataJob.Status.COMPLETED)),
+            last_run_at=Max("jobs__created_at", filter=Q(jobs__status=ExternalDataJobStatus.COMPLETED)),
             latest_error=latest_error,
         )
         .order_by("source_type", "id")
@@ -725,11 +726,11 @@ def _business_knowledge(team: Team) -> dict[str, Any]:
     """Business knowledge orientation — total + ready count, aggregate doc/chunk volume,
     plus the 5 most recently updated sources.
 
-    Tells the scout whether the team has a curated knowledge base worth searching via
-    `business-knowledge-documents-search`. The profile does NOT evaluate the
-    `product-business-knowledge` feature flag — it reads only authoritative tables so
-    cached profiles stay valid across flag flips; the base prompt conditions on "tool
-    present AND ready_count > 0" instead.
+    Inventory for a scout that already knows the knowledge base exists: which sources are there,
+    how much is searchable, what changed recently. The profile does NOT evaluate the
+    `product-business-knowledge` feature flag — it reads only authoritative tables so cached
+    profiles stay valid across flag flips. Whether the run is told about the base at all is the
+    prompt's call, gated per run on flag + a maintained base (`prompt._BUSINESS_KNOWLEDGE`).
     """
     qs = KnowledgeSource.objects.for_team(team.id)
     total = qs.count()

@@ -35,7 +35,7 @@ from products.alerts.backend.evaluation.contract import (
 )
 from products.alerts.backend.evaluation.formatting import make_trends_value_formatter
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TrendsExtractor:

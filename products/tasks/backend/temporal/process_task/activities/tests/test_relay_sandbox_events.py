@@ -13,10 +13,12 @@ from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
 from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT_DEFAULT_SECONDS
 from products.tasks.backend.temporal.process_task import workflow as process_task_workflow_module
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.relay_sandbox_events import (
     FINAL_MESSAGE_MAX_CHARS,
+    HEARTBEAT_INTERVAL_SECONDS,
     FinalMessageTracker,
     RelaySandboxEventsInput,
     TaskRunRedisStream,
@@ -29,6 +31,8 @@ from products.tasks.backend.temporal.process_task.activities.relay_sandbox_event
     _mark_sandbox_error_best_effort,
     _persist_final_message,
     _relay_loop,
+    _sanitize_httpx_error,
+    _should_signal_workflow_heartbeat,
     relay_sandbox_events,
 )
 from products.tasks.backend.temporal.process_task.workflow import (
@@ -187,6 +191,28 @@ class TestIsKeepaliveEvent:
     )
     def test_is_keepalive_event(self, _name: str, event_data: dict, expected: bool) -> None:
         assert _is_keepalive_event(event_data) == expected
+
+
+class TestSanitizeHttpxError:
+    def test_redacts_query_string_carrying_the_transport_token(self) -> None:
+        request = httpx.Request("GET", "https://hogland.example/events?token=super-secret-bearer")
+        response = httpx.Response(503, request=request)
+        error = httpx.HTTPStatusError("boom", request=request, response=response)
+
+        sanitized = _sanitize_httpx_error(error)
+
+        assert "super-secret-bearer" not in sanitized
+        assert "hogland.example/events" in sanitized
+        assert "503" in sanitized
+
+    def test_leaves_url_without_a_query_string_untouched(self) -> None:
+        request = httpx.Request("GET", "https://hogland.example/events")
+        response = httpx.Response(500, request=request)
+        error = httpx.HTTPStatusError("boom", request=request, response=response)
+
+        sanitized = _sanitize_httpx_error(error)
+
+        assert sanitized == "Server error '500' for url 'https://hogland.example/events'"
 
 
 class TestAgentActiveReactivation:
@@ -1013,7 +1039,9 @@ class TestPersistFinalMessage:
 
         organization = Organization.objects.create(name="Test Org")
         team = Team.objects.create(organization=organization, name="Test Team")
-        task = Task.objects.create(team=team, title="t", description="d")
+        task = Task.objects.create(
+            team=team, title="t", description="d", origin_product=Task.OriginProduct.USER_CREATED
+        )
         return task.create_run(mode="background", **kwargs)
 
     def test_merges_final_message_into_existing_output(self) -> None:
@@ -1068,3 +1096,71 @@ class TestFlushPendingText:
         parts = ["dropped"]
         await _flush_pending_text(None, parts, [0.0])
         assert parts == []
+
+
+class TestShouldSignalWorkflowHeartbeat:
+    @parameterized.expand(
+        [
+            # Loop runs carry a 2-minute idle window; a quiet in-flight turn past that
+            # window must still keep the workflow alive (the mid-turn teardown bug).
+            ("mid_turn_quiet_past_short_run_window", True, 300.0, 120.0, True),
+            # The floor is the background default, not unbounded: a turn that hung
+            # without an end_of_turn stops pinning the sandbox past that window.
+            (
+                "mid_turn_quiet_past_default_window",
+                True,
+                float(INACTIVITY_TIMEOUT_DEFAULT_SECONDS) + 60.0,
+                120.0,
+                False,
+            ),
+            # Idle after end_of_turn: the short loop window applies and the run winds down.
+            ("idle_agent_stale_events", False, 300.0, 120.0, False),
+            ("mid_turn_fresh_events", True, 30.0, 120.0, True),
+            # Runs with a window above the default keep their longer window mid-turn.
+            ("mid_turn_long_window_still_fresh", True, float(INACTIVITY_TIMEOUT_DEFAULT_SECONDS) + 60.0, 3600.0, True),
+        ]
+    )
+    def test_freshness_gating(
+        self,
+        _name: str,
+        agent_active: bool,
+        event_age_seconds: float,
+        inactivity_timeout_seconds: float,
+        expected: bool,
+    ) -> None:
+        now = 100_000.0
+        assert (
+            _should_signal_workflow_heartbeat(
+                now=now,
+                last_event_time=[now - event_age_seconds],
+                last_workflow_signal=[now - HEARTBEAT_INTERVAL_SECONDS - 1.0],
+                agent_active=[agent_active],
+                inactivity_timeout_seconds=inactivity_timeout_seconds,
+            )
+            is expected
+        )
+
+    @parameterized.expand(
+        [
+            ("no_events_yet", [0.0], None, False),
+            ("signaled_within_interval", None, [100_000.0 - 1.0], False),
+        ]
+    )
+    def test_rate_and_bootstrap_gating(
+        self,
+        _name: str,
+        last_event_time: list[float] | None,
+        last_workflow_signal: list[float] | None,
+        expected: bool,
+    ) -> None:
+        now = 100_000.0
+        assert (
+            _should_signal_workflow_heartbeat(
+                now=now,
+                last_event_time=last_event_time if last_event_time is not None else [now - 10.0],
+                last_workflow_signal=last_workflow_signal,
+                agent_active=[True],
+                inactivity_timeout_seconds=120.0,
+            )
+            is expected
+        )

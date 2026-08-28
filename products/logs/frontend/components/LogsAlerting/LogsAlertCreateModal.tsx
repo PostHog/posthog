@@ -3,9 +3,10 @@ import { Form } from 'kea-forms'
 
 import { LemonBanner, LemonModal } from '@posthog/lemon-ui'
 
+import { WizardReview } from 'lib/components/WizardReview'
+
 import { AlertEditorFormDetails } from 'products/alerts/frontend/components/AlertEditor'
 import { AlertWizard, AlertWizardStep } from 'products/alerts/frontend/components/AlertWizard'
-import { AlertWizardReview } from 'products/alerts/frontend/components/AlertWizardReview'
 
 import { LogsAlertFilters, LogsAlertTrigger } from './LogsAlertForm'
 import { logsAlertFormLogic, LogsAlertFormType } from './logsAlertFormLogic'
@@ -28,7 +29,7 @@ export function LogsAlertCreateModal({ isOpen, onClose }: LogsAlertCreateModalPr
 }
 
 function LogsAlertCreateModalContent({ onClose }: { onClose: () => void }): JSX.Element {
-    const formLogicProps = { alert: null, onCreateSuccess: onClose }
+    const formLogicProps = { alert: null, onSubmitSuccess: onClose }
     const { isAlertFormSubmitting, alertFormChanged, alertForm } = useValues(logsAlertFormLogic(formLogicProps))
     const { touchAlertFormField } = useActions(logsAlertFormLogic(formLogicProps))
     const { pendingNotifications } = useValues(logsAlertNotificationLogic({}))
@@ -142,7 +143,7 @@ function LogsAlertReview({
         : 'No notification destinations'
 
     return (
-        <AlertWizardReview
+        <WizardReview
             notice={
                 pendingNotifications.length === 0 ? (
                     <LemonBanner type="warning">

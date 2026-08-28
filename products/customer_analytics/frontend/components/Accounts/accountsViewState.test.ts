@@ -1,4 +1,4 @@
-import { AccountsTableCustomPropertyOperator } from '~/queries/schema/schema-general'
+import { AccountsTableAccountField, AccountsTableCustomPropertyOperator } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { ACCOUNTS_DEFAULT_COLUMNS } from './accountsColumnConfigLogic'
@@ -69,6 +69,13 @@ describe('serializeAccountsView / deserializeAccountsView', () => {
                     },
                 },
                 customProperties: [
+                    {
+                        type: PropertyFilterType.Account as const,
+                        key: AccountsTableAccountField.IgnoredAt,
+                        operator: PropertyOperator.IsSet,
+                        value: null,
+                        label: 'Ignored at',
+                    },
                     {
                         type: PropertyFilterType.AccountCustomProperty as const,
                         key: '11111111-2222-3333-4444-555555555555',

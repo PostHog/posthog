@@ -131,6 +131,17 @@ def test_fetch_page_reraises_other_422_errors():
             github._fetch_page("https://api.github.com/repos/o/r/stats/code_frequency", {}, mock.Mock())
 
 
+def test_fetch_page_treats_topics_422_as_resource_unavailable():
+    # GitHub 422s the topics endpoint for some repositories; it's optional metadata, so the caller
+    # must sync zero rows rather than crash and fail the schema over a raw 422.
+    session = mock.Mock()
+    session.request.return_value = _unprocessable_response("Validation failed")
+
+    with mock.patch.object(github, "make_tracked_session", return_value=session):
+        with pytest.raises(github.GithubResourceUnavailableError):
+            github._fetch_page("https://api.github.com/repos/o/r/topics?per_page=100", {}, mock.Mock())
+
+
 def test_fetch_page_retries_chunked_encoding_error():
     session = mock.Mock()
     session.request.side_effect = [requests.exceptions.ChunkedEncodingError("Connection broken"), _ok_response()]

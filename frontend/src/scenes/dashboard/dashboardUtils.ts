@@ -10,7 +10,7 @@ import { currentSessionId } from 'lib/internalMetrics'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { objectClean } from 'lib/utils/objects'
-import { shouldCancelQuery } from 'lib/utils/requests'
+import { isDeterministicClientError, shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
@@ -25,6 +25,7 @@ import {
     DashboardTile,
     DashboardType,
     DashboardWidgetType,
+    InsightFilterOverrideContext,
     InsightModel,
     QueryBasedInsightModel,
     TileLayout,
@@ -381,10 +382,8 @@ export async function getInsightWithRetry(
                 throw e // Re-throw cancellation errors
             }
 
-            // A 4xx response (e.g. a query validation error) is deterministic, so retrying
-            // would only replay the same failure — 429 excepted, which means "retry later"
-            if (e instanceof ApiError && e.status && e.status >= 400 && e.status < 500 && e.status !== 429) {
-                throw e
+            if (isDeterministicClientError(e)) {
+                throw e // A 4xx won't change on retry, so surface it immediately
             }
 
             attempt++
@@ -466,6 +465,24 @@ export function combineDashboardFilters(...filters: DashboardFilter[]): Dashboar
         })
         return combined
     }, {} as DashboardFilter)
+}
+
+export function getEffectiveDateOverride(
+    filterOverrideContext: InsightFilterOverrideContext | null | undefined,
+    filtersOverride: DashboardFilter | undefined,
+    tileFiltersOverride: TileFilters | undefined
+): { dateFromOverride: string | null | undefined; dateToOverride: string | null | undefined } {
+    // The backend context already resolves the ignore flag into an empty dashboard layer; the raw-props
+    // fallback has to apply it itself.
+    const dashboardFilters = filterOverrideContext
+        ? filterOverrideContext.dashboard
+        : tileFiltersOverride?.ignoreDashboardFilters
+          ? undefined
+          : filtersOverride
+    const tileFilters = filterOverrideContext ? filterOverrideContext.tile : tileFiltersOverride
+    const tileHasDate = tileFilters?.date_from != null || tileFilters?.date_to != null
+    const source = tileHasDate ? tileFilters : dashboardFilters
+    return { dateFromOverride: source?.date_from, dateToOverride: source?.date_to }
 }
 
 const LAYOUT_EDIT_EVENT_SOURCES = new Set<DashboardEventSource>([

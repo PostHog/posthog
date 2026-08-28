@@ -11,6 +11,23 @@ export function formatUsd(amount: number): string {
   return `$${Math.round(amount).toLocaleString()}`;
 }
 
+/**
+ * USD for the spend-limit surfaces. Whole-dollar amounts drop the cents so a
+ * set line reads as "$20" rather than "$20.00"; `exactCents` keeps cents on
+ * amounts under $1,000 so a running total reads as measured, not rounded.
+ */
+export function formatUsdCompact(
+  value: number,
+  options: { exactCents?: boolean } = {},
+): string {
+  if (options.exactCents) {
+    if (value >= 1000) return `$${Math.round(value).toLocaleString("en-US")}`;
+    return `$${value.toFixed(2)}`;
+  }
+  if (Number.isInteger(value)) return `$${value.toLocaleString()}`;
+  return formatUsd(value);
+}
+
 export function formatTokens(n: number): string {
   if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;

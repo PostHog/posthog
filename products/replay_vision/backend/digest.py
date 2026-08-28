@@ -16,7 +16,7 @@ SCANNER_DIGEST_RRULE = "FREQ=DAILY;BYHOUR=8;BYMINUTE=0"
 
 
 def digest_name_for_scanner(scanner: "ReplayScanner") -> str:
-    return f"Daily digest: {scanner.name}"[:255]
+    return f"Featured digest: {scanner.name}"[:255]
 
 
 def unique_digest_name(team_id: int, base: str) -> str:
@@ -39,7 +39,7 @@ def unique_digest_name(team_id: int, base: str) -> str:
 
 
 def provision_scanner_digest(scanner: "ReplayScanner", user: "User") -> VisionAction | None:
-    """Create the scanner's built-in daily digest: a summary action with no delivery targets whose
+    """Create the scanner's built-in featured digest: a summary action with no delivery targets whose
     runs surface on the scanner overview. Fail-soft; scanner creation must never fail because digest
     provisioning did."""
     try:

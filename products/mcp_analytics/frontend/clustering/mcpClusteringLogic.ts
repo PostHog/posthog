@@ -1,9 +1,14 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
+
+import { MCPToolCategoryMapItem, NodeKind } from '~/queries/schema/schema-general'
+import { urls } from '~/scenes/urls'
 
 import { mcpAnalyticsIntentClustersRecompute, mcpAnalyticsIntentClustersRetrieve } from '../generated/api'
 import type {
@@ -27,12 +32,17 @@ const EMPTY_SNAPSHOT: MCPIntentClusterSnapshotApi = {
 
 const POLL_INTERVAL_MS = 3000
 
-// The heatmap renders clusters × tools cells in one synchronous pass — a large
-// snapshot (hundreds of clusters, ~200 distinct tools) produces tens of
-// thousands of DOM nodes and freezes the tab on mount. Cap the initial render;
-// "Show all" opts into the rest.
-export const MAX_VISIBLE_CLUSTERS = 30
-export const MAX_HEATMAP_TOOL_COLUMNS = 40
+// Categories are read over a fixed window rather than the snapshot's own lookback, which is
+// 7 days by default but configurable per run. A wider window can only add tools the snapshot
+// never names — harmless — while a narrower one would drop tools from the filter entirely.
+const CATEGORY_LOOKBACK = '-30d'
+// A failed map load has to be retryable, or one blip leaves the tab unfilterable for the
+// session. It cannot retry freely either: urlToAction re-runs on every selection, so an
+// unbounded re-arm would refetch on each click. One retry, then the tab stays unscoped.
+const MAX_CATEGORY_MAP_ATTEMPTS = 2
+
+/** Segments drawn on a cluster row's routing bar before the rest is aggregated. */
+export const ROUTING_BAR_SEGMENTS = 3
 
 // The generated client types the retrieve endpoint as returning an array, but the view actually
 // returns a single object. drf-spectacular assumes ViewSet `list` actions return arrays. Normalize.
@@ -51,6 +61,79 @@ function normalizeSnapshot(
 export type ClusterSortKey = 'calls' | 'errors' | 'entropy' | 'concentration'
 export type ToolSortKey = 'calls' | 'contested' | 'discovery'
 export type ClusteringViewMode = 'intents' | 'tools'
+
+/** How spread out a cluster's calls are across the tools that served it. */
+export type RouteShape = 'concentrated' | 'mixed' | 'spread'
+
+export type ClusterFilter = 'all' | RouteShape | 'failing'
+
+/** Cluster counts per route shape, plus the count of clusters that lost calls to errors. */
+export interface RouteShapeCounts {
+    concentrated: number
+    mixed: number
+    spread: number
+    failing: number
+    total: number
+}
+
+/**
+ * The single definition of a cluster's route shape. Both the scorecard counts and
+ * the filter each card applies read it, so a card cannot state one number and
+ * filter to a different set.
+ */
+export function routeShape(cluster: MCPIntentClusterApi): RouteShape {
+    // A cluster with no distribution has no shape to report; calling it
+    // concentrated would count "we know nothing" as the healthiest bucket.
+    if (cluster.tool_distribution.length === 0) {
+        return 'mixed'
+    }
+    const top = cluster.tool_distribution[0].pct
+    if (top >= 80) {
+        return 'concentrated'
+    }
+    if (cluster.tool_distribution.length >= 2 && top < 50) {
+        return 'spread'
+    }
+    return 'mixed'
+}
+
+export interface RoutingSegment {
+    /** null on the aggregated remainder, which stands for `toolCount` tools. */
+    tool: string | null
+    pct: number
+    errorRatePct: number
+    toolCount: number
+}
+
+/**
+ * A cluster's tool distribution reduced to a few drawable segments, with
+ * everything past the cap folded into one remainder. Replaces the cluster × tool
+ * heatmap: the same routing read, at a width that fits beside a detail pane.
+ */
+export function routingSegments(cluster: MCPIntentClusterApi, maxSegments = ROUTING_BAR_SEGMENTS): RoutingSegment[] {
+    const ordered = [...cluster.tool_distribution].sort((a, b) => b.count - a.count)
+    const head = ordered.slice(0, maxSegments).map((entry) => ({
+        tool: entry.tool,
+        pct: entry.pct,
+        errorRatePct: entry.error_rate_pct,
+        toolCount: 1,
+    }))
+    const rest = ordered.slice(maxSegments)
+    if (rest.length === 0) {
+        return head
+    }
+    const calls = rest.reduce((sum, entry) => sum + entry.count, 0)
+    const errors = rest.reduce((sum, entry) => sum + entry.errors, 0)
+    return [
+        ...head,
+        {
+            tool: null,
+            pct: rest.reduce((sum, entry) => sum + entry.pct, 0),
+            errorRatePct: calls > 0 ? (100 * errors) / calls : 0,
+            toolCount: rest.length,
+        },
+    ]
+}
 
 export interface ScatterPoint {
     tool: string
@@ -98,6 +181,25 @@ const FIT_DOMAIN_MIN_SPAN = 0.1
 const FIT_DOMAIN_PADDING = 0.1
 
 /** Padded x-domain around the observed fits, with a floor on the span so a single point can't collapse it. */
+/**
+ * Every category the cluster's tools belong to, in call-volume order so the busiest
+ * category leads. A cluster routing across categories is the interesting case — it means
+ * one goal is being served by tools the catalog files under different headings.
+ */
+export function clusterCategories(cluster: MCPIntentClusterApi, categoriesByTool: Record<string, string[]>): string[] {
+    const seen = new Set<string>()
+    const ordered: string[] = []
+    for (const entry of cluster.tool_distribution) {
+        for (const category of categoriesByTool[entry.tool] ?? []) {
+            if (!seen.has(category)) {
+                seen.add(category)
+                ordered.push(category)
+            }
+        }
+    }
+    return ordered
+}
+
 export function fitDomain(fits: number[]): [number, number] {
     if (fits.length === 0) {
         return [0, 1]
@@ -120,20 +222,27 @@ function median(values: number[]): number | null {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface mcpClusteringLogicValues {
     currentProjectId: number | string // teamLogic
-    allClustersShown: boolean
+    availableCategories: string[]
+    categoriesByTool: Record<string, string[]>
+    categoryMap: MCPToolCategoryMapItem[]
+    categoryMapAttempts: number
+    categoryMapLoading: boolean
+    categoryMapRequested: boolean
+    categoryScopeOptions: string[]
+    clusterFilter: ClusterFilter
     clusters: readonly MCPIntentClusterApi[]
-    concentratedRoutes: {
-        focused: number
-        total: number
-    }
     discoveryMedian: number | null
     filteredClusters: MCPIntentClusterApi[]
     fitMedian: number | null
     hasSnapshot: boolean
     hasToolPivot: boolean
-    hiddenClusterCount: number
     isComputing: boolean
+    routeShapeCounts: RouteShapeCounts
     scatterPoints: ScatterPoint[]
+    scopedClusters: MCPIntentClusterApi[]
+    scopedTools: readonly MCPToolPivotApi[]
+    searchedClusters: MCPIntentClusterApi[]
+    selectedCategories: string[]
     selectedCluster: MCPIntentClusterApi | null
     selectedClusterId: number | null
     selectedTool: MCPToolPivotApi | null
@@ -143,21 +252,35 @@ export interface mcpClusteringLogicValues {
     sortKey: ClusterSortKey
     sortedClusters: MCPIntentClusterApi[]
     sortedTools: MCPToolPivotApi[]
-    spreadRoutes: number
-    toolColumns: string[]
     toolOverlaps: readonly MCPToolOverlapApi[]
     toolSearch: string
     toolSortKey: ToolSortKey
     tools: readonly MCPToolPivotApi[]
-    topErrorRoute: MCPIntentClusterApi | null
+    toolsInScope: Set<string> | null
     totalClusterCount: number
-    totalToolCount: number
     viewMode: ClusteringViewMode
-    visibleClusters: MCPIntentClusterApi[]
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface mcpClusteringLogicActions {
+    keepSelectionVisible: () => {
+        value: true
+    }
+    loadCategoryMap: () => any
+    loadCategoryMapFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadCategoryMapSuccess: (
+        categoryMap: MCPToolCategoryMapItem[],
+        payload?: any
+    ) => {
+        categoryMap: MCPToolCategoryMapItem[]
+        payload?: any
+    }
     loadSnapshot: () => any
     loadSnapshotFailure: (
         error: string,
@@ -185,6 +308,12 @@ export interface mcpClusteringLogicActions {
     selectTool: (toolName: string | null) => {
         toolName: string | null
     }
+    setClusterFilter: (clusterFilter: ClusterFilter) => {
+        clusterFilter: ClusterFilter
+    }
+    setSelectedCategories: (categories: string[]) => {
+        categories: string[]
+    }
     setSortKey: (sortKey: ClusterSortKey) => {
         sortKey: ClusterSortKey
     }
@@ -196,9 +325,6 @@ export interface mcpClusteringLogicActions {
     }
     setViewMode: (viewMode: ClusteringViewMode) => {
         viewMode: ClusteringViewMode
-    }
-    showAllClusters: () => {
-        value: true
     }
     startPolling: () => {
         value: true
@@ -228,34 +354,41 @@ export interface mcpClusteringLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         clusters: (snapshot: MCPIntentClusterSnapshotApi) => readonly MCPIntentClusterApi[]
         tools: (snapshot: MCPIntentClusterSnapshotApi) => readonly MCPToolPivotApi[]
-        toolOverlaps: (snapshot: MCPIntentClusterSnapshotApi) => readonly MCPToolOverlapApi[]
+        categoriesByTool: (categoryMap: MCPToolCategoryMapItem[]) => Record<string, string[]>
+        availableCategories: (categoryMap: MCPToolCategoryMapItem[]) => string[]
+        categoryScopeOptions: (availableCategories: string[], selectedCategories: string[]) => string[]
+        toolsInScope: (categoryMap: MCPToolCategoryMapItem[], selectedCategories: string[]) => Set<string> | null
+        toolOverlaps: (
+            snapshot: MCPIntentClusterSnapshotApi,
+            toolsInScope: Set<string> | null
+        ) => readonly MCPToolOverlapApi[]
         hasToolPivot: (tools: readonly MCPToolPivotApi[]) => boolean
         sortedClusters: (clusters: readonly MCPIntentClusterApi[], sortKey: ClusterSortKey) => MCPIntentClusterApi[]
-        filteredClusters: (sortedClusters: MCPIntentClusterApi[], toolSearch: string) => MCPIntentClusterApi[]
+        scopedClusters: (
+            sortedClusters: MCPIntentClusterApi[],
+            toolsInScope: Set<string> | null
+        ) => MCPIntentClusterApi[]
+        searchedClusters: (scopedClusters: MCPIntentClusterApi[], toolSearch: string) => MCPIntentClusterApi[]
+        filteredClusters: (
+            searchedClusters: MCPIntentClusterApi[],
+            clusterFilter: ClusterFilter
+        ) => MCPIntentClusterApi[]
+        scopedTools: (tools: readonly MCPToolPivotApi[], toolsInScope: Set<string> | null) => readonly MCPToolPivotApi[]
         sortedTools: (
-            tools: readonly MCPToolPivotApi[],
+            scopedTools: readonly MCPToolPivotApi[],
             toolSortKey: ToolSortKey,
             toolSearch: string
         ) => MCPToolPivotApi[]
         selectedTool: (tools: readonly MCPToolPivotApi[], selectedToolName: string | null) => MCPToolPivotApi | null
-        scatterPoints: (tools: readonly MCPToolPivotApi[]) => ScatterPoint[]
+        scatterPoints: (scopedTools: readonly MCPToolPivotApi[]) => ScatterPoint[]
         fitMedian: (scatterPoints: ScatterPoint[]) => number | null
         discoveryMedian: (scatterPoints: ScatterPoint[]) => number | null
-        visibleClusters: (filteredClusters: MCPIntentClusterApi[], allClustersShown: boolean) => MCPIntentClusterApi[]
-        hiddenClusterCount: (filteredClusters: MCPIntentClusterApi[], visibleClusters: MCPIntentClusterApi[]) => number
-        toolColumns: (filteredClusters: MCPIntentClusterApi[]) => string[]
-        totalToolCount: (filteredClusters: MCPIntentClusterApi[]) => number
         totalClusterCount: (snapshot: MCPIntentClusterSnapshotApi) => number
         selectedCluster: (
             clusters: readonly MCPIntentClusterApi[],
             selectedClusterId: number | null
         ) => MCPIntentClusterApi | null
-        concentratedRoutes: (clusters: readonly MCPIntentClusterApi[]) => {
-            focused: number
-            total: number
-        }
-        spreadRoutes: (clusters: readonly MCPIntentClusterApi[]) => number
-        topErrorRoute: (clusters: readonly MCPIntentClusterApi[]) => MCPIntentClusterApi | null
+        routeShapeCounts: (searchedClusters: MCPIntentClusterApi[]) => RouteShapeCounts
         isComputing: (snapshot: MCPIntentClusterSnapshotApi) => boolean
         hasSnapshot: (snapshot: MCPIntentClusterSnapshotApi) => boolean
     }
@@ -280,7 +413,9 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
         setToolSortKey: (toolSortKey: ToolSortKey) => ({ toolSortKey }),
         setViewMode: (viewMode: ClusteringViewMode) => ({ viewMode }),
         setToolSearch: (toolSearch: string) => ({ toolSearch }),
-        showAllClusters: true,
+        setClusterFilter: (clusterFilter: ClusterFilter) => ({ clusterFilter }),
+        setSelectedCategories: (categories: string[]) => ({ categories }),
+        keepSelectionVisible: true,
         recompute: true,
         startPolling: true,
         stopPolling: true,
@@ -303,6 +438,23 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
                     }
                     const response = await mcpAnalyticsIntentClustersRecompute(String(values.currentProjectId))
                     return normalizeSnapshot(response)
+                },
+            },
+        ],
+        // The snapshot stores tool names but no categories, so the mapping is fetched
+        // separately and joined by tool name. Keeping it out of the snapshot means an
+        // existing snapshot gains category filtering without being recomputed.
+        categoryMap: [
+            [] as MCPToolCategoryMapItem[],
+            {
+                loadCategoryMap: async (): Promise<MCPToolCategoryMapItem[]> => {
+                    const response = (await api.query({
+                        kind: NodeKind.MCPToolCategoryMapQuery,
+                        dateRange: { date_from: CATEGORY_LOOKBACK },
+                    })) as { results?: MCPToolCategoryMapItem[] } | undefined
+                    // An absent map costs only the filter, so it must not take the page down
+                    // with it — every view still renders, just unscoped.
+                    return response?.results ?? []
                 },
             },
         ],
@@ -344,10 +496,34 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
                 setToolSearch: (_, { toolSearch }) => toolSearch,
             },
         ],
-        allClustersShown: [
+        clusterFilter: [
+            'all' as ClusterFilter,
+            {
+                setClusterFilter: (_, { clusterFilter }) => clusterFilter,
+            },
+        ],
+        selectedCategories: [
+            [] as string[],
+            {
+                setSelectedCategories: (_, { categories }) => categories,
+            },
+        ],
+        // Every selection writes the url back, which re-runs urlToAction. Without this the
+        // map would refetch on each click. Set on request, not on success, so an in-flight
+        // load is not started twice.
+        categoryMapRequested: [
             false,
             {
-                showAllClusters: () => true,
+                loadCategoryMap: () => true,
+                // Re-arm on failure so a later navigation can retry; the attempt count is
+                // what stops that from becoming a request per click.
+                loadCategoryMapFailure: () => false,
+            },
+        ],
+        categoryMapAttempts: [
+            0,
+            {
+                loadCategoryMap: (state: number) => state + 1,
             },
         ],
     }),
@@ -360,9 +536,70 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
             (s) => [s.snapshot],
             (snapshot: MCPIntentClusterSnapshotApi): readonly MCPToolPivotApi[] => snapshot.tools ?? [],
         ],
+        // Every category a tool has been called under. A tool recategorised mid-window
+        // belongs to both, so filtering by either keeps finding it.
+        categoriesByTool: [
+            (s) => [s.categoryMap],
+            (categoryMap: MCPToolCategoryMapItem[]): Record<string, string[]> => {
+                // Tool names come from events, so a call named `__proto__` or `constructor`
+                // would resolve `byTool[tool]` to an inherited value and throw on `.includes`.
+                // A prototype-free map keys those names as ordinary data.
+                const byTool: Record<string, string[]> = Object.create(null)
+                for (const { tool, category } of categoryMap) {
+                    const existing = byTool[tool]
+                    if (!existing) {
+                        byTool[tool] = [category]
+                    } else if (!existing.includes(category)) {
+                        existing.push(category)
+                    }
+                }
+                return byTool
+            },
+        ],
+        // Drawn from the tool map rather than the full category vocabulary, so the selector
+        // never offers a category that no tool in the data belongs to.
+        availableCategories: [
+            (s) => [s.categoryMap],
+            (categoryMap: MCPToolCategoryMapItem[]): string[] =>
+                Array.from(new Set(categoryMap.map((row) => row.category))).sort((a, b) => a.localeCompare(b)),
+        ],
+        // What the scope selector offers, which is not the same as what the map knows. A
+        // category carried in from the url survives a failed map load, and the selector is
+        // the only way to clear it, so the selection is always offered back even when the
+        // map contributed nothing.
+        categoryScopeOptions: [
+            (s) => [s.availableCategories, s.selectedCategories],
+            (availableCategories: string[], selectedCategories: string[]): string[] =>
+                Array.from(new Set([...availableCategories, ...selectedCategories])).sort((a, b) => a.localeCompare(b)),
+        ],
+        // Null rather than an empty set means "no scope, show everything". Two cases return it:
+        // nothing is selected, or there is no map to scope against — still loading, the query
+        // failed, or the project sent no $mcp_tool_category in the window. Without the second
+        // guard a category carried in from the url would scope every view down to nothing while
+        // the map is absent, and the selector hides itself (no categories to offer), leaving no
+        // way to clear it. A real scope only exists once the map has data, so this renders
+        // unscoped meanwhile, matching the loader's "an absent map costs only the filter" intent.
+        toolsInScope: [
+            (s) => [s.categoryMap, s.selectedCategories],
+            (categoryMap: MCPToolCategoryMapItem[], selectedCategories: string[]): Set<string> | null => {
+                if (selectedCategories.length === 0 || categoryMap.length === 0) {
+                    return null
+                }
+                const wanted = new Set(selectedCategories)
+                return new Set(categoryMap.filter((row) => wanted.has(row.category)).map((row) => row.tool))
+            },
+        ],
+        // Either side in scope, not both: the point of a contested pair is spotting a tool
+        // competing with one it shouldn't, and that competitor is often in another category.
         toolOverlaps: [
-            (s) => [s.snapshot],
-            (snapshot: MCPIntentClusterSnapshotApi): readonly MCPToolOverlapApi[] => snapshot.tool_overlaps ?? [],
+            (s) => [s.snapshot, s.toolsInScope],
+            (snapshot: MCPIntentClusterSnapshotApi, toolsInScope: Set<string> | null): readonly MCPToolOverlapApi[] => {
+                const overlaps = snapshot.tool_overlaps ?? []
+                if (!toolsInScope) {
+                    return overlaps
+                }
+                return overlaps.filter((o) => toolsInScope.has(o.tool_a) || toolsInScope.has(o.tool_b))
+            },
         ],
         // Snapshots computed before the per-call pipeline have no tool sections;
         // the tools view offers a recompute instead of rendering empty tables.
@@ -386,23 +623,62 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
                 }
             },
         ],
-        filteredClusters: [
-            (s) => [s.sortedClusters, s.toolSearch],
-            (sortedClusters: MCPIntentClusterApi[], toolSearch: string): MCPIntentClusterApi[] => {
-                const query = toolSearch.trim().toLowerCase()
-                if (!query) {
+        // A cluster is in scope when any tool it routes to is, mirroring how the tool
+        // search matches. Scoping sits ahead of the search so the scorecards, the search
+        // and the list all count the same population.
+        scopedClusters: [
+            (s) => [s.sortedClusters, s.toolsInScope],
+            (sortedClusters: MCPIntentClusterApi[], toolsInScope: Set<string> | null): MCPIntentClusterApi[] => {
+                if (!toolsInScope) {
                     return sortedClusters
                 }
                 return sortedClusters.filter((cluster) =>
-                    cluster.tool_distribution.some((entry) => entry.tool.toLowerCase().includes(query))
+                    cluster.tool_distribution.some((entry) => toolsInScope.has(entry.tool))
                 )
             },
         ],
-        sortedTools: [
-            (s) => [s.tools, s.toolSortKey, s.toolSearch],
-            (tools: readonly MCPToolPivotApi[], toolSortKey: ToolSortKey, toolSearch: string): MCPToolPivotApi[] => {
+        // The tool search narrows the population both the scorecards count and the
+        // list filter read. Splitting it out keeps the two in lockstep: the scorecards
+        // count shapes within the searched set, and each card's filter draws from it.
+        searchedClusters: [
+            (s) => [s.scopedClusters, s.toolSearch],
+            (scopedClusters: MCPIntentClusterApi[], toolSearch: string): MCPIntentClusterApi[] => {
                 const query = toolSearch.trim().toLowerCase()
-                const arr = tools.filter((tool) => !query || tool.tool.toLowerCase().includes(query))
+                if (!query) {
+                    return scopedClusters
+                }
+                return scopedClusters.filter((cluster) =>
+                    cluster.tool_distribution.some((e) => e.tool.toLowerCase().includes(query))
+                )
+            },
+        ],
+        filteredClusters: [
+            (s) => [s.searchedClusters, s.clusterFilter],
+            (searchedClusters: MCPIntentClusterApi[], clusterFilter: ClusterFilter): MCPIntentClusterApi[] => {
+                return searchedClusters.filter((cluster) => {
+                    if (clusterFilter === 'failing') {
+                        return cluster.error_count > 0
+                    }
+                    return clusterFilter === 'all' || routeShape(cluster) === clusterFilter
+                })
+            },
+        ],
+        // A tool with no category row is out of scope once a filter is on: it belongs to
+        // none of the selected categories, so keeping it would contradict the filter.
+        scopedTools: [
+            (s) => [s.tools, s.toolsInScope],
+            (tools: readonly MCPToolPivotApi[], toolsInScope: Set<string> | null): readonly MCPToolPivotApi[] =>
+                toolsInScope ? tools.filter((tool) => toolsInScope.has(tool.tool)) : tools,
+        ],
+        sortedTools: [
+            (s) => [s.scopedTools, s.toolSortKey, s.toolSearch],
+            (
+                scopedTools: readonly MCPToolPivotApi[],
+                toolSortKey: ToolSortKey,
+                toolSearch: string
+            ): MCPToolPivotApi[] => {
+                const query = toolSearch.trim().toLowerCase()
+                const arr = scopedTools.filter((tool) => !query || tool.tool.toLowerCase().includes(query))
                 switch (toolSortKey) {
                     case 'contested':
                         return arr.sort((a, b) => (b.contested_score ?? -1) - (a.contested_score ?? -1))
@@ -425,9 +701,9 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
             },
         ],
         scatterPoints: [
-            (s) => [s.tools],
-            (tools: readonly MCPToolPivotApi[]): ScatterPoint[] =>
-                tools.flatMap((tool) => {
+            (s) => [s.scopedTools],
+            (scopedTools: readonly MCPToolPivotApi[]): ScatterPoint[] =>
+                scopedTools.flatMap((tool) => {
                     const fit = weightedMeanFit(tool)
                     if (fit === null || tool.discovery_rate_pct === null) {
                         return []
@@ -452,47 +728,6 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
             (s) => [s.scatterPoints],
             (scatterPoints: ScatterPoint[]): number | null => median(scatterPoints.map((p) => p.discoveryRatePct)),
         ],
-        // Tools across the visible clusters, ordered by total calls desc — these are the heatmap columns.
-        // The heatmap rows: filtered and sliced after sorting so re-sorting or
-        // narrowing the tool search can surface any cluster into the visible set.
-        visibleClusters: [
-            (s) => [s.filteredClusters, s.allClustersShown],
-            (filteredClusters: MCPIntentClusterApi[], allClustersShown: boolean): MCPIntentClusterApi[] =>
-                allClustersShown ? filteredClusters : filteredClusters.slice(0, MAX_VISIBLE_CLUSTERS),
-        ],
-        hiddenClusterCount: [
-            (s) => [s.filteredClusters, s.visibleClusters],
-            (filteredClusters: MCPIntentClusterApi[], visibleClusters: MCPIntentClusterApi[]): number =>
-                filteredClusters.length - visibleClusters.length,
-        ],
-
-        toolColumns: [
-            (s) => [s.filteredClusters],
-            (filteredClusters: MCPIntentClusterApi[]): string[] => {
-                const totals = new Map<string, number>()
-                for (const cluster of filteredClusters) {
-                    for (const entry of cluster.tool_distribution) {
-                        totals.set(entry.tool, (totals.get(entry.tool) ?? 0) + entry.count)
-                    }
-                }
-                return [...totals.entries()]
-                    .sort((a, b) => b[1] - a[1])
-                    .slice(0, MAX_HEATMAP_TOOL_COLUMNS)
-                    .map(([tool]) => tool)
-            },
-        ],
-        totalToolCount: [
-            (s) => [s.filteredClusters],
-            (filteredClusters: MCPIntentClusterApi[]): number => {
-                const tools = new Set<string>()
-                for (const cluster of filteredClusters) {
-                    for (const entry of cluster.tool_distribution) {
-                        tools.add(entry.tool)
-                    }
-                }
-                return tools.size
-            },
-        ],
         // The true number of clusters the run found — the snapshot itself only
         // carries the top MAX_SNAPSHOT_CLUSTERS by call volume, so anything
         // reporting "how many clusters exist" must read this, not clusters.length.
@@ -513,32 +748,26 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
                 return clusters.find((c) => c.id === selectedClusterId) ?? null
             },
         ],
-        // Scorecard derivations — all from existing aggregate fields.
-        concentratedRoutes: [
-            (s) => [s.clusters],
-            (clusters: readonly MCPIntentClusterApi[]): { focused: number; total: number } => ({
-                focused: clusters.filter((c) => (c.tool_distribution[0]?.pct ?? 0) >= 80).length,
-                total: clusters.length,
-            }),
-        ],
-        spreadRoutes: [
-            (s) => [s.clusters],
-            (clusters: readonly MCPIntentClusterApi[]): number =>
-                clusters.filter((c) => {
-                    const top = c.tool_distribution[0]?.pct ?? 100
-                    return c.tool_distribution.length >= 2 && top < 50
-                }).length,
-        ],
-        topErrorRoute: [
-            (s) => [s.clusters],
-            (clusters: readonly MCPIntentClusterApi[]): MCPIntentClusterApi | null => {
-                if (clusters.length === 0) {
-                    return null
+        // Backs the scorecards. Each count comes from the same `routeShape` the
+        // matching filter uses, over the same searched set the list draws from, so
+        // clicking a card yields exactly the number it shows — tool search active or not.
+        routeShapeCounts: [
+            (s) => [s.searchedClusters],
+            (searchedClusters: MCPIntentClusterApi[]): RouteShapeCounts => {
+                const counts: RouteShapeCounts = {
+                    concentrated: 0,
+                    mixed: 0,
+                    spread: 0,
+                    failing: 0,
+                    total: searchedClusters.length,
                 }
-                // Highest traffic-weighted error count — the cluster that loses the most calls to errors.
-                return [...clusters].sort(
-                    (a, b) => b.call_count * b.error_rate_pct - a.call_count * a.error_rate_pct
-                )[0]
+                for (const cluster of searchedClusters) {
+                    counts[routeShape(cluster)] += 1
+                    if (cluster.error_count > 0) {
+                        counts.failing += 1
+                    }
+                }
+                return counts
             },
         ],
         isComputing: [
@@ -558,14 +787,25 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
             } else {
                 actions.stopPolling()
             }
-            if (values.selectedClusterId === null && snapshot.clusters.length > 0) {
-                // Auto-select the highest-traffic cluster so the detail pane fills in.
-                const top = [...snapshot.clusters].sort((a, b) => b.call_count - a.call_count)[0]
-                actions.selectCluster(top.id)
-            }
-            if (values.selectedToolName === null && (snapshot.tools ?? []).length > 0) {
-                const topTool = [...snapshot.tools].sort((a, b) => b.call_count - a.call_count)[0]
-                actions.selectTool(topTool.tool)
+            // Fill or reconcile the selection against the scoped list. A `?cluster=` link, a
+            // recompute that reassigned ids, or an active category scope can all leave the
+            // selection pointing at a cluster or tool this snapshot no longer shows; follow
+            // the list so the detail pane never lands on one the list omits.
+            actions.keepSelectionVisible()
+        },
+        // The category map arrives after the url has already applied the selection, so the
+        // scope is only known now. Reconcile against it: without this the list becomes scoped
+        // while the selection can sit outside it, leaving the detail pane on an excluded item.
+        loadCategoryMapSuccess: () => {
+            actions.keepSelectionVisible()
+        },
+        // Only once the retry is spent: a toast on the first failure would fire twice, and
+        // silence would leave a category in the url quietly doing nothing.
+        loadCategoryMapFailure: () => {
+            if (values.categoryMapAttempts >= MAX_CATEGORY_MAP_ATTEMPTS) {
+                lemonToast.error(
+                    'Could not load tool categories, so category filtering is unavailable. Refresh the page to try again.'
+                )
             }
         },
         triggerRecomputeSuccess: ({ snapshot }) => {
@@ -596,6 +836,118 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
         },
         pollSnapshot: () => {
             actions.loadSnapshot()
+        },
+        // Narrowing the list can strand the selection outside it, leaving the detail
+        // pane describing a cluster the list no longer offers. Follow the list instead.
+        setClusterFilter: () => {
+            actions.keepSelectionVisible()
+        },
+        setToolSearch: () => {
+            actions.keepSelectionVisible()
+        },
+        setSelectedCategories: () => {
+            actions.keepSelectionVisible()
+        },
+        keepSelectionVisible: () => {
+            const {
+                filteredClusters,
+                selectedClusterId,
+                clusters,
+                scopedClusters,
+                sortedTools,
+                selectedToolName,
+                tools,
+                scopedTools,
+                categoryMapLoading,
+            } = values
+            // Reconcile each selection against the list its pane renders: move it to the top of
+            // the list when the current one is no longer there, and clear it only when the scope
+            // genuinely excludes every row the snapshot carries. While the category map is still
+            // loading the scope isn't known, so an empty scoped list means "not ready" rather
+            // than "excluded" — leave the selection be so a deep-linked cluster or tool survives
+            // until its data arrives. A plain search or filter that matches nothing keeps the
+            // selection too; only a category scope that names none of the snapshot's tools clears
+            // it, so the detail pane can never describe an item the scope hides.
+            const clusterScopeExcludesAll = !categoryMapLoading && clusters.length > 0 && scopedClusters.length === 0
+            if (!filteredClusters.some((c) => c.id === selectedClusterId)) {
+                if (filteredClusters.length > 0) {
+                    actions.selectCluster(filteredClusters[0].id)
+                } else if (clusterScopeExcludesAll && selectedClusterId !== null) {
+                    actions.selectCluster(null)
+                }
+            }
+            const toolScopeExcludesAll = !categoryMapLoading && tools.length > 0 && scopedTools.length === 0
+            if (!sortedTools.some((t) => t.tool === selectedToolName)) {
+                if (sortedTools.length > 0) {
+                    actions.selectTool(sortedTools[0].tool)
+                } else if (toolScopeExcludesAll && selectedToolName !== null) {
+                    actions.selectTool(null)
+                }
+            }
+        },
+    })),
+    // Mirror the selection and view to the url so a cluster or tool can be linked to
+    // directly, rather than the recipient landing on whichever has the most calls.
+    actionToUrl(({ values }) => {
+        const syncUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => {
+            const { currentLocation } = router.values
+            const searchParams = { ...currentLocation.searchParams }
+            const params: Record<string, string | null> = {
+                view: values.viewMode === 'tools' ? 'tools' : null,
+                cluster: values.selectedClusterId === null ? null : String(values.selectedClusterId),
+                tool: values.selectedToolName,
+            }
+            for (const [key, value] of Object.entries(params)) {
+                if (value) {
+                    searchParams[key] = value
+                } else {
+                    delete searchParams[key]
+                }
+            }
+            // An array, not a joined string, so a category containing a comma survives the trip.
+            if (values.selectedCategories.length > 0) {
+                searchParams.categories = values.selectedCategories
+            } else {
+                delete searchParams.categories
+            }
+            return [currentLocation.pathname, searchParams, currentLocation.hashParams, { replace: true }]
+        }
+        return {
+            selectCluster: syncUrl,
+            selectTool: syncUrl,
+            setViewMode: syncUrl,
+            setSelectedCategories: syncUrl,
+        }
+    }),
+    urlToAction(({ actions, values }) => ({
+        [urls.mcpAnalyticsIntentClustering()]: (_, searchParams) => {
+            if (!values.categoryMapRequested && values.categoryMapAttempts < MAX_CATEGORY_MAP_ATTEMPTS) {
+                actions.loadCategoryMap()
+            }
+            const viewMode: ClusteringViewMode = searchParams.view === 'tools' ? 'tools' : 'intents'
+            if (viewMode !== values.viewMode) {
+                actions.setViewMode(viewMode)
+            }
+            // Guard the empty param explicitly: Number('') is 0, which would select a real id.
+            const rawCluster = searchParams.cluster
+            const clusterId = Number(rawCluster)
+            if (rawCluster !== undefined && rawCluster !== '' && Number.isInteger(clusterId)) {
+                if (clusterId !== values.selectedClusterId) {
+                    actions.selectCluster(clusterId)
+                }
+            }
+            if (typeof searchParams.tool === 'string' && searchParams.tool !== values.selectedToolName) {
+                actions.selectTool(searchParams.tool)
+            }
+            // A single category arrives as a bare string rather than a one-element array.
+            const categories = Array.isArray(searchParams.categories)
+                ? searchParams.categories.map(String)
+                : typeof searchParams.categories === 'string' && searchParams.categories
+                  ? [searchParams.categories]
+                  : []
+            if (JSON.stringify(categories) !== JSON.stringify(values.selectedCategories)) {
+                actions.setSelectedCategories(categories)
+            }
         },
     })),
     afterMount(({ actions }) => {

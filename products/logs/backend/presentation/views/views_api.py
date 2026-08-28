@@ -5,7 +5,6 @@ from rest_framework import serializers, viewsets
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.logs.backend.models import LogsView
 
@@ -98,8 +97,6 @@ class LogsViewViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = LogsView.objects.all().order_by("-created_at")
     serializer_class = LogsViewSerializer
     lookup_field = "short_id"
-    posthog_feature_flag = "logs-saved-views"
-    permission_classes = [PostHogFeatureFlagPermission]
 
     def safely_get_queryset(self, queryset: Any) -> Any:
         queryset = queryset.filter(team_id=self.team_id)

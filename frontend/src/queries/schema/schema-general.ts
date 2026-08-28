@@ -9,6 +9,7 @@ import {
     AnyPersonScopeFilter,
     AnyPropertyFilter,
     BaseMathType,
+    BreakdownAttributionType,
     BreakdownKeyType,
     BreakdownType,
     CalendarHeatmapMathType,
@@ -102,7 +103,9 @@ export enum NodeKind {
     SessionAttributionExplorerQuery = 'SessionAttributionExplorerQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
     ErrorTrackingSimilarIssuesQuery = 'ErrorTrackingSimilarIssuesQuery',
+    ErrorTrackingFingerprintProjectionQuery = 'ErrorTrackingFingerprintProjectionQuery',
     ErrorTrackingBreakdownsQuery = 'ErrorTrackingBreakdownsQuery',
+    ErrorTrackingReleasesQuery = 'ErrorTrackingReleasesQuery',
     ErrorTrackingIssueCorrelationQuery = 'ErrorTrackingIssueCorrelationQuery',
     LogsQuery = 'LogsQuery',
     LogAttributesQuery = 'LogAttributesQuery',
@@ -139,6 +142,7 @@ export enum NodeKind {
     WebStatsTableQuery = 'WebStatsTableQuery',
     WebExternalClicksTableQuery = 'WebExternalClicksTableQuery',
     WebBotsTableQuery = 'WebBotsTableQuery',
+    WebAgentAnalyticsQuery = 'WebAgentAnalyticsQuery',
     WebGoalsQuery = 'WebGoalsQuery',
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
@@ -153,6 +157,7 @@ export enum NodeKind {
     MarketingAnalyticsAggregatedQuery = 'MarketingAnalyticsAggregatedQuery',
     MarketingAnalyticsAttributionQuery = 'MarketingAnalyticsAttributionQuery',
     MarketingAnalyticsAttributionPathsQuery = 'MarketingAnalyticsAttributionPathsQuery',
+    MarketingAnalyticsRetentionQuery = 'MarketingAnalyticsRetentionQuery',
     NonIntegratedConversionsTableQuery = 'NonIntegratedConversionsTableQuery',
 
     // Experiment queries
@@ -203,6 +208,7 @@ export enum NodeKind {
     MCPToolQualityDailyStatsQuery = 'MCPToolQualityDailyStatsQuery',
     MCPToolCategoryCountsQuery = 'MCPToolCategoryCountsQuery',
     MCPToolCategoriesQuery = 'MCPToolCategoriesQuery',
+    MCPToolCategoryMapQuery = 'MCPToolCategoryMapQuery',
     MCPToolDescriptionsQuery = 'MCPToolDescriptionsQuery',
     MCPToolSampleIntentsQuery = 'MCPToolSampleIntentsQuery',
     MCPToolNeighborsQuery = 'MCPToolNeighborsQuery',
@@ -233,11 +239,13 @@ export type AnyDataNode =
     | MarketingAnalyticsAggregatedQuery
     | MarketingAnalyticsAttributionQuery
     | MarketingAnalyticsAttributionPathsQuery
+    | MarketingAnalyticsRetentionQuery
     | NonIntegratedConversionsTableQuery
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
     | WebBotsTableQuery
+    | WebAgentAnalyticsQuery
     | WebGoalsQuery
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
@@ -247,7 +255,9 @@ export type AnyDataNode =
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
     | ErrorTrackingSimilarIssuesQuery
+    | ErrorTrackingFingerprintProjectionQuery
     | ErrorTrackingBreakdownsQuery
+    | ErrorTrackingReleasesQuery
     | ErrorTrackingIssueCorrelationQuery
     | LogsQuery
     | LogAttributesQuery
@@ -284,6 +294,7 @@ export type AnyDataNode =
     | MCPToolQualityDailyStatsQuery
     | MCPToolCategoryCountsQuery
     | MCPToolCategoriesQuery
+    | MCPToolCategoryMapQuery
     | MCPToolDescriptionsQuery
     | MCPToolSampleIntentsQuery
     | MCPToolNeighborsQuery
@@ -313,7 +324,9 @@ export type QuerySchema =
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
     | ErrorTrackingSimilarIssuesQuery
+    | ErrorTrackingFingerprintProjectionQuery
     | ErrorTrackingBreakdownsQuery
+    | ErrorTrackingReleasesQuery
     | ErrorTrackingIssueCorrelationQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
@@ -326,6 +339,7 @@ export type QuerySchema =
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
     | WebBotsTableQuery
+    | WebAgentAnalyticsQuery
     | WebGoalsQuery
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
@@ -340,6 +354,7 @@ export type QuerySchema =
     | MarketingAnalyticsAggregatedQuery
     | MarketingAnalyticsAttributionQuery
     | MarketingAnalyticsAttributionPathsQuery
+    | MarketingAnalyticsRetentionQuery
     | NonIntegratedConversionsTableQuery
 
     // Interface nodes
@@ -412,6 +427,7 @@ export type QuerySchema =
     | MCPToolQualityDailyStatsQuery
     | MCPToolCategoryCountsQuery
     | MCPToolCategoriesQuery
+    | MCPToolCategoryMapQuery
     | MCPToolDescriptionsQuery
     | MCPToolSampleIntentsQuery
     | MCPToolNeighborsQuery
@@ -753,10 +769,54 @@ export enum QueryIndexUsage {
     Yes = 'yes',
 }
 
+export enum PredicateIndexVerdict {
+    /** A skip index on the source column prunes granules for this predicate. */
+    Indexed = 'indexed',
+    /** The source carries an index this operator could use, but a type mismatch defeats it. */
+    Blocked = 'blocked',
+    /** The property reads from a dedicated column, but no index prunes this operator. */
+    UnindexedColumn = 'unindexed_column',
+    /** The property is parsed out of the JSON blob on every row. */
+    UnindexedJson = 'unindexed_json',
+    /** Negations, regexes and case-sensitive LIKE cannot be pruned by any skip index. */
+    OperatorNotIndexable = 'operator_not_indexable',
+}
+
+export enum PredicateScope {
+    Event = 'event',
+    Person = 'person',
+    Group = 'group',
+    Unknown = 'unknown',
+}
+
+/** How one property filter in the query reads its data, decided before the query runs. */
+export interface PredicateIndexUsage {
+    property_name: string
+    scope: PredicateScope
+    /** HogQL comparison operator, e.g. `==`, `in`, `ilike`. */
+    operator: string
+    /** Where the value is physically read from, e.g. `materialized column` or `JSON blob`. */
+    source_label: string
+    column_name?: string
+    /** Type the property definition declares. */
+    semantic_type: string
+    /** Type the value is physically stored as. */
+    physical_type: string
+    /** Skip indexes this predicate can actually use. */
+    usable_indexes: string[]
+    verdict: PredicateIndexVerdict
+    message: string
+    fix?: string
+    start?: integer
+    end?: integer
+}
+
 export interface HogQLMetadataResponse {
     query?: string
     isValid?: boolean
     isUsingIndices?: QueryIndexUsage
+    /** One entry per property filter, in query order. */
+    index_usage?: PredicateIndexUsage[]
     errors: HogQLNotice[]
     warnings: HogQLNotice[]
     notices: HogQLNotice[]
@@ -821,6 +881,11 @@ export interface AutocompleteCompletionItem {
      * an icon is chosen by the editor.
      */
     kind: AutocompleteCompletionItemKind
+    /**
+     * Overrides the editor's default ordering for this item. Set when the backend can rank a
+     * suggestion, for example a function whose return type fits the comparison being written.
+     */
+    sortText?: string
 }
 
 export interface HogQLAutocompleteResponse {
@@ -859,6 +924,8 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     variables?: Record<string, HogQLVariable>
     /** Enable more verbose output, usually run from the /debug page */
     debug?: boolean
+    /** Analyze how each property filter reads its data. Costs a second type-resolution pass, so only editors that render the result should ask for it. */
+    indexUsage?: boolean
 }
 
 export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
@@ -1282,6 +1349,28 @@ export interface PieChartSettings {
     showTotal?: boolean
 }
 
+export interface ScatterChartSettings {
+    /** X-axis scale. A `logarithmic` axis can't place a non-positive value, so those points are dropped. */
+    xScale?: 'linear' | 'logarithmic'
+    /** Whether the X axis should start at zero. Off by default, because pinning either axis of two
+     *  independent measures to zero squashes the correlation into a corner. */
+    xStartAtZero?: boolean
+    /** Whether to draw a least-squares fit line through each series' points. */
+    showBestFit?: boolean
+}
+
+export interface BoxPlotSettings {
+    xAxisColumn?: string | null
+    seriesColumn?: string | null
+    minColumn?: string
+    p25Column?: string
+    medianColumn?: string
+    meanColumn?: string
+    p75Column?: string
+    maxColumn?: string
+    excludeOutliers?: boolean
+}
+
 export interface YAxisSettings {
     label?: string
     scale?: 'linear' | 'logarithmic'
@@ -1307,6 +1396,7 @@ export interface ChartSettings {
     showXAxisBorder?: boolean
     showYAxisBorder?: boolean
     showLegend?: boolean
+    showAnnotations?: boolean
     showValuesOnSeries?: boolean
     // Deprecated: superseded by `pie.showTotal`. Retained so pre-existing pie-chart insights still
     // validate (ChartSettings is `extra="forbid"`). Read as a fallback in the pie chart components.
@@ -1315,6 +1405,8 @@ export interface ChartSettings {
     showNullsAsZero?: boolean
     heatmap?: HeatmapSettings
     pie?: PieChartSettings
+    scatter?: ScatterChartSettings
+    boxPlot?: BoxPlotSettings
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: Record<string, ResultCustomizationByValue>
     /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
@@ -1588,6 +1680,17 @@ export type TrendsFilter = {
      * @default false */
     stackBreakdownValues?: boolean
     yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
+    /** Y-axis baseline. When false the axis floats to the data range instead of starting at zero.
+     *  Ignored on bar displays (bars always draw from zero), on a logarithmic scale, and while
+     *  showing percentages.
+     * @default true */
+    yAxisStartAtZero?: boolean
+    /** Pins the bottom of the y-axis; unset means automatic. Ignored in the same cases as
+     *  `yAxisStartAtZero`, while it is on, and when not below `yAxisMax`. */
+    yAxisMin?: number
+    /** Pins the top of the y-axis; unset means automatic. Ignored in the same cases as
+     *  `yAxisStartAtZero`, and when `yAxisMin` is not below it. */
+    yAxisMax?: number
     /** @default false */
     showMultipleYAxes?: TrendsFilterLegacy['show_multiple_y_axes']
     hiddenLegendIndexes?: integer[]
@@ -1669,6 +1772,9 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'showPercentStackView',
     'stackBreakdownValues',
     'yAxisScaleType',
+    'yAxisStartAtZero',
+    'yAxisMin',
+    'yAxisMax',
     'hiddenLegendIndexes',
     'excludeBoxPlotOutliers',
     'hideWeekends',
@@ -2778,6 +2884,8 @@ export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     allRolesUnassigned?: boolean
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: HogQLExpression
+    /** Include ignored accounts. Ignored accounts are hidden by default. */
+    includeIgnored?: boolean
     orderBy?: string[]
     limit?: integer
     offset?: integer
@@ -2788,6 +2896,8 @@ export enum AccountsTableAccountField {
     ExternalId = 'external_id',
     CreatedAt = 'created_at',
     UpdatedAt = 'updated_at',
+    ChurnedAt = 'churned_at',
+    IgnoredAt = 'ignored_at',
     StripeCustomerId = 'stripe_customer_id',
     HubspotDealId = 'hubspot_deal_id',
     BillingId = 'billing_id',
@@ -2931,6 +3041,25 @@ export interface AccountsTableAccountIdFilter {
     accountId: string
 }
 
+export enum AccountsTableAccountFieldOperator {
+    Exact = 'exact',
+    IsNot = 'is_not',
+    Contains = 'icontains',
+    DoesNotContain = 'not_icontains',
+    IsSet = 'is_set',
+    IsNotSet = 'is_not_set',
+    DateExact = 'is_date_exact',
+    DateBefore = 'is_date_before',
+    DateAfter = 'is_date_after',
+}
+
+export interface AccountsTableAccountFieldFilter {
+    kind: 'account_field'
+    field: AccountsTableAccountField
+    operator: AccountsTableAccountFieldOperator
+    values?: string[]
+}
+
 export enum AccountsTableCustomPropertyOperator {
     Exact = 'exact',
     IsNot = 'is_not',
@@ -2967,6 +3096,7 @@ export type AccountsTableFilter =
     | AccountsTableAssignedToFilter
     | AccountsTableUnassignedFilter
     | AccountsTableAccountIdFilter
+    | AccountsTableAccountFieldFilter
     | AccountsTableCustomPropertyFilter
 
 export type AccountsTableCustomPropertyValue = string | number | boolean | null
@@ -2981,6 +3111,8 @@ export interface AccountsTableRow {
     id: string
     name: string
     externalId?: string | null
+    /** Bare hostname the row's logo is rendered from. Null when no source resolved one. */
+    logoDomain?: string | null
     /** Requested direct Account fields, keyed by their typed field reference. */
     accountFields: Record<string, string | null>
     /** Sorted tag names. Omitted when the request does not select tags. */
@@ -3009,6 +3141,10 @@ export interface AccountsTableQueryResponse extends AnalyticsQueryResponseBase {
 
 export interface AccountsTableQuery extends DataNode<AccountsTableQueryResponse> {
     kind: NodeKind.AccountsTableQuery
+    /** Include churned accounts. Churned accounts are hidden by default. */
+    includeChurned?: boolean
+    /** Include ignored accounts. Ignored accounts are hidden by default. */
+    includeIgnored?: boolean
     /** Columns to load for each account. Account identity fields are always returned. */
     columns: AccountsTableColumn[]
     /** Filters are combined with AND. Values within tag and assignment filters use OR. */
@@ -3457,6 +3593,28 @@ export interface MCPToolCategoriesQuery extends DataNode<MCPToolCategoriesQueryR
 
 export type CachedMCPToolCategoriesQueryResponse = CachedQueryResponse<MCPToolCategoriesQueryResponse>
 
+/** One tool paired with one $mcp_tool_category it was called under. */
+export interface MCPToolCategoryMapItem {
+    tool: string
+    category: string
+}
+
+export interface MCPToolCategoryMapQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolCategoryMapItem[]
+}
+
+/**
+ * Which categories each tool was called under. The intent clustering snapshot is precomputed and
+ * stores tool names without categories, so this is what lets that tab scope by category. A tool
+ * recategorised mid-window appears once per category, rather than one row silently winning.
+ */
+export interface MCPToolCategoryMapQuery extends DataNode<MCPToolCategoryMapQueryResponse> {
+    kind: NodeKind.MCPToolCategoryMapQuery
+    dateRange?: DateRange
+}
+
+export type CachedMCPToolCategoryMapQueryResponse = CachedQueryResponse<MCPToolCategoryMapQueryResponse>
+
 /** One distinct description seen for a single MCP tool, with the last time it was reported. */
 export interface MCPToolDescriptionItem {
     description: string
@@ -3624,6 +3782,48 @@ export interface WebBotsTableQueryResponse extends AnalyticsQueryResponseBase {
 }
 export type CachedWebBotsTableQueryResponse = CachedQueryResponse<WebBotsTableQueryResponse>
 
+export enum WebAgentAnalyticsQueryType {
+    Overview = 'overview',
+    Issues = 'issues',
+    PageRequests = 'page_requests',
+    Transitions = 'transitions',
+    Demand = 'demand',
+    IssueVariants = 'issue_variants',
+    RequestAnatomy = 'request_anatomy',
+    JourneySummary = 'journey_summary',
+    Journeys = 'journeys',
+    JourneyDetail = 'journey_detail',
+}
+
+export enum WebAgentContentGrouping {
+    Exact = 'exact',
+    Normalized = 'normalized',
+}
+
+/** Agent traffic summaries and readiness diagnostics derived from web request events. */
+export interface WebAgentAnalyticsQuery extends WebAnalyticsQueryBase<WebAgentAnalyticsQueryResponse> {
+    kind: NodeKind.WebAgentAnalyticsQuery
+    queryType: WebAgentAnalyticsQueryType
+    includeCrawlers?: boolean
+    contentGrouping?: WebAgentContentGrouping
+    llmsTxtUrl?: string
+    limit?: integer
+    offset?: integer
+    intentKey?: string
+    /** Opaque journey identifier returned by the journeys list, used to load one journey's timeline. */
+    journeyKey?: string
+}
+export interface WebAgentAnalyticsQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown[]
+    types?: unknown[]
+    columns?: unknown[]
+    hogql?: string
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+export type CachedWebAgentAnalyticsQueryResponse = CachedQueryResponse<WebAgentAnalyticsQueryResponse>
+
 export interface WebGoalsQuery extends WebAnalyticsQueryBase<WebGoalsQueryResponse> {
     kind: NodeKind.WebGoalsQuery
     limit?: integer
@@ -3728,6 +3928,9 @@ export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<
 /** @title ErrorTrackingOrderBy */
 export type ErrorTrackingOrderBy = 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
 
+/** @title ErrorTrackingQueryIssueSeverity */
+export type ErrorTrackingQueryIssueSeverity = 'low' | 'medium' | 'high' | 'critical'
+
 /** Client-side pending fingerprint issue state update UNIONed into the argMax subquery to hide Kafka->CH sync lag after mutations. This has to be kept in sync with the CH schema */
 export interface ErrorTrackingPendingFingerprintIssueStateUpdate {
     fingerprint: string
@@ -3735,6 +3938,7 @@ export interface ErrorTrackingPendingFingerprintIssueStateUpdate {
     issue_name: string | null
     issue_description: string | null
     issue_status: string
+    issue_severity: ErrorTrackingQueryIssueSeverity | null
     assigned_user_id: integer | null
     assigned_role_id: string | null
     /** ISO 8601 datetime string. */
@@ -3794,14 +3998,77 @@ export interface ErrorTrackingSimilarIssuesQuery extends DataNode<ErrorTrackingS
     offset?: integer
 }
 
+export interface ErrorTrackingFingerprintProjectionQuery extends DataNode<ErrorTrackingFingerprintProjectionQueryResponse> {
+    kind: NodeKind.ErrorTrackingFingerprintProjectionQuery
+    issueId: ErrorTrackingIssue['id']
+    modelName?: EmbeddingModelName
+    rendering?: string
+}
+
 export interface ErrorTrackingBreakdownsQuery extends DataNode<ErrorTrackingBreakdownsQueryResponse> {
     kind: NodeKind.ErrorTrackingBreakdownsQuery
     issueId: ErrorTrackingIssue['id']
     breakdownProperties: string[]
     dateRange?: DateRange
+    filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
     maxValuesPerProperty?: integer
 }
+
+export type ErrorTrackingReleasesOrderBy = 'latest' | 'occurrences'
+
+export interface ErrorTrackingReleasesQuery extends DataNode<ErrorTrackingReleasesQueryResponse> {
+    kind: NodeKind.ErrorTrackingReleasesQuery
+    issueId: ErrorTrackingIssue['id']
+    dateRange?: DateRange
+    filterGroup?: PropertyGroupFilter
+    filterTestAccounts?: boolean
+    /** Only count exceptions from this app namespace. */
+    appNamespace?: string
+    /** How many releases to return on their own; the rest fold into `other`. */
+    maxReleases?: integer
+    /** `latest` puts the release that first appeared most recently in the range on top, `occurrences` orders by volume. */
+    orderBy?: ErrorTrackingReleasesOrderBy
+    /** Number of time buckets across the date range. */
+    resolution?: integer
+}
+
+export interface ErrorTrackingReleaseSeries {
+    /** Occurrences per bucket, aligned with the response's `buckets`. */
+    counts: integer[]
+    total: integer
+    first_seen: string | null
+    last_seen: string | null
+}
+
+export interface ErrorTrackingIssueRelease extends ErrorTrackingReleaseSeries {
+    namespace: string | null
+    version: string | null
+    build: string | null
+}
+
+export interface ErrorTrackingReleasesQueryResponse extends AnalyticsQueryResponseBase {
+    /** The releases returned on their own, in the requested order. */
+    results: ErrorTrackingIssueRelease[]
+    date_from: string
+    date_to: string
+    /** ISO start of each bucket. The first one can start before `date_from`. */
+    buckets: string[]
+    bucket_seconds: integer
+    /** Releases past `maxReleases`, summed. */
+    other: ErrorTrackingReleaseSeries | null
+    other_release_count: integer
+    /** Exceptions without an app namespace or version. */
+    unattributed: ErrorTrackingReleaseSeries | null
+    /** Distinct releases in the range for the selected app, before folding. */
+    release_count: integer
+    /** Set when the query hit its row cap, so `release_count`, `other` and `total` are lower bounds. */
+    release_count_truncated: boolean
+    /** Every app namespace in the range, regardless of `appNamespace`. */
+    namespaces: string[]
+    total: integer
+}
+export type CachedErrorTrackingReleasesQueryResponse = CachedQueryResponse<ErrorTrackingReleasesQueryResponse>
 
 export interface ErrorTrackingIssueCorrelationQuery extends DataNode<ErrorTrackingIssueCorrelationQueryResponse> {
     kind: NodeKind.ErrorTrackingIssueCorrelationQuery
@@ -3880,6 +4147,7 @@ export interface ErrorTrackingRelationalIssue {
     description: string | null
     assignee: ErrorTrackingIssueAssignee | null
     status: ErrorTrackingIssueStatus
+    severity?: ErrorTrackingQueryIssueSeverity | null
     /**  @format date-time */
     first_seen: string
     external_issues?: ErrorTrackingExternalReference[]
@@ -3952,6 +4220,19 @@ export interface ErrorTrackingSimilarIssuesQueryResponse extends AnalyticsQueryR
     offset?: integer
 }
 export type CachedErrorTrackingSimilarIssuesQueryResponse = CachedQueryResponse<ErrorTrackingSimilarIssuesQueryResponse>
+
+export interface ErrorTrackingFingerprintProjectionPoint {
+    fingerprint: string
+    x: number
+    y: number
+}
+
+export interface ErrorTrackingFingerprintProjectionQueryResponse extends AnalyticsQueryResponseBase {
+    results: ErrorTrackingFingerprintProjectionPoint[]
+    hasMore?: boolean
+}
+export type CachedErrorTrackingFingerprintProjectionQueryResponse =
+    CachedQueryResponse<ErrorTrackingFingerprintProjectionQueryResponse>
 
 export interface ErrorTrackingBreakdownsQueryResponse extends AnalyticsQueryResponseBase {
     results: Record<string, { values: BreakdownValue[]; total_count: number }>
@@ -5138,6 +5419,10 @@ export type ExperimentFunnelMetric = ExperimentMetricBaseProperties & {
     metric_type: ExperimentMetricType.FUNNEL
     series: ExperimentFunnelMetricStep[]
     funnel_order_type?: StepOrderValue
+    /** How to attribute the breakdown value across funnel steps. @default first_touch */
+    breakdownAttributionType?: BreakdownAttributionType
+    /** When breakdownAttributionType is `step`, the 0-indexed step to attribute from. @asType integer */
+    breakdownAttributionValue?: integer
 }
 
 export const isExperimentFunnelMetric = (metric: ExperimentMetric): metric is ExperimentFunnelMetric =>
@@ -6924,7 +7209,8 @@ export interface MarketingAnalyticsAggregatedQuery extends Omit<
 }
 
 /**
- * Row dimension for the Attribution table. String values match MarketingAnalyticsDrillDownLevel for the
+ * Dimension a session is sliced by, shared by the Attribution table and the Retention explorer. String
+ * values match MarketingAnalyticsDrillDownLevel for the
  * levels they share, so both surfaces speak the same vocabulary. It's a separate enum because
  * `ad_group`/`ad` can't be attributed to events at all (no ad identifier reaches the events table), while
  * `referring_domain`/`landing_page` have no cost-side expression and so don't belong in the drill-down.
@@ -7100,6 +7386,94 @@ export interface MarketingAnalyticsAttributionPathsQueryResponse extends Analyti
 
 export type CachedMarketingAnalyticsAttributionPathsQueryResponse =
     CachedQueryResponse<MarketingAnalyticsAttributionPathsQueryResponse>
+
+/**
+ * Cohort and column period for the Retention explorer. Narrower than IntervalType, because hour and
+ * minute grains produce a matrix nobody can read.
+ */
+export enum MarketingAnalyticsRetentionInterval {
+    Day = 'day',
+    Week = 'week',
+    Month = 'month',
+}
+
+/**
+ * The omitted fields are ones this runner ignores, so leaving them settable would let a caller ask for
+ * something that does nothing. `interval` goes because `retentionInterval` shadows it, and
+ * `conversionGoal` because this table counts return visits rather than conversions.
+ */
+export interface MarketingAnalyticsRetentionQuery extends Omit<
+    WebAnalyticsQueryBase<MarketingAnalyticsRetentionQueryResponse>,
+    'orderBy' | 'compareFilter' | 'interval' | 'conversionGoal' | 'doPathCleaning' | 'sampling' | 'samplingFactor'
+> {
+    kind: NodeKind.MarketingAnalyticsRetentionQuery
+    /** Cohort dimension, read off each person's first session. Defaults to channel. */
+    breakdownBy?: MarketingAnalyticsAttributionBreakdown
+    /** Period for both the cohort rows and the return columns. Defaults to week. */
+    retentionInterval?: MarketingAnalyticsRetentionInterval
+    /** Return columns, counting period 0. Defaults to 8, clamped to 40. */
+    totalIntervals?: integer
+    /** Drop direct sessions when deciding first touch, mirroring the attribution explorer. */
+    excludeDirectTraffic?: boolean
+    /** Drop persons whose first session names nothing for the current breakdown. */
+    excludeUnattributed?: boolean
+    /**
+     * Only count persons with no session before the range, so a channel's cohorts are not inflated by
+     * users it acquired long ago. Defaults to true.
+     */
+    onlyNewUsers?: boolean
+    /** How far back to look for a prior session. Defaults to 90, clamped to 365. */
+    newUserLookbackDays?: integer
+    /** Breakdown values kept before the rest roll into 'Other'. Defaults to 20. */
+    breakdownLimit?: integer
+}
+
+/** One cohort's activity in one period since acquisition. */
+export interface MarketingAnalyticsRetentionCell {
+    /** Distinct persons from this cohort active in this period. */
+    count: integer
+    /** count / cohortSize. Null when the cohort is empty. */
+    rate: number | null
+    /**
+     * False when this period has not fully elapsed within the queried range, so a low cell reads as
+     * unfinished instead of as churn.
+     */
+    complete: boolean
+}
+
+export interface MarketingAnalyticsRetentionRow {
+    breakdownValue: string
+    /** Start of the cohort's period, in the team's timezone. @format date-time */
+    cohortDate: string
+    /** 0-based position of this cohort from the range start. */
+    cohortIndex: integer
+    /** Persons acquired in this period under this breakdown value. The denominator for every cell. */
+    cohortSize: integer
+    /** One per column, index = periods since the cohort started. Always intervalCount long. */
+    values: MarketingAnalyticsRetentionCell[]
+}
+
+export interface MarketingAnalyticsRetentionQueryResponse extends AnalyticsQueryResponseBase {
+    results: MarketingAnalyticsRetentionRow[]
+    /** Column count. Every row's values array has this length. */
+    intervalCount: integer
+    interval: MarketingAnalyticsRetentionInterval
+    /** Column headers, e.g. ['Week 0', 'Week 1', ...]. */
+    labels: string[]
+    /** How many breakdown values were folded into 'Other', so the table can say so. */
+    otherBreakdownCount: integer
+    /**
+     * Older cohorts dropped to bound the matrix. Non-zero means the table covers less than the date
+     * range the filter bar shows, so the table has to say so.
+     */
+    truncatedCohorts: integer
+    /** Distinct persons acquired across every cohort and breakdown value. */
+    totalCohortSize: integer
+    hogql?: string
+}
+
+export type CachedMarketingAnalyticsRetentionQueryResponse =
+    CachedQueryResponse<MarketingAnalyticsRetentionQueryResponse>
 
 /** Columns for non-integrated conversions table */
 export enum NonIntegratedConversionsColumnsSchemaNames {
@@ -7278,8 +7652,11 @@ export type ConversionGoalFilter = (EventsNode | ActionsNode | DataWarehouseNode
     /**
      * Marks this goal as customer-defining: a conversion here means the person became a customer
      * (e.g. a payment or subscription), not an intermediate step like a sign up. It gates
-     * customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted
-     * once per person via first_time_for_user) rather than every conversion. Defaults to false.
+     * customer-based metrics such as CAC, whose denominator is this goal's conversions — its
+     * count, or its unique converters under dau math. That equals new customers only for a
+     * once-per-person moment: a repeatable event such as a monthly payment counts every time and
+     * understates cost per customer, and dedup under dau is per result row, so someone converting
+     * under two sources counts twice at channel level. Defaults to false.
      */
     counts_as_customer?: boolean
     /**
@@ -7457,6 +7834,8 @@ export function getEffectiveExcludedColumns(
 export enum MarketingAnalyticsConstants {
     Goal = 'Goal',
     CostPer = 'Cost per',
+    Roas = 'ROAS',
+    Customer = 'customer',
     ConstantValuePrefix = 'const:',
 }
 
@@ -7857,6 +8236,7 @@ export const externalDataSources = [
     'Ebay',
     'Commercetools',
     'LightspeedRetail',
+    'Shipmail',
     'ShipStation',
     'ConstantContact',
     'Mailgun',
@@ -8938,6 +9318,7 @@ export const externalDataSources = [
     'SideShift',
     'DuckLake',
     'Starburst',
+    'Trino',
     'Easybill',
     'Bexio',
     'Umami',
@@ -8977,6 +9358,32 @@ export const externalDataSources = [
     'RakutenAdvertising',
     'Zitadel',
     'DeelFlows',
+    'Hootsuite',
+    'WisprFlow',
+    'SamCart',
+    'IronSourceAds',
+    'MicrosoftExcel',
+    'Profound',
+    'Airwallex',
+    'Polymarket',
+    'Kalshi',
+    'Capterra',
+    'GooglePostmasterTools',
+    'Growi',
+    'Clarify',
+    'DatoCMS',
+    'WPSOffice',
+    'TeraBox',
+    'SimonData',
+    'CommissionJunction',
+    'Liveblocks',
+    'NationBuilder',
+    'Tana',
+    'Zenchef',
+    'Lovable',
+    'Anvil',
+    'Coolify',
+    'SocialPilot',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -9577,6 +9984,7 @@ export enum ProductIntentContext {
     EXPERIMENT_ANALYZED = 'experiment analyzed',
     EXPERIMENT_VIEW_RECORDINGS = 'experiment view recordings',
     EXPERIMENT_REPLAY_VISION_SCANNER_CREATED = 'experiment replay vision scanner created',
+    EXPERIMENT_CREATE_SCANNER = 'experiment create scanner',
 
     // Feature Flags
     FEATURE_FLAG_CREATED = 'feature flag created',

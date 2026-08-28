@@ -42,7 +42,7 @@ export function credentialOwnerLabel(owner: UserBasicApi, grantScope: string): s
     return grantScope === 'team' ? `via ${name}'s connection (team share)` : `via ${name}'s connection`
 }
 
-const AGENT_GRANT_SCOPE_OPTIONS: { value: MCPAgentGrantScopeEnumApi; label: string; tooltip: string }[] = [
+export const AGENT_GRANT_SCOPE_OPTIONS: { value: MCPAgentGrantScopeEnumApi; label: string; tooltip: string }[] = [
     {
         value: 'personal',
         label: 'Just my agents',

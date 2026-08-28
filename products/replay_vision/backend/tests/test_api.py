@@ -4,11 +4,13 @@ from typing import Any
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.db import connection
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
@@ -19,6 +21,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value,
 from posthog.redis import get_client
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
+from products.experiments.backend.models.experiment import Experiment
 from products.replay_vision.backend.api.scanners import ReplayScannerSerializer
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
@@ -40,19 +43,23 @@ from products.replay_vision.backend.models.replay_scanner import (
 )
 from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
 from products.replay_vision.backend.models.vision_action import VisionAction
-from products.replay_vision.backend.queries import SAVE_ESTIMATE_BUDGET
+from products.replay_vision.backend.queries import ESTIMATE_STALE_AFTER, SAVE_ESTIMATE_BUDGET
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
+from products.replay_vision.backend.scanner_draft import DraftError, ScannerDraft
+from products.replay_vision.backend.search import ObservationMatch
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_EXECUTION_TIMEOUT,
     APPLY_SCANNER_WORKFLOW_NAME,
     build_apply_scanner_workflow_id,
+    on_demand_priority,
 )
 from products.replay_vision.backend.tests.helpers import (
     create_experiment,
     seed_scanner_spend,
     snapshot_for as _snapshot_for,
 )
+from products.signals.backend.facade.api import SignalSourceSliceOutcomes
 from products.signals.backend.models import SignalSourceConfig
 
 
@@ -294,37 +301,37 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "classifier_empty_tags",
                 ScannerType.CLASSIFIER,
                 {"prompt": "p", "tags": []},
-                "Tag vocabulary must have at least one tag.",
+                "Add at least one category.",
             ),
             (
                 "classifier_missing_tags",
                 ScannerType.CLASSIFIER,
                 {"prompt": "p"},
-                "Tag vocabulary must have at least one tag.",
+                "Add at least one category.",
             ),
             (
                 "classifier_blank_tag",
                 ScannerType.CLASSIFIER,
                 {"prompt": "p", "tags": ["bug", "   "]},
-                "Tags can't be blank.",
+                "Categories can't be blank.",
             ),
             (
                 "classifier_duplicate_tags",
                 ScannerType.CLASSIFIER,
                 {"prompt": "p", "tags": ["Bug", "bug"]},
-                "Tags must be unique: 'Bug' and 'bug' are the same tag.",
+                "Categories must be unique: 'Bug' and 'bug' are the same category.",
             ),
             (
                 "classifier_slug_colliding_tags",
                 ScannerType.CLASSIFIER,
                 {"prompt": "p", "tags": ["login issue", "login_issue"]},
-                "Tags must be unique: 'login issue' and 'login_issue' are the same tag.",
+                "Categories must be unique: 'login issue' and 'login_issue' are the same category.",
             ),
             (
                 "classifier_tag_without_alphanumerics",
                 ScannerType.CLASSIFIER,
                 {"prompt": "p", "tags": ["!!!"]},
-                "Tags must contain letters or numbers.",
+                "Categories must contain letters or numbers.",
             ),
             (
                 "monitor_missing_prompt",
@@ -366,13 +373,13 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "too_many_tags",
                 ScannerType.CLASSIFIER,
                 {"prompt": "p", "tags": [f"tag-{i}" for i in range(101)]},
-                "Tag vocabulary can have at most 100 tags.",
+                "You can have at most 100 categories.",
             ),
             (
                 "overlong_tag",
                 ScannerType.CLASSIFIER,
                 {"prompt": "p", "tags": ["ok", "x" * 101]},
-                "Tags can be at most 100 characters.",
+                "Categories can be at most 100 characters.",
             ),
             (
                 "unknown_config_key",
@@ -617,7 +624,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self._create_scanner(name="visible")
         hidden = self._create_scanner(name="hidden")
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
             side_effect=lambda qs, **_: qs.exclude(pk=hidden.pk),
         ):
             resp = self.client.get(f"{self.scanners_url}stats/")
@@ -633,7 +640,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         hidden.created_by = other
         hidden.save(update_fields=["created_by"])
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
             side_effect=lambda qs, **_: qs.exclude(pk=hidden.pk),
         ):
             resp = self.client.get(f"{self.scanners_url}creators/")
@@ -680,7 +687,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
 
     def _patch_deny_resource(self, denied: str):
         return patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_resource",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource",
             side_effect=lambda resource, **_: resource != denied,
         )
 
@@ -866,8 +873,7 @@ class TestScannerExperimentTargeting(_VisionAPITestCase):
         self.experiment = create_experiment(self.team, "checkout-redesign")
         self.targeting = {
             "experiment_id": self.experiment.id,
-            "variant_keys": ["test"],
-            "use_exposure_fallback": False,
+            "variant": "test",
         }
 
     def _create_payload(self, name: str, **extra: Any) -> dict[str, Any]:
@@ -895,17 +901,9 @@ class TestScannerExperimentTargeting(_VisionAPITestCase):
 
     @parameterized.expand(
         [
-            ("missing_experiment", {"variant_keys": [], "use_exposure_fallback": False}),
-            ("bad_experiment_id", {"experiment_id": 0, "variant_keys": [], "use_exposure_fallback": False}),
-            (
-                "variant_keys_not_a_list",
-                {"experiment_id": 9, "variant_keys": "not-a-list", "use_exposure_fallback": False},
-            ),
-            ("blank_variant_key", {"experiment_id": 9, "variant_keys": [""], "use_exposure_fallback": False}),
-            (
-                "too_many_variant_keys",
-                {"experiment_id": 9, "variant_keys": [f"v{i}" for i in range(51)], "use_exposure_fallback": False},
-            ),
+            ("missing_experiment", {"variant": "test"}),
+            ("bad_experiment_id", {"experiment_id": 0, "variant": "test"}),
+            ("blank_variant", {"experiment_id": 9, "variant": ""}),
         ]
     )
     def test_experiment_targeting_rejects_malformed(self, _name: str, targeting: dict[str, Any]) -> None:
@@ -914,7 +912,7 @@ class TestScannerExperimentTargeting(_VisionAPITestCase):
         )
         self.assertEqual(resp.status_code, 400, resp.json())
         # The field's nested validation reports the exact offending key (e.g.
-        # experiment_targeting__variant_keys__0), so match on the prefix rather than the exact attr.
+        # experiment_targeting__variant), so match on the prefix rather than the exact attr.
         self.assertTrue(resp.json()["attr"].startswith("experiment_targeting"), resp.json())
 
     def test_partial_update_cannot_save_a_half_filled_targeting(self) -> None:
@@ -923,7 +921,7 @@ class TestScannerExperimentTargeting(_VisionAPITestCase):
         scanner = self._create_scanner(name="patch-me", experiment_targeting=self.targeting)
         resp = self.client.patch(
             f"{self.scanners_url}{scanner.id}/",
-            data={"experiment_targeting": {"variant_keys": ["control"]}},
+            data={"experiment_targeting": {"variant": "control"}},
             format="json",
         )
         self.assertEqual(resp.status_code, 400)
@@ -1046,6 +1044,46 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         if expected_events:
             self.assertEqual(report.call_args.args[2]["edited_fields"], sorted(mutation.keys()))
 
+    @parameterized.expand(
+        [
+            ("drafted", None, 200, True),
+            ("model_failed", DraftError(), 503, False),
+        ]
+    )
+    def test_draft_reports_outcome(
+        self, _name: str, error: Exception | None, expected_status: int, expected_success: bool
+    ) -> None:
+        # A draft that reports nothing would read as user abandonment instead of a model failure.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        drafted = ScannerDraft(
+            name="stuck-in-onboarding",
+            description="Sessions where onboarding stalls",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "did the user get stuck?"},
+            rationale="Onboarding drop-off is the stated goal",
+            query={"kind": "RecordingsQuery", "events": [{"id": "$pageview"}]},
+        )
+        goal = "find users who get stuck in onboarding"
+        with (
+            patch(
+                "products.replay_vision.backend.api.scanners.draft_scanner_from_goal",
+                side_effect=error,
+                return_value=drafted,
+            ),
+            patch("products.replay_vision.backend.api.scanners.report_user_action") as report,
+        ):
+            resp = self.client.post(f"{self.scanners_url}draft/", data={"goal": goal}, format="json")
+
+        self.assertEqual(resp.status_code, expected_status, resp.json())
+        drafted_events = [call for call in report.call_args_list if call.args[1] == "replay_vision_scanner_drafted"]
+        self.assertEqual(len(drafted_events), 1)
+        properties = drafted_events[0].args[2]
+        self.assertEqual(properties["success"], expected_success)
+        self.assertEqual(properties["goal_length"], len(goal))
+        # The goal is customer text; only its length may ride along.
+        self.assertNotIn("goal", properties)
+
 
 class TestScannerDigestProvisioning(_VisionAPITestCase):
     _CREATE_BODY = {
@@ -1059,7 +1097,7 @@ class TestScannerDigestProvisioning(_VisionAPITestCase):
         resp = self.client.post(self.scanners_url, data=self._CREATE_BODY, format="json")
         self.assertEqual(resp.status_code, 201, resp.json())
         digest = VisionAction.objects.for_team(self.team.id).get(scanner_id=resp.json()["id"], is_scanner_digest=True)
-        self.assertEqual(digest.name, "Daily digest: checkout-monitor")
+        self.assertEqual(digest.name, "Featured digest: checkout-monitor")
         self.assertEqual(digest.trigger_config["rrule"], SCANNER_DIGEST_RRULE)
         self.assertEqual(digest.trigger_config["timezone"], self.team.timezone)
         self.assertEqual(digest.delivery_config, [])
@@ -1072,6 +1110,108 @@ class TestScannerDigestProvisioning(_VisionAPITestCase):
             resp = self.client.post(self.scanners_url, data=self._CREATE_BODY, format="json")
         self.assertEqual(resp.status_code, 201, resp.json())
         self.assertFalse(VisionAction.objects.for_team(self.team.id).filter(scanner_id=resp.json()["id"]).exists())
+
+
+class TestScannerDuplicateAction(_VisionAPITestCase):
+    def _duplicate(self, scanner_id: Any) -> Any:
+        return self.client.post(f"{self.scanners_url}{scanner_id}/duplicate/")
+
+    def test_duplicate_copies_stored_fields_the_read_path_redacts(self) -> None:
+        experiment = create_experiment(self.team, "checkout-redesign")
+        targeting = {"experiment_id": experiment.id, "variant_keys": ["test"], "use_exposure_fallback": False}
+        # A stored filter that no longer passes RecordingsQuery validation: the serializer's read
+        # path nulls it, so a copy built from the list response would silently lose it.
+        stale_query = {"kind": "RecordingsQuery", "duration": "not-a-list"}
+        source = self._create_scanner(
+            name="redacted-source",
+            query=stale_query,
+            experiment_targeting=targeting,
+            credit_limit=500,
+            sampling_rate=0.25,
+            enabled=True,
+        )
+        set_tags_on_object(["checkout", "billing"], source)
+
+        resp = self._duplicate(source.id)
+
+        self.assertEqual(resp.status_code, 201, resp.json())
+        body = resp.json()
+        self.assertEqual(body["name"], "redacted-source (copy)")
+        self.assertFalse(body["enabled"])
+        # The response still goes through the read path, which redacts the invalid stored filter.
+        self.assertIsNone(body["query"])
+        copy = ReplayScanner.objects.get(id=body["id"])
+        self.assertEqual(copy.query, stale_query)
+        self.assertEqual(copy.experiment_targeting, targeting)
+        self.assertEqual(copy.credit_limit, 500)
+        self.assertEqual(copy.sampling_rate, 0.25)
+        self.assertEqual(copy.scanner_config, source.scanner_config)
+        self.assertFalse(copy.enabled)
+        self.assertEqual(copy.created_by_id, self.user.id)
+        self.assertEqual(sorted(copy.tagged_items.values_list("tag__name", flat=True)), ["billing", "checkout"])
+
+    def test_duplicate_drops_targeting_for_an_experiment_the_caller_cannot_view(self) -> None:
+        experiment = create_experiment(self.team, "pricing-test")
+        targeting = {"experiment_id": experiment.id, "variant_keys": ["test"], "use_exposure_fallback": False}
+        source = self._create_scanner(name="targeted-source", experiment_targeting=targeting)
+
+        # A scanner is viewable at a coarser grain than its experiment, so this caller reads the
+        # scanner with the targeting already nulled. Copying the stored row instead would hand them
+        # a scanner that scans against an experiment the create path refuses to target.
+        with patch(
+            "products.replay_vision.backend.api.scanners.is_experiment_accessible",
+            return_value=False,
+        ):
+            resp = self._duplicate(source.id)
+
+        self.assertEqual(resp.status_code, 201, resp.json())
+        copy = ReplayScanner.objects.get(id=resp.json()["id"])
+        self.assertIsNone(copy.experiment_targeting)
+        source.refresh_from_db()
+        self.assertEqual(source.experiment_targeting, targeting)
+
+    def test_duplicate_numbers_the_copy_name_when_taken(self) -> None:
+        source = self._create_scanner(name="my-scanner")
+        first = self._duplicate(source.id)
+        second = self._duplicate(source.id)
+        self.assertEqual(first.status_code, 201, first.json())
+        self.assertEqual(second.status_code, 201, second.json())
+        self.assertEqual(first.json()["name"], "my-scanner (copy)")
+        self.assertEqual(second.json()["name"], "my-scanner (copy 2)")
+
+    def test_duplicate_rejected_without_resource_level_editor_access(self) -> None:
+        source = self._create_scanner(name="my-scanner")
+        # A caller holding an object-level editor grant while the resource level is "none":
+        # the permission class admits the request, so the action must enforce the
+        # resource-level bar itself, exactly as the create action does.
+        with (
+            patch(
+                "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource",
+                side_effect=lambda resource, **_: resource != "replay_scanner",
+            ),
+            patch(
+                "products.access_control.backend.facade.user_access_control.UserAccessControl.has_any_specific_access_for_resource",
+                return_value=True,
+            ),
+        ):
+            resp = self._duplicate(source.id)
+        self.assertEqual(resp.status_code, 403, resp.json())
+        self.assertIn("editor access", resp.json()["detail"])
+        self.assertEqual(ReplayScanner.objects.filter(team=self.team).count(), 1)
+
+    def test_duplicate_provisions_no_digest_and_reports_a_distinct_event(self) -> None:
+        source = self._create_scanner(name="my-scanner")
+        with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
+            resp = self._duplicate(source.id)
+        self.assertEqual(resp.status_code, 201, resp.json())
+        copy_id = resp.json()["id"]
+        self.assertFalse(VisionAction.objects.for_team(self.team.id).filter(scanner_id=copy_id).exists())
+        report.assert_called_once()
+        self.assertEqual(report.call_args.args[1], "replay_vision_scanner_duplicated")
+        properties = report.call_args.args[2]
+        self.assertEqual(properties["scanner_id"], copy_id)
+        self.assertEqual(properties["source_scanner_id"], str(source.id))
+        self.assertEqual(properties["scanner_type"], ScannerType.MONITOR)
 
 
 class TestScannerEstimatePersistence(_VisionAPITestCase):
@@ -1133,8 +1273,8 @@ class TestScannerEstimatePersistence(_VisionAPITestCase):
 
     @parameterized.expand(
         [
-            ("fresh_estimate_skips_inline_refresh", timedelta(hours=1), False),
-            ("stale_estimate_refreshes_inline", timedelta(days=2), True),
+            ("fresh_estimate_skips_inline_refresh", ESTIMATE_STALE_AFTER - timedelta(hours=1), False),
+            ("stale_estimate_refreshes_inline", ESTIMATE_STALE_AFTER + timedelta(hours=1), True),
         ]
     )
     def test_reenabling_refreshes_inline_only_when_stale(
@@ -2062,6 +2202,7 @@ class TestObserveAction(_VisionAPITestCase):
         self.assertEqual(args[0], APPLY_SCANNER_WORKFLOW_NAME)
         self.assertEqual(kwargs["id"], expected_workflow_id)
         self.assertEqual(kwargs["execution_timeout"], APPLY_SCANNER_EXECUTION_TIMEOUT)
+        self.assertEqual(kwargs["priority"], on_demand_priority(self.team.id))
         inputs = args[1]
         self.assertEqual(inputs.scanner_id, self.scanner.id)
         self.assertEqual(inputs.session_id, "sess-42")
@@ -2791,7 +2932,7 @@ class TestRetryActions(_VisionAPITestCase):
         observation = self._create_failed("sess-rbac")
 
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
             side_effect=lambda obj, required_level=None, **_: not isinstance(obj, ReplayScanner),
         ):
             resp = self.client.post(f"/api/environments/{self.team.id}/vision/observations/{observation.id}/retry/")
@@ -2846,14 +2987,25 @@ class TestSessionReplayObservationViewSet(_VisionAPITestCase):
         )
 
     def test_list_returns_observations_from_every_scanner_for_the_session(self) -> None:
+        inline_scanner = self._create_scanner(name="one-off", origin=ScannerOrigin.INLINE, inline_key="one-off")
         self._create_observation(self.scanner_a, "sess-target")
         self._create_observation(self.scanner_b, "sess-target")
+        self._create_observation(inline_scanner, "sess-target")
         self._create_observation(self.scanner_a, "sess-other")
 
         resp = self.client.get(f"{self.session_observations_url}?session_id=sess-target")
         self.assertEqual(resp.status_code, 200)
         results = resp.json()["results"]
-        self.assertEqual({r["scanner_id"] for r in results}, {str(self.scanner_a.id), str(self.scanner_b.id)})
+        self.assertEqual(
+            {r["scanner_id"] for r in results},
+            {str(self.scanner_a.id), str(self.scanner_b.id), str(inline_scanner.id)},
+        )
+        # This endpoint feeds the dock, seekbar and sidebar, where a one-off scan used to render a
+        # blank label, so the origin has to survive the trip here and not only on the scanner route.
+        self.assertEqual(
+            {r["scanner_id"]: r["scanner_origin"] for r in results}[str(inline_scanner.id)],
+            "inline",
+        )
 
     def test_list_requires_session_id(self) -> None:
         resp = self.client.get(self.session_observations_url)
@@ -2998,6 +3150,184 @@ class TestSessionReplayObservationViewSet(_VisionAPITestCase):
         body = self.client.get(f"{self.session_observations_url}{observation.id}/?status=succeeded").json()
         self.assertIsNone(body["previous_observation_id"])
         self.assertIsNone(body["next_observation_id"])
+
+
+class TestObservationSearchAction(_VisionAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.scanner = self._create_scanner(name="searchable")
+
+    @property
+    def search_url(self) -> str:
+        return f"/api/environments/{self.team.id}/vision/observations/search/"
+
+    def _create_succeeded_observation(self, session_id: str, scanner: ReplayScanner | None = None) -> ReplayObservation:
+        scanner = scanner or self.scanner
+        observation = ReplayObservation.objects.create(
+            scanner=scanner,
+            session_id=session_id,
+            scanner_snapshot=_snapshot_for(scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+        )
+        ReplayObservation.objects.filter(pk=observation.id).update(
+            status=ObservationStatus.SUCCEEDED, completed_at=timezone.now()
+        )
+        return observation
+
+    @parameterized.expand(
+        [
+            ("missing_q", ""),
+            ("limit_above_cap", "?q=checkout&limit=51"),
+            ("unknown_verdict", "?q=checkout&verdict=yes,maybe"),
+            ("min_score_above_max_score", "?q=checkout&min_score=5&max_score=1"),
+            ("nan_score", "?q=checkout&min_score=nan"),
+            ("infinite_score", "?q=checkout&max_score=inf"),
+        ]
+    )
+    def test_search_rejects_bad_params(self, _name: str, query_string: str) -> None:
+        resp = self.client.get(f"{self.search_url}{query_string}")
+        self.assertEqual(resp.status_code, 400)
+
+    @patch("products.replay_vision.backend.api.observations.rank_observations")
+    @patch("products.replay_vision.backend.api.observations.generate_embedding")
+    def test_search_returns_results_in_rank_order(self, mock_embed: MagicMock, mock_rank: MagicMock) -> None:
+        first = self._create_succeeded_observation("sess-1")
+        second = self._create_succeeded_observation("sess-2")
+        mock_embed.return_value = MagicMock(embedding=[0.1, 0.2])
+        # A ranked id with no readable row must be skipped, not 500 or leak.
+        mock_rank.return_value = [
+            ObservationMatch(observation_id=str(second.id), distance=0.1, matched_content="user rage-clicked"),
+            ObservationMatch(observation_id=str(uuid7()), distance=0.2, matched_content=""),
+            ObservationMatch(observation_id=str(first.id), distance=0.3, matched_content=""),
+        ]
+
+        resp = self.client.get(f"{self.search_url}?q=confused users")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(
+            [(r["observation"]["id"], r["distance"], r["matched_content"]) for r in resp.json()["results"]],
+            [(str(second.id), 0.1, "user rage-clicked"), (str(first.id), 0.3, "")],
+        )
+        self.assertFalse(resp.json()["truncated"])
+
+    @patch("products.replay_vision.backend.api.observations.rank_observations")
+    @patch("products.replay_vision.backend.api.observations.generate_embedding")
+    def test_search_overfetches_then_slices_to_limit_and_flags_truncation(
+        self, mock_embed: MagicMock, mock_rank: MagicMock
+    ) -> None:
+        first = self._create_succeeded_observation("sess-1")
+        second = self._create_succeeded_observation("sess-2")
+        mock_embed.return_value = MagicMock(embedding=[0.1])
+        # The best-ranked id hydrates to nothing readable; the over-fetched tail must fill the response
+        # up to `limit`, and the extra readable row must be cut, not returned.
+        mock_rank.return_value = [
+            ObservationMatch(observation_id=str(uuid7()), distance=0.1, matched_content=""),
+            ObservationMatch(observation_id=str(first.id), distance=0.2, matched_content=""),
+            ObservationMatch(observation_id=str(second.id), distance=0.3, matched_content=""),
+        ]
+
+        resp = self.client.get(f"{self.search_url}?q=confused users&limit=1")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertGreater(mock_rank.call_args[0][4], 1)
+        self.assertEqual([r["observation"]["id"] for r in resp.json()["results"]], [str(first.id)])
+        self.assertTrue(resp.json()["truncated"])
+
+    @patch("products.replay_vision.backend.api.observations.rank_observations")
+    @patch("products.replay_vision.backend.api.observations.generate_embedding")
+    def test_search_drops_rows_whose_snapshot_experiment_is_restricted(
+        self, mock_embed: MagicMock, mock_rank: MagicMock
+    ) -> None:
+        experiment = create_experiment(self.team, "restricted-flag")
+        targeted = self._create_scanner(
+            name="was-targeted", experiment_targeting={"experiment_id": experiment.id, "variant": "test"}
+        )
+        restricted = self._create_succeeded_observation("sess-restricted", scanner=targeted)
+        # Clear the targeting so the scanner passes the scanner gate. The row's snapshot must still block it.
+        targeted.experiment_targeting = None
+        targeted.save(update_fields=["experiment_targeting"])
+        visible = self._create_succeeded_observation("sess-visible")
+        mock_embed.return_value = MagicMock(embedding=[0.1])
+        mock_rank.return_value = [
+            ObservationMatch(observation_id=str(restricted.id), distance=0.1, matched_content=""),
+            ObservationMatch(observation_id=str(visible.id), distance=0.2, matched_content=""),
+        ]
+
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
+        ):
+            resp = self.client.get(f"{self.search_url}?q=anything")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([r["observation"]["id"] for r in resp.json()["results"]], [str(visible.id)])
+
+    @patch("products.replay_vision.backend.api.observations.rank_observations", return_value=[])
+    @patch("products.replay_vision.backend.api.observations.generate_embedding")
+    def test_search_hides_scanner_targeting_a_restricted_experiment(
+        self, mock_embed: MagicMock, mock_rank: MagicMock
+    ) -> None:
+        experiment = create_experiment(self.team, "restricted-flag")
+        denied = self._create_scanner(
+            name="targeted", experiment_targeting={"experiment_id": experiment.id, "variant": "test"}
+        )
+        mock_embed.return_value = MagicMock(embedding=[0.1])
+
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
+        ):
+            scoped = self.client.get(f"{self.search_url}?q=anything&scanner_id={denied.id}")
+            cross = self.client.get(f"{self.search_url}?q=anything")
+
+        # Not-found rather than 403, so the response never leaks the experiment's existence.
+        self.assertEqual(scoped.status_code, 404)
+        self.assertEqual(cross.status_code, 200)
+        searched_scanner_ids = mock_rank.call_args[0][2]
+        self.assertNotIn(str(denied.id), searched_scanner_ids)
+        self.assertIn(str(self.scanner.id), searched_scanner_ids)
+
+    # `generate_embedding` posts through a `requests` session, so its transport failures are the
+    # `requests` exceptions — an `httpx` mock here would exercise a handler that can never fire.
+    @parameterized.expand(
+        [
+            ("unreachable", requests.ConnectionError),
+            ("slow", requests.Timeout),
+        ]
+    )
+    def test_search_returns_503_when_embedding_unavailable(self, _name: str, exception_class: type) -> None:
+        with patch(
+            "products.replay_vision.backend.api.observations.generate_embedding",
+            side_effect=exception_class("embedding service down"),
+        ):
+            resp = self.client.get(f"{self.search_url}?q=anything")
+        self.assertEqual(resp.status_code, 503)
+
+    @patch("products.replay_vision.backend.api.observations.is_ai_data_processing_approved", return_value=False)
+    def test_search_returns_400_when_ai_consent_is_off(self, _mock_consent: MagicMock) -> None:
+        resp = self.client.get(f"{self.search_url}?q=anything")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("allow AI analysis", resp.json()["detail"])
+
+    def test_search_with_unknown_scanner_returns_404(self) -> None:
+        resp = self.client.get(f"{self.search_url}?q=anything&scanner_id={uuid7()}")
+        self.assertEqual(resp.status_code, 404)
+
+    # Guards the wiring, not the rate: the action-level `throttle_classes` must actually reach
+    # `get_throttles()`, or the endpoint ships with no throttle at all.
+    @patch("posthog.rate_limit.ReplayVisionSearchBurstRateThrottle.rate", new="2/minute")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @patch("products.replay_vision.backend.api.observations.rank_observations", return_value=[])
+    @patch("products.replay_vision.backend.api.observations.generate_embedding")
+    def test_search_is_rate_limited(
+        self, mock_embed: MagicMock, _mock_rank: MagicMock, _mock_enabled: MagicMock
+    ) -> None:
+        cache.clear()
+        mock_embed.return_value = MagicMock(embedding=[0.1])
+        for _ in range(2):
+            self.assertEqual(self.client.get(f"{self.search_url}?q=anything").status_code, 200)
+
+        self.assertEqual(self.client.get(f"{self.search_url}?q=anything").status_code, 429)
 
 
 class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
@@ -3476,6 +3806,22 @@ class TestInlineScanAction(_VisionAPITestCase):
         resp = self.client.get(self.observations_url(scan_id))
         self.assertEqual(resp.status_code, 200, resp.content)
         self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["sess-1"])
+        # Marked inline so a reader knows not to offer a link to the scanner: those endpoints 404 on it.
+        self.assertEqual([r["scanner_origin"] for r in resp.json()["results"]], ["inline"])
+
+    def test_a_configured_scanners_observations_are_marked_configured(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # The other half of the flag. Without it every observation reads as unlinkable and the scanner
+        # breadcrumb disappears for the configured scanners that do have a page.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+        scanner = self._create_scanner()
+        self._finished_observation(str(scanner.id), "sess-1")
+
+        resp = self.client.get(self.observations_url(str(scanner.id)))
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual([r["scanner_origin"] for r in resp.json()["results"]], ["configured"])
 
     def test_requires_ai_consent(self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock) -> None:
         # New call site into the LLM path, so it needs its own consent gate rather than inheriting one.
@@ -3490,3 +3836,28 @@ class TestInlineScanAction(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 400, resp.content)
         self.assertFalse(ReplayScanner.all_origins.filter(origin=ScannerOrigin.INLINE).exists())
         start_workflow.assert_not_called()
+
+
+class TestScannerSelfDrivingStatsAPI(_VisionAPITestCase):
+    def test_returns_the_scanners_signal_outcomes(self) -> None:
+        # Wiring guard: the endpoint must query the signals facade for this scanner's slice and
+        # serialize the outcome counts; a dropped extra filter would return team-wide numbers.
+        scanner = self._create_scanner()
+        outcomes = SignalSourceSliceOutcomes(signal_count=5, report_count=2, pr_count=1, merged_pr_count=1)
+        with patch(
+            "products.replay_vision.backend.api.scanners.get_outcomes_for_signal_source_slice",
+            return_value=outcomes,
+        ) as mock_outcomes:
+            response = self.client.get(f"{self.scanners_url}{scanner.id}/self_driving_stats/")
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "signals_emitted": 5,
+            "reports_contributed": 2,
+            "prs_opened": 1,
+            "prs_merged": 1,
+        }
+        kwargs = mock_outcomes.call_args.kwargs
+        assert kwargs["source_product"] == "replay_vision"
+        assert kwargs["source_type"] == "scanner_finding"
+        assert kwargs["extra_equals"] == {"scanner_id": str(scanner.id)}

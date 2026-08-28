@@ -12,7 +12,8 @@ import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
-import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
+import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
+import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport, SignalReportStatus } from '../../types'
 import { useReportArchive } from '../cards/useReportArchive'
 import { useReportRefund } from '../cards/useReportRefund'
@@ -37,7 +38,7 @@ export interface ReportDetailAction {
  * Should the Create PR action be offered? Mirrors desktop `canCreateImplementationPr` /
  * the server-side autostart rules: only when ready & actionable, or blocked on user input.
  */
-function canCreateImplementationPr(report: SignalReport): boolean {
+export function canCreateImplementationPr(report: SignalReport): boolean {
     if (report.implementation_pr_url) {
         return false
     }
@@ -62,6 +63,9 @@ function canCreateImplementationPr(report: SignalReport): boolean {
  */
 export function useReportDetailActions(report: SignalReport): ReportDetailAction[] {
     const { isCreatingPr, aiConsentDisabledReason } = useValues(inboxTaskKickoffLogic)
+    // Already mounted by `ReportDetail` with these same props, so this reads the loaded value
+    // rather than starting a second fetch.
+    const { hasLiveImplementationTask } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
     const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
     const { reportArchived } = useActions(inboxBulkActionsLogic)
     const { activeTab } = useValues(inboxSceneLogic)
@@ -118,11 +122,11 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     }
 
     const onRestoreClick = async (): Promise<void> => {
-        // Prefer the mounted Archived list logic so it optimistically drops the row and fixes its
-        // count + tab badge synchronously (it also fires the API call + toast). Navigate straight back.
+        // Prefer the mounted Resolved list logic so it optimistically drops the row and fixes its
+        // count + view badge synchronously (it also fires the API call + toast). Navigate straight back.
         const archivedList = reportListLogic.findMounted({
-            tabKey: 'archived',
-            listParams: INBOX_FLAT_TAB_LIST_PARAMS.archived,
+            sectionKey: 'resolved',
+            listParams: INBOX_REPORT_SECTION_LIST_PARAMS.resolved,
         })
         if (archivedList) {
             // The list logic fires the `restore` analytics; just drive navigation here.
@@ -130,7 +134,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
             router.actions.push(urls.inbox(activeTab))
             return
         }
-        // Fallback for a deep-linked detail with no mounted Archived list (e.g. cold load).
+        // Fallback for a deep-linked detail with no mounted Resolved list (e.g. cold load).
         setIsRestoring(true)
         try {
             await api.signalReports.setState(report.id, { state: 'potential' })
@@ -191,7 +195,11 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
             icon: <IconPullRequest />,
             loading: isCreatingPr,
             tooltip: 'Have Self-driving open a pull request for this report',
-            disabledReason: aiConsentDisabledReason ?? undefined,
+            disabledReason:
+                aiConsentDisabledReason ??
+                (hasLiveImplementationTask
+                    ? 'A PR task already exists for this report. Open it in the task log to continue.'
+                    : undefined),
             onClick: () => {
                 captureInboxReportAction({ report, actionType: 'create_pr', surface: 'detail_pane' })
                 createPrFromReport(report)

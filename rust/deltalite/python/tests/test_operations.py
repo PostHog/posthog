@@ -809,3 +809,165 @@ def test_large_source_is_also_split_by_the_target(tmp_path):
     sizes = _added_file_sizes(uri, stats.version)
     assert stats.files_added > 1, f"source write ignored the 4 MiB target: {stats}"
     assert max(sizes) < 32 * 1024 * 1024, f"file far larger than the target: {sizes}"
+
+
+# --------------------------------------------------------------------------------------
+# Nullability relax: lying non-nullable columns are flipped to nullable, not failed
+# --------------------------------------------------------------------------------------
+
+
+def _non_nullable_table(uri):
+    schema = pa.schema(
+        [
+            pa.field("id", pa.string(), nullable=False),
+            pa.field("v", pa.int64(), nullable=False),
+            pa.field(PARTITION_KEY, pa.string(), nullable=False),
+        ]
+    )
+    data = pa.table({"id": ["a", "b"], "v": [1, 1], PARTITION_KEY: ["p", "p"]}, schema=schema)
+    create_table(uri, data, partitioned=True)
+
+
+def _nullability(uri) -> dict[str, bool]:
+    return {f.name: f.nullable for f in deltalake.DeltaTable(uri).schema().fields}
+
+
+def test_upsert_relaxes_non_nullable_column_when_batch_carries_nulls(tmp_path):
+    """A batch with nulls in a non-nullable column relaxes that column to nullable in
+    the table metadata and commits, instead of failing Arrow's nullability validation
+    (which sent production back to the delta-rs MERGE -- which then wrote the nulls
+    anyway, under a schema that denies them)."""
+    uri = str(tmp_path / "relax_batch")
+    _non_nullable_table(uri)
+
+    batch = pa.table(
+        {
+            "id": pa.array(["b", "c"], pa.string()),
+            "v": pa.array([2, None], pa.int64()),
+            PARTITION_KEY: pa.array(["p", "p"], pa.string()),
+        }
+    )
+    stats = upsert_path(uri, batch, ["id"], PARTITION_KEY)
+
+    assert stats.columns_relaxed == 1
+    nullability = _nullability(uri)
+    assert nullability["v"] is True, "the null-carrying column must be relaxed"
+    assert nullability["id"] is False, "untouched columns keep their nullability"
+    assert content(uri) == {("a", "p"): 1, ("b", "p"): 2, ("c", "p"): None}
+
+
+def test_upsert_relaxes_non_nullable_column_absent_from_batch(tmp_path):
+    """A batch missing a non-nullable column gets it null-padded (the pinned wholesale
+    row-replacement semantics), which requires the same relax."""
+    uri = str(tmp_path / "relax_absent")
+    _non_nullable_table(uri)
+
+    batch = pa.table(
+        {
+            "id": pa.array(["b", "c"], pa.string()),
+            PARTITION_KEY: pa.array(["p", "p"], pa.string()),
+        }
+    )
+    stats = upsert_path(uri, batch, ["id"], PARTITION_KEY)
+
+    assert stats.columns_relaxed == 1
+    assert _nullability(uri)["v"] is True
+    assert content(uri) == {("a", "p"): 1, ("b", "p"): None, ("c", "p"): None}
+
+
+def test_upsert_heals_table_poisoned_by_historic_null_writes(tmp_path):
+    """The production failure shape: files contain real nulls in a column the schema
+    declares non-nullable (older writers accepted them; current ones refuse), so every
+    later deltalite upsert re-reads a poisoned file and fails validation -- permanently.
+    Poisoning is reproduced by writing the nulls under a nullable schema and then
+    flipping the metaData action's nullable flag, since current writers refuse the
+    direct write. The Add-action nullCount stats prove the nulls, the column is relaxed,
+    and the upsert (with a perfectly clean batch) succeeds."""
+    uri = str(tmp_path / "relax_poisoned")
+    data = pa.table(
+        {
+            "id": pa.array(["a", "b", "c"], pa.string()),
+            "v": pa.array([1, 1, None], pa.int64()),
+            PARTITION_KEY: pa.array(["p", "p", "p"], pa.string()),
+        }
+    )
+    create_table(uri, data, partitioned=True)
+
+    commit0 = Path(uri) / "_delta_log" / "00000000000000000000.json"
+    lines = []
+    for line in commit0.read_text().splitlines():
+        action = json.loads(line)
+        if "metaData" in action:
+            schema = json.loads(action["metaData"]["schemaString"])
+            for field in schema["fields"]:
+                if field["name"] == "v":
+                    field["nullable"] = False
+            action["metaData"]["schemaString"] = json.dumps(schema)
+        lines.append(json.dumps(action))
+    commit0.write_text("\n".join(lines) + "\n")
+    assert _nullability(uri)["v"] is False, "test setup must produce the lying schema"
+
+    clean = pa.table(
+        {
+            "id": pa.array(["a", "d"], pa.string()),
+            "v": pa.array([5, 5], pa.int64()),
+            PARTITION_KEY: pa.array(["p", "p"], pa.string()),
+        }
+    )
+    stats = upsert_path(uri, clean, ["id"], PARTITION_KEY)
+
+    assert stats.columns_relaxed == 1
+    assert _nullability(uri)["v"] is True
+    assert content(uri) == {("a", "p"): 5, ("b", "p"): 1, ("c", "p"): None, ("d", "p"): 5}
+
+
+def test_upsert_does_not_relax_clean_non_nullable_columns(tmp_path):
+    """No false positives: a clean table + clean batch leaves the schema untouched."""
+    uri = str(tmp_path / "no_relax")
+    _non_nullable_table(uri)
+
+    batch = pa.table(
+        {
+            "id": pa.array(["b", "c"], pa.string()),
+            "v": pa.array([2, 3], pa.int64()),
+            PARTITION_KEY: pa.array(["p", "p"], pa.string()),
+        }
+    )
+    stats = upsert_path(uri, batch, ["id"], PARTITION_KEY)
+
+    assert stats.columns_relaxed == 0
+    nullability = _nullability(uri)
+    assert nullability["v"] is False
+    assert nullability["id"] is False
+    assert content(uri) == {("a", "p"): 1, ("b", "p"): 2, ("c", "p"): 3}
+
+
+# --------------------------------------------------------------------------------------
+# Best-effort log maintenance: checkpoints still happen without the post-commit hook
+# --------------------------------------------------------------------------------------
+
+
+def test_upsert_creates_checkpoint_at_interval_boundary(tmp_path):
+    """Checkpoint + log cleanup moved out of delta-rs's post-commit hook (where a
+    failure fails the already-durable commit) into a best-effort step. This pins that
+    checkpoints still get created at the table's checkpointInterval boundary."""
+    uri = str(tmp_path / "checkpointed")
+    deltalake.write_deltalake(
+        uri,
+        simple(["a"], "p", 1),
+        partition_by=[PARTITION_KEY],
+        mode="overwrite",
+        configuration={"delta.checkpointInterval": "2"},
+    )
+
+    stats = upsert_path(uri, simple(["b"], "p", 2), ["id"], PARTITION_KEY)
+    assert stats.version == 1
+
+    log = Path(uri) / "_delta_log"
+    checkpoints = list(log.glob("*.checkpoint.parquet"))
+    assert checkpoints, "the boundary commit ((version + 1) % interval == 0) must checkpoint"
+    assert (log / "_last_checkpoint").exists()
+
+    # An off-boundary commit must not add another checkpoint.
+    upsert_path(uri, simple(["c"], "p", 3), ["id"], PARTITION_KEY)
+    assert list(log.glob("*.checkpoint.parquet")) == checkpoints

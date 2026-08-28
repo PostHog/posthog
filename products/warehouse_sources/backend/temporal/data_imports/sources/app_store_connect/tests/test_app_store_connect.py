@@ -1,6 +1,6 @@
 import gzip
 import hashlib
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -13,13 +13,18 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.app_store_connect import (
+    APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
+    APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,
+    APP_STORE_CONNECT_READ_FORBIDDEN_ERROR,
     BASE_URL,
     JWT_AUDIENCE,
     JWT_LIFETIME_SECONDS,
     AppStoreConnectAuthError,
+    AppStoreConnectPermissionError,
     AppStoreConnectResumeConfig,
     AppStoreConnectTokenProvider,
     AppStoreConnectUrlError,
+    _ensure_report_request,
     _find_analytics_report,
     _flatten_resource,
     _get,
@@ -27,7 +32,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_
     _normalize_report_column,
     _Page,
     _parse_report,
+    _ParseFailureCounter,
     _require_api_url,
+    _typed_report_value,
     app_store_connect_source,
     check_credentials,
     get_rows,
@@ -168,6 +175,7 @@ def _collect(
     manager: _FakeManager,
     *,
     vendor_number: str | None = None,
+    logger: MagicMock | None = None,
     **kwargs: Any,
 ) -> list[dict[str, Any]]:
     session = MagicMock()
@@ -180,7 +188,7 @@ def _collect(
             private_key=PRIVATE_KEY_PEM,
             vendor_number=vendor_number,
             endpoint=endpoint,
-            logger=MagicMock(),
+            logger=logger if logger is not None else MagicMock(),
             resumable_source_manager=manager,
             **kwargs,
         ):
@@ -514,6 +522,39 @@ class TestReviewResponses:
         assert response.partition_keys is None
 
 
+class TestJsonApiDateTimeColumns:
+    def test_iso_datetime_attributes_become_utc_datetimes(self) -> None:
+        api = _FakeApi(
+            {
+                f"{BASE_URL}/v1/betaGroups": _page(
+                    [
+                        _resource("betaGroups", "1", name="Zulu", createdDate="2026-03-04T10:00:00Z"),
+                        _resource("betaGroups", "2", name="Offset", createdDate="2026-03-04T12:30:00+02:00"),
+                        _resource("betaGroups", "3", name="Fractional", createdDate="2026-03-04T10:00:00.123456-05:00"),
+                    ]
+                )
+            }
+        )
+
+        rows = _collect("beta_groups", api, _FakeManager())
+
+        # Apple emits varying local offsets; normalizing to UTC keeps one column in one zone.
+        assert [row["createdDate"] for row in rows] == [
+            datetime(2026, 3, 4, 10, 0, tzinfo=UTC),
+            datetime(2026, 3, 4, 10, 30, tzinfo=UTC),
+            datetime(2026, 3, 4, 15, 0, 0, 123456, tzinfo=UTC),
+        ]
+        assert [row["name"] for row in rows] == ["Zulu", "Offset", "Fractional"]
+
+    def test_unparseable_datetime_is_nulled_rather_than_failing_the_sync(self) -> None:
+        api = _FakeApi({f"{BASE_URL}/v1/betaGroups": _page([_resource("betaGroups", "1", createdDate="last Tuesday")])})
+
+        rows = _collect("beta_groups", api, _FakeManager())
+
+        assert rows[0]["createdDate"] is None
+        assert rows[0]["id"] == "1"
+
+
 APPS_URL = f"{BASE_URL}/v1/apps"
 REQUESTS_URL = f"{BASE_URL}/v1/apps/A1/analyticsReportRequests"
 CREATE_REQUEST_URL = f"{BASE_URL}/v1/analyticsReportRequests"
@@ -602,7 +643,12 @@ def _analytics_api(
     return _FakeAnalyticsApi(bodies, segment_payloads=segment_payloads)
 
 
-def _collect_analytics(api: _FakeAnalyticsApi, manager: _FakeManager, **kwargs: Any) -> list[dict[str, Any]]:
+def _collect_analytics(
+    api: _FakeAnalyticsApi,
+    manager: _FakeManager,
+    endpoint: str = "analytics_app_sessions",
+    **kwargs: Any,
+) -> list[dict[str, Any]]:
     session = MagicMock()
     session.get.side_effect = api.get
     session.post.side_effect = api.post
@@ -616,7 +662,7 @@ def _collect_analytics(api: _FakeAnalyticsApi, manager: _FakeManager, **kwargs: 
             key_id="KEY123",
             private_key=PRIVATE_KEY_PEM,
             vendor_number=None,
-            endpoint="analytics_app_sessions",
+            endpoint=endpoint,
             logger=MagicMock(),
             resumable_source_manager=manager,
             **kwargs,
@@ -653,9 +699,9 @@ class TestAnalyticsReportStreams:
         # _line continues across an instance's segments; a restart per segment would give two
         # rows the same merge key and lose one of them.
         assert [(row["app_id"], row["processing_date"], row["_line"], row["sessions"]) for row in rows] == [
-            ("A1", "2026-08-01", 1, "5"),
-            ("A1", "2026-08-01", 2, "7"),
-            ("A1", "2026-08-02", 1, "2"),
+            ("A1", date(2026, 8, 1), 1, 5),
+            ("A1", date(2026, 8, 1), 2, 7),
+            ("A1", date(2026, 8, 2), 1, 2),
         ]
         assert rows[0]["app_apple_identifier"] == "123"
         assert api.posts == []
@@ -709,7 +755,7 @@ class TestAnalyticsReportStreams:
             db_incremental_field_last_value=date(2026, 8, 2),
         )
 
-        assert [row["processing_date"] for row in rows] == ["2026-08-02"]
+        assert [row["processing_date"] for row in rows] == [date(2026, 8, 2)]
         assert _segments_url("I1") not in [url for url, _ in api.calls]
 
     def test_resume_bookmark_floors_the_walk(self) -> None:
@@ -723,7 +769,7 @@ class TestAnalyticsReportStreams:
 
         rows = _collect_analytics(api, manager)
 
-        assert [row["processing_date"] for row in rows] == ["2026-08-02"]
+        assert [row["processing_date"] for row in rows] == [date(2026, 8, 2)]
         assert _segments_url("I1") not in [url for url, _ in api.calls]
 
     def test_unavailable_report_degrades_the_table_without_failing(self) -> None:
@@ -793,7 +839,7 @@ class TestAnalyticsReportStreams:
 
         rows = _collect_analytics(api, _FakeManager())
 
-        assert [(row["date"], row["sessions"]) for row in rows] == [("2026-08-01", "5")]
+        assert [(row["date"], row["sessions"]) for row in rows] == [(date(2026, 8, 1), 5)]
 
     def test_per_run_instance_cap_saves_a_resumable_bookmark(self) -> None:
         payload = _gzip_csv("Date,Sessions\n2026-08-01,5\n")
@@ -807,7 +853,7 @@ class TestAnalyticsReportStreams:
         with patch(f"{MODULE}.ANALYTICS_MAX_INSTANCES_PER_RUN", 1):
             rows = _collect_analytics(api, manager)
 
-        assert [row["processing_date"] for row in rows] == ["2026-08-01"]
+        assert [row["processing_date"] for row in rows] == [date(2026, 8, 1)]
         assert manager.saved[-1].processing_date == "2026-08-02"
 
     def test_dates_walk_in_order_across_apps(self) -> None:
@@ -842,9 +888,60 @@ class TestAnalyticsReportStreams:
         rows = _collect_analytics(api, _FakeManager())
 
         assert [(row["app_id"], row["processing_date"]) for row in rows] == [
-            ("A1", "2026-08-01"),
-            ("A2", "2026-08-02"),
-            ("A1", "2026-08-03"),
+            ("A1", date(2026, 8, 1)),
+            ("A2", date(2026, 8, 2)),
+            ("A1", date(2026, 8, 3)),
+        ]
+
+    def test_columns_are_typed_by_name_and_attribution_columns_stay_text(self) -> None:
+        # Typing is column-name-driven rather than per-endpoint: Apple publishes Standard and
+        # Detailed variants of each report with differing column sets, so any stream carrying a
+        # known date or metric column gets it typed, while the Detailed-only attribution columns
+        # (campaign, page_title, source_info) stay text by omission from the mapping.
+        payload = _gzip_csv(
+            "Date,App Name,App Download Date,Campaign,Page Title,Source Info,"
+            "Sessions,Total Session Duration,Unique Devices\n"
+            "2026-08-01,Example,2026-07-15,summer-launch,Alternate page,com.example.social,5,321.5,4\n"
+        )
+        api = _analytics_api(
+            instances=[_instance("I1", "2026-08-01")],
+            segments_by_instance={"I1": [_segment("S1", "https://r.s3.amazonaws.com/1", payload)]},
+            segment_payloads={"https://r.s3.amazonaws.com/1": payload},
+        )
+
+        row = _collect_analytics(api, _FakeManager())[0]
+
+        assert row["processing_date"] == date(2026, 8, 1)
+        assert row["date"] == date(2026, 8, 1)
+        assert row["app_download_date"] == date(2026, 7, 15)
+        assert row["sessions"] == 5 and isinstance(row["sessions"], int)
+        assert row["total_session_duration"] == 321.5
+        assert row["unique_devices"] == 4
+        assert (row["campaign"], row["page_title"], row["source_info"]) == (
+            "summer-launch",
+            "Alternate page",
+            "com.example.social",
+        )
+        assert row["app_name"] == "Example"
+
+    def test_detailed_stream_syncs_rows_with_the_attribution_columns(self) -> None:
+        payload = _gzip_csv(
+            "Date,App Name,App Apple Identifier,Source Type,Source Info,Campaign,Page Type,Page Title,Sessions\n"
+            "2026-08-01,Example,123,App referrer,com.example.social,summer-launch,Product page,Alternate page,5\n"
+        )
+        api = _analytics_api(
+            reports=[_resource("analyticsReports", "REP1", name="App Sessions Detailed", category="APP_USAGE")],
+            instances=[_instance("I1", "2026-08-01")],
+            segments_by_instance={"I1": [_segment("S1", "https://r.s3.amazonaws.com/1", payload)]},
+            segment_payloads={"https://r.s3.amazonaws.com/1": payload},
+        )
+
+        rows = _collect_analytics(api, _FakeManager(), endpoint="analytics_app_sessions_detailed")
+
+        # The attribution headers exist only in Detailed files and must land as the three
+        # documented snake_case columns. Metric columns are typed by name in every variant.
+        assert [(row["campaign"], row["page_title"], row["source_info"], row["sessions"]) for row in rows] == [
+            ("summer-launch", "Alternate page", "com.example.social", 5)
         ]
 
     def test_analytics_source_response_checkpoints_ascending(self) -> None:
@@ -864,11 +961,12 @@ class TestAnalyticsReportStreams:
 
 
 class TestFindAnalyticsReport:
-    def _resolve(self, endpoint: str, apple_name: str) -> str | None:
+    def _resolve(self, endpoint: str, *apple_names: str) -> str | None:
         config = APP_STORE_CONNECT_ENDPOINTS[endpoint]
         page = _Page(
             resources=[
-                _resource("analyticsReports", "REP1", name=apple_name, category=config.analytics_report_category)
+                _resource("analyticsReports", f"REP{index + 1}", name=name, category=config.analytics_report_category)
+                for index, name in enumerate(apple_names)
             ],
             included=[],
             next_url=None,
@@ -894,6 +992,95 @@ class TestFindAnalyticsReport:
         # config change so a cosmetic rename can't silently blank the stream again.
         assert self._resolve("analytics_app_store_preorders", "App Store Pre-orders Standard") == "REP1"
 
+    @parameterized.expand(
+        [
+            ("analytics_app_sessions", "analytics_app_sessions_detailed", "App Sessions"),
+            ("analytics_app_store_downloads", "analytics_app_store_downloads_detailed", "App Downloads"),
+            (
+                "analytics_installations_deletions",
+                "analytics_installations_deletions_detailed",
+                "App Store Installation and Deletion",
+            ),
+            (
+                "analytics_discovery_engagement",
+                "analytics_discovery_engagement_detailed",
+                "App Store Discovery and Engagement",
+            ),
+        ]
+    )
+    def test_standard_and_detailed_variants_resolve_their_own_reports(
+        self, standard_endpoint: str, detailed_endpoint: str, base_name: str
+    ) -> None:
+        # Apple lists both variants of a report under the same request and category, so each config
+        # picks from the same page. Resolving the sibling would silently fill one table with the
+        # other variant's rows — for the detailed table, rows missing the attribution columns.
+        variants = (f"{base_name} Standard", f"{base_name} Detailed")
+
+        assert self._resolve(standard_endpoint, *variants) == "REP1"
+        assert self._resolve(detailed_endpoint, *variants) == "REP2"
+
+
+def _failures() -> _ParseFailureCounter:
+    return _ParseFailureCounter(MagicMock(), "sales_reports")
+
+
+class TestTypedReportValues:
+    @parameterized.expand(
+        [
+            ("month_first_date", "begin_date", "03/04/2026", date(2026, 3, 4)),
+            ("single_digit_month_and_day", "begin_date", "3/4/2026", date(2026, 3, 4)),
+            ("iso_analytics_date", "date", "2026-03-04", date(2026, 3, 4)),
+            # 02/03/2026 must read as February 3, never March 2: the parse is month-first by
+            # Apple's report spec, independent of any locale or dayfirst heuristic.
+            ("ambiguous_date_reads_month_first", "event_date", "02/03/2026", date(2026, 2, 3)),
+            ("padded_date", "end_date", " 03/04/2026 ", date(2026, 3, 4)),
+            ("count", "units", "3", 3),
+            ("negative_refund_count", "units", "-2", -2),
+            ("count_with_thousands_separator", "units", "1,234", 1234),
+            ("whole_valued_float_count", "units", "3.0", 3),
+            ("price", "customer_price", "0.99", 0.99),
+            ("price_with_thousands_separator", "customer_price", "1,234.56", 1234.56),
+            ("unmapped_column_untouched", "promo_code", "0099", "0099"),
+            ("identifier_stays_text", "apple_identifier", "123456789", "123456789"),
+        ]
+    )
+    def test_mapped_columns_parse_and_unmapped_stay_text(
+        self, _name: str, column: str, value: str, expected: Any
+    ) -> None:
+        failures = _failures()
+
+        parsed = _typed_report_value(column, value, failures)
+
+        assert parsed == expected
+        assert type(parsed) is type(expected)
+        assert failures.counts == {}
+
+    @parameterized.expand([("empty", "begin_date", ""), ("whitespace", "units", "  ")])
+    def test_blank_cells_are_null_but_not_counted_as_failures(self, _name: str, column: str, value: str) -> None:
+        failures = _failures()
+
+        assert _typed_report_value(column, value, failures) is None
+        assert failures.counts == {}
+
+    @parameterized.expand(
+        [
+            # A heuristic parser would read 13/01/2026 as January 13 once the month overflows;
+            # rejecting it keeps a mis-formatted file loud instead of silently day-first.
+            ("day_first_date", "begin_date", "13/01/2026"),
+            ("nonsense_date", "begin_date", "garbage"),
+            ("out_of_range_date", "begin_date", "04/31/2026"),
+            ("non_numeric_count", "units", "N/A"),
+            ("fractional_count", "units", "2.5"),
+            ("currency_prefixed_price", "customer_price", "USD 0.99"),
+            ("non_finite_price", "customer_price", "inf"),
+        ]
+    )
+    def test_unparseable_values_are_null_and_counted(self, _name: str, column: str, value: str) -> None:
+        failures = _failures()
+
+        assert _typed_report_value(column, value, failures) is None
+        assert failures.counts == {column: 1}
+
 
 class TestReportColumnNames:
     @parameterized.expand(
@@ -912,26 +1099,40 @@ class TestReportColumnNames:
 
 
 class TestParseReport:
-    def test_gzipped_tsv_becomes_keyed_rows(self) -> None:
-        tsv = "Provider\tSKU\tUnits\tDeveloper Proceeds\nAPPLE\tacme-pro\t3\t2.10\nAPPLE\tacme-lite\t1\t0.70\n"
+    def test_gzipped_tsv_becomes_keyed_and_typed_rows(self) -> None:
+        tsv = (
+            "Provider\tSKU\tUnits\tCustomer Price\tDeveloper Proceeds\tBegin Date\tEnd Date\tApple Identifier\n"
+            "APPLE\tacme-pro\t3\t2.99\t2.10\t03/04/2026\t03/04/2026\t123456789\n"
+            "APPLE\tacme-lite\t1\t0.99\t0.70\t03/04/2026\t03/04/2026\t123456789\n"
+        )
 
-        rows = _parse_report(gzip.compress(tsv.encode()), date(2026, 3, 4))
+        rows = _parse_report(gzip.compress(tsv.encode()), date(2026, 3, 4), _failures())
 
+        # Dates and quantities arrive typed; identifier-like numeric columns stay text because
+        # they are join keys, not quantities.
         assert rows == [
             {
                 "provider": "APPLE",
                 "sku": "acme-pro",
-                "units": "3",
-                "developer_proceeds": "2.10",
-                "report_date": "2026-03-04",
+                "units": 3,
+                "customer_price": 2.99,
+                "developer_proceeds": 2.10,
+                "begin_date": date(2026, 3, 4),
+                "end_date": date(2026, 3, 4),
+                "apple_identifier": "123456789",
+                "report_date": date(2026, 3, 4),
                 "_line": 1,
             },
             {
                 "provider": "APPLE",
                 "sku": "acme-lite",
-                "units": "1",
-                "developer_proceeds": "0.70",
-                "report_date": "2026-03-04",
+                "units": 1,
+                "customer_price": 0.99,
+                "developer_proceeds": 0.70,
+                "begin_date": date(2026, 3, 4),
+                "end_date": date(2026, 3, 4),
+                "apple_identifier": "123456789",
+                "report_date": date(2026, 3, 4),
                 "_line": 2,
             },
         ]
@@ -939,26 +1140,26 @@ class TestParseReport:
     def test_blank_lines_are_skipped_so_line_numbers_stay_dense(self) -> None:
         tsv = "SKU\tUnits\nacme-pro\t3\n\n \nacme-lite\t1\n"
 
-        rows = _parse_report(gzip.compress(tsv.encode()), date(2026, 3, 4))
+        rows = _parse_report(gzip.compress(tsv.encode()), date(2026, 3, 4), _failures())
 
         assert [(row["sku"], row["_line"]) for row in rows] == [("acme-pro", 1), ("acme-lite", 2)]
 
     def test_short_rows_are_padded_with_none(self) -> None:
         tsv = "SKU\tUnits\tDevice\nacme-pro\t3\n"
 
-        rows = _parse_report(gzip.compress(tsv.encode()), date(2026, 3, 4))
+        rows = _parse_report(gzip.compress(tsv.encode()), date(2026, 3, 4), _failures())
 
         assert rows[0]["device"] is None
 
     def test_uncompressed_payload_is_parsed_too(self) -> None:
         # urllib3 unwraps a `Content-Encoding: gzip` body before we see it.
-        rows = _parse_report(b"SKU\tUnits\nacme-pro\t3\n", date(2026, 3, 4))
+        rows = _parse_report(b"SKU\tUnits\nacme-pro\t3\n", date(2026, 3, 4), _failures())
 
         assert rows[0]["sku"] == "acme-pro"
 
     @parameterized.expand([("empty", b""), ("header_only", b"SKU\tUnits\n")])
     def test_reports_without_data_rows_yield_nothing(self, _name: str, payload: bytes) -> None:
-        assert _parse_report(payload, date(2026, 3, 4)) == []
+        assert _parse_report(payload, date(2026, 3, 4), _failures()) == []
 
 
 class TestSalesReports:
@@ -983,7 +1184,10 @@ class TestSalesReports:
         )
 
         # Yesterday (2026-03-04) is the newest date Apple has published; 03-03 404s and is skipped.
-        assert [(row["report_date"], row["units"]) for row in rows] == [("2026-03-02", "1"), ("2026-03-04", "2")]
+        assert [(row["report_date"], row["units"]) for row in rows] == [
+            (date(2026, 3, 2), 1),
+            (date(2026, 3, 4), 2),
+        ]
         assert [params["filter[reportDate]"] for _, params in api.calls] == ["2026-03-02", "2026-03-03", "2026-03-04"]
 
     @freeze_time("2026-03-05 09:00:00")
@@ -1002,7 +1206,7 @@ class TestSalesReports:
             db_incremental_field_last_value=date(2026, 3, 2),
         )
 
-        assert [(row["report_date"], row["units"]) for row in rows] == [("2026-03-04", "1")]
+        assert [(row["report_date"], row["units"]) for row in rows] == [(date(2026, 3, 4), 1)]
         assert [params["filter[reportDate]"] for _, params in api.calls] == ["2026-03-02", "2026-03-03", "2026-03-04"]
 
     @freeze_time("2026-03-05 09:00:00")
@@ -1027,6 +1231,31 @@ class TestSalesReports:
                         resumable_source_manager=_FakeManager(),
                     )
                 )
+
+    @freeze_time("2026-03-05 09:00:00")
+    def test_unparseable_values_are_nulled_with_counted_warnings(self) -> None:
+        # Three bad units and one bad date must produce one first-occurrence warning per column
+        # plus one end-of-run summary, never one log line per value.
+        tsv = "SKU\tUnits\tBegin Date\nsku-1\tN/A\t03/04/2026\nsku-2\tN/A\t04/31/2026\nsku-3\tN/A\t03/04/2026\n"
+        api = self._api({"2026-03-04": tsv})
+        logger = MagicMock()
+
+        rows = _collect(
+            "sales_reports",
+            api,
+            _FakeManager(),
+            vendor_number="85234567",
+            logger=logger,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2026, 3, 4),
+        )
+
+        assert [row["units"] for row in rows] == [None, None, None]
+        assert [row["begin_date"] for row in rows] == [date(2026, 3, 4), None, date(2026, 3, 4)]
+        warning_messages = [call.args[0] for call in logger.warning.call_args_list]
+        assert len(warning_messages) == 3
+        assert "'units': 3" in warning_messages[-1]
+        assert "'begin_date': 1" in warning_messages[-1]
 
     @freeze_time("2026-03-05 09:00:00")
     def test_sends_the_report_type_filters_from_settings(self) -> None:
@@ -1176,3 +1405,50 @@ class TestSourceResponse:
         else:
             assert response.partition_keys is None
             assert response.partition_mode is None
+
+
+def _forbidden_response(**fields: str) -> MagicMock:
+    return _json_response({"errors": [fields]}, status_code=403)
+
+
+class TestForbiddenErrors:
+    def test_read_403_carries_apples_words_and_the_read_message(self) -> None:
+        session = MagicMock()
+        session.get.return_value = _forbidden_response(
+            code="FORBIDDEN_ERROR", detail="The role of this API key cannot read this resource"
+        )
+
+        with pytest.raises(AppStoreConnectPermissionError) as exc:
+            _get(session, f"{BASE_URL}/v1/salesReports", token_provider=_FakeTokenProvider(), logger=MagicMock())
+
+        message = str(exc.value)
+        assert APP_STORE_CONNECT_READ_FORBIDDEN_ERROR in message
+        assert "FORBIDDEN_ERROR" in message
+        assert "The role of this API key cannot read this resource" in message
+
+    @parameterized.expand(
+        [
+            ("fresh_create", [], APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR),
+            (
+                "stopped_for_inactivity",
+                [_resource("analyticsReportRequests", "REQ1", accessType="ONGOING", stoppedDueToInactivity=True)],
+                APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,
+            ),
+        ]
+    )
+    def test_create_403_reports_the_create_role_not_a_read_role(
+        self, _name: str, requests_page: list[dict[str, Any]], expected: str
+    ) -> None:
+        session = MagicMock()
+        session.get.return_value = _json_response(_page(requests_page))
+        session.post.return_value = _forbidden_response(code="FORBIDDEN_ERROR", detail="Admin role required")
+
+        with pytest.raises(AppStoreConnectPermissionError) as exc:
+            _ensure_report_request(session, _FakeTokenProvider(), MagicMock(), "A1")
+
+        message = str(exc.value)
+        assert expected in message
+        # Apple's own words reach the raised message, and the create case never blames Finance or
+        # Sales — the read roles the key demonstrably uses on the sales_reports table.
+        assert "Admin role required" in message
+        assert "Finance" not in message and "Sales" not in message

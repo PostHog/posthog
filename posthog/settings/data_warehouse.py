@@ -33,6 +33,16 @@ USE_LOCAL_SETUP = get_from_env("USE_LOCAL_SETUP", USE_LOCAL_SETUP_DEFAULT, type_
 
 PYARROW_DEBUG_LOGGING = get_from_env("PYARROW_DEBUG_LOGGING", False, type_cast=str_to_bool)
 
+# Load the full warehouse source catalog (every vendor SDK) at web-worker startup, before
+# the worker starts serving, so its first warehouse query doesn't pay the multi-second
+# catalog import at request time. WSGI workers load while importing posthog.wsgi, ASGI
+# workers during lifespan startup; a failed prewarm logs and leaves the worker to lazy
+# loading. Off by default everywhere, including the shared web launcher: deployment
+# config enables it only for the dedicated Granian deployment that serves warehouse
+# queries, so web and report workers, shells, migrations, tests, and Celery keep lazy
+# source loading.
+PREWARM_WAREHOUSE_SOURCE_REGISTRY = get_from_env("PREWARM_WAREHOUSE_SOURCE_REGISTRY", False, type_cast=str_to_bool)
+
 # Region hosting BUCKET_URL. Only used to build the bucket's virtual-hosted hostname for the
 # egress-proxy bypass in products/data_warehouse/backend/s3_proxy.py; the AWS clients resolve their
 # own region as before. Falls back to the ambient AWS_REGION, and an empty value leaves the bypass
@@ -92,6 +102,13 @@ DATA_WAREHOUSE_OOM_INFRA_BURST_MIN_SCHEMAS = get_from_env(
 # A burst must also span this many distinct teams: one tenant's source outage kills all of that
 # tenant's schemas at once, which is not infrastructure and must not suppress other tenants' counting.
 DATA_WAREHOUSE_OOM_INFRA_BURST_MIN_TEAMS = get_from_env("DATA_WAREHOUSE_OOM_INFRA_BURST_MIN_TEAMS", 10, type_cast=int)
+
+# A merge-phase death whose own peak buffer crossed this blocks coarsening whatever the classification
+# rules concluded, because enlarging the merge of a table last seen holding real memory is not a safe
+# bet to make on a plausible exclusion.
+DATA_WAREHOUSE_COARSEN_BLOCK_MERGE_PEAK_BYTES = get_from_env(
+    "DATA_WAREHOUSE_COARSEN_BLOCK_MERGE_PEAK_BYTES", 1_048_576, type_cast=int
+)
 
 # Pre-write vacuum runs when this many delta commits have accrued since the last vacuum. Decoupled from
 # merge success so tables that OOM their merge still get their tombstones cleared (the compact-after-merge

@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client"
+CONFIG_SETUP_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup"
 
 
 def _make_response(body: Any, status_code: int = 200, reason: str = "OK") -> Response:
@@ -98,15 +99,21 @@ class TestResponseActionClassification:
         resp._content = b""
         resp.url = "https://api.example.com/items"
         mock_session.send.return_value = resp
-        hooks = create_response_hooks([{"status_code": 404, "action": "ignore"}])
+        hooks = create_response_hooks([{"status_code": 404, "action": "ignore"}], resource_name="issue_hashes")
 
         client = RESTClient(base_url="https://api.example.com", max_retry_attempts=1)
-        pages = list(
-            client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator(), hooks=hooks)
-        )
+        with patch(f"{CONFIG_SETUP_MODULE}.logger") as mock_logger:
+            pages = list(
+                client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator(), hooks=hooks)
+            )
 
         assert pages == []
         assert mock_session.send.call_count == 1
+        # A stale fan-out parent is dropped here, so the ignore has to be countable per schema.
+        logged = mock_logger.info.call_args
+        assert logged.args[0] == "data_imports.response_action_ignored"
+        assert logged.kwargs["resource"] == "issue_hashes"
+        assert logged.kwargs["status_code"] == 404
 
     @patch("tenacity.nap.time.sleep")
     @patch(f"{MODULE}.make_tracked_session")

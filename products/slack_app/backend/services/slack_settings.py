@@ -1,6 +1,6 @@
 """Read/write helpers for per-(Slack workspace, Slack user) settings backed
-by `models.SlackSettings`. Currently exposes AI-preference resolution; future
-per-user / per-workspace knobs belong here too.
+by `models.SlackSettings`. Exposes AI-preference resolution and the untagged
+follow-up mode; future per-user / per-workspace knobs belong here too.
 
 Key names mirror the task-run request serializer
 (`products/tasks/backend/presentation/serializers.py`) so the resolver output
@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from products.slack_app.backend.feature_flags import is_slack_app_home_enabled
+from products.slack_app.backend.models import UntaggedFollowupMode
 from products.slack_app.backend.services.model_catalogue import filter_unsupported_effort
 
 if TYPE_CHECKING:
@@ -95,6 +96,34 @@ def resolve_ai_preferences(integration: Integration, slack_user_id: str | None) 
     )
 
 
+def resolve_untagged_followup_mode(integration: Integration, slack_user_id: str | None) -> UntaggedFollowupMode:
+    """Resolve how untagged replies in a thread this Slack user started are treated.
+
+    Read from the thread creator's row, so one person's choice governs every
+    reply in the threads they started. An absent row, an empty column, or a
+    value we no longer recognise all resolve to `NEVER`: the feature is opt-in,
+    so nothing is picked up until someone asks for it.
+    """
+
+    if not slack_user_id:
+        return UntaggedFollowupMode.NEVER
+
+    from products.slack_app.backend.models import SlackSettings
+
+    row = (
+        SlackSettings.objects.filter(
+            slack_workspace_id=integration.integration_id,
+            slack_user_id=slack_user_id,
+        )
+        .values("untagged_followup_mode")
+        .first()
+    )
+    stored = row["untagged_followup_mode"] if row else None
+    if stored in UntaggedFollowupMode.values:
+        return UntaggedFollowupMode(stored)
+    return UntaggedFollowupMode.NEVER
+
+
 def build_ai_preferences_payload(
     runtime_adapter: str | None,
     model: str | None,
@@ -150,5 +179,6 @@ __all__ = [
     "AIPreferences",
     "build_ai_preferences_payload",
     "resolve_ai_preferences",
+    "resolve_untagged_followup_mode",
     "validate_ai_preferences",
 ]

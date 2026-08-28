@@ -12,10 +12,15 @@ built through `_coherent_preferences` rather than field by field. A model named 
 mention additionally has to be in the live catalogue (`model_catalogue`) — the same
 set the App Home picker offers — so an override can never select something the picker
 itself would refuse.
+
+A follow-up in a thread the agent is already working in resolves against a narrower
+rule, in `resolve_live_run_override`: the runtime adapter is the harness process the
+sandbox launched with and cannot change, so only the model and effort are still open.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 from products.slack_app.backend.services.model_catalogue import (
@@ -106,6 +111,70 @@ def resolve_run_preferences(
     return requested if requested.reasoning_effort else base
 
 
+@dataclass(frozen=True)
+class LiveRunModelChange:
+    """What a run already in flight can take from a model request in a follow-up.
+
+    `model` and `reasoning_effort` carry only what actually changes, so an ask that
+    matches what the run is already on produces nothing to send. `refused_model` is the
+    one ask that has to be answered out loud: a model belonging to the other runtime,
+    which no live sandbox can be moved to.
+    """
+
+    model: str | None = None
+    reasoning_effort: str | None = None
+    refused_model: str | None = None
+
+    @property
+    def is_empty(self) -> bool:
+        return self.model is None and self.reasoning_effort is None and self.refused_model is None
+
+
+_NO_CHANGE = LiveRunModelChange()
+
+
+def resolve_live_run_override(
+    override: ModelOverride | None,
+    *,
+    runtime_adapter: str | None,
+    model: str | None,
+    reasoning_effort: str | None,
+) -> LiveRunModelChange:
+    """What a running agent can be switched to, given what a follow-up asked for.
+
+    The three arguments describe the run as it stands. The runtime adapter is fixed for
+    the life of a sandbox — the harness is a process that was started with one — so a
+    model belonging to a different runtime is refused whole rather than half-applied,
+    and its effort goes with it: "run this on sol at high" is one request, and honouring
+    the effort alone would land it on a model the author didn't ask for.
+
+    Beyond that the rules are the run resolver's: the effort is validated against the
+    model the run will actually be on, and anything the catalogue doesn't offer is
+    ignored, leaving the run where it was.
+    """
+    if override is None:
+        return _NO_CHANGE
+
+    # A run started before models were pinned carries neither; derive what we can, and
+    # treat a run we can't place as unswitchable rather than guessing its harness.
+    adapter = runtime_adapter or runtime_adapter_for(model)
+
+    requested = find_model_choice(override.model, available_model_choices()) if override.model else None
+    if override.model and requested is None:
+        return _NO_CHANGE
+    if requested is not None and requested.runtime_adapter != adapter:
+        return LiveRunModelChange(refused_model=requested.model)
+
+    target_model = requested.model if requested else model
+    effort = filter_unsupported_effort(
+        adapter, target_model, override.reasoning_effort.strip().lower() if override.reasoning_effort else None
+    )
+    return LiveRunModelChange(
+        model=target_model if requested and requested.model != model else None,
+        reasoning_effort=effort if effort and effort != reasoning_effort else None,
+    )
+
+
 def find_model_choice(model: str | None, choices: tuple[ModelChoice, ...]) -> ModelChoice | None:
     """Match a requested model id against the catalogue, case-insensitively."""
     if not model:
@@ -116,6 +185,8 @@ def find_model_choice(model: str | None, choices: tuple[ModelChoice, ...]) -> Mo
 
 __all__ = [
     "SLACK_DEFAULT_MODEL",
+    "LiveRunModelChange",
     "find_model_choice",
+    "resolve_live_run_override",
     "resolve_run_preferences",
 ]

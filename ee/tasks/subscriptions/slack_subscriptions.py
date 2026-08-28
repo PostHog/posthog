@@ -56,7 +56,7 @@ def _next_delivery_date_display(subscription: Subscription) -> str:
 
 
 @dataclass
-class SlackMessageData:
+class SlackMessage:
     channel: str
     blocks: list[dict[str, Any]]
     title: str
@@ -147,7 +147,7 @@ def _prepare_slack_message(
     change_summary: str | None = None,
     summary_skipped_over_budget: bool = False,
     integration: Integration | None = None,
-) -> SlackMessageData:
+) -> SlackMessage:
     """Prepare Slack message content. Pure function with no side effects."""
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
 
@@ -243,7 +243,7 @@ def _prepare_slack_message(
             }
         )
 
-    return SlackMessageData(
+    return SlackMessage(
         channel=channel,
         blocks=blocks,
         title=title,
@@ -325,9 +325,9 @@ async def _send_slack_message_with_retry(client, max_retries: int = 3, **kwargs)
 async def deliver_slack_message_data(
     integration: Integration,
     subscription: Subscription,
-    message_data: SlackMessageData,
+    message_data: SlackMessage,
 ) -> SlackDeliveryResult:
-    # shared send path: callers build the SlackMessageData; retry + partial-failure handling are shared
+    # shared send path: callers build the SlackMessage; retry + partial-failure handling are shared
     slack_integration = SlackIntegration(integration)
 
     async with aiohttp.ClientSession(trust_env=True) as slack_session:

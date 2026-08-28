@@ -4,6 +4,7 @@ import graphlib  # type: ignore[import,unused-ignore]
 from collections.abc import Callable, Iterator
 from typing import Any, Optional, cast
 
+import structlog
 from dateutil import parser
 
 from .config_setup import (
@@ -22,6 +23,8 @@ from .resource import Resource
 from .rest_client import DEFAULT_RETRY_ATTEMPTS, DEFAULT_RETRY_BACKOFF_MAX_SECONDS, RESTClient, RESTClientRetryableError
 from .typing import ClientConfig, Endpoint, EndpointResource, HTTPMethodBasic, ResolvedParam, RESTAPIConfig
 from .utils import exclude_keys  # noqa: F401
+
+logger = structlog.get_logger(__name__)
 
 
 def convert_types(
@@ -150,6 +153,7 @@ def _make_paginate_dependent_resource(
     ``{"completed": [child_path, ...], "current": child_path | None, "child_state": {...} | None}``.
     """
     # Closure state persists across parent-page invocations within a single run.
+    parent_rows_consumed = 0
     seed: dict[str, Any] = dict(initial_state) if initial_state else {}
     completed: set[str] = set(seed.get("completed") or [])
     current_path: Optional[str] = seed.get("current")
@@ -169,8 +173,10 @@ def _make_paginate_dependent_resource(
         hooks: Optional[dict[str, Any]],
         columns_config: Optional[Any] = None,
     ) -> Iterator[list[Any]]:
-        nonlocal current_path, current_child_state
+        nonlocal current_path, current_child_state, parent_rows_consumed
         effective_columns_config = columns_config if columns_config is not None else default_columns_config
+
+        page_rows = 0
 
         if incremental_object:
             params = _set_incremental_params(
@@ -186,6 +192,9 @@ def _make_paginate_dependent_resource(
 
             if resume_hook is not None and formatted_path in completed:
                 continue
+
+            page_rows += 1
+            parent_rows_consumed += 1
 
             # Resume this parent's child cursor only if it's the one we were mid-way through.
             child_initial = (
@@ -236,6 +245,15 @@ def _make_paginate_dependent_resource(
                 current_path = None
                 current_child_state = None
                 checkpoint(None, None)
+
+        # Counted after the page so parents a resume skips don't inflate it. A running total,
+        # since there's no end-of-parent signal: the last line of a run carries the fan-out's
+        # size, for either parent kind, which the API path never surfaced anywhere.
+        logger.info(
+            "data_imports.fanout_parent_rows_consumed",
+            page_rows=page_rows,
+            rows_total=parent_rows_consumed,
+        )
 
     return paginate_dependent_resource
 
@@ -298,11 +316,14 @@ def create_resources(
             allowed_hosts=client_config.get("allowed_hosts"),
             allow_redirects=client_config.get("allow_redirects", True),
             request_timeout=client_config.get("request_timeout"),
+            capture=client_config.get("capture", True),
         )
 
-        hooks = create_response_hooks(endpoint_config.get("response_actions"))
+        hooks = create_response_hooks(endpoint_config.get("response_actions"), resource_name=resource_name)
 
-        resource_kwargs = exclude_keys(endpoint_resource, {"endpoint", "include_from_parent", "data_map"})
+        resource_kwargs = exclude_keys(
+            endpoint_resource, {"endpoint", "include_from_parent", "data_map", "data_iterator"}
+        )
 
         columns_config = endpoint_resource.get("columns")
 
@@ -320,7 +341,18 @@ def create_resources(
             )
         }
 
-        if resolved_params is None:
+        data_iterator = endpoint_resource.get("data_iterator")
+        if data_iterator is not None:
+            # Iterator-backed resource: pages come from the callable (e.g. an already-synced
+            # warehouse parent table) instead of HTTP pagination. Downstream dependents consume
+            # it via ``data_from`` exactly like an HTTP-backed parent.
+            resources[resource_name] = Resource(
+                data_iterator,
+                name=resource_name,
+                hints=hints,
+            )
+
+        elif resolved_params is None:
 
             def paginate_resource(
                 method: HTTPMethodBasic,

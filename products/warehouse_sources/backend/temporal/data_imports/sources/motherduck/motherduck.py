@@ -94,15 +94,16 @@ MOTHERDUCK_ERROR_CLASSES = {
 # Rows materialized per Arrow batch. Bounds resident memory: DuckDB shares this process.
 DEFAULT_MOTHERDUCK_FETCH_SIZE = 5_000
 
-# DuckDB otherwise sizes itself against the whole host (80% of RAM, one thread per core), which is
-# the wrong budget for a library sharing a worker with the rest of the import pipeline.
-#
-# `home_directory` overrides where DuckDB persists extensions/secrets, which otherwise defaults to
-# `~/.duckdb` — unwritable in a locked-down worker container regardless of who owns the process.
+_DUCKDB_HOME = os.path.join(tempfile.gettempdir(), "posthog-duckdb-home")
+
+# DuckDB otherwise sizes itself against the whole host, the wrong budget for a library sharing this
+# worker. `extension_directory` needs its own override: `home_directory` doesn't move it, so
+# extension autoload would try to create the unwritable `~/.duckdb` in the worker.
 DUCKDB_LOCAL_CONFIG: dict[str, Any] = {
     "memory_limit": "2GB",
     "threads": 2,
-    "home_directory": os.path.join(tempfile.gettempdir(), "posthog-duckdb-home"),
+    "home_directory": _DUCKDB_HOME,
+    "extension_directory": os.path.join(_DUCKDB_HOME, "extensions"),
 }
 
 # The database name is interpolated into the `md:` connection string, so anything outside this
@@ -139,9 +140,13 @@ def connect(access_token: str, database: Optional[str] = None, *, read_only: boo
     write statement engine-side regardless of what the token is granted.
     """
     connection_string = build_motherduck_connection_string(database, access_token)
+    config = dict(DUCKDB_LOCAL_CONFIG)
+    # Extension autoload runs as the connection opens, so the store has to exist by then. Creating
+    # it also creates the home directory above it.
+    os.makedirs(config["extension_directory"], exist_ok=True)
     log_connection_open(db_host=MOTHERDUCK_SERVICE_HOST, via="vendor_https")
     try:
-        return duckdb.connect(connection_string, read_only=read_only, config=dict(DUCKDB_LOCAL_CONFIG))
+        return duckdb.connect(connection_string, read_only=read_only, config=config)
     except duckdb.Error as e:
         raise MotherDuckConnectionError(translate_motherduck_error(e)) from e
 

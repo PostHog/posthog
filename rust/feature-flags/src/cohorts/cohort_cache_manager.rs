@@ -236,7 +236,7 @@ impl From<CohortFetchError> for FlagError {
     fn from(value: CohortFetchError) -> Self {
         match value {
             CohortFetchError::DatabaseUnavailable => FlagError::DatabaseUnavailable,
-            CohortFetchError::QueryFailed(msg) => FlagError::Internal(msg),
+            CohortFetchError::QueryFailed(msg) => FlagError::internal(anyhow::anyhow!(msg)),
         }
     }
 }
@@ -1225,12 +1225,15 @@ mod tests {
             "DatabaseUnavailable should map to FlagError::DatabaseUnavailable"
         );
 
-        // QueryFailed -> FlagError::Internal
         let query_failed = CohortFetchError::QueryFailed("test error".to_string());
         let flag_error: FlagError = query_failed.into();
         assert!(
-            matches!(flag_error, FlagError::Internal(msg) if msg == "test error"),
-            "QueryFailed should map to FlagError::Internal with the message"
+            matches!(flag_error, FlagError::InternalError { ref cause, .. } if cause.to_string() == "Internal error: test error"),
+            "QueryFailed should render as `Internal error: <message>`"
+        );
+        assert_eq!(
+            flag_error.evaluation_error_description(),
+            "Internal error: test error"
         );
     }
 }

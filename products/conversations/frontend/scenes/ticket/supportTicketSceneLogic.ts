@@ -51,7 +51,10 @@ import {
 import {
     conversationsTicketsNotesDestroy,
     conversationsTicketsNotesPartialUpdate,
+    conversationsTicketsPartialUpdate,
 } from 'products/conversations/frontend/generated/api'
+import type { PatchedTicketUpdateRequestApi } from 'products/conversations/frontend/generated/api.schemas'
+import { getCommentsCreateUrl } from 'products/platform_features/frontend/generated/api'
 import { signalsReportsList } from 'products/signals/frontend/generated/api'
 import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
 import { SignalSourceProductApi } from 'products/signals/frontend/generated/api.schemas'
@@ -1212,13 +1215,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             }
             breakpoint()
 
-            const data: Partial<{
-                status: string
-                priority: string
-                assignee: TicketAssignee
-                tags: string[]
-                snoozed_until: string | null
-            }> = {}
+            const data: PatchedTicketUpdateRequestApi = {}
 
             if (values.status && values.status !== values.ticket?.status) {
                 data.status = values.status
@@ -1230,12 +1227,12 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             data.tags = values.tags
             data.snoozed_until = values.snoozedUntil
 
-            const request = api.conversationsTickets.update(props.id.toString(), data)
+            const request = conversationsTicketsPartialUpdate(String(getCurrentTeamId()), props.id.toString(), data)
             cache.ticketUpdateRequest = request
             try {
                 const ticket = await request
                 breakpoint()
-                actions.setTicket(ticket)
+                actions.setTicket(ticket as Ticket)
                 lemonToast.success('Ticket updated')
                 actions.loadTickets()
                 // tagsModel loads once per session and never refetches, so newly created tags need an explicit reload
@@ -1375,21 +1372,21 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             const attemptStartedAt = dayjs()
             let sent: CommentType | null = null
             let unconfirmedReason: UnconfirmedSendReason = null
+            let alreadySent = false
 
             try {
-                sent = await api.comments.create(
-                    {
-                        content,
-                        rich_content: richContent,
-                        scope: 'conversations_ticket',
-                        item_id: ticketId,
-                        item_context: {
-                            author_type: 'support',
-                            is_private: isPrivate,
-                        },
+                const response = await api.createResponse(getCommentsCreateUrl(String(getCurrentTeamId())), {
+                    content,
+                    rich_content: richContent,
+                    scope: 'conversations_ticket',
+                    item_id: ticketId,
+                    item_context: {
+                        author_type: 'support',
+                        is_private: isPrivate,
                     },
-                    {}
-                )
+                })
+                alreadySent = response.status === 200
+                sent = (await response.json()) as CommentType
             } catch (error: any) {
                 unconfirmedReason = classifySendFailure(error)
                 if (unconfirmedReason === null) {
@@ -1429,6 +1426,19 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 })
                 lemonToast.error(
                     "We couldn't confirm that your message was added. Check the thread before sending it again."
+                )
+                actions.setMessageSending(false)
+                return
+            }
+
+            if (alreadySent) {
+                posthog.capture('support reply send deduplicated', { is_private: isPrivate })
+                cache.messageRevision += 1
+                actions.appendMessage(sent)
+                lemonToast.warning(
+                    isPrivate
+                        ? "You just added this note, so we didn't add it again. Edit your draft to add something different."
+                        : "You just sent this reply, so we didn't send it again. Edit your draft to send something different."
                 )
                 actions.setMessageSending(false)
                 return

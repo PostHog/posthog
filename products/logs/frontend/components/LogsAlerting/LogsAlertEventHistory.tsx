@@ -92,18 +92,20 @@ function LogsAlertEventTimeline({ alert }: { alert: LogsAlertConfigurationApi })
                     evaluationNoun="evaluation"
                 />
             ) : null}
-            <LemonTable
-                columns={columns}
-                dataSource={eventsPage.results}
-                rowKey="id"
-                loading={eventsPageLoading}
-                emptyState="No events yet. Evaluations, transitions, and user actions will appear here."
-                size="small"
-                expandable={{
-                    rowExpandable: () => true,
-                    expandedRowRender: (event) => <LogsAlertEventDetails event={event} />,
-                }}
-            />
+            <div className="max-h-96 overflow-y-auto">
+                <LemonTable
+                    columns={columns}
+                    dataSource={eventsPage.results}
+                    rowKey="id"
+                    loading={eventsPageLoading}
+                    emptyState="No events yet. Evaluations, transitions, and user actions will appear here."
+                    size="small"
+                    expandable={{
+                        rowExpandable: () => true,
+                        expandedRowRender: (event) => <LogsAlertEventDetails event={event} />,
+                    }}
+                />
+            </div>
             {hasMore ? (
                 <div className="flex justify-center">
                     <LemonButton type="secondary" size="small" onClick={loadMore} loading={eventsPageLoading}>

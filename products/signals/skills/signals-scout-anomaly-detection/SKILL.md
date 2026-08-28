@@ -68,11 +68,16 @@ Spend a slice of each run widening coverage so the watchlist tracks what the tea
 
 For each new candidate, do a first read to set its baseline and cadence, then add a `watchlist:` entry. Don't add more than a few per run — let coverage grow steadily.
 
-Explore is not only additive — **importance decays.** Every few days (~3), re-pull the ranking and reconcile the _existing_ watchlist against it: promote newly-hot items, demote or retire ones whose dashboards have gone cold. A large or "mature" watchlist is **not** a reason to skip explore — a frozen watchlist tracks last week's priorities, not today's. The refresh cadence and the `importance-refresh` memo are in [`references/watchlist-and-memory.md`](references/watchlist-and-memory.md).
+Explore is not only additive — **importance decays.**
+Every few days (~3), re-pull the ranking and reconcile the _existing_ watchlist against it: promote newly-hot items, and retire ones whose dashboards have gone cold.
+**Retiring is a delete, not a demote** — leave a one-line `retired:` tombstone, then `scout-scratchpad-forget` the item's `watchlist:` and `baseline:` entries, so the ledger holds only what you still score.
+Retire on evidence a metric went cold, never to make a refresh look productive, and never an item whose report is still live — the reference has the guard list.
+A large or "mature" watchlist is **not** a reason to skip explore — a frozen watchlist tracks last week's priorities, not today's.
+The refresh cadence, the terminal-state convention, and the `importance-refresh` memo are in [`references/watchlist-and-memory.md`](references/watchlist-and-memory.md).
 
 ### Save memory as you go
 
-Memory is continuous, not a final step. Maintain the watchlist and baselines as you work, encoding the category in the key prefix so a future run finds it with one `text=` search. The vocabulary (`watchlist:`, `baseline:`, `report:`, `noise:`, `addressed:`, `allowlist:`, `not-in-use:`) and worked entries are in [`references/watchlist-and-memory.md`](references/watchlist-and-memory.md). The short version:
+Memory is continuous, not a final step. Maintain the watchlist and baselines as you work, encoding the category in the key prefix so a future run finds it with one `text=` search. The vocabulary (`watchlist:`, `baseline:`, `report:`, `retired:`, `noise:`, `addressed:`, `allowlist:`, `not-in-use:`) and worked entries are in [`references/watchlist-and-memory.md`](references/watchlist-and-memory.md). The short version:
 
 - `watchlist:anomaly_detection:insight:<short_id>` — a curated item: name, what it measures, cadence (hourly/daily), priority, and `last_checked` + `next_due` timestamps.
 - `baseline:anomaly_detection:insight:<short_id>` — the learned normal (median + MAD per seasonal bucket) so the next run scores cheaply instead of recomputing from scratch.

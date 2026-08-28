@@ -13,8 +13,9 @@ from .acp_log import ParsedLog, parse_log
 from .config import AgentArtifacts, BaseEvalCase, SandboxedEvalCase
 from .engines.base import EvalEngine
 from .engines.types import CaseHooks, CaseSpec, ExperimentResult, ExperimentSpec, SpanKind
+from .harness.kernel_sandboxes import reclaim_kernels
 from .log_sink import append_case_scores, build_case_dir, write_case_logs
-from .runner import EvalCaseResult, run_eval_case
+from .runner import AgentNeverRanError, EvalCaseResult, agent_never_ran, run_eval_case
 from .scorers import ExitCodeZero, wrap_scorers
 from .trace_events import emit_evaluation_events, emit_trace_events, emit_trace_root
 
@@ -110,7 +111,8 @@ class _BaseEvalRun:
     """
 
     trace_namespace = "evals"
-    """Prefix for the experiment name in scorer trace metadata."""
+    """How this run labels itself in PostHog: the experiment-name prefix on every emitted
+    event, and the `$ai_eval_source` on evaluation events. Subclasses set it per run kind."""
 
     def __init__(
         self,
@@ -243,7 +245,12 @@ class _BaseEvalRun:
         if self.posthog_client and result.results:
             try:
                 emit_evaluation_events(
-                    self.posthog_client, self.experiment_id, self.experiment_name, result.results, self.scorer_traces
+                    self.posthog_client,
+                    self.experiment_id,
+                    self.experiment_name,
+                    result.results,
+                    namespace=self.trace_namespace,
+                    scorer_traces=self.scorer_traces,
                 )
                 # Emit $ai_trace root events now that scores are available
                 for eval_result in result.results:
@@ -257,6 +264,7 @@ class _BaseEvalRun:
                             experiment_id=self.experiment_id,
                             experiment_name=self.experiment_name,
                             case_name=case_name,
+                            namespace=self.trace_namespace,
                             prompt=meta["prompt"],
                             duration=meta["duration"],
                             first_timestamp=meta["first_timestamp"],
@@ -377,10 +385,20 @@ class _SandboxedEvalRun(_BaseEvalRun):
                         raise
             # Start the agent budget after team setup, so neither semaphore wait
             # nor the ClickHouse copy can consume it.
-            result = await asyncio.wait_for(
-                run_eval_case(eval_case, sandbox_context, provider=self._provider_strategy),
-                timeout=ctx.per_case_timeout_seconds,
-            )
+            try:
+                result = await asyncio.wait_for(
+                    run_eval_case(eval_case, sandbox_context, provider=self._provider_strategy),
+                    timeout=ctx.per_case_timeout_seconds,
+                )
+            finally:
+                # Still inside the slot: a notebook python or duckdb cell provisions a
+                # kernel sandbox of its own, and nothing else reclaims it. A timed-out
+                # case is exactly the one most likely to have left one running. One
+                # indexed query for every case that never touched a notebook.
+                await reclaim_kernels(
+                    sandbox_context.team_id,
+                    keep=self._provider_strategy is not None and self._provider_strategy.keeps_sandboxes(),
+                )
         return result, seed_result
 
     async def _post_process(
@@ -416,6 +434,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
                         experiment_name=self.experiment_name,
                         case_name=eval_case.name,
                         parsed=parsed,
+                        namespace=self.trace_namespace,
                     )
                     # Store metadata for emit_trace_root (called after scoring)
                     self.case_trace_meta[eval_case.name] = {
@@ -442,6 +461,12 @@ class _SandboxedEvalRun(_BaseEvalRun):
             )
         except Exception:
             logger.exception("Failed to write local eval logs for '%s'", eval_case.name)
+
+        # After the logs are on disk, so a failed run is still there to read.
+        if agent_never_ran(result.artifacts):
+            raise AgentNeverRanError(
+                f"Eval case '{eval_case.name}' failed before doing any work: {result.artifacts.stderr}"
+            )
 
         return result.artifacts.model_dump() | {
             "last_message": last_message,

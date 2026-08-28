@@ -3638,13 +3638,15 @@
                         "BoldNumber",
                         "Metric",
                         "ActionsPie",
+                        "ActionsDonut",
                         "ActionsBarValue",
                         "ActionsTable",
                         "WorldMap",
                         "CalendarHeatmap",
                         "TwoDimensionalHeatmap",
                         "BoxPlot",
-                        "SlopeGraph"
+                        "SlopeGraph",
+                        "ScatterPlot"
                     ],
                     "type": "string"
                 },

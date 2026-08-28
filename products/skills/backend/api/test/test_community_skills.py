@@ -1,3 +1,5 @@
+import time
+
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -9,13 +11,23 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
+
 from ...models.community_skills import CommunitySkill, CommunitySkillFile, CommunitySkillVote
 from ...models.skills import LLMSkill
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
+from ..skill_template_services import (
+    MAX_RENDERED_SKILL_BYTES,
+    MAX_TEMPLATE_BINDINGS_BYTES,
+    MAX_TEMPLATE_VARIABLE_BYTES,
+    MissingTemplateVariableError,
+    TemplateRenderTooLargeError,
+    TemplateVariableTooLargeError,
+    UnknownSuppliedVariableError,
+    UnknownTemplatePlaceholderError,
+    is_template,
+    parse_template_variables,
+    render_template_skill,
+)
 
 
 def _create_community_skill(
@@ -35,6 +47,23 @@ def _create_community_skill(
         tags=["web-analytics"],
         install_count=install_count,
         deleted=deleted,
+    )
+
+
+def _create_template_skill(*, slug: str = "feed-scout") -> CommunitySkill:
+    return CommunitySkill.objects.create(
+        slug=slug,
+        name="Feed scout",
+        description="Watch a feed for problems.",
+        body="# Scout\nWatch table {{ feed_table }} on {{ default_branch }}.",
+        trust_tier="official",
+        source_sha="sha123",
+        metadata={
+            "variables": [
+                {"name": "feed_table", "prompt": "Warehouse table", "required": True},
+                {"name": "default_branch", "prompt": "Branch", "default": "main"},
+            ]
+        },
     )
 
 
@@ -180,6 +209,86 @@ class TestCommunitySkillAPI(APIBaseTest):
         response = self.client.post(self._url("does-not-exist/install/"), {})
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_retrieve_surfaces_template_variables(self, _mock_flag) -> None:
+        _create_template_skill(slug="feed-scout")
+        response = self.client.get(self._url("feed-scout/"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        variables = response.json()["template_variables"]
+        self.assertEqual([v["name"] for v in variables], ["feed_table", "default_branch"])
+        self.assertEqual(
+            variables[0], {"name": "feed_table", "prompt": "Warehouse table", "is_required": True, "default": ""}
+        )
+        self.assertFalse(variables[1]["is_required"])  # has a default
+
+    def test_install_template_renders_variables(self, _mock_flag) -> None:
+        skill = _create_template_skill(slug="feed-scout")
+        CommunitySkillFile.objects.create(
+            skill=skill, path="references/notes.md", content="Query {{ feed_table }} carefully."
+        )
+
+        response = self.client.post(
+            self._url("feed-scout/install/"),
+            {"variables": {"feed_table": "slack_abc", "default_branch": "develop"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+
+        installed = LLMSkill.objects.get(team=self.team, name="feed-scout")
+        self.assertEqual(installed.body, "# Scout\nWatch table slack_abc on develop.")
+        self.assertEqual(installed.files.get(path="references/notes.md").content, "Query slack_abc carefully.")
+        # The instantiated skill is concrete, not a template.
+        self.assertNotIn("variables", installed.metadata)
+        self.assertEqual(installed.metadata["instantiated_from"], "feed-scout@sha123")
+        self.assertEqual(
+            installed.metadata["variable_bindings"], {"feed_table": "slack_abc", "default_branch": "develop"}
+        )
+
+    def test_install_template_uses_default_when_omitted(self, _mock_flag) -> None:
+        _create_template_skill(slug="feed-scout")
+        response = self.client.post(
+            self._url("feed-scout/install/"),
+            {"variables": {"feed_table": "slack_abc"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        installed = LLMSkill.objects.get(team=self.team, name="feed-scout")
+        self.assertEqual(installed.body, "# Scout\nWatch table slack_abc on main.")
+
+    def test_install_template_missing_required_returns_400(self, _mock_flag) -> None:
+        _create_template_skill(slug="feed-scout")
+        response = self.client.post(self._url("feed-scout/install/"), {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "variables")
+        self.assertFalse(LLMSkill.objects.filter(team=self.team, name="feed-scout").exists())
+
+    def test_install_template_oversized_variable_returns_400(self, _mock_flag) -> None:
+        _create_template_skill(slug="feed-scout")
+        response = self.client.post(
+            self._url("feed-scout/install/"),
+            {"variables": {"feed_table": "x" * (MAX_TEMPLATE_VARIABLE_BYTES + 1)}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(LLMSkill.objects.filter(team=self.team, name="feed-scout").exists())
+
+    def test_install_template_undeclared_placeholder_is_logged(self, _mock_flag) -> None:
+        skill = _create_template_skill(slug="feed-scout")
+        skill.body = "Watch {{ feed_table }} and {{ undeclared }}."
+        skill.save(update_fields=["body"])
+
+        with patch("products.skills.backend.api.community_skills.logger.exception") as mock_exception:
+            response = self.client.post(
+                self._url("feed-scout/install/"),
+                {"variables": {"feed_table": "slack_abc"}},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        # The hand-built 500 bypasses DRF's exception handler, so this log line is the only signal
+        # that a catalog entry is broken.
+        mock_exception.assert_called_once()
+        self.assertFalse(LLMSkill.objects.filter(team=self.team, name="feed-scout").exists())
+
     def test_vote_toggles_on_and_off(self, _mock_flag) -> None:
         _create_community_skill(slug="web-analytics-triage")
 
@@ -244,3 +353,167 @@ class TestCommunitySkillFeatureFlagGate(APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/community_skills/")
 
         self.assertEqual(response.status_code, expected_status, response.content)
+
+
+class TestSkillTemplateRendering(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("no metadata", None, False),
+            ("empty", {}, False),
+            ("non-list variables", {"variables": "nope"}, False),
+            ("empty list", {"variables": []}, False),
+            ("declared", {"variables": [{"name": "repo"}]}, True),
+        ]
+    )
+    def test_is_template(self, _name, metadata, expected) -> None:
+        self.assertEqual(is_template(metadata), expected)
+
+    def test_parse_skips_malformed_and_dedupes(self) -> None:
+        variables = parse_template_variables(
+            {
+                "variables": [
+                    {"name": "repo"},
+                    {"no_name": 1},
+                    "bad",
+                    {"name": "repo"},
+                    {"name": "branch", "default": "main"},
+                ]
+            }
+        )
+        self.assertEqual([v.name for v in variables], ["repo", "branch"])
+        # Bare declaration defaults to required; a default makes it optional.
+        self.assertTrue(variables[0].required)
+        self.assertFalse(variables[1].required)
+
+    def test_render_substitutes_and_records_bindings(self) -> None:
+        rendered = render_template_skill(
+            variables=parse_template_variables({"variables": [{"name": "repo", "required": True}]}),
+            body="watch {{ repo }}",
+            files=[{"path": "a.md", "content": "ref {{ repo }}", "content_type": "text/plain"}],
+            supplied={"repo": "posthog/posthog"},
+        )
+        self.assertEqual(rendered.body, "watch posthog/posthog")
+        self.assertEqual(rendered.files[0]["content"], "ref posthog/posthog")
+        self.assertEqual(rendered.bindings, {"repo": "posthog/posthog"})
+
+    def test_render_missing_required_raises(self) -> None:
+        with self.assertRaises(MissingTemplateVariableError):
+            render_template_skill(
+                variables=parse_template_variables({"variables": [{"name": "repo", "required": True}]}),
+                body="watch {{ repo }}",
+                files=[],
+                supplied={},
+            )
+
+    def test_render_unknown_placeholder_raises(self) -> None:
+        with self.assertRaises(UnknownTemplatePlaceholderError):
+            render_template_skill(
+                variables=parse_template_variables({"variables": [{"name": "repo", "required": True}]}),
+                body="watch {{ repo }} and {{ undeclared }}",
+                files=[],
+                supplied={"repo": "x"},
+            )
+
+    def test_render_rejects_unrenderable_variable_name(self) -> None:
+        # A declared name the placeholder regex can't match (hyphen) must fail, not install dangling.
+        with self.assertRaises(UnknownTemplatePlaceholderError):
+            render_template_skill(
+                variables=parse_template_variables({"variables": [{"name": "repo-name", "required": True}]}),
+                body="watch {{ repo-name }}",
+                files=[],
+                supplied={"repo-name": "x"},
+            )
+
+    def test_render_explicit_blank_overrides_default(self) -> None:
+        rendered = render_template_skill(
+            variables=parse_template_variables({"variables": [{"name": "suffix", "default": "!"}]}),
+            body="hi{{ suffix }}",
+            files=[],
+            supplied={"suffix": ""},
+        )
+        self.assertEqual(rendered.body, "hi")
+
+    def test_render_explicit_blank_required_raises(self) -> None:
+        with self.assertRaises(MissingTemplateVariableError):
+            render_template_skill(
+                variables=parse_template_variables({"variables": [{"name": "repo", "required": True}]}),
+                body="{{ repo }}",
+                files=[],
+                supplied={"repo": ""},
+            )
+
+    def test_render_unknown_supplied_key_raises(self) -> None:
+        with self.assertRaises(UnknownSuppliedVariableError):
+            render_template_skill(
+                variables=parse_template_variables({"variables": [{"name": "feed_table", "required": True}]}),
+                body="{{ feed_table }}",
+                files=[],
+                supplied={"feed_table": "x", "feedtable": "typo"},
+            )
+
+    def test_render_allows_braces_inside_supplied_value(self) -> None:
+        # Validation is on the source template, so a value containing literal {{ }} is not re-parsed.
+        rendered = render_template_skill(
+            variables=parse_template_variables({"variables": [{"name": "snippet", "required": True}]}),
+            body="config: {{ snippet }}",
+            files=[],
+            supplied={"snippet": "{{ not_a_var }}"},
+        )
+        self.assertEqual(rendered.body, "config: {{ not_a_var }}")
+
+    def test_render_oversized_output_raises(self) -> None:
+        # A value well inside the per-variable cap still amplifies past the body limit when the
+        # template repeats its placeholder, so the size check can't assume a small input.
+        with self.assertRaises(TemplateRenderTooLargeError):
+            render_template_skill(
+                variables=parse_template_variables({"variables": [{"name": "v", "required": True}]}),
+                body="{{ v }}" * 200,
+                files=[],
+                supplied={"v": "x" * 9_000},
+            )
+
+    @parameterized.expand(
+        [
+            ("one oversized value", 1, MAX_TEMPLATE_VARIABLE_BYTES + 1),
+            (
+                "values oversized in total",
+                MAX_TEMPLATE_BINDINGS_BYTES // MAX_TEMPLATE_VARIABLE_BYTES + 1,
+                MAX_TEMPLATE_VARIABLE_BYTES,
+            ),
+        ]
+    )
+    def test_render_rejects_oversized_bindings(self, _name, count, size) -> None:
+        names = [f"v{i}" for i in range(count)]
+        with self.assertRaises(TemplateVariableTooLargeError):
+            render_template_skill(
+                variables=parse_template_variables({"variables": [{"name": n, "required": True} for n in names]}),
+                # Unrendered on purpose: bindings are persisted to the installed skill's metadata
+                # whether or not they appear in the body, so render-size checks don't bound them.
+                body="no placeholders here",
+                files=[],
+                supplied=dict.fromkeys(names, "x" * size),
+            )
+
+    def test_render_rejects_oversized_total_across_files(self) -> None:
+        # Each file renders to ~700 KB, under the 1 MB per-file cap, but 200 of them are 140 MB.
+        # A per-file limit bounds nothing in aggregate, so the whole-skill cap has to exist.
+        with self.assertRaises(TemplateRenderTooLargeError) as ctx:
+            render_template_skill(
+                variables=parse_template_variables({"variables": [{"name": "v", "required": True}]}),
+                body="small",
+                files=[
+                    {"path": f"references/{i}.md", "content": "{{ v }}" * 100, "content_type": "text/plain"}
+                    for i in range(200)
+                ],
+                supplied={"v": "x" * 7_000},
+            )
+        self.assertIn(str(MAX_RENDERED_SKILL_BYTES), str(ctx.exception))
+
+    def test_render_scans_unmatched_delimiters_in_one_pass(self) -> None:
+        # Unclosed `{{` stay literal. A `{{.*?}}` regex rescans the rest of the input for each of
+        # them, so this body took tens of seconds to validate before the scan became single-pass.
+        body = "{{" * 32_000
+        started = time.monotonic()
+        rendered = render_template_skill(variables=[], body=body, files=[], supplied=None)
+        self.assertEqual(rendered.body, body)
+        self.assertLess(time.monotonic() - started, 5)

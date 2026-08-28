@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 11 enabled ops
+ * PostHog API - MCP 16 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -24,8 +24,16 @@ export const CanvasesListParams = /* @__PURE__ */ zod.object({
 
 export const CanvasesListQueryParams = /* @__PURE__ */ zod.object({
     channel: zod.string().optional().describe('Only return canvases in this channel.'),
+    kind: zod
+        .enum(['component', 'freeform', 'grid'])
+        .optional()
+        .describe('Only return canvases of this kind. kind=component lists the component store.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    search: zod
+        .string()
+        .optional()
+        .describe('Only return canvases whose name or description contains this text (case-insensitive).'),
 })
 
 /**
@@ -41,6 +49,8 @@ export const CanvasesCreateParams = /* @__PURE__ */ zod.object({
 
 export const canvasesCreateBodyNameMax = 400
 
+export const canvasesCreateBodyKindDefault = `freeform`
+export const canvasesCreateBodyDescriptionDefault = ``
 export const canvasesCreateBodyTemplateIdDefault = `freeform`
 export const canvasesCreateBodyTemplateIdMax = 64
 
@@ -48,6 +58,19 @@ export const CanvasesCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(canvasesCreateBodyNameMax).describe('Display name for the canvas.'),
         channel_id: zod.string().describe('Id of the channel the canvas belongs to.'),
+        kind: zod
+            .enum(['freeform', 'grid', 'component'])
+            .describe('\* `freeform` - freeform\n\* `grid` - grid\n\* `component` - component')
+            .default(canvasesCreateBodyKindDefault)
+            .describe(
+                "What to create: 'freeform' (a standalone app), 'component' (a reusable widget for grids — its published project must declare a `component` placement contract), or 'grid' (a composition of components, edited through the layout endpoints).\n\n\* `freeform` - freeform\n\* `grid` - grid\n\* `component` - component"
+            ),
+        description: zod
+            .string()
+            .default(canvasesCreateBodyDescriptionDefault)
+            .describe(
+                'Short prose describing the canvas. For components this is the store-search text agents match against — say what the widget shows and what its config controls.'
+            ),
         template_id: zod
             .string()
             .max(canvasesCreateBodyTemplateIdMax)
@@ -103,6 +126,18 @@ export const canvasesDraftCreateBodyProjectOneAssetsContentMax = 2796204
 export const canvasesDraftCreateBodyProjectOneAssetsContentRegExp = new RegExp(
     '^(?:[A-Za-z0-9+\/]{4})\*(?:[A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=)?$'
 )
+export const canvasesDraftCreateBodyProjectOneComponentOneSizeOneDefaultWMax = 12
+
+export const canvasesDraftCreateBodyProjectOneComponentOneSizeOneDefaultHMax = 40
+
+export const canvasesDraftCreateBodyProjectOneComponentOneSizeOneMinWMax = 12
+
+export const canvasesDraftCreateBodyProjectOneComponentOneSizeOneMinHMax = 40
+
+export const canvasesDraftCreateBodyProjectOneComponentOneSizeOneMaxWMax = 12
+
+export const canvasesDraftCreateBodyProjectOneComponentOneSizeOneMaxHMax = 40
+
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogInsightsItemMax = 128
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogInsightsMax = 100
@@ -111,6 +146,13 @@ export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogCaptureEvent
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsMax = 100
 
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogStateMax = 2
+
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogActionsItemMax = 64
+
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogActionsMax = 32
+
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault = false
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
@@ -156,12 +198,63 @@ export const CanvasesDraftCreateBody = /* @__PURE__ */ zod
                     .record(zod.string(), zod.string())
                     .optional()
                     .describe(
-                        'Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog\/quill, recharts, lucide-react, dayjs) at their pinned versions.'
+                        'Exact-version dependencies, restricted to the platform-supported set at its pinned versions.'
                     ),
                 canvasSdkVersion: zod
                     .string()
                     .optional()
                     .describe('Version of the host-injected `ph` canvas SDK the project targets.'),
+                component: zod
+                    .object({
+                        size: zod
+                            .object({
+                                defaultW: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesDraftCreateBodyProjectOneComponentOneSizeOneDefaultWMax)
+                                    .describe('Width a new placement starts at, in grid columns.'),
+                                defaultH: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesDraftCreateBodyProjectOneComponentOneSizeOneDefaultHMax)
+                                    .describe('Height a new placement starts at, in grid rows.'),
+                                minW: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesDraftCreateBodyProjectOneComponentOneSizeOneMinWMax)
+                                    .describe('Narrowest width the component renders usefully at.'),
+                                minH: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesDraftCreateBodyProjectOneComponentOneSizeOneMinHMax)
+                                    .describe('Shortest height the component renders usefully at.'),
+                                maxW: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesDraftCreateBodyProjectOneComponentOneSizeOneMaxWMax)
+                                    .optional()
+                                    .describe("Widest allowed width; omit for no cap below the grid's width."),
+                                maxH: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesDraftCreateBodyProjectOneComponentOneSizeOneMaxHMax)
+                                    .optional()
+                                    .describe('Tallest allowed height; omit for no cap.'),
+                            })
+                            .describe("A component's grid-size contract, in grid units.")
+                            .describe('Grid-size contract for placements of this component.'),
+                        configSchema: zod
+                            .record(zod.string(), zod.unknown())
+                            .optional()
+                            .describe(
+                                'JSON Schema (\"type\": \"object\") for a placement\'s config. The host validates each placement\'s config against it and passes the validated object to the widget at mount.'
+                            ),
+                    })
+                    .describe("A component's placement contract: how grid canvases may place and configure it.")
+                    .optional()
+                    .describe(
+                        'Placement contract, required for (and only allowed on) component-kind canvases: the grid size the component takes and the JSON Schema of its per-placement config.'
+                    ),
                 capabilities: zod
                     .object({
                         posthog: zod.object({
@@ -182,6 +275,27 @@ export const CanvasesDraftCreateBody = /* @__PURE__ */ zod
                                         )
                                 )
                                 .max(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsMax),
+                            state: zod
+                                .array(zod.enum(['user', 'shared']).describe('\* `user` - user\n\* `shared` - shared'))
+                                .max(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogStateMax)
+                                .optional()
+                                .describe(
+                                    "State scopes the canvas may use via ph.state: 'user' (private to each viewer) and\/or 'shared' (one value per canvas, team-visible)."
+                                ),
+                            actions: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogActionsItemMax)
+                                )
+                                .max(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogActionsMax)
+                                .optional()
+                                .describe(
+                                    "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review."
+                                ),
+                            agentRequests: zod
+                                .boolean()
+                                .default(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault),
                         }),
                         network: zod.object({
                             origins: zod
@@ -193,7 +307,7 @@ export const CanvasesDraftCreateBody = /* @__PURE__ */ zod
                     })
                     .optional()
                     .describe(
-                        'Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls.'
+                        'Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins.'
                     ),
             })
             .describe("A canvas's multi-file source project — the canonical write format for canvas source.")
@@ -283,6 +397,394 @@ export const CanvasesEditCreateBody = /* @__PURE__ */ zod
     .describe("Payload for publishing per-file edits against the canvas's current source.")
 
 /**
+ * Read a grid canvas's layout document and its `current_version_id`.
+ *
+ * Always call this before editing: pass the returned version id as
+ * `expected_current_version_id` on publish/patch so concurrent edits are
+ * not overwritten. A grid canvas with no versions yet returns the
+ * default empty layout with a null version id.
+ */
+export const CanvasesLayoutRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this canvas.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const CanvasesLayoutRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    version_id: zod
+        .string()
+        .optional()
+        .describe('Read this historical layout version instead of the head (for version browsing).'),
+})
+
+/**
+ * Apply surgical operations to the grid canvas's current layout.
+ *
+ * The default write path for both the editor and agents: add, move,
+ * resize, fill, or remove one placement without resending the layout.
+ * `expected_current_version_id` is mandatory so an agent filling a box
+ * and a user rearranging widgets cannot overwrite each other.
+ */
+export const CanvasesLayoutPatchCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this canvas.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const canvasesLayoutPatchCreateBodyOperationsItemGridOneRowHeightMin = 24
+export const canvasesLayoutPatchCreateBodyOperationsItemGridOneRowHeightMax = 400
+
+export const canvasesLayoutPatchCreateBodyOperationsItemGridOneGapMin = 0
+export const canvasesLayoutPatchCreateBodyOperationsItemGridOneGapMax = 48
+
+export const canvasesLayoutPatchCreateBodyOperationsItemPlacementOneIdMax = 64
+
+export const canvasesLayoutPatchCreateBodyOperationsItemPlacementOneIdRegExp = new RegExp('^[A-Za-z0-9_-]{1,64}$')
+export const canvasesLayoutPatchCreateBodyOperationsItemPlacementOneXMin = 0
+
+export const canvasesLayoutPatchCreateBodyOperationsItemPlacementOneYMin = 0
+
+export const canvasesLayoutPatchCreateBodyOperationsItemPlacementOnePromptMax = 10000
+
+export const canvasesLayoutPatchCreateBodyOperationsItemIdMax = 64
+
+export const canvasesLayoutPatchCreateBodyOperationsItemChangesOneXMin = 0
+
+export const canvasesLayoutPatchCreateBodyOperationsItemChangesOneYMin = 0
+
+export const canvasesLayoutPatchCreateBodyOperationsItemChangesOnePromptMax = 10000
+
+export const CanvasesLayoutPatchCreateBody = /* @__PURE__ */ zod
+    .object({
+        operations: zod
+            .array(
+                zod
+                    .object({
+                        op: zod
+                            .enum(['set_grid', 'add_placement', 'update_placement', 'remove_placement'])
+                            .describe(
+                                '\* `set_grid` - set_grid\n\* `add_placement` - add_placement\n\* `update_placement` - update_placement\n\* `remove_placement` - remove_placement'
+                            )
+                            .describe(
+                                'The operation to apply.\n\n\* `set_grid` - set_grid\n\* `add_placement` - add_placement\n\* `update_placement` - update_placement\n\* `remove_placement` - remove_placement'
+                            ),
+                        grid: zod
+                            .object({
+                                columns: zod
+                                    .union([
+                                        zod.literal(4),
+                                        zod.literal(6),
+                                        zod.literal(8),
+                                        zod.literal(10),
+                                        zod.literal(12),
+                                    ])
+                                    .describe('\* `4` - 4\n\* `6` - 6\n\* `8` - 8\n\* `10` - 10\n\* `12` - 12')
+                                    .describe(
+                                        'Grid width in columns. One of 4, 6, 8, 10, or 12.\n\n\* `4` - 4\n\* `6` - 6\n\* `8` - 8\n\* `10` - 10\n\* `12` - 12'
+                                    ),
+                                rowHeight: zod
+                                    .number()
+                                    .min(canvasesLayoutPatchCreateBodyOperationsItemGridOneRowHeightMin)
+                                    .max(canvasesLayoutPatchCreateBodyOperationsItemGridOneRowHeightMax)
+                                    .describe('Height of one grid row, in pixels.'),
+                                gap: zod
+                                    .number()
+                                    .min(canvasesLayoutPatchCreateBodyOperationsItemGridOneGapMin)
+                                    .max(canvasesLayoutPatchCreateBodyOperationsItemGridOneGapMax)
+                                    .describe('Gap between placements, in pixels.'),
+                            })
+                            .describe('The grid a grid canvas lays its placements out on.')
+                            .optional()
+                            .describe('For set_grid: the new grid definition.'),
+                        placement: zod
+                            .object({
+                                id: zod
+                                    .string()
+                                    .max(canvasesLayoutPatchCreateBodyOperationsItemPlacementOneIdMax)
+                                    .regex(canvasesLayoutPatchCreateBodyOperationsItemPlacementOneIdRegExp)
+                                    .describe(
+                                        "Stable placement id, unique within the layout. 1-64 characters of letters, digits, '_', or '-'."
+                                    ),
+                                status: zod
+                                    .enum(['pending', 'generating', 'live', 'failed'])
+                                    .describe(
+                                        '\* `pending` - pending\n\* `generating` - generating\n\* `live` - live\n\* `failed` - failed'
+                                    )
+                                    .describe(
+                                        "Placement lifecycle: 'pending' (box drawn, no prompt yet), 'generating' (an agent task is filling it), 'live' (renders its component), 'failed' (generation failed; re-prompt or remove).\n\n\* `pending` - pending\n\* `generating` - generating\n\* `live` - live\n\* `failed` - failed"
+                                    ),
+                                component: zod
+                                    .string()
+                                    .nullish()
+                                    .describe(
+                                        'Id of the component canvas this placement renders. Required once the placement is live.'
+                                    ),
+                                version: zod
+                                    .string()
+                                    .nullish()
+                                    .describe(
+                                        'Component version to render: \"latest\" (the default — follows the component\'s published build) or a pinned source version id.'
+                                    ),
+                                x: zod
+                                    .number()
+                                    .min(canvasesLayoutPatchCreateBodyOperationsItemPlacementOneXMin)
+                                    .describe('Left edge, in grid columns (0-based).'),
+                                y: zod
+                                    .number()
+                                    .min(canvasesLayoutPatchCreateBodyOperationsItemPlacementOneYMin)
+                                    .describe('Top edge, in grid rows (0-based).'),
+                                w: zod.number().min(1).describe('Width, in grid columns.'),
+                                h: zod.number().min(1).describe('Height, in grid rows.'),
+                                config: zod
+                                    .record(zod.string(), zod.unknown())
+                                    .nullish()
+                                    .describe(
+                                        "Per-placement settings, validated against the component's configSchema."
+                                    ),
+                                prompt: zod
+                                    .string()
+                                    .max(canvasesLayoutPatchCreateBodyOperationsItemPlacementOnePromptMax)
+                                    .nullish()
+                                    .describe(
+                                        'For pending\/generating\/failed placements: what the user asked this box to become.'
+                                    ),
+                                generationTaskId: zod
+                                    .string()
+                                    .nullish()
+                                    .describe(
+                                        'Id of the agent task currently filling this placement, when one is running.'
+                                    ),
+                            })
+                            .describe('One placed widget on a grid canvas.')
+                            .optional()
+                            .describe('For add_placement: the placement to add.'),
+                        id: zod
+                            .string()
+                            .max(canvasesLayoutPatchCreateBodyOperationsItemIdMax)
+                            .optional()
+                            .describe('For update_placement\/remove_placement: the target placement id.'),
+                        changes: zod
+                            .object({
+                                status: zod
+                                    .enum(['pending', 'generating', 'live', 'failed'])
+                                    .describe(
+                                        '\* `pending` - pending\n\* `generating` - generating\n\* `live` - live\n\* `failed` - failed'
+                                    )
+                                    .optional()
+                                    .describe(
+                                        "Placement lifecycle: 'pending' (box drawn, no prompt yet), 'generating' (an agent task is filling it), 'live' (renders its component), 'failed' (generation failed; re-prompt or remove).\n\n\* `pending` - pending\n\* `generating` - generating\n\* `live` - live\n\* `failed` - failed"
+                                    ),
+                                component: zod
+                                    .string()
+                                    .nullish()
+                                    .describe(
+                                        'Id of the component canvas this placement renders. Required once the placement is live.'
+                                    ),
+                                version: zod
+                                    .string()
+                                    .nullish()
+                                    .describe(
+                                        'Component version to render: \"latest\" (the default — follows the component\'s published build) or a pinned source version id.'
+                                    ),
+                                x: zod
+                                    .number()
+                                    .min(canvasesLayoutPatchCreateBodyOperationsItemChangesOneXMin)
+                                    .optional()
+                                    .describe('Left edge, in grid columns (0-based).'),
+                                y: zod
+                                    .number()
+                                    .min(canvasesLayoutPatchCreateBodyOperationsItemChangesOneYMin)
+                                    .optional()
+                                    .describe('Top edge, in grid rows (0-based).'),
+                                w: zod.number().min(1).optional().describe('Width, in grid columns.'),
+                                h: zod.number().min(1).optional().describe('Height, in grid rows.'),
+                                config: zod
+                                    .record(zod.string(), zod.unknown())
+                                    .nullish()
+                                    .describe(
+                                        "Per-placement settings, validated against the component's configSchema."
+                                    ),
+                                prompt: zod
+                                    .string()
+                                    .max(canvasesLayoutPatchCreateBodyOperationsItemChangesOnePromptMax)
+                                    .nullish()
+                                    .describe(
+                                        'For pending\/generating\/failed placements: what the user asked this box to become.'
+                                    ),
+                                generationTaskId: zod
+                                    .string()
+                                    .nullish()
+                                    .describe(
+                                        'Id of the agent task currently filling this placement, when one is running.'
+                                    ),
+                            })
+                            .describe('Fields to merge into an existing placement (all optional; id cannot change).')
+                            .optional()
+                            .describe('For update_placement: the fields to merge into the placement.'),
+                    })
+                    .describe('One surgical layout operation.')
+            )
+            .describe("Operations applied in order to the canvas's current layout, at most 64."),
+        prompt: zod
+            .string()
+            .optional()
+            .describe('Short description of the change, stored on the appended version history entry.'),
+        expected_current_version_id: zod
+            .string()
+            .nullable()
+            .describe(
+                'Required optimistic-concurrency guard: the current_version_id the operations are based on (null when the canvas has no layout versions yet). A moved head is rejected with 409 version_conflict — patches cannot apply unguarded.'
+            ),
+    })
+    .describe("Payload for applying surgical operations to the canvas's current layout.")
+
+/**
+ * Publish a complete layout document as the grid canvas's new head version.
+ *
+ * Layout is data, not code: the new version is live immediately, with no
+ * build. Validation errors reject the publish (400) and leave the canvas
+ * untouched; a stale `expected_current_version_id` is rejected with 409.
+ */
+export const CanvasesLayoutPublishCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this canvas.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const canvasesLayoutPublishCreateBodyLayoutOneGridOneRowHeightMin = 24
+export const canvasesLayoutPublishCreateBodyLayoutOneGridOneRowHeightMax = 400
+
+export const canvasesLayoutPublishCreateBodyLayoutOneGridOneGapMin = 0
+export const canvasesLayoutPublishCreateBodyLayoutOneGridOneGapMax = 48
+
+export const canvasesLayoutPublishCreateBodyLayoutOnePlacementsItemIdMax = 64
+
+export const canvasesLayoutPublishCreateBodyLayoutOnePlacementsItemIdRegExp = new RegExp('^[A-Za-z0-9_-]{1,64}$')
+export const canvasesLayoutPublishCreateBodyLayoutOnePlacementsItemXMin = 0
+
+export const canvasesLayoutPublishCreateBodyLayoutOnePlacementsItemYMin = 0
+
+export const canvasesLayoutPublishCreateBodyLayoutOnePlacementsItemPromptMax = 10000
+
+export const CanvasesLayoutPublishCreateBody = /* @__PURE__ */ zod
+    .object({
+        layout: zod
+            .object({
+                schemaVersion: zod
+                    .literal(1)
+                    .describe('\* `1` - 1')
+                    .describe('Layout schema version. Currently always 1.\n\n\* `1` - 1'),
+                grid: zod
+                    .object({
+                        columns: zod
+                            .union([zod.literal(4), zod.literal(6), zod.literal(8), zod.literal(10), zod.literal(12)])
+                            .describe('\* `4` - 4\n\* `6` - 6\n\* `8` - 8\n\* `10` - 10\n\* `12` - 12')
+                            .describe(
+                                'Grid width in columns. One of 4, 6, 8, 10, or 12.\n\n\* `4` - 4\n\* `6` - 6\n\* `8` - 8\n\* `10` - 10\n\* `12` - 12'
+                            ),
+                        rowHeight: zod
+                            .number()
+                            .min(canvasesLayoutPublishCreateBodyLayoutOneGridOneRowHeightMin)
+                            .max(canvasesLayoutPublishCreateBodyLayoutOneGridOneRowHeightMax)
+                            .describe('Height of one grid row, in pixels.'),
+                        gap: zod
+                            .number()
+                            .min(canvasesLayoutPublishCreateBodyLayoutOneGridOneGapMin)
+                            .max(canvasesLayoutPublishCreateBodyLayoutOneGridOneGapMax)
+                            .describe('Gap between placements, in pixels.'),
+                    })
+                    .describe('The grid a grid canvas lays its placements out on.')
+                    .describe('The grid placements are laid out on.'),
+                placements: zod
+                    .array(
+                        zod
+                            .object({
+                                id: zod
+                                    .string()
+                                    .max(canvasesLayoutPublishCreateBodyLayoutOnePlacementsItemIdMax)
+                                    .regex(canvasesLayoutPublishCreateBodyLayoutOnePlacementsItemIdRegExp)
+                                    .describe(
+                                        "Stable placement id, unique within the layout. 1-64 characters of letters, digits, '_', or '-'."
+                                    ),
+                                status: zod
+                                    .enum(['pending', 'generating', 'live', 'failed'])
+                                    .describe(
+                                        '\* `pending` - pending\n\* `generating` - generating\n\* `live` - live\n\* `failed` - failed'
+                                    )
+                                    .describe(
+                                        "Placement lifecycle: 'pending' (box drawn, no prompt yet), 'generating' (an agent task is filling it), 'live' (renders its component), 'failed' (generation failed; re-prompt or remove).\n\n\* `pending` - pending\n\* `generating` - generating\n\* `live` - live\n\* `failed` - failed"
+                                    ),
+                                component: zod
+                                    .string()
+                                    .nullish()
+                                    .describe(
+                                        'Id of the component canvas this placement renders. Required once the placement is live.'
+                                    ),
+                                version: zod
+                                    .string()
+                                    .nullish()
+                                    .describe(
+                                        'Component version to render: \"latest\" (the default — follows the component\'s published build) or a pinned source version id.'
+                                    ),
+                                x: zod
+                                    .number()
+                                    .min(canvasesLayoutPublishCreateBodyLayoutOnePlacementsItemXMin)
+                                    .describe('Left edge, in grid columns (0-based).'),
+                                y: zod
+                                    .number()
+                                    .min(canvasesLayoutPublishCreateBodyLayoutOnePlacementsItemYMin)
+                                    .describe('Top edge, in grid rows (0-based).'),
+                                w: zod.number().min(1).describe('Width, in grid columns.'),
+                                h: zod.number().min(1).describe('Height, in grid rows.'),
+                                config: zod
+                                    .record(zod.string(), zod.unknown())
+                                    .nullish()
+                                    .describe(
+                                        "Per-placement settings, validated against the component's configSchema."
+                                    ),
+                                prompt: zod
+                                    .string()
+                                    .max(canvasesLayoutPublishCreateBodyLayoutOnePlacementsItemPromptMax)
+                                    .nullish()
+                                    .describe(
+                                        'For pending\/generating\/failed placements: what the user asked this box to become.'
+                                    ),
+                                generationTaskId: zod
+                                    .string()
+                                    .nullish()
+                                    .describe(
+                                        'Id of the agent task currently filling this placement, when one is running.'
+                                    ),
+                            })
+                            .describe('One placed widget on a grid canvas.')
+                    )
+                    .describe('The placed widgets, at most 24. Placements may not overlap or extend past the grid.'),
+            })
+            .describe("A grid canvas's layout document — its entire 'source'.")
+            .describe('The complete layout document to publish.'),
+        prompt: zod
+            .string()
+            .optional()
+            .describe('Short description of the change, stored on the appended version history entry.'),
+        expected_current_version_id: zod
+            .string()
+            .nullish()
+            .describe(
+                'Optimistic-concurrency guard: the current_version_id the layout was based on (null when the canvas has no versions yet). A moved head is rejected with 409 version_conflict. Omit to publish unguarded.'
+            ),
+    })
+    .describe('Payload for publishing a complete layout document.')
+
+/**
  * Make a draft version the canvas's live head.
  *
  * A draft whose build is ready goes live immediately, with no rebuild;
@@ -330,6 +832,18 @@ export const canvasesPublishCreateBodyProjectOneAssetsContentMax = 2796204
 export const canvasesPublishCreateBodyProjectOneAssetsContentRegExp = new RegExp(
     '^(?:[A-Za-z0-9+\/]{4})\*(?:[A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=)?$'
 )
+export const canvasesPublishCreateBodyProjectOneComponentOneSizeOneDefaultWMax = 12
+
+export const canvasesPublishCreateBodyProjectOneComponentOneSizeOneDefaultHMax = 40
+
+export const canvasesPublishCreateBodyProjectOneComponentOneSizeOneMinWMax = 12
+
+export const canvasesPublishCreateBodyProjectOneComponentOneSizeOneMinHMax = 40
+
+export const canvasesPublishCreateBodyProjectOneComponentOneSizeOneMaxWMax = 12
+
+export const canvasesPublishCreateBodyProjectOneComponentOneSizeOneMaxHMax = 40
+
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogInsightsItemMax = 128
 
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogInsightsMax = 100
@@ -338,6 +852,13 @@ export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogCaptureEve
 
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsMax = 100
 
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogStateMax = 2
+
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogActionsItemMax = 64
+
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogActionsMax = 32
+
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault = false
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
@@ -385,12 +906,63 @@ export const CanvasesPublishCreateBody = /* @__PURE__ */ zod
                     .record(zod.string(), zod.string())
                     .optional()
                     .describe(
-                        'Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog\/quill, recharts, lucide-react, dayjs) at their pinned versions.'
+                        'Exact-version dependencies, restricted to the platform-supported set at its pinned versions.'
                     ),
                 canvasSdkVersion: zod
                     .string()
                     .optional()
                     .describe('Version of the host-injected `ph` canvas SDK the project targets.'),
+                component: zod
+                    .object({
+                        size: zod
+                            .object({
+                                defaultW: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesPublishCreateBodyProjectOneComponentOneSizeOneDefaultWMax)
+                                    .describe('Width a new placement starts at, in grid columns.'),
+                                defaultH: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesPublishCreateBodyProjectOneComponentOneSizeOneDefaultHMax)
+                                    .describe('Height a new placement starts at, in grid rows.'),
+                                minW: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesPublishCreateBodyProjectOneComponentOneSizeOneMinWMax)
+                                    .describe('Narrowest width the component renders usefully at.'),
+                                minH: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesPublishCreateBodyProjectOneComponentOneSizeOneMinHMax)
+                                    .describe('Shortest height the component renders usefully at.'),
+                                maxW: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesPublishCreateBodyProjectOneComponentOneSizeOneMaxWMax)
+                                    .optional()
+                                    .describe("Widest allowed width; omit for no cap below the grid's width."),
+                                maxH: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesPublishCreateBodyProjectOneComponentOneSizeOneMaxHMax)
+                                    .optional()
+                                    .describe('Tallest allowed height; omit for no cap.'),
+                            })
+                            .describe("A component's grid-size contract, in grid units.")
+                            .describe('Grid-size contract for placements of this component.'),
+                        configSchema: zod
+                            .record(zod.string(), zod.unknown())
+                            .optional()
+                            .describe(
+                                'JSON Schema (\"type\": \"object\") for a placement\'s config. The host validates each placement\'s config against it and passes the validated object to the widget at mount.'
+                            ),
+                    })
+                    .describe("A component's placement contract: how grid canvases may place and configure it.")
+                    .optional()
+                    .describe(
+                        'Placement contract, required for (and only allowed on) component-kind canvases: the grid size the component takes and the JSON Schema of its per-placement config.'
+                    ),
                 capabilities: zod
                     .object({
                         posthog: zod.object({
@@ -411,6 +983,27 @@ export const CanvasesPublishCreateBody = /* @__PURE__ */ zod
                                         )
                                 )
                                 .max(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsMax),
+                            state: zod
+                                .array(zod.enum(['user', 'shared']).describe('\* `user` - user\n\* `shared` - shared'))
+                                .max(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogStateMax)
+                                .optional()
+                                .describe(
+                                    "State scopes the canvas may use via ph.state: 'user' (private to each viewer) and\/or 'shared' (one value per canvas, team-visible)."
+                                ),
+                            actions: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogActionsItemMax)
+                                )
+                                .max(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogActionsMax)
+                                .optional()
+                                .describe(
+                                    "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review."
+                                ),
+                            agentRequests: zod
+                                .boolean()
+                                .default(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault),
                         }),
                         network: zod.object({
                             origins: zod
@@ -424,7 +1017,7 @@ export const CanvasesPublishCreateBody = /* @__PURE__ */ zod
                     })
                     .optional()
                     .describe(
-                        'Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls.'
+                        'Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins.'
                     ),
             })
             .describe("A canvas's multi-file source project — the canonical write format for canvas source.")
@@ -490,6 +1083,52 @@ export const CanvasesSourceRetrieveQueryParams = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Read the canvas's runtime key-value state (the ph.state store).
+ *
+ * Returns shared entries plus the authenticated user's own user-scoped
+ * entries — never another user's.
+ */
+export const CanvasesStateRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this canvas.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const CanvasesStateRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    scope: zod.enum(['shared', 'user']).optional().describe('Only return entries in this scope.'),
+})
+
+/**
+ * Write one key of the canvas's runtime state, or delete it with a null value.
+ */
+export const CanvasesStateSetParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this canvas.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const canvasesStateSetBodyKeyMax = 200
+
+export const CanvasesStateSetBody = /* @__PURE__ */ zod
+    .object({
+        scope: zod
+            .enum(['user', 'shared'])
+            .describe('\* `user` - user\n\* `shared` - shared')
+            .describe(
+                'Scope to write into; the canvas must declare it in capabilities.posthog.state.\n\n\* `user` - user\n\* `shared` - shared'
+            ),
+        key: zod.string().max(canvasesStateSetBodyKeyMax).describe('Key to write, unique within its scope.'),
+        value: zod.unknown().describe('JSON value to store (at most 64 KB serialized), or null to delete the key.'),
+    })
+    .describe("Payload for writing (or deleting) one key of a canvas's runtime state.")
+
+/**
  * Validate a candidate source project without publishing it. Side-effect free.
  */
 export const CanvasesValidateCreateParams = /* @__PURE__ */ zod.object({
@@ -506,6 +1145,18 @@ export const canvasesValidateCreateBodyProjectOneAssetsContentMax = 2796204
 export const canvasesValidateCreateBodyProjectOneAssetsContentRegExp = new RegExp(
     '^(?:[A-Za-z0-9+\/]{4})\*(?:[A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=)?$'
 )
+export const canvasesValidateCreateBodyProjectOneComponentOneSizeOneDefaultWMax = 12
+
+export const canvasesValidateCreateBodyProjectOneComponentOneSizeOneDefaultHMax = 40
+
+export const canvasesValidateCreateBodyProjectOneComponentOneSizeOneMinWMax = 12
+
+export const canvasesValidateCreateBodyProjectOneComponentOneSizeOneMinHMax = 40
+
+export const canvasesValidateCreateBodyProjectOneComponentOneSizeOneMaxWMax = 12
+
+export const canvasesValidateCreateBodyProjectOneComponentOneSizeOneMaxHMax = 40
+
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogInsightsItemMax = 128
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogInsightsMax = 100
@@ -514,6 +1165,13 @@ export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogCaptureEv
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsMax = 100
 
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogStateMax = 2
+
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogActionsItemMax = 64
+
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogActionsMax = 32
+
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault = false
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
@@ -559,12 +1217,63 @@ export const CanvasesValidateCreateBody = /* @__PURE__ */ zod
                     .record(zod.string(), zod.string())
                     .optional()
                     .describe(
-                        'Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog\/quill, recharts, lucide-react, dayjs) at their pinned versions.'
+                        'Exact-version dependencies, restricted to the platform-supported set at its pinned versions.'
                     ),
                 canvasSdkVersion: zod
                     .string()
                     .optional()
                     .describe('Version of the host-injected `ph` canvas SDK the project targets.'),
+                component: zod
+                    .object({
+                        size: zod
+                            .object({
+                                defaultW: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesValidateCreateBodyProjectOneComponentOneSizeOneDefaultWMax)
+                                    .describe('Width a new placement starts at, in grid columns.'),
+                                defaultH: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesValidateCreateBodyProjectOneComponentOneSizeOneDefaultHMax)
+                                    .describe('Height a new placement starts at, in grid rows.'),
+                                minW: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesValidateCreateBodyProjectOneComponentOneSizeOneMinWMax)
+                                    .describe('Narrowest width the component renders usefully at.'),
+                                minH: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesValidateCreateBodyProjectOneComponentOneSizeOneMinHMax)
+                                    .describe('Shortest height the component renders usefully at.'),
+                                maxW: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesValidateCreateBodyProjectOneComponentOneSizeOneMaxWMax)
+                                    .optional()
+                                    .describe("Widest allowed width; omit for no cap below the grid's width."),
+                                maxH: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesValidateCreateBodyProjectOneComponentOneSizeOneMaxHMax)
+                                    .optional()
+                                    .describe('Tallest allowed height; omit for no cap.'),
+                            })
+                            .describe("A component's grid-size contract, in grid units.")
+                            .describe('Grid-size contract for placements of this component.'),
+                        configSchema: zod
+                            .record(zod.string(), zod.unknown())
+                            .optional()
+                            .describe(
+                                'JSON Schema (\"type\": \"object\") for a placement\'s config. The host validates each placement\'s config against it and passes the validated object to the widget at mount.'
+                            ),
+                    })
+                    .describe("A component's placement contract: how grid canvases may place and configure it.")
+                    .optional()
+                    .describe(
+                        'Placement contract, required for (and only allowed on) component-kind canvases: the grid size the component takes and the JSON Schema of its per-placement config.'
+                    ),
                 capabilities: zod
                     .object({
                         posthog: zod.object({
@@ -585,6 +1294,29 @@ export const CanvasesValidateCreateBody = /* @__PURE__ */ zod
                                         )
                                 )
                                 .max(canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsMax),
+                            state: zod
+                                .array(zod.enum(['user', 'shared']).describe('\* `user` - user\n\* `shared` - shared'))
+                                .max(canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogStateMax)
+                                .optional()
+                                .describe(
+                                    "State scopes the canvas may use via ph.state: 'user' (private to each viewer) and\/or 'shared' (one value per canvas, team-visible)."
+                                ),
+                            actions: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogActionsItemMax)
+                                )
+                                .max(canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogActionsMax)
+                                .optional()
+                                .describe(
+                                    "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review."
+                                ),
+                            agentRequests: zod
+                                .boolean()
+                                .default(
+                                    canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault
+                                ),
                         }),
                         network: zod.object({
                             origins: zod
@@ -598,7 +1330,7 @@ export const CanvasesValidateCreateBody = /* @__PURE__ */ zod
                     })
                     .optional()
                     .describe(
-                        'Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls.'
+                        'Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins.'
                     ),
             })
             .describe("A canvas's multi-file source project — the canonical write format for canvas source.")

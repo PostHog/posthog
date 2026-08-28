@@ -304,6 +304,28 @@ def test_restore_schema_dump_recreate_drops_and_creates(tmp_path: Path, monkeypa
     assert defaults == ["test_posthog"]
 
 
+def test_restore_schema_dump_forgets_product_app_migrations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The dump comes from a database that routes product apps elsewhere, so it records their
+    # migrations as applied without ever creating their tables. Left in place, the next product
+    # migration is applied for real here and fails on the missing table.
+    schema_path = tmp_path / "schema.sql.gz"
+    _write_schema(schema_path)
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(db_schema, "_run", lambda command, env=None: commands.append(command))
+    monkeypatch.setattr(db_schema, "_run_psql_with_gzip_input", lambda gzip_path, target_db: None)
+    monkeypatch.setattr(db_schema, "_ensure_migration_defaults", lambda target_db: None)
+
+    db_schema.restore_schema_dump(target_db="test_posthog", recreate=False, schema_path=schema_path)
+
+    deletes = [command[-1] for command in commands if "DELETE FROM django_migrations" in command[-1]]
+    assert len(deletes) == 1
+    app_labels = db_schema._product_routed_app_labels()
+    assert app_labels, "expected products/db_routing.yaml to route at least one app"
+    for app_label in app_labels:
+        assert f"'{app_label}'" in deletes[0]
+
+
 def test_restore_schema_dump_recreate_cleans_up_after_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     schema_path = tmp_path / "schema.sql.gz"
     _write_schema(schema_path)

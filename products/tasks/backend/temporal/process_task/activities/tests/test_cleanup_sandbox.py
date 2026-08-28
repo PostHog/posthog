@@ -29,6 +29,7 @@ def test_cleanup_sandbox_skips_agent_server_shutdown_for_regular_cleanup(activit
 def test_cleanup_sandbox_records_cpu_usage_before_destroy(activity_environment, mocker):
     sandbox = mocker.Mock(id="sandbox-123")
     sandbox.read_cpu_usage_usec.return_value = 12_345_678
+    sandbox.read_billed_cpu_usage_usec.return_value = 15_000_000
     mocker.patch.object(Sandbox, "get_by_id", return_value=sandbox)
     close_session = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.close_sandbox_session"
@@ -42,6 +43,7 @@ def test_cleanup_sandbox_records_cpu_usage_before_destroy(activity_environment, 
         "sandbox-123",
         reason="cleanup",
         cpu_usage_usec=12_345_678,
+        billed_cpu_usage_usec=15_000_000,
         cpu_usage_measured_at=mocker.ANY,
     )
 
@@ -79,6 +81,7 @@ def test_cleanup_sandbox_retries_when_final_destroy_fails(activity_environment, 
     run_id = str(uuid.uuid4())
     sandbox = mocker.Mock(id="sandbox-123")
     sandbox.read_cpu_usage_usec.return_value = 12_345_678
+    sandbox.read_billed_cpu_usage_usec.return_value = 15_000_000
     sandbox.destroy.side_effect = RuntimeError("destroy failed")
     mocker.patch.object(Sandbox, "get_by_id", return_value=sandbox)
     close_session = mocker.patch(
@@ -104,6 +107,7 @@ def test_cleanup_sandbox_retries_when_final_destroy_fails(activity_environment, 
         "sandbox-123",
         reason="cleanup",
         cpu_usage_usec=12_345_678,
+        billed_cpu_usage_usec=15_000_000,
         cpu_usage_measured_at=mocker.ANY,
     )
     publish_complete.assert_not_called()

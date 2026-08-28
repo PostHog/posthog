@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
-import { useMemo, type ReactNode } from 'react'
+import { useMemo } from 'react'
 
-import type { ChartLegendConfig, LegendItem } from '@posthog/quill-charts'
+import type { ChartLegendConfig } from '@posthog/quill-charts'
 
+import { useChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/useChartLegendSeriesMenu'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { getTrendResultCustomizationKey } from 'scenes/insights/utils'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -10,29 +11,22 @@ import type { IndexedTrendResult } from 'scenes/trends/types'
 
 import { InsightLogicProps } from '~/types'
 
-import { TrendsLegendItemContextMenu } from './TrendsLegendItemContextMenu'
-
 interface UseInsightsLegendConfigOptions {
     insightProps: InsightLogicProps
     inSharedMode?: boolean
 }
 
 /** Builds the quill in-chart legend config for trends-family charts. Wires toggle persistence and the
- *  isolate/show-all context menu through trendsDataLogic. Lifecycle and funnel charts build their
+ *  isolate/show-all row menu through trendsDataLogic. Lifecycle and funnel charts build their
  *  legend config inline (they don't read from trendsDataLogic). */
 export function useInsightsLegendConfig({
     insightProps,
     inSharedMode = false,
 }: UseInsightsLegendConfigOptions): ChartLegendConfig {
     const { canEditInsight } = useValues(insightLogic)
-    const {
-        indexedResults,
-        getTrendsHidden,
-        showLegend,
-        legendPosition,
-        legendSeriesIsolationMenuEligible,
-        resultCustomizationBy,
-    } = useValues(trendsDataLogic(insightProps))
+    const { indexedResults, getTrendsHidden, showLegend, legendPosition, resultCustomizationBy } = useValues(
+        trendsDataLogic(insightProps)
+    )
     const { toggleResultHidden, setResultsHidden } = useActions(trendsDataLogic(insightProps))
 
     const resultById = useMemo(() => {
@@ -42,10 +36,10 @@ export function useInsightsLegendConfig({
     }, [indexedResults])
 
     const legendInteractive = canEditInsight && !inSharedMode
+    const renderItem = useChartLegendSeriesMenu({ surface: 'trends', seriesCount: indexedResults?.length ?? 0 })
 
     return useMemo<ChartLegendConfig>(() => {
         const hiddenKeys = (indexedResults ?? []).filter((r) => getTrendsHidden(r)).map((r) => String(r.id))
-        const showContextMenu = legendInteractive && legendSeriesIsolationMenuEligible
         return {
             show: !!showLegend,
             position: (legendPosition as ChartLegendConfig['position']) ?? 'right',
@@ -57,8 +51,8 @@ export function useInsightsLegendConfig({
                     toggleResultHidden(result)
                 }
             },
-            // Isolating rewrites the whole hidden set, so it lands as one resultCustomizations
-            // update rather than a toggle per series.
+            // Isolating and hide-all rewrite the whole hidden set, so they land as one
+            // resultCustomizations update rather than a toggle per series.
             onSetHiddenSeries: setResultsHidden,
             // Hidden state is stored per customization key, and comparing to the previous period puts
             // a series' two rows on one key — so quill has to treat them as one series when it
@@ -67,19 +61,7 @@ export function useInsightsLegendConfig({
                 const result = resultById.get(key)
                 return result ? getTrendResultCustomizationKey(resultCustomizationBy, result) : key
             },
-            renderItem: showContextMenu
-                ? (node: ReactNode, item: LegendItem) => {
-                      const result = resultById.get(item.key)
-                      if (!result) {
-                          return node
-                      }
-                      return (
-                          <TrendsLegendItemContextMenu insightProps={insightProps} item={result}>
-                              {node}
-                          </TrendsLegendItemContextMenu>
-                      )
-                  }
-                : undefined,
+            renderItem: legendInteractive ? renderItem : undefined,
         }
     }, [
         indexedResults,
@@ -87,11 +69,10 @@ export function useInsightsLegendConfig({
         showLegend,
         legendPosition,
         legendInteractive,
-        legendSeriesIsolationMenuEligible,
         resultById,
         toggleResultHidden,
         setResultsHidden,
         resultCustomizationBy,
-        insightProps,
+        renderItem,
     ])
 }

@@ -22,14 +22,17 @@ positions with differently-shaped files. Writers therefore call
 past the position the retry re-reads from is superseded and removed. A schema
 reset (TRUNCATE / lost slot) invalidates the whole prefix — `purge_buffer_prefix`.
 
-Enablement is the `dwh-cdc-buffer-shadow` feature flag alone (per team, so a soak
-covers a couple of projects rather than every CDC source on the worker). Evaluated
-once per extraction run, never per flush, and fail-closed: a flag-service outage
-leaves the lane off, so there is no path to accidental enablement.
+Two lanes write here. Shadow (the `dwh-cdc-buffer-shadow` feature flag, per team,
+evaluated once per extraction run and fail-closed) writes a validation copy while
+legacy delivery stays authoritative. Buffered ingress (`cdc_ingest_mode="buffered"`
+in the source's `job_inputs`) writes the same files as the ONLY delivery — the
+scheduled sync consumes them, and a write failure fails the run rather than being
+swallowed, because the slot is about to advance past those changes.
 
-Retention: no TTL exists yet; resets and CDC-disable purge, ordinary settled files
-do not expire. An S3 lifecycle rule on `cdc_producer/` is tracked for the fleet-wide
-soak — until it exists, keep the flag on a handful of projects.
+Retention: an S3 lifecycle rule on `cdc_producer/` (`expire-cdc-producer-buffer`)
+expires files after 14 days. Resets and CDC-disable purge sooner. For a buffered
+schema, expiry of unconsumed files is unrecoverable — the slot advanced long ago —
+so consumer lag is watched against file age, not file count.
 """
 
 from __future__ import annotations
@@ -46,6 +49,8 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import posthoganalytics
 from structlog.types import FilteringBoundLogger
+
+from posthog.dataclasses import frozen
 
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN
@@ -112,8 +117,15 @@ def build_buffer_file_name(start_seq: int, end_seq: int, file_index: int) -> str
     return f"{start_seq:0{_SEQ_WIDTH}d}-{end_seq:0{_SEQ_WIDTH}d}-{file_index:0{_INDEX_WIDTH}d}.parquet"
 
 
-def parse_buffer_file_name(file_name: str) -> tuple[int, int, int] | None:
-    """Parse `{start}-{end}-{index}.parquet` → (start_seq, end_seq, file_index).
+@frozen
+class BufferFileSpan:
+    start_seq: int
+    end_seq: int
+    file_index: int
+
+
+def parse_buffer_file_name(file_name: str) -> BufferFileSpan | None:
+    """Parse `{start}-{end}-{index}.parquet` into the batch's position span.
 
     Returns None for names that don't match the contract (foreign files are
     ignored, never treated as buffer data).
@@ -121,7 +133,11 @@ def parse_buffer_file_name(file_name: str) -> tuple[int, int, int] | None:
     match = _FILE_NAME_RE.fullmatch(file_name)
     if match is None:
         return None
-    return int(match.group(1)), int(match.group(2)), int(match.group(3))
+    return BufferFileSpan(
+        start_seq=int(match.group(1)),
+        end_seq=int(match.group(2)),
+        file_index=int(match.group(3)),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,8 +241,7 @@ class CDCBufferWriter:
             parsed = parse_buffer_file_name(key.rsplit("/", 1)[-1])
             if parsed is None:
                 continue
-            start_seq, _end_seq, _file_index = parsed
-            if start_seq >= restart_seq:
+            if parsed.start_seq >= restart_seq:
                 with suppress(Exception):
                     self._s3.rm(key)
                     removed += 1
@@ -240,15 +255,23 @@ class CDCBufferWriter:
         return removed
 
 
-def purge_buffer_prefix(team_id: int, schema_id: str, logger: FilteringBoundLogger) -> None:
-    """Best-effort removal of a schema's entire buffer prefix.
+def purge_buffer_prefix(team_id: int, schema_id: str, logger: FilteringBoundLogger, *, strict: bool = False) -> None:
+    """Remove a schema's entire buffer prefix.
 
-    Called on schema reset (TRUNCATE / lost-slot re-snapshot): the legacy table is
-    wiped and re-seeded through the snapshot lane the buffer never sees, so every
-    existing buffer file predates a discontinuity no consumer could order across.
+    Called on schema reset (TRUNCATE / lost-slot re-snapshot) and again right before the
+    snapshot→streaming flip: the table is wiped and re-seeded through the snapshot lane the
+    buffer never sees, so every existing buffer file predates a discontinuity no consumer
+    could order across. Best-effort by default; `strict` propagates failures (except a
+    missing prefix) for callers where a survived stale file would corrupt the table.
     """
     prefix = strip_s3_protocol(get_buffer_prefix(team_id, schema_id))
-    with suppress(Exception):
+    try:
         s3 = get_s3_client()
         s3.rm(prefix, recursive=True)
         logger.info("cdc_buffer_prefix_purged", schema_id=schema_id)
+    except FileNotFoundError:
+        pass
+    except Exception:
+        if strict:
+            raise
+        logger.warning("cdc_buffer_prefix_purge_failed", schema_id=schema_id, exc_info=True)

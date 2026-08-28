@@ -22,6 +22,7 @@ import { HogFunctionManagerService } from './managers/hog-function-manager.servi
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from './monitoring/hog-masker.service'
 import { HogWatcherService, HogWatcherState, sameWatcherStates } from './monitoring/hog-watcher.service'
+import { CdpUsageReporterService } from './usage/cdp-usage-reporter.service'
 
 export interface HogFunctionInvocationPipelineConfig {
     CDP_RATE_LIMITER_BUCKET_SIZE: number
@@ -37,6 +38,7 @@ export interface HogFunctionInvocationPipelineDeps {
     hogWatcherMirror: HogWatcherService
     hogMasker: HogMaskerService
     hogFunctionMonitoringService: HogFunctionMonitoringService
+    cdpUsageReporter?: CdpUsageReporterService
     quotaLimiting: QuotaLimiting
     redis: RedisV2
     valkeyShadow: CdpValkeyShadowPools
@@ -45,6 +47,7 @@ export interface HogFunctionInvocationPipelineDeps {
 export interface BuildHogFunctionInvocationsOptions {
     hogTypes: HogFunctionTypeType[]
     filterFn: (fn: HogFunctionType) => boolean
+    invocationFilterFn?: (fn: HogFunctionType, globals: HogFunctionInvocationGlobals) => boolean
 }
 
 /**
@@ -86,7 +89,9 @@ export class HogFunctionInvocationPipeline {
         const possibleInvocations = (
             await Promise.all(
                 invocationGlobals.map(async (globals) => {
-                    const teamHogFunctions = hogFunctionsByTeam[globals.project.id]
+                    const teamHogFunctions = opts.invocationFilterFn
+                        ? hogFunctionsByTeam[globals.project.id].filter((fn) => opts.invocationFilterFn!(fn, globals))
+                        : hogFunctionsByTeam[globals.project.id]
 
                     const { invocations, metrics, logs } = await buildHogFunctionInvocations(
                         this.deps.hogInputsService,
@@ -225,6 +230,10 @@ export class HogFunctionInvocationPipeline {
                         metric_kind: 'billing',
                         metric_name: 'billable_invocation',
                         count: 1,
+                    })
+                    this.deps.cdpUsageReporter?.reportBillableInvocation({
+                        teamId: item.teamId,
+                        recordId: `event:${eventUuid}`,
                     })
                 }
             }

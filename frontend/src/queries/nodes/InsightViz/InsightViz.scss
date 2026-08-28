@@ -39,6 +39,11 @@
                     min-width: 0;
                 }
 
+                // ...but a row with a sibling entry point keeps the two buttons adjacent
+                .property-filter-row--with-suffix .TaxonomicPropertyFilter {
+                    flex: 0 0 auto;
+                }
+
                 // Propagate min-width:0 through the filter chain
                 .ActionFilterRow,
                 .ActionFilterRow-filters,
@@ -60,6 +65,26 @@
 
                     .ActionFilterGroup--events-list .TaxonomicPropertyFilter__row-items {
                         flex-basis: 100%;
+                    }
+                }
+
+                @container editor-panel (max-width: 400px) {
+                    .ActionFilterRow-filters .TaxonomicPropertyFilter__row {
+                        flex-wrap: wrap;
+                    }
+
+                    .ActionFilterRow-filters .TaxonomicPropertyFilter__row-items {
+                        flex-basis: 100%;
+                    }
+
+                    .ActionFilterRow-filters .TaxonomicPropertyFilter__row-operator {
+                        justify-content: flex-start;
+                        width: auto;
+                        height: auto;
+                    }
+
+                    .ActionFilterRow-filters .TaxonomicPropertyFilter__row-operator--empty {
+                        display: none;
                     }
                 }
             }

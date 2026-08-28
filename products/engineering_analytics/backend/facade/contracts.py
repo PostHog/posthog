@@ -1083,10 +1083,53 @@ class RepoOverview:
     billable_minutes_prev: float | None
     estimated_cost_usd: float | None
     estimated_cost_usd_prev: float | None
+    # estimated_cost_usd / merged_pr_count (all authors). None without cost data or merges.
+    cost_per_merge_usd: float | None
+    cost_per_merge_usd_prev: float | None
     # The slice of billable_minutes spent on merge-queue batch branches, broken out so queue-settings
     # changes show up as their own delta instead of hiding inside the total.
     merge_queue_billable_minutes: float | None
     merge_queue_billable_minutes_prev: float | None
+    # Merge-queue landing stats, over merged PRs with at least one corroborated gate run
+    # (logic/merge_queue.py). All authors, bots included: these measure the queue's mechanics,
+    # not author behavior.
+    merge_queue_merged_pr_count: int
+    merge_queue_merged_pr_count_prev: int
+    # Median seconds from a PR's first observed gate run starting to its merge, named for what is
+    # measured: pending time before gate testing starts is not observable in the GitHub source.
+    merge_queue_median_first_gate_to_merge_seconds: float | None
+    merge_queue_median_first_gate_to_merge_seconds_prev: float | None
+    merge_queue_p90_first_gate_to_merge_seconds: float | None
+    merge_queue_p90_first_gate_to_merge_seconds_prev: float | None
+    merge_queue_p95_first_gate_to_merge_seconds: float | None
+    merge_queue_p95_first_gate_to_merge_seconds_prev: float | None
+    merge_queue_p99_first_gate_to_merge_seconds: float | None
+    merge_queue_p99_first_gate_to_merge_seconds_prev: float | None
+    # Mean distinct gate attempts per queue-landed merge (distinct gate branches, bisection collapsed).
+    merge_queue_avg_attempts_per_merge: float | None
+    merge_queue_avg_attempts_per_merge_prev: float | None
+    # Fraction (0-1) of queue-landed merges that needed more than one gate attempt.
+    merge_queue_multi_attempt_merge_share: float | None
+    merge_queue_multi_attempt_merge_share_prev: float | None
+    # Fraction (0-1) of queue-landed merges with at least one failed gate run before merging: a
+    # CI-outcome proxy, not the queue's own eviction record.
+    merge_queue_failed_gate_merge_share: float | None
+    merge_queue_failed_gate_merge_share_prev: float | None
+    # Trunk-recorded outcomes, present only when the team's TrunkIo warehouse source has the opt-in
+    # merge-queue endpoint synced; without it consumers fall back to the failed-gate proxy above.
+    # Windowed on each entry's last state change, since Trunk keeps no state history.
+    merge_queue_trunk_available: bool
+    # Fraction (0-1) of concluded queue entries (merged, failed, or cancelled) that ended failed or
+    # cancelled, from the queue's own records.
+    merge_queue_failed_or_cancelled_share: float | None
+    merge_queue_failed_or_cancelled_share_prev: float | None
+    # Queue entries flagged skip-the-line (prioritized past the queue order), whatever state they reached.
+    merge_queue_skip_the_line_count: int | None
+    merge_queue_skip_the_line_count_prev: int | None
+    # Median wall clock for a push round to settle fully green over the window: the window-level
+    # twin of time_to_green_series, same population and exclusions. None when no fully green rounds.
+    median_time_to_green_seconds: float | None
+    median_time_to_green_seconds_prev: float | None
     jobs_available: bool
     # 'master' or 'main', picked by observed run volume in the current window.
     default_branch: str
@@ -1115,6 +1158,122 @@ class RepoOverview:
     ready_to_merge_series: list[ReadyToMergeBucket]
     # Bucket width of `ready_to_merge_series`, chosen to fit the window: 'hour', 'day', or 'week'.
     ready_to_merge_series_granularity: str
+
+
+@dataclass(frozen=True)
+class DeploymentFrequencyBucket:
+    """One time bucket of successful deployments, keyed on the deploy's first success status.
+    Empty buckets are zero-filled with 0 — no deploy in a bucket genuinely means nothing shipped.
+    """
+
+    # Bucket start, aligned to the granularity (top of hour / midnight / Monday).
+    bucket_start: datetime
+    # Deployments whose first success status landed in this bucket, within the environment scope.
+    deployment_count: int
+
+
+@dataclass(frozen=True)
+class MergeToDeployBucket:
+    """One time bucket of per-PR merge-to-deploy seconds — the box-plot distribution of how long
+    merged PRs waited until the first successful deployment containing their merge (resolved
+    through the deploy's head commit; bots and drafts excluded, per the locked cycle-time
+    recipe). Keyed on deploy time: a PR lands in the bucket its deploy succeeded in. The measure
+    is named for exactly what it is: merge to deploy, not the full commit-to-deploy DORA lead
+    time (pre-merge time is on the other cards).
+    Buckets where nothing deployed carry ``deployed_pr_count`` 0 and null stats (a gap).
+    """
+
+    # Bucket start, aligned to the granularity (top of hour / midnight / Monday).
+    bucket_start: datetime
+    # PRs whose first post-merge successful deployment landed in this bucket.
+    deployed_pr_count: int
+    # Distribution of merged_at → first successful deploy, in seconds, over those PRs — the
+    # six-number summary a box plot draws (box p25→p75, median line, mean marker, whiskers).
+    min_seconds: float | None
+    p25_seconds: float | None
+    p50_seconds: float | None
+    mean_seconds: float | None
+    p75_seconds: float | None
+    max_seconds: float | None
+
+
+@dataclass(frozen=True)
+class DoraOverview:
+    """DORA-style deploy metrics over the window, each headline with its previous-window twin.
+
+    Built from the GitHub ``deployments`` + ``deployment_statuses`` warehouse pair. The four DORA
+    quadrants map onto honest fields: deployment frequency and merge-to-deploy lead time are
+    computed directly; change failure rate and time-to-restore have no incident link yet, so they
+    ship as deploy-status proxies under names that say what is actually measured
+    (``failed_deployment_share``, ``median_failed_deploy_to_next_success_seconds``).
+
+    ``deploy_data_available`` is False when the deploy tables aren't synced — every other field is
+    then empty/None, never a fake zero. A ``github_team`` filter narrows only the PR-scoped
+    merge-to-deploy figures (deploy counts are repo events, not team events); when membership data
+    isn't synced the filter can't be honored, so those figures go empty rather than silently
+    unfiltered (``has_membership_data``).
+    """
+
+    # False when the deployments/deployment_statuses tables aren't synced for the selected repo.
+    deploy_data_available: bool
+    # What the environment filter resolved to: 'production' (deployments GitHub marks
+    # production_environment), an exact environment name (the one the caller passed, or —
+    # when nothing is marked production — the busiest persistent environment, so a multi-region
+    # repo doesn't multiply every count), or 'persistent' (no persistent environment deployed in
+    # the window at all, so every non-transient one counts). Transient environments (ephemeral
+    # per-PR previews) never join a default scope. The scope resolves from deployments in the
+    # scan window, so two different windows can resolve different scopes and are not always comparable.
+    environment_scope: str
+    # Distinct persistent environments deployed to in the scan window, most-deployed first — the
+    # picker's options. Transient environments are omitted but stay reachable by exact name.
+    environments: list[str]
+    # True when the optional team-membership snapshot is synced (the github_team filter's substrate).
+    has_membership_data: bool
+    # Distinct GitHub team slugs from the membership snapshot, sorted — the team picker's options.
+    github_teams: list[str]
+    # Deployments whose first success status landed in the window, within the environment scope.
+    deployment_count: int
+    deployment_count_prev: int
+    # deployment_count normalized by the window length in days. Null only when the deploy tables aren't synced.
+    deployments_per_day: float | None
+    deployments_per_day_prev: float | None
+    # Median seconds from a PR's merge to the first successful deployment containing it —
+    # containment resolved through the deploy's head commit, not the deploy's success time
+    # (bots/drafts excluded; narrowed by github_team when given). Keyed on deploy time.
+    median_merge_to_deploy_seconds: float | None
+    median_merge_to_deploy_seconds_prev: float | None
+    # PRs first deployed in the window (the population behind the medians and the box plot).
+    deployed_pr_count: int
+    deployed_pr_count_prev: int
+    # Deployments with at least one failure/error status, keyed on the first failure time.
+    failed_deployment_count: int
+    failed_deployment_count_prev: int
+    # failed deployments / deployments that reached any outcome (success or failure). A change
+    # failure *proxy*: no incident data is linked, so a deploy that succeeded but broke production
+    # is not counted. None when nothing reached an outcome.
+    failed_deployment_share: float | None
+    failed_deployment_share_prev: float | None
+    # Median seconds from a deployment's first failure status to the next successful deployment in
+    # the same environment. A time-to-restore *proxy*: recovery by anything other than a deploy is
+    # invisible, and failures not yet recovered are excluded. None when no failed deploy recovered.
+    median_failed_deploy_to_next_success_seconds: float | None
+    median_failed_deploy_to_next_success_seconds_prev: float | None
+    # PRs merged in the window (bots/drafts excluded; narrowed by github_team when given) — the
+    # denominator behind unattributed_merged_pr_share.
+    merged_pr_count: int
+    # Share of merged_pr_count no successful in-scope deployment attributed: recent merges still
+    # waiting for their deploy, plus merges whose deploy the scope or scan bounds miss. None when
+    # nothing merged in the window.
+    unattributed_merged_pr_share: float | None
+    # The newest deployment status row synced, any environment — how fresh the deploy data is.
+    # Windows ending after this instant undercount. None when the deploy tables are empty.
+    latest_deploy_status_at: datetime | None
+    # Successful deployments per bucket across the window, oldest first, zero-filled.
+    deployment_frequency_series: list[DeploymentFrequencyBucket]
+    # Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot series.
+    merge_to_deploy_series: list[MergeToDeployBucket]
+    # Bucket width of both series, chosen to fit the window: 'hour', 'day', or 'week'.
+    series_granularity: str
 
 
 @dataclass(frozen=True)

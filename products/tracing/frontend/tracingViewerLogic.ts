@@ -17,6 +17,7 @@ export interface tracingViewerLogicValues {
     traceSpansHasMore: boolean // tracingDataLogic
     traceSpansLoading: boolean // tracingDataLogic
     traceSpansLoadingMore: boolean // tracingDataLogic
+    hasDeferredFilterRefresh: boolean // tracingFiltersLogic
     canLoadMoreTraceSpans: boolean
     compareFlameServiceName: string | null
     compareFlameSpanName: string | null
@@ -48,6 +49,9 @@ export interface tracingViewerLogicActions {
         traceId: string
         ts?: string | null
     } // tracingDataLogic
+    refreshDeferredFilters: () => {
+        value: true
+    } // tracingFiltersLogic
     updateComparisonWindows: (
         current: OverlayWindow,
         previous: OverlayWindow
@@ -118,12 +122,14 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
         values: [
             tracingDataLogic({ id }),
             ['spans', 'traceSpans', 'traceSpansLoading', 'traceSpansLoadingMore', 'traceSpansHasMore'],
+            tracingFiltersLogic({ id }),
+            ['hasDeferredFilterRefresh'],
         ],
         actions: [
             tracingDataLogic({ id }),
             ['loadTraceSpans', 'fetchSpanTree', 'fetchAggregation'],
             tracingFiltersLogic({ id }),
-            ['updateComparisonWindows'],
+            ['updateComparisonWindows', 'refreshDeferredFilters'],
         ],
     })),
 
@@ -217,6 +223,13 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        closeTrace: () => {
+            // The attribute buttons in the drawer defer their query so the list doesn't reload
+            // behind it — run it now that the drawer is closing.
+            if (values.hasDeferredFilterRefresh) {
+                actions.refreshDeferredFilters()
+            }
+        },
         openTrace: ({ traceId, ts }) => {
             posthog.capture('tracing trace opened')
             const prefetchedSpans = values.spans.filter((s: Span) => s.trace_id === traceId)

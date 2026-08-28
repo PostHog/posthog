@@ -20,8 +20,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.rbac.user_access_control import AccessControlLevelResource, UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevelResource, UserAccessControl
 from products.revenue_analytics.backend.joins import ensure_person_join_for_team, remove_person_join_for_team
 from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS

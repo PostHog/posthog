@@ -1,6 +1,7 @@
 import uuid
 import datetime as dt
 import contextlib
+import dataclasses
 from collections.abc import Iterator
 
 import pytest
@@ -14,7 +15,6 @@ from posthog.sync import database_sync_to_async
 from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseSourceJobStatus
 from products.managed_warehouse.backend.temporal import ducklake_register_data_imports_workflow as registration_module
 from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_workflow import (
-    DUCKLAKE_DATA_IMPORTS_REGISTRATION_WORKFLOW_FLAG,
     S3_COPY_BATCH_SIZE,
     DuckLakeRegisterDataImportsActivityInputs,
     DuckLakeRegisterDataImportsGateInputs,
@@ -52,7 +52,7 @@ def _cp_no_rows():
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize("flag_enabled", [True, False])
-async def test_registration_gate_uses_independent_feature_flag(monkeypatch, ateam, flag_enabled):
+async def test_registration_gate_uses_data_warehouse_scene_flag(monkeypatch, ateam, flag_enabled):
     captured: dict[str, object] = {}
 
     def fake_feature_enabled(key, distinct_id, **kwargs):
@@ -64,12 +64,10 @@ async def test_registration_gate_uses_independent_feature_flag(monkeypatch, atea
     result = await ducklake_register_data_imports_gate_activity(DuckLakeRegisterDataImportsGateInputs(team_id=ateam.id))
 
     assert result is flag_enabled
-    assert captured["key"] == DUCKLAKE_DATA_IMPORTS_REGISTRATION_WORKFLOW_FLAG
-    assert captured["distinct_id"] == str(ateam.uuid)
-    assert captured["groups"] == {
-        "organization": str(ateam.organization_id),
-        "project": str(ateam.id),
-    }
+    assert captured["key"] == "data-warehouse-scene"
+    assert captured["distinct_id"] == str(ateam.organization_id)
+    assert captured["groups"] == {"organization": str(ateam.organization_id)}
+    assert captured["group_properties"] == {"organization": {"id": str(ateam.organization_id)}}
     assert captured["only_evaluate_locally"] is True
     assert captured["send_feature_flag_events"] is False
 
@@ -183,9 +181,12 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     monkeypatch.setattr(registration_module, "get_s3_client", lambda: s3)
     monkeypatch.setattr(registration_module, "_prepared_generation_is_current", lambda inputs: True)
     monkeypatch.setattr(registration_module, "is_dev_mode", lambda: True)
-    monkeypatch.setattr(registration_module, "make_duckgres_conninfo", lambda team_id: "postgresql://duckgres")
+    monkeypatch.setattr(
+        registration_module, "make_duckgres_conninfo", lambda team_id, **kwargs: "postgresql://duckgres"
+    )
 
     conn = MagicMock()
+    conn.closed = False
     conn.__enter__ = MagicMock(return_value=conn)
     conn.__exit__ = MagicMock(return_value=False)
     active_transaction: object | None = None
@@ -240,7 +241,11 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     applied = copy_and_register_ducklake_data_imports_activity(inputs)
 
     assert applied is True
-    connect.assert_called_once_with("postgresql://duckgres", autocommit=True)
+    connect.assert_called_once_with(
+        "postgresql://duckgres",
+        autocommit=True,
+        options="-c duckgres.worker_cpu=4 -c duckgres.worker_memory=16Gi",
+    )
     assert s3.copy_calls == [
         (
             [
@@ -277,10 +282,10 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
         "s3://ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
         "1234567890_abcdef12/**/*.[pP][aA][rR][qQ][uU][eE][tT]"
     )
-    assert parquet_glob in registration_query
-    assert sum(parquet_glob in query for query in executed) == 3
-    assert not any(first_path in query for query in executed)
-    assert not any(second_path in query for query in executed)
+    assert first_path in registration_query
+    assert second_path in registration_query
+    assert parquet_glob not in registration_query
+    assert sum(parquet_glob in query for query in executed) == 2
     assert len(verification_indexes) == 2
     assert len(rename_indexes) == 2
     assert max(registration_indexes) < min(verification_indexes)
@@ -313,6 +318,40 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     workload_metrics.files.record.assert_called_once_with(2.0)
     workload_metrics.rows.record.assert_called_once_with(2.0)
     workload_metrics.bytes.record.assert_called_once_with(300.0)
+
+
+def test_production_register_connection_requests_right_sized_duckgres_worker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server = MagicMock()
+    server.host = "duckgres.example.com"
+    server.port = 5432
+    server.database = "ducklake"
+    server.username = "posthog"
+    server.password = "example-password"
+    monkeypatch.setattr(registration_module, "is_dev_mode", lambda: False)
+    monkeypatch.setattr(registration_module, "_get_org_id_for_team", lambda _team_id: "org-id")
+    monkeypatch.setattr(registration_module, "get_duckgres_server_for_organization", lambda _org_id: server)
+
+    conn = MagicMock()
+    connect = MagicMock()
+    connect.return_value.__enter__.return_value = conn
+    connect.return_value.__exit__.return_value = False
+    monkeypatch.setattr(registration_module.psycopg, "connect", connect)
+
+    with registration_module._connect_to_duckgres_for_team(1) as connected:
+        assert connected is conn
+
+    connect.assert_called_once_with(
+        host="duckgres.example.com",
+        port=5432,
+        dbname="ducklake",
+        user="posthog",
+        password="example-password",
+        autocommit=True,
+        application_name="ducklake-register",
+        options="-c duckgres.worker_cpu=4 -c duckgres.worker_memory=16Gi",
+    )
 
 
 def test_duckgres_cancel_watchdog_cancels_the_active_query(monkeypatch):
@@ -414,6 +453,7 @@ def test_duckgres_cancel_watchdog_rejects_an_exhausted_activity_budget(monkeypat
 def test_registration_stops_after_glob_query_cancellation(monkeypatch):
     monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
     conn = MagicMock()
+    conn.closed = False
     cancel_requested = registration_module.threading.Event()
 
     def execute(query: object) -> MagicMock:
@@ -441,10 +481,44 @@ def test_registration_stops_after_glob_query_cancellation(monkeypatch):
     executed = [str(call.args[0]) for call in conn.execute.call_args_list]
     registration_queries = [query for query in executed if "ducklake_add_data_files" in query]
     assert len(registration_queries) == 1
-    assert f"{landing_uri}/{registration_module._PARQUET_FILE_GLOB}" in registration_queries[0]
+    assert landing_paths[0] in registration_queries[0]
+    assert f"{landing_uri}/{registration_module._PARQUET_FILE_GLOB}" not in registration_queries[0]
     assert not any("SELECT count(*)" in query for query in executed)
     assert sum("DROP TABLE" in query and "__ph_register_" in query for query in executed) == 1
     assert not any("RENAME TO" in query for query in executed)
+
+
+def test_registration_splits_add_data_files_across_path_batches(monkeypatch):
+    monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
+    monkeypatch.setattr(registration_module, "_ADD_DATA_FILES_BATCH_SIZE", 1)
+    monkeypatch.setattr(registration_module, "_should_publish_prepared_generation", lambda inputs: True)
+    conn = MagicMock()
+
+    def execute(query: object) -> MagicMock:
+        result = MagicMock()
+        result.fetchone.return_value = (2,)
+        return result
+
+    conn.execute.side_effect = execute
+    landing_uri = registration_module._generation_scoped_landing_uri(
+        _activity_inputs().metadata.landing_uri,
+        job_id=_activity_inputs().job_id,
+        prepared_queryable_folder=_activity_inputs().metadata.prepared_queryable_folder,
+    )
+    landing_paths = [f"{landing_uri}/{name}.parquet" for name in ("first", "second")]
+
+    registration_module._register_prepared_parquet_files(_activity_inputs(), conn, landing_paths)
+
+    executed = [str(call.args[0]) for call in conn.execute.call_args_list]
+    registration_queries = [query for query in executed if "ducklake_add_data_files" in query]
+    parquet_glob = f"{landing_uri}/{registration_module._PARQUET_FILE_GLOB}"
+    assert len(registration_queries) == 2
+    assert landing_paths[0] in registration_queries[0]
+    assert landing_paths[1] not in registration_queries[0]
+    assert landing_paths[1] in registration_queries[1]
+    assert landing_paths[0] not in registration_queries[1]
+    assert not any(parquet_glob in query for query in registration_queries)
+    assert sum(parquet_glob in query for query in executed) == 2
 
 
 @pytest.mark.parametrize(
@@ -523,6 +597,7 @@ def test_copy_activity_does_not_publish_a_row_count_mismatch_when_cleanup_fails(
     )
     monkeypatch.setattr(registration_module, "_prepared_generation_is_current", lambda inputs: True)
     conn = MagicMock()
+    conn.closed = False
     counts = iter([(10,), (9,)])
 
     def execute(query: object) -> MagicMock:
@@ -540,6 +615,7 @@ def test_copy_activity_does_not_publish_a_row_count_mismatch_when_cleanup_fails(
         lambda team_id: contextlib.nullcontext(conn),
     )
     monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
+    monkeypatch.setattr(registration_module.time, "sleep", lambda _seconds: None)
     heartbeater = MagicMock()
     heartbeater.__enter__ = MagicMock(return_value=heartbeater)
     heartbeater.__exit__ = MagicMock(return_value=False)
@@ -550,7 +626,10 @@ def test_copy_activity_does_not_publish_a_row_count_mismatch_when_cleanup_fails(
 
     executed = [str(call.args[0]) for call in conn.execute.call_args_list]
     conn.transaction.assert_not_called()
-    assert sum("DROP TABLE IF EXISTS" in query and "__ph_register_" in query for query in executed) == 1
+    assert (
+        sum("DROP TABLE IF EXISTS" in query and "__ph_register_" in query for query in executed)
+        == registration_module._CLEANUP_DROP_ATTEMPTS
+    )
     assert not any("RENAME TO" in query for query in executed)
 
 
@@ -562,6 +641,7 @@ def test_copy_activity_skips_publish_when_newer_generation_already_landed(monkey
     )
     monkeypatch.setattr(registration_module, "_should_publish_prepared_generation", lambda inputs: False)
     conn = MagicMock()
+    conn.closed = False
 
     def execute(query: object) -> MagicMock:
         if "SELECT count(*) FROM" in str(query):
@@ -612,7 +692,9 @@ def test_registration_tables_are_owned_by_one_activity_attempt(monkeypatch):
 def test_unknown_publish_commit_error_survives_temporary_table_cleanup(monkeypatch):
     monkeypatch.setattr(registration_module, "_prepared_generation_is_current", lambda inputs: True)
     monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
+    monkeypatch.setattr(registration_module.time, "sleep", lambda _seconds: None)
     conn = MagicMock()
+    conn.closed = False
     commit_error = RuntimeError("commit acknowledgement lost")
 
     @contextlib.contextmanager
@@ -642,8 +724,47 @@ def test_unknown_publish_commit_error_survives_temporary_table_cleanup(monkeypat
     assert error.value is commit_error
     executed = [str(call.args[0]) for call in conn.execute.call_args_list]
     assert len([query for query in executed if "RENAME TO" in query]) == 2
-    assert sum("DROP TABLE IF EXISTS" in query and "__ph_register_" in query for query in executed) == 1
-    assert sum("DROP TABLE IF EXISTS" in query and "__ph_previous_" in query for query in executed) == 1
+    assert (
+        sum("DROP TABLE IF EXISTS" in query and "__ph_register_" in query for query in executed)
+        == registration_module._CLEANUP_DROP_ATTEMPTS
+    )
+    assert (
+        sum("DROP TABLE IF EXISTS" in query and "__ph_previous_" in query for query in executed)
+        == registration_module._CLEANUP_DROP_ATTEMPTS
+    )
+
+
+def test_cleanup_skips_a_closed_connection_without_reporting(monkeypatch):
+    sleep = MagicMock()
+    capture = MagicMock()
+    monkeypatch.setattr(registration_module.time, "sleep", sleep)
+    monkeypatch.setattr(registration_module, "capture_exception", capture)
+    conn = MagicMock()
+    conn.closed = True
+
+    registration_module._cleanup_registration_tables(conn, "schema", ["__ph_register_x"])
+
+    conn.execute.assert_not_called()
+    sleep.assert_not_called()
+    capture.assert_not_called()
+
+
+def test_cleanup_aborts_a_broken_connection_without_reporting(monkeypatch):
+    sleep = MagicMock()
+    capture = MagicMock()
+    monkeypatch.setattr(registration_module.time, "sleep", sleep)
+    monkeypatch.setattr(registration_module, "capture_exception", capture)
+    conn = MagicMock()
+    conn.closed = False
+    conn.execute.side_effect = registration_module.psycopg.OperationalError(
+        "SSL connection has been closed unexpectedly"
+    )
+
+    registration_module._cleanup_registration_tables(conn, "schema", ["__ph_register_x", "__ph_previous_x"])
+
+    assert conn.execute.call_count == 1
+    sleep.assert_not_called()
+    capture.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -665,9 +786,10 @@ async def test_workflow_does_not_record_duration_when_disabled(monkeypatch):
 async def test_workflow_records_end_to_end_duration_after_gate(monkeypatch):
     started_at = dt.datetime(2026, 7, 30, 12, 0, 0)
     finished_at = started_at + dt.timedelta(minutes=7, seconds=12)
-    execute_activity = AsyncMock(side_effect=[True, None, _activity_inputs().metadata, True, None])
+    execute_activity = AsyncMock(side_effect=[True, None, _activity_inputs().metadata, True, None, None])
     metrics = _mock_workflow_metrics(monkeypatch)
     monkeypatch.setattr(registration_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(registration_module.workflow, "uuid4", MagicMock(return_value=uuid.UUID(int=7)))
     monkeypatch.setattr(
         registration_module.workflow,
         "now",
@@ -676,6 +798,15 @@ async def test_workflow_records_end_to_end_duration_after_gate(monkeypatch):
 
     await DuckLakeRegisterDataImportsWorkflow().run(_workflow_inputs())
 
+    cleanup_call = next(
+        call
+        for call in execute_activity.await_args_list
+        if call.args[0] is registration_module.cleanup_ducklake_registration_tables_activity
+    )
+    assert cleanup_call.args[1].table_names == [
+        f"__ph_register_{uuid.UUID(int=7).hex}",
+        f"__ph_previous_{uuid.UUID(int=7).hex}",
+    ]
     metric_identifiers = {"team_id": 1, "schema_id": str(_workflow_inputs().schema_id)}
     metrics.started_getter.assert_called_once_with(**metric_identifiers)
     metrics.started.add.assert_called_once_with(1)
@@ -690,7 +821,7 @@ async def test_workflow_records_end_to_end_duration_after_gate(monkeypatch):
         for call in execute_activity.await_args_list
         if call.args[0] is copy_and_register_ducklake_data_imports_activity
     )
-    assert registration_call.kwargs["start_to_close_timeout"] == dt.timedelta(hours=1)
+    assert registration_call.kwargs["start_to_close_timeout"] == dt.timedelta(hours=4)
     assert registration_call.kwargs["retry_policy"].maximum_attempts == 1
     assert _recorded_source_job_statuses(execute_activity) == [
         registration_module.ManagedWarehouseSourceJobStatus.RUNNING,
@@ -715,7 +846,8 @@ async def test_workflow_skips_source_job_state_for_pre_patch_history(monkeypatch
 
     await DuckLakeRegisterDataImportsWorkflow().run(_workflow_inputs())
 
-    patched.assert_called_once_with(registration_module._SOURCE_JOB_STATE_PATCH_ID)
+    patched.assert_any_call(registration_module._SOURCE_JOB_STATE_PATCH_ID)
+    patched.assert_any_call(registration_module._CLEANUP_FINALIZER_PATCH_ID)
     assert _recorded_source_job_statuses(execute_activity) == []
     metrics.finished_getter.assert_called_once_with(
         team_id=1,
@@ -735,12 +867,14 @@ async def test_workflow_retries_completed_state_without_recording_failure(monkey
             None,
             _activity_inputs().metadata,
             True,
+            None,
             RuntimeError("completion write failed"),
             None,
         ]
     )
     metrics = _mock_workflow_metrics(monkeypatch)
     monkeypatch.setattr(registration_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(registration_module.workflow, "uuid4", MagicMock(return_value=uuid.UUID(int=7)))
     monkeypatch.setattr(
         registration_module.workflow,
         "now",
@@ -759,6 +893,179 @@ async def test_workflow_retries_completed_state_without_recording_failure(monkey
         schema_id=str(_workflow_inputs().schema_id),
         status="completed",
     )
+
+
+@pytest.mark.asyncio
+async def test_workflow_cleanup_finalizer_runs_when_copy_activity_fails(monkeypatch):
+    started_at = dt.datetime(2026, 7, 30, 12, 0, 0)
+    failed_at = started_at + dt.timedelta(minutes=3)
+    execute_activity = AsyncMock(
+        side_effect=[
+            True,
+            None,
+            _activity_inputs().metadata,
+            RuntimeError("register worker died"),
+            None,
+            None,
+        ]
+    )
+    _mock_workflow_metrics(monkeypatch)
+    monkeypatch.setattr(registration_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(registration_module.workflow, "uuid4", MagicMock(return_value=uuid.UUID(int=9)))
+    monkeypatch.setattr(
+        registration_module.workflow,
+        "now",
+        MagicMock(side_effect=[started_at, failed_at, failed_at]),
+    )
+
+    with pytest.raises(RuntimeError, match="register worker died"):
+        await DuckLakeRegisterDataImportsWorkflow().run(_workflow_inputs())
+
+    copy_call = next(
+        call
+        for call in execute_activity.await_args_list
+        if call.args[0] is copy_and_register_ducklake_data_imports_activity
+    )
+    cleanup_call = next(
+        call
+        for call in execute_activity.await_args_list
+        if call.args[0] is registration_module.cleanup_ducklake_registration_tables_activity
+    )
+    names = copy_call.args[1].registration_table_names
+    assert names is not None
+    assert cleanup_call.args[1].table_names == [names.shadow_name, names.previous_name]
+    assert cleanup_call.args[1].schema_name == _activity_inputs().metadata.ducklake_schema_name
+
+
+def test_cleanup_activity_drops_requested_tables_and_sweeps_stale_ones(monkeypatch):
+    stale_shadow = f"__ph_register_{uuid.UUID(int=3).hex}"
+    conn = MagicMock()
+
+    def execute(query: object) -> MagicMock:
+        if "FROM __ducklake_metadata_ducklake.ducklake_table" in str(query):
+            return MagicMock(fetchall=MagicMock(return_value=[(stale_shadow,)]))
+        return MagicMock()
+
+    conn.execute.side_effect = execute
+    monkeypatch.setattr(
+        registration_module,
+        "_connect_to_duckgres_for_team",
+        lambda team_id: contextlib.nullcontext(conn),
+    )
+    monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
+
+    registration_module.cleanup_ducklake_registration_tables_activity(
+        registration_module.DuckLakeRegisterCleanupInputs(
+            team_id=1,
+            schema_name="posthog_data_imports_team_1",
+            table_names=["__ph_register_abc", "__ph_previous_abc"],
+        )
+    )
+
+    executed = [str(call.args[0]) for call in conn.execute.call_args_list]
+    assert sum("DROP TABLE IF EXISTS" in query and "__ph_register_abc" in query for query in executed) == 1
+    assert sum("DROP TABLE IF EXISTS" in query and "__ph_previous_abc" in query for query in executed) == 1
+    assert sum("DROP TABLE IF EXISTS" in query and stale_shadow in query for query in executed) == 1
+    sweep_query = next(query for query in executed if "FROM __ducklake_metadata_ducklake.ducklake_table" in query)
+    assert registration_module._REGISTRATION_TABLE_REGEX in sweep_query
+    assert "posthog_data_imports_team_1" in sweep_query
+    assert "CAST" in sweep_query and "AS INTERVAL" in sweep_query
+
+
+def test_cleanup_activity_survives_sweep_failure(monkeypatch):
+    conn = MagicMock()
+
+    def execute(query: object) -> MagicMock:
+        if "FROM __ducklake_metadata_ducklake.ducklake_table" in str(query):
+            raise RuntimeError("metadata catalog unavailable")
+        return MagicMock()
+
+    conn.execute.side_effect = execute
+    monkeypatch.setattr(
+        registration_module,
+        "_connect_to_duckgres_for_team",
+        lambda team_id: contextlib.nullcontext(conn),
+    )
+    monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
+    monkeypatch.setattr(registration_module, "capture_exception", MagicMock())
+
+    registration_module.cleanup_ducklake_registration_tables_activity(
+        registration_module.DuckLakeRegisterCleanupInputs(
+            team_id=1,
+            schema_name="posthog_data_imports_team_1",
+            table_names=["__ph_register_abc", "__ph_previous_abc"],
+        )
+    )
+
+    executed = [str(call.args[0]) for call in conn.execute.call_args_list]
+    assert sum("DROP TABLE IF EXISTS" in query and "__ph_register_abc" in query for query in executed) == 1
+    assert sum("DROP TABLE IF EXISTS" in query and "__ph_previous_abc" in query for query in executed) == 1
+
+
+def test_sweep_query_executes_on_duckdb_and_applies_the_guards():
+    import duckdb
+
+    conn = duckdb.connect()
+    conn.execute('CREATE SCHEMA "__ducklake_metadata_ducklake"')
+    conn.execute(
+        'CREATE TABLE "__ducklake_metadata_ducklake".ducklake_table '
+        "(table_id BIGINT, schema_id BIGINT, table_name VARCHAR, begin_snapshot BIGINT, end_snapshot BIGINT)"
+    )
+    conn.execute(
+        'CREATE TABLE "__ducklake_metadata_ducklake".ducklake_schema '
+        "(schema_id BIGINT, schema_name VARCHAR, end_snapshot BIGINT)"
+    )
+    conn.execute(
+        'CREATE TABLE "__ducklake_metadata_ducklake".ducklake_snapshot (snapshot_id BIGINT, snapshot_time VARCHAR)'
+    )
+    conn.execute(
+        "INSERT INTO \"__ducklake_metadata_ducklake\".ducklake_schema VALUES (1, 'posthog_data_imports_team_1', NULL)"
+    )
+    old_shadow = f"__ph_register_{uuid.UUID(int=1).hex}"
+    young_shadow = f"__ph_register_{uuid.UUID(int=2).hex}"
+    expired_snapshot_shadow = f"__ph_previous_{uuid.UUID(int=3).hex}"
+    conn.execute(
+        'INSERT INTO "__ducklake_metadata_ducklake".ducklake_snapshot '
+        "VALUES (10, CAST(now() - INTERVAL '2 days' AS VARCHAR)), (11, CAST(now() AS VARCHAR))"
+    )
+    conn.execute(
+        'INSERT INTO "__ducklake_metadata_ducklake".ducklake_table VALUES '
+        f"(100, 1, '{old_shadow}', 10, NULL), "
+        f"(101, 1, '{young_shadow}', 11, NULL), "
+        f"(102, 1, '{expired_snapshot_shadow}', 9, NULL), "  # snapshot row 9 does not exist
+        f"(103, 1, 'stripe_prod_customer', 10, NULL), "  # non-matching name, old
+        f"(104, 1, '{old_shadow}', 10, 11)"  # already dropped
+    )
+
+    rendered = registration_module._sweep_query("posthog_data_imports_team_1").as_string()
+    swept = {row[0] for row in conn.execute(rendered).fetchall()}
+
+    assert swept == {old_shadow, expired_snapshot_shadow}
+
+
+def test_register_uses_workflow_minted_names(monkeypatch):
+    monkeypatch.setattr(registration_module, "_should_publish_prepared_generation", lambda inputs: True)
+    monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
+    conn = MagicMock()
+
+    def execute(query: object) -> MagicMock:
+        if "SELECT count(*) FROM" in str(query):
+            return MagicMock(fetchone=MagicMock(return_value=(10,)))
+        return MagicMock()
+
+    conn.execute.side_effect = execute
+    names = registration_module.registration_table_names_from_token("feedc0de" * 4)
+    inputs = dataclasses.replace(_activity_inputs(), registration_table_names=names)
+
+    registration_module._register_prepared_parquet_files(
+        inputs,
+        conn,
+        [f"{inputs.metadata.landing_uri}/file.parquet"],
+    )
+
+    executed = [str(call.args[0]) for call in conn.execute.call_args_list]
+    assert any("CREATE TABLE" in query and names.shadow_name in query for query in executed)
+    assert any("RENAME TO" in query and names.previous_name in query for query in executed)
 
 
 @pytest.mark.asyncio
@@ -901,40 +1208,20 @@ def _recorded_source_job_statuses(execute_activity: AsyncMock) -> list[ManagedWa
     ]
 
 
-def _workflow_id(prepared_queryable_folder: str) -> str:
-    return build_register_data_imports_workflow_id(
-        team_id=473662,
-        schema_id="019ef5df-e4c7-0000-b543-8ef7f13b5f15",
-        job_id="019fb012-26e7-0000-2959-704b254131bd",
-        prepared_queryable_folder=prepared_queryable_folder,
-    )
+def test_workflow_id_is_stable_for_one_schema():
+    schema_id = "019ef5df-e4c7-0000-b543-8ef7f13b5f15"
 
-
-@parameterized.expand(
-    [
-        (
-            "timestamped",
-            "customer_balance_transaction__query_1785365519_02076d94",
-            "customer_balance_transaction__query_1785365530_d3277966",
-        ),
-        (
-            "untimestamped",
-            "customer_balance_transaction__query",
-            "customer_balance_transaction__query_legacy",
-        ),
-    ]
-)
-def test_workflow_id_differs_per_prepared_generation(_name, earlier_folder, later_folder):
-    earlier = _workflow_id(earlier_folder)
-    later = _workflow_id(later_folder)
-
-    assert earlier != later
-
-
-def test_workflow_id_is_stable_for_one_prepared_generation():
-    folder = "customer_balance_transaction__query_1785365530_d3277966"
-
-    first = _workflow_id(folder)
-    second = _workflow_id(folder)
+    first = build_register_data_imports_workflow_id(team_id=473662, schema_id=schema_id)
+    second = build_register_data_imports_workflow_id(team_id=473662, schema_id=schema_id)
 
     assert first == second
+    assert first == f"ducklake-register-data-imports-473662-{schema_id}"
+
+
+def test_workflow_id_differs_across_schemas():
+    team_id = 473662
+
+    first = build_register_data_imports_workflow_id(team_id=team_id, schema_id="019ef5df-e4c7-0000-b543-8ef7f13b5f15")
+    second = build_register_data_imports_workflow_id(team_id=team_id, schema_id="019ef5df-e4c8-0000-b543-8ef7f13b5f16")
+
+    assert first != second

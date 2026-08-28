@@ -276,23 +276,10 @@ def _log_fan_out_failures(kind: str, report_ids: list[str], results: list) -> No
         )
 
 
-async def _update_report_schedule(
-    report_id: str,
-    period_end: str,
-    generation_status: str,
-    *,
-    record_attempt: bool = True,
-    advance_data_cursor: bool | None = None,
-) -> None:
+async def _update_report_schedule(inputs: UpdateNextDeliveryDateInput) -> None:
     await temporalio.workflow.execute_activity(
         update_next_delivery_date_activity,
-        UpdateNextDeliveryDateInput(
-            report_id=report_id,
-            period_end=period_end,
-            generation_status=generation_status,
-            record_attempt=record_attempt,
-            advance_data_cursor=advance_data_cursor,
-        ),
+        inputs,
         start_to_close_timeout=UPDATE_SCHEDULE_ACTIVITY_TIMEOUT,
         retry_policy=UPDATE_SCHEDULE_RETRY_POLICY,
     )
@@ -368,10 +355,12 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
 
         if not inputs.manual and (attempt_before_delivery or not generation_completed):
             await _update_report_schedule(
-                inputs.report_id,
-                context.period_end,
-                generation_status,
-                advance_data_cursor=False if attempt_before_delivery else None,
+                UpdateNextDeliveryDateInput(
+                    report_id=inputs.report_id,
+                    period_end=context.period_end,
+                    generation_status=generation_status,
+                    advance_data_cursor=False if attempt_before_delivery else None,
+                )
             )
 
         # 3b. Emit a signal for this report run (fire-and-forget).
@@ -407,7 +396,7 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
             except WorkflowAlreadyStartedError:
                 # Same parent workflow replayed/retried with the same report_run_id.
                 # Safe to skip — the previous run is already handling emission.
-                temporalio.workflow.logger.info(
+                logger.info(
                     "Eval report signal workflow already started for this run",
                     evaluation_id=context.evaluation_id,
                     team_id=context.team_id,
@@ -429,9 +418,11 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
         # 5. Advance the successful data cursor (skip for manual runs to avoid disrupting schedule)
         if not inputs.manual and generation_completed:
             await _update_report_schedule(
-                inputs.report_id,
-                context.period_end,
-                generation_status,
-                record_attempt=not attempt_before_delivery,
-                advance_data_cursor=True,
+                UpdateNextDeliveryDateInput(
+                    report_id=inputs.report_id,
+                    period_end=context.period_end,
+                    generation_status=generation_status,
+                    record_attempt=not attempt_before_delivery,
+                    advance_data_cursor=True,
+                )
             )

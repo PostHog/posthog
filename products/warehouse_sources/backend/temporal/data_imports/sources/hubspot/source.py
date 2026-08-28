@@ -1,5 +1,7 @@
 from typing import cast
 
+import structlog
+
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -31,6 +33,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hu
     HubspotResumeConfig,
     hubspot_source,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.scopes import (
+    SCOPE_GATED_OBJECTS,
+    missing_scope_error,
+    missing_scope_for_endpoint,
+    missing_scope_message,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.settings import (
     DEFAULT_PROPS,
     ENDPOINTS as HUBSPOT_ENDPOINTS,
@@ -40,6 +48,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.se
     HUBSPOT_METADATA_ENDPOINTS as HUBSPOT_METADATA_ENDPOINT_CONFIGS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+logger = structlog.get_logger(__name__)
 
 
 @config.config
@@ -107,7 +117,19 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # An object behind an optional scope the connection never got can't sync until the user
+        # reconnects, so name the fix instead of the generic "no permission" message below. Listed
+        # first so it wins over that message for a 403 we could attribute to a specific scope.
+        missing_scope_errors: dict[str, str | None] = {
+            missing_scope_message(endpoint, scope): (
+                f"Your HubSpot connection cannot read {endpoint}. Reconnect your HubSpot account to grant the "
+                f"{scope} permission, or turn off the {endpoint} table. Not every HubSpot plan includes it."
+            )
+            for endpoint, scope in SCOPE_GATED_OBJECTS.items()
+        }
+
         return {
+            **missing_scope_errors,
             "missing or invalid refresh token": "Your HubSpot connection is invalid or expired. Please reconnect it.",
             "missing or unknown hub id": None,
             # HubSpot's CRM API returns 401/403 when the OAuth grant can't read the requested object
@@ -166,8 +188,13 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
+        unreadable = self._endpoints_missing_scopes(config, team_id)
+
         schemas = []
         for endpoint in HUBSPOT_ENDPOINTS:
+            if endpoint in unreadable:
+                continue
+
             metadata_config = HUBSPOT_METADATA_ENDPOINT_CONFIGS.get(endpoint)
             if metadata_config is not None:
                 # Lookup tables have no server-side timestamp filter, so they are full refresh only.
@@ -200,6 +227,36 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
 
         return schemas
 
+    def _endpoints_missing_scopes(
+        self, config: HubspotSourceConfig | HubspotSourceOldConfig, team_id: int
+    ) -> frozenset[str]:
+        """Endpoints this connection provably cannot read, for want of an optional scope.
+
+        Keeping them out of discovery means nobody can select a table whose every sync would 403,
+        and an already-selected one gets turned off by the next discovery run.
+        """
+        if not SCOPE_GATED_OBJECTS or not isinstance(config, HubspotSourceConfig):
+            return frozenset()
+
+        try:
+            integration = self.get_oauth_integration(config.hubspot_integration_id, team_id)
+        except ValueError as e:
+            # A missing or deleted integration is permanent, but discovery stays best-effort
+            # because the sync path already surfaces it with an actionable message.
+            logger.warning(f"Hubspot scope gating skipped, integration lookup failed: {e}", team_id=team_id)
+            return frozenset()
+        except Exception:
+            # Dropping tables on a transient lookup failure would churn schema rows, so gating
+            # fails open. Log it so a gating no-op is distinguishable from unknown scopes.
+            logger.exception("Hubspot scope gating skipped, integration lookup failed", team_id=team_id)
+            return frozenset()
+
+        return frozenset(
+            endpoint
+            for endpoint in SCOPE_GATED_OBJECTS
+            if missing_scope_for_endpoint(endpoint, integration.config) is not None
+        )
+
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[HubspotResumeConfig]:
         return ResumableSourceManager[HubspotResumeConfig](inputs, HubspotResumeConfig)
 
@@ -214,6 +271,13 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
 
             if not integration.access_token or not integration.refresh_token:
                 raise ValueError(f"Hubspot refresh or access token not found for job {inputs.job_id}")
+
+            # Fail before the first request when the connection was never granted this table's
+            # scope: HubSpot would 403 on property discovery anyway, and the message it produces
+            # doesn't tell the user that reconnecting is what fixes it.
+            missing_scope = missing_scope_for_endpoint(inputs.schema_name, integration.config)
+            if missing_scope is not None:
+                raise missing_scope_error(inputs.schema_name, missing_scope)
 
             hubspot_access_code = integration.access_token
             refresh_token = integration.refresh_token

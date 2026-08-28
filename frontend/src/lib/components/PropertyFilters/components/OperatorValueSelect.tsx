@@ -457,6 +457,7 @@ export function OperatorValueSelect({
                             size={size}
                             forceSingleSelect={forceSingleSelect}
                             validationError={validationError}
+                            propertyTypeOverride={propertyDefinition?.property_type}
                         />
                     )}
                 </div>

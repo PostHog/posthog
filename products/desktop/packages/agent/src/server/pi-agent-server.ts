@@ -14,10 +14,12 @@ import {
   serializeError,
   type TaskRunArtifact,
 } from "@posthog/shared";
+import { buildPosthogPropertyHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import { Hono } from "hono";
 import { z } from "zod/v4";
 import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
 import { buildLocalToolsServer } from "../adapters/codex-app-server/local-tools-mcp";
+import { resolveContextWikiPath } from "../context-wiki";
 import { OtelRunTelemetry } from "../otel-telemetry";
 import {
   createPiRpcClient,
@@ -28,6 +30,7 @@ import {
 } from "../pi/rpc-client";
 import { piRpcCommandSchema, type RpcCommand } from "../pi/rpc-transport";
 import { PiRuntime } from "../pi/runtime";
+import type { TaskContext } from "../pi/task-system-prompt";
 import { PostHogAPIClient } from "../posthog-api";
 import { resolveLlmGatewayUrl } from "../utils/gateway";
 import { Logger } from "../utils/logger";
@@ -519,6 +522,7 @@ export class PiAgentServer {
         taskId: this.config.taskId,
         taskRunId: this.config.runId,
         baseBranch: this.config.baseBranch,
+        peerMessaging: process.env.POSTHOG_AGENT_PEER_MESSAGING === "1",
       },
     );
     const mcpConfiguration = await this.posthogAPI.getMcpRuntimeConfiguration(
@@ -529,7 +533,58 @@ export class PiAgentServer {
       ...createRuntimeMcpStdioServers(localTools ? [localTools] : []),
     };
 
-    const extensions: PiRuntimeExtension[] = [];
+    const [task, taskRun] = await Promise.all([
+      this.posthogAPI.getTask(payload.task_id).catch((error) => {
+        this.logger.debug("Failed to fetch task attribution", error);
+        return null;
+      }),
+      this.posthogAPI
+        .getTaskRun(payload.task_id, payload.run_id)
+        .catch((error) => {
+          this.logger.debug("Failed to fetch task run attribution", error);
+          return null;
+        }),
+    ]);
+    const runState = taskRun?.state;
+    const taskSnapshotKind = taskRun
+      ? typeof runState?.snapshot_kind === "string"
+        ? runState.snapshot_kind
+        : "absent"
+      : null;
+    const configuredSystemPrompt =
+      typeof this.config.claudeCode?.systemPrompt === "string"
+        ? this.config.claudeCode.systemPrompt
+        : this.config.claudeCode?.systemPrompt?.append;
+    const taskContext: TaskContext = {
+      projectId: this.config.projectId,
+      apiHost: this.config.apiUrl,
+      taskId: this.config.taskId,
+      cwd,
+      environment: "cloud",
+      additionalInstructions: configuredSystemPrompt,
+    };
+    const attributionHeaders = buildPosthogPropertyHeaderRecord({
+      task_id: payload.task_id,
+      task_run_id: payload.run_id,
+      task_origin_product: task?.origin_product ?? null,
+      task_repositories: task?.repositories?.length
+        ? JSON.stringify(task.repositories)
+        : task?.repository
+          ? JSON.stringify([task.repository])
+          : null,
+      task_runtime_adapter: "pi",
+      task_sandbox_environment_id:
+        typeof runState?.sandbox_environment_id === "string"
+          ? runState.sandbox_environment_id
+          : null,
+      task_snapshot_kind: taskSnapshotKind,
+      task_prewarmed: taskRun ? runState?.prewarmed === true : null,
+      ai_stage:
+        typeof runState?.ai_stage === "string" ? runState.ai_stage : null,
+      task_execution_environment: "cloud",
+    });
+
+    const extensions: PiRuntimeExtension[] = ["context-wiki"];
     if (!this.config.repositoryPath) {
       extensions.push("repository-tools");
     }
@@ -538,19 +593,26 @@ export class PiAgentServer {
     }
     const client = createPiRpcClient({
       cliPath: this.config.piRpcHostPath,
-      cwd,
       model: this.config.model,
       sessionFile: restoredSessionFile,
+      enrichment: {
+        apiUrl: this.config.apiUrl,
+        projectId: this.config.projectId,
+        apiKey: this.config.apiKey,
+      },
       runtimeMcpServers,
       mcpToolPolicies: mcpConfiguration.policies,
+      taskContext,
       providerOptions: {
         apiKey: this.config.apiKey,
         baseUrl: resolveLlmGatewayUrl(
           process.env.LLM_GATEWAY_URL,
           this.config.apiUrl,
         ),
+        headers: attributionHeaders,
       },
       extensions,
+      contextWikiPath: resolveContextWikiPath(),
     });
     const runtime = new PiRuntime(client);
     const unsubscribeConversation = runtime.onConversationEvent((event) =>

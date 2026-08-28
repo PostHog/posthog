@@ -4,7 +4,6 @@ import { useEffect } from 'react'
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { SessionAnalysisSetup } from '../../SessionAnalysisSetup'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import { AgentsRoster } from './AgentsRoster'
 import { DataSourceSetup } from './DataSourceSetup'
@@ -24,13 +23,12 @@ function BackLink({ onClick }: { onClick: () => void }): JSX.Element {
  * the Signal sources setup modal.
  */
 export function SignalSourcesPanel(): JSX.Element {
-    const { sessionAnalysisSetupOpen, dataSourceSetupSource } = useValues(signalSourcesLogic)
+    const { dataSourceSetupSource } = useValues(signalSourcesLogic)
     const {
         loadSources,
         loadSourceConfigs,
         loadVisionScanners,
         loadToolDataEvents,
-        closeSessionAnalysisSetup,
         closeDataSourceSetup,
         onDataSourceSetupComplete,
     } = useActions(signalSourcesLogic)
@@ -47,15 +45,6 @@ export function SignalSourcesPanel(): JSX.Element {
             <div className="flex flex-col gap-3">
                 <BackLink onClick={closeDataSourceSetup} />
                 <DataSourceSetup source={dataSourceSetupSource} onComplete={() => onDataSourceSetupComplete()} />
-            </div>
-        )
-    }
-
-    if (sessionAnalysisSetupOpen) {
-        return (
-            <div className="flex flex-col gap-3">
-                <BackLink onClick={closeSessionAnalysisSetup} />
-                <SessionAnalysisSetup />
             </div>
         )
     }

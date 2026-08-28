@@ -6,6 +6,12 @@ from posthog.models.utils import UUIDModel
 EMAIL_THREAD_COMMENT_SCOPE = "EmailThread"
 
 
+class EmailThreadAccountMatchSource(models.TextChoices):
+    KNOWN_EMAIL = "known_email", "Known email"
+    PERSON_GROUP = "person_group", "Person group"
+    EMAIL_DOMAIN = "email_domain", "Email domain"
+
+
 class EmailThreadMessageDirection(models.TextChoices):
     INBOUND = "inbound", "Inbound"
     OUTBOUND = "outbound", "Outbound"
@@ -37,6 +43,28 @@ class EmailThread(TeamScopedRootMixin, UUIDModel):
         ]
         indexes = [
             models.Index(fields=["team", "-last_message_at"], name="email_thread_team_last_idx"),
+        ]
+
+
+class EmailThreadAccountLink(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    thread = models.ForeignKey("conversations.EmailThread", on_delete=models.CASCADE, related_name="account_links")
+    account_id = models.CharField(max_length=64)
+    account_external_id = models.CharField(max_length=400, null=True, blank=True)
+    match_source = models.CharField(max_length=32, choices=EmailThreadAccountMatchSource.choices)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_conversations_email_thread_account_link"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "thread", "account_id"],
+                name="unique_email_thread_account_link",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["team", "account_id", "thread"], name="email_link_team_account_idx"),
         ]
 
 

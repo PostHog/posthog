@@ -17,13 +17,15 @@ from posthog.hogql.database.database import Database, SerializedField, get_data_
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.event_usage import EventSource, get_event_source, is_wizard_self_driving_program
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.user import User
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
-from posthog.tasks.warehouse import validate_data_warehouse_table_columns
 
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.warehouse_sources.backend.facade.api import (
     FILE_FORMAT_READ_HINTS,
@@ -42,8 +44,13 @@ from products.warehouse_sources.backend.facade.hogql import (
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
-    ExternalDataSource,
     validate_warehouse_table_url_pattern,
+)
+from products.warehouse_sources.backend.facade.tasks import validate_data_warehouse_table_columns
+from products.warehouse_sources.backend.facade.types import (
+    DataWarehouseTableCreatedVia,
+    DataWarehouseTableFormat,
+    ExternalDataSourceAccessMethod,
 )
 from products.warehouse_sources.backend.presentation.views.external_data_source import (
     SimpleExternalDataSourceSerializers,
@@ -55,6 +62,40 @@ from products.warehouse_sources.backend.presentation.views.external_data_source 
 # storage far past the per-file cap. The margin over the file cap covers the multipart envelope and
 # the small form fields sent alongside the file.
 MAX_UPLOAD_REQUEST_BODY_BYTES = MAX_FILE_UPLOAD_SIZE_BYTES + 1024 * 1024
+
+# Which request surface each transport attributes a table to. The PostHog apps and the headless
+# agents share `self_driving`, matching how the source path collapses them. Agent transports that
+# wrap MCP but aren't separately tracked (the CLI, Slack, Max) land on `mcp` alongside plain MCP
+# clients, and anything without a surface of its own is a plain API caller.
+_EVENT_SOURCE_TO_CREATED_VIA = {
+    EventSource.WEB: DataWarehouseTableCreatedVia.WEB,
+    EventSource.WIZARD: DataWarehouseTableCreatedVia.WIZARD,
+    EventSource.POSTHOG_CODE: DataWarehouseTableCreatedVia.SELF_DRIVING,
+    EventSource.DESKTOP: DataWarehouseTableCreatedVia.SELF_DRIVING,
+    EventSource.MOBILE: DataWarehouseTableCreatedVia.SELF_DRIVING,
+    EventSource.MCP: DataWarehouseTableCreatedVia.MCP,
+    EventSource.SLACK: DataWarehouseTableCreatedVia.MCP,
+    EventSource.CLI: DataWarehouseTableCreatedVia.MCP,
+    EventSource.POSTHOG_AI: DataWarehouseTableCreatedVia.MCP,
+}
+
+
+def resolve_created_via(request: request.Request) -> str:
+    """Attribute a table to the surface the request came from.
+
+    Read entirely from the transport (auth method, user-agent, MCP headers) rather than from the
+    request body, so no caller can label its own tables as wizard- or web-created. The values line
+    up with `ExternalDataSourceCreatedVia`, which reaches the same answer from the other direction:
+    a source takes `created_via` from the body because the MCP server injects it there, then
+    upgrades that value using this same transport signal.
+    """
+    event_source = get_event_source(request)
+    created_via = _EVENT_SOURCE_TO_CREATED_VIA.get(event_source, DataWarehouseTableCreatedVia.API)
+    # Every wizard program shares the `posthog/wizard` user-agent, so a self-driving run is only
+    # distinguishable by the marker it adds to that UA.
+    if created_via == DataWarehouseTableCreatedVia.WIZARD and is_wizard_self_driving_program(request):
+        return DataWarehouseTableCreatedVia.SELF_DRIVING
+    return created_via
 
 
 def _delete_hosted_upload_file(table: DataWarehouseTable) -> None:
@@ -96,7 +137,17 @@ class CredentialSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
         ]
-        extra_kwargs = {"access_key": {"write_only": "True"}, "access_secret": {"write_only": "True"}}
+        extra_kwargs = {
+            "access_key": {
+                "write_only": "True",
+                "help_text": "Access key ID for the bucket the files live in (an AWS access key ID, "
+                "a Google Cloud HMAC key, or the equivalent for another S3-compatible store).",
+            },
+            "access_secret": {
+                "write_only": "True",
+                "help_text": "Secret for the access key. Stored encrypted and never returned by the API.",
+            },
+        }
 
 
 class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
@@ -110,7 +161,25 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
     )
     external_data_source = SimpleExternalDataSourceSerializers(read_only=True)
     external_schema = serializers.SerializerMethodField(read_only=True)
-    options = serializers.DictField(required=False, default=dict)
+    options = serializers.DictField(
+        required=False,
+        default=dict,
+        help_text="Per-format read options. The only one read today is `csv_allow_double_quotes` "
+        "(boolean), for CSV files that quote fields with doubled quotes.",
+    )
+    created_via = serializers.ChoiceField(
+        choices=DataWarehouseTableCreatedVia.choices,
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Where the table came from: `web` for the in-app UI, `api` for direct API callers, "
+            "`mcp` for agent/MCP tool calls, `wizard` for the setup agent, `self_driving` for a "
+            "self-driving run, `source` for a table a data source syncs, `materialized_view` for "
+            "the table behind a materialized view, and `demo` for a demo project's sample table. "
+            "Set server-side from the request, never from the request body. Null on tables created "
+            "before this was recorded."
+        ),
+    )
 
     class Meta:
         model = DataWarehouseTable
@@ -122,6 +191,7 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             "format",
             "created_by",
             "created_at",
+            "created_via",
             "url_pattern",
             "credential",
             "columns",
@@ -134,12 +204,31 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             "id",
             "created_by",
             "created_at",
+            "created_via",
             "hogql_name",
             "columns",
             "external_data_source",
             "external_schema",
             "user_access_level",
         ]
+        extra_kwargs = {
+            "name": {
+                "help_text": "Name the table is queried by in HogQL. Must be unique within the project, "
+                "and must start with a letter or underscore and contain only letters, numbers, and "
+                "underscores.",
+            },
+            "format": {
+                "help_text": "File format of the objects the pattern matches. Every matched file must "
+                "share this format.",
+            },
+            "url_pattern": {
+                "help_text": "HTTPS URL of the files to read, with `*` matching any part of a path "
+                "segment (e.g. `https://your-bucket.s3.amazonaws.com/orders/*.parquet`). All matched "
+                "files are read as one table. Must point at a bucket you control, not at PostHog's "
+                "own storage.",
+            },
+            "deleted": {"help_text": "Whether the table is soft-deleted and hidden from queries."},
+        }
 
     @extend_schema_field(serializers.CharField())
     def get_hogql_name(self, table: DataWarehouseTable) -> str:
@@ -197,6 +286,7 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
 
         validated_data["team_id"] = team_id
         validated_data["created_by"] = cast(User, self.context["request"].user)
+        validated_data["created_via"] = resolve_created_via(self.context["request"])
         credential = validated_data.get("credential")
 
         if not credential:
@@ -267,7 +357,9 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             # it's user-filtered, so also resolve the name team-wide using get_view_or_table_by_name.
             # Otherwise a user with denied table could create another one with colliding name.
             if self.context["database"].has_table(name) or get_view_or_table_by_name(self.context["team_id"], name):
-                raise serializers.ValidationError("A table with this name already exists.")
+                raise serializers.ValidationError(
+                    "A table or view with this name already exists. Choose a different name."
+                )
 
         return name
 
@@ -377,7 +469,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         return (
             queryset.filter(team_id=self.team_id)
             .exclude(deleted=True)
-            .exclude(external_data_source__access_method=ExternalDataSource.AccessMethod.DIRECT)
+            .exclude(external_data_source__access_method=ExternalDataSourceAccessMethod.DIRECT)
             .prefetch_related("created_by", "externaldataschema_set")
             .order_by(self.ordering)
         )
@@ -654,7 +746,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         database = Database.create_for(team_id=self.team_id, user=cast(User, request.user))
         if database.has_table(table_name) or get_view_or_table_by_name(self.team_id, table_name):
             return response.Response(
-                status=status.HTTP_400_BAD_REQUEST, data={"message": "A table with this name already exists."}
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "A table or view with this name already exists. Choose a different name."},
             )
 
         # Confirm the object is actually there before creating a table that would fail every query.
@@ -678,6 +771,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             format=FILE_FORMAT_TO_TABLE_FORMAT[file_format],
             url_pattern=build_file_upload_url_pattern(self.team_id, upload_id, filename),
             created_by=request.user if isinstance(request.user, User) else None,
+            created_via=resolve_created_via(request),
         )
         try:
             table.columns = table.get_columns()
@@ -740,7 +834,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         file_format = request.data.get("format", "CSVWithNames")
 
         # Validate format against allowed choices
-        valid_formats = {c[0] for c in DataWarehouseTable.TableFormat.choices}
+        valid_formats = {c[0] for c in DataWarehouseTableFormat.choices}
         if file_format not in valid_formats:
             return response.Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -779,6 +873,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                     name=table_name,
                     format=file_format,
                     created_by=created_by,
+                    created_via=resolve_created_via(request),
                 )
 
             # Generate URL pattern and store file in object storage
@@ -809,8 +904,6 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 table.save(internally_computed_url_pattern=True)
 
                 # Validate columns in background
-                from posthog.tasks.warehouse import validate_data_warehouse_table_columns
-
                 validate_data_warehouse_table_columns.delay(team_id, str(table.id))
 
                 return response.Response(

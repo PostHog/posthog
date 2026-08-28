@@ -16,6 +16,7 @@ import {
 } from '../../inboxAnalytics'
 import { inboxOnboardingLogic } from '../../logics/inboxOnboardingLogic'
 import { PullRequestPreview, ReportPreview } from './InboxOnboardingPreviews'
+import { ManualSetupAction } from './ManualSetupAction'
 
 /** The one command that sets up self-driving. The whole onboarding orbits this string. */
 export const SELF_DRIVING_WIZARD_COMMAND = 'npx -y @posthog/wizard@latest self-driving'
@@ -142,7 +143,7 @@ function CommandCard(): JSX.Element {
             <div>
                 <h2 className="-mt-1 mb-1 text-base font-semibold">One command. That's the whole setup.</h2>
                 <p className="m-0 text-sm text-secondary">
-                    Run it in your project's repo. There are no in-app steps to click through.
+                    Run it in your project's repo, or set it up yourself below.
                 </p>
             </div>
             <SelfDrivingCommand size="md" surface="takeover" />
@@ -156,6 +157,7 @@ function CommandCard(): JSX.Element {
                     </li>
                 ))}
             </ul>
+            <ManualSetupAction variant="control" className="border-t border-primary pt-3" />
         </div>
     )
 }

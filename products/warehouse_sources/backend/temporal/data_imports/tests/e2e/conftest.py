@@ -94,7 +94,7 @@ def mysql_container():
     local flox envs have Docker too. If Docker is unreachable the
     fixture errors loudly so the breakage isn't silently hidden.
     """
-    container = MySqlContainer("mysql:9.2")
+    container = MySqlContainer("mysql:9.2").with_env("MYSQL_INITDB_SKIP_TZINFO", "1")
     container.start()
     try:
         yield container
@@ -202,7 +202,6 @@ async def run_external_data_job_workflow(
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
-    # if not ignore_assertions:
     run = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=external_data_source.pk)
 
     assert run is not None

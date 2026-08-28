@@ -22,7 +22,6 @@ import {
   SLACK_INTEGRATION_SERVICE,
 } from "@posthog/core/integrations/identifiers";
 import type { SlackIntegrationService } from "@posthog/core/integrations/slack";
-import type { ApprovalLinkService } from "@posthog/core/links/approval-link";
 import type { CanvasLinkService } from "@posthog/core/links/canvas-link";
 import type { ChannelLinkService } from "@posthog/core/links/channel-link";
 import type { InboxLinkService } from "@posthog/core/links/inbox-link";
@@ -53,7 +52,6 @@ import { initializeDeepLinks, registerDeepLinkHandlers } from "./deep-links";
 import { container } from "./di/container";
 import {
   APP_LIFECYCLE_SERVICE,
-  APPROVAL_LINK_SERVICE,
   AUTH_SERVICE,
   CANVAS_LINK_SERVICE,
   CHANNEL_LINK_SERVICE,
@@ -77,6 +75,7 @@ import {
 import { setupExternalLinkPermissionHandlers } from "./external-links";
 import { posthogNodeAnalytics } from "./platform-adapters/posthog-analytics";
 import { registerMcpSandboxProtocol } from "./protocols/mcp-sandbox";
+import { destroyQuickAskWindow, setupQuickAsk } from "./quick-ask";
 import type { AppLifecycleService } from "./services/app-lifecycle/service";
 import type { DevNetworkService } from "./services/dev-network/service";
 import { initDevToolbar } from "./services/dev-toolbar";
@@ -104,7 +103,8 @@ import {
 import { isMacosPackagedUnsafeBundleLocation } from "./utils/macos-packaged-install-guard";
 import { installMainFetchLogging } from "./utils/network-fetch-logger";
 import { installRendererNetworkLogging } from "./utils/network-webrequest-logger";
-import { createWindow } from "./window";
+import { createWindow, onMainWindowClosed } from "./window";
+import { installYoutubeEmbedReferrer } from "./youtube-embed-referrer";
 
 type FileWatcherEventsByKind = {
   [K in FileWatcherEvent["kind"]]: Extract<FileWatcherEvent, { kind: K }>;
@@ -171,6 +171,9 @@ const RECOVERABLE_RENDER_REASONS = new Set([
 const CRASH_LOOP_WINDOW_MS = 30_000;
 const CRASH_LOOP_THRESHOLD = 3;
 const recentCrashTimestamps: number[] = [];
+// Electron reports renderers torn down during quit as "killed", which is also
+// a recoverable reason, so recovery has to be gated on shutdown state instead.
+let shutdownStarted = false;
 
 function isCrashLoop(): boolean {
   const now = Date.now();
@@ -212,6 +215,13 @@ app.on("render-process-gone", (_event, webContents, details) => {
     },
   );
   posthogNodeAnalytics.flush().catch(() => {});
+
+  if (shutdownStarted) {
+    log.info("Skipping renderer recovery during shutdown", {
+      reason: details.reason,
+    });
+    return;
+  }
 
   if (RECOVERABLE_RENDER_REASONS.has(details.reason)) {
     if (isCrashLoop()) {
@@ -278,7 +288,6 @@ async function initializeServices(): Promise<void> {
   container.get<InboxLinkService>(INBOX_LINK_SERVICE);
   container.get<ScoutLinkService>(SCOUT_LINK_SERVICE);
   container.get<NewTaskLinkService>(NEW_TASK_LINK_SERVICE);
-  container.get<ApprovalLinkService>(APPROVAL_LINK_SERVICE);
   // Eagerly resolved so their constructors register the `canvas` / `channel` /
   // `loop` deep-link handlers at boot, before any link arrives.
   container.get<CanvasLinkService>(CANVAS_LINK_SERVICE);
@@ -370,7 +379,12 @@ app.whenReady().then(async () => {
     session.fromPartition("persist:main").webRequest,
     container.get<DevNetworkService>(DEV_NETWORK_SERVICE),
   );
+  installYoutubeEmbedReferrer(session.fromPartition("persist:main").webRequest);
   createWindow();
+  setupQuickAsk();
+  // The hidden quick-ask panel must not keep the app alive after the main
+  // window closes.
+  onMainWindowClosed(destroyQuickAskWindow);
 
   const wsServer = container.get<WorkspaceServerService>(
     WORKSPACE_SERVER_SERVICE,
@@ -464,6 +478,7 @@ const teardownContainer = async (): Promise<void> => {
 };
 
 app.on("before-quit", async (event) => {
+  shutdownStarted = true;
   try {
     container.get<WorkspaceServerService>(WORKSPACE_SERVER_SERVICE).stop();
   } catch {}
@@ -495,6 +510,7 @@ app.on("before-quit", async (event) => {
 
 const handleShutdownSignal = async (signal: string) => {
   log.info(`Received ${signal}, starting shutdown`);
+  shutdownStarted = true;
   try {
     const lifecycleService = container.get<AppLifecycleService>(
       APP_LIFECYCLE_SERVICE,

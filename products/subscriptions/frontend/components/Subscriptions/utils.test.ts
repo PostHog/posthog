@@ -1,6 +1,11 @@
+import { SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
+
 import {
+    canNudgeToSubscribe,
+    formatSubscriptionSchedule,
     getAiSubscriptionGate,
     getNextDeliveryDate,
+    getSubscriptionAdvancedSettings,
     selectedDaysToDayPickerLabel,
     shouldShowDayPicker,
     toggleSelectedDay,
@@ -34,6 +39,31 @@ describe('day picker values', () => {
         ['removes a selected day', ['tuesday', 'wednesday'], 'tuesday', ['wednesday']],
     ] as const)('%s without replacing the other selections', (_label, selectedDays, day, expected) => {
         expect(toggleSelectedDay([...selectedDays], day)).toEqual(expected)
+    })
+})
+
+describe('formatSubscriptionSchedule', () => {
+    it('includes every selected delivery day in a weekly schedule summary', () => {
+        expect(
+            formatSubscriptionSchedule({
+                frequency: 'weekly',
+                interval: 1,
+                start_date: '2024-01-01T09:00:00Z',
+                byweekday: ['monday', 'wednesday'],
+            })
+        ).toBe('Every 1 week on Monday and Wednesday at 9:00 AM')
+    })
+})
+
+describe('getSubscriptionAdvancedSettings', () => {
+    it('lists only delivery settings that differ from the default flow', () => {
+        expect(
+            getSubscriptionAdvancedSettings({
+                summary_enabled: true,
+                summary_prompt_guide: 'Prioritize activation changes',
+                send_test_now: false,
+            })
+        ).toEqual(['Automatic AI summary', 'Custom AI summary context', 'No test delivery'])
     })
 })
 
@@ -155,5 +185,18 @@ describe('getAiSubscriptionGate', () => {
         ],
     ] as const)('%s', (_label, overrides, expected) => {
         expect(getAiSubscriptionGate({ ...base, ...overrides })).toMatchObject(expected)
+    })
+})
+
+describe('canNudgeToSubscribe', () => {
+    // isFreeTierCreateAtLimit fails open on an unknown count so the form still renders. The nudge
+    // wants the opposite, so the null case is decided here rather than left to that helper.
+    it.each([
+        ['a paid plan is nudged whatever the free-tier count says', true, null, true],
+        ['free tier with room left is nudged', false, 0, true],
+        ['free tier at the limit is not nudged', false, SubscriptionFreeTierLimit.COUNT, false],
+        ['an unknown count is not nudged', false, null, false],
+    ] as const)('%s', (_label, hasSubscriptionsFeature, freeTierSubscriptionCount, expected) => {
+        expect(canNudgeToSubscribe(hasSubscriptionsFeature, freeTierSubscriptionCount)).toBe(expected)
     })
 })

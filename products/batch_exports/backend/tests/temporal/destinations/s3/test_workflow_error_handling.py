@@ -261,7 +261,7 @@ async def test_s3_export_workflow_with_request_timeouts(
                 async def faulty_upload_part(*args, **kwargs):
                     nonlocal raised
 
-                    if raised < 5:
+                    if raised < ConcurrentS3Consumer.UPLOAD_PART_MAX_ATTEMPTS:
                         raised = raised + 1
                         raise botocore.exceptions.ClientError(
                             error_response={

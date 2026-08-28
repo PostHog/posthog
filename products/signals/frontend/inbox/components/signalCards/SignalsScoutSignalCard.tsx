@@ -7,6 +7,7 @@ import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress/LemonProgress'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
+import { identifierToHuman } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import type {
@@ -14,18 +15,14 @@ import type {
     SignalsScoutSignalExtraApi,
 } from 'products/signals/frontend/generated/api.schemas'
 
-import { INBOX_SOURCE_OPTIONS } from '../../filterOptions'
+import { signalEntityUrl } from '../../utils/signalLinks'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
+import { getSourceProductMeta } from '../badges/sourceProductIcons'
 import { SignalCardShell } from './SignalCardShell'
 import type { SignalCardEntry, SignalCardProps } from './types'
 
 /** How many evidence rows to show before collapsing the rest behind a toggle. */
 const EVIDENCE_PREVIEW_COUNT = 3
-
-/** O(1) source-product → {label, icon} lookup, built once from the shared filter options. */
-const SOURCE_BY_VALUE: Record<string, { label: string; icon: JSX.Element }> = Object.fromEntries(
-    INBOX_SOURCE_OPTIONS.map((o) => [o.value, { label: o.label, icon: o.icon }])
-)
 
 /** Narrows a raw `extra` payload to the live Signals scout shape. */
 export function isSignalsScoutExtra(value: unknown): value is Record<string, unknown> & SignalsScoutSignalExtraApi {
@@ -36,36 +33,19 @@ export function isSignalsScoutExtra(value: unknown): value is Record<string, unk
     return Array.isArray(extra.evidence) && typeof extra.skill_name === 'string' && typeof extra.confidence === 'number'
 }
 
-/**
- * Builds a deep link into the product an evidence entry came from, or null when no link applies.
- * Entity-keyed products need an `entityId`; `logs` is entity-less; unknown products get no link.
- */
-export function scoutEvidenceUrl(sourceProduct: string, entityId?: string): string | null {
-    switch (sourceProduct) {
-        case 'error_tracking':
-            return entityId ? urls.errorTrackingIssue(entityId) : null
-        case 'session_replay':
-            return entityId ? urls.replaySingle(entityId) : null
-        case 'llm_analytics':
-            return entityId ? urls.aiObservabilityTrace(entityId) : null
-        case 'logs':
-            return urls.logs()
-        default:
-            return null
-    }
-}
-
 /** A single evidence row: source icon + eyebrow, the summary, and an optional deep link. */
 function EvidenceRow({ entry }: { entry: SignalsScoutEvidenceEntryApi }): JSX.Element {
-    const meta = SOURCE_BY_VALUE[entry.source_product]
-    const url = scoutEvidenceUrl(entry.source_product, entry.entity_id ?? undefined)
+    const meta = getSourceProductMeta(entry.source_product)
+    const url = signalEntityUrl(entry.source_product, entry.entity_id)
     return (
         <li className="flex items-start gap-2 py-0.5">
             <span className="inline-flex shrink-0 items-center text-tertiary mt-0.5" aria-hidden>
-                {meta ? meta.icon : <IconList />}
+                {meta ? <meta.Icon className={meta.colorClass} /> : <IconList />}
             </span>
             <div className="flex-1 min-w-0">
-                <div className="text-xs font-medium text-tertiary">{meta?.label ?? entry.source_product}</div>
+                <div className="text-xs font-medium text-tertiary">
+                    {meta?.label ?? identifierToHuman(entry.source_product)}
+                </div>
                 <div className="text-sm text-primary">{entry.summary}</div>
             </div>
             {url && (

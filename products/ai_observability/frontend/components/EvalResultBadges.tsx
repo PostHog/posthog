@@ -82,7 +82,7 @@ export function EvalResultBadges({
         )
     }
 
-    // The trace-scoped fetch is capped at EVALUATION_SUMMARY_MAX_RUNS most-recent runs, so on a
+    // The trace-scoped fetch is capped at EVALUATION_RUNS_QUERY_LIMIT most-recent runs, so on a
     // trace with very heavy eval volume older runs for a given generation can fall out of view.
     const summaries = getEvalSummaries(scopeRunsToTarget(generationEvaluationRuns, generationEventId))
 

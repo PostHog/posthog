@@ -1,6 +1,6 @@
-import type { Task, TaskThreadMessage } from "@posthog/shared/domain-types";
+import type { Task } from "@posthog/shared/domain-types";
 import { Theme } from "@radix-ui/themes";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -23,24 +23,76 @@ vi.mock("@tanstack/react-router", () => ({
     </a>
   ),
 }));
+const { channelTaskData } = vi.hoisted(() => ({
+  channelTaskData: { current: undefined as unknown },
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelTaskData", () => ({
-  useChannelTaskData: () => undefined,
-}));
-const threadMocks = vi.hoisted(() => ({
-  messages: [] as TaskThreadMessage[],
-}));
-
-vi.mock("@posthog/ui/features/canvas/hooks/useTaskThread", () => ({
-  useTaskThread: () => ({ messages: threadMocks.messages }),
+  useChannelTaskData: () => channelTaskData.current,
 }));
 vi.mock("@posthog/ui/features/sidebar/useTaskPrStatus", () => ({
   useTaskPrStatus: () => ({ prState: null }),
 }));
+vi.mock("@posthog/ui/features/canvas/hooks/useTaskThread", () => ({
+  useTaskThread: () => ({ messages: [] }),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead", () => ({
+  useMarkTaskActivityRead: () => ({ mutate: vi.fn() }),
+}));
+vi.mock("@posthog/ui/features/sidebar/usePinnedTasks", () => ({
+  usePinnedTasks: () => ({ togglePin: vi.fn() }),
+}));
+const { archiveTask } = vi.hoisted(() => ({ archiveTask: vi.fn() }));
+vi.mock("@posthog/ui/features/archive/useArchiveTask", () => ({
+  useArchiveTask: () => ({ archiveTask }),
+}));
+vi.mock(
+  "@posthog/ui/features/sidebar/components/ArchiveRunningTaskDialog",
+  () => ({
+    ArchiveRunningTaskDialog: ({ open }: { open: boolean }) =>
+      open ? <div>Archive running task?</div> : null,
+  }),
+);
+vi.mock("@posthog/ui/features/sessions/components/StopCloudRunDialog", () => ({
+  StopCloudRunDialog: ({ open, title }: { open: boolean; title: string }) =>
+    open ? <div>{title}</div> : null,
+}));
+const { archivedTaskIds } = vi.hoisted(() => ({
+  archivedTaskIds: { current: new Set<string>() },
+}));
+vi.mock("@posthog/ui/features/archive/useArchivedTaskIds", () => ({
+  useArchivedTaskIds: () => archivedTaskIds.current,
+}));
+vi.mock("@posthog/ui/features/tasks/useTaskMutations", () => ({
+  useRenameTask: () => ({ renameTask: vi.fn() }),
+}));
+vi.mock("@posthog/ui/features/command-center/commandCenterStore", () => ({
+  useCommandCenterStore: (
+    selector: (state: { cells: (string | null)[] }) => unknown,
+  ) => selector({ cells: [null] }),
+}));
+vi.mock("@posthog/ui/features/command-center/placeTaskInCommandCenter", () => ({
+  placeTaskInCommandCenter: vi.fn(),
+}));
+vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
+  useFeatureFlag: () => true,
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
+  useChannels: () => ({
+    channels: [{ id: "channel-1", name: "Personal space", starred: false }],
+  }),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useFileTaskToChannel", () => ({
+  useFileTaskToChannel: () => vi.fn(),
+}));
 vi.mock("@posthog/ui/features/browser-tabs/TaskTabIcon", () => ({
   TaskTabIcon: () => <span />,
 }));
+vi.mock("@posthog/ui/primitives/hooks/useInView", () => ({
+  useInView: () => [vi.fn(), true],
+}));
 
-import { ReplyFooter, TaskCard, TaskFeedRow } from "./ChannelFeedView";
+import { ChannelFeedView, ExpandablePrompt, TaskCard } from "./ChannelFeedView";
+import { mergeFeedEntries, stripContextBlocks } from "./channelFeedDisplay";
 
 const task = {
   id: "task-1",
@@ -62,7 +114,9 @@ const task = {
 
 afterEach(() => {
   vi.restoreAllMocks();
-  threadMocks.messages = [];
+  archivedTaskIds.current = new Set<string>();
+  archiveTask.mockReset();
+  channelTaskData.current = undefined;
 });
 
 // ExpandablePrompt measures how the prompt wraps to decide where to cut and
@@ -87,7 +141,210 @@ function mockLayout(charsPerLine: number) {
   );
 }
 
-describe("TaskFeedRow", () => {
+describe("ChannelFeedView", () => {
+  it("announces when tasks are loading", () => {
+    const { container } = render(
+      <Theme>
+        <ChannelFeedView
+          channelId="channel-1"
+          tasks={[]}
+          isLoading
+          onOpenTask={vi.fn()}
+          onOpenThread={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    expect(container.querySelector('[aria-busy="true"]')).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Loading tasks");
+  });
+
+  it("hides archived tasks from the feed", () => {
+    const archived = {
+      ...task,
+      id: "task-archived",
+      title: "Already archived",
+    } satisfies Task;
+    archivedTaskIds.current = new Set([archived.id]);
+    render(
+      <Theme>
+        <ChannelFeedView
+          channelId="channel-1"
+          tasks={[task, archived]}
+          isLoading={false}
+          onOpenTask={vi.fn()}
+          onOpenThread={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    expect(screen.queryByText("Already archived")).not.toBeInTheDocument();
+    expect(screen.getByText(task.title)).toBeInTheDocument();
+  });
+
+  it("shows the kind's empty note, not the channel welcome, when a filter empties the feed", () => {
+    render(
+      <Theme>
+        <ChannelFeedView
+          channelId="channel-1"
+          tasks={[]}
+          reports={[]}
+          isLoading={false}
+          emptyState={<div>Welcome to space</div>}
+          onOpenTask={vi.fn()}
+          onOpenThread={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    // A genuinely empty, unfiltered feed still shows the channel welcome.
+    expect(screen.getByText("Welcome to space")).toBeInTheDocument();
+
+    // Selecting an empty kind must show its own note, not the welcome screen.
+    fireEvent.click(screen.getByText("Reports"));
+    expect(
+      screen.getByText(
+        "No reports here yet. Open the filter to widen the list.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Welcome to space")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      name: "options menu",
+      open: async () => {
+        fireEvent.mouseDown(
+          screen.getByLabelText(`Options for ${task.title}`),
+          { button: 0 },
+        );
+      },
+    },
+    {
+      name: "context menu",
+      open: async () => {
+        fireEvent.contextMenu(screen.getByText(task.title));
+      },
+    },
+  ])("offers every task action from the $name", async ({ open }) => {
+    render(
+      <Theme>
+        <ChannelFeedView
+          channelId="channel-1"
+          tasks={[task]}
+          isLoading={false}
+          onOpenTask={vi.fn()}
+          onOpenThread={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    await open();
+
+    await waitFor(() => expect(screen.getByText("Pin")).toBeInTheDocument());
+    for (const label of [
+      "Pin",
+      "Rename",
+      "Add to Command Center…",
+      "File to…",
+      "Archive",
+    ]) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
+  });
+
+  it("closes the options menu when its trigger is pressed again", async () => {
+    render(
+      <Theme>
+        <ChannelFeedView
+          channelId="channel-1"
+          tasks={[task]}
+          isLoading={false}
+          onOpenTask={vi.fn()}
+          onOpenThread={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    const trigger = screen.getByLabelText(`Options for ${task.title}`);
+    fireEvent.mouseDown(trigger, { button: 0 });
+    await waitFor(() => expect(screen.getByText("Pin")).toBeInTheDocument());
+
+    fireEvent.mouseDown(trigger, { button: 0 });
+    await waitFor(() =>
+      expect(screen.queryByText("Pin")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("opens the archive confirmation for an active task", async () => {
+    channelTaskData.current = {
+      cloudPrUrl: null,
+      isGenerating: true,
+      isPinned: false,
+      needsPermission: false,
+      taskRunEnvironment: "cloud",
+      taskRunStatus: "in_progress",
+    };
+    const user = userEvent.setup();
+    render(
+      <Theme>
+        <ChannelFeedView
+          channelId="channel-1"
+          tasks={[task]}
+          isLoading={false}
+          onOpenTask={vi.fn()}
+          onOpenThread={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    fireEvent.mouseDown(screen.getByLabelText(`Options for ${task.title}`), {
+      button: 0,
+    });
+    await waitFor(() =>
+      expect(screen.getByText("Archive")).toBeInTheDocument(),
+    );
+
+    await user.click(screen.getByText("Archive"));
+
+    expect(screen.getByText("Archive running task?")).toBeInTheDocument();
+    expect(archiveTask).not.toHaveBeenCalled();
+  });
+
+  it("opens the stop confirmation for an active cloud task", async () => {
+    channelTaskData.current = {
+      cloudPrUrl: null,
+      isGenerating: true,
+      isPinned: false,
+      needsPermission: false,
+      taskRunEnvironment: "cloud",
+      taskRunStatus: "in_progress",
+    };
+    const user = userEvent.setup();
+    render(
+      <Theme>
+        <ChannelFeedView
+          channelId="channel-1"
+          tasks={[task]}
+          isLoading={false}
+          onOpenTask={vi.fn()}
+          onOpenThread={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    fireEvent.mouseDown(screen.getByLabelText(`Options for ${task.title}`), {
+      button: 0,
+    });
+    await waitFor(() =>
+      expect(screen.getByText("Stop task")).toBeInTheDocument(),
+    );
+
+    await user.click(screen.getByText("Stop task"));
+
+    expect(screen.getByText(`Stop "${task.title}"?`)).toBeInTheDocument();
+  });
+
   it("reports when its task is opened", async () => {
     const user = userEvent.setup();
     const onOpen = vi.fn();
@@ -107,12 +364,12 @@ describe("TaskFeedRow", () => {
     const user = userEvent.setup();
     const { container } = render(
       <Theme>
-        <TaskFeedRow task={task} />
+        <ExpandablePrompt lines={2}>{task.description}</ExpandablePrompt>
       </Theme>,
     );
 
     const prompt = container.querySelector(
-      "[data-slot=thread-item-body]",
+      "[data-slot=expandable-prompt]",
     ) as HTMLElement;
     // The visible text is the non-measure child (the measure copy is aria-hidden).
     const visible = Array.from(prompt.children).find(
@@ -135,34 +392,43 @@ describe("TaskFeedRow", () => {
     mockLayout(1000);
     render(
       <Theme>
-        <TaskFeedRow task={task} />
+        <ExpandablePrompt lines={2}>{task.description}</ExpandablePrompt>
       </Theme>,
     );
 
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
-  it("wears the agent's face on an agent reply", () => {
-    // An agent reply carries no user, so the person avatar fell back to an initial and every
-    // agent in the thread collapsed onto one slot.
-    threadMocks.messages = [
-      {
-        id: "agent-reply",
-        task: task.id,
-        author_kind: "agent",
-        content: "Finished the task",
-        created_at: "2026-07-17T12:05:00.000Z",
-        author: null,
-      } as unknown as TaskThreadMessage,
-    ];
 
-    const { container } = render(
-      <ReplyFooter taskId={task.id} inView onOpenThread={() => undefined} />,
-    );
+  // Guards against injected context wrappers (Slack thread history, channel
+  // CONTEXT.md) leaking verbatim into the card's prompt snippet.
+  it("strips injected context blocks from prompts", () => {
+    const description =
+      '<slack_thread_context>\nThread started by someone.\n</slack_thread_context>\n\nfix the flaky test in <channel_context channel="web">context body</channel_context> ci';
 
-    expect(screen.getByText("1 reply")).toBeInTheDocument();
-    expect(screen.queryByText("U")).toBeNull();
-    expect(
-      container.querySelector('[data-slot="avatar-fallback"] svg'),
-    ).not.toBeNull();
+    expect(stripContextBlocks(description)).toBe("fix the flaky test in  ci");
+  });
+
+  // Guards the feed's direction (newest first, not chat-style oldest first)
+  // and the tie-break that keeps a same-timestamp announcement directly under
+  // the task card it describes.
+  it("merges entries newest-first with announcements under their card", () => {
+    const older = {
+      ...task,
+      id: "task-old",
+      created_at: "2026-07-16T12:00:00.000Z",
+    };
+    const announcement = {
+      id: "system-1",
+      createdAt: task.created_at,
+      text: "Building CONTEXT.md",
+    };
+
+    const entries = mergeFeedEntries([older, task], [announcement]);
+
+    expect(entries.map((entry) => entry.id)).toEqual([
+      "task-1",
+      "system-1",
+      "task-old",
+    ]);
   });
 });
