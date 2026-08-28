@@ -9,6 +9,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { ConfigScopeEnumApi } from '~/generated/core/api.schemas'
 
+import { ScimLogsModal } from '../VerifiedDomains/ScimLogsModal'
+import { verifiedDomainsLogic } from '../VerifiedDomains/verifiedDomainsLogic'
 import { identityProviderConfigsLogic } from './identityProviderConfigsLogic'
 import {
     IDENTITY_PROVIDER_FEATURES,
@@ -26,6 +28,8 @@ export function IdentityProviderFeatureSection({ configScope }: { configScope: C
     const { identityProviderConfigs, identityProviderConfigsLoading, identityProviderConfigsLoadFailed } =
         useValues(identityProviderConfigsLogic)
     const { loadIdentityProviderConfigs } = useActions(identityProviderConfigsLogic)
+    const { scimLogsLoading } = useValues(verifiedDomainsLogic)
+    const { setScimConfigLogsModalId } = useActions(verifiedDomainsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const feature = IDENTITY_PROVIDER_FEATURES[configScope]
     const config = identityProviderConfigs
@@ -60,19 +64,39 @@ export function IdentityProviderFeatureSection({ configScope }: { configScope: C
     }
 
     return (
-        <LemonCard hoverEffect={false} className="flex flex-wrap items-center justify-between gap-3 p-4">
-            <div className="flex items-center gap-2">
-                <span className="font-medium">Status</span>
-                <LemonTag type={status.type}>{status.label}</LemonTag>
-            </div>
-            <LemonButton
-                type="secondary"
-                to={urls.identityProviderConfig(configScope, config?.id ?? 'new')}
-                disabledReason={restrictionReason || unavailableReason}
-                data-attr={`configure-${configScope}-identity-provider`}
-            >
-                Configure
-            </LemonButton>
-        </LemonCard>
+        <>
+            <LemonCard hoverEffect={false} className="flex flex-wrap items-center justify-between gap-3 p-4">
+                <div className="flex items-center gap-2">
+                    <span className="font-medium">Status</span>
+                    <LemonTag type={status.type}>{status.label}</LemonTag>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                    {configScope === ConfigScopeEnumApi.Scim && (
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => config && setScimConfigLogsModalId(config.id)}
+                            loading={scimLogsLoading}
+                            disabledReason={
+                                restrictionReason ||
+                                unavailableReason ||
+                                (!config ? 'Configure SCIM to view request logs' : undefined)
+                            }
+                            data-attr="view-scim-logs"
+                        >
+                            View SCIM logs
+                        </LemonButton>
+                    )}
+                    <LemonButton
+                        type="secondary"
+                        to={urls.identityProviderConfig(configScope, config?.id ?? 'new')}
+                        disabledReason={restrictionReason || unavailableReason}
+                        data-attr={`configure-${configScope}-identity-provider`}
+                    >
+                        Configure
+                    </LemonButton>
+                </div>
+            </LemonCard>
+            {configScope === ConfigScopeEnumApi.Scim && <ScimLogsModal emptyStateScope="configuration" />}
+        </>
     )
 }

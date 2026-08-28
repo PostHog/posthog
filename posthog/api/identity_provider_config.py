@@ -9,13 +9,18 @@ from rest_framework.request import Request
 from rest_framework.viewsets import ModelViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scim_request_log import (
+    PaginatedSCIMRequestLogSerializer,
+    SCIMRequestLogQuerySerializer,
+    paginated_scim_request_logs_response,
+)
 from posthog.api.scoped_related_fields import OrgScopedPrimaryKeyRelatedField
 from posthog.api.utils import action
 from posthog.constants import AvailableFeature
 from posthog.event_usage import groups
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 from posthog.security.url_validation import is_url_allowed
@@ -26,6 +31,7 @@ from ee.api.scim.utils import (
     get_scim_base_url,
     regenerate_scim_token_for_config,
 )
+from ee.models.scim_request_log import SCIMRequestLog
 
 
 def _capture_idp_config_event(
@@ -296,6 +302,17 @@ class IdentityProviderConfigViewSet(TeamAndOrgViewSetMixin, ModelViewSet):
                 code="linked_to_domain",
             )
         return super().destroy(request, *args, **kwargs)
+
+    @extend_schema(parameters=[SCIMRequestLogQuerySerializer], responses=PaginatedSCIMRequestLogSerializer)
+    @action(methods=["GET"], detail=True, url_path="scim/logs")
+    def scim_logs(self, request: Request, **kwargs: Any) -> response.Response:
+        config = cast(IdentityProviderConfig, self.get_object())
+        membership = OrganizationMembership.objects.filter(user=request.user, organization=config.organization).first()
+        if not membership or membership.level < OrganizationMembership.Level.ADMIN:
+            raise exceptions.PermissionDenied("Only organization admins can view SCIM logs.")
+
+        queryset = SCIMRequestLog.objects.filter(identity_provider_config=config)
+        return paginated_scim_request_logs_response(request, queryset)
 
     @extend_schema(request=None, responses=SCIMTokenResponseSerializer)
     @action(methods=["POST"], detail=True, url_path="scim/token")

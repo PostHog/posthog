@@ -55377,6 +55377,37 @@ export namespace Schemas {
       results: Run[];
     }
 
+    export interface SCIMRequestLog {
+      readonly id: string;
+      readonly request_method: string;
+      readonly request_path: string;
+      readonly request_headers: unknown;
+      readonly request_body: unknown;
+      readonly response_status: number;
+      readonly response_body: unknown;
+      readonly identity_provider: string;
+      /** @nullable */
+      readonly duration_ms: number | null;
+      readonly created_at: string;
+    }
+
+    export interface PaginatedSCIMRequestLog {
+      /** Total number of matching SCIM requests. */
+      count: number;
+      /**
+         * URL for the next page, or null on the last page.
+         * @nullable
+         */
+      next: string | null;
+      /**
+         * URL for the previous page, or null on the first page.
+         * @nullable
+         */
+      previous: string | null;
+      /** SCIM requests on this page. */
+      results: SCIMRequestLog[];
+    }
+
     export type SandboxCustomImageDTOSpec = { [key: string]: unknown };
 
     export type SandboxCustomImageDTOScanResult = { [key: string]: unknown };
@@ -88726,6 +88757,41 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type DomainsScimLogsRetrieveParams = {
+    /**
+     * Include requests at or after this time.
+     */
+    after?: string;
+    /**
+     * Include requests at or before this time.
+     */
+    before?: string;
+    /**
+     * Page number to return.
+     * @minimum 1
+     */
+    page?: number;
+    /**
+     * Number of requests to return per page.
+     * @minimum 1
+     * @maximum 100
+     */
+    page_size?: number;
+    /**
+     * Search request paths and masked request bodies.
+     * @minLength 1
+     */
+    search?: string;
+    /**
+     * Maximum HTTP response status to include, such as 499.
+     */
+    status_max?: number;
+    /**
+     * Minimum HTTP response status to include, such as 400.
+     */
+    status_min?: number;
+    };
+
     export type OrgFeatureFlagsKeysParams = {
     /**
      * Page size (max 100)
@@ -88754,6 +88820,41 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type IdentityProviderConfigsScimLogsRetrieveParams = {
+    /**
+     * Include requests at or after this time.
+     */
+    after?: string;
+    /**
+     * Include requests at or before this time.
+     */
+    before?: string;
+    /**
+     * Page number to return.
+     * @minimum 1
+     */
+    page?: number;
+    /**
+     * Number of requests to return per page.
+     * @minimum 1
+     * @maximum 100
+     */
+    page_size?: number;
+    /**
+     * Search request paths and masked request bodies.
+     * @minLength 1
+     */
+    search?: string;
+    /**
+     * Maximum HTTP response status to include, such as 499.
+     */
+    status_max?: number;
+    /**
+     * Minimum HTTP response status to include, such as 400.
+     */
+    status_min?: number;
     };
 
     export type OrgOrganizationsIntegrationsListParams = {

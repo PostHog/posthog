@@ -14,6 +14,8 @@ from posthog.models import (
     OrganizationMembership,
 )
 
+from ee.models.scim_request_log import SCIMRequestLog
+
 
 class TestIdentityProviderConfigAPI(APIBaseTest):
     def _make_admin(self) -> None:
@@ -224,6 +226,40 @@ class TestIdentityProviderConfigAPI(APIBaseTest):
             {"id_jag_issuer_url": "http://169.254.169.254/latest/meta-data"},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_admin_can_list_scim_logs_for_config(self):
+        self._make_admin()
+        config = IdentityProviderConfig.objects.create(organization=self.organization)
+        other_config = IdentityProviderConfig.objects.create(organization=self.organization)
+        SCIMRequestLog.objects.create(
+            identity_provider_config=config,
+            request_method="GET",
+            request_path="/scim/v2/config/Users",
+            request_headers={},
+            response_status=200,
+            identity_provider="okta",
+        )
+        SCIMRequestLog.objects.create(
+            identity_provider_config=other_config,
+            request_method="GET",
+            request_path="/scim/v2/other/Users",
+            request_headers={},
+            response_status=200,
+            identity_provider="okta",
+        )
+
+        response = self.client.get(f"/api/organizations/@current/identity_provider_configs/{config.id}/scim/logs")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["request_path"], "/scim/v2/config/Users")
+
+    def test_member_cannot_list_scim_logs_for_config(self):
+        config = IdentityProviderConfig.objects.create(organization=self.organization)
+
+        response = self.client.get(f"/api/organizations/@current/identity_provider_configs/{config.id}/scim/logs")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     # Deletion
 

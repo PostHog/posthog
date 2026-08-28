@@ -30,6 +30,25 @@ describe('verifiedDomainsLogic', () => {
                         },
                     ],
                 },
+                '/api/organizations/:organization/identity_provider_configs/:id/scim/logs/': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [
+                        {
+                            id: 'log-id',
+                            request_method: 'GET',
+                            request_path: '/scim/v2/config/Users',
+                            request_headers: {},
+                            request_body: null,
+                            response_status: 200,
+                            response_body: null,
+                            identity_provider: 'okta',
+                            duration_ms: 12,
+                            created_at: '2026-08-01T00:00:00Z',
+                        },
+                    ],
+                },
                 '/api/organizations/:organization/domains': {
                     count: 1,
                     next: null,
@@ -190,6 +209,15 @@ describe('verifiedDomainsLogic', () => {
                 }
             }
         )
+
+        it('loads SCIM logs by identity provider config', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setScimConfigLogsModalId('config-id')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.scimLogs?.results[0].request_path).toBe('/scim/v2/config/Users')
+        })
 
         it('creates domain correctly', async () => {
             await expectLogic(logic).toFinishAllListeners()
