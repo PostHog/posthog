@@ -418,7 +418,7 @@ export interface ModelSwitchWarningShownProperties {
 
 export interface ModelSwitchWarningActionProperties
   extends ModelSwitchWarningShownProperties {
-  action: "cancel" | "copy_handoff_summary" | "switch_now";
+  action: "cancel" | "compact" | "copy_handoff_summary" | "switch_now";
   result?: "failed" | "succeeded";
 }
 
