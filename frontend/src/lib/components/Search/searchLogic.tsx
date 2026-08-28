@@ -1,15 +1,17 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import type { BreakPointFunction } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import { IconBell, IconBuilding, IconClock, IconDownload, IconLeave, IconNotification } from '@posthog/icons'
 
-import api from 'lib/api'
+import api, { isAbortError } from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getEntryAccessDisabledReason, getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
+import { uuid } from 'lib/utils/dom'
 import { GroupQueryResult, mapGroupQueryResponse } from 'lib/utils/groups'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { newInternalTab } from 'lib/utils/newInternalTab'
@@ -147,6 +149,19 @@ const SEARCH_LIMIT = 5
 
 /** Safely extract a string — returns undefined for objects/arrays to avoid rendering [object Object]. */
 const safeString = (val: unknown): string | undefined => (typeof val === 'string' ? val : undefined)
+
+/**
+ * Re-throw a search error, first handing a run we aborted over to whatever superseded it. A
+ * superseded run must not settle its loader: kea-loaders keeps one loading flag per loader, so
+ * clearing it here would drop the skeleton the newer run just raised. An abort with nothing behind
+ * it falls through to the failure path, which stays silent: initKea's onFailure skips AbortError.
+ */
+const rethrowSearchError = (error: unknown, breakpoint: BreakPointFunction): never => {
+    if (isAbortError(error)) {
+        breakpoint()
+    }
+    throw error
+}
 
 /**
  * Lean projection of SETTINGS_MAP for search. The full map statically imports every
@@ -510,7 +525,7 @@ export const searchLogic = kea<searchLogicType>([
         setSearch: (search: string) => ({ search }),
         setSettingsSections: (sections: SettingsSectionSummary[]) => ({ sections }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, cache }) => ({
         searchedRecents: [
             null as FileSystemEntry[] | null,
             {
@@ -519,14 +534,19 @@ export const searchLogic = kea<searchLogicType>([
                     if (!searchTerm) {
                         return null
                     }
-                    const response = await api.fileSystem.list({
-                        search: searchTerm,
-                        limit: RECENTS_LIMIT + 1,
-                        orderBy: '-last_viewed_at',
-                        notType: 'folder',
-                    })
-                    breakpoint()
-                    return response.results.slice(0, RECENTS_LIMIT)
+                    try {
+                        const response = await api.fileSystem.list({
+                            search: searchTerm,
+                            limit: RECENTS_LIMIT + 1,
+                            orderBy: '-last_viewed_at',
+                            notType: 'folder',
+                            signal: cache.searchAbortController?.signal,
+                        })
+                        breakpoint()
+                        return response.results.slice(0, RECENTS_LIMIT)
+                    } catch (error) {
+                        return rethrowSearchError(error, breakpoint)
+                    }
                 },
             },
         ],
@@ -540,13 +560,20 @@ export const searchLogic = kea<searchLogicType>([
                         return null
                     }
 
-                    const response = await api.search.list({
-                        q: trimmed,
-                        include_counts: false,
-                    })
-                    breakpoint()
+                    try {
+                        const response = await api.search.list(
+                            {
+                                q: trimmed,
+                                include_counts: false,
+                            },
+                            { signal: cache.searchAbortController?.signal }
+                        )
+                        breakpoint()
 
-                    return response
+                        return response
+                    } catch (error) {
+                        return rethrowSearchError(error, breakpoint)
+                    }
                 },
             },
         ],
@@ -567,14 +594,19 @@ export const searchLogic = kea<searchLogicType>([
 
                     const results = await Promise.allSettled(
                         groupTypesList.map((groupType) =>
-                            api.groups.listClickhouse({
-                                group_type_index: groupType.group_type_index,
-                                search: trimmed,
-                                limit: SEARCH_LIMIT,
-                            })
+                            api.groups.listClickhouse(
+                                {
+                                    group_type_index: groupType.group_type_index,
+                                    search: trimmed,
+                                    limit: SEARCH_LIMIT,
+                                },
+                                { signal: cache.searchAbortController?.signal }
+                            )
                         )
                     )
 
+                    // allSettled never rejects, so an abort lands here instead of in a catch: the
+                    // breakpoint hands a superseded run over, and the filter below drops the rest.
                     breakpoint()
 
                     return Object.fromEntries(
@@ -599,10 +631,23 @@ export const searchLogic = kea<searchLogicType>([
                         return []
                     }
 
-                    const response = await api.persons.list({ search: trimmed, limit: SEARCH_LIMIT })
-                    breakpoint()
+                    const clientQueryId: string | null = cache.personSearchQueryId
+                    try {
+                        const response = await api.persons.list(
+                            { search: trimmed, limit: SEARCH_LIMIT, client_query_id: clientQueryId ?? undefined },
+                            { signal: cache.searchAbortController?.signal }
+                        )
+                        breakpoint()
 
-                    return response.results
+                        return response.results
+                    } catch (error) {
+                        return rethrowSearchError(error, breakpoint)
+                    } finally {
+                        // The request is over, so there is no ClickHouse query left to cancel.
+                        if (cache.personSearchQueryId === clientQueryId) {
+                            cache.personSearchQueryId = null
+                        }
+                    }
                 },
             },
         ],
@@ -616,13 +661,21 @@ export const searchLogic = kea<searchLogicType>([
                         return []
                     }
 
-                    const response = await accountsList(String(values.currentTeamId), {
-                        search: trimmed,
-                        limit: SEARCH_LIMIT,
-                    })
-                    breakpoint()
+                    try {
+                        const response = await accountsList(
+                            String(values.currentTeamId),
+                            {
+                                search: trimmed,
+                                limit: SEARCH_LIMIT,
+                            },
+                            { signal: cache.searchAbortController?.signal }
+                        )
+                        breakpoint()
 
-                    return response.results
+                        return response.results
+                    } catch (error) {
+                        return rethrowSearchError(error, breakpoint)
+                    }
                 },
             },
         ],
@@ -636,14 +689,19 @@ export const searchLogic = kea<searchLogicType>([
                         return []
                     }
 
-                    const response = await api.fileSystem.list({
-                        search: trimmed,
-                        type: 'session_recording_playlist',
-                        limit: SEARCH_LIMIT,
-                    })
-                    breakpoint()
+                    try {
+                        const response = await api.fileSystem.list({
+                            search: trimmed,
+                            type: 'session_recording_playlist',
+                            limit: SEARCH_LIMIT,
+                            signal: cache.searchAbortController?.signal,
+                        })
+                        breakpoint()
 
-                    return response.results
+                        return response.results
+                    } catch (error) {
+                        return rethrowSearchError(error, breakpoint)
+                    }
                 },
             },
         ],
@@ -1621,20 +1679,54 @@ export const searchLogic = kea<searchLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         setSearch: async ({ search }, breakpoint) => {
+            if (search.trim() === '') {
+                // An empty term means the palette closed or the box was cleared, so no later run
+                // will replace what is in flight. Stop it now, because a person search can run for
+                // a minute and nobody is waiting on the answer.
+                cache.disposables.dispose('searchAbortController')
+                return
+            }
+
             await breakpoint(150)
 
-            if (search.trim() !== '') {
-                actions.searchRecents({ search })
-                actions.loadUnifiedSearchResults({ searchTerm: search })
-                actions.loadPersonSearchResults({ searchTerm: search })
-                actions.loadGroupSearchResults({ searchTerm: search })
-                if (values.featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
-                    actions.loadAccountSearchResults({ searchTerm: search })
-                }
-                actions.loadPlaylistSearchResults({ searchTerm: search })
+            // Registering under the same key aborts the previous term's requests. The new ones go
+            // out in the same tick, so each superseded run sees its replacement when it wakes up.
+            cache.disposables.add(
+                () => {
+                    const controller = new AbortController()
+                    const clientQueryId = uuid()
+                    cache.searchAbortController = controller
+                    cache.personSearchQueryId = clientQueryId
+                    return () => {
+                        const personSearchRunning = cache.personSearchQueryId === clientQueryId
+                        cache.searchAbortController = null
+                        cache.personSearchQueryId = null
+                        controller.abort()
+                        if (personSearchRunning) {
+                            // Dropping the request does not reach ClickHouse, so the person search
+                            // would keep scanning and holding a query slot. Kill it by name.
+                            api.cancelQuery(clientQueryId).catch((error) =>
+                                console.warn('Failed cancelling person search', error)
+                            )
+                        }
+                    }
+                },
+                'searchAbortController',
+                // This controller belongs to one set of requests. Hiding the tab must not abort
+                // them, or showing it again would arm a fresh controller over nothing.
+                { pauseOnPageHidden: false }
+            )
+
+            actions.searchRecents({ search })
+            actions.loadUnifiedSearchResults({ searchTerm: search })
+            actions.loadPersonSearchResults({ searchTerm: search })
+            actions.loadGroupSearchResults({ searchTerm: search })
+            if (values.featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
+                actions.loadAccountSearchResults({ searchTerm: search })
             }
+            actions.loadPlaylistSearchResults({ searchTerm: search })
         },
     })),
     afterMount(({ actions }) => {

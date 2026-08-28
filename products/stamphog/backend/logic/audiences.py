@@ -81,6 +81,11 @@ def _owner_teams(gate_result: dict[str, Any] | None) -> list[_OwnerTeam]:
     The review walked the real checkout to get this, which the digest cannot do later. Anything
     unexpected in the blob resolves to "no owners" rather than raising: a merge must still be
     captured when the ownership section is missing or an older engine never wrote it.
+
+    A team whose changed files were all written by a build step is dropped here rather than left to
+    the digest prompt. The prompt carries the same rule in words, and it did not hold to it. The
+    engine counts those files per team (gates.detect_ownership), so a run recorded before it did
+    that carries no count and drops nobody.
     """
     ownership = ((gate_result or {}).get("classification") or {}).get("ownership") or {}
     teams = ownership.get("teams")
@@ -92,6 +97,9 @@ def _owner_teams(gate_result: dict[str, Any] | None) -> list[_OwnerTeam]:
     counts_by_team = ownership.get("team_file_counts")
     if not isinstance(counts_by_team, dict):
         counts_by_team = {}
+    generated_by_team = ownership.get("team_generated_file_counts")
+    if not isinstance(generated_by_team, dict):
+        generated_by_team = {}
     owners = {}
     for team in teams:
         if not isinstance(team, str) or not team.startswith(_TEAM_HANDLE_PREFIX):
@@ -105,7 +113,14 @@ def _owner_teams(gate_result: dict[str, Any] | None) -> list[_OwnerTeam]:
         sample = [p for p in paths if isinstance(p, str)] if isinstance(paths, list) else []
         count = counts_by_team.get(team)
         # Fall back to the sample size when the count is missing or nonsense; never below it.
-        owners[slug] = (sample, max(count, len(sample)) if isinstance(count, int) else len(sample))
+        file_count = max(count, len(sample)) if isinstance(count, int) else len(sample)
+        generated_count = generated_by_team.get(team)
+        # Compared with >= rather than ==: file_count falls back to the capped sample size when the
+        # count is missing, and the generated tally is uncapped, so it can legitimately exceed it.
+        if file_count > 0 and isinstance(generated_count, int) and generated_count >= file_count:
+            logger.info("stamphog_owner_team_generated_only", team=team, file_count=file_count)
+            continue
+        owners[slug] = (sample, file_count)
     return [_OwnerTeam(slug=slug, files=sample, file_count=count) for slug, (sample, count) in sorted(owners.items())]
 
 

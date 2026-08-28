@@ -1,4 +1,10 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
+import {
+  DEFAULT_CHANNEL_ITEM_FILTERS,
+  DEFAULT_CHANNEL_ITEM_GROUPING,
+  DEFAULT_CHANNEL_ITEM_SORT,
+} from "@posthog/core/canvas/channelItems";
+import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { Theme } from "@radix-ui/themes";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -116,6 +122,14 @@ function renderSidebar() {
   return render(sidebar());
 }
 
+beforeEach(() => {
+  useSidebarStore.setState({
+    channelItemFilters: DEFAULT_CHANNEL_ITEM_FILTERS,
+    channelItemSort: DEFAULT_CHANNEL_ITEM_SORT,
+    channelItemGrouping: DEFAULT_CHANNEL_ITEM_GROUPING,
+  });
+});
+
 describe("ChannelSidebar", () => {
   beforeEach(() => {
     mocks.items = [];
@@ -219,6 +233,35 @@ describe("ChannelSidebar", () => {
 
     expect(screen.getByText("Somewhere else")).toBeInTheDocument();
     expect(screen.queryByText("No matches")).not.toBeInTheDocument();
+  });
+
+  it("keeps a chosen filter across a remount", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    mocks.items = [
+      item({
+        key: "task:slack",
+        id: "slack",
+        title: "Filed from Slack",
+        source: "slack",
+      }),
+      item({ key: "task:local", id: "local", title: "Started here" }),
+    ];
+    const { unmount } = renderSidebar();
+
+    await user.click(screen.getByRole("button", { name: "Filter" }));
+    await user.click(await screen.findByRole("menuitem", { name: /Source/ }));
+    fireEvent.click(
+      await screen.findByRole("menuitemradio", { name: "Slack" }),
+    );
+    expect(screen.queryByText("Started here")).not.toBeInTheDocument();
+
+    // A space switch remounts the list; the narrowing is the user's, not the
+    // list's, so it has to come back with it.
+    unmount();
+    renderSidebar();
+
+    expect(screen.getByText("Filed from Slack")).toBeInTheDocument();
+    expect(screen.queryByText("Started here")).not.toBeInTheDocument();
   });
 
   it("shows a single empty state when the last item goes away under a search", async () => {

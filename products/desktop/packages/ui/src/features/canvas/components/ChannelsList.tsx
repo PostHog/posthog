@@ -19,8 +19,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   Autocomplete,
-  AutocompleteClear,
-  AutocompleteInput,
   AutocompleteItem,
   AutocompleteList,
   Button,
@@ -55,6 +53,7 @@ import {
 import type { ChannelActionItem } from "@posthog/ui/features/canvas/components/channelActions";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import { RenameChannelModal } from "@posthog/ui/features/canvas/components/RenameChannelModal";
+import { SidebarSearchHeader } from "@posthog/ui/features/canvas/components/SidebarSearchHeader";
 import type { SpacePreviewPayload } from "@posthog/ui/features/canvas/components/SpacePreview";
 import {
   TaskRowContextMenu,
@@ -96,12 +95,10 @@ import {
   resetCurrentChannel,
   useCurrentChannelStore,
 } from "@posthog/ui/features/canvas/stores/currentChannelStore";
+import { requestSidebarSearchFocus } from "@posthog/ui/features/canvas/stores/sidebarSearchStore";
 import { useSpaceTreeStore } from "@posthog/ui/features/canvas/stores/spaceTreeStore";
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
-import {
-  formatHotkey,
-  SHORTCUTS,
-} from "@posthog/ui/features/command/keyboard-shortcuts";
+import { formatHotkey } from "@posthog/ui/features/command/keyboard-shortcuts";
 import {
   TaskBadgeStack,
   TaskStatusDot,
@@ -252,22 +249,6 @@ const PERSONAL_ROW_VALUE = "personal-row";
 
 const ROW_LABEL_TONE =
   "text-muted-foreground group-hover/button:text-foreground group-data-highlighted/button:text-foreground";
-
-/**
- * Hand the pane's keyboard to the search box: focus it, send the highlight back
- * to the top, and select whatever query was left there so it types over.
- */
-function focusSearch(input: HTMLInputElement): void {
-  input.focus();
-  // Autocomplete leaves its highlight where it was and exposes no way to move
-  // it, so the list would open mid-scroll. Home is the key it listens for;
-  // sending it is how the list reopens at the top.
-  input.dispatchEvent(
-    new KeyboardEvent("keydown", { key: "Home", bubbles: true }),
-  );
-  // After Home, so the caret it parks at the start doesn't undo the selection.
-  input.select();
-}
 
 /**
  * Walk Autocomplete's highlight by synthesizing the arrow keys it already
@@ -1745,24 +1726,12 @@ export function ChannelsList() {
   // re-focusing on every render would steal focus from the rows themselves.
   const pane = useChannelPaneStore((s) => s.pane);
   const previousPane = useRef(pane);
-  const searchRef = useRef<HTMLInputElement | null>(null);
   useEffect(() => {
     const cameFromChannel = previousPane.current === "channel";
     previousPane.current = pane;
     if (!channelsLayout || pane !== "list" || !cameFromChannel) return;
-    const input = searchRef.current;
-    if (input) focusSearch(input);
+    requestSidebarSearchFocus();
   }, [pane, channelsLayout]);
-
-  // ⌘⇧S from anywhere in the app ends here. A counter, not a flag: pressing the
-  // key again while the box already has focus has to reach the list again, to
-  // put the highlight back at the top and select the query.
-  const searchFocusRequest = useSpaceTreeStore((s) => s.searchFocusRequest);
-  useEffect(() => {
-    if (!channelsLayout || searchFocusRequest === 0) return;
-    const input = searchRef.current;
-    if (input) focusSearch(input);
-  }, [searchFocusRequest, channelsLayout]);
 
   // Which row the keyboard is on. A ref rather than state: the arrow handlers
   // read it during the event, and re-rendering the whole list on every ↑/↓ is
@@ -1933,7 +1902,7 @@ export function ChannelsList() {
   // ordered. Here the list *is* the pane, so the cap has to go and the pane's
   // own padding has to win: `!` is what outranks an unlayered rule.
   const listClass = cn(
-    "flex flex-col gap-px",
+    "sidebar-autocomplete-tree flex flex-col gap-px",
     "!max-h-none !px-2 !pt-2 !pb-16 scroll-py-8",
     scrollClass,
   );
@@ -1941,43 +1910,14 @@ export function ChannelsList() {
   const body = (
     <Flex direction="column" className="h-full min-h-0">
       {channelsLayout && (
-        <Box className="shrink-0 px-2 pt-2">
-          <AutocompleteInput
-            ref={searchRef}
-            placeholder="Search spaces…"
-            aria-label="Search spaces"
-            showSearchIcon={false}
-            className="h-7 text-[13px] hover:bg-fill-hover"
-            onKeyDown={(event) => {
-              onTreeKeyDown(event);
-              // Base UI's clear is a tabIndex=-1 decoration, so Escape is the
-              // keyboard way out of a query. With the box already empty there's
-              // nothing to clear, and Escape belongs to whoever is listening
-              // above (closing the sidebar, dismissing a dialog).
-              if (event.key !== "Escape" || query === "") return;
-              event.preventDefault();
-              event.stopPropagation();
-              setQuery("");
-            }}
-          >
-            {/* The key that lands here from anywhere, advertised where it lands.
-                It gives way to the clear button once there's a query — by then
-                you are in the box and clearing is the useful action. */}
-            {query === "" ? (
-              <Kbd className="-mr-0.5 shrink-0">
-                {formatHotkey(SHORTCUTS.FOCUS_SPACE_SEARCH)}
-              </Kbd>
-            ) : (
-              /* Rendered here rather than via `showClear` so it can be given a
-                 tab stop: quill passes no props to the one it renders itself. */
-              <AutocompleteClear
-                tabIndex={0}
-                aria-label="Clear search"
-                onClick={() => setQuery("")}
-              />
-            )}
-          </AutocompleteInput>
-        </Box>
+        <SidebarSearchHeader
+          title="Spaces"
+          query={query}
+          placeholder="Search spaces…"
+          searchLabel="Search spaces"
+          onClear={() => setQuery("")}
+          onKeyDown={onTreeKeyDown}
+        />
       )}
       {channelsLayout ? (
         // Every row is an option, filtered or not, so ↑/↓/⏎ work the moment the

@@ -6,7 +6,11 @@ import {
     mergeMarkdownNotebookRegistries,
     omitInsertCommands,
 } from 'lib/components/MarkdownNotebook'
-import { getInsertedComponentPanelVisibility } from 'lib/components/MarkdownNotebook/componentPanels'
+import {
+    type ComponentPanelVisibility,
+    getInsertedComponentPanelVisibility,
+} from 'lib/components/MarkdownNotebook/componentPanels'
+import { NotebookComponentShell } from 'lib/components/MarkdownNotebook/NotebookComponentShell'
 import type { NotebookComponentBlockNode } from 'lib/components/MarkdownNotebook/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
@@ -106,6 +110,50 @@ describe('markdownNotebookRegistry', () => {
 
             expect(insertedNodes).toHaveLength(1)
             expect(getInsertedComponentPanelVisibility(insertedNodes[0]).filters).toBe(true)
+        })
+    })
+
+    describe('discussion comment composer', () => {
+        const renderCommentShell = (componentPanels: ComponentPanelVisibility): ReturnType<typeof render> => {
+            // No `showFilters` in props: composer visibility is driven by the transient panel
+            // state, so the open state never has to be written into the shared document markdown.
+            const node: NotebookComponentBlockNode = {
+                id: 'comment-node',
+                type: 'component',
+                tagName: 'Comment',
+                props: { replies: [] },
+            }
+            return render(
+                <NotebookComponentShell
+                    node={node}
+                    mode="edit"
+                    componentPanels={componentPanels}
+                    persistComponentPanelVisibility={false}
+                    isSelected={false}
+                    registry={NOTEBOOK_MARKDOWN_REGISTRY}
+                    toggleComponentPanel={jest.fn()}
+                    setLocalComponentPanels={jest.fn()}
+                    rememberComponentPanels={jest.fn()}
+                    setBlockRef={jest.fn()}
+                    updateNode={jest.fn()}
+                    deleteNode={jest.fn()}
+                    deleteSelectedNotebookBlocks={jest.fn(() => false)}
+                    insertParagraphAfterNode={jest.fn()}
+                    moveFocusToAdjacentNode={jest.fn(() => false)}
+                />
+            )
+        }
+
+        // The edit panel is what makes the composer editable, so a thread renders its composer
+        // when that panel is open and the read-only view branch (no composer) when it is closed.
+        // Insertion opens the panel transiently, so the composer never depends on a persisted prop.
+        it.each([
+            ['renders the composer when the edit panel is open', { filters: true, results: true }, true],
+            ['renders no composer when the edit panel is closed', { filters: false, results: true }, false],
+        ])('%s', (_label, componentPanels, expectComposer) => {
+            const { container } = renderCommentShell(componentPanels)
+            const composer = container.querySelector('[data-attr="notebook-discussion-comment-input"]')
+            expect(composer !== null).toBe(expectComposer)
         })
     })
 

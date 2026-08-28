@@ -67,6 +67,8 @@ export const KAFKA_PERFORMANCE_EVENTS = `${prefix}clickhouse_performance_events$
 export const KAFKA_CLICKHOUSE_HEATMAP_EVENTS = `${prefix}clickhouse_heatmap_events${suffix}`
 // write AI events to ClickHouse
 export const KAFKA_CLICKHOUSE_AI_EVENTS_JSON = `${prefix}clickhouse_ai_events_json${suffix}`
+// write flag evaluations ($feature_flag_called telemetry) to ClickHouse
+export const KAFKA_CLICKHOUSE_FLAG_EVALUATIONS = `${prefix}clickhouse_flag_evaluations${suffix}`
 
 // log entries for ingestion into ClickHouse
 export const KAFKA_LOG_ENTRIES = `${prefix}log_entries${suffix}`

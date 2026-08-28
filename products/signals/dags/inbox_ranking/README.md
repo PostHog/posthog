@@ -1,7 +1,6 @@
 # Inbox ranking Dagster dags
 
-Dagster jobs for the Self-driving Inbox report-ranking model.
-The one dag today is the **dataset** dag; future ranking dags (training, eval) live as sibling subpackages sharing `common.py`.
+Dagster jobs for the Self-driving Inbox report-ranking model: the **dataset** dag (daily snapshots) and the **training** dag (daily per-head XGBoost candidates + champion pointer), sibling subpackages sharing `common.py`.
 
 ```text
 inbox_ranking/
@@ -9,6 +8,12 @@ inbox_ranking/
 ├── dataset/
 │   ├── dag.py      # the five dataset assets + job + schedule
 │   └── queries.py  # HogQL label SQL, embeddings SQL, stream merging
+├── training/
+│   ├── dag.py        # examples → candidate → champion assets + job + schedule
+│   ├── examples.py   # scoring-moment training examples over the snapshots
+│   ├── heads.py      # the v0 outcome heads
+│   ├── train.py      # per-head XGBoost fit + holdout/null metrics
+│   └── promotion.py  # the champion promotion rule
 └── tests/
 ```
 
@@ -52,12 +57,35 @@ The first four are report grain and land in one table. `inbox_signal_embeddings`
 - The count check remains as a backstop: a union can only grow, so a smaller result means the merge itself is broken and the write is refused. Row counts are stamped in S3 object metadata at write time to make that check a `head_object`. A deliberate shrink still means deleting the object by hand.
 - Signal text never leaves ClickHouse: the query selects the vector and the structured metadata (weight, source, match graph), not `content` or the free-text metadata fields.
 
+## The training dag
+
+`inbox_ranking_training_job` runs daily at 06:00 UTC on the same partition definition (gated like the dataset job) and writes:
+
+```text
+s3://<bucket>/<prefix>/
+├── inbox_ranking_training_examples/v1/dt=YYYY-MM-DD/   # scoring-moment examples, all heads, one parquet
+└── inbox_ranking_models/v1/
+    ├── dt=YYYY-MM-DD/<head>.ubj + <head>.holdout.ubj    # the day's candidate: serving fit + train-only fit
+    │                  + metadata.json                     # (a re-run replaces this prefix in full)
+    └── champion.json                                     # pointer the scoring sweep loads (the only object written across partitions)
+```
+
+- **Examples are scoring moments, not reports.** For partition `dt=D` the examples asset reads the report-state and labels snapshots `dt=D-lookback..D` and emits one row per (report, snapshot) whose head label is still 0 on that snapshot, labeled from the snapshot `horizon_days` later (3 for open, 7 for action / dismiss_wrong / pr_created). Features are that snapshot's state columns plus `age_hours`, the report's age at the snapshot. Labels are aligned to the state spine, so a report with no label event is a negative (all-zero labels), not absent. Label-only rows (no Postgres state) are skipped, as are state rows read long after their snapshot day (backfills carry current Postgres state; see `features_observed_at`) and, for the `dismiss_wrong` head, rows whose status telemetry fails the dataset's `label_provenance_ok` check. This is the serving situation replayed over history; it measured better than one row per report on the engagement heads.
+- **Serving population caveat.** Training keeps only moments where the head's outcome has not happened yet, but the scoring sweep cannot see outcome state, so it also scores reports that were already opened or acted on. `p_open` on an already-opened report is undefined; the shadow eval joins scores as of impression time, which keeps the read honest. Stopping a head once its outcome is observed is a sweep-side change.
+- **Features are tabular only in v0** (`products/signals/backend/ranking/features.py`: the state counters, title/summary length, age, one-hot priority/actionability). No embedding, no impression-derived columns, so the scoring sweep needs only the `SignalReport` row and its judgment artefacts. The sweep must build features through the same module; the booster's `feature_names` are checked against it at load.
+- **Candidate**: per-head XGBoost with fixed params, holdout = the last `holdout_days` of reports (cut by report, never by row), AUC + a label-permutation null. A head is _readable_ when it has enough holdout positives and clears its null by 0.05. The shipped booster (`<head>.ubj`) is refit on everything; the train-only fit is kept as `<head>.holdout.ubj` so a later candidate can grade this model on its own holdout.
+- **Champion**: `promotion.decide_promotion` — promote when the candidate has a readable head, is within 0.02 AUC of the champion on every head the champion could read, and the champion is at least `INBOX_RANKING_PROMOTION_MIN_DAYS` old. The champion's AUCs come from its `<head>.holdout.ubj` scored on the candidate's holdout (`paired_champion_aucs`), so both models are compared on one set of reports; a champion without that file falls back to its stored AUC. The pointer is rewritten only when `INBOX_RANKING_AUTO_PROMOTE` is on; otherwise the decision is logged and surfaced as asset metadata, so the daily candidate series is monitoring while the first shadow read runs on a frozen champion. To promote by hand, copy a candidate's `metadata.json` to `champion.json` with a `promoted_at`.
+
 ### Configuration
 
-| Setting                           | Default         | Meaning                                                                                                                                                                                                             |
-| --------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `INBOX_RANKING_DATASET_S3_BUCKET` | unset           | Destination bucket. Unset on Cloud makes every asset log and skip, so the dag can deploy before the bucket exists. Unset elsewhere falls back to the deployment's object-storage service (SeaweedFS in dev and CI). |
-| `INBOX_RANKING_DATASET_S3_PREFIX` | `inbox_ranking` | Key prefix under the bucket.                                                                                                                                                                                        |
+| Setting                                | Default         | Meaning                                                                                                                                                                                                             |
+| -------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `INBOX_RANKING_DATASET_S3_BUCKET`      | unset           | Destination bucket. Unset on Cloud makes every asset log and skip, so the dag can deploy before the bucket exists. Unset elsewhere falls back to the deployment's object-storage service (SeaweedFS in dev and CI). |
+| `INBOX_RANKING_DATASET_S3_PREFIX`      | `inbox_ranking` | Key prefix under the bucket.                                                                                                                                                                                        |
+| `INBOX_RANKING_TRAINING_LOOKBACK_DAYS` | `60`            | How many daily snapshots back the training examples reach.                                                                                                                                                          |
+| `INBOX_RANKING_TRAINING_HOLDOUT_DAYS`  | `7`             | Trailing days of reports that grade a candidate.                                                                                                                                                                    |
+| `INBOX_RANKING_AUTO_PROMOTE`           | `false`         | Whether a winning candidate rewrites `champion.json`; off, the decision is only logged.                                                                                                                             |
+| `INBOX_RANKING_PROMOTION_MIN_DAYS`     | `3`             | Minimum age of the champion before another promotion.                                                                                                                                                               |
 
 Writes use boto3: ambient AWS config (the node role) when the dedicated bucket is set, the `OBJECT_STORAGE_*` endpoint and credentials otherwise. Readers (project-level warehouse tables, model training) use a separate read-only credential provisioned with the bucket.
 
@@ -68,7 +96,7 @@ All reads route to the offline cluster replicas on Cloud (`etl_workload()`), car
 ### Operating it
 
 - Backfill any day range from the Dagster UI; partitions start 2026-04-01 (the label epoch). Every asset sits in the `inbox_ranking_etl` pool so concurrent partitions don't each start their own fleet-wide embeddings scan — the pool's limit is a Dagster deployment setting, provisioned with the bucket.
-- Failures alert `#alerts-self-driving` (owner `team-self-driving`); assets retry twice with a 60s delay before failing a run. A UI-launched materialization runs under Dagster's implicit `__ASSET_JOB`, which carries no owner tag, so alert routing falls back to matching the `inbox_report_` and `inbox_signal_` asset-name prefixes.
+- Failures alert `#alerts-self-driving` (owner `team-self-driving`); assets retry twice with a 60s delay before failing a run. A UI-launched materialization runs under Dagster's implicit `__ASSET_JOB`, which carries no owner tag, so alert routing falls back to matching the `inbox_report_`, `inbox_signal_`, and `inbox_ranking_` asset-name prefixes.
 - The job is capped at 3h via `dagster/max_runtime` — the seven label streams run sequentially, each allowed up to 600s, and the join and S3 writes come after them.
 
 ### Deletion and retention

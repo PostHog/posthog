@@ -34,7 +34,6 @@
 1 posthog/hogql/transforms/lazy_tables.py
 1 posthog/hogql/transforms/test/test_property_types.py
 1 posthog/hogql/transforms/test/test_property_types_dmat.py
-1 posthog/hogql/transforms/uuid_timestamp_bounds.py
 1 posthog/hogql_queries/insights/funnels/funnel_event_query.py
 1 posthog/hogql_queries/insights/utils/aggregations.py
 1 posthog/kafka_client/client.py

@@ -16,8 +16,7 @@ from posthog.schema import (
     MCPToolQualityRowsQuery,
 )
 
-from posthog.rbac.user_access_control import UserAccessControlError
-
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.mcp_analytics.backend.hogql_queries.tool_quality_tables import (
     MCPToolCategoriesQueryRunner,
     MCPToolCategoryCountsQueryRunner,

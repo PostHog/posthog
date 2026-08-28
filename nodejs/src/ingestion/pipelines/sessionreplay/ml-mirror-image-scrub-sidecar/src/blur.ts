@@ -1,5 +1,10 @@
 // These params must stay in sync with rust/replay-anonymizer/src/blur.rs, or the mirror diverges from the inline anonymizer.
-import { PermanentImageError, UndecodableImageError, inspectImage, sharpForImage } from './image-input.ts'
+import {
+    PermanentImageError,
+    inspectImage,
+    sharpForImage,
+    undecodableImageErrorFromDecodeFailure,
+} from './image-input.ts'
 
 export { LIMIT_INPUT_PIXELS, UndecodableImageError } from './image-input.ts'
 
@@ -25,6 +30,6 @@ export async function blurOnly(input: Buffer): Promise<Buffer> {
         const [tw, th] = targetDims(description.width, description.height)
         return await sharpForImage(input).resize(tw, th, { fit: 'fill' }).blur(BLUR_SIGMA).png().toBuffer()
     } catch (e) {
-        throw e instanceof PermanentImageError ? e : new UndecodableImageError(String(e))
+        throw e instanceof PermanentImageError ? e : undecodableImageErrorFromDecodeFailure(e)
     }
 }

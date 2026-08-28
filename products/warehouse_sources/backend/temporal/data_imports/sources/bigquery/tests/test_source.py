@@ -184,7 +184,9 @@ def test_bigquery_get_columns_raises_friendly_error_when_dataset_not_found():
     assert BIGQUERY_DATASET_NOT_FOUND_ERROR in BigQuerySource().get_non_retryable_errors()
 
 
-@pytest.mark.parametrize("phrase", ['Invalid dataset ID "(default)"', 'Invalid project ID "bad id"'])
+@pytest.mark.parametrize(
+    "phrase", ['Invalid dataset ID "(default)"', 'Invalid project ID "bad id"', "ProjectId must be non-empty"]
+)
 def test_bigquery_get_columns_raises_friendly_error_for_invalid_identifier(phrase):
     """A syntactically invalid project/dataset ID surfaces as a raw 400 `BadRequest` from
     `client.query()`. Schema discovery must re-raise it with actionable wording instead of leaking
@@ -1017,7 +1019,7 @@ def test_bigquery_get_columns_trims_whitespace_in_identifiers():
     BigQueryImplementation().get_columns(fake_client, config, names=None)
 
     sql = fake_client.query.call_args.args[0]
-    assert "`524098457564.bigquery_aloalo.INFORMATION_SCHEMA.COLUMNS`" in sql
+    assert "`524098457564.bigquery_aloalo`.INFORMATION_SCHEMA.COLUMNS" in sql
     assert " bigquery_aloalo" not in sql
     assert " 524098457564" not in sql
     assert fake_client.query.call_args.kwargs["project"] == "524098457564"
@@ -1026,7 +1028,10 @@ def test_bigquery_get_columns_trims_whitespace_in_identifiers():
 def test_bigquery_get_columns_qualifies_information_schema_with_dataset_project():
     """When the dataset lives in a different project (`dataset_project`), the INFORMATION_SCHEMA
     reference must carry that project — an unqualified `dataset.INFORMATION_SCHEMA.*` makes BigQuery
-    reject the job with "ProjectId must be non-empty"."""
+    reject the job with "ProjectId must be non-empty". The backtick-quoted identifier must close
+    after the dataset (matching `get_primary_keys`/`get_leading_index_columns`) rather than wrapping
+    `INFORMATION_SCHEMA.COLUMNS` inside it too — quoting the whole path as one identifier stops
+    BigQuery from resolving it as the INFORMATION_SCHEMA view and raises the same error again."""
     fake_client = mock.MagicMock()
     fake_client.query.return_value.result.return_value = []
 
@@ -1038,7 +1043,8 @@ def test_bigquery_get_columns_qualifies_information_schema_with_dataset_project(
     BigQueryImplementation().get_columns(fake_client, config, names=None)
 
     sql = fake_client.query.call_args.args[0]
-    assert "`dataset-project.posthog_export.INFORMATION_SCHEMA.COLUMNS`" in sql
+    assert "`dataset-project.posthog_export`.INFORMATION_SCHEMA.COLUMNS" in sql
+    assert "INFORMATION_SCHEMA.COLUMNS`" not in sql
     assert fake_client.query.call_args.kwargs["project"] == "dataset-project"
 
 
@@ -1138,6 +1144,7 @@ def test_bigquery_validate_credentials_missing_fields_reports_actionable_message
         ),
         (RefreshError("('invalid_grant: Invalid JWT Signature.', {})"), BIGQUERY_CREDENTIALS_REJECTED_ERROR, False),
         (BadRequest('Invalid dataset ID "(default)"'), BIGQUERY_INVALID_IDENTIFIER_ERROR, False),
+        (BadRequest("400 ProjectId must be non-empty"), BIGQUERY_INVALID_IDENTIFIER_ERROR, False),
         (
             NotFound("404 Not found: Dataset my-project:my_dataset was not found in location US"),
             BIGQUERY_DATASET_NOT_FOUND_ERROR,
@@ -1154,8 +1161,14 @@ def test_bigquery_validate_credentials_missing_fields_reports_actionable_message
 def test_bigquery_validate_credentials_maps_failures_to_actionable_messages(
     exception, expected_message, should_capture
 ):
+    # Validation consumes the first page of `list_tables`, and that page fetch is where the request
+    # actually runs, so surface each failure from page consumption — the real request site. This
+    # also guards the regression: an inert validation that never consumes a page would return
+    # `(True, None)` and fail these assertions.
+    bq = mock.MagicMock()
+    bq.list_tables.return_value.pages.__next__.side_effect = exception
     client_cm = mock.MagicMock()
-    client_cm.__enter__.side_effect = exception
+    client_cm.__enter__.return_value = bq
 
     with (
         mock.patch.object(bq_module, "bigquery_client", return_value=client_cm),

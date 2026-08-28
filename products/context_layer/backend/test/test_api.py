@@ -20,11 +20,10 @@ from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.storage.object_storage import UnavailableStorage
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.context_layer.backend import enablement, store
 from products.context_layer.backend.presentation import views
 from products.tasks.backend.facade import api as tasks_facade
-
-from ee.models.rbac.access_control import AccessControl
 
 
 def _page(title: str) -> str:
@@ -130,6 +129,27 @@ class TestContextLayerAPI(APIBaseTest):
         assert resolved.status_code == 200
         assert resolved.json() == {"path": path, "exists": True}
 
+    def test_enable_sanitizes_malformed_wikilinks_in_legacy_context(self, _flag) -> None:
+        with team_scope(self.team.id):
+            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="research", star=False)
+            assert channel is not None
+            tasks_facade.publish_channel_instructions(
+                channel.id,
+                self.team.id,
+                self.user.id,
+                content="Keep [[areas/insights]] current. Ignore [[../secrets]] and review [[unfinished notes.",
+                base_version=0,
+            )
+
+        self._enable()
+
+        path = f"projects/{self.team.id}/spaces/research.md"
+        page = self.client.get(f"{self.base_url}/pages/", {"path": path}).json()
+        assert "[[areas/insights]]" in page["content"]
+        assert "&#91;&#91;../secrets&#93;&#93;" in page["content"]
+        assert "&#91;&#91;unfinished notes." in page["content"]
+        assert "Some wiki-link brackets in this imported context were encoded" in page["content"]
+
     def test_enable_scaffolds_space_page_without_legacy_context(self, _flag) -> None:
         with team_scope(self.team.id):
             channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="empty-space", star=False)
@@ -172,27 +192,24 @@ class TestContextLayerAPI(APIBaseTest):
         response = self.client.get(f"{self.base_url}/channel-pages/{uuid4()}/")
         assert response.status_code == 404
 
-    def test_enable_is_blocked_for_orgs_with_private_projects(self, _flag) -> None:
-        self.team.access_control = True
-        self.team.save()
-        response = self.client.post(f"{self.base_url}/enable/")
-        assert response.status_code == 400
-        body = response.json()
-        assert body["code"] == "private_projects"
-        assert self.team.name in body["detail"]
+    @parameterized.expand(["legacy flag", "rbac deny row"])
+    def test_a_private_project_does_not_block_the_wiki(self, representation, _flag) -> None:
+        # Both representations of a private project used to refuse enablement
+        # outright, which locked out every organization that had restricted one.
+        if representation == "legacy flag":
+            self.team.access_control = True
+            self.team.save()
+        else:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="project",
+                resource_id=str(self.team.id),
+                access_level="none",
+            )
 
-    def test_enable_is_blocked_for_orgs_with_rbac_private_projects(self, _flag) -> None:
-        AccessControl.objects.create(
-            team=self.team,
-            resource="project",
-            resource_id=str(self.team.id),
-            access_level="none",
-        )
-        response = self.client.post(f"{self.base_url}/enable/")
-        assert response.status_code == 400
-        body = response.json()
-        assert body["code"] == "private_projects"
-        assert self.team.name in body["detail"]
+        self._enable()
+
+        assert self.client.get(f"{self.base_url}/tree/").status_code == 200
 
     def test_same_named_spaces_are_scoped_to_their_projects(self, _flag) -> None:
         with team_scope(self.team.id):
@@ -242,6 +259,15 @@ class TestContextLayerAPI(APIBaseTest):
         ):
             response = self.client.post(f"{self.base_url}/enable/")
         assert response.status_code == 429
+
+    def test_enable_returns_503_when_git_binary_is_missing(self, _flag) -> None:
+        # A host without git makes every store write shell out to a missing
+        # binary. The endpoint must map that to a clean 503, not an unhandled 500.
+        with patch.object(
+            store.subprocess, "run", side_effect=FileNotFoundError(2, "No such file or directory", "git")
+        ):
+            response = self.client.post(f"{self.base_url}/enable/")
+        assert response.status_code == 503, response.content
 
     def test_endpoints_404_before_enablement(self, _flag) -> None:
         assert self.client.get(f"{self.base_url}/tree/").status_code == 404
@@ -680,17 +706,6 @@ class TestContextLayerAPI(APIBaseTest):
         )
         assert response.status_code == 409
         assert "merge commits" in response.json()["detail"]
-
-    def test_wiki_goes_dark_when_a_project_becomes_private(self, _flag) -> None:
-        self._enable()
-        assert self.client.get(f"{self.base_url}/tree/").status_code == 200
-
-        self.team.access_control = True
-        self.team.save()
-
-        assert self.client.get(f"{self.base_url}/tree/").status_code == 403
-        assert self.client.get(f"{self.base_url}/pages/", {"path": "AGENTS.md"}).status_code == 403
-        assert self.client.get(f"{self.base_url}/export/").status_code == 403
 
     def test_export_returns_a_download_url(self, _flag) -> None:
         head = self._enable()

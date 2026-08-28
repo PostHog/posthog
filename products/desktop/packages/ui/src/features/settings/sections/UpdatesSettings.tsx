@@ -149,13 +149,16 @@ export function UpdatesSection() {
   );
 
   return (
-    <SettingsSection label="Updates">
+    <SettingsSection
+      label="Updates"
+      description="The version you are on and how new versions arrive"
+    >
       <SettingsCard>
         <SettingsCardRow
           label={
             <span className="inline-flex items-baseline gap-2">
               Version
-              <span className="font-mono font-normal text-[12px] text-gray-11">
+              <span className="font-mono font-normal text-[12px] text-muted-foreground">
                 {appVersion ?? "…"}
               </span>
             </span>

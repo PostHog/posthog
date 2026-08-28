@@ -1340,6 +1340,7 @@ impl FeatureFlagMatcher {
         let mut highest_match = FeatureFlagMatchReason::NoGroupType;
         let mut highest_index = None;
         let mut had_skipped_group_conditions = false;
+        let mut had_unevaluable_cohort_conditions = false;
 
         // Lazily compute properties per aggregation type. Person and group properties are
         // cached separately so conditions with different aggregation modes can share them.
@@ -1521,6 +1522,10 @@ impl FeatureFlagMatcher {
                 request_hash_key_override,
             )?;
 
+            if reason == FeatureFlagMatchReason::NoConditionMatchCohortNotEvaluated {
+                had_unevaluable_cohort_conditions = true;
+            }
+
             // OutOfRolloutBound means the condition's property filters (if any) already
             // matched and only the rollout check failed, so re-evaluating later groups
             // can't change the outcome.
@@ -1595,9 +1600,14 @@ impl FeatureFlagMatcher {
         // the reason to carry a richer description. The API code still serializes as
         // "no_condition_match" for backward compatibility, but the description tells the
         // caller about the skipped group conditions.
-        if highest_match == FeatureFlagMatchReason::NoConditionMatch && had_skipped_group_conditions
-        {
-            highest_match = FeatureFlagMatchReason::NoConditionMatchGroupsNotEvaluated;
+        // A cohort that can't be fully evaluated takes precedence over a skipped group
+        // condition, because it reaches real flag traffic.
+        if highest_match == FeatureFlagMatchReason::NoConditionMatch {
+            if had_unevaluable_cohort_conditions {
+                highest_match = FeatureFlagMatchReason::NoConditionMatchCohortNotEvaluated;
+            } else if had_skipped_group_conditions {
+                highest_match = FeatureFlagMatchReason::NoConditionMatchGroupsNotEvaluated;
+            }
         }
 
         // Return with the highest_match reason and index even if no conditions matched
@@ -1732,8 +1742,22 @@ impl FeatureFlagMatcher {
                 let cohort_props = property_context
                     .person_properties
                     .unwrap_or(&*EMPTY_PROPERTY_MAP);
-                if !self.evaluate_cohort_filters(&cohort_filters, cohort_props, cohorts)? {
-                    return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
+                if !self.evaluate_cohort_filters(&cohort_filters, cohort_props, cohorts.clone())? {
+                    // A non-match isn't trustworthy when a targeted cohort has a behavioral or
+                    // lifecycle leaf the dynamic path can't resolve, so flag it with a distinct reason.
+                    let cohort_membership_unresolved = cohort_filters.iter().any(|filter| {
+                        filter.get_cohort_id().is_some_and(|cohort_id| {
+                            cohorts
+                                .iter()
+                                .any(|c| c.id == cohort_id && c.has_behavioral_condition())
+                        })
+                    });
+                    let reason = if cohort_membership_unresolved {
+                        FeatureFlagMatchReason::NoConditionMatchCohortNotEvaluated
+                    } else {
+                        FeatureFlagMatchReason::NoConditionMatch
+                    };
+                    return Ok((false, reason));
                 }
             }
         }

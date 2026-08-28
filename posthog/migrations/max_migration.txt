@@ -1,1 +1,1 @@
-1318_disable_oauth_scope_trgm_fastupdate
+1326_drop_legacy_provisioning_columns

@@ -19,9 +19,10 @@ export function useActiveSession(): ActiveSession {
   const params = useParams({ strict: false });
 
   if (showsActivityDetail) {
+    const taskSelection = selected?.kind === "task" ? selected : null;
     return {
-      taskId: selected?.taskId,
-      channelId: selected?.channelId ?? undefined,
+      taskId: taskSelection?.taskId,
+      channelId: taskSelection?.channelId ?? undefined,
     };
   }
   if (params.feedId && feedSelected?.feedId === params.feedId) {

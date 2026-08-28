@@ -94,10 +94,10 @@ impl UsageIngestion for UsageIngestionService {
             .iter()
             .map(|record| record.record_id.clone())
             .collect::<Vec<_>>();
+        // No key: nothing downstream reads per-team order, and a team key crowds one partition.
         let payloads = prepared.into_iter().map(|record| {
-            let key = Some(record.team_id.to_string());
             serde_json::to_vec(&record)
-                .map(|payload| (key, payload))
+                .map(|payload| (None, payload))
                 .map_err(|error| {
                     Status::internal(format!("failed to encode usage record: {error}"))
                 })

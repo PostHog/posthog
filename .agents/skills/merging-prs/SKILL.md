@@ -114,6 +114,7 @@ Never block on a foreground `sleep`.
 
 If the check run completes with `conclusion == "failure"` (or the PR drops out of the queue),
 Trunk kicks the PR and reports the failing workflow.
+`/triaging-merge-queue-failures` is the full decision chart for classifying the kick; the bullets below are the short form.
 
 **Read the check run, not the PR comments.** The check run is the authoritative source: only an app holding `checks:write` on the repo can write one, so it can't be forged. A PR comment can be posted by anyone with read access.
 

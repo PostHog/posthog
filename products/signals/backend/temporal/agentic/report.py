@@ -456,6 +456,7 @@ async def _persist_agentic_report_artefacts(
             actionability=result.effective_actionability(),
             priority=result.effective_priority(),
             reviewers_content=reviewers_content,
+            repository_autostart_eligible=repo_selection.autostart_eligible,
         )
     except Exception as error:
         posthoganalytics.capture_exception(error)

@@ -26,6 +26,8 @@ from products.tasks.backend.constants import (
     InitialPermissionMode,
     SnapshotKind,
     filter_user_sandbox_env_vars,
+    is_same_run_resume_idle_state,
+    is_same_run_resume_state,
 )
 from products.tasks.backend.exceptions import CredentialUnavailableError
 from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url as _resolve_mcp_url
@@ -125,6 +127,10 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.MAX,
     ),
     "zai-org/glm-5.3": (
+        ReasoningEffort.HIGH,
+        ReasoningEffort.MAX,
+    ),
+    "zai-org/glm-5.3-flash": (
         ReasoningEffort.HIGH,
         ReasoningEffort.MAX,
     ),
@@ -389,8 +395,8 @@ class RunState(BaseModel, extra="allow"):
     context_window: str | None = None
     fast_mode: bool | None = None
     resume_from_run_id: str | None = None
-    handoff_resumed: bool = False
-    handoff_resume_idle: bool = False
+    same_run_resume: bool = False
+    same_run_resume_idle: bool = False
     snapshot_external_id: str | None = None
     snapshot_kind: str | None = None
     snapshot_mount_path: str | None = None
@@ -436,7 +442,10 @@ class RunState(BaseModel, extra="allow"):
 
 
 def parse_run_state(state: dict[str, Any] | None) -> RunState:
-    return RunState.model_validate(state or {})
+    normalized_state = dict(state or {})
+    normalized_state["same_run_resume"] = is_same_run_resume_state(state)
+    normalized_state["same_run_resume_idle"] = is_same_run_resume_idle_state(state)
+    return RunState.model_validate(normalized_state)
 
 
 @dataclass(frozen=True)
@@ -539,20 +548,26 @@ class McpServerConfig:
     - name: server identifier
     - url: server endpoint
     - headers: list of {name, value} pairs
+    - description: one-line summary of what the server does (pi only; the agent server
+      strips it before handing the list to claude or codex over ACP)
     """
 
     type: str
     name: str
     url: str
     headers: list[dict[str, str]] = field(default_factory=list)
+    description: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        config: dict[str, Any] = {
             "type": self.type,
             "name": self.name,
             "url": self.url,
             "headers": self.headers,
         }
+        if self.description:
+            config["description"] = self.description
+        return config
 
 
 def get_sandbox_api_url() -> str:
@@ -652,6 +667,7 @@ def get_user_mcp_server_configs(
                 name=installation.name,
                 url=f"{api_base}{installation.proxy_path}",
                 headers=headers,
+                description=installation.description or None,
             )
         )
 
@@ -771,6 +787,15 @@ def _resolve_mcp_consumer(interaction_origin: str | None) -> str:
     return "posthog-code"
 
 
+# Names capabilities rather than describing the server, because the agent's tool search reads
+# this before the PostHog MCP has ever connected.
+POSTHOG_MCP_DESCRIPTION = (
+    "Query and manage a PostHog project: events, insights, dashboards, SQL queries, "
+    "feature flags, experiments, surveys, error tracking, session replay, logs, "
+    "LLM analytics, and the data warehouse."
+)
+
+
 def get_sandbox_ph_mcp_configs(
     token: str,
     project_id: int,
@@ -804,7 +829,15 @@ def get_sandbox_ph_mcp_configs(
     ]
     if task_id:
         headers.append({"name": "X-PostHog-Task-Id", "value": str(task_id)})
-    return [McpServerConfig(type="http", name="posthog", url=url, headers=headers)]
+    return [
+        McpServerConfig(
+            type="http",
+            name="posthog",
+            url=url,
+            headers=headers,
+            description=POSTHOG_MCP_DESCRIPTION,
+        )
+    ]
 
 
 def get_github_token(github_integration_id: int) -> Optional[str]:

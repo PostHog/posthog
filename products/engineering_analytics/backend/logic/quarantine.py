@@ -57,7 +57,7 @@ from products.engineering_analytics.backend.logic.queries import _curated
 from products.engineering_analytics.backend.logic.sources import list_github_sources
 
 if TYPE_CHECKING:
-    from posthog.rbac.user_access_control import UserAccessControl
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 logger = structlog.get_logger(__name__)
 
