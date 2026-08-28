@@ -25,6 +25,7 @@ from posthog.api.secret_revocation import (
     CANONICAL_PROJECT_SECRET_API_KEY,
     revoke_leaked_secret,
 )
+from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.models.utils import mask_key_value
 from posthog.redis import get_client
@@ -41,6 +42,15 @@ GITHUB_TYPE_FOR_PERSONAL_API_KEY = "posthog_feature_flags_secure_api_key"
 GITHUB_TYPE_FOR_SECURE_API_KEY = "posthog_personal_api_key"
 GITHUB_TYPE_FOR_OAUTH_ACCESS_TOKEN = "posthog_oauth_access_token"
 GITHUB_TYPE_FOR_OAUTH_REFRESH_TOKEN = "posthog_oauth_refresh_token"
+
+# Maps each GitHub alert type to the canonical secret type we revoke, the event `type`
+# we report, and the noun ("key"/"token") for the owner-facing message.
+GITHUB_ALERT_TYPE_CONFIG: dict[str, tuple[str, str, str]] = {
+    GITHUB_TYPE_FOR_PERSONAL_API_KEY: (CANONICAL_PERSONAL_API_KEY, "personal_api_key", "key"),
+    GITHUB_TYPE_FOR_SECURE_API_KEY: (CANONICAL_PROJECT_SECRET_API_KEY, "project_secret_api_key", "key"),
+    GITHUB_TYPE_FOR_OAUTH_ACCESS_TOKEN: (CANONICAL_OAUTH_ACCESS_TOKEN, "oauth_access_token", "token"),
+    GITHUB_TYPE_FOR_OAUTH_REFRESH_TOKEN: (CANONICAL_OAUTH_REFRESH_TOKEN, "oauth_refresh_token", "token"),
+}
 
 
 class SignatureVerificationError(Exception):
@@ -149,6 +159,112 @@ class SecretAlertSerializer(serializers.Serializer):
     source: Any = serializers.CharField()
 
 
+@frozen
+class AlertItemOutcome:
+    """One alert's response entry and its pending analytics event."""
+
+    result: dict
+    event: dict
+
+
+def process_alert_item(item: dict) -> AlertItemOutcome:
+    """Revoke one leaked secret and build its result and pending analytics event."""
+    if item["type"] not in GITHUB_ALERT_TYPE_CONFIG:
+        raise ValidationError(detail="Unexpected alert type")
+
+    # Strip whitespace from token in case GitHub sends it with extra formatting
+    token = item["token"].strip()
+    token_sha256 = sha256(token.encode("utf-8")).hexdigest()
+    canonical_type, event_type, noun = GITHUB_ALERT_TYPE_CONFIG[item["type"]]
+    more_info = f"This {noun} was detected by GitHub at {item['url']}."
+
+    revocation = revoke_leaked_secret(token, canonical_type, more_info)
+    local_found = revocation.found
+
+    event_data = {
+        "type": event_type,
+        "source": item["source"],
+        "url": item["url"],
+        "found": local_found,
+        "token_hash": token_sha256,
+        # Debug info for monitoring token lookups
+        "token_length": len(token),
+        "token_prefix": token[:8],
+        "token_suffix": token[-4:],
+        "token_sha256": token_sha256,
+    }
+
+    # A project secret API key can also be a legacy team secret token, so fall back to a
+    # direct team lookup and notify the team when the canonical revocation misses.
+    if item["type"] == GITHUB_TYPE_FOR_SECURE_API_KEY:
+        key_kind = "project_secret_api_key" if revocation.found else None
+        if not revocation.found:
+            try:
+                team = Team.objects.get(Q(secret_api_token=token) | Q(secret_api_token_backup=token))
+                local_found = True
+                key_kind = "team_secret_token"
+                send_feature_flags_secure_api_key_exposed(team.id, mask_key_value(token), more_info)
+            except Team.DoesNotExist:
+                pass
+        event_data["found"] = local_found
+        event_data["key_kind"] = key_kind
+
+    result = {
+        "token_hash": token_sha256,
+        "token_type": item["type"],
+        "label": "true_positive" if local_found else "false_positive",
+    }
+    return AlertItemOutcome(result=result, event=event_data)
+
+
+def relay_false_positives_to_eu(results: list[dict], raw_body: str, kid: str, sig: str) -> set[str]:
+    """
+    Relay any false positives to EU and promote them to true positives when EU finds them.
+
+    GitHub's secret scanning program only supports a single webhook endpoint, so we receive
+    all alerts in US and relay to EU synchronously when needed. We only relay false positives
+    (keys not found locally) since true positives are already handled. This must complete
+    within GitHub's 30-second timeout, hence EU gets 15s. Returns the token hashes EU found.
+    """
+    if not any(r["label"] == "false_positive" for r in results):
+        return set()
+
+    eu_results = relay_to_eu(raw_body, kid, sig)
+    if not eu_results:
+        return set()
+
+    eu_by_hash = {r["token_hash"]: r for r in eu_results}
+    eu_found_hashes: set[str] = set()
+    for r in results:
+        eu_r = eu_by_hash.get(r["token_hash"])
+        if eu_r and eu_r["label"] == "true_positive":
+            r["label"] = "true_positive"
+            eu_found_hashes.add(r["token_hash"])
+    return eu_found_hashes
+
+
+def capture_secret_alert_events(pending_events: list[dict], eu_found_hashes: set[str]) -> None:
+    """Capture one analytics event per alert with the correct key_found_region."""
+    # Don't capture events from the EU, otherwise we'll double count events (US and EU)
+    if get_instance_region() == "EU":
+        return
+
+    for event_data in pending_events:
+        token_hash = event_data.pop("token_hash")
+
+        if token_hash in eu_found_hashes:
+            event_data["key_found_region"] = "EU"
+            event_data["found"] = True
+        elif event_data["found"]:
+            event_data["key_found_region"] = get_instance_region()
+
+        posthoganalytics.capture(
+            distinct_id=None,
+            event="github_secret_alert",
+            properties=event_data,
+        )
+
+
 class SecretAlert(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
@@ -210,156 +326,15 @@ class SecretAlert(APIView):
 
         secret_alert = SecretAlertSerializer(data=request.data, many=True)
         secret_alert.is_valid(raise_exception=True)
-        items = secret_alert.validated_data
 
         results = []
         pending_events = []
-        for item in items:
-            # Strip whitespace from token in case GitHub sends it with extra formatting
-            token = item["token"].strip()
-            token_sha256 = sha256(token.encode("utf-8")).hexdigest()
+        for item in secret_alert.validated_data:
+            outcome = process_alert_item(item)
+            results.append(outcome.result)
+            pending_events.append(outcome.event)
 
-            result = {
-                "token_hash": token_sha256,
-                "token_type": item["type"],
-                "label": "false_positive",
-            }
-
-            # Debug info for monitoring token lookups
-            token_debug = {
-                "token_length": len(token),
-                "token_prefix": token[:8],
-                "token_suffix": token[-4:],
-                "token_sha256": token_sha256,
-            }
-
-            local_found = False
-
-            if item["type"] == GITHUB_TYPE_FOR_PERSONAL_API_KEY:
-                more_info = f"This key was detected by GitHub at {item['url']}."
-                revocation = revoke_leaked_secret(token, CANONICAL_PERSONAL_API_KEY, more_info)
-                local_found = revocation.found
-
-                pending_events.append(
-                    {
-                        "type": "personal_api_key",
-                        "source": item["source"],
-                        "url": item["url"],
-                        "found": local_found,
-                        "token_hash": token_sha256,
-                        **token_debug,
-                    }
-                )
-
-                if revocation.found:
-                    result["label"] = "true_positive"
-
-            elif item["type"] == GITHUB_TYPE_FOR_SECURE_API_KEY:
-                more_info = f"This key was detected by GitHub at {item['url']}."
-                revocation = revoke_leaked_secret(token, CANONICAL_PROJECT_SECRET_API_KEY, more_info)
-                local_found = revocation.found
-                key_kind = "project_secret_api_key" if revocation.found else None
-
-                if not revocation.found:
-                    try:
-                        team = Team.objects.get(Q(secret_api_token=token) | Q(secret_api_token_backup=token))
-                        local_found = True
-                        key_kind = "team_secret_token"
-                        send_feature_flags_secure_api_key_exposed(team.id, mask_key_value(token), more_info)
-
-                    except Team.DoesNotExist:
-                        pass
-
-                pending_events.append(
-                    {
-                        "type": "project_secret_api_key",
-                        "source": item["source"],
-                        "url": item["url"],
-                        "found": local_found,
-                        "key_kind": key_kind,
-                        "token_hash": token_sha256,
-                        **token_debug,
-                    }
-                )
-
-                if local_found:
-                    result["label"] = "true_positive"
-
-            elif item["type"] == GITHUB_TYPE_FOR_OAUTH_ACCESS_TOKEN:
-                more_info = f"This token was detected by GitHub at {item['url']}."
-                revocation = revoke_leaked_secret(token, CANONICAL_OAUTH_ACCESS_TOKEN, more_info)
-                local_found = revocation.found
-
-                pending_events.append(
-                    {
-                        "type": "oauth_access_token",
-                        "source": item["source"],
-                        "url": item["url"],
-                        "found": local_found,
-                        "token_hash": token_sha256,
-                        **token_debug,
-                    }
-                )
-
-                if revocation.found:
-                    result["label"] = "true_positive"
-
-            elif item["type"] == GITHUB_TYPE_FOR_OAUTH_REFRESH_TOKEN:
-                more_info = f"This token was detected by GitHub at {item['url']}."
-                revocation = revoke_leaked_secret(token, CANONICAL_OAUTH_REFRESH_TOKEN, more_info)
-                local_found = revocation.found
-
-                pending_events.append(
-                    {
-                        "type": "oauth_refresh_token",
-                        "source": item["source"],
-                        "url": item["url"],
-                        "found": local_found,
-                        "token_hash": token_sha256,
-                        **token_debug,
-                    }
-                )
-
-                if revocation.found:
-                    result["label"] = "true_positive"
-
-            else:
-                raise ValidationError(detail="Unexpected alert type")
-
-            results.append(result)
-
-        # GitHub's secret scanning program only supports a single webhook endpoint, so we
-        # receive all alerts in US and relay to EU synchronously when needed. We only relay
-        # false positives (keys not found locally) since true positives are already handled.
-        # This must complete within GitHub's 30-second timeout, hence EU gets 15s.
-        eu_found_hashes: set[str] = set()
-        has_false_positives = any(r["label"] == "false_positive" for r in results)
-        if has_false_positives:
-            eu_results = relay_to_eu(raw_body, kid, sig)
-            if eu_results:
-                eu_by_hash = {r["token_hash"]: r for r in eu_results}
-                for r in results:
-                    eu_r = eu_by_hash.get(r["token_hash"])
-                    if eu_r and eu_r["label"] == "true_positive":
-                        r["label"] = "true_positive"
-                        eu_found_hashes.add(r["token_hash"])
-
-        # Capture events with correct key_found_region.
-        # Don't capture events from the EU, otherwise we'll double count events (US and EU)
-        if get_instance_region() != "EU":
-            for event_data in pending_events:
-                token_hash = event_data.pop("token_hash")
-
-                if token_hash in eu_found_hashes:
-                    event_data["key_found_region"] = "EU"
-                    event_data["found"] = True
-                elif event_data["found"]:
-                    event_data["key_found_region"] = get_instance_region()
-
-                posthoganalytics.capture(
-                    distinct_id=None,
-                    event="github_secret_alert",
-                    properties=event_data,
-                )
+        eu_found_hashes = relay_false_positives_to_eu(results, raw_body, kid, sig)
+        capture_secret_alert_events(pending_events, eu_found_hashes)
 
         return Response(results)
