@@ -280,6 +280,25 @@ describe('accountsTableQuery', () => {
         expect(plan.query.filters).toEqual([])
     })
 
+    it('keeps contains filters for link properties', () => {
+        const linkDefinition = { ...definition, display_type: 'link' } as CustomPropertyDefinitionApi
+        const plan = buildAccountsTableQueryPlan(
+            queryInput({
+                customPropertyDefinitionsById: { [CUSTOM_PROPERTY_ID]: linkDefinition },
+                accountFilters: [customFilter({ operator: PropertyOperator.IContains, value: 'example.com' })],
+            })
+        )
+
+        expect(plan.query.filters).toEqual([
+            {
+                kind: 'custom_property',
+                definitionId: CUSTOM_PROPERTY_ID,
+                operator: AccountsTableCustomPropertyOperator.Contains,
+                values: ['example.com'],
+            },
+        ])
+    })
+
     it('reads cells directly from keyed rows', () => {
         const plan = buildAccountsTableQueryPlan(queryInput()) as AccountsTableQueryPlan
         const row = {
