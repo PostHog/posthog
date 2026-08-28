@@ -39,7 +39,7 @@ describe('OriginRequestScheduler', () => {
                     startedAtMs.push(Date.now())
                     return Promise.resolve()
                 },
-                7
+                [7, 42]
             )
         )
         await jest.runAllTimersAsync()
@@ -50,8 +50,8 @@ describe('OriginRequestScheduler', () => {
             { ran: true, value: undefined },
         ])
         expect(startedAtMs).toEqual([1_700_000_000_000, 1_700_000_001_000, 1_700_000_002_000])
-        expect(observeSchedulerWait).toHaveBeenCalledWith('origin_crawl_delay', 1, 7)
-        expect(observeSchedulerWait).toHaveBeenCalledWith('request_capacity', 0, 7)
+        expect(observeSchedulerWait).toHaveBeenCalledWith('origin_crawl_delay', 1, [7, 42])
+        expect(observeSchedulerWait).toHaveBeenCalledWith('request_capacity', 0, [7, 42])
     })
 
     it('allows six concurrent same-origin requests when the request rate and crawl delay are disabled', async () => {

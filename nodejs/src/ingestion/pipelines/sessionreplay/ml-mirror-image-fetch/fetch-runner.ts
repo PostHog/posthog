@@ -327,7 +327,7 @@ export class FetchRunner implements FetchPass {
         const previous = stored.get(candidate.originalRef)
         const previousUrl = previous?.kind === 'url' ? previous : undefined
         const result = await this.fetcher.fetch(candidate.currentUrl, {
-            sourcePartition: candidate.sourcePartition,
+            sourcePartitions: candidate.sourcePartitions,
             maxBytes: this.options.maxBytes,
             timeoutMs: this.options.requestTimeoutMs,
             maxRedirects: Math.min(this.options.maxRedirects, candidate.remainingHops),
@@ -340,7 +340,7 @@ export class FetchRunner implements FetchPass {
                     url,
                     Math.min(deadlineMs, requestDeadlineMs),
                     request,
-                    candidate.sourcePartition
+                    candidate.sourcePartitions
                 ),
             checkRedirectPolicy: async (url) => {
                 const redirectPolicy = await configurationPolicy.check(url, configurationItems, Date.now())

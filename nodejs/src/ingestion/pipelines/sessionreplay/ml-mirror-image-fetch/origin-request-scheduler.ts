@@ -28,9 +28,9 @@ export class OriginRequestScheduler implements ConfigurationRequestScheduler {
         url: URL,
         deadlineMs: number,
         request: () => Promise<T>,
-        sourcePartition?: number
+        sourcePartitions?: readonly number[]
     ): Promise<ScheduledRequest<T>> {
-        return this.runScheduled(url, deadlineMs, false, sourcePartition, request)
+        return this.runScheduled(url, deadlineMs, false, sourcePartitions, request)
     }
 
     public get running(): number {
@@ -41,7 +41,7 @@ export class OriginRequestScheduler implements ConfigurationRequestScheduler {
         url: URL,
         deadlineMs: number,
         configurationRequest: boolean,
-        sourcePartition: number | undefined,
+        sourcePartitions: readonly number[] | undefined,
         request: () => Promise<T>
     ): Promise<ScheduledRequest<T>> {
         const origin = url.origin
@@ -60,7 +60,7 @@ export class OriginRequestScheduler implements ConfigurationRequestScheduler {
                         ImageFetchRequestMetrics.observeSchedulerWait(
                             'request_capacity',
                             Math.max(0, checkedAtMs - capacityWaitStartedAtMs) / 1000,
-                            sourcePartition
+                            sourcePartitions
                         )
                         const grant = this.budget.take(
                             registrableDomain,
@@ -123,7 +123,7 @@ export class OriginRequestScheduler implements ConfigurationRequestScheduler {
                 ImageFetchRequestMetrics.observeSchedulerWait(
                     scheduled.waitScope,
                     scheduled.waitMs / 1000,
-                    sourcePartition
+                    sourcePartitions
                 )
                 await delay(scheduled.waitMs)
             }

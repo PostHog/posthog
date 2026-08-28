@@ -60,7 +60,7 @@ export interface ImageFetchResult {
 }
 
 export interface ImageFetchOptions {
-    sourcePartition?: number
+    sourcePartitions?: readonly number[]
     maxBytes: number
     /** Covers the redirect chain as a whole, so a chain of slow hops cannot outlive one hop's budget. */
     timeoutMs: number
@@ -138,7 +138,7 @@ export class HttpImageFetcher implements ImageFetcher {
                         options.maxBytes,
                         currentCache,
                         tdmrepReservation,
-                        options.sourcePartition
+                        options.sourcePartitions
                     )
                 )
             } catch (error) {
@@ -205,7 +205,7 @@ export class HttpImageFetcher implements ImageFetcher {
         maxBytes: number,
         previousCache: HttpCacheMetadata | undefined,
         tdmrepReservation: boolean,
-        sourcePartition: number | undefined
+        sourcePartitions: readonly number[] | undefined
     ): Promise<HopResult> {
         const requestTimeMs = Date.now()
         const canonical = canonicalizeUrl(url)
@@ -279,7 +279,7 @@ export class HttpImageFetcher implements ImageFetcher {
                 ImageFetchRequestMetrics.observeRequest(
                     requestOutcome,
                     (Date.now() - requestTimeMs) / 1000,
-                    sourcePartition
+                    sourcePartitions
                 )
             }
         }

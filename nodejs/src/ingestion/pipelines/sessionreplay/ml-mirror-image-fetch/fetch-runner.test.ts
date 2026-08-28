@@ -126,12 +126,12 @@ describe('FetchRunner', () => {
             ],
         ])
 
-        await harness.runner.run([candidate({ sourcePartition: 7 })], stored)
+        await harness.runner.run([candidate({ sourcePartitions: [7, 42] })], stored)
 
         expect(harness.fetch.mock.calls[0][1]).toMatchObject({
             maxBytes: OPTIONS.maxBytes,
             maxRedirects: OPTIONS.maxRedirects,
-            sourcePartition: 7,
+            sourcePartitions: [7, 42],
             cache,
             tdmrepReservation: true,
         })

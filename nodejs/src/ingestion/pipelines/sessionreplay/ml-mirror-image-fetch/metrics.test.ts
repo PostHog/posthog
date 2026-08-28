@@ -67,8 +67,8 @@ describe('image fetch metrics', () => {
         ImageFetchConsumerMetrics.observePartitionRecord(7, 10, 9)
         ImageFetchConsumerMetrics.incPartitionUrls(7, 'unique', 8)
         ImageFetchConsumerMetrics.observePartitionBatchDiversity(7, [6, 2], [7, 1])
-        ImageFetchRequestMetrics.observeRequest('2xx', 0.25, 7)
-        ImageFetchRequestMetrics.observeSchedulerWait('origin_crawl_delay', 1.5, 7)
+        ImageFetchRequestMetrics.observeRequest('2xx', 0.25, [7, 42])
+        ImageFetchRequestMetrics.observeSchedulerWait('origin_crawl_delay', 1.5, [7, 42])
         ImageFetchRequestMetrics.incPartitionAttempt(7, 'completed', 'ok')
         ImageFetchRequestMetrics.incPartitionAttempt(7, 'republished', 'backoff')
 
@@ -89,11 +89,17 @@ describe('image fetch metrics', () => {
                 expect.objectContaining({ labels: { partition: '7', stage: 'unique' }, value: 8 }),
             ])
         )
-        expect(requests?.values).toContainEqual(
-            expect.objectContaining({ labels: { partition: '7', outcome: '2xx' }, value: 1 })
+        expect(requests?.values).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ labels: { partition: '7', outcome: '2xx' }, value: 1 }),
+                expect.objectContaining({ labels: { partition: '42', outcome: '2xx' }, value: 1 }),
+            ])
         )
-        expect(waits?.values).toContainEqual(
-            expect.objectContaining({ labels: { partition: '7', scope: 'origin_crawl_delay' }, value: 1 })
+        expect(waits?.values).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ labels: { partition: '7', scope: 'origin_crawl_delay' }, value: 1 }),
+                expect.objectContaining({ labels: { partition: '42', scope: 'origin_crawl_delay' }, value: 1 }),
+            ])
         )
         expect(attempts?.values).toEqual(
             expect.arrayContaining([

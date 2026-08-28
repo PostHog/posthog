@@ -35,7 +35,7 @@ export interface FetchCandidate {
     fetchCount: number
     republishCount: number
     lastRepublishReason: StoredRepublishReason | null
-    sourcePartition?: number
+    sourcePartitions?: readonly number[]
 }
 
 export interface FrontierRecord {

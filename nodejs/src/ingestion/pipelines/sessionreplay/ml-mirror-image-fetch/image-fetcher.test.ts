@@ -76,9 +76,9 @@ describe('HttpImageFetcher', () => {
         const observeRequest = jest.spyOn(ImageFetchRequestMetrics, 'observeRequest')
         fetchStreamedMock.mockResolvedValue(image(PNG, 'image/png'))
 
-        await fetcher().fetch('https://cdn.example.com/a.png', { ...OPTIONS, sourcePartition: 7 })
+        await fetcher().fetch('https://cdn.example.com/a.png', { ...OPTIONS, sourcePartitions: [7, 42] })
 
-        expect(observeRequest).toHaveBeenCalledWith('2xx', expect.any(Number), 7)
+        expect(observeRequest).toHaveBeenCalledWith('2xx', expect.any(Number), [7, 42])
     })
 
     it('returns the bytes of an image whose payload matches its declared type', async () => {

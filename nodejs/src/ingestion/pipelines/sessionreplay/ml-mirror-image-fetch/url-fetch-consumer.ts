@@ -83,7 +83,7 @@ export class UrlFetchConsumer {
                     })
                 }
                 for (const candidate of parsed.candidates) {
-                    const partitionCandidate = { ...candidate, sourcePartition: message.partition }
+                    const partitionCandidate = { ...candidate, sourcePartitions: [message.partition] }
                     const existing = candidatesByRef.get(partitionCandidate.originalRef)
                     if (existing) {
                         dedupedInBatch += 1
@@ -109,14 +109,10 @@ export class UrlFetchConsumer {
                     candidate.registrableDomain,
                     (registrableDomains.get(candidate.registrableDomain) ?? 0) + 1
                 )
-                if (candidate.sourcePartition !== undefined) {
-                    ImageFetchConsumerMetrics.incPartitionUrls(candidate.sourcePartition, 'unique', 1)
-                    incrementNestedCount(partitionOrigins, candidate.sourcePartition, candidate.origin)
-                    incrementNestedCount(
-                        partitionRegistrableDomains,
-                        candidate.sourcePartition,
-                        candidate.registrableDomain
-                    )
+                for (const sourcePartition of candidate.sourcePartitions ?? []) {
+                    ImageFetchConsumerMetrics.incPartitionUrls(sourcePartition, 'unique', 1)
+                    incrementNestedCount(partitionOrigins, sourcePartition, candidate.origin)
+                    incrementNestedCount(partitionRegistrableDomains, sourcePartition, candidate.registrableDomain)
                 }
             }
             originCount = origins.size
@@ -151,20 +147,20 @@ export class UrlFetchConsumer {
                 const history = stored.get(candidate.originalRef)
                 if (history?.kind === 'url' && history.nextFetchAtMs > nowMs) {
                     ImageFetchConsumerMetrics.incDeduped('store', 1)
-                    if (candidate.sourcePartition !== undefined) {
-                        ImageFetchConsumerMetrics.incPartitionUrls(candidate.sourcePartition, 'store_deduped', 1)
+                    for (const sourcePartition of candidate.sourcePartitions ?? []) {
+                        ImageFetchConsumerMetrics.incPartitionUrls(sourcePartition, 'store_deduped', 1)
                     }
                     continue
                 }
                 if (candidate.notBeforeMs > nowMs) {
                     notReady.push(candidate)
-                    if (candidate.sourcePartition !== undefined) {
-                        ImageFetchConsumerMetrics.incPartitionUrls(candidate.sourcePartition, 'not_ready', 1)
+                    for (const sourcePartition of candidate.sourcePartitions ?? []) {
+                        ImageFetchConsumerMetrics.incPartitionUrls(sourcePartition, 'not_ready', 1)
                     }
                 } else {
                     fetchable.push(candidate)
-                    if (candidate.sourcePartition !== undefined) {
-                        ImageFetchConsumerMetrics.incPartitionUrls(candidate.sourcePartition, 'fetchable', 1)
+                    for (const sourcePartition of candidate.sourcePartitions ?? []) {
+                        ImageFetchConsumerMetrics.incPartitionUrls(sourcePartition, 'fetchable', 1)
                     }
                 }
             }
@@ -193,9 +189,9 @@ export class UrlFetchConsumer {
                 throw new Error(`the image fetch lane could not account for ${lost} URLs`)
             }
             for (const attempt of attempts) {
-                if (attempt.candidate.sourcePartition !== undefined) {
+                for (const sourcePartition of attempt.candidate.sourcePartitions ?? []) {
                     ImageFetchRequestMetrics.incPartitionAttempt(
-                        attempt.candidate.sourcePartition,
+                        sourcePartition,
                         attempt.finished ? 'completed' : 'republished',
                         attempt.outcome
                     )

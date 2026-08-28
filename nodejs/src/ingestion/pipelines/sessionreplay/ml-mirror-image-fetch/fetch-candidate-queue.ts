@@ -404,6 +404,9 @@ export function mergeDuplicateFetchCandidates(left: FetchCandidate, right: Fetch
         preferredRoute = right
     }
     const latestState = left.republishCount >= right.republishCount ? left : right
+    const sourcePartitions = [...new Set([...(left.sourcePartitions ?? []), ...(right.sourcePartitions ?? [])])].sort(
+        (leftPartition, rightPartition) => leftPartition - rightPartition
+    )
     return {
         ...preferredRoute,
         remainingHops: Math.min(left.remainingHops, right.remainingHops),
@@ -412,5 +415,6 @@ export function mergeDuplicateFetchCandidates(left: FetchCandidate, right: Fetch
         fetchCount: Math.max(left.fetchCount, right.fetchCount),
         republishCount: Math.max(left.republishCount, right.republishCount),
         lastRepublishReason: latestState.lastRepublishReason,
+        sourcePartitions: sourcePartitions.length > 0 ? sourcePartitions : undefined,
     }
 }

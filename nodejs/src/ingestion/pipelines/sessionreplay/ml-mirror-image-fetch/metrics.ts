@@ -98,7 +98,7 @@ export class ImageFetchConsumerMetrics {
     })
     private static readonly partitionUrls = new Counter({
         name: 'ml_image_fetch_partition_urls_total',
-        help: 'URL jobs handled by source partition and bounded processing stage',
+        help: 'URL jobs attributed to a source partition and bounded processing stage. A shared deduplicated job counts once for each contributing partition',
         labelNames: ['partition', 'stage'],
     })
     private static readonly partitionTopShare = new Histogram({
@@ -331,18 +331,18 @@ export class ImageFetchRequestMetrics {
     })
     private static readonly partitionOutcomes = new Counter({
         name: 'ml_image_fetch_partition_requests_total',
-        help: 'Completed image HTTP requests by source partition and status class or network failure',
+        help: 'Completed image HTTP requests attributed to each source partition and status class or network failure',
         labelNames: ['partition', 'outcome'],
     })
     private static readonly partitionDuration = new Histogram({
         name: 'ml_image_fetch_partition_request_duration_seconds',
-        help: 'Time for one completed image HTTP request by source partition, including its response body',
+        help: 'Time for one completed image HTTP request attributed to each source partition, including its response body',
         labelNames: ['partition', 'outcome'],
         buckets: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30],
     })
     private static readonly partitionAttempts = new Counter({
         name: 'ml_image_fetch_partition_attempts_total',
-        help: 'URL jobs completed or republished after successful republish delivery and URL accounting, by source partition and outcome',
+        help: 'URL jobs completed or republished after successful delivery and URL accounting, attributed to each source partition and outcome',
         labelNames: ['partition', 'disposition', 'outcome'],
     })
     private static readonly retryCauses = new Counter({
@@ -362,7 +362,7 @@ export class ImageFetchRequestMetrics {
     })
     private static readonly partitionSchedulerWait = new Histogram({
         name: 'ml_image_fetch_partition_scheduler_wait_seconds',
-        help: 'Time an image request waited by source partition and politeness or capacity scope',
+        help: 'Time an image request waited, attributed to each source partition and politeness or capacity scope',
         labelNames: ['partition', 'scope'],
         buckets: [0, 0.1, 0.5, 1, 2, 5, 10, 20],
     })
@@ -430,10 +430,14 @@ export class ImageFetchRequestMetrics {
         }
         return 'other'
     }
-    public static observeRequest(outcome: HttpRequestOutcome, durationSeconds: number, sourcePartition?: number): void {
+    public static observeRequest(
+        outcome: HttpRequestOutcome,
+        durationSeconds: number,
+        sourcePartitions?: readonly number[]
+    ): void {
         this.outcomes.labels(outcome).inc()
         this.duration.labels(outcome).observe(durationSeconds)
-        if (sourcePartition !== undefined) {
+        for (const sourcePartition of new Set(sourcePartitions ?? [])) {
             const partitionLabel = String(sourcePartition)
             this.partitionOutcomes.labels(partitionLabel, outcome).inc()
             this.partitionDuration.labels(partitionLabel, outcome).observe(durationSeconds)
@@ -465,9 +469,13 @@ export class ImageFetchRequestMetrics {
         this.batchSchedulableSlots.observe(boundedSlots)
         this.batchSchedulableCapacityRatio.observe(boundedSlots / podRequestLimit)
     }
-    public static observeSchedulerWait(scope: SchedulerWaitScope, waitSeconds: number, sourcePartition?: number): void {
+    public static observeSchedulerWait(
+        scope: SchedulerWaitScope,
+        waitSeconds: number,
+        sourcePartitions?: readonly number[]
+    ): void {
         this.schedulerWait.labels(scope).observe(waitSeconds)
-        if (sourcePartition !== undefined) {
+        for (const sourcePartition of new Set(sourcePartitions ?? [])) {
             this.partitionSchedulerWait.labels(String(sourcePartition), scope).observe(waitSeconds)
         }
     }

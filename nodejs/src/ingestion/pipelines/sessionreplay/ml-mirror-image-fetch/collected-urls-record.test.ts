@@ -56,7 +56,7 @@ describe('frontier record', () => {
 
     it('does not persist source partition attribution', () => {
         const parsed = parseCollectedUrlsRecord(
-            serializeFrontierRecord([candidate({ sourcePartition: 7 })]),
+            serializeFrontierRecord([candidate({ sourcePartitions: [7] })]),
             'example.com'
         )
 
