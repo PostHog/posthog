@@ -48,14 +48,6 @@ import {
   CLOUD_ARTIFACT_RESOLVE_SKILL_DEPENDENCIES,
 } from "@posthog/core/sessions/cloudArtifactIdentifiers";
 import {
-  LOCAL_HANDOFF_DIALOG,
-  LOCAL_HANDOFF_HOST,
-  LOCAL_HANDOFF_NOTIFIER,
-  LOCAL_HANDOFF_SERVICE,
-  type LocalHandoffHost,
-  LocalHandoffService,
-} from "@posthog/core/sessions/localHandoffService";
-import {
   SESSION_SERVICE,
   type SessionService,
 } from "@posthog/core/sessions/sessionService";
@@ -137,10 +129,6 @@ import {
 } from "@posthog/ui/features/quick-ask/identifiers";
 import { ARTIFACT_HTML_FRAME_COMPONENT } from "@posthog/ui/features/sessions/components/artifactHtmlFrameHost";
 import { MCP_TOOL_BLOCK_COMPONENT } from "@posthog/ui/features/sessions/components/session-update/identifiers";
-import {
-  localHandoffDialog,
-  localHandoffNotifier,
-} from "@posthog/ui/features/sessions/localHandoffService";
 import { getSessionService } from "@posthog/ui/features/sessions/sessionServiceHost";
 import {
   DEV_MODE_CLIENT,
@@ -220,7 +208,8 @@ const browserTabsClient: BrowserTabsClient = {
   reset: () => trpcClient.browserTabs.reset.mutate(),
   openTab: (input) => trpcClient.browserTabs.openTab.mutate(input),
   setTabTarget: (input) => trpcClient.browserTabs.setTabTarget.mutate(input),
-  close: (tabId) => trpcClient.browserTabs.close.mutate({ tabId }),
+  close: (tabId, newTabId) =>
+    trpcClient.browserTabs.close.mutate({ tabId, newTabId }),
   closeMany: (input) => trpcClient.browserTabs.closeMany.mutate(input),
   setOrder: (input) => trpcClient.browserTabs.setOrder.mutate(input),
   setActiveTab: (input) => trpcClient.browserTabs.setActiveTab.mutate(input),
@@ -367,24 +356,6 @@ container
   .bind<SessionService>(SESSION_SERVICE)
   .toDynamicValue(() => getSessionService())
   .inSingletonScope();
-container.bind<LocalHandoffHost>(LOCAL_HANDOFF_HOST).toConstantValue({
-  getRepositoryByRemoteUrl: (input) =>
-    trpcClient.folders.getRepositoryByRemoteUrl.query(input),
-  selectDirectory: () => trpcClient.os.selectDirectory.query(),
-  addFolder: (input) => trpcClient.folders.addFolder.mutate(input),
-  getWorktreeLocation: () => trpcClient.os.getWorktreeLocation.query(),
-  cloneRepository: (input) => trpcClient.git.cloneRepository.mutate(input),
-  addAdditionalDirectory: async (input) => {
-    await trpcClient.additionalDirectories.addForTask.mutate(input);
-  },
-});
-container.bind(LOCAL_HANDOFF_DIALOG).toConstantValue(localHandoffDialog);
-container.bind(LOCAL_HANDOFF_NOTIFIER).toConstantValue(localHandoffNotifier);
-container
-  .bind<LocalHandoffService>(LOCAL_HANDOFF_SERVICE)
-  .to(LocalHandoffService)
-  .inSingletonScope();
-
 // git-interaction
 container.bind(GIT_WRITE_CLIENT).toConstantValue(gitWriteClient);
 container.bind(GIT_INTERACTION_EFFECTS).toConstantValue(gitInteractionEffects);

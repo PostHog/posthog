@@ -68,7 +68,7 @@ def _require_client_authentication(request: Request, oauth_app: OAuthApplication
         )
         raise ProvisioningError("invalid_client", "client_id and client_secret are required", status=401)
 
-    if not constant_time_compare(credentials.client_id, oauth_app.effective_client_id) or not verify_client_secret(
+    if not constant_time_compare(credentials.client_id, oauth_app.client_id) or not verify_client_secret(
         credentials.client_secret, oauth_app.client_secret or ""
     ):
         capture_provisioning_event(
@@ -87,7 +87,7 @@ def _verify_assertion_or_fail(request: Request, oauth_app: OAuthApplication, gra
 
     # The assertion is verified against the app the grant names, so an assertion validly
     # signed by a different client cannot be used to redeem this one's grant.
-    if not constant_time_compare(assertion.client_id, oauth_app.effective_client_id):
+    if not constant_time_compare(assertion.client_id, oauth_app.client_id):
         capture_provisioning_event(
             "token_exchange", "client_assertion_mismatch", partner=oauth_app, grant_type=grant_type
         )
