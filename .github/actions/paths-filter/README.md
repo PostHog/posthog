@@ -65,6 +65,22 @@ changed:
   - added|modified: ['src/**', '!src/vendor/**']
 ```
 
+## Shadow comparison (opt-in)
+
+Set `PATHS_FILTER_SHADOW_POSTHOG_TOKEN` on a step to have that run compare the API's
+changed-file list against the same list derived from the pull request's merge commit,
+and send the verdict to PostHog. The comparison never changes what the filter answers.
+
+```yaml
+- uses: ./.github/actions/paths-filter
+  env:
+    PATHS_FILTER_SHADOW_POSTHOG_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+```
+
+Without the variable the action does no extra work. Set it in one workflow that runs on
+every pull request; that keeps the merge-ref fetch off the critical path of the other
+gating jobs. This is temporary, and goes away with the decision it exists to inform.
+
 ## Rebuilding after source changes
 
 The action runs the committed `dist/index.js` bundle. After editing anything under `src/`,

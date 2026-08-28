@@ -117,20 +117,11 @@ export function modelCostInfo(modelId: string): ModelCostInfo | null {
   };
 }
 
-/**
- * Per-token rate of `toModelId` relative to `fromModelId`, e.g. "0.2×", for
- * the switch dialog, whose copy already frames it as approximate ("about").
- * Null when either model has no known list price, or when the rates match.
- */
-export function relativeCostLabel(
-  fromModelId: string,
-  toModelId: string,
-): string | null {
-  const from = modelListPrice(fromModelId);
-  const to = modelListPrice(toModelId);
-  if (!from || !to) return null;
-  const { blended, approximate } = blendedRatio(to, from);
-  // Same list price reads as no line at all, not "1×".
-  if (!approximate && Math.abs(blended - 1) < 0.001) return null;
-  return formatMultiplier(blended, false);
+export function estimateUncachedInputCost(
+  modelId: string,
+  inputTokens: number,
+): number | null {
+  const price = modelListPrice(modelId);
+  if (!price || inputTokens <= 0) return null;
+  return (inputTokens / 1_000_000) * price.inputPerMtok;
 }
