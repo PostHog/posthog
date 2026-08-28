@@ -7,6 +7,12 @@ on:
     push:
         branches:
             - master
+    schedule:
+        # Hourly full-matrix run against the newest master state. Master pushes no
+        # longer run the test matrices per commit — the merge queue's trunk-merge/**
+        # run already gated every commit before it landed — so this is where master's
+        # matrix coverage, flaky-test baseline, and per-test timing data come from.
+        - cron: '23 * * * *'
     workflow_dispatch:
         inputs:
             clickhouseServerVersion:
@@ -19,10 +25,11 @@ on:
         # deferring to its ready run. turbo-tests (product tests) still skip drafts.
         # On a legacy diff the product matrix is narrowed the same way: the products the
         # selector reached plus the ones Turbo saw change (see turbo-discover).
-        # The merge queue's trunk-merge/** run and master pushes always run the full
-        # matrices, and the queue run is what actually gates master. To force the
-        # full matrices on a PR, add the `run-ci-backend` label. Cheap checks still
-        # run on drafts.
+        # The merge queue's trunk-merge/** run and the hourly scheduled master run
+        # always run the full matrices; the queue run is what actually gates master.
+        # Master pushes run only the per-commit checks (migrations + schema cache,
+        # OpenAPI types, repo checks). To force the full matrices on a PR, add the
+        # `run-ci-backend` label. Cheap checks still run on drafts.
         # The `no-ci` label does the opposite: it silences this workflow on a draft
         # entirely (prototypes/spikes).
         # No labeled/unlabeled triggers: GitHub cannot filter a label trigger by name,
@@ -31,12 +38,15 @@ on:
         # ready_for_review.
         # The `test-new-events-schema` label opts a PR into the doubled matrices that
         # rerun everything with CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=true; unlabeled
-        # PRs run legacy-schema only (master runs always cover both).
+        # PRs run legacy-schema only (master coverage of the new schema is paused for
+        # CI cost — see build-product-test-matrix).
         types: [opened, synchronize, reopened, ready_for_review]
 
 concurrency:
     # PRs: one active run per branch, cancel stale. Push: per-SHA so master
     # pushes never cancel each other (check-migrations always completes).
+    # Scheduled runs share the ref group without cancellation, so a slow hourly
+    # run queues the next one instead of stacking runs.
     group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -145,8 +155,11 @@ jobs:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
+              # Skipped on master push and on the hourly schedule: every output then
+              # defaults to true. On schedule the action would otherwise diff only the
+              # last commit and could turn the full-matrix run into a no-op.
+              if: github.event_name != 'push' && github.event_name != 'schedule'
               id: filter
-              if: github.event_name != 'push' # Run all tests on master push
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   list-files: 'escape'
@@ -371,7 +384,9 @@ jobs:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         needs: [changes]
-        if: needs.changes.outputs.backend == 'true'
+        # Master pushes skip the matrices (see the trigger comment); skipping this
+        # root cascades to every downstream test job via their result checks.
+        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
         outputs:
             mode: ${{ steps.detect.outputs.mode }}
         steps:
@@ -408,7 +423,9 @@ jobs:
     # Runs on depot to match the product-test runner environment
     turbo-discover:
         needs: changes
-        if: needs.changes.outputs.backend == 'true'
+        # Skipped on master push: the merge queue already ran the full matrices for
+        # every landed commit, and the hourly scheduled run keeps master coverage.
+        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 20
         name: Discover product tests
@@ -1185,7 +1202,8 @@ jobs:
     repo-checks:
         needs: [changes]
         # product_yamls: ownership-only PRs still need the owners.yaml lint below.
-        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true'
+        # A per-commit check — the hourly scheduled run skips it as already covered.
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true') && github.event_name != 'schedule'
         timeout-minutes: 10
         outputs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
@@ -1411,7 +1429,9 @@ jobs:
     # in check-openapi-types below.
     check-migrations:
         needs: [changes]
-        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs.persons_sql == 'true'
+        # A per-commit check — every master push runs it (it saves the schema dump
+        # caches), so the hourly scheduled run skips it as already covered.
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs.persons_sql == 'true') && github.event_name != 'schedule'
         # On master this job replays the full migration history from scratch to
         # produce the schema dump every PR job restores. That replay grows with
         # every merged migration, so the limit needs headroom over it: it is
@@ -2110,7 +2130,8 @@ jobs:
 
     check-openapi-types:
         needs: [changes]
-        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true'
+        # A per-commit check — the hourly scheduled run skips it as already covered.
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true') && github.event_name != 'schedule'
         timeout-minutes: 20
         outputs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
@@ -3570,7 +3591,8 @@ jobs:
     get_clickhouse_versions:
         name: Get ClickHouse versions
         needs: [changes]
-        if: needs.changes.outputs.backend == 'true'
+        # Only feeds the test matrices, which master pushes skip.
+        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         outputs:
@@ -4086,16 +4108,17 @@ jobs:
         # Runs on every attempt: a re-run passing what an earlier attempt failed is the same-commit
         # flake proof the test-health queue reads, and the shards a re-run re-executed upload under
         # attempt-suffixed artifact names so only they are emitted for the new attempt.
-        # Master pushes and all in-repo PRs. Skip forks (no secrets access).
-        # Both matrices skipped means no JUnit was uploaded, so there are no traces to
-        # emit. This job sits on the tail of the run, so skipping it takes its whole
-        # duration off the wall of a draft that ran no tests.
+        # Scheduled master runs and all in-repo PRs. Skip forks (no secrets access)
+        # and master pushes (their matrices are skipped, so there are no traces).
+        # Both matrices skipped also means no JUnit was uploaded, so there are no
+        # traces to emit. This job sits on the tail of the run, so skipping it takes
+        # its whole duration off the wall of a draft that ran no tests.
         if: >-
             !cancelled() &&
             github.repository == 'PostHog/posthog' &&
             (needs.django.result != 'skipped' || needs.turbo-tests.result != 'skipped') &&
             (
-            (github.event_name != 'pull_request' && github.ref == 'refs/heads/master') ||
+            (github.event_name != 'pull_request' && github.event_name != 'push' && github.ref == 'refs/heads/master') ||
             (github.event_name == 'pull_request' &&
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog')
             )
