@@ -150,10 +150,21 @@ DIFF_CHECKS: list[DiffCheck] = [
     DiffCheck(
         key="django-template-format",
         label="Django template formatting (djlint)",
-        triggers=["posthog/templates/email/*.html"],
+        # `*` spans `/`, so these cover the nested template directories too.
+        triggers=["posthog/templates/*.html", "products/*/backend/templates/*.html"],
         # Mirrors lint-staged's `format:html`, which agents bypass via --no-verify.
         verify=["hogli", "format:html:check"],
         fix=["hogli", "format:html"],
+        takes_files=True,
+    ),
+    DiffCheck(
+        key="django-template-lint",
+        label="Django template lint (djlint)",
+        # Only the email templates are clean against the rule set, so only they are linted.
+        # lint-staged formats templates but does not lint them: a second glob over the same
+        # files would let it run the linter against a file the formatter is still rewriting.
+        triggers=["posthog/templates/email/*.html"],
+        verify=["hogli", "lint:html"],
         takes_files=True,
     ),
     DiffCheck(

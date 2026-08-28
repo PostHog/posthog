@@ -838,14 +838,13 @@ quality:
         cmd: ./bin/ruff.sh check --fix
         description: Fix Python code quality issues
     format:html:
-        # djlint exits 1 when it rewrites a file and 2 on a real error, so only 2 should fail
-        cmd: uv tool run --from djlint==1.44.2 djlint --reformat "${@:-posthog/templates/email}" || [ $? -eq 1 ]
+        cmd: ./bin/djlint.sh --reformat "$@"
         description: Format Django templates
     format:html:check:
-        cmd: uv tool run --from djlint==1.44.2 djlint --check "${@:-posthog/templates/email}"
+        cmd: ./bin/djlint.sh --check "$@"
         description: Check Django template formatting without writing
     lint:html:
-        cmd: uv tool run --from djlint==1.44.2 djlint --lint "${@:-posthog/templates/email}"
+        cmd: ./bin/djlint.sh --lint "$@"
         description: Lint Django templates
     format:markdown:
         cmd: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc --fix
@@ -957,6 +956,9 @@ tools:
     tool:hoge:
         bin_script: hoge
         description: Compile HogQL source to bytecode or JavaScript
+    tool:djlint:
+        bin_script: djlint.sh
+        description: Django template formatter and linter, run isolated through uv
     tool:ruff:
         bin_script: ruff.sh
         description: Python linter and formatter with virtualenv auto-activation

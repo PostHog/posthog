@@ -450,9 +450,11 @@ section-order = [
 profile = "django"
 extension = "html"
 indent = 4
-# H021 inline styles and H023 entity references are how HTML email has to be written:
-# mail clients strip stylesheets and render bare characters inconsistently.
-# H016 title and H030 meta description are page rules that mean nothing in an email.
+# Formatting covers every Django template; linting is scoped to the email ones, so these
+# exclusions are read against those. H021 inline styles and H023 entity references are how
+# HTML email has to be written, since mail clients strip stylesheets and render bare
+# characters inconsistently. H016 title and H030 meta description are page rules that mean
+# nothing in an email.
 ignore = "H021,H023,H016,H030"
 
 [tool.dagster]

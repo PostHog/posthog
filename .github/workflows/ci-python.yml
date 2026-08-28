@@ -72,6 +72,9 @@ jobs:
                         - 'tools/owners/**'
                         - 'hogli.yaml'
                         - 'bin/**'
+                        # Django templates live outside posthog/ for products, and the
+                        # code-quality job formats them with djlint
+                        - 'products/**/backend/templates/**'
                         # Dev tools with dedicated pytest steps below
                         - 'tools/pr-approval-agent/**'
                         - 'products/stamphog/packages/pr-approval-agent/**'
