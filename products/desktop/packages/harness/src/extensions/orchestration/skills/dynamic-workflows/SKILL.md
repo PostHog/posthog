@@ -1,6 +1,11 @@
 ---
 name: dynamic-workflows
-description: Designs and runs task-specific JavaScript harnesses with the `workflow` tool. Use for broad, long-running, highly structured, or adversarial work that benefits from many isolated agents: exhaustive audits, root-cause investigations, research, large triage queues, competing proposals, repeated verification, and independent changes across disjoint files. Covers decomposition patterns, agent and model routing, structured handoffs, failure handling, and the workflow runtime API.
+description: >-
+  Designs and runs task-specific JavaScript harnesses with the `workflow` tool. Use for broad,
+  long-running, highly structured, or adversarial work that benefits from many isolated agents:
+  exhaustive audits, root-cause investigations, research, large triage queues, competing proposals,
+  repeated verification, and independent changes across disjoint files. Covers decomposition patterns,
+  agent and model routing, structured handoffs, failure handling, and the workflow runtime API.
 ---
 
 # Dynamic workflows
