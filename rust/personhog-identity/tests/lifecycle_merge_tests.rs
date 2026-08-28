@@ -1506,6 +1506,8 @@ async fn merge_works_on_a_configured_person_table() {
 // attach-first retry contract
 // ============================================================
 
+use async_trait::async_trait;
+use personhog_identity::leader::PropertyWriter;
 use personhog_identity::lifecycle::merge::MergeOpExecutor;
 use personhog_identity::service::merge::MergeEntrance;
 use personhog_identity::service::validation::RequestLimits;
@@ -1513,11 +1515,37 @@ use personhog_identity::service::PersonHogIdentityService;
 use personhog_identity::storage::IdentityStorage;
 use personhog_proto::personhog::identity::v1::person_hog_identity_server::PersonHogIdentity;
 use personhog_proto::personhog::identity::v1::{
-    MergePersonsRequest, MergePersonsResponse, MergeSource, MergeSourceOutcome,
+    MergeCarriedOperations, MergePersonsRequest, MergePersonsResponse, MergeSource,
+    MergeSourceOutcome,
 };
+use personhog_proto::personhog::types::v1::{
+    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+};
+use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use tonic::Request;
 
 impl MergeHarness {
+    fn service_with_writer(&self, writer: Arc<dyn PropertyWriter>) -> PersonHogIdentityService {
+        let engine = Arc::new(self.ctx.engine());
+        PersonHogIdentityService::new(
+            self.ctx.storage.clone(),
+            self.leader.clone(),
+            RequestLimits {
+                max_batch_size: 250,
+                max_distinct_id_length: 400,
+                max_extra_distinct_ids: 10,
+            },
+            MergeEntrance::new(
+                self.ctx.storage.clone(),
+                writer,
+                MergeOpExecutor::new(
+                    engine,
+                    MergeDriver::new(self.leader.clone(), self.ctx.tables.clone()),
+                ),
+            ),
+        )
+    }
+
     fn service_with_storage(&self, storage: Arc<dyn IdentityStorage>) -> PersonHogIdentityService {
         let engine = Arc::new(self.ctx.engine());
         PersonHogIdentityService::new(
@@ -1578,6 +1606,7 @@ fn rpc_request(team_id: i64, target: &str, sources: &[&str], op_id: Uuid) -> Mer
         allow_identified_sources: false,
         move_limit: Some(1_000),
         created_at: 0,
+        carried_operations: Vec::new(),
     }
 }
 
@@ -2660,4 +2689,663 @@ async fn a_vanished_survivor_answers_unavailable_with_nothing_written() {
     assert!(!source_deleted);
 
     h.ctx.cleanup().await.expect("cleanup");
+}
+
+fn carried(distinct_id: &str, set: serde_json::Value) -> MergeCarriedOperations {
+    MergeCarriedOperations {
+        distinct_id: distinct_id.to_string(),
+        set_properties: serde_json::to_vec(&set).unwrap(),
+        set_once_properties: Vec::new(),
+        unset_properties: Vec::new(),
+        event_name: "$set".to_string(),
+        is_identified: None,
+        last_seen_at: None,
+        expected_person_id: None,
+    }
+}
+
+/// A PropertyWriter that records how many writes for one person are in
+/// flight at once. It yields on entry so a concurrently submitted sibling
+/// has the chance to enter before this write lands — overlap is what it
+/// exists to observe.
+struct OverlapProbe {
+    inner: Arc<SimLeader>,
+    in_flight: std::sync::Mutex<HashMap<i64, usize>>,
+    max_overlap: AtomicUsize,
+}
+
+impl OverlapProbe {
+    fn new(inner: Arc<SimLeader>) -> Self {
+        Self {
+            inner,
+            in_flight: std::sync::Mutex::new(HashMap::new()),
+            max_overlap: AtomicUsize::new(0),
+        }
+    }
+
+    fn max_same_person_overlap(&self) -> usize {
+        self.max_overlap.load(AtomicOrdering::SeqCst)
+    }
+}
+
+#[async_trait]
+impl PropertyWriter for OverlapProbe {
+    async fn update_person_properties(
+        &self,
+        request: UpdatePersonPropertiesRequest,
+    ) -> Result<UpdatePersonPropertiesResponse, Status> {
+        let person = request.person_id;
+        {
+            let mut in_flight = self.in_flight.lock().unwrap();
+            let count = in_flight.entry(person).or_insert(0);
+            *count += 1;
+            self.max_overlap.fetch_max(*count, AtomicOrdering::SeqCst);
+        }
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+        let result = self.inner.update_person_properties(request).await;
+        if let Some(count) = self.in_flight.lock().unwrap().get_mut(&person) {
+            *count -= 1;
+        }
+        result
+    }
+}
+
+/// Two carried entries that resolve to one person must apply one at a
+/// time, in request order: $set beats an earlier $set of the same key, so
+/// concurrent submission would make the person's final properties depend
+/// on leader scheduling even though both entries echo as applied. Entries
+/// for distinct persons still run concurrently; this pins the same-person
+/// lane only.
+#[tokio::test]
+async fn same_person_carried_writes_apply_sequentially_in_request_order() {
+    let h = MergeHarness::new().await;
+    let probe = Arc::new(OverlapProbe::new(h.leader.clone()));
+    let service = h.service_with_writer(probe.clone());
+    let shared = h.ctx.insert_person_with_distinct_id("carry-shared-a").await;
+    h.add_distinct_id(shared, "carry-shared-b").await;
+    h.ctx
+        .insert_person_with_distinct_id("carry-lane-target")
+        .await;
+    h.ctx
+        .insert_person_with_distinct_id("carry-lane-source")
+        .await;
+
+    let mut request = rpc_request(
+        h.ctx.team_id,
+        "carry-lane-target",
+        &["carry-lane-source"],
+        Uuid::now_v7(),
+    );
+    request.carried_operations = vec![
+        carried("carry-shared-a", json!({"lane": "first"})),
+        carried("carry-shared-b", json!({"lane": "second"})),
+    ];
+    let response = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("merge succeeds")
+        .into_inner();
+
+    let mut applied = response.carried_applied.clone();
+    applied.sort();
+    assert_eq!(applied, vec!["carry-shared-a", "carry-shared-b"]);
+    assert_eq!(
+        probe.max_same_person_overlap(),
+        1,
+        "same-person carried writes must not be in flight together"
+    );
+    let lane: String = sqlx::query_scalar(&format!(
+        "SELECT properties->>'lane' FROM {} WHERE team_id = $1 AND id = $2",
+        h.ctx.tables.person
+    ))
+    .bind(h.ctx.team_id as i32)
+    .bind(shared)
+    .fetch_one(&h.ctx.pool)
+    .await
+    .expect("read shared person properties");
+    assert_eq!(lane, "second", "the later entry's write lands last");
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+/// Sources whose verdict is fixed before any lookup — illegal ids and ids
+/// too long for the varchar(400) column — must not ride the resolution
+/// query: nothing reads their resolutions, so resolving them would let a
+/// caller pump arbitrarily large ids through the primary for free.
+#[tokio::test]
+async fn settled_sources_stay_out_of_the_resolution_query() {
+    let h = MergeHarness::new().await;
+    let racing = Arc::new(common::RacingStorage::new(h.ctx.storage.clone()));
+    let service = h.service_with_storage(racing.clone());
+    h.ctx.insert_person_with_distinct_id("resq-target").await;
+    h.ctx.insert_person_with_distinct_id("resq-source").await;
+
+    let oversized = "x".repeat(401);
+    let response = service
+        .merge_persons(Request::new(rpc_request(
+            h.ctx.team_id,
+            "resq-target",
+            &["resq-source", "anonymous", &oversized],
+            Uuid::now_v7(),
+        )))
+        .await
+        .expect("merge succeeds")
+        .into_inner();
+
+    assert_eq!(
+        rpc_outcomes(&response),
+        vec![
+            ("resq-source".to_string(), MergeSourceOutcome::Merged),
+            ("anonymous".to_string(), MergeSourceOutcome::SkippedIllegal),
+            (oversized.clone(), MergeSourceOutcome::SkippedIllegal),
+        ]
+    );
+    let resolved: Vec<String> = racing
+        .resolved_keys
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(_, did)| did.clone())
+        .collect();
+    assert!(
+        resolved.contains(&"resq-target".to_string())
+            && resolved.contains(&"resq-source".to_string()),
+        "the live pair still resolves"
+    );
+    assert!(
+        !resolved.contains(&"anonymous".to_string()) && !resolved.contains(&oversized),
+        "settled sources must not reach the resolution query: {resolved:?}"
+    );
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+/// Carried operations are the caller's still-buffered writes. They have to
+/// land before the seal fences the source, or the leader would reject them
+/// and they would arrive after the merge decided the conflict.
+///
+/// The sim models write admission rather than property application, so the
+/// proof is positional: the push to the source is admitted, and it is
+/// recorded before that source's fence.
+#[tokio::test]
+async fn carried_operations_reach_their_persons_before_the_seal() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let target = h.ctx.insert_person_with_distinct_id("carry-target").await;
+    let source = h.ctx.insert_person_with_distinct_id("carry-source").await;
+
+    let mut request = rpc_request(
+        h.ctx.team_id,
+        "carry-target",
+        &["carry-source"],
+        Uuid::now_v7(),
+    );
+    request.carried_operations = vec![
+        carried(
+            "carry-source",
+            json!({"plan": "carried-source", "tier": "carried-source"}),
+        ),
+        carried("carry-target", json!({"plan": "carried-target"})),
+    ];
+    let response = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("merge succeeds")
+        .into_inner();
+
+    let mut applied = response.carried_applied.clone();
+    applied.sort();
+    assert_eq!(applied, vec!["carry-source", "carry-target"]);
+    assert_eq!(
+        rpc_outcomes(&response),
+        vec![("carry-source".to_string(), MergeSourceOutcome::Merged)]
+    );
+
+    let calls = h.leader.calls();
+    let pushed = calls
+        .iter()
+        .position(|call| matches!(call, LeaderCall::PropertyPush { person_id, .. } if *person_id == source))
+        .expect("the source's carried write was admitted");
+    let fenced = calls
+        .iter()
+        .position(
+            |call| matches!(call, LeaderCall::Fence { person_id, .. } if *person_id == source),
+        )
+        .expect("the source was fenced");
+    assert!(
+        pushed < fenced,
+        "carried writes must land before the seal fences the source"
+    );
+    assert!(
+        calls.iter().any(
+            |call| matches!(call, LeaderCall::PropertyPush { person_id, .. } if *person_id == target)
+        ),
+        "a carried write for the target reaches the target"
+    );
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+/// A carried operation's scalars have to travel with it. The caller drops
+/// the whole buffered operation once this call names it, so a field the
+/// service ignores is lost rather than deferred.
+#[tokio::test]
+async fn carried_operations_forward_their_scalars() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let _target = h
+        .ctx
+        .insert_person_with_distinct_id("carry-scalar-target")
+        .await;
+    let source = h
+        .ctx
+        .insert_person_with_distinct_id("carry-scalar-source")
+        .await;
+
+    let mut request = rpc_request(
+        h.ctx.team_id,
+        "carry-scalar-target",
+        &["carry-scalar-source"],
+        Uuid::now_v7(),
+    );
+    let mut entry = carried("carry-scalar-source", json!({}));
+    entry.is_identified = Some(true);
+    entry.last_seen_at = Some(7_200_000);
+    request.carried_operations = vec![entry];
+
+    let response = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("merge succeeds")
+        .into_inner();
+
+    assert_eq!(
+        response.carried_applied,
+        vec!["carry-scalar-source".to_string()]
+    );
+    assert!(
+        h.leader.calls().iter().any(|call| matches!(
+            call,
+            LeaderCall::PropertyPush { person_id, is_identified } if *person_id == source && *is_identified == Some(true)
+        )),
+        "the carried identity flip reached the leader"
+    );
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+/// The echo is the contract: a caller keeps whatever the response does not
+/// name and sends it the ordinary way. A property write having a bad day
+/// must not take the merge down with it.
+#[tokio::test]
+async fn a_failed_carried_write_is_unnamed_and_the_merge_still_runs() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let target = h
+        .ctx
+        .insert_person_with_distinct_id("carry-fail-target")
+        .await;
+    let source = h
+        .ctx
+        .insert_person_with_distinct_id("carry-fail-source")
+        .await;
+    h.leader.fail_next(
+        Rpc::PropertyPush,
+        source,
+        Status::unavailable("leader is busy"),
+    );
+
+    let mut request = rpc_request(
+        h.ctx.team_id,
+        "carry-fail-target",
+        &["carry-fail-source"],
+        Uuid::now_v7(),
+    );
+    request.carried_operations = vec![carried("carry-fail-source", json!({"tier": "carried"}))];
+    let response = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("the merge survives a failed carried write")
+        .into_inner();
+
+    assert!(response.carried_applied.is_empty());
+    assert_eq!(
+        rpc_outcomes(&response),
+        vec![("carry-fail-source".to_string(), MergeSourceOutcome::Merged)]
+    );
+    assert_eq!(response.survivor.expect("survivor present").id, target);
+    // The scripted failure pops on the call it rejects, so a queue that is
+    // still armed means no write was ever attempted — which would satisfy
+    // every assertion above while doing nothing.
+    assert!(
+        h.leader.scripted_drained(Rpc::PropertyPush, source),
+        "the carried write was attempted and rejected, not skipped"
+    );
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+/// A retry that attaches to a recorded op must not re-apply or re-echo
+/// carried operations: the recorded outcome is replayed, and an echo here
+/// would make the caller discard ops this call never applied — including
+/// segments folded since the original call.
+#[tokio::test]
+async fn a_replayed_merge_with_carried_operations_echoes_none() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let _target = h
+        .ctx
+        .insert_person_with_distinct_id("replay-carry-target")
+        .await;
+    let source = h
+        .ctx
+        .insert_person_with_distinct_id("replay-carry-source")
+        .await;
+
+    let op_id = Uuid::now_v7();
+    let mut request = rpc_request(
+        h.ctx.team_id,
+        "replay-carry-target",
+        &["replay-carry-source"],
+        op_id,
+    );
+    request.carried_operations = vec![carried("replay-carry-source", json!({"tier": "carried"}))];
+    let first = service
+        .merge_persons(Request::new(request.clone()))
+        .await
+        .expect("first call succeeds")
+        .into_inner();
+    assert_eq!(
+        first.carried_applied,
+        vec!["replay-carry-source".to_string()]
+    );
+
+    let replay = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("replay succeeds")
+        .into_inner();
+    assert!(replay.carried_applied.is_empty());
+    let pushes = h
+        .leader
+        .calls()
+        .iter()
+        .filter(|call| matches!(call, LeaderCall::PropertyPush { person_id, .. } if *person_id == source))
+        .count();
+    assert_eq!(pushes, 1, "the replay applied nothing");
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+/// Carried operations are pinned to the person the caller buffered them
+/// for. A distinct id repointed by another actor between the caller's fold
+/// and this call must skip the entry unechoed, so the caller keeps the ops
+/// for its own flush path.
+#[tokio::test]
+async fn a_carried_entry_whose_person_moved_is_skipped_and_unechoed() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let _target = h.ctx.insert_person_with_distinct_id("moved-target").await;
+    let source = h.ctx.insert_person_with_distinct_id("moved-source").await;
+
+    let mut request = rpc_request(
+        h.ctx.team_id,
+        "moved-target",
+        &["moved-source"],
+        Uuid::now_v7(),
+    );
+    let mut entry = carried("moved-source", json!({"tier": "carried"}));
+    // The caller folded for a person this id no longer names.
+    entry.expected_person_id = Some(source + 1_000_000);
+    request.carried_operations = vec![entry];
+
+    let response = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("merge succeeds")
+        .into_inner();
+
+    assert!(response.carried_applied.is_empty());
+    assert!(
+        !h.leader
+            .calls()
+            .iter()
+            .any(|call| matches!(call, LeaderCall::PropertyPush { person_id, .. } if *person_id == source)),
+        "no write reached the person the id resolves to now"
+    );
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+/// An oversized source settles per-source, exactly like an illegal id: it
+/// cannot exist in the varchar(400) column, so it can never resolve, and
+/// failing the whole request would take legitimate sources down with it.
+#[tokio::test]
+async fn an_oversized_source_settles_per_source_instead_of_failing_the_request() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let target = h
+        .ctx
+        .insert_person_with_distinct_id("oversize-target")
+        .await;
+    let oversized = "x".repeat(401);
+
+    let response = service
+        .merge_persons(Request::new(rpc_request(
+            h.ctx.team_id,
+            "oversize-target",
+            &[oversized.as_str()],
+            Uuid::now_v7(),
+        )))
+        .await
+        .expect("the request succeeds; the source settles")
+        .into_inner();
+
+    assert_eq!(
+        rpc_outcomes(&response),
+        vec![(oversized, MergeSourceOutcome::SkippedIllegal)]
+    );
+    assert_eq!(response.survivor.expect("survivor").id, target);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+/// A multibyte source inside 400 characters but past 400 bytes is storable
+/// (varchar counts characters) and must merge, not bounce the request.
+#[tokio::test]
+async fn a_multibyte_source_within_the_character_limit_merges() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let _target = h
+        .ctx
+        .insert_person_with_distinct_id("multibyte-target")
+        .await;
+    // 200 three-byte chars: 600 bytes, 200 characters.
+    let multibyte = "\u{4e16}".repeat(200);
+    let source = h.ctx.insert_person_with_distinct_id(&multibyte).await;
+
+    let response = service
+        .merge_persons(Request::new(rpc_request(
+            h.ctx.team_id,
+            "multibyte-target",
+            &[multibyte.as_str()],
+            Uuid::now_v7(),
+        )))
+        .await
+        .expect("a storable id merges")
+        .into_inner();
+
+    assert_eq!(
+        rpc_outcomes(&response),
+        vec![(multibyte, MergeSourceOutcome::Merged)]
+    );
+    let _ = source;
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+/// NUL in the merge event's payload sanitizes rather than killing the
+/// frozen op row's jsonb insert; the merge itself proceeds.
+#[tokio::test]
+async fn a_nul_bearing_event_payload_is_sanitized_and_the_merge_runs() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let _target = h.ctx.insert_person_with_distinct_id("nul-target").await;
+    let _source = h.ctx.insert_person_with_distinct_id("nul-source").await;
+
+    let mut request = rpc_request(h.ctx.team_id, "nul-target", &["nul-source"], Uuid::now_v7());
+    request.event_set = serde_json::to_vec(&json!({"note": "x\u{0000}y"})).unwrap();
+
+    let response = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("the merge survives a NUL payload")
+        .into_inner();
+
+    assert_eq!(
+        rpc_outcomes(&response),
+        vec![("nul-source".to_string(), MergeSourceOutcome::Merged)]
+    );
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+/// NUL cannot exist in Postgres text: a NUL target would fail person
+/// establishment with an internal error on every attempt, and a NUL source
+/// would make the frozen op row unwritable jsonb. Both refuse up front.
+#[tokio::test]
+async fn nul_bearing_distinct_ids_are_refused_before_any_durable_work() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let _target = h.ctx.insert_person_with_distinct_id("nul-id-target").await;
+
+    let target_nul = service
+        .merge_persons(Request::new(rpc_request(
+            h.ctx.team_id,
+            "bad\u{0000}target",
+            &["nul-id-source"],
+            Uuid::now_v7(),
+        )))
+        .await
+        .expect_err("a NUL target refuses");
+    assert_eq!(target_nul.code(), Code::InvalidArgument);
+
+    let source_nul = service
+        .merge_persons(Request::new(rpc_request(
+            h.ctx.team_id,
+            "nul-id-target",
+            &["bad\u{0000}source"],
+            Uuid::now_v7(),
+        )))
+        .await
+        .expect_err("a NUL source refuses");
+    assert_eq!(source_nul.code(), Code::InvalidArgument);
+
+    let mut request = rpc_request(
+        h.ctx.team_id,
+        "nul-id-target",
+        &["nul-id-source"],
+        Uuid::now_v7(),
+    );
+    request.carried_operations = vec![carried("bad\u{0000}carried", json!({}))];
+    let carried_nul = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect_err("a NUL carried id refuses");
+    assert_eq!(carried_nul.code(), Code::InvalidArgument);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+/// The one interaction the carried identity flip exists for: a source
+/// whose buffered is_identified had not shipped when the merge arrived.
+/// The carry lands the flip before the saga runs, and the seal's
+/// authoritative re-check then refuses the source exactly as it would had
+/// the flip shipped normally.
+#[tokio::test]
+async fn a_carried_identity_flip_makes_the_seal_refuse_the_source() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let _target = h.ctx.insert_person_with_distinct_id("flip-target").await;
+    let source = h.ctx.insert_person_with_distinct_id("flip-source").await;
+
+    let mut request = rpc_request(
+        h.ctx.team_id,
+        "flip-target",
+        &["flip-source"],
+        Uuid::now_v7(),
+    );
+    let mut entry = carried("flip-source", json!({}));
+    entry.is_identified = Some(true);
+    request.carried_operations = vec![entry];
+
+    let response = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("the call settles")
+        .into_inner();
+
+    assert_eq!(response.carried_applied, vec!["flip-source".to_string()]);
+    assert_eq!(
+        rpc_outcomes(&response),
+        vec![(
+            "flip-source".to_string(),
+            MergeSourceOutcome::SkippedAlreadyIdentified
+        )]
+    );
+    let (deleted, _, _) = h.person_state(source).await;
+    assert!(!deleted, "the identified source was not destroyed");
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+/// The one job of the `created_at` strip in `same_merge`: a redelivery
+/// whose event carried no timestamp derives a fresh wall-clock created_at,
+/// and the retry must attach to the recorded op and replay its outcome
+/// rather than bounce FAILED_PRECONDITION forever.
+#[tokio::test]
+async fn a_retry_with_a_drifted_created_at_replays_the_recorded_outcome() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let _target = h.ctx.insert_person_with_distinct_id("drift-target").await;
+    let source = h.ctx.insert_person_with_distinct_id("drift-source").await;
+
+    let op_id = Uuid::now_v7();
+    let mut request = rpc_request(h.ctx.team_id, "drift-target", &["drift-source"], op_id);
+    request.created_at = 1_000;
+    let first = service
+        .merge_persons(Request::new(request.clone()))
+        .await
+        .expect("first call merges")
+        .into_inner();
+    assert_eq!(
+        rpc_outcomes(&first),
+        vec![("drift-source".to_string(), MergeSourceOutcome::Merged)]
+    );
+
+    request.created_at = 2_000;
+    let retry = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("the drifted retry attaches instead of bouncing")
+        .into_inner();
+    assert_eq!(
+        rpc_outcomes(&retry),
+        vec![("drift-source".to_string(), MergeSourceOutcome::Merged)]
+    );
+    let _ = source;
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+/// U+0085 (NEL) survives JavaScript's trim, so ingestion treats a NEL-only
+/// id as legal; the server must agree or every merge naming one bounces
+/// INVALID_ARGUMENT on a whole-request check the client cannot predict.
+#[test]
+fn nel_only_ids_match_the_javascript_trim_semantics() {
+    use personhog_identity::lifecycle::validation::is_distinct_id_illegal;
+    assert!(!is_distinct_id_illegal("\u{0085}"));
+    assert!(is_distinct_id_illegal(" \t\n "));
+    assert!(is_distinct_id_illegal("\u{FEFF}"));
 }
