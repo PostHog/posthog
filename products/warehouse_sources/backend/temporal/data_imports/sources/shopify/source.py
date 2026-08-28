@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.sh
     SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
     SHOPIFY_ACCESS_TOKEN_INVALID_CLIENT_ERROR,
     SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR,
+    SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR_MATCH,
     SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR,
     SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR,
     SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH,
@@ -77,8 +78,9 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             # the user needs a Dev Dashboard app instead of a legacy custom app.
             SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR: SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR,
             # 4xx `shop_not_permitted`: the store is not in the app's Shopify organization, so
-            # minting a token fails regardless of the credentials entered.
-            SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR: SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR,
+            # minting a token fails regardless of the credentials entered. Match on the stable
+            # error code so classification does not drift when the friendly message is reworded.
+            SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR_MATCH: SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR,
             # 404 from the same endpoint — no store at this subdomain. Retrying cannot
             # recover; the user must correct the store id.
             SHOPIFY_STORE_NOT_FOUND_ERROR: SHOPIFY_STORE_NOT_FOUND_ERROR,
@@ -118,9 +120,10 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             category=DataWarehouseSourceCategory.E_COMMERCE,
             iconPath="/static/services/shopify.png",
             caption=(
-                "Create a Shopify Dev Dashboard app, then enter its client ID and secret here to "
-                "pull your Shopify data into the PostHog Data warehouse. The docs walk through the "
-                "app setup steps."
+                "Create a Shopify Dev Dashboard app in the same Shopify organization as your store, "
+                "then enter its client ID and secret here to pull your Shopify data into the PostHog "
+                "Data warehouse. Shopify allows this connection only when the app and the store share "
+                "one organization. The docs walk through the app setup steps."
             ),
             docsUrl="https://posthog.com/docs/data-warehouse/sources/shopify",
             fields=cast(
