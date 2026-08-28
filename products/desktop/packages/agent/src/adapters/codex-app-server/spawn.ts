@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { delimiter, dirname } from "node:path";
 import type { Readable, Writable } from "node:stream";
@@ -79,6 +79,42 @@ export interface CodexAppServerProcess {
   stdin: Writable;
   stdout: Readable;
   kill: () => void;
+}
+
+function getUnixProcessTreePids(rootPid: number): number[] | undefined {
+  let processTable: string;
+  try {
+    processTable = execFileSync("ps", ["-ax", "-o", "pid=,ppid="], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    return undefined;
+  }
+
+  const childrenByParent = new Map<number, number[]>();
+  for (const line of processTable.split("\n")) {
+    const [pidText, parentPidText] = line.trim().split(/\s+/);
+    const pid = Number.parseInt(pidText, 10);
+    const parentPid = Number.parseInt(parentPidText, 10);
+    if (Number.isNaN(pid) || Number.isNaN(parentPid)) continue;
+    const children = childrenByParent.get(parentPid) ?? [];
+    children.push(pid);
+    childrenByParent.set(parentPid, children);
+  }
+
+  const processTreePids: number[] = [];
+  const visited = new Set<number>();
+  const addProcessTree = (pid: number): void => {
+    if (visited.has(pid)) return;
+    visited.add(pid);
+    for (const childPid of childrenByParent.get(pid) ?? []) {
+      addProcessTree(childPid);
+    }
+    processTreePids.push(pid);
+  };
+  addProcessTree(rootPid);
+  return processTreePids;
 }
 
 /** Serialize a string map as a TOML basic string (escapes `\` and `"`). */
@@ -289,6 +325,17 @@ export function spawnCodexAppServerProcess(
       child.stdin?.destroy();
       child.stdout?.destroy();
       child.stderr?.destroy();
+      if (process.platform !== "win32" && child.pid) {
+        const processTreePids = getUnixProcessTreePids(child.pid);
+        if (processTreePids) {
+          for (const pid of processTreePids) {
+            try {
+              process.kill(pid, "SIGTERM");
+            } catch {}
+          }
+          return;
+        }
+      }
       child.kill("SIGTERM");
     },
   };

@@ -553,6 +553,7 @@ export interface ConnectParams {
   initialPrompt?: ContentBlock[];
   executionMode?: ExecutionMode;
   adapter?: Adapter;
+  codexModelAccess?: CodexModelAccess;
   model?: string;
   reasoningLevel?: string;
   contextWindow?: "200k" | "1m";
@@ -1941,6 +1942,7 @@ export class SessionService {
 
   private stampRunConfig(session: AgentSession, params: ConnectParams): void {
     session.adapter = params.adapter;
+    session.codexModelAccess = params.codexModelAccess;
     session.model = params.model;
     session.executionMode = params.executionMode;
     session.reasoningLevel = params.reasoningLevel;
@@ -1958,6 +1960,7 @@ export class SessionService {
       initialPrompt,
       executionMode,
       adapter,
+      codexModelAccess,
       model,
       reasoningLevel,
       contextWindow,
@@ -2077,6 +2080,7 @@ export class SessionService {
           importedSessionId,
           contextWindow,
           fastMode,
+          codexModelAccess,
         );
       }
     } catch (error) {
@@ -2639,6 +2643,7 @@ export class SessionService {
     importedSessionId?: string,
     contextWindow?: "200k" | "1m",
     fastMode?: boolean,
+    codexModelAccess?: CodexModelAccess,
   ): Promise<void> {
     const { client } = auth;
     if (!client) {
@@ -2655,8 +2660,10 @@ export class SessionService {
       rtkEnabledLocal,
       spokenNarrationEnabled,
       bedrockGatewayVariant,
-      codexModelAccess,
+      codexModelAccess: settingsCodexModelAccess,
     } = this.d.settings;
+    const resolvedCodexModelAccess =
+      codexModelAccess ?? settingsCodexModelAccess;
     const preferredModel = model ?? this.d.DEFAULT_GATEWAY_MODEL;
     const result = await this.d.trpc.agent.start.mutate({
       taskId,
@@ -2666,7 +2673,7 @@ export class SessionService {
       projectId: auth.projectId,
       permissionMode: executionMode,
       adapter,
-      codexModelAccess,
+      codexModelAccess: resolvedCodexModelAccess,
       customInstructions: startCustomInstructions || undefined,
       rtkEnabled: rtkEnabledLocal,
       spokenNarration: spokenNarrationEnabled === true,
@@ -2684,6 +2691,7 @@ export class SessionService {
     session.channel = result.channel;
     session.status = "connected";
     session.adapter = adapter;
+    session.codexModelAccess = resolvedCodexModelAccess;
     session.model = model;
     session.executionMode = executionMode;
     session.reasoningLevel = reasoningLevel;
@@ -6075,6 +6083,7 @@ export class SessionService {
         reasoningLevel,
         contextWindow,
         fastMode,
+        codexModelAccess,
       } = session;
       await this.teardownSession(session.taskRunId);
       const authStatus = await this.getAuthCredentialsStatus();
@@ -6099,6 +6108,7 @@ export class SessionService {
         undefined,
         contextWindow,
         fastMode,
+        codexModelAccess,
       );
       return;
     }

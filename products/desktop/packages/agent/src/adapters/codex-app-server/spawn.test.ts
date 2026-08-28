@@ -10,10 +10,15 @@ import {
 const BINARY_PATH = "/bundle/codex";
 
 const mockSpawn = vi.hoisted(() => vi.fn());
+const mockExecFileSync = vi.hoisted(() => vi.fn());
 
 vi.mock("node:child_process", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:child_process")>();
-  return { ...original, spawn: mockSpawn };
+  return {
+    ...original,
+    execFileSync: mockExecFileSync,
+    spawn: mockSpawn,
+  };
 });
 
 vi.mock("node:fs", async (importOriginal) => {
@@ -334,6 +339,51 @@ describe("spawnCodexAppServerProcess", () => {
       restoreEnv("POSTHOG_CONTEXT_LAYER_COMMITS_PATH", saved.commitsPath);
       restoreEnv("POSTHOG_PERSONAL_API_KEY", saved.personalKey);
     }
+  });
+
+  it("kills descendant processes before the Codex process on Unix", () => {
+    const child = fakeChild();
+    const killProcess = vi.spyOn(process, "kill").mockReturnValue(true);
+    mockSpawn.mockReturnValue(child as never);
+    mockExecFileSync.mockReturnValue(
+      "4242 100\n5000 4242\n6000 5000\n5001 4242\n",
+    );
+
+    try {
+      const spawned = spawnCodexAppServerProcess({
+        binaryPath: BINARY_PATH,
+        logger: silentLogger,
+      });
+
+      spawned.kill();
+
+      expect(killProcess.mock.calls).toEqual([
+        [6000, "SIGTERM"],
+        [5000, "SIGTERM"],
+        [5001, "SIGTERM"],
+        [4242, "SIGTERM"],
+      ]);
+      expect(child.kill).not.toHaveBeenCalled();
+    } finally {
+      killProcess.mockRestore();
+    }
+  });
+
+  it("falls back to the direct child when process discovery fails", () => {
+    const child = fakeChild();
+    mockSpawn.mockReturnValue(child as never);
+    mockExecFileSync.mockImplementation(() => {
+      throw new Error("ps failed");
+    });
+
+    const spawned = spawnCodexAppServerProcess({
+      binaryPath: BINARY_PATH,
+      logger: silentLogger,
+    });
+
+    spawned.kill();
+
+    expect(child.kill).toHaveBeenCalledWith("SIGTERM");
   });
 });
 

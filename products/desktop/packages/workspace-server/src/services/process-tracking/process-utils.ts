@@ -1,39 +1,71 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { platform } from "node:os";
 
 const SIGKILL_GRACE_MS = 5_000;
 
+function getUnixProcessTreePids(rootPid: number): number[] {
+  let processTable: string;
+  try {
+    processTable = execFileSync("ps", ["-ax", "-o", "pid=,ppid="], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    return [rootPid];
+  }
+
+  const childrenByParent = new Map<number, number[]>();
+  for (const line of processTable.split("\n")) {
+    const [pidText, parentPidText] = line.trim().split(/\s+/);
+    const pid = Number.parseInt(pidText, 10);
+    const parentPid = Number.parseInt(parentPidText, 10);
+    if (Number.isNaN(pid) || Number.isNaN(parentPid)) continue;
+    const children = childrenByParent.get(parentPid) ?? [];
+    children.push(pid);
+    childrenByParent.set(parentPid, children);
+  }
+
+  const processTreePids: number[] = [];
+  const visited = new Set<number>();
+  const addProcessTree = (pid: number): void => {
+    if (visited.has(pid)) return;
+    visited.add(pid);
+    for (const childPid of childrenByParent.get(pid) ?? []) {
+      addProcessTree(childPid);
+    }
+    processTreePids.push(pid);
+  };
+  addProcessTree(rootPid);
+  return processTreePids;
+}
+
 /**
- * Kill a process and all its children by killing the process group.
- * On Unix, we use process.kill(-pid) to kill the entire process group.
- * On Windows, we use taskkill with /T flag to kill the process tree.
+ * Descendants can create new process groups, so a group signal can leave task
+ * commands running after the app exits.
  */
 export function killProcessTree(pid: number): void {
   try {
     if (platform() === "win32") {
-      // Windows: use taskkill with /T to kill process tree
-      execSync(`taskkill /PID ${pid} /T /F`, { stdio: "ignore" });
+      execFileSync("taskkill", ["/PID", String(pid), "/T", "/F"], {
+        stdio: "ignore",
+      });
     } else {
-      // SIGTERM the process group first, fall back to individual process
+      const processTreePids = getUnixProcessTreePids(pid);
       let sent = false;
-      for (const target of [-pid, pid]) {
+      for (const targetPid of processTreePids) {
         try {
-          process.kill(target, "SIGTERM");
+          process.kill(targetPid, "SIGTERM");
           sent = true;
-          break;
         } catch {}
       }
 
       if (!sent) return;
 
-      // Force kill after a grace period — unref so the timer doesn't delay app exit.
-      // We skip the liveness check since isProcessAlive only tests the group leader;
-      // orphaned children in the same group would be missed. The catch blocks
-      // handle ESRCH if everything already exited.
+      // Keep this timer detached from app shutdown because descendants can ignore SIGTERM.
       setTimeout(() => {
-        for (const target of [-pid, pid]) {
+        for (const targetPid of processTreePids) {
           try {
-            process.kill(target, "SIGKILL");
+            process.kill(targetPid, "SIGKILL");
           } catch {}
         }
       }, SIGKILL_GRACE_MS).unref();

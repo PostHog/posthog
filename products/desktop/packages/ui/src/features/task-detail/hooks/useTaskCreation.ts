@@ -15,6 +15,7 @@ import {
   type Adapter,
   type AgentRuntime,
   ANALYTICS_EVENTS,
+  type CodexModelAccess,
   PROJECT_BLUEBIRD_FLAG,
   type TaskCreationInput,
   type WorkspaceMode,
@@ -139,7 +140,7 @@ async function trackTaskCreated(
   input: TaskCreationInput,
   selectedDirectory: string,
   hostClient: HostTrpcClient,
-  codexModelAccess?: "posthog-gateway" | "own-subscription",
+  codexModelAccess?: CodexModelAccess,
 ): Promise<void> {
   try {
     const workspaceMode = input.workspaceMode ?? "local";
@@ -402,6 +403,15 @@ export function useTaskCreation({
             localMcpServers,
             adapter,
           );
+          const codexModelAccess =
+            runtime !== "pi" && adapter === "codex"
+              ? effectiveCodexModelAccess({
+                  flagEnabled: codexSubscription.flagEnabled,
+                  subscriptionOn: codexSubscription.subscriptionOn,
+                  loggedIn: codexSubscription.loggedIn,
+                  workspaceMode,
+                })
+              : undefined;
           const input = prepareTaskInput(serializedContent, filePaths, {
             // Repo-optional surfaces may still supply an explicit task folder or
             // repository selection; otherwise creation falls back to scratch.
@@ -416,6 +426,7 @@ export function useTaskCreation({
             reuseExistingWorktree,
             executionMode,
             adapter,
+            codexModelAccess,
             runtime,
             model,
             reasoningLevel,
@@ -552,14 +563,7 @@ export function useTaskCreation({
               input,
               selectedDirectory,
               hostClient,
-              input.runtime !== "pi" && input.adapter === "codex"
-                ? effectiveCodexModelAccess({
-                    flagEnabled: codexSubscription.flagEnabled,
-                    subscriptionOn: codexSubscription.subscriptionOn,
-                    loggedIn: codexSubscription.loggedIn,
-                    workspaceMode: input.workspaceMode ?? "local",
-                  })
-                : undefined,
+              input.codexModelAccess,
             );
             // Repo-less channel tasks create no workspace row (the agent runs in
             // a scratch dir surfaced as a synthetic workspace), so the normal

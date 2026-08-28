@@ -121,6 +121,12 @@ export class Agent {
       options.adapter === "codex" &&
       options.codexModelAccess === "own-subscription";
 
+    if (options.adapter === "codex" && !codexSubscription && !gatewayConfig) {
+      throw new Error(
+        "Codex authentication is not ready. In Settings, select PostHog credits or connect your ChatGPT subscription, then try again.",
+      );
+    }
+
     // Without gateway config, codex authenticates from CODEX_HOME.
     const codexGatewayAuth =
       !codexSubscription && gatewayConfig

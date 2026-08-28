@@ -280,6 +280,7 @@ const mockFeatureFlags = vi.hoisted(() => ({
 
 const mockSettingsState = vi.hoisted(() => ({
   customInstructions: "",
+  codexModelAccess: "posthog-gateway" as "posthog-gateway" | "own-subscription",
   spokenNotifications: false,
   syncCustomInstructionsFromFile: false,
   syncedCustomInstructions: null as {
@@ -496,6 +497,7 @@ describe("SessionService", () => {
     mockHasSessionPromptEventForTaskRun.mockReturnValue(false);
     resetSessionService();
     mockSettingsState.customInstructions = "";
+    mockSettingsState.codexModelAccess = "posthog-gateway";
     mockSettingsState.spokenNotifications = false;
     mockFeatureFlags.isEnabled.mockReturnValue(false);
     mockSettingsState.syncCustomInstructionsFromFile = false;
@@ -886,6 +888,40 @@ describe("SessionService", () => {
 
       expect(mockTrpcAgent.start.mutate).toHaveBeenCalledWith(
         expect.objectContaining({ customInstructions: "synced from file" }),
+      );
+    });
+
+    it("starts Codex with the access selected for the task", async () => {
+      const service = getSessionService();
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
+      mockBuildAuthenticatedClient.mockReturnValue({
+        ...mockAuthenticatedClient,
+        createTaskRun: vi.fn().mockResolvedValue({ id: "run-789" }),
+        appendTaskRunLog: vi.fn(),
+      });
+      mockTrpcAgent.start.mutate.mockResolvedValue({
+        channel: "test-channel",
+        configOptions: [],
+      });
+
+      await service.connectToTask({
+        task: createMockTask(),
+        repoPath: "/repo",
+        adapter: "codex",
+        codexModelAccess: "own-subscription",
+      });
+
+      expect(mockTrpcAgent.start.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          adapter: "codex",
+          codexModelAccess: "own-subscription",
+        }),
+      );
+      expect(mockSessionStoreSetters.setSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          adapter: "codex",
+          codexModelAccess: "own-subscription",
+        }),
       );
     });
 
