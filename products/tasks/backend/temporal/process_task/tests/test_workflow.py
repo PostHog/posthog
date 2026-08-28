@@ -1116,6 +1116,108 @@ async def test_agent_shadow_result_is_reported_separately(monkeypatch):
     )
 
 
+async def test_first_non_steering_command_records_dispatch_before_delivery(monkeypatch):
+    workflow_instance = ProcessTaskWorkflow()
+    context = _build_context(github_integration_id=123)
+    context.task_runtime = "pi"
+    workflow_instance._context = context
+    workflow_instance._agent_boot_interaction_telemetry_enabled = True
+    calls: list[str] = []
+
+    def schedule(event_name: str) -> None:
+        calls.append(event_name)
+
+    async def execute_activity(*_args, **_kwargs):
+        calls.append("delivered")
+
+    monkeypatch.setattr(workflow_instance, "_schedule_boot_milestone", schedule)
+    monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+    await workflow_instance._send_followup_to_sandbox("steer", [], message_id="steer-1", steer=True)
+    await workflow_instance._send_followup_to_sandbox("first", [], message_id="message-1")
+    await workflow_instance._send_followup_to_sandbox("second", [], message_id="message-2")
+
+    assert calls == ["delivered", "agent_first_command_dispatched", "delivered", "delivered"]
+
+
+async def test_pending_initial_command_records_dispatch_before_forwarding(monkeypatch):
+    workflow_instance = ProcessTaskWorkflow()
+    context = _build_context(github_integration_id=123, state={"pending_user_message": "start"})
+    context.task_runtime = "pi"
+    workflow_instance._context = context
+    workflow_instance._agent_boot_interaction_telemetry_enabled = True
+    calls: list[str] = []
+
+    def schedule(event_name: str) -> None:
+        calls.append(event_name)
+
+    async def execute_activity(*_args, **_kwargs):
+        calls.append("forwarded")
+
+    monkeypatch.setattr(workflow_instance, "_schedule_boot_milestone", schedule)
+    monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute_activity)
+
+    await workflow_instance._forward_pending_user_message()
+
+    assert calls == ["agent_first_command_dispatched", "forwarded"]
+
+
+async def test_first_agent_activity_signal_is_recorded_once(monkeypatch):
+    workflow_instance = ProcessTaskWorkflow()
+    workflow_instance._context = _build_context(github_integration_id=123)
+    workflow_instance._agent_boot_interaction_telemetry_enabled = True
+    schedule = Mock()
+    monkeypatch.setattr(workflow_instance, "_schedule_boot_milestone", schedule)
+
+    await workflow_instance.agent_activity_observed()
+    await workflow_instance.agent_activity_observed()
+
+    schedule.assert_called_once_with("agent_first_activity_observed")
+
+
+async def test_boot_milestone_contains_only_timing_and_runtime_dimensions(monkeypatch):
+    workflow_instance = ProcessTaskWorkflow()
+    workflow_instance._context = _build_context(github_integration_id=123)
+    workflow_instance._sandbox_id_for_cleanup = "sandbox-123"
+    workflow_instance._chain_started_at = datetime(2026, 8, 28, 10, 0, tzinfo=UTC)
+    workflow_instance._agent_ready_at = datetime(2026, 8, 28, 10, 0, 20, tzinfo=UTC)
+    workflow_instance._boot_path = "overlap"
+    workflow_instance._image_source = "base_image"
+    track = AsyncMock()
+    monkeypatch.setattr(workflow_instance, "_track_boot_milestone", track)
+    monkeypatch.setattr(
+        process_task_workflow_module.workflow,
+        "now",
+        Mock(return_value=datetime(2026, 8, 28, 10, 0, 21, tzinfo=UTC)),
+    )
+
+    workflow_instance._schedule_boot_milestone("agent_first_command_dispatched")
+    await workflow_instance._flush_boot_telemetry_tasks()
+
+    assert workflow_instance._boot_telemetry_tasks == []
+    track.assert_awaited_once_with(
+        "agent_first_command_dispatched",
+        {
+            "run_id": "run-id",
+            "task_id": "task-id",
+            "sandbox_id": "sandbox-123",
+            "elapsed_ms": 21_000,
+            "since_agent_ready_ms": 1_000,
+            "boot_path": "overlap",
+            "image_source": "base_image",
+            "origin_product": None,
+            "mode": "background",
+            "task_runtime": "acp",
+            "runtime_adapter": None,
+            "provider": None,
+            "sandbox_backend": "modal",
+            "transport": "sse",
+            "prewarmed": False,
+        },
+    )
+
+
 @pytest.mark.django_db
 class TestProcessTaskWorkflowUnit:
     def test_quota_recheck_not_scheduled_for_non_pr_runs(self):
@@ -2891,6 +2993,12 @@ class TestContinueAsNew:
         wf._end_of_turn_received = True
         wf._last_agent_heartbeat_at = datetime(2026, 7, 16, 10, 29, tzinfo=UTC)
         wf._sandbox_ttl_expires_at = datetime(2026, 7, 16, 15, 0, tzinfo=UTC)
+        wf._first_command_dispatched_recorded = True
+        wf._first_agent_activity_recorded = True
+        wf._boot_path = "overlap"
+        wf._image_source = "base_image"
+        wf._agent_ready_at = datetime(2026, 7, 16, 9, 1, tzinfo=UTC)
+        wf._agent_boot_interaction_telemetry_enabled = True
         wf._slack_thread_context = {"channel": "C1"}
         wf._posthog_mcp_scopes = "full"
 
@@ -2919,6 +3027,16 @@ class TestContinueAsNew:
         assert restored._end_of_turn_received is True
         assert restored._last_agent_heartbeat_at == datetime(2026, 7, 16, 10, 29, tzinfo=UTC)
         assert restored._sandbox_ttl_expires_at == datetime(2026, 7, 16, 15, 0, tzinfo=UTC)
+        assert restored._first_command_dispatched_recorded is True
+        assert restored._first_agent_activity_recorded is True
+        assert restored._boot_path == "overlap"
+        assert restored._image_source == "base_image"
+        assert restored._agent_ready_at == datetime(2026, 7, 16, 9, 1, tzinfo=UTC)
+        assert restored._agent_boot_interaction_telemetry_enabled is True
+        legacy_restored = ProcessTaskWorkflow()
+        legacy_restored._agent_boot_interaction_telemetry_enabled = True
+        legacy_restored._restore_resumed_state(dataclasses.replace(rs, agent_boot_interaction_telemetry_enabled=None))
+        assert legacy_restored._agent_boot_interaction_telemetry_enabled is False
         # The wall-clock cap anchors on the chain start, so the first execution seeds it from
         # its own start_time and every later continuation carries that same value forward.
         assert restored._chain_started_at == chain_start

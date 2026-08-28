@@ -4199,18 +4199,18 @@ class AgentProxyCallbackRequestSerializer(serializers.Serializer):
     """
 
     kind = serializers.ChoiceField(
-        choices=["heartbeat", "awaiting_input"],
+        choices=["heartbeat", "awaiting_input", "command_dispatched", "agent_activity"],
         help_text=(
             "Side effect to dispatch. 'heartbeat' signals the Temporal workflow to reset its "
             "inactivity timer. 'awaiting_input' fires a mobile push notification when an "
-            "interactive run finishes a turn and is waiting for user input."
+            "interactive run finishes a turn and is waiting for user input. 'command_dispatched' "
+            "and 'agent_activity' record boot milestones."
         ),
     )
     agent_active = serializers.BooleanField(
         help_text=(
             "Whether the agent is currently active (true) or idle (false). "
-            "For 'heartbeat' callbacks this is always true. "
-            "For 'awaiting_input' callbacks this is always false."
+            "This is true for 'heartbeat' and 'agent_activity', and false otherwise."
         ),
     )
     task_id = serializers.CharField(

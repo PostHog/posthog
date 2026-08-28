@@ -322,6 +322,9 @@ class StartAgentServerOutput:
     sandbox_url: str
     connect_token: str | None = None
     launch_ms: int | None = None
+    prepare_ms: int | None = None
+    invoke_ms: int | None = None
+    health_poll_ms: int | None = None
     ready_wait_ms: int | None = None
     session_init_ms: int | None = None
     boot_phases_ms: dict[str, int] = field(default_factory=dict)
@@ -513,7 +516,6 @@ def _invoke_start_agent_server(
     params: _LaunchParams,
     *,
     repo_ready_file: str | None,
-    wait_for_health: bool,
 ) -> None:
     try:
         sandbox.start_agent_server(
@@ -541,23 +543,11 @@ def _invoke_start_agent_server(
             event_ingest_url=params.event_ingest_url,
             event_ingest_keep_stream_open=params.event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
-            wait_for_health=wait_for_health,
+            wait_for_health=False,
             rtk_enabled=ctx.rtk_enabled,
             peer_messaging=ctx.peer_messaging_enabled,
         )
 
-        # Record the boot identity so same-actor follow-ups within the
-        # freshness window skip the redundant refresh.
-        if params.mcp_configs and params.actor_user_id is not None:
-            mark_sandbox_mcp_session(sandbox.id, params.actor_user_id)
-
-        # Persist the effective rtk posture the agent launched with, so terminal
-        # analytics can cohort runs by it (the state override alone misses the
-        # kill-switch flag). Best-effort: never fail the launch over it.
-        try:
-            TaskRun.update_state_atomic(ctx.run_id, updates={"rtk_effective": ctx.rtk_enabled})
-        except Exception:
-            logger.warning("persist_rtk_effective_failed", run_id=ctx.run_id, exc_info=True)
     except Exception as e:
         if params.agentsh_domains is not None:
             _emit_agentsh_log_tail(ctx, sandbox)
@@ -572,6 +562,15 @@ def _invoke_start_agent_server(
             },
             cause=e,
         )
+
+
+def _record_agent_server_launch(sandbox: SandboxBase, ctx: TaskProcessingContext, params: _LaunchParams) -> None:
+    if params.mcp_configs and params.actor_user_id is not None:
+        mark_sandbox_mcp_session(sandbox.id, params.actor_user_id)
+    try:
+        TaskRun.update_state_atomic(ctx.run_id, updates={"rtk_effective": ctx.rtk_enabled})
+    except Exception:
+        logger.warning("persist_rtk_effective_failed", run_id=ctx.run_id, exc_info=True)
 
 
 def _spawn_post_ready_diagnostics(
@@ -641,14 +640,25 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         # repo directory can never appear later. The deferred/overlap path clones in parallel
         # and gates the session on the repo-ready barrier instead.
         _ensure_repository_on_disk(ctx, sandbox)
-        params = _prepare_launch(ctx, input.posthog_mcp_scopes, input.sandbox_id)
-
         runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)
+        with StepTimer(
+            "agent_server_prepare", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
+        ) as prepare_timer:
+            params = _prepare_launch(ctx, input.posthog_mcp_scopes, input.sandbox_id)
+
         with StepTimer(
             "agent_server_ready", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
         ) as ready_timer:
             shadow_launched = _launch_agent_shadow(ctx, sandbox)
-            _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=None, wait_for_health=True)
+            with StepTimer(
+                "agent_server_invoke", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
+            ) as invoke_timer:
+                _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=None)
+            with StepTimer(
+                "agent_server_health", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
+            ) as health_timer:
+                sandbox.wait_for_agent_server_ready(params.agentsh_domains)
+            _record_agent_server_launch(sandbox, ctx, params)
 
         _record_network_enforcement_observation(ctx)
 
@@ -668,6 +678,9 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         return StartAgentServerOutput(
             sandbox_url=input.sandbox_url,
             connect_token=input.sandbox_connect_token,
+            prepare_ms=prepare_timer.elapsed_ms,
+            invoke_ms=invoke_timer.elapsed_ms,
+            health_poll_ms=health_timer.elapsed_ms,
             ready_wait_ms=ready_timer.elapsed_ms,
             session_init_ms=session_init_ms,
             boot_phases_ms=boot_phases_ms,
@@ -689,21 +702,30 @@ def launch_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         emit_agent_log(ctx.run_id, "debug", "Launching agent server (deferred readiness)")
 
         sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
-        params = _prepare_launch(ctx, input.posthog_mcp_scopes, input.sandbox_id)
-
         repo_ready_file = REPO_READY_FILE if input.defer_for_clone else None
         runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)
+        with StepTimer(
+            "agent_server_prepare", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
+        ) as prepare_timer:
+            params = _prepare_launch(ctx, input.posthog_mcp_scopes, input.sandbox_id)
+
         with StepTimer(
             "agent_server_launch", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
         ) as launch_timer:
             shadow_launched = _launch_agent_shadow(ctx, sandbox)
-            _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=repo_ready_file, wait_for_health=False)
+            with StepTimer(
+                "agent_server_invoke", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
+            ) as invoke_timer:
+                _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=repo_ready_file)
+            _record_agent_server_launch(sandbox, ctx, params)
 
         activity.logger.info(f"Agent server process launched for task {ctx.task_id}")
         return StartAgentServerOutput(
             sandbox_url=input.sandbox_url,
             connect_token=input.sandbox_connect_token,
             launch_ms=launch_timer.elapsed_ms,
+            prepare_ms=prepare_timer.elapsed_ms,
+            invoke_ms=invoke_timer.elapsed_ms,
             shadow_launched=shadow_launched,
         )
 
@@ -744,13 +766,21 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
         agentsh_domains = _agentsh_domains_for(ctx)
         attempt = current_activity_attempt()
         runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)
+        prepare_ms: int | None = None
+        invoke_ms: int | None = None
 
         try:
             with StepTimer(
                 "agent_server_ready", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
             ) as ready_timer:
                 if attempt == 1:
-                    sandbox.wait_for_agent_server_ready(agentsh_domains)
+                    with StepTimer(
+                        "agent_server_health",
+                        boot_path=input.boot_path,
+                        origin_product=ctx.origin_product,
+                        runtime=runtime,
+                    ) as health_timer:
+                        sandbox.wait_for_agent_server_ready(agentsh_domains)
                 else:
                     logger.warning(
                         "agent_server_readiness_retry_recovery",
@@ -760,8 +790,30 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
                         attempt=attempt,
                     )
                     _ensure_repository_on_disk(ctx, sandbox)
-                    params = _prepare_launch(ctx, input.posthog_mcp_scopes, input.sandbox_id)
-                    _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=None, wait_for_health=True)
+                    with StepTimer(
+                        "agent_server_prepare",
+                        boot_path=input.boot_path,
+                        origin_product=ctx.origin_product,
+                        runtime=runtime,
+                    ) as prepare_timer:
+                        params = _prepare_launch(ctx, input.posthog_mcp_scopes, input.sandbox_id)
+                    prepare_ms = prepare_timer.elapsed_ms
+                    with StepTimer(
+                        "agent_server_invoke",
+                        boot_path=input.boot_path,
+                        origin_product=ctx.origin_product,
+                        runtime=runtime,
+                    ) as invoke_timer:
+                        _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=None)
+                    invoke_ms = invoke_timer.elapsed_ms
+                    with StepTimer(
+                        "agent_server_health",
+                        boot_path=input.boot_path,
+                        origin_product=ctx.origin_product,
+                        runtime=runtime,
+                    ) as health_timer:
+                        sandbox.wait_for_agent_server_ready(agentsh_domains)
+                    _record_agent_server_launch(sandbox, ctx, params)
         except Exception:
             if attempt > 1:
                 increment_agent_server_readiness_retry(
@@ -803,6 +855,9 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
         return StartAgentServerOutput(
             sandbox_url=input.sandbox_url,
             connect_token=input.sandbox_connect_token,
+            prepare_ms=prepare_ms,
+            invoke_ms=invoke_ms,
+            health_poll_ms=health_timer.elapsed_ms,
             ready_wait_ms=ready_timer.elapsed_ms,
             session_init_ms=session_init_ms,
             boot_phases_ms=boot_phases_ms,
