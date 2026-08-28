@@ -11691,6 +11691,7 @@ export namespace Schemas {
       source_run?: QuarantineSourceRun | null;
       id: string;
       reason: string;
+      source: string;
       /** @nullable */
       expires_at: string | null;
       created_at: string;
@@ -54501,6 +54502,7 @@ export namespace Schemas {
       identifier: string;
       run_type: string;
       reason: string;
+      source: string;
       /** @nullable */
       expires_at: string | null;
       created_at: string;
@@ -84872,6 +84874,14 @@ export namespace Schemas {
       total_records: number;
       /** Running aggregates: output event name counts, error counts, dropped/skipped totals, timestamp range. */
       summary: unknown;
+    }
+
+    export interface UnquarantineQuery {
+      /**
+         * Snapshot identifier to unquarantine
+         * @maxLength 512
+         */
+      identifier: string;
     }
 
     export interface UpdateAppInput {
