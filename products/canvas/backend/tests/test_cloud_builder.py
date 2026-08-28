@@ -503,7 +503,7 @@ bridge.port1.close();
             "network": {"origins": ["https://styles.example.com"]},
         }
 
-        files, _, diagnostics = validate_builder_output(run_cloud_builder(project))
+        files, _asset_paths, _manifest, diagnostics = validate_builder_output(run_cloud_builder(project))
 
         self.assertEqual(diagnostics, [])
         html = next(file["content"] for file in files if file["path"] == "index.html")
