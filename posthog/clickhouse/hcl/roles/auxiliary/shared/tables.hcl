@@ -439,6 +439,21 @@ database "posthog" {
       replica_name = "{replica}"
     }
   }
+  table "sharded_marketing_sessions_dimensional_preaggregated" {
+    order_by     = ["team_id", "job_id", "person_id", "start_timestamp", "session_id"]
+    partition_by = "toYYYYMMDD(expires_at)"
+    ttl          = "toDateTime(expires_at) + toIntervalDay(1)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    extend = "_marketing_sessions_dimensional_preaggregated_columns"
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.marketing_sessions_dimensional_preaggregated"
+      replica_name   = "{replica}"
+      version_column = "computed_at"
+    }
+  }
   table "sharded_web_bounces_dimensional_preaggregated" {
     order_by     = ["team_id", "job_id", "period_bucket", "host", "device_type", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn"]
     partition_by = "toYYYYMMDD(expires_at)"
