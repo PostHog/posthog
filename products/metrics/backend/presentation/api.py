@@ -6,13 +6,14 @@ recognizable.
 
 import datetime as dt
 from dataclasses import asdict
+from typing import cast
 
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ParseError
+from rest_framework.exceptions import ParseError, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -20,14 +21,17 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
-from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.models import User
+from posthog.permissions import PostHogFeatureFlagPermission, posthog_feature_flag_enabled
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 
 from products.metrics.backend.facade.api import (
     characterize_metric_anomaly,
     explain_metric_bucket,
+    get_metrics_overview,
     list_metric_attribute_keys,
     list_metric_attribute_values,
+    list_metric_error_spikes,
     list_metric_event_samples,
     list_metric_names,
     run_metric_query,
@@ -35,6 +39,7 @@ from products.metrics.backend.facade.api import (
 )
 from products.metrics.backend.facade.contracts import (
     MAX_CLAUSES_PER_QUERY,
+    METRICS_ERROR_OVERLAYS_FEATURE_FLAG,
     METRICS_FEATURE_FLAG,
     MetricFilter,
     MetricGroupBy,
@@ -362,6 +367,33 @@ class _HasMetricsResponseSerializer(serializers.Serializer):
     hasMetrics = serializers.BooleanField(help_text="Whether the team has ingested any metrics.")
 
 
+class _MetricsOverviewServiceSerializer(serializers.Serializer):
+    service_name = serializers.CharField(help_text="Service that reported metrics inside the window.")
+    metric_names = serializers.IntegerField(help_text="Distinct metric names this service reported in the window.")
+    series = serializers.IntegerField(
+        help_text="Distinct series (metric + label-set combinations) this service reported in the window."
+    )
+    last_seen = serializers.CharField(help_text="When this service's newest datapoint arrived, ISO 8601.")
+
+
+class _MetricsOverviewResponseSerializer(serializers.Serializer):
+    last_seen = serializers.CharField(
+        allow_null=True,
+        help_text="When the newest datapoint arrived across all series, ISO 8601. Unlike the counts this ignores the window, so it still answers 'when did ingestion stop'. Null when nothing was ever ingested.",
+    )
+    metric_names = serializers.IntegerField(help_text="Distinct metric names reported inside the window.")
+    series = serializers.IntegerField(
+        help_text="Distinct series (metric + label-set combinations) reported inside the window."
+    )
+    lookback_seconds = serializers.IntegerField(
+        help_text="Length of the rollup window in seconds, so consumers can label the counts."
+    )
+    services = _MetricsOverviewServiceSerializer(
+        many=True,
+        help_text="Per-service rollup for the window, largest series count first. Capped at the 500 largest.",
+    )
+
+
 class _MetricValuesParamsSerializer(serializers.Serializer):
     value = serializers.CharField(
         required=False,
@@ -377,6 +409,26 @@ class _MetricValuesParamsSerializer(serializers.Serializer):
         max_value=1000,
         help_text="Max number of names to return. Defaults to 100; maximum 1000.",
     )
+    service = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default=None,
+        max_length=1024,
+        help_text=(
+            "Comma-separated services to narrow the list to, e.g. `service=web,worker`. "
+            "Omit for every service. Send it empty to select only series whose sender "
+            "did not set `service.name`. A service name containing a comma cannot be "
+            "selected."
+        ),
+    )
+
+    def validate_service(self, value: str | None) -> list[str]:
+        # Absent and empty mean different things, which is why the default is None
+        # rather than "": omitting the param leaves the picker unscoped, while
+        # sending it empty scopes to the senders that set no service name.
+        if value is None:
+            return []
+        return [service.strip() for service in value.split(",")]
 
 
 class _MetricNameSerializer(serializers.Serializer):
@@ -560,6 +612,35 @@ class _MetricSamplesResponseSerializer(serializers.Serializer):
     )
 
 
+class _MetricErrorSpikesParamsSerializer(serializers.Serializer):
+    dateFrom = serializers.DateTimeField(
+        help_text="Lower bound (inclusive) for the spike window. ISO 8601.",
+    )
+    dateTo = serializers.DateTimeField(
+        required=False,
+        help_text="Upper bound (exclusive) for the spike window. Defaults to now if omitted.",
+    )
+
+
+class _MetricErrorSpikeSerializer(serializers.Serializer):
+    detected_at = serializers.CharField(help_text="When the error spike was detected, ISO 8601.")
+    issue_id = serializers.CharField(help_text="Error Tracking issue that spiked.")
+    issue_name = serializers.CharField(
+        allow_null=True,
+        help_text="Issue name, if one is set.",
+    )
+
+
+class _MetricErrorSpikesResponseSerializer(serializers.Serializer):
+    results = _MetricErrorSpikeSerializer(
+        many=True,
+        help_text=(
+            "Error Tracking issue spikes detected in the window, newest first. Team-wide: not yet "
+            "scoped to a specific metric's service."
+        ),
+    )
+
+
 class _MetricExplainBodySerializer(serializers.Serializer):
     metricName = serializers.CharField(
         max_length=255,
@@ -710,6 +791,33 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         return Response({"hasMetrics": has_metrics}, status=status.HTTP_200_OK)
 
+    @extend_schema(responses={200: _MetricsOverviewResponseSerializer})
+    @action(
+        detail=False,
+        methods=["GET"],
+        required_scopes=["metrics:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
+    def overview(self, request: Request, *args, **kwargs) -> Response:
+        """Ingestion rollup for the overview page: freshness of the newest
+        datapoint plus per-service metric/series counts over the last day."""
+        tag_queries(product=Product.METRICS, feature=Feature.QUERY)
+
+        overview = get_metrics_overview(team=self.team)
+
+        report_user_action(
+            request.user,
+            "metrics overview viewed",
+            {
+                "service_count": len(overview.services),
+                "has_ingested": overview.last_seen is not None,
+            },
+            team=self.team,
+            request=request,
+        )
+
+        return Response(asdict(overview), status=status.HTTP_200_OK)
+
     @extend_schema(
         parameters=[_MetricValuesParamsSerializer],
         responses={200: _MetricNamesResponseSerializer},
@@ -729,7 +837,10 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         try:
             results = list_metric_names(
-                team=self.team, search=params.validated_data["value"], limit=params.validated_data["limit"]
+                team=self.team,
+                search=params.validated_data["value"],
+                limit=params.validated_data["limit"],
+                services=params.validated_data["service"],
             )
         except ValueError as exc:
             raise ParseError(str(exc))
@@ -889,6 +1000,46 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
 
         return Response({"results": [asdict(s) for s in samples]}, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        parameters=[_MetricErrorSpikesParamsSerializer], responses={200: _MetricErrorSpikesResponseSerializer}
+    )
+    # Both scopes: the response is Error Tracking data, so a token scoped to metrics
+    # alone must not reach it (scopes gate the token; the access-control check below
+    # gates the user).
+    @action(detail=False, methods=["GET"], required_scopes=["metrics:read", "error_tracking:read"])
+    def error_spikes(self, request: Request, *args, **kwargs) -> Response:
+        """Error Tracking issue spikes detected in a time window — backs the
+        metrics chart's error-spike overlay (PoC). Team-wide: not yet scoped
+        to the metric's own service."""
+        # Layered on top of the viewset's `metrics` gate: the overlay is a PoC
+        # kept to staff only, so it needs its own flag even once metrics is on.
+        if not posthog_feature_flag_enabled(
+            METRICS_ERROR_OVERLAYS_FEATURE_FLAG,
+            str(cast(User, request.user).distinct_id),
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+        ):
+            raise PermissionDenied("The metrics error-spike overlay is not enabled for this user.")
+
+        # This action serves Error Tracking data (issue ids and names), so the caller
+        # needs view access to that resource too — metrics access alone must not leak
+        # it. The frontend hides the overlay on the same condition.
+        if not self.user_access_control.check_access_level_for_resource("error_tracking", "viewer"):
+            raise PermissionDenied("You do not have access to error tracking.")
+
+        tag_queries(product=Product.METRICS, feature=Feature.QUERY)
+
+        params = _MetricErrorSpikesParamsSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+
+        spikes = list_metric_error_spikes(
+            team=self.team,
+            date_from=params.validated_data["dateFrom"],
+            date_to=params.validated_data.get("dateTo") or timezone.now(),
+        )
+
+        return Response({"results": [asdict(s) for s in spikes]}, status=status.HTTP_200_OK)
 
     @extend_schema(request=_MetricExplainRequestSerializer, responses={200: _MetricExplainResponseSerializer})
     @action(

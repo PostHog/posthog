@@ -1,3 +1,4 @@
+import { getIsOnline } from "@posthog/core/connectivity/connectivityStore";
 import { partitionLocalMcpServersForRun } from "@posthog/core/local-mcp/localMcpImport";
 import {
   getErrorTitle,
@@ -20,13 +21,17 @@ import {
   type WorkspaceMode,
 } from "@posthog/shared";
 import type { ExecutionMode, Task } from "@posthog/shared/domain-types";
+import {
+  getCurrentBrowserTabId,
+  navigateBrowserTab,
+} from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useTaskRepositoryDraftStore } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { waitForComposerExit } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { navigateToTaskPending } from "@posthog/ui/router/navigationBridge";
-import { openTask, openTaskInput } from "@posthog/ui/router/useOpenTask";
+import { openTask } from "@posthog/ui/router/useOpenTask";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import { useConnectivity } from "../../../hooks/useConnectivity";
@@ -267,6 +272,15 @@ export function useTaskCreation({
       const allowSubmit = contentOverride ? canSubmitBase : canSubmit;
       if (!allowSubmit) return false;
 
+      // Capture everything owned by the mounted composer before the first
+      // await. Switching tabs unmounts it, but task creation must continue with
+      // the exact prompt and tab that the user submitted.
+      const originTabId = getCurrentBrowserTabId();
+      const content = contentOverride ?? editor.getContent();
+      const plainPromptText = contentToPlainText(content).trim();
+      const serializedContent = contentToXml(content).trim();
+      const filePaths = extractFilePaths(content);
+
       // Held for the whole submit, pre-flight awaits included, so a second
       // Enter lands after `canSubmitBase` has already gone false.
       setIsCreatingTask(true);
@@ -335,11 +349,6 @@ export function useTaskCreation({
           }
         }
 
-        const content = contentOverride ?? editor.getContent();
-        const plainPromptText = contentToPlainText(content).trim();
-        const serializedContent = contentToXml(content).trim();
-        const filePaths = extractFilePaths(content);
-
         const shouldShowPendingView = !onTaskCreated && !!plainPromptText;
         const pendingTaskKey = shouldShowPendingView
           ? generatePendingTaskKey()
@@ -352,24 +361,33 @@ export function useTaskCreation({
               id: a.id,
               label: a.label,
             })),
+            // The serialized content restores file chips and attachments on
+            // recovery, so an interrupted prompt comes back whole, not as bare
+            // text.
+            contentXml: serializedContent,
+            // Reopen recovery in the space the prompt was submitted in.
+            channelId: channelId ?? undefined,
           });
           // Fade the composer out before the chat fades in, so the phases
           // hand over instead of cutting.
           setIsExitingComposer(true);
           await waitForComposerExit();
-          navigateToTaskPending(pendingTaskKey);
-          if (!contentOverride) {
-            editor.clear();
-          }
+          navigateBrowserTab(
+            originTabId,
+            {
+              href: `/tasks/pending/${pendingTaskKey}`,
+              title: "New task",
+            },
+            () => navigateToTaskPending(pendingTaskKey),
+          );
         }
 
         let createdTaskId: string | undefined;
 
         try {
           if (!contentOverride) {
-            const plainText = editor.getText()?.trim() ?? plainPromptText;
-            if (plainText) {
-              useTaskInputHistoryStore.getState().addPrompt(plainText);
+            if (plainPromptText) {
+              useTaskInputHistoryStore.getState().addPrompt(plainPromptText);
             }
           }
 
@@ -455,11 +473,16 @@ export function useTaskCreation({
               if (pendingTaskKey) {
                 pendingTaskPromptStoreApi.move(pendingTaskKey, output.task.id);
               }
-              // Clear the draft BEFORE navigating away. When onTaskCreated
-              // navigates (e.g. channels), it can synchronously unmount/destroy
-              // the editor; clearing afterwards would throw in clearContent()
-              // before the persisted draft is wiped, leaving stale text behind.
-              if (!pendingTaskKey && !contentOverride) {
+              // Clear only the editor that submitted. The same component can
+              // render another browser tab before this callback runs; clearing
+              // it would erase that tab's draft. The origin's persisted draft
+              // is cleared by session id after task creation succeeds.
+              if (
+                !pendingTaskKey &&
+                !contentOverride &&
+                editorRef.current === editor &&
+                getCurrentBrowserTabId() === originTabId
+              ) {
                 editor.clear();
               }
               if (defaultedChannelId) {
@@ -475,7 +498,10 @@ export function useTaskCreation({
               if (onTaskCreated) {
                 onTaskCreated(output.task);
               } else {
-                void openTask(output.task);
+                void openTask(output.task, {
+                  channelId,
+                  tabId: originTabId,
+                });
               }
               useTourStore.getState().completeTour(createFirstTaskTour.id);
               // Pre-flight already ran above for cloud; skip the service's duplicate check.
@@ -534,9 +560,13 @@ export function useTaskCreation({
           }
 
           if (!result.success) {
+            track(ANALYTICS_EVENTS.TASK_CREATION_FAILED, {
+              error_type: "task_creation_failed",
+              failed_step: result.failedStep,
+            });
             // Usage-limit blocks already show the upgrade modal; don't also toast an error.
             if (isUsageLimitResult(result)) {
-              useUsageLimitStore.getState().show();
+              useUsageLimitStore.getState().show({ cause: "org_limit" });
               log.warn("Cloud task creation blocked by usage limit");
             } else {
               const title = getErrorTitle(result.failedStep);
@@ -547,23 +577,60 @@ export function useTaskCreation({
               });
             }
             if (pendingTaskKey) {
-              pendingTaskPromptStoreApi.clear(pendingTaskKey);
+              // Never drop the prompt on failure. Keep the record and flag it
+              // interrupted so the pending view offers to recover or discard it,
+              // instead of navigating back to a composer that may not have it.
+              const interruptedKey = createdTaskId ?? pendingTaskKey;
+              // Read connectivity live, not the value captured at submit: the
+              // submit guard forced isOnline true then, so a connection dropped
+              // during setup only shows in the store now.
+              pendingTaskPromptStoreApi.markInterrupted(
+                interruptedKey,
+                getIsOnline() ? "failed" : "offline",
+              );
+              // If onTaskReady already navigated the origin tab to
+              // /tasks/$taskId (the worktree path notifies ready before later
+              // steps), a rolled-back task leaves it on a dead detail view.
+              // Return it to the pending route for the moved record so the
+              // Recover/Discard actions actually show.
               if (createdTaskId) {
-                pendingTaskPromptStoreApi.clear(createdTaskId);
+                navigateBrowserTab(
+                  originTabId,
+                  {
+                    href: `/tasks/pending/${interruptedKey}`,
+                    title: "New task",
+                  },
+                  () => navigateToTaskPending(interruptedKey),
+                );
               }
-              openTaskInput({ initialPrompt: plainPromptText });
             }
           }
           return result.success;
         } catch (error) {
+          track(ANALYTICS_EVENTS.TASK_CREATION_FAILED, {
+            error_type: "unexpected_error",
+          });
           toastError("Failed to create task", error);
           log.error("Unexpected error during task creation", { error });
           if (pendingTaskKey) {
-            pendingTaskPromptStoreApi.clear(pendingTaskKey);
+            // Keep the prompt recoverable from the pending view.
+            const interruptedKey = createdTaskId ?? pendingTaskKey;
+            // Live connectivity, not the submit-time value, so a drop during
+            // setup is classified as offline (see the failed-result branch).
+            pendingTaskPromptStoreApi.markInterrupted(
+              interruptedKey,
+              getIsOnline() ? "failed" : "offline",
+            );
+            // A throw after onTaskReady leaves the origin tab on the
+            // rolled-back task's detail view; return it to the pending route so
+            // recovery stays reachable.
             if (createdTaskId) {
-              pendingTaskPromptStoreApi.clear(createdTaskId);
+              navigateBrowserTab(
+                originTabId,
+                { href: `/tasks/pending/${interruptedKey}`, title: "New task" },
+                () => navigateToTaskPending(interruptedKey),
+              );
             }
-            openTaskInput({ initialPrompt: plainPromptText });
           }
           return false;
         }

@@ -31,8 +31,8 @@ from posthog.hogql.constants import get_default_limit_for_context, get_max_limit
 
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import User
-from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.customer_analytics.backend.facade import api, contracts
 
 ACCOUNTS_TABLE_MAX_COLUMNS = 100
@@ -271,6 +271,7 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
                     id=str(row.id),
                     name=row.name,
                     externalId=row.external_id,
+                    logoDomain=row.logo_domain,
                     accountFields={field.value: value for field, value in row.account_fields.items()},
                     tags=row.tags,
                     noteCount=row.note_count,

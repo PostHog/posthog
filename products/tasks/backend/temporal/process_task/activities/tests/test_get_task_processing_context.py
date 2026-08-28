@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 from unittest.mock import patch
 
@@ -13,6 +15,7 @@ from products.tasks.backend.constants import (
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     CONTINUE_AS_NEW_FEATURE_FLAG,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
+    DEV_STACK_IMAGE_NAME,
     MODAL_VM_SANDBOX_FEATURE_FLAG,
     PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
@@ -34,10 +37,12 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
     _is_burstable_sandbox_resources_enabled,
     _is_continue_as_new_enabled,
     _is_desktop_workspace_warm_enabled,
+    _is_dev_stack_preview_enabled,
     _is_pr_babysit_snapshot_enabled,
     _is_rtk_enabled,
     _is_sandbox_event_ingest_enabled,
     _resolve_modal_vm_sandbox,
+    _resolve_sandbox_backend,
     get_task_processing_context,
 )
 from products.tasks.backend.temporal.process_task.utils import get_actor_distinct_id
@@ -50,7 +55,7 @@ VM_FLAG_PAYLOAD_TARGET = "products.tasks.backend.constants.posthoganalytics.get_
     [
         ({}, False),
         ({"resume_from_run_id": "previous-run"}, False),
-        ({"handoff_resumed": True}, False),
+        ({"same_run_resume": True}, False),
         ({"snapshot_external_id": "snapshot-id"}, False),
         (
             {
@@ -61,7 +66,7 @@ VM_FLAG_PAYLOAD_TARGET = "products.tasks.backend.constants.posthoganalytics.get_
         ),
         (
             {
-                "handoff_resumed": True,
+                "same_run_resume": True,
                 "snapshot_external_id": "snapshot-id",
             },
             True,
@@ -122,6 +127,54 @@ def test_desktop_workspace_warm_flag_fails_closed():
             )
             is False
         )
+
+
+def _preview_gate(
+    *,
+    origin_product: str = Task.OriginProduct.USER_CREATED,
+    use_modal_vm_sandbox: bool = True,
+    custom_image_name: str | None = DEV_STACK_IMAGE_NAME,
+    repository: str | None = "PostHog/PostHog",
+) -> bool:
+    return _is_dev_stack_preview_enabled(
+        distinct_id="distinct-id",
+        organization_id="organization-id",
+        run_id="run-id",
+        origin_product=origin_product,
+        use_modal_vm_sandbox=use_modal_vm_sandbox,
+        custom_image_name=custom_image_name,
+        repository=repository,
+    )
+
+
+@pytest.mark.parametrize(
+    "flag_value,overrides,expected",
+    [
+        (True, {}, True),
+        (False, {}, False),
+        (None, {}, False),
+        (True, {"origin_product": Task.OriginProduct.ONBOARDING}, False),
+        (True, {"use_modal_vm_sandbox": False}, False),
+        (True, {"custom_image_name": "posthog-sandbox-custom-abc"}, False),
+        (True, {"custom_image_name": None}, False),
+        (True, {"repository": "posthog/posthog-js"}, False),
+        (True, {"repository": None}, False),
+    ],
+)
+def test_dev_stack_preview_needs_the_flag_and_the_right_shape_of_run(flag_value, overrides, expected):
+    with patch(
+        "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+        return_value=flag_value,
+    ):
+        assert _preview_gate(**overrides) is expected
+
+
+def test_dev_stack_preview_flag_fails_closed():
+    with patch(
+        "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+        side_effect=RuntimeError("flag service failed"),
+    ):
+        assert _preview_gate() is False
 
 
 @pytest.mark.requires_secrets
@@ -1330,3 +1383,112 @@ class TestGetTaskProcessingContextActivity:
         assert result.model is None
         assert result.reasoning_effort is None
         assert result.initial_permission_mode is None
+
+
+_HOGLAND_SETTINGS = {"HOGLAND_API_URL": "https://hogland.example", "HOGLAND_API_TOKEN": "hog-tok"}
+
+
+class TestResolveSandboxBackend:
+    def _resolve(self, **overrides):
+        kwargs: dict[str, Any] = {
+            "distinct_id": "user-1",
+            "organization_id": "org-1",
+            "run_id": "run-1",
+            "state": None,
+            "task_runtime": "acp",
+            "use_modal_vm_sandbox": False,
+            "use_modal_network_allowlist": False,
+            "custom_image_name": None,
+        }
+        kwargs.update(overrides)
+        return _resolve_sandbox_backend(**kwargs)
+
+    def _resolve_with_flag(self, flag_enabled, **overrides):
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=flag_enabled,
+        ):
+            return self._resolve(**overrides)
+
+    @override_settings(**_HOGLAND_SETTINGS)
+    def test_flag_routes_a_plain_run_to_hogland(self):
+        assert self._resolve_with_flag(True) == "hogland"
+        assert self._resolve_with_flag(False) == "modal"
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"use_modal_vm_sandbox": True},
+            {"custom_image_name": "posthog-sandbox-custom-x"},
+            {"task_runtime": "pi"},
+            {"use_modal_network_allowlist": True},
+        ],
+        ids=["vm_runtime", "custom_image", "pi_runtime", "modal_network_allowlist"],
+    )
+    @override_settings(**_HOGLAND_SETTINGS)
+    def test_modal_only_features_fall_back_to_modal_even_with_the_flag_on(self, overrides):
+        assert self._resolve_with_flag(True, **overrides) == "modal"
+
+    @override_settings(**_HOGLAND_SETTINGS, CLOUD_DEPLOYMENT="EU")
+    def test_eu_stays_on_modal(self):
+        assert self._resolve_with_flag(True) == "modal"
+
+    @override_settings(
+        HOGLAND_API_URL="https://hogland.example",
+        HOGLAND_API_TOKEN=None,
+        HOGLAND_API_TOKEN_FILE="/var/run/secrets/hogland.posthog.dev/token",
+    )
+    def test_token_file_alone_enables_hogland_routing(self):
+        assert self._resolve_with_flag(True) == "hogland"
+
+    @override_settings(HOGLAND_API_URL=None, HOGLAND_API_TOKEN=None, HOGLAND_API_TOKEN_FILE=None)
+    def test_unconfigured_hogland_stays_on_modal_without_evaluating_the_flag(self):
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+        ) as feature_enabled_mock:
+            assert self._resolve() == "modal"
+        feature_enabled_mock.assert_not_called()
+
+    @override_settings(**_HOGLAND_SETTINGS)
+    def test_flag_evaluation_failure_fails_closed_to_modal(self):
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            side_effect=RuntimeError("flag service down"),
+        ):
+            assert self._resolve() == "modal"
+
+    @pytest.mark.parametrize(
+        "override,flag_enabled,expected",
+        [
+            ("hogland", False, "hogland"),
+            ("modal", True, "modal"),
+        ],
+        ids=["pin_hogland", "pin_modal"],
+    )
+    @override_settings(**_HOGLAND_SETTINGS)
+    def test_state_override_wins_over_the_flag(self, override, flag_enabled, expected):
+        assert self._resolve_with_flag(flag_enabled, state={"sandbox_backend": override}) == expected
+
+    @override_settings(**_HOGLAND_SETTINGS, CLOUD_DEPLOYMENT="EU")
+    def test_hogland_override_cannot_defeat_the_eu_guard(self):
+        # A stale or forged hogland override surviving a cloud resume must not run an
+        # EU run on hogland — the capability gates sit ahead of the override.
+        assert self._resolve_with_flag(True, state={"sandbox_backend": "hogland"}) == "modal"
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"use_modal_vm_sandbox": True},
+            {"custom_image_name": "img"},
+            {"use_modal_network_allowlist": True},
+        ],
+        ids=["vm", "custom_image", "network_allowlist"],
+    )
+    @override_settings(**_HOGLAND_SETTINGS)
+    def test_hogland_override_cannot_defeat_modal_only_fallbacks(self, overrides):
+        assert self._resolve_with_flag(True, state={"sandbox_backend": "hogland"}, **overrides) == "modal"
+
+    @override_settings(**_HOGLAND_SETTINGS)
+    def test_modal_override_still_wins_even_when_hogland_is_available(self):
+        # The kill switch must always work.
+        assert self._resolve_with_flag(True, state={"sandbox_backend": "modal"}) == "modal"

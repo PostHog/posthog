@@ -1,4 +1,4 @@
-import { cn, ToggleGroup, ToggleGroupItem } from "@posthog/quill";
+import { ToggleGroup, ToggleGroupItem } from "@posthog/quill";
 import type { ReactNode } from "react";
 
 export interface SettingsSegmentedOption {
@@ -14,6 +14,10 @@ interface SettingsSegmentedProps {
   disabled?: boolean;
   className?: string;
 }
+
+// Quill toggles sink 2px when pressed, which reads as misalignment inside a settings row.
+export const settingsToggleItemClassName =
+  "h-6 translate-y-0 px-2.5 text-[12px] text-muted-foreground shadow-none data-[pressed]:translate-y-0 data-[pressed]:border-(--accent-9) data-[pressed]:bg-(--accent-3) data-[pressed]:text-(--accent-11) data-[pressed]:shadow-none";
 
 /**
  * Single-select segmented control for settings with two or three options,
@@ -36,7 +40,7 @@ export function SettingsSegmented({
       }}
       aria-label={ariaLabel}
       disabled={disabled}
-      className={cn("gap-1", className)}
+      className={className}
     >
       {options.map((option) => (
         <ToggleGroupItem
@@ -45,7 +49,7 @@ export function SettingsSegmented({
           size="sm"
           variant="outline"
           disabled={disabled}
-          className="h-6 px-2.5 text-[12px] text-gray-11 data-[pressed]:border-(--accent-9) data-[pressed]:bg-(--accent-3) data-[pressed]:text-(--accent-11)"
+          className={settingsToggleItemClassName}
         >
           {option.label}
         </ToggleGroupItem>

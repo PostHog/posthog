@@ -6,13 +6,15 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
+
+from products.access_control.backend.models.role import Role, RoleMembership
 
 from ee.api.scim.auth import generate_scim_token
 from ee.api.scim.group import PostHogSCIMGroup
 from ee.api.scim.views import MAX_ITEMS_PER_PAGE
 from ee.api.test.base import APILicensedTest
-from ee.models.rbac.role import Role, RoleMembership
 
 
 class TestSCIMGroupsAPI(APILicensedTest):
@@ -41,8 +43,9 @@ class TestSCIMGroupsAPI(APILicensedTest):
         self.config = IdentityProviderConfig.objects.create(
             organization=self.organization, scim_enabled=True, scim_bearer_token=token.hashed
         )
-        self.domain.identity_provider_config = self.config
-        self.domain.save()
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=self.domain, identity_provider_config=self.config
+        )
         self.config.refresh_from_db()
 
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}

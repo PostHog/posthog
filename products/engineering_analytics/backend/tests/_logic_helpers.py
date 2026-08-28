@@ -25,7 +25,7 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     seeding_object_storage,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
-from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 # Every query module runs HogQL through this method; patch it to test row mapping without a
 # warehouse. Patching the unbound method means the mock is called without `self`, so a plain
@@ -172,6 +172,7 @@ class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
         *,
         source: ExternalDataSource | None = None,
         prefix: str = GITHUB_SOURCE_PREFIX,
+        schema_name: str | None = None,
     ) -> None:
         # Defaults to the mixin's single shared source; pass source + prefix to seed a second
         # source (e.g. one GitHub source per repository) under a distinct table prefix.
@@ -195,8 +196,9 @@ class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
                 source_prefix=prefix,
             )
         self.addCleanup(cleanup)
-        # base_name is "github_<endpoint>"; the synced schema/endpoint is its suffix.
-        link_schema(self.team, source, name=base_name.removeprefix("github_"), table=table)
+        # base_name is "github_<endpoint>"; the synced schema/endpoint is its suffix. Non-GitHub
+        # sources (Trunk) pass their endpoint's schema name explicitly.
+        link_schema(self.team, source, name=schema_name or base_name.removeprefix("github_"), table=table)
 
 
 class _EndpointsWarehouseMixin(_WarehouseMixin):

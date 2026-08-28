@@ -33,6 +33,7 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode, QueryRunner, get_query_runner
 from posthog.hogql_queries.utils.person_display_name import person_display_name_property_exprs
 from posthog.models import User
+from posthog.slo.context import tag_current_slo
 
 
 class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
@@ -264,6 +265,10 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         # `hogql_cohort_query._actors_query_from_source`) that invoke `to_query()` with
         # platform-constant select lists are not mis-attributed.
         tag_contains_user_hogql()
+        # Search is the expensive arm of an actors query, so the surrounding SLO event needs to
+        # separate it from a plain listing. Works for both entry points: `run()` opens a
+        # query-service SLO, `/api/persons/` opens a persons-list one.
+        tag_current_slo(has_search=bool(self.query.search), actor_type=self.strategy.field)
         try:
             self.calculating = True
             return self._calculate_internal()
