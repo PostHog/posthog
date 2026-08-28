@@ -46,11 +46,13 @@ export function MCPAnalyticsScene(): JSX.Element {
 function MCPAnalyticsSceneContent(): JSX.Element {
     const { searchParams } = useValues(router)
     const { activeTab } = useValues(mcpAnalyticsSceneLogic)
-    const { onboardingState, dashboardStage } = useValues(mcpAnalyticsOnboardingLogic)
+    const { onboardingState } = useValues(mcpAnalyticsOnboardingLogic)
     const { notificationCount } = useValues(mcpAnalyticsNotificationsLogic)
 
-    // search is Sessions-only — drop it when leaving the tab; the date range stays shared.
-    const { search: _search, ...sharedParams } = searchParams
+    // landing is a one-shot redirect marker, while search is Sessions-only.
+    // The date range stays shared across every tab.
+    const { landing: _landing, ...tabParams } = searchParams
+    const { search: _search, ...sharedParams } = tabParams
 
     const activityTab: LemonTab<MCPAnalyticsTab> = {
         key: 'activity',
@@ -68,15 +70,13 @@ function MCPAnalyticsSceneContent(): JSX.Element {
     }
 
     const tabs: LemonTab<MCPAnalyticsTab>[] = [
-        // The default landing tab leads: Activity while the project is low-volume,
-        // Dashboard once it graduates — matching the landing redirect so the first
-        // tab is always the one you arrive on.
-        ...(dashboardStage === 'activity' ? [activityTab, dashboardTab] : [dashboardTab, activityTab]),
+        activityTab,
+        dashboardTab,
         {
             key: 'sessions',
             label: 'Sessions',
             content: <MCPSessionsPlaylist />,
-            link: combineUrl(urls.mcpAnalyticsSessions(), searchParams).url,
+            link: combineUrl(urls.mcpAnalyticsSessions(), tabParams).url,
             'data-attr': 'mcp-analytics-sessions-tab',
         },
         {
