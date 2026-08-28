@@ -19,15 +19,17 @@ import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
 from contextlib import AbstractContextManager, nullcontext
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from types import TracebackType
-from typing import TYPE_CHECKING, Protocol, Self
+from typing import TYPE_CHECKING, Any, Protocol, Self
 
 from django.conf import settings
 
 import structlog
 from pydantic import BaseModel, model_validator
+
+from posthog.dataclasses import frozen
 
 from products.tasks.backend.constants import (
     DEFAULT_SANDBOX_WORKING_DIR,
@@ -47,12 +49,12 @@ if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
 
 
-@dataclass
+@frozen
 class AgentServerResult:
     """Result from starting an agent server in a sandbox."""
 
     url: str
-    token: str | None = None
+    token: str | None = field(default=None, repr=False)
 
 
 class SandboxStatus(str, Enum):
@@ -325,7 +327,7 @@ class SandboxBase(ABC):
     def execute_stream(self, command: str, timeout_seconds: int | None = None) -> ExecutionStream: ...
 
     @abstractmethod
-    def write_file(self, path: str, payload: bytes) -> ExecutionResult: ...
+    def write_file(self, path: str, payload: bytes, timeout_seconds: int | None = None) -> ExecutionResult: ...
 
     def stop_agent_server(self) -> ExecutionResult:
         """Stop the agent server gracefully so it can flush terminal events."""
@@ -432,6 +434,13 @@ class SandboxBase(ABC):
         )
         return result.exit_code == 0
 
+    def agent_server_supports_prewarmed_resume_idle(self) -> bool:
+        result = self.execute(
+            "grep -q prewarmedResumeIdle /scripts/node_modules/.bin/agent-server",
+            timeout_seconds=10,
+        )
+        return result.exit_code == 0
+
     def clone_repository(
         self,
         repository: str,
@@ -491,6 +500,9 @@ class SandboxBase(ABC):
         token needed to connect to the sandbox.
         """
         ...
+
+    @abstractmethod
+    def create_preview_connect_credentials(self, port: int, user_metadata: dict[str, Any]) -> AgentServerResult: ...
 
     @abstractmethod
     def start_agent_server(
@@ -815,6 +827,20 @@ def get_sandbox_class_for_backend(backend: str) -> SandboxClass:
     if backend == "hogland":
         return _get_hogland_sandbox_class()
     raise RuntimeError(f"Unsupported sandbox backend: {backend}")
+
+
+def get_sandbox_class_for_run_backend(backend: str) -> SandboxClass:
+    """Resolve the provider class for a run whose backend was chosen at context time.
+
+    Only ``"hogland"`` diverts from the process default. Every other value — including
+    the ``"modal"`` default — falls through to ``get_sandbox_class()`` so
+    ``SANDBOX_PROVIDER`` still selects docker / modal-docker / modal-evals in dev, test,
+    and evals. Routing straight to ``get_sandbox_class_for_backend("modal")`` here would
+    force ModalSandbox even under ``SANDBOX_PROVIDER=docker``, breaking local runs.
+    """
+    if backend == "hogland":
+        return _get_hogland_sandbox_class()
+    return get_sandbox_class()
 
 
 # hogland mints `box-<12 hex>` (hogd enforces `^box-[0-9a-f]{12}$`); Modal object ids

@@ -1,25 +1,14 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
 
-import {
-    LemonButton,
-    LemonInput,
-    LemonInputSelect,
-    LemonModal,
-    LemonSwitch,
-    LemonTable,
-    LemonTag,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { LogsMetricRuleApi } from 'products/logs/frontend/generated/api.schemas'
 import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 
-import { DropRuleFilterEditor } from '../LogsSampling/DropRuleFilterEditor'
-import { GROUP_BY_SUGGESTIONS, logsMetricRuleFormLogic } from './logsMetricRuleFormLogic'
+import { LogsMetricRuleModal } from './LogsMetricRuleModal'
 import { logsMetricRulesSectionLogic } from './logsMetricRulesSectionLogic'
 
 export function LogsMetricRulesSection(): JSX.Element | null {
@@ -52,7 +41,7 @@ function LogsMetricRulesTable(): JSX.Element {
                 dataSource={rules}
                 loading={rulesLoading}
                 rowKey="id"
-                emptyState="No metric rules yet. Create one to start generating metrics from your logs."
+                emptyState="No log-based metrics yet. Create one to start generating metrics from your logs."
                 columns={[
                     {
                         title: 'Name',
@@ -111,114 +100,8 @@ function LogsMetricRulesTable(): JSX.Element {
                 ]}
             />
             <LemonButton type="primary" onClick={openNewRuleModal}>
-                New metric rule
+                New log-based metric
             </LemonButton>
         </div>
-    )
-}
-
-function LogsMetricRuleModal(): JSX.Element | null {
-    const { ruleModalOpen, editingRule } = useValues(logsMetricRulesSectionLogic)
-    const { closeRuleModal } = useActions(logsMetricRulesSectionLogic)
-
-    if (!ruleModalOpen) {
-        return null
-    }
-    return (
-        <LemonModal
-            isOpen
-            onClose={closeRuleModal}
-            title={editingRule ? 'Edit metric rule' : 'New metric rule'}
-            width={720}
-            footer={null}
-        >
-            <LogsMetricRuleForm rule={editingRule} />
-        </LemonModal>
-    )
-}
-
-function LogsMetricRuleForm({ rule }: { rule: LogsMetricRuleApi | null }): JSX.Element {
-    const logic = logsMetricRuleFormLogic({ rule })
-    const { metricRuleForm, isMetricRuleFormSubmitting } = useValues(logic)
-    const { setMetricRuleFormValue } = useActions(logic)
-    const { closeRuleModal } = useActions(logsMetricRulesSectionLogic)
-
-    const isEdit = rule !== null
-
-    return (
-        <Form logic={logsMetricRuleFormLogic} props={{ rule }} formKey="metricRuleForm" enableFormOnSubmit>
-            <div className="space-y-4">
-                <LemonField name="name" label="Name">
-                    <LemonInput placeholder="API errors" />
-                </LemonField>
-                <LemonField
-                    name="metric_name"
-                    label="Metric name"
-                    help={
-                        isEdit
-                            ? 'The metric name cannot be changed after creation. Create a new rule instead.'
-                            : 'How the generated metric appears in the Metrics product.'
-                    }
-                >
-                    <LemonInput placeholder="log.api_errors" disabled={isEdit} />
-                </LemonField>
-                <LemonField
-                    name="value_attribute"
-                    label="Value attribute (optional)"
-                    help={
-                        isEdit
-                            ? 'The value attribute cannot be changed after creation, since it determines the metric type.'
-                            : 'Leave empty to count matching log lines. Set a numeric log attribute (e.g. `attributes.duration_ms`) to aggregate its value instead.'
-                    }
-                >
-                    <LemonInput placeholder="attributes.duration_ms" disabled={isEdit} />
-                </LemonField>
-                <div className="space-y-1">
-                    <label className="font-semibold">Filters</label>
-                    <p className="text-muted text-xs m-0">
-                        Only log lines matching these filters feed the metric. Leave empty to match all logs.
-                    </p>
-                    <DropRuleFilterEditor
-                        filterGroup={metricRuleForm.filter_group}
-                        onChange={(group) => setMetricRuleFormValue('filter_group', group)}
-                        logicKey={`logs-metric-rule:${rule?.id ?? 'new'}`}
-                    />
-                </div>
-                <LemonField
-                    name="group_by"
-                    label="Group by (optional)"
-                    help="Each distinct value combination becomes its own metric series. Avoid high-cardinality keys like user or request IDs."
-                >
-                    {({ value, onChange }) => (
-                        <LemonInputSelect
-                            mode="multiple"
-                            allowCustomValues
-                            value={value}
-                            onChange={onChange}
-                            options={GROUP_BY_SUGGESTIONS.map((key) => ({ key, label: key }))}
-                            placeholder="service_name, severity_text, attributes.…"
-                        />
-                    )}
-                </LemonField>
-                <LemonField name="enabled">
-                    {({ value, onChange }) => (
-                        <LemonSwitch checked={value} onChange={onChange} label="Enabled" bordered />
-                    )}
-                </LemonField>
-                <div className="flex justify-end gap-2">
-                    <LemonButton type="secondary" onClick={closeRuleModal}>
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        htmlType="submit"
-                        loading={isMetricRuleFormSubmitting}
-                        disabledReason={isMetricRuleFormSubmitting ? 'Saving…' : undefined}
-                    >
-                        {isEdit ? 'Save changes' : 'Create metric rule'}
-                    </LemonButton>
-                </div>
-            </div>
-        </Form>
     )
 }

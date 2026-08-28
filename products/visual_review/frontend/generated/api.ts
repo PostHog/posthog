@@ -18,6 +18,7 @@ import type {
     CreateRunResultApi,
     FinalizeResultApi,
     FinalizeRunRequestInputApi,
+    FlakinessOverviewApi,
     MarkToleratedInputApi,
     PaginatedQuarantinedIdentifierEntryListApi,
     PaginatedRepoListApi,
@@ -37,6 +38,7 @@ import type {
     VisualReviewReposQuarantineListParams,
     VisualReviewReposRunsListParams,
     VisualReviewReposSnapshotsListParams,
+    VisualReviewReposThumbnailsRetrieveParams,
     VisualReviewRunsListParams,
     VisualReviewRunsSnapshotHistoryListParams,
     VisualReviewRunsSnapshotsListParams,
@@ -150,6 +152,24 @@ export const visualReviewReposBaselinesRetrieve = async (
     })
 }
 
+export const getVisualReviewReposFlakinessRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/visual_review/repos/${id}/flakiness/`
+}
+
+/**
+ * Snapshots in a repo whose rendering cannot be trusted: those that failed the gate or were absorbed by a toleration on a recent default-branch run, and those under an active quarantine. Everything else is omitted, so this is far smaller than the baselines universe; `totals.tracked` gives the full denominator. Each entry carries the share of the last 7 days of default-branch runs that failed the gate (`hard_rate`) and the share a toleration absorbed (`soft_rate`), plus `headroom`, the fraction of the diff threshold its worst absorbed run leaves free. Capped at 2000 entries, which sets `truncated`. Filtering, faceting and search are done client-side; this endpoint takes no filter query params.
+ */
+export const visualReviewReposFlakinessRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<FlakinessOverviewApi> => {
+    return apiMutator<FlakinessOverviewApi>(getVisualReviewReposFlakinessRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getVisualReviewReposQuarantineListUrl = (
     projectId: string,
     id: string,
@@ -232,8 +252,25 @@ export const visualReviewReposQuarantineExpireCreate = async (
     })
 }
 
-export const getVisualReviewReposThumbnailsRetrieveUrl = (projectId: string, id: string, identifier: string) => {
-    return `/api/projects/${projectId}/visual_review/repos/${id}/thumbnails/${identifier}/`
+export const getVisualReviewReposThumbnailsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    identifier: string,
+    params?: VisualReviewReposThumbnailsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/visual_review/repos/${id}/thumbnails/${identifier}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/visual_review/repos/${id}/thumbnails/${identifier}/`
 }
 
 /**
@@ -243,9 +280,10 @@ export const visualReviewReposThumbnailsRetrieve = async (
     projectId: string,
     id: string,
     identifier: string,
+    params?: VisualReviewReposThumbnailsRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getVisualReviewReposThumbnailsRetrieveUrl(projectId, id, identifier), {
+    return apiMutator<void>(getVisualReviewReposThumbnailsRetrieveUrl(projectId, id, identifier, params), {
         ...options,
         method: 'GET',
     })
@@ -443,7 +481,9 @@ export const getVisualReviewRunsApproveCreateUrl = (projectId: string, id: strin
  * Mark snapshots reviewed (DB only).
  *
  * Records the per-snapshot "Accept change" decision. Does not commit the baseline
- * or change the GitHub gate — call finalize to ship the run.
+ * or change the GitHub gate — call finalize to ship the run. Works on a quarantined
+ * snapshot too: a quarantined NEW snapshot approved here is committed by finalize,
+ * which gives a quarantined story a baseline entry without lifting the quarantine.
  */
 export const visualReviewRunsApproveCreate = async (
     projectId: string,
@@ -486,8 +526,10 @@ export const getVisualReviewRunsFinalizeCreateUrl = (projectId: string, id: stri
  *
  * Commits exactly the snapshots approved in the DB (tolerated ones keep their baseline)
  * and only succeeds once every changed/new snapshot is resolved. With approve_all=true,
- * any still-pending changed/new snapshot is approved first. With commit_to_github=false
- * the server returns the signed baseline YAML instead of committing it.
+ * any still-pending changed/new snapshot is approved first; quarantined snapshots are
+ * skipped, but a quarantined NEW snapshot approved by identifier is still committed.
+ * With commit_to_github=false the server returns the signed baseline YAML instead of
+ * committing it.
  */
 export const visualReviewRunsFinalizeCreate = async (
     projectId: string,

@@ -7,6 +7,8 @@ export const EXPERIMENT_SUGGESTIONS_FLAG =
 /** Autoresearch (metric-optimization loop). Staff-gated while it bakes. */
 export const AUTORESEARCH_FLAG = "posthog-code-autoresearch";
 export const DISCOVERY_RUN_FLAG = "posthog-code-discovery-run";
+export const ONBOARDING_TEST_TOOLS_FLAG =
+  "posthog-desktop-onboarding-test-tools";
 // Gates the entire canvas feature: the app rail's Channels space, the /website
 // routes, channels and dashboards.
 export const PROJECT_BLUEBIRD_FLAG = "project-bluebird";
@@ -29,6 +31,7 @@ export const DESKTOP_HOME_FLAG = "desktop-home-flag";
 export const TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox";
 export const GLM_MODEL_FLAG = "posthog-code-glm-model";
 export const GLM53_MODEL_FLAG = "posthog-code-glm-53-model";
+export const GLM53_FLASH_MODEL_FLAG = "posthog-code-glm-53-flash-model";
 /** PostHog Desktop: show DeepSeek V4 Flash in the model picker. Off = hidden. */
 export const DEEPSEEK_MODEL_FLAG = "posthog-code-deepseek-model";
 
@@ -74,10 +77,6 @@ export const CHANNEL_REPORTS_FLAG = "posthog-desktop-channel-reports";
  * The per-space sidebar list stays the working set beside it.
  */
 export const REPORTS_INBOX_FLAG = "posthog-desktop-reports-inbox";
-
-/** Experiment: open the report chat panel when a report detail loads. */
-export const REPORT_CHAT_DEFAULT_OPEN_FLAG =
-  "posthog-desktop-report-chat-default-open";
 
 /**
  * One-report-at-a-time keyboard triage inside the reports inbox. On by

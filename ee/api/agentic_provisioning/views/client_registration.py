@@ -29,6 +29,7 @@ from posthog.api.oauth.cimd import (
     CIMDFetchError,
     CIMDValidationError,
     fetch_and_upsert_cimd_application,
+    find_cimd_application,
     get_application_by_client_id,
     is_cimd_client_id,
     is_cimd_url_blocked,
@@ -124,7 +125,7 @@ class ClientRegistrationView(ProvisioningAPIView):
         # An already-registered client keeps working when its document is momentarily
         # unreachable, so a failed re-fetch is reported as one failed check rather than
         # suppressing every other diagnostic the caller came for.
-        existing = OAuthApplication.objects.filter(cimd_metadata_url=client_id).first()
+        existing = find_cimd_application(client_id)
         try:
             # A CIMD client that has never been used for provisioning carries no provisioning
             # config yet, and this is the call that gives it one, so the rest of the namespace
