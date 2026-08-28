@@ -209,6 +209,11 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             execute_hogql_query if paginator is None else paginator.execute_hogql_query,
         )
 
+        context_kwargs: dict[str, Any] = {}
+        if self.query.connectionId is None:
+            # With a connection id the executor builds its own connection-scoped database,
+            # so the shared one would be built for nothing.
+            context_kwargs["context"] = self.build_hogql_context()
         response = func(
             query_type="HogQLQuery",
             query=query,
@@ -224,6 +229,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             workload=self.workload,
             ch_user=self.ch_user,
             settings=self.settings,
+            **context_kwargs,
         )
         if paginator:
             response = response.model_copy(update={**paginator.response_params(), "results": paginator.results})

@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin
 from unittest import mock
 
 from django.conf import settings
@@ -20,12 +20,15 @@ from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
+    ActorsQuery,
     BounceRatePageViewMode,
     CacheMissResponse,
     CurrencyCode,
     DataTableNode,
     DataVisualizationNode,
     EventsNode,
+    EventsQuery,
+    GroupsQuery,
     HogQLQuery,
     HogQLQueryModifiers,
     InCohortVia,
@@ -35,7 +38,11 @@ from posthog.schema import (
     MaterializationMode,
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
+    PropertyType,
+    PropertyValuesQuery,
     QueryLogTags,
+    SessionsQuery,
+    SessionsTimelineQuery,
     SessionsV2JoinMode,
     SessionTableVersion,
     TestBasicQueryResponse as TheTestBasicQueryResponse,
@@ -2004,3 +2011,27 @@ class TestQueryFailureCaching(BaseTest):
                     runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
             mock_enqueue.assert_not_called()
             assert getattr(ctx.exception, "served_from_query_failure_cache", False)
+
+
+class TestRunnersBuildDatabaseOnce(ClickhouseTestMixin, APIBaseTest):
+    # Guards the context threading in each runner's _calculate: the one Database build
+    # must go through shared_database (visible as the build_shared_database timing),
+    # so every execute_hogql_query call in the same run reuses it instead of the
+    # executor building its own.
+    @parameterized.expand(
+        [
+            ("hogql", HogQLQuery(query="select count() from events")),
+            ("events", EventsQuery(select=["event"])),
+            ("sessions", SessionsQuery(select=["session_id"])),
+            ("actors", ActorsQuery(select=["person"])),
+            ("sessions_timeline", SessionsTimelineQuery()),
+            ("groups", GroupsQuery(group_type_index=0)),
+            ("property_values", PropertyValuesQuery(property_key="email", property_type=PropertyType.PERSON)),
+        ]
+    )
+    def test_calculate_builds_database_once_via_shared_path(self, _name: str, query: BaseModel) -> None:
+        runner = get_query_runner(query=query, team=self.team, user=self.user)
+        with mock.patch.object(Database, "create_for", wraps=Database.create_for) as create_for:
+            runner.calculate()
+        assert create_for.call_count == 1
+        assert any("build_shared_database" in key for key in runner.timings.to_dict())
