@@ -316,7 +316,7 @@ describe("AgentService", () => {
 
   describe("claude auth terminal", () => {
     it.each([
-      { action: "login" as const, expected: "'auth' 'login' '--claudeai'" },
+      { action: "login" as const, expected: "'auth' 'login'" },
       { action: "logout" as const, expected: "'auth' 'logout'" },
     ])("describes the claude auth $action terminal", ({ action, expected }) => {
       const terminal = service.getClaudeAuthTerminal(action);
