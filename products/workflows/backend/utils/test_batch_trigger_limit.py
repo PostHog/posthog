@@ -8,7 +8,7 @@ from parameterized import parameterized
 from posthog.models.team import Team
 
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
-from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
+from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit, hog_flow_sends_email
 
 TIER_BATCH_CAPS = [100, 1000, 3000, 10000, 30000, 100000, 300000, 1000000]
 
@@ -116,6 +116,28 @@ class TestTieredHogflowBatchTriggerLimit(BaseTest):
         TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults={"email_sending_tier": 0})
         assert get_hogflow_batch_trigger_limit(self.team.id, sends_email=False) == 5000
         assert get_hogflow_batch_trigger_limit(self.team.id, sends_email=True) == TIER_BATCH_CAPS[0]
+
+    @parameterized.expand(
+        [
+            ("an email step", [{"type": "function_email"}], True),
+            (
+                "the email template on a generic function step",
+                [{"type": "function", "config": {"template_id": "template-email"}}],
+                True,
+            ),
+            (
+                "a webhook template on a generic function step",
+                [{"type": "function", "config": {"template_id": "template-webhook"}}],
+                False,
+            ),
+            ("only sms and delay steps", [{"type": "function_sms"}, {"type": "delay"}], False),
+            ("a non-list actions value", None, False),
+        ]
+    )
+    def test_email_step_detection(self, _name: str, actions: object, expected: bool) -> None:
+        # The serializer accepts the email template on a generic function step and the worker
+        # executes it, so the detector must not key on the declared type alone.
+        assert hog_flow_sends_email(actions) is expected
 
     @override_settings(WORKFLOWS_EMAIL_TIER_MODE="enforce")
     def test_team_without_a_config_row_is_treated_as_tier_zero(self) -> None:

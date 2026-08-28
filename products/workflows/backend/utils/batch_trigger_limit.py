@@ -5,6 +5,24 @@ from products.workflows.backend.utils.email_sending_tiers import (
     resolve_team_email_sending_tier,
 )
 
+# Kept in sync with _FIXED_TEMPLATE_IDS["function_email"] in products/workflows/backend/api/hog_flow.py.
+_EMAIL_TEMPLATE_ID = "template-email"
+
+
+def _action_sends_email(action: object) -> bool:
+    if not isinstance(action, dict):
+        return False
+    if action.get("type") == "function_email":
+        return True
+    # The serializer also accepts the email template on a generic function step, and the worker
+    # executes it the same way, so the detector must not key on the declared type alone.
+    config = action.get("config")
+    return (
+        action.get("type") == "function"
+        and isinstance(config, dict)
+        and config.get("template_id") == _EMAIL_TEMPLATE_ID
+    )
+
 
 def hog_flow_sends_email(actions: object) -> bool:
     """Whether a workflow's action list contains an email step. The email sending tiers exist to
@@ -12,7 +30,7 @@ def hog_flow_sends_email(actions: object) -> bool:
     `object` because the input is a JSONField whose shape the isinstance checks establish."""
     if not isinstance(actions, list):
         return False
-    return any(isinstance(action, dict) and action.get("type") == "function_email" for action in actions)
+    return any(_action_sends_email(action) for action in actions)
 
 
 def get_hogflow_batch_trigger_limit(team_id: int, *, sends_email: bool = True) -> int:
