@@ -5098,7 +5098,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "deprecated feature flag usage dashboard endpoint called",
             {"endpoint": "enrich_usage_dashboard", "outcome": "success"},
             team=instance.team,
-            request=ANY,
+            organization=self.organization,
         )
 
         # now try enriching again
@@ -5119,7 +5119,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "deprecated feature flag usage dashboard endpoint called",
             {"endpoint": "enrich_usage_dashboard", "outcome": "error"},
             team=instance.team,
-            request=ANY,
+            organization=self.organization,
         )
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
@@ -5187,7 +5187,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "deprecated feature flag usage dashboard endpoint called",
             {"endpoint": "enrich_usage_dashboard", "outcome": "error"},
             team=flag.team,
-            request=ANY,
+            organization=self.organization,
         )
 
     def test_dashboard_endpoint_is_idempotent(self) -> None:
@@ -5226,7 +5226,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "deprecated feature flag usage dashboard endpoint called",
             {"endpoint": "dashboard", "outcome": "created"},
             team=flag.team,
-            request=ANY,
+            organization=self.organization,
         )
 
         mock_report_user_action.reset_mock()
@@ -5238,7 +5238,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "deprecated feature flag usage dashboard endpoint called",
             {"endpoint": "dashboard", "outcome": "existing"},
             team=flag.team,
-            request=ANY,
+            organization=self.organization,
         )
 
     @patch("products.feature_flags.backend.api.feature_flag.capture_exception")
@@ -5263,7 +5263,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "deprecated feature flag usage dashboard endpoint called",
             {"endpoint": "dashboard", "outcome": "error"},
             team=flag.team,
-            request=ANY,
+            organization=self.organization,
         )
         mock_capture_exception.assert_called_once()
         mock_create_usage_dashboard.assert_called_once()

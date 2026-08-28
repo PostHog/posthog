@@ -3333,10 +3333,9 @@ class FeatureFlagViewSet(
             response["Sunset"] = FEATURE_FLAG_USAGE_DASHBOARD_SUNSET
         return response
 
-    @staticmethod
     def _report_usage_dashboard_endpoint_call(
+        self,
         request: request.Request,
-        feature_flag: FeatureFlag,
         endpoint: Literal["dashboard", "enrich_usage_dashboard"],
         outcome: Literal["created", "existing", "success", "error"],
     ) -> None:
@@ -3345,8 +3344,8 @@ class FeatureFlagViewSet(
                 request.user,
                 "deprecated feature flag usage dashboard endpoint called",
                 {"endpoint": endpoint, "outcome": outcome},
-                team=feature_flag.team,
-                request=request,
+                team=self.team,
+                organization=self.team.organization,
             )
         except Exception:
             logger.exception("Failed to report deprecated feature flag usage dashboard endpoint call")
@@ -3373,7 +3372,7 @@ class FeatureFlagViewSet(
         feature_flag: FeatureFlag = self.get_object()
         rejection = self._deleted_flag_rejection(feature_flag, "generating a usage dashboard")
         if rejection is not None:
-            self._report_usage_dashboard_endpoint_call(request, feature_flag, "dashboard", "error")
+            self._report_usage_dashboard_endpoint_call(request, "dashboard", "error")
             return self._with_usage_dashboard_deprecation_headers(rejection)
         try:
             # The FK on the flag isn't cleared by a dashboard soft-delete, so look the id up
@@ -3397,7 +3396,7 @@ class FeatureFlagViewSet(
 
         except Exception as e:
             capture_exception(e)
-            self._report_usage_dashboard_endpoint_call(request, feature_flag, "dashboard", "error")
+            self._report_usage_dashboard_endpoint_call(request, "dashboard", "error")
             return self._with_usage_dashboard_deprecation_headers(
                 Response(
                     {
@@ -3408,7 +3407,7 @@ class FeatureFlagViewSet(
                 )
             )
 
-        self._report_usage_dashboard_endpoint_call(request, feature_flag, "dashboard", outcome)
+        self._report_usage_dashboard_endpoint_call(request, "dashboard", outcome)
         return self._with_usage_dashboard_deprecation_headers(Response({"success": True}, status=status.HTTP_200_OK))
 
     @extend_schema(
@@ -3428,12 +3427,12 @@ class FeatureFlagViewSet(
         feature_flag: FeatureFlag = self.get_object()
         rejection = self._deleted_flag_rejection(feature_flag, "enriching its usage dashboard")
         if rejection is not None:
-            self._report_usage_dashboard_endpoint_call(request, feature_flag, "enrich_usage_dashboard", "error")
+            self._report_usage_dashboard_endpoint_call(request, "enrich_usage_dashboard", "error")
             return self._with_usage_dashboard_deprecation_headers(rejection, include_sunset=False)
         usage_dashboard = feature_flag.usage_dashboard
 
         if not usage_dashboard:
-            self._report_usage_dashboard_endpoint_call(request, feature_flag, "enrich_usage_dashboard", "error")
+            self._report_usage_dashboard_endpoint_call(request, "enrich_usage_dashboard", "error")
             return self._with_usage_dashboard_deprecation_headers(
                 Response(
                     {
@@ -3446,7 +3445,7 @@ class FeatureFlagViewSet(
             )
 
         if feature_flag.usage_dashboard_has_enriched_insights:
-            self._report_usage_dashboard_endpoint_call(request, feature_flag, "enrich_usage_dashboard", "error")
+            self._report_usage_dashboard_endpoint_call(request, "enrich_usage_dashboard", "error")
             return self._with_usage_dashboard_deprecation_headers(
                 Response(
                     {
@@ -3459,7 +3458,7 @@ class FeatureFlagViewSet(
             )
 
         if not feature_flag.has_enriched_analytics:
-            self._report_usage_dashboard_endpoint_call(request, feature_flag, "enrich_usage_dashboard", "error")
+            self._report_usage_dashboard_endpoint_call(request, "enrich_usage_dashboard", "error")
             return self._with_usage_dashboard_deprecation_headers(
                 Response(
                     {
@@ -3474,7 +3473,7 @@ class FeatureFlagViewSet(
             add_enriched_insights_to_feature_flag_dashboard(feature_flag, usage_dashboard)
         except Exception as e:
             capture_exception(e)
-            self._report_usage_dashboard_endpoint_call(request, feature_flag, "enrich_usage_dashboard", "error")
+            self._report_usage_dashboard_endpoint_call(request, "enrich_usage_dashboard", "error")
             return self._with_usage_dashboard_deprecation_headers(
                 Response(
                     {
@@ -3486,7 +3485,7 @@ class FeatureFlagViewSet(
                 include_sunset=False,
             )
 
-        self._report_usage_dashboard_endpoint_call(request, feature_flag, "enrich_usage_dashboard", "success")
+        self._report_usage_dashboard_endpoint_call(request, "enrich_usage_dashboard", "success")
         return self._with_usage_dashboard_deprecation_headers(
             Response({"success": True}, status=status.HTTP_200_OK), include_sunset=False
         )
