@@ -1091,6 +1091,11 @@ export interface ComposeTicketApi {
     message: string
     /** TipTap rich content JSON for formatted messages. */
     rich_content?: unknown
+    /**
+     * Tags to apply to the new ticket, e.g. to mark its source. Each is normalized (lowercased, trimmed).
+     * @items.maxLength 255
+     */
+    tags?: string[]
 }
 
 export interface ComposeTicketResponseApi {

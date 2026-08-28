@@ -406,6 +406,8 @@ export const conversationsTicketsComposeCreateBodyEmailSubjectMax = 500
 
 export const conversationsTicketsComposeCreateBodyMessageMax = 5000
 
+export const conversationsTicketsComposeCreateBodyTagsItemMax = 255
+
 export const ConversationsTicketsComposeCreateBody = /* @__PURE__ */ zod.object({
     recipient_email: zod.email().describe('Recipient email address.'),
     recipient_distinct_id: zod
@@ -421,6 +423,12 @@ export const ConversationsTicketsComposeCreateBody = /* @__PURE__ */ zod.object(
     email_config_id: zod.uuid().describe('ID of the EmailChannel to send from.'),
     message: zod.string().max(conversationsTicketsComposeCreateBodyMessageMax).describe('Message content in markdown.'),
     rich_content: zod.unknown().optional().describe('TipTap rich content JSON for formatted messages.'),
+    tags: zod
+        .array(zod.string().max(conversationsTicketsComposeCreateBodyTagsItemMax))
+        .optional()
+        .describe(
+            'Tags to apply to the new ticket, e.g. to mark its source. Each is normalized (lowercased, trimmed).'
+        ),
 })
 
 export const conversationsViewsCreateBodyNameMax = 400
