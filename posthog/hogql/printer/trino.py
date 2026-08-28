@@ -677,7 +677,7 @@ class TrinoPrinter(PostgresPrinter):
                 path += f"[{member}]"
             else:
                 escaped = str(member).replace("\\", "\\\\").replace('"', '\\"')
-                path += f'."{escaped}"'
+                path += f'["{escaped}"]'
         return self.context.add_value(path)
 
     def _visit_lambda_array_call(self, node: ast.Call, target: str) -> str:
@@ -1016,6 +1016,12 @@ class TrinoPrinter(PostgresPrinter):
         if op == ast.CompareOperationOp.NotIRegex:
             return f"(NOT regexp_like({left}, '(?i)' || {right}))"
         return super()._get_compare_op(op, left, right)
+
+    def _visit_to_start_of_call(self, node: ast.Call) -> str:
+        rendered = super()._visit_to_start_of_call(node)
+        if isinstance(self._resolve_type(node), ast.DateType):
+            return f"CAST({rendered} AS DATE)"
+        return rendered
 
     def _render_start_of(self, unit: str, arg: str, week_mode: int = 3) -> str:
         if unit == "week" and week_mode == 0:

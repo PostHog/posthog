@@ -173,6 +173,18 @@ def test_prints_iso_datetime_and_heterogeneous_concat_for_trino() -> None:
     assert 'concat(CAST(%(hogql_val_1)s AS VARCHAR), CAST(length("users"."user_id") AS VARCHAR))' in sql
 
 
+def test_preserves_date_return_type_for_trino_date_truncation() -> None:
+    sql, _ = prepare_and_print_ast(
+        parse_select("SELECT toStartOfMonth(created_at), toStartOfDay(created_at) FROM users"),
+        _context_with_trino_table(),
+        "trino",
+    )
+
+    assert 'CAST(date_trunc(\'month\', "users"."created_at") AS DATE)' in sql
+    assert 'date_trunc(\'day\', "users"."created_at")' in sql
+    assert 'CAST(date_trunc(\'day\', "users"."created_at") AS DATE)' not in sql
+
+
 def test_uses_trino_array_cardinality_and_lax_json_paths() -> None:
     context = _context_with_trino_table()
 
@@ -200,7 +212,7 @@ def test_prints_json_paths_as_bound_values() -> None:
     )
 
     assert 'json_extract_scalar("users"."user_id", %(hogql_val_0)s)' in sql
-    assert context.values == {"hogql_val_0": '$."key.with.dot"[2]'}
+    assert context.values == {"hogql_val_0": '$["key.with.dot"][2]'}
 
 
 def test_lowers_event_property_backed_fields_to_the_physical_json_column() -> None:
@@ -220,9 +232,9 @@ def test_lowers_event_property_backed_fields_to_the_physical_json_column() -> No
     assert 'json_extract_scalar("tenant"."posthog"."events"."properties", %(hogql_val_1)s)' in sql
     assert 'json_extract_scalar("tenant"."posthog"."events"."properties", %(hogql_val_2)s)' in sql
     assert context.values == {
-        "hogql_val_0": '$."$session_id"',
-        "hogql_val_1": '$."$window_id"',
-        "hogql_val_2": '$."$group_0"',
+        "hogql_val_0": '$["$session_id"]',
+        "hogql_val_1": '$["$window_id"]',
+        "hogql_val_2": '$["$group_0"]',
     }
 
 
@@ -290,7 +302,7 @@ def test_prints_empty_for_lowered_json_property_after_second_resolution() -> Non
     )
 
     assert 'json_extract_scalar("users"."properties", %(hogql_val_0)s) <> \'\'' in sql
-    assert context.values == {"hogql_val_0": '$."task_run_id"'}
+    assert context.values == {"hogql_val_0": '$["task_run_id"]'}
 
 
 def test_rejects_function_argument_shapes_with_stable_error() -> None:
