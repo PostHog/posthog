@@ -299,7 +299,7 @@ describe('sqlLineGraphAdapter', () => {
         })
 
         it('is false above the cap on a dashboard', () => {
-            expect(exceedsMaxSeries(tooMany, 'dash-1')).toBe(false)
+            expect(exceedsMaxSeries(tooMany, 1)).toBe(false)
         })
 
         it('is false at or below the cap', () => {

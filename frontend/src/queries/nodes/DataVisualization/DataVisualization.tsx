@@ -37,6 +37,7 @@ import { QueryFeature } from '../DataTable/queryFeatures'
 import { PieChart } from './Components/Charts/PieChart'
 import { SqlBoxPlot } from './Components/Charts/SqlBoxPlot'
 import { SqlChart } from './Components/Charts/SqlChart'
+import { SqlChartWithDashboardVariables } from './Components/Charts/SqlChartWithDashboardVariables'
 import { SqlScatterGraph } from './Components/Charts/SqlScatterGraph'
 import { TwoDimensionalHeatmap } from './Components/Heatmap/TwoDimensionalHeatmap'
 import { seriesBreakdownLogic } from './Components/seriesBreakdownLogic'
@@ -262,18 +263,23 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     ) {
         const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
         const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
-        component = (
-            <SqlChart
-                className="p-3"
-                xData={_xData}
-                yData={_yData}
-                visualizationType={effectiveVisualizationType}
-                chartSettings={chartSettings}
-                dashboardId={dashboardId}
-                goalLines={[...alertThresholdLines, ...goalLines]}
-                presetChartHeight={presetChartHeight}
-            />
-        )
+        const sqlChartProps = {
+            className: 'p-3',
+            xData: _xData,
+            yData: _yData,
+            visualizationType: effectiveVisualizationType,
+            chartSettings,
+            dashboardId,
+            goalLines: [...alertThresholdLines, ...goalLines],
+            presetChartHeight,
+        }
+        // On a dashboard, a click on a data point filters the dashboard by the clicked value.
+        component =
+            typeof dashboardId === 'number' ? (
+                <SqlChartWithDashboardVariables {...sqlChartProps} dashboardId={dashboardId} />
+            ) : (
+                <SqlChart {...sqlChartProps} />
+            )
     } else if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {
         const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
         // Pie charts can consume breakdown series totals directly, even when there isn't
