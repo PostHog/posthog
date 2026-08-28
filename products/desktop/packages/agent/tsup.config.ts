@@ -152,7 +152,6 @@ export default defineConfig([
       "src/acp-extensions.ts",
       "src/agent.ts",
       "src/gateway-models.ts",
-      "src/handoff-checkpoint.ts",
       "src/posthog-api.ts",
       "src/posthog-products.ts",
       "src/pr-url-detector.ts",

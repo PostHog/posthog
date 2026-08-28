@@ -1,8 +1,6 @@
 import type {
   Adapter,
   CodexModelAccess,
-  GitHandoffCheckpoint,
-  HandoffLocalGitState as GitHandoffLocalGitState,
   PostHogAPIConfig,
 } from "@posthog/shared";
 import type { EffortLevel } from "@posthog/shared/domain-types";
@@ -146,17 +144,6 @@ export type FileStatus = "A" | "M" | "D";
 export interface FileChange {
   path: string;
   status: FileStatus;
-}
-
-export type HandoffLocalGitState = GitHandoffLocalGitState;
-
-export interface GitCheckpoint extends GitHandoffCheckpoint {
-  artifactPath?: string;
-  indexArtifactPath?: string;
-}
-
-export interface GitCheckpointEvent extends GitCheckpoint {
-  device?: DeviceInfo;
 }
 
 /**

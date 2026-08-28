@@ -336,7 +336,7 @@ describe("ClaudeAcpAgent session creation", () => {
       name: "pins the default model explicitly when resuming without meta.model",
       sessionId: "0197a000-0000-7000-8000-000000000002",
       model: undefined,
-      expectedSetModel: "opus",
+      expectedSetModel: "claude-opus-4-8",
       expectedCurrentValue: "claude-opus-4-8",
     },
   ])(
@@ -414,7 +414,7 @@ describe("ClaudeAcpAgent session creation", () => {
 
   it.each([
     {
-      name: "uses the gateway default and never calls setModel without a requested model",
+      name: "pins the gateway default explicitly at spawn so it never rides the floating SDK alias",
       model: undefined,
       expectsWarn: false,
     },
@@ -433,7 +433,9 @@ describe("ClaudeAcpAgent session creation", () => {
       _meta: { taskRunId: "run-new", ...(model ? { model } : {}) },
     });
 
-    expect(createdQueries[0].setModel).not.toHaveBeenCalled();
+    expect(createdQueries[0].setModel).toHaveBeenCalledWith(
+      DEFAULT_GATEWAY_MODEL,
+    );
     expect(getModelConfigOption(response)?.currentValue).toBe(
       DEFAULT_GATEWAY_MODEL,
     );

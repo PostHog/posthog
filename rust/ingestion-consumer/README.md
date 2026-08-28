@@ -1,7 +1,7 @@
 # ingestion-consumer
 
-Rust Kafka consumer that routes analytics events to Node.js ingestion workers over HTTP with sticky per-`distinct_id` assignment.
-It reads batches from Kafka, groups messages by `token:distinct_id`, pins each key to a worker (preserving per-person ordering), scatters sub-batches over HTTP, and commits offsets only after every message in the batch is accepted.
+Rust Kafka consumer that routes analytics events to Node.js ingestion workers over HTTP with sticky per-key assignment.
+It reads batches from Kafka, groups messages by Kafka message key, pins each key to a worker (preserving per-key ordering; unkeyed messages can go to any worker), scatters sub-batches over HTTP, and commits offsets only after every message in the batch is accepted.
 Worker health combines active `/_ready` probes with passive send outcomes; workers that leave the pool drain gracefully — in-flight work finishes, new work for their keys defers and re-routes to survivors in order.
 
 ## Ordering sentinels
@@ -25,7 +25,7 @@ The rebalance metrics from the consumer context stay on regardless, and the `con
 The worker-side check lives in `nodejs/src/ingestion/api/feed-order-sentinel.ts`, fed by the `consumer_id` (process incarnation) and `replay` fields the transport stamps on every `/ingest` request.
 It measures the invariant at its end point: the worker's grouping stage processes each key strictly in feed order, so "fed in offset order per key" is "processed in order per key".
 Rebalances reset all baselines (`ingestion_consumer_rebalances_total{event}` counts them), so partition handoffs don't fire false positives.
-Null-key messages (e.g. overflow rerouting) are excluded from the consumer-side key checks: the producer deliberately spreads such a routing key across partitions, forfeiting per-key order, so offsets from different partitions are not comparable and there is no invariant to check. The worker-side check is unaffected — it scopes keys per partition, an invariant that holds for all traffic.
+Null-key messages (e.g. overflow rerouting) are excluded from both checks: the producer deliberately forfeits per-key order for them, and the consumer routes each one individually rather than pinning it, so there is no invariant to check on either side.
 
 ## Debug API
 

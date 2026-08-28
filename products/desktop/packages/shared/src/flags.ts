@@ -31,6 +31,7 @@ export const DESKTOP_HOME_FLAG = "desktop-home-flag";
 export const TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox";
 export const GLM_MODEL_FLAG = "posthog-code-glm-model";
 export const GLM53_MODEL_FLAG = "posthog-code-glm-53-model";
+export const GLM53_FLASH_MODEL_FLAG = "posthog-code-glm-53-flash-model";
 /** PostHog Desktop: show DeepSeek V4 Flash in the model picker. Off = hidden. */
 export const DEEPSEEK_MODEL_FLAG = "posthog-code-deepseek-model";
 
