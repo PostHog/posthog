@@ -3,6 +3,7 @@ import pLimit from 'p-limit'
 import { BatchBudget } from './batch-budget'
 import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 import { createOkContext } from './helpers'
+import { batchBudgetExhaustedCounter, batchBudgetOverrunHistogram } from './metrics'
 import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
 import { PipelineResult, isOkResult } from './results'
 
@@ -72,8 +73,23 @@ const BATCHING_PIPELINE_DEFAULTS: BatchingPipelineOptions = {
     concurrentBatches: 1,
 }
 
+/**
+ * Close out a completed batch's budget: drop the deadline it no longer needs,
+ * and record how far it overran. The overrun is the tail the checkpoints cannot
+ * cut, because they only stop work from starting.
+ */
+function closeBudget(budget: BatchBudget): void {
+    budget.settle()
+    if (!budget.exhausted || budget.softAt === Infinity) {
+        return
+    }
+    batchBudgetExhaustedCounter.inc()
+    batchBudgetOverrunHistogram.observe(Math.max(0, Date.now() - budget.softAt) / 1000)
+}
+
 interface TrackedBatch<TOutput, CBatch, COutput, R extends string = never, CFeed extends object = object> {
     batchContext: CBatch & CFeed & { batchId: number }
+    budget: BatchBudget
     messageIds: number[]
     inflight: Set<number>
     results: Map<number, PipelineResultWithContext<TOutput, COutput, R>>
@@ -277,6 +293,7 @@ export class BatchingPipeline<
         // drop it.
         this.batches.set(batchId, {
             batchContext: { ...batchContext, ...feedContext },
+            budget,
             messageIds,
             inflight,
             results: new Map(),
@@ -351,6 +368,7 @@ export class BatchingPipeline<
                 batch.results.set(messageId, resultWithContext)
 
                 if (batch.inflight.size === 0) {
+                    closeBudget(batch.budget)
                     const orderedResults = batch.messageIds.map((id) => batch.results.get(id)!)
                     this.batches.delete(batchId)
                     for (const id of batch.messageIds) {

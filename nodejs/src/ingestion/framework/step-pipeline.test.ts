@@ -4,6 +4,8 @@ import { logger } from '~/common/utils/logger'
 
 import { BatchBudget } from './batch-budget'
 import { createContext, createOkContext } from './helpers'
+import { batchBudgetCheckpointCounter } from './metrics'
+import { getBudgetCheckpoints } from './metrics.test-utils'
 import { isOkResult, isTimeoutResult, ok } from './results'
 import { StartPipeline } from './start-pipeline'
 import { StepPipeline } from './step-pipeline'
@@ -67,6 +69,7 @@ describe('StepPipeline', () => {
 
         beforeEach(() => {
             jest.useFakeTimers()
+            batchBudgetCheckpointCounter.reset()
         })
 
         afterEach(() => {
@@ -104,6 +107,7 @@ describe('StepPipeline', () => {
             expect(isTimeoutResult(result.result)).toBe(true)
             expect((result.result as { reason: string }).reason).toBe('budget exceeded before secondStep')
             expect(result.context.lastStep).toBe('firstStep')
+            expect(await getBudgetCheckpoints('step', 'secondStep')).toBe(1)
         })
     })
 

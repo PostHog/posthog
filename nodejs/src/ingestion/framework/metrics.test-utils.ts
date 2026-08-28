@@ -1,4 +1,21 @@
-import { pipelineRetryAttemptsHistogram } from './metrics'
+import {
+    BudgetCheckpoint,
+    batchBudgetCheckpointCounter,
+    batchBudgetExhaustedCounter,
+    pipelineRetryAttemptsHistogram,
+} from './metrics'
+
+/** How many elements the named checkpoint cut off. */
+export async function getBudgetCheckpoints(checkpoint: BudgetCheckpoint, stepName: string): Promise<number> {
+    const metric = await batchBudgetCheckpointCounter.get()
+    return metric.values.find((v) => v.labels.checkpoint === checkpoint && v.labels.step_name === stepName)?.value ?? 0
+}
+
+/** How many budgets expired before their batch completed. */
+export async function getBudgetsExhausted(): Promise<number> {
+    const metric = await batchBudgetExhaustedCounter.get()
+    return metric.values[0]?.value ?? 0
+}
 
 /**
  * Reads the {_count, _sum} of the retry-attempts histogram for a given name/outcome.

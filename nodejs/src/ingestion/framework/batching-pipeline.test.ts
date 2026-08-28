@@ -4,6 +4,8 @@ import { BatchBudget } from './batch-budget'
 import { BatchingPipeline } from './batching-pipeline'
 import { newBatchingPipeline } from './builders/helpers'
 import { OkResultWithContext } from './chunk-pipeline.interface'
+import { batchBudgetExhaustedCounter } from './metrics'
+import { getBudgetsExhausted } from './metrics.test-utils'
 import { PipelineResultWithContext } from './pipeline.interface'
 import { ok } from './results'
 
@@ -94,6 +96,21 @@ describe('BatchingPipeline', () => {
         const { allResults } = await drainAll(collector)
 
         expect(allResults[0].context.budget).toBe(BatchBudget.unlimited())
+    })
+
+    it('counts a budget that expired before its batch completed', async () => {
+        batchBudgetExhaustedCounter.reset()
+        const collector = newBatchingPipeline<any, any, MsgCtx>(
+            (builder) => builder.pipe(beforeBatchStep),
+            (builder) => builder,
+            (builder) => builder.pipe(afterBatchStep),
+            { concurrentBatches: Infinity }
+        )
+
+        await collector.feed(makeBatch([1]), {}, BatchBudget.softDeadline(Date.now() - 10))
+        await drainAll(collector)
+
+        expect(await getBudgetsExhausted()).toBe(1)
     })
 
     it('returns null when sub-pipeline is empty', async () => {
