@@ -44,3 +44,15 @@ export default meta
 type Story = StoryObj<{}>
 
 export const ExperimentPausedWarning: Story = { play: makeDelay(700) }
+
+// At mobile width the banner stacks: content on top, full-width resume button underneath
+// (LemonBanner's @container breakpoint swaps the inline button for the stacked one).
+export const ExperimentPausedWarningMobile: Story = {
+    parameters: {
+        testOptions: {
+            waitForSelector: '[data-attr="experiment-warning-resume-experiment"]',
+            viewport: { width: 390, height: 844 },
+        },
+    },
+    play: makeDelay(700),
+}
