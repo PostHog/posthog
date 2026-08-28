@@ -11691,6 +11691,7 @@ export namespace Schemas {
       source_run?: QuarantineSourceRun | null;
       id: string;
       reason: string;
+      source: string;
       /** @nullable */
       expires_at: string | null;
       created_at: string;
@@ -23992,6 +23993,9 @@ export namespace Schemas {
      * * `Tana` - Tana
      * * `Zenchef` - Zenchef
      * * `Lovable` - Lovable
+     * * `Anvil` - Anvil
+     * * `Coolify` - Coolify
+     * * `SocialPilot` - SocialPilot
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -25317,6 +25321,9 @@ export namespace Schemas {
       Tana: 'Tana',
       Zenchef: 'Zenchef',
       Lovable: 'Lovable',
+      Anvil: 'Anvil',
+      Coolify: 'Coolify',
+      SocialPilot: 'SocialPilot',
     } as const;
 
     /**
@@ -26655,7 +26662,10 @@ export namespace Schemas {
        * * `NationBuilder` - NationBuilder
        * * `Tana` - Tana
        * * `Zenchef` - Zenchef
-       * * `Lovable` - Lovable */
+       * * `Lovable` - Lovable
+       * * `Anvil` - Anvil
+       * * `Coolify` - Coolify
+       * * `SocialPilot` - SocialPilot */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -28682,7 +28692,10 @@ export namespace Schemas {
        * * `NationBuilder` - NationBuilder
        * * `Tana` - Tana
        * * `Zenchef` - Zenchef
-       * * `Lovable` - Lovable */
+       * * `Lovable` - Lovable
+       * * `Anvil` - Anvil
+       * * `Coolify` - Coolify
+       * * `SocialPilot` - SocialPilot */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -36925,7 +36938,10 @@ export namespace Schemas {
        * * `NationBuilder` - NationBuilder
        * * `Tana` - Tana
        * * `Zenchef` - Zenchef
-       * * `Lovable` - Lovable */
+       * * `Lovable` - Lovable
+       * * `Anvil` - Anvil
+       * * `Coolify` - Coolify
+       * * `SocialPilot` - SocialPilot */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -38284,7 +38300,10 @@ export namespace Schemas {
        * * `NationBuilder` - NationBuilder
        * * `Tana` - Tana
        * * `Zenchef` - Zenchef
-       * * `Lovable` - Lovable */
+       * * `Lovable` - Lovable
+       * * `Anvil` - Anvil
+       * * `Coolify` - Coolify
+       * * `SocialPilot` - SocialPilot */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -43789,6 +43808,8 @@ export namespace Schemas {
       email?: string | null;
       /** When the recording ends in ISO format. */
       end_time: string;
+      /** Number of captured rrweb events in the recording. Only present once metadata is loaded. */
+      event_count?: number | null;
       /** When the recording expires, in ISO format. */
       expiry_time?: string | null;
       /** External references to third party issues. */
@@ -43818,6 +43839,8 @@ export namespace Schemas {
       start_time: string;
       start_url?: string | null;
       summary?: string | null;
+      /** Total stored size of the recording's snapshot data in bytes. Only present once metadata is loaded. */
+      total_size?: number | null;
       /** Whether this recording has been viewed by you already. */
       viewed: boolean;
       /** user ids of other users who have viewed this recording */
@@ -49385,7 +49408,8 @@ export namespace Schemas {
       display_name?: string;
       /** @maxLength 2048 */
       url?: string;
-      description?: string;
+      /** Installation description, falling back to the linked template description. */
+      readonly description: string;
       auth_type?: MCPAuthTypeEnum;
       is_enabled?: boolean;
       readonly scope: MCPServerInstallationScopeEnum;
@@ -54478,6 +54502,7 @@ export namespace Schemas {
       identifier: string;
       run_type: string;
       reason: string;
+      source: string;
       /** @nullable */
       expires_at: string | null;
       created_at: string;
@@ -55511,6 +55536,16 @@ export namespace Schemas {
       readonly external_references: readonly SessionRecordingExternalReferencesItem[];
       /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
       readonly matches_filters: boolean;
+      /**
+         * Total stored size of the recording's snapshot data in bytes. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+         * @nullable
+         */
+      readonly total_size: number | null;
+      /**
+         * Number of captured rrweb events in the recording. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+         * @nullable
+         */
+      readonly event_count: number | null;
     }
 
     export interface PaginatedSessionRecordingList {
@@ -65032,6 +65067,16 @@ export namespace Schemas {
       readonly external_references?: readonly PatchedSessionRecordingExternalReferencesItem[];
       /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
       readonly matches_filters?: boolean;
+      /**
+         * Total stored size of the recording's snapshot data in bytes. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+         * @nullable
+         */
+      readonly total_size?: number | null;
+      /**
+         * Number of captured rrweb events in the recording. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+         * @nullable
+         */
+      readonly event_count?: number | null;
     }
 
     /**
@@ -78153,7 +78198,10 @@ export namespace Schemas {
        * * `NationBuilder` - NationBuilder
        * * `Tana` - Tana
        * * `Zenchef` - Zenchef
-       * * `Lovable` - Lovable */
+       * * `Lovable` - Lovable
+       * * `Anvil` - Anvil
+       * * `Coolify` - Coolify
+       * * `SocialPilot` - SocialPilot */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -79520,7 +79568,10 @@ export namespace Schemas {
        * * `NationBuilder` - NationBuilder
        * * `Tana` - Tana
        * * `Zenchef` - Zenchef
-       * * `Lovable` - Lovable */
+       * * `Lovable` - Lovable
+       * * `Anvil` - Anvil
+       * * `Coolify` - Coolify
+       * * `SocialPilot` - SocialPilot */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -80877,7 +80928,10 @@ export namespace Schemas {
        * * `NationBuilder` - NationBuilder
        * * `Tana` - Tana
        * * `Zenchef` - Zenchef
-       * * `Lovable` - Lovable */
+       * * `Lovable` - Lovable
+       * * `Anvil` - Anvil
+       * * `Coolify` - Coolify
+       * * `SocialPilot` - SocialPilot */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -84820,6 +84874,14 @@ export namespace Schemas {
       total_records: number;
       /** Running aggregates: output event name counts, error counts, dropped/skipped totals, timestamp range. */
       summary: unknown;
+    }
+
+    export interface UnquarantineQuery {
+      /**
+         * Snapshot identifier to unquarantine
+         * @maxLength 512
+         */
+      identifier: string;
     }
 
     export interface UpdateAppInput {

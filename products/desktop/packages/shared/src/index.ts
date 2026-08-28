@@ -52,7 +52,10 @@ export {
   type CloseTabResult,
   closeTab,
   closeTabs,
+  DEFAULT_TAB_HREF,
   decideTabNavigation,
+  ensureWindowHasTab,
+  type NewTabOptions,
   type OpenTabResult,
   openTab,
   POSITION_GAP,
@@ -230,12 +233,14 @@ export {
 } from "./inbox-types";
 export { EXTERNAL_LINKS } from "./links";
 export type {
+  AcpMcpServer,
   CloudMcpServerRelayDesignation,
   LocalMcpServerDescriptor,
   LocalMcpServerScope,
   LocalMcpTransport,
   McpServerConnection,
 } from "./local-mcp-domain";
+export { toAcpMcpServers } from "./local-mcp-domain";
 export {
   MCP_TOOL_PERMISSION_OPTIONS,
   type McpToolApprovalState,

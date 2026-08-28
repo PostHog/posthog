@@ -14,6 +14,7 @@ describe("modelPricing", () => {
     ["claude-opus-5", "2.5×"],
     ["gpt-5.5", "≈2.8×"],
     ["deepseek-v4", "≈0.05×"],
+    ["zai-org/glm-5.3-flash", "≈0.06×"],
   ] as const)("%s -> %s", (modelId, expected) => {
     expect(modelCostInfo(modelId)?.multiplierLabel).toBe(expected);
   });
@@ -26,6 +27,8 @@ describe("modelPricing", () => {
   it("matches specific families before the broader ones they contain", () => {
     expect(modelListPrice("gpt-5.6-luna")?.inputPerMtok).toBe(1);
     expect(modelListPrice("gpt-5.5")?.inputPerMtok).toBe(5);
+    expect(modelListPrice("zai-org/glm-5.3-flash")?.inputPerMtok).toBe(0.15);
+    expect(modelListPrice("zai-org/glm-5.3")?.inputPerMtok).toBe(1.4);
     expect(modelListPrice("claude-sonnet-4-5")?.inputPerMtok).toBe(3);
     expect(modelListPrice("claude-sonnet-5")?.inputPerMtok).toBe(2);
   });
@@ -80,6 +83,7 @@ describe("contract rates match the gateway's pinned table", () => {
   it.each([
     ["kimi", "KIMI_K3_COST"],
     ["glm", "BASETEN_GLM_COST"],
+    ["glm-5.3-flash", "BASETEN_GLM53_FLASH_COST"],
     ["deepseek", "BASETEN_DEEPSEEK_COST"],
     ["fable", "claude-fable-5"],
     ["gpt-5.6-sol", "gpt-5.6-sol"],
