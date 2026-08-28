@@ -50,22 +50,20 @@ def _cleanup_filter(inputs: SymbolSetCleanupInputs) -> Q:
     return query_filter
 
 
-class _Row(models.Func):
-    function = ""
-    template = "(%(expressions)s)"
-    output_field = models.Field()
+def _row(*expressions: F | models.Expression) -> models.Func:
+    return models.Func(*expressions, function="", template="(%(expressions)s)", output_field=models.Field())
 
 
 def _after_cursor(cursor: tuple[datetime.datetime | None, datetime.datetime, UUID]) -> GreaterThan:
     last_used, created_at, symbol_set_id = cursor
     if last_used is None:
         return GreaterThan(
-            _Row(F("created_at"), F("id")),
-            _Row(models.Value(created_at), models.Value(symbol_set_id)),
+            _row(F("created_at"), F("id")),
+            _row(models.Value(created_at), models.Value(symbol_set_id)),
         )
     return GreaterThan(
-        _Row(F("last_used"), F("created_at"), F("id")),
-        _Row(models.Value(last_used), models.Value(created_at), models.Value(symbol_set_id)),
+        _row(F("last_used"), F("created_at"), F("id")),
+        _row(models.Value(last_used), models.Value(created_at), models.Value(symbol_set_id)),
     )
 
 
