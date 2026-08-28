@@ -258,6 +258,7 @@ export function DataTable({
         showActions && sourceFeatures.has(QueryFeature.eventActionsColumn) && columnsInResponse?.includes('*')
     const recordingColumnShown =
         showRecordingColumn && sourceFeatures.has(QueryFeature.eventActionsColumn) && columnsInResponse?.includes('*')
+    const hideRecordingButton = recordingColumnShown || context?.hideRecordingButton
 
     const allColumns = useMemo(
         () =>
@@ -772,7 +773,7 @@ export function DataTable({
                           return (
                               <EventRowActions
                                   event={(result as any[])[columnsInResponse.indexOf('*')]}
-                                  hideRecordingButton={recordingColumnShown}
+                                  hideRecordingButton={hideRecordingButton}
                               />
                           )
                       }
@@ -795,7 +796,7 @@ export function DataTable({
                         )
                     }
                   : undefined,
-        [eventActionsColumnShown, columnsInResponse, recordingColumnShown, sourceFeatures]
+        [eventActionsColumnShown, columnsInResponse, hideRecordingButton, sourceFeatures]
     )
 
     const setQuerySource = useCallback(

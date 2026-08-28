@@ -58,6 +58,7 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     /** Override the maximum pagination limit for Data Tables. */
     dataTableMaxPaginationLimit?: number
     compactDataTableToolbar?: boolean
+    hideRecordingButton?: boolean
     /** Custom expandable config for DataTable rows */
     expandable?: ExpandableConfig<DataTableRow>
     /** Ignore action/event names in series labels (show only breakdown/compare values) */

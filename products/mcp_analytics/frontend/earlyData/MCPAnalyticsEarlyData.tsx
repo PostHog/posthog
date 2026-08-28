@@ -104,8 +104,9 @@ function LiveActivityCard(): JSX.Element {
                     context={{
                         dataTableMaxPaginationLimit: MCP_ACTIVITY_MAX_ROWS,
                         compactDataTableToolbar: true,
+                        hideRecordingButton: true,
                         columns: {
-                            [MCP_ACTIVITY_INTENT_COLUMN]: { width: '18rem' },
+                            [MCP_ACTIVITY_INTENT_COLUMN]: { render: MCPActivityIntentCell, width: '20rem' },
                         },
                         emptyStateDetail: 'Adjust the date range or filters, or wait for agents to call a tool.',
                         emptyStateHeading: 'No MCP tool calls in this period',
@@ -120,6 +121,10 @@ function LiveActivityCard(): JSX.Element {
             </div>
         </section>
     )
+}
+
+function MCPActivityIntentCell({ value }: { value: unknown }): JSX.Element {
+    return <span className="block min-w-64 whitespace-normal">{value ? String(value) : '—'}</span>
 }
 
 // `total` is every intent analysed, so the bar reads as this theme's share of them. The backend
