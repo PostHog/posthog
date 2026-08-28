@@ -40,7 +40,8 @@ ACCOUNT_DATETIME_FIELDS = frozenset(
         contracts.AccountTableField.IGNORED_AT,
     }
 )
-RELATIVE_DATE_VALUE_RE = re.compile(r"[+-]?\d*[hdwmqysHDWMQY](?:Start|End)?")
+RELATIVE_DATE_VALUE_RE = re.compile(r"-\d*[hdwmqysHDWMQY](?:Start|End)?")
+FUTURE_RELATIVE_DATE_VALUE_RE = re.compile(r"\+?\d+[hdwmqysHDWMQY](?:Start|End)?")
 UTC_TIMEZONE = ZoneInfo("UTC")
 
 ACCOUNT_DIRECT_FIELDS = {
@@ -57,8 +58,9 @@ def _coerce_datetime_filter_value(value: float | bool | str, *, timezone_info: Z
     if not isinstance(value, str):
         raise InvalidAccountFilter("Date filters require ISO-8601 or relative date values.")
     if RELATIVE_DATE_VALUE_RE.fullmatch(value):
-        relative_value = value.lstrip("+-")
-        return relative_date_parse(relative_value, timezone_info, increase=not value.startswith("-"))
+        return relative_date_parse(value, timezone_info)
+    if FUTURE_RELATIVE_DATE_VALUE_RE.fullmatch(value):
+        raise InvalidAccountFilter("Relative date values must be in the past.")
     parsed_datetime = parse_datetime(value)
     if parsed_datetime is None:
         parsed_date = parse_date(value)

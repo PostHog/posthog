@@ -448,10 +448,7 @@ class TestAccountTrackRuleLogic(AccountTrackRulesTestMixin, BaseTest):
         churned.refresh_from_db()
         assert churned.ignored_at == datetime(2025, 1, 4, tzinfo=UTC)
 
-    @parameterized.expand([("past", "-30d", {"Recent"}), ("future", "14d", set())])
-    def test_preview_evaluates_relative_date_conditions(
-        self, _name: str, relative_value: str, expected_names: set[str]
-    ) -> None:
+    def test_preview_evaluates_past_relative_date_conditions(self) -> None:
         recent = create_account(team_id=self.team.id, name="Recent")
         older = create_account(team_id=self.team.id, name="Older")
         Account.objects.for_team(self.team.id).filter(id=recent.id).update(created_at=datetime(2026, 8, 1, tzinfo=UTC))
@@ -467,7 +464,7 @@ class TestAccountTrackRuleLogic(AccountTrackRulesTestMixin, BaseTest):
                             {
                                 "field": {"kind": "account_field", "field": "created_at"},
                                 "operator": "is_date_after",
-                                "values": [relative_value],
+                                "values": ["-30d"],
                             }
                         ]
                     }
@@ -477,9 +474,45 @@ class TestAccountTrackRuleLogic(AccountTrackRulesTestMixin, BaseTest):
 
         preview = preview_account_track_rules(self.team.id)
 
-        assert preview.tracked == len(expected_names)
-        assert preview.ignored == 2 - len(expected_names)
-        assert {sample.name for sample in preview.tracked_samples} == expected_names
+        assert preview.tracked == 1
+        assert preview.ignored == 1
+        assert {sample.name for sample in preview.tracked_samples} == {"Recent"}
+
+    @parameterized.expand(
+        [
+            ("account field, unsigned", "10d", None),
+            ("account field, explicit", "+10d", None),
+            ("custom property, unsigned", "10d", DisplayType.DATETIME),
+            ("custom property, explicit", "+10d", DisplayType.DATETIME),
+        ]
+    )
+    def test_rejects_future_relative_date_conditions(
+        self, _name: str, relative_value: str, custom_property_display_type: DisplayType | None
+    ) -> None:
+        config = account_name_track_rules_config(version=0)
+        if custom_property_display_type:
+            definition = create_custom_property_definition(
+                team_id=self.team.id,
+                name="Contract expiration",
+                display_type=custom_property_display_type,
+            )
+            field = {"kind": "custom_property", "definition_id": str(definition.id)}
+        else:
+            field = {"kind": "account_field", "field": "created_at"}
+        config["groups"][0]["conditions"][0] = {
+            "field": field,
+            "operator": "is_date_after",
+            "values": [relative_value],
+        }
+
+        with pytest.raises(AccountTrackRuleValidationError, match="Relative date values must be in the past."):
+            update_account_track_rules(
+                team_id=self.team.id,
+                raw_config=config,
+                user=self.user,
+                organization_id=self.organization.id,
+                was_impersonated=False,
+            )
 
     def test_apply_batches_preserve_ignored_timestamps_and_restore_matches(self) -> None:
         definition, paying, vip, unmatched, ignored, churned = self.create_rule_fixtures()
