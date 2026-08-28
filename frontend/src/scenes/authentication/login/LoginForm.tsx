@@ -25,12 +25,59 @@ import { RedirectIfLoggedInOtherInstance } from 'scenes/authentication/shared/Re
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
-import { LoginMethod } from '~/types'
+import { LoginMethod, Region, SSOProvider } from '~/types'
 
 import { loginLogic } from './loginLogic'
 import { SessionRiskBanner } from './SessionRiskBanner'
 
 const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
+
+function loginMethodLabel(method: LoginMethod): string {
+    if (method === 'password') {
+        return 'password'
+    }
+    if (method === 'passkey') {
+        return 'passkey'
+    }
+    return method ? SSO_PROVIDER_NAMES[method] : ''
+}
+
+// The support form starts empty for the person, so a login-error ticket loses the context the page
+// already holds. Prefill the message with the error code, region, and login methods, so support can
+// triage without a round trip.
+function buildLoginSupportMessage({
+    errorCode,
+    region,
+    ssoEnforcement,
+    availableLoginMethods,
+    codeVerificationPending,
+}: {
+    errorCode?: string
+    region?: Region | null
+    ssoEnforcement?: SSOProvider | null
+    availableLoginMethods: LoginMethod[]
+    codeVerificationPending: boolean
+}): string {
+    const lines = ['I need help logging in.']
+    if (errorCode) {
+        lines.push(`Error code: ${errorCode}`)
+    }
+    if (region) {
+        lines.push(`Data region: ${region}`)
+    }
+    if (ssoEnforcement) {
+        lines.push(`Login method: SSO enforced (${SSO_PROVIDER_NAMES[ssoEnforcement]})`)
+    } else {
+        const labels = availableLoginMethods.map(loginMethodLabel).filter(Boolean)
+        if (labels.length) {
+            lines.push(`Login methods available: ${labels.join(', ')}`)
+        }
+    }
+    if (codeVerificationPending) {
+        lines.push('Waiting on an emailed verification code.')
+    }
+    return lines.join('\n')
+}
 
 // Bare text nodes below are wrapped in <span>s: in-page translation replaces text nodes with
 // <font> elements, which crashes React's sibling insert/remove operations (removeChild /
@@ -54,6 +101,7 @@ export function LoginForm(): JSX.Element {
         hasNoConfiguredLoginMethod,
         restrictToProviders,
         autoRedirectingToProvider,
+        availableLoginMethods,
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
 
@@ -128,6 +176,13 @@ export function LoginForm(): JSX.Element {
                                         openSupportForm({
                                             kind: 'support',
                                             email: login.email,
+                                            message: buildLoginSupportMessage({
+                                                errorCode: generalError.code,
+                                                region: preflight?.region,
+                                                ssoEnforcement: precheckResponse.sso_enforcement,
+                                                availableLoginMethods,
+                                                codeVerificationPending: codeVerificationRequired,
+                                            }),
                                         })
                                     }}
                                     className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
