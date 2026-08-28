@@ -762,6 +762,23 @@ impl FeatureFlagMatcher {
         // Track cohort evaluations in canonical log
         with_canonical_log(|log| log.eval.cohorts_evaluated += cohort_property_filters.len());
 
+        let cohort_matches =
+            self.resolve_cohort_matches(cohort_property_filters, target_properties, cohorts)?;
+
+        // Apply cohort membership logic (IN|NOT_IN) to the cohort match results
+        apply_cohort_membership_logic(cohort_property_filters, &cohort_matches)
+    }
+
+    /// Resolves every cohort the given filters reference to a membership boolean.
+    ///
+    /// Starts from the memberships cached during `prepare_flag_evaluation_state` (static and
+    /// realtime) and evaluates any dynamic cohort that is not cached yet.
+    fn resolve_cohort_matches(
+        &self,
+        cohort_property_filters: &[&PropertyFilter],
+        target_properties: &HashMap<String, Value>,
+        cohorts: Arc<[Cohort]>,
+    ) -> Result<HashMap<CohortId, bool>, FlagError> {
         // Get cached cohort results (static + realtime, merged during prepare_flag_evaluation_state)
         let cached_matches = match self.flag_evaluation_state.get_cohort_matches() {
             Some(matches) => matches.clone(),
@@ -789,8 +806,50 @@ impl FeatureFlagMatcher {
             }
         }
 
-        // Apply cohort membership logic (IN|NOT_IN) to the cohort match results
-        apply_cohort_membership_logic(cohort_property_filters, &cohort_matches)
+        Ok(cohort_matches)
+    }
+
+    /// Resolves cohort memberships for every cohort filter on the flag, for detailed condition
+    /// analysis.
+    ///
+    /// `evaluate_cohort_filters` resolves dynamic cohorts into a map it then discards, so the
+    /// memberships cached on the evaluation state cover static and realtime cohorts only. Reading
+    /// that cache alone would report every dynamic cohort as a non-match and contradict the
+    /// condition outcome the matcher already computed.
+    fn cohort_matches_for_analysis(
+        &self,
+        flag: &FeatureFlag,
+        person_properties: Option<&HashMap<String, Value>>,
+    ) -> HashMap<CohortId, bool> {
+        let cohort_filters: Vec<&PropertyFilter> = flag
+            .filters
+            .groups
+            .iter()
+            .filter_map(|group| group.properties.as_ref())
+            .flatten()
+            .filter(|filter| filter.is_cohort())
+            .collect();
+
+        if cohort_filters.is_empty() {
+            return HashMap::new();
+        }
+
+        let Some(cohorts) = self.flag_evaluation_state.cohorts.clone() else {
+            return HashMap::new();
+        };
+
+        let target_properties = person_properties.unwrap_or(&EMPTY_PROPERTY_MAP);
+
+        // Analysis explains every condition, including ones the matcher short-circuited past, so
+        // a cohort it never needed can fail to resolve here. Fall back to the cached memberships
+        // rather than dropping the whole map.
+        self.resolve_cohort_matches(&cohort_filters, target_properties, cohorts)
+            .unwrap_or_else(|_| {
+                self.flag_evaluation_state
+                    .get_cohort_matches()
+                    .cloned()
+                    .unwrap_or_default()
+            })
     }
 
     /// Evaluates feature flags with property and hash key overrides.
@@ -1074,6 +1133,10 @@ impl FeatureFlagMatcher {
                     // filters resolve against the group rather than the person.
                     let merged_group_props =
                         self.merged_group_properties_for_flag(flag, group_property_overrides);
+                    // Cohort membership as the matcher resolved it, so cohort-typed condition
+                    // filters report the same outcome the flag actually evaluated to.
+                    let cohort_matches =
+                        self.cohort_matches_for_analysis(flag, merged_person_props.as_ref());
                     FlagDetails::create_with_analysis(
                         flag,
                         flag_match,
@@ -1081,6 +1144,7 @@ impl FeatureFlagMatcher {
                         merged_person_props.as_ref(),
                         Some(&merged_group_props),
                         Some(&self.flag_evaluation_state.flag_evaluation_results),
+                        Some(&cohort_matches),
                         self.timezone,
                     )
                 } else {
