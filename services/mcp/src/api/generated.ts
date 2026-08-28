@@ -45745,15 +45745,18 @@ export namespace Schemas {
       client_secret?: string;
       install_source?: InstallSourceEnum;
       posthog_code_callback_url?: string;
-      /** 'personal' is per-user; 'shared' makes the credential available to project members. Agent access is granted separately.
+      /** 'personal' is per-user; 'shared' makes the credential available to project members. PostHog agents get access to the connection automatically; see agent_scope.
        *
        * * `personal` - personal
        * * `shared` - shared */
       scope?: MCPInstallationScopeEnum;
       /** Whether the server starts enabled for the whole team. Non-default values are admin-only. */
       team_enabled?: boolean;
-      /** Service accounts to share the server with at install time. Available to members when team settings allow member-managed agent access. */
-      agent_ids?: string[];
+      /** How far the automatic agent grants for this connection reach. 'personal' (the default) lets PostHog agents use it only on runs for you; 'team' lets every agent run in the project use it. Grants are created when the caller may manage agent access: project admins always, members when team settings allow it. Sending a value without that permission is rejected.
+       *
+       * * `personal` - Personal
+       * * `team` - Team */
+      agent_scope?: MCPAgentGrantScopeEnum;
       /** In-app path to land back on after the OAuth round-trip. Must be a same-app relative path. */
       return_path?: string;
     }
@@ -45763,15 +45766,18 @@ export namespace Schemas {
       api_key?: string;
       install_source?: InstallSourceEnum;
       posthog_code_callback_url?: string;
-      /** 'personal' is per-user; 'shared' makes the credential available to project members. Agent access is granted separately.
+      /** 'personal' is per-user; 'shared' makes the credential available to project members. PostHog agents get access to the connection automatically; see agent_scope.
        *
        * * `personal` - personal
        * * `shared` - shared */
       scope?: MCPInstallationScopeEnum;
       /** Whether the server starts enabled for the whole team. Non-default values are admin-only. */
       team_enabled?: boolean;
-      /** Service accounts to share the server with at install time. Available to members when team settings allow member-managed agent access. */
-      agent_ids?: string[];
+      /** How far the automatic agent grants for this connection reach. 'personal' (the default) lets PostHog agents use it only on runs for you; 'team' lets every agent run in the project use it. Grants are created when the caller may manage agent access: project admins always, members when team settings allow it. Sending a value without that permission is rejected.
+       *
+       * * `personal` - Personal
+       * * `team` - Team */
+      agent_scope?: MCPAgentGrantScopeEnum;
       /** In-app path to land back on after the OAuth round-trip. Must be a same-app relative path. */
       return_path?: string;
     }
