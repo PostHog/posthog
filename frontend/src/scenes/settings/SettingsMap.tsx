@@ -39,6 +39,7 @@ import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/Sessions
 import { OrganizationMCPAccess } from 'scenes/settings/organization/OrganizationMCPAccess'
 import { urls } from 'scenes/urls'
 
+import { ConfigScopeEnumApi } from '~/generated/core/api.schemas'
 import {
     DefaultRoleSelector,
     RolesAccessControls,
@@ -147,6 +148,7 @@ import { AIHipaaDisclaimer, getExternalAIProvidersTooltipTitle } from './organiz
 import { ApprovalPolicies } from './organization/Approvals/ApprovalPolicies'
 import { ChangeRequestsList } from './organization/Approvals/ChangeRequestsList'
 import { CIMDVerificationTokens } from './organization/CIMDVerificationTokens'
+import { IdentityProviderFeatureSection } from './organization/IdentityProviderConfig/IdentityProviderFeatureSection'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
 import { NotificationGovernanceSetting } from './organization/NotificationGovernanceSetting'
@@ -1769,6 +1771,35 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/settings/sso',
                 component: <VerifiedDomains />,
                 keywords: ['sso', 'saml', 'single sign-on', 'domain verification', 'enforce'],
+            },
+            {
+                id: 'saml-configuration',
+                title: 'SAML single sign-on',
+                description:
+                    'Authenticate members through your identity provider using Security Assertion Markup Language (SAML).',
+                docsUrl: 'https://posthog.com/docs/data/sso#setting-up-saml',
+                component: <IdentityProviderFeatureSection configScope={ConfigScopeEnumApi.Saml} />,
+                flag: 'SSO_SETTINGS_REDESIGN',
+                keywords: ['sso', 'saml', 'single sign-on', 'identity provider'],
+            },
+            {
+                id: 'scim-configuration',
+                title: 'SCIM provisioning',
+                description:
+                    'Provision and deprovision organization members through your identity provider using System for Cross-domain Identity Management (SCIM).',
+                docsUrl: 'https://posthog.com/docs/data/sso#setting-up-scim',
+                component: <IdentityProviderFeatureSection configScope={ConfigScopeEnumApi.Scim} />,
+                flag: 'SSO_SETTINGS_REDESIGN',
+                keywords: ['scim', 'provisioning', 'identity provider'],
+            },
+            {
+                id: 'xaa-configuration',
+                title: 'XAA authentication',
+                description: 'Automate API and MCP access to PostHog with Cross App Access (XAA).',
+                docsUrl: 'https://posthog.com/docs/settings/id-jag',
+                component: <IdentityProviderFeatureSection configScope={ConfigScopeEnumApi.Xaa} />,
+                flag: ['SSO_SETTINGS_REDESIGN', 'XAA_AUTHENTICATION'],
+                keywords: ['xaa', 'id-jag', 'identity provider', 'token exchange'],
             },
             {
                 id: 'enforce-verified-domains',

@@ -1,5 +1,6 @@
 from posthog.test.base import APIBaseTest
 
+from django.conf import settings
 from django.utils import timezone
 
 from rest_framework import status
@@ -144,6 +145,7 @@ class TestIdentityProviderConfigAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["scim_enabled"])
         self.assertIsNotNone(response.json()["scim_bearer_token"])
+        self.assertEqual(response.json()["scim_base_url"], f"{settings.SITE_URL}/scim/v2/{config.scim_slug}")
 
         config.refresh_from_db()
         self.assertTrue(config.scim_enabled)

@@ -45256,6 +45256,8 @@ export namespace Schemas {
       readonly has_scim: boolean;
       /** Whether SCIM provisioning is enabled. Setting this true generates a bearer token (returned once); setting it false clears the token. */
       scim_enabled?: boolean;
+      /** SCIM base URL for this identity provider configuration. */
+      readonly scim_base_url: string;
       /**
          * Plaintext SCIM bearer token. Only returned once, immediately after SCIM is enabled or the token is regenerated; null otherwise.
          * @nullable
@@ -62484,6 +62486,8 @@ export namespace Schemas {
       readonly has_scim?: boolean;
       /** Whether SCIM provisioning is enabled. Setting this true generates a bearer token (returned once); setting it false clears the token. */
       scim_enabled?: boolean;
+      /** SCIM base URL for this identity provider configuration. */
+      readonly scim_base_url?: string;
       /**
          * Plaintext SCIM bearer token. Only returned once, immediately after SCIM is enabled or the token is regenerated; null otherwise.
          * @nullable

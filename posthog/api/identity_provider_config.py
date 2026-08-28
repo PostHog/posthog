@@ -3,7 +3,7 @@ from typing import Any, cast
 from django.db import transaction
 
 import posthoganalytics
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import exceptions, request, response, serializers, status
 from rest_framework.request import Request
 from rest_framework.viewsets import ModelViewSet
@@ -20,7 +20,12 @@ from posthog.models.organization_domain import OrganizationDomain
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 from posthog.security.url_validation import is_url_allowed
 
-from ee.api.scim.utils import disable_scim_for_config, enable_scim_for_config, regenerate_scim_token_for_config
+from ee.api.scim.utils import (
+    disable_scim_for_config,
+    enable_scim_for_config,
+    get_scim_base_url,
+    regenerate_scim_token_for_config,
+)
 
 
 def _capture_idp_config_event(
@@ -57,6 +62,9 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
     has_scim = serializers.BooleanField(
         read_only=True, help_text="Whether SCIM is enabled and a bearer token is set on this config."
     )
+    scim_base_url = serializers.SerializerMethodField(
+        help_text="SCIM base URL for this identity provider configuration."
+    )
     has_id_jag = serializers.BooleanField(
         read_only=True, help_text="Whether ID-JAG (XAA) is configured on this config."
     )
@@ -85,6 +93,7 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
             "saml_x509_cert",
             "has_scim",
             "scim_enabled",
+            "scim_base_url",
             "scim_bearer_token",
             "has_id_jag",
             "id_jag_issuer_url",
@@ -240,6 +249,10 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
         self._scim_plain_token = scim_plain_token
 
         return instance
+
+    @extend_schema_field(serializers.CharField)
+    def get_scim_base_url(self, obj: IdentityProviderConfig) -> str:
+        return get_scim_base_url(obj)
 
     def get_scim_bearer_token(self, obj: IdentityProviderConfig) -> str | None:
         return self._scim_plain_token
