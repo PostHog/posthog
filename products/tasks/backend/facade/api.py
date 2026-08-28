@@ -3646,11 +3646,11 @@ def read_task_attachment(
     """Read one of a task's attachments (staged conversation uploads or run outputs).
 
     Address it by ``storage_path``, or by ``file_name`` — which resolves against the task's run
-    artifact manifests (newest run first) and then the staged-upload prefix in object storage,
-    so an agent can name a conversation attachment without knowing where it is stored.
-    Returns ``(content, content_type)``, or ``None`` when the task is not visible, nothing
-    matches, or the object is missing. The prefix check is the authorization boundary: every
-    task artifact key embeds its team and task ids.
+    artifact manifests (newest run first) and then the staged attachments a user has actually
+    sent but a run has not yet consumed, so an agent can name a conversation attachment without
+    knowing where it is stored. Returns ``(content, content_type)``, or ``None`` when the task
+    is not visible, nothing matches, or the object is missing. The prefix check is the
+    authorization boundary: every task artifact key embeds its team and task ids.
 
     When ``max_bytes`` is set, the object's length is checked from its metadata before the
     bytes are read, and ``TaskAttachmentTooLarge`` is raised for an oversized object so the
@@ -3665,27 +3665,49 @@ def read_task_attachment(
     if storage_path is None:
         if not file_name:
             return None
+        from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+            get_task_staged_artifacts,
+        )
         from products.tasks.backend.logic.services.task_comments import (  # noqa: PLC0415 — matches the lazy task_comments imports elsewhere in this module
             LEGACY_TASK_RUN_LIMIT,
         )
 
-        # Project only the artifact manifests and bound the scan to the newest runs, matching
-        # list_artifacts. Loading whole TaskRun rows decrypts an encrypted column per row.
-        manifests = (
+        # Project only the artifact manifests and pending-attachment state, and bound the scan
+        # to the newest runs, matching list_artifacts. Loading whole TaskRun rows decrypts an
+        # encrypted column per row.
+        runs = (
             TaskRun.objects.filter(task_id=task.id, team_id=team_id)
             .order_by("-created_at", "-id")
-            .values_list("artifacts", flat=True)[:LEGACY_TASK_RUN_LIMIT]
+            .values("artifacts", "state")[:LEGACY_TASK_RUN_LIMIT]
         )
-        for manifest in manifests:
-            for artifact in reversed(manifest or []):
+        pending_artifact_ids: list[str] = []
+        for run in runs:
+            for artifact in reversed(run["artifacts"] or []):
                 if artifact.get("name") == file_name and isinstance(artifact.get("storage_path"), str):
                     storage_path = artifact["storage_path"]
                     break
             if storage_path is not None:
                 break
-        if storage_path is None:
-            staged = object_storage.list_objects(f"{prefix}staged/") or []
-            storage_path = next((key for key in staged if key.rsplit("/", 1)[-1] == file_name), None)
+            state = run["state"]
+            if isinstance(state, dict):
+                pending_artifact_ids.extend(
+                    str(artifact_id) for artifact_id in state.get("pending_user_artifact_ids") or []
+                )
+        if storage_path is None and pending_artifact_ids:
+            # Resolve only from attachments a user actually sent (tracked by id on a run's
+            # pending state), never from every object under the staging prefix — an abandoned
+            # or withdrawn upload has no such record and must not be attachable.
+            staged_artifacts, _missing_ids = get_task_staged_artifacts(task, pending_artifact_ids)
+            match = next(
+                (
+                    artifact
+                    for artifact in staged_artifacts
+                    if artifact.get("name") == file_name and isinstance(artifact.get("storage_path"), str)
+                ),
+                None,
+            )
+            if match is not None:
+                storage_path = match["storage_path"]
         if storage_path is None:
             return None
     if not storage_path.startswith(prefix):

@@ -31,6 +31,7 @@ from products.canvas.backend.contract import contract_limits
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
 from products.tasks.backend.facade.contracts import ComputeQuotaDenialReason
+from products.tasks.backend.logic.services.staged_artifacts import build_task_artifact_entry, cache_task_staged_artifact
 from products.tasks.backend.models import Channel, Task, TaskRun, TaskThreadMessage
 
 
@@ -1453,7 +1454,7 @@ class TestCanvasAssets(CanvasAPIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
 
-    def test_attach_by_file_name_falls_back_to_staged_uploads(self):
+    def test_attach_by_file_name_falls_back_to_a_pending_staged_upload(self):
         canvas_id = self._create_canvas()
         with team_scope(self.team.id):
             task = Task.objects.create(
@@ -1464,8 +1465,26 @@ class TestCanvasAssets(CanvasAPIBaseTest):
                 description="d",
                 origin_product=Task.OriginProduct.USER_CREATED,
             )
+            TaskRun.objects.create(
+                task=task,
+                team=self.team,
+                status=TaskRun.Status.IN_PROGRESS,
+                state={"pending_user_artifact_ids": ["abc123"]},
+            )
         staged_path = f"tasks/artifacts/team_{self.team.id}/task_{task.id}/staged/abc123/pixel.png"
         self.storage.write(staged_path, PIXEL_PNG, extras={"ContentType": "image/png"})
+        cache_task_staged_artifact(
+            task,
+            build_task_artifact_entry(
+                artifact_id="abc123",
+                name="pixel.png",
+                artifact_type="user_attachment",
+                source="user_attachment",
+                size=len(PIXEL_PNG),
+                content_type="image/png",
+                storage_path=staged_path,
+            ),
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/canvases/{canvas_id}/assets/attach/",
@@ -1475,6 +1494,30 @@ class TestCanvasAssets(CanvasAPIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["sha256"] == hashlib.sha256(PIXEL_PNG).hexdigest()
+
+    def test_attach_by_file_name_ignores_untracked_staged_objects(self):
+        canvas_id = self._create_canvas()
+        with team_scope(self.team.id):
+            task = Task.objects.create(
+                team=self.team,
+                channel=self.channel,
+                created_by=self.user,
+                title="Chat",
+                description="d",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+        # Bytes sit under the staging prefix (e.g. an upload the user withdrew before sending),
+        # but nothing records it as an attachment the user actually sent.
+        staged_path = f"tasks/artifacts/team_{self.team.id}/task_{task.id}/staged/abc123/pixel.png"
+        self.storage.write(staged_path, PIXEL_PNG, extras={"ContentType": "image/png"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/assets/attach/",
+            {"task_id": str(task.id), "file_name": "pixel.png"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
 
     def test_attach_rejects_paths_outside_the_tasks_prefix(self):
         canvas_id = self._create_canvas()
