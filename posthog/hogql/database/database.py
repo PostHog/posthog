@@ -1100,11 +1100,15 @@ class Database(BaseModel):
         warehouse_table_names = self.get_warehouse_table_names()
         views = [] if self._is_direct_query() else self.get_view_names()
 
+        direct_query_source_ids = [self._connection_id] if self._is_direct_query() and self._connection_id else None
         warehouse_tables_query = (
             DataWarehouseTable.raw_objects.select_related("credential", "external_data_source")
             .prefetch_related(
                 latest_completed_job_prefetch(
-                    context.team_id, "external_data_source__jobs", to_attr="latest_completed_job"
+                    context.team_id,
+                    "external_data_source__jobs",
+                    to_attr="latest_completed_job",
+                    source_ids=direct_query_source_ids,
                 )
             )
             # `queryable()` drops soft-deleted tables and orphans of a soft-deleted source, so an
