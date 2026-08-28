@@ -9,7 +9,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
 from django.db import connection, models, transaction
-from django.db.models import Q
+from django.db.models import Exists, Q
 from django.dispatch import receiver
 from django.utils import timezone
 
@@ -26,6 +26,7 @@ from oauth2_provider.settings import oauth2_settings
 from oauth2_provider.validators import AllowedURIValidator
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.user import User
 from posthog.models.utils import UUIDT, generate_random_token, hash_key_value, mask_key_value
 
 if TYPE_CHECKING:
@@ -189,16 +190,6 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         default=False,
         verbose_name="Is CIMD client",
         help_text="True if this client was registered via Client ID Metadata Document (CIMD)",
-    )
-    # Superseded by client_id, which now holds this same URL. Nothing resolves a client
-    # through it any more; it stays written on create so a rollback to code that does keeps
-    # working, and is dropped once that window closes.
-    cimd_metadata_url: models.URLField = models.URLField(
-        max_length=2048,
-        null=True,
-        blank=True,
-        unique=True,
-        help_text="The URL used as client_id for CIMD clients. Must match the client_id in the metadata document.",
     )
     cimd_metadata_last_fetched: models.DateTimeField = models.DateTimeField(
         null=True, blank=True, help_text="When the CIMD metadata was last successfully fetched"
@@ -705,12 +696,18 @@ def has_live_third_party_oauth_access(user: "User") -> bool:
 
     First-party applications are excluded because they are PostHog's own surfaces, so a token from
     one is not the third-party access this answers about.
+
+    The check starts from the user's tokens, not from the application table. An `id IN (...)`
+    filter on applications makes Postgres scan every application row even when the user has no
+    tokens at all, and this runs on every load of the current user.
+
+    Both lookups go in one query as `EXISTS(...) OR EXISTS(...)` on the user row. Postgres runs
+    the second subplan only when the first finds nothing, so refresh tokens go first: a partner
+    holds one for the life of the connection, while its access token is usually expired.
     """
-    return OAuthApplication.objects.filter(
-        Q(id__in=live_oauth_access_tokens(user).values("application_id"))
-        | Q(id__in=live_oauth_refresh_tokens(user).values("application_id")),
-        is_first_party=False,
-    ).exists()
+    has_refresh_token = Exists(live_oauth_refresh_tokens(user).filter(application__is_first_party=False))
+    has_access_token = Exists(live_oauth_access_tokens(user).filter(application__is_first_party=False))
+    return User.objects.filter(pk=user.pk).filter(has_refresh_token | has_access_token).exists()
 
 
 def lock_oauth_connection(*, user_id: int, application_id: uuid.UUID) -> None:

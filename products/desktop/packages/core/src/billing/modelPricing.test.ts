@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  estimateUncachedInputCost,
   formatModelRates,
   modelCostInfo,
   modelListPrice,
-  relativeCostLabel,
 } from "./modelPricing";
 
 describe("modelPricing", () => {
@@ -41,12 +41,17 @@ describe("modelPricing", () => {
     );
   });
 
-  it("compares two models for the switch dialog", () => {
-    expect(relativeCostLabel("claude-opus-5", "claude-haiku-4-5")).toBe("0.2×");
-    expect(relativeCostLabel("claude-haiku-4-5", "claude-fable-5")).toBe("10×");
-    expect(relativeCostLabel("claude-opus-5", "claude-opus-4-8")).toBeNull();
-    expect(relativeCostLabel("claude-opus-5", "unknown-model")).toBeNull();
-  });
+  it.each([
+    ["gpt-5.6-terra", 100_000, 0.25],
+    ["claude-haiku-4-5", 50_000, 0.05],
+    ["unknown-model", 100_000, null],
+    ["claude-opus-5", 0, null],
+  ] as const)(
+    "estimates uncached input cost for %s with %s tokens",
+    (modelId, tokens, expected) => {
+      expect(estimateUncachedInputCost(modelId, tokens)).toBe(expected);
+    },
+  );
 });
 
 // The gateway pins the contract rates these three families bill at, and this

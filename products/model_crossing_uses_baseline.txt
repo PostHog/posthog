@@ -161,7 +161,6 @@ warehouse_sources.DataWarehouseTable products.marketing_analytics.backend.manage
 warehouse_sources.DataWarehouseTable products.posthog_ai.evals.data_warehouse.seeder construct 1
 warehouse_sources.DataWarehouseTable products.posthog_ai.evals.data_warehouse.seeder write(bulk_create) 1
 warehouse_sources.DataWarehouseTable products.posthog_ai.evals.data_warehouse.seeder write(create) 1
-warehouse_sources.ExternalDataJob posthog.hogql.database.database prefetch 1
 warehouse_sources.ExternalDataJob posthog.tasks.usage_report instance-many(annotate) 4
 warehouse_sources.ExternalDataJob products.data_warehouse.backend.logic.data_load.source_templates instance-single 2
 warehouse_sources.ExternalDataJob products.data_warehouse.backend.logic.external_data_source.jobs lock 1
