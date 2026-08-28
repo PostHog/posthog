@@ -2,6 +2,8 @@ from datetime import timedelta
 
 from posthog.test.base import BaseTest
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils.timezone import now
 
 from parameterized import parameterized
@@ -94,11 +96,13 @@ class TestRecordInsightView(BaseTest):
         )
         insight_ids = {self.insight.pk, other_team_insight.pk if include_other_team_insight else unviewed_insight.pk}
 
-        with self.assertNumQueries(1):
+        with CaptureQueriesContext(connection) as queries:
             counts = recent_unique_viewer_counts_by_insight(
                 team_id=self.team.pk,
                 insight_ids=insight_ids,
                 since=since,
             )
 
+        assert len(queries) == 1
+        assert 'COUNT(DISTINCT "posthog_insightviewed"."user_id")' in queries[0]["sql"]
         assert counts == {self.insight.pk: 2}
