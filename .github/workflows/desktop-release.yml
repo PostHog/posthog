@@ -53,8 +53,11 @@ jobs:
                 include:
                     - arch: arm64
                       runner: macos-26
+                    # The macOS 26 Intel image cannot code sign: electron-builder's temporary
+                    # keychain rejects `security set-key-partition-list`, so the build stops
+                    # before packaging. macOS 15 signs, and its Xcode 26 compiles the icon.
                     - arch: x64
-                      runner: macos-26-intel
+                      runner: macos-15-intel
         runs-on: ${{ matrix.runner }}
         timeout-minutes: 90
         defaults:
@@ -166,10 +169,18 @@ jobs:
               run: pnpm --filter @posthog/agent run build
 
             # build/Assets.car is gitignored, so compile it here. actool only handles the .icon
-            # bundle with Xcode 26 on a macOS 26 runner; the script fails the build otherwise.
+            # bundle with Xcode 26; the script fails the build when it cannot produce one.
             - name: Compile macOS liquid-glass icon
               working-directory: products/desktop/apps/code
-              run: bash scripts/compile-glass-icon.sh
+              run: |
+                  # macOS 26 runners default to Xcode 26. macOS 15 runners default to Xcode 16
+                  # and keep Xcode 26 beside it, so select that one there.
+                  if [ "$(sw_vers -productVersion | cut -d. -f1)" -lt 26 ]; then
+                    xcode="$(find /Applications -maxdepth 1 -name 'Xcode_26*.app' | sort -V | tail -n 1)"
+                    [ -n "$xcode" ] || { echo "This runner has no Xcode 26 to compile the icon with"; exit 1; }
+                    export DEVELOPER_DIR="$xcode/Contents/Developer"
+                  fi
+                  bash scripts/compile-glass-icon.sh
 
             - name: Build release artifacts
               env:

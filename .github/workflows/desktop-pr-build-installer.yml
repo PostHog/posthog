@@ -119,7 +119,8 @@ jobs:
                   pnpm --filter @posthog/agent run build
 
             # build/Assets.car is gitignored, so compile it here. actool only handles the .icon
-            # bundle with Xcode 26 on a macOS 26 runner; the script fails the build otherwise.
+            # bundle with Xcode 26, which this job gets from its macOS 26 runner's default
+            # toolchain; the script fails the build when it cannot produce one.
             - name: Compile macOS liquid-glass icon
               working-directory: products/desktop/apps/code
               run: bash scripts/compile-glass-icon.sh
