@@ -50,6 +50,7 @@ export type CommandMenuAction =
   | "toggle-theme"
   | "toggle-left-sidebar"
   | "open-review-panel"
+  | "archive-task"
   | "go-back"
   | "go-forward"
   | "open-task"

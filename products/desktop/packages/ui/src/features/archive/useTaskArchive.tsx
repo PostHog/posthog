@@ -26,18 +26,22 @@ export interface TaskArchive {
 
 /**
  * Archiving one open task, with the running-task confirm in front of it. Shared
- * by the surfaces that act on the task in view — its keyboard shortcut and its
- * header button — so both ask the same question and report the same failure.
+ * by the surfaces that act on the task in view — its keyboard shortcut, its
+ * header button, and the command menu — so all of them ask the same question and
+ * report the same failure.
+ *
+ * The task is optional because the command menu outlives it: with no task open
+ * there is nothing to archive, and `requestArchive` does nothing.
  */
 export function useTaskArchive(
-  task: Task,
+  task: Task | undefined,
   options?: {
     // Ignore the scoped space when the archived task is the active view,
     // landing on the unscoped new-task screen instead of the space's own.
     navigateUnscoped?: boolean;
   },
 ): TaskArchive {
-  const taskId = task.id;
+  const taskId = task?.id;
   const { isPromptPending, cloudStatus } = useSessionSelector(
     taskId,
     (session) => ({
@@ -49,21 +53,22 @@ export function useTaskArchive(
   const piSessionController = useService<PiSessionController>(
     PI_SESSION_CONTROLLER,
   );
-  const isPiGenerating = useStore(
-    piSessionController.store,
-    (state) => state.sessions[taskId]?.status?.isStreaming ?? false,
+  const isPiGenerating = useStore(piSessionController.store, (state) =>
+    taskId ? (state.sessions[taskId]?.status?.isStreaming ?? false) : false,
   );
-  const isGenerating = task.runtime === "pi" ? isPiGenerating : isPromptPending;
+  const isGenerating =
+    task?.runtime === "pi" ? isPiGenerating : isPromptPending;
 
   const { archiveTask } = useArchiveTask({
     navigateUnscoped: options?.navigateUnscoped,
   });
   const isArchiving = useArchivingTasksStore((state) =>
-    state.archivingTaskIds.has(taskId),
+    taskId ? state.archivingTaskIds.has(taskId) : false,
   );
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const runArchive = useCallback(async () => {
+    if (!taskId) return;
     const store = useArchivingTasksStore.getState();
     if (store.isArchiving(taskId)) return;
 
@@ -80,19 +85,20 @@ export function useTaskArchive(
   }, [archiveTask, taskId]);
 
   const requestArchive = useCallback(() => {
+    if (!taskId) return;
     if (useArchivingTasksStore.getState().isArchiving(taskId)) return;
     if (
       isTaskActivelyRunning({
         isGenerating,
-        taskRunEnvironment: task.latest_run?.environment,
-        taskRunStatus: cloudStatus ?? task.latest_run?.status ?? undefined,
+        taskRunEnvironment: task?.latest_run?.environment,
+        taskRunStatus: cloudStatus ?? task?.latest_run?.status ?? undefined,
       })
     ) {
       setConfirmOpen(true);
       return;
     }
     void runArchive().catch(() => undefined);
-  }, [cloudStatus, isGenerating, runArchive, task.latest_run, taskId]);
+  }, [cloudStatus, isGenerating, runArchive, task?.latest_run, taskId]);
 
   return {
     requestArchive,
@@ -100,8 +106,8 @@ export function useTaskArchive(
     dialog: (
       <ArchiveRunningTaskDialog
         open={confirmOpen}
-        taskTitle={task.title}
-        stopsCloudSandbox={task.latest_run?.environment === "cloud"}
+        taskTitle={task?.title ?? ""}
+        stopsCloudSandbox={task?.latest_run?.environment === "cloud"}
         onConfirm={async () => {
           try {
             await runArchive();
