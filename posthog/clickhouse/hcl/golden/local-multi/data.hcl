@@ -2615,6 +2615,71 @@ database "posthog" {
     }
   }
 
+  table "marketing_sessions_dimensional_preaggregated" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "period_bucket" {
+      type = "DateTime"
+    }
+    column "session_id" {
+      type = "String"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "start_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "min_event_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "max_event_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "channel_type" {
+      type = "String"
+    }
+    column "utm_source" {
+      type = "String"
+    }
+    column "utm_medium" {
+      type = "String"
+    }
+    column "utm_campaign" {
+      type = "String"
+    }
+    column "utm_term" {
+      type = "String"
+    }
+    column "utm_content" {
+      type = "String"
+    }
+    column "referring_domain" {
+      type = "String"
+    }
+    column "entry_pathname" {
+      type = "String"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now() + toIntervalDay(7)"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_marketing_sessions_dimensional_preaggregated"
+      sharding_key    = "cityHash64(person_id)"
+    }
+  }
+
   table "marketing_touchpoints_preaggregated" {
     column "team_id" {
       type = "Int64"
