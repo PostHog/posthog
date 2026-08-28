@@ -84,6 +84,10 @@
       "types": "./dist/adapters/claude/conversion/tool-use-to-acp.d.ts",
       "import": "./dist/adapters/claude/conversion/tool-use-to-acp.js"
     },
+    "./adapters/codex-app-server/subscription-login": {
+      "types": "./dist/adapters/codex-app-server/subscription-login.d.ts",
+      "import": "./dist/adapters/codex-app-server/subscription-login.js"
+    },
     "./adapters/claude/session/jsonl-hydration": {
       "types": "./dist/adapters/claude/session/jsonl-hydration.d.ts",
       "import": "./dist/adapters/claude/session/jsonl-hydration.js"
