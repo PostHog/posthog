@@ -138,7 +138,7 @@ tools:
         enabled: false
     mcp-missing-capability-report:
         operation: mcp_analytics_missing_capabilities_create
-        enabled: true
+        enabled: false
         scopes:
             - mcp_analytics:write
         annotations:

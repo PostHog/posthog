@@ -21,9 +21,12 @@ import type { Context } from '@/tools/types'
  * Tests use this to assert that filtered results never drop these tools,
  * without hard-coding the exact set (which grows as utility tools are added).
  */
-const collectAlwaysAvailableToolNames = (): string[] =>
+const collectAlwaysAvailableToolNames = (featureFlags: EvaluatedFlags = {}): string[] =>
     Object.entries(getToolDefinitions())
-        .filter(([_, def]: [string, ToolDefinition]) => def.always_available === true)
+        .filter(
+            ([_, def]: [string, ToolDefinition]) =>
+                def.always_available === true && toolPassesFlagGate(def, featureFlags)
+        )
         .map(([name]) => name)
 
 describe('Tool Filtering - Features', () => {
@@ -182,6 +185,15 @@ describe('Tool Filtering - Tools Allowlist', () => {
             // present whether or not any feature flags are evaluated.
             expect(getToolsForFeatures({})).toContain('agent-feedback')
             expect(getToolsForFeatures({ featureFlags: {} })).toContain('agent-feedback')
+        })
+
+        it('should include get-more-tools across allowlists only when mcp analytics is enabled', () => {
+            expect(
+                getToolsForFeatures({ tools: ['nonexistent-tool'], featureFlags: { 'mcp-analytics': true } })
+            ).toContain('get-more-tools')
+            expect(getToolsForFeatures({ tools: ['nonexistent-tool'], featureFlags: {} })).not.toContain(
+                'get-more-tools'
+            )
         })
 
         it('should union with features (OR) when both are provided', () => {

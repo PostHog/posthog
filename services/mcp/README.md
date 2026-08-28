@@ -306,6 +306,8 @@ The MCP server can register either every PostHog tool individually (**tools** mo
 **cli is the default for all clients.**
 When the caller does not pin a mode, the server only auto-selects tools mode for a short allow-list of clients that are better served by the full per-tool roster — currently Cursor (matched by its self-reported client name or its `Cursor/…` User-Agent) and ChatGPT (matched by its `openai-mcp … (ChatGPT)` User-Agent).
 
+`get-more-tools` follows the same registration mode as other PostHog tools. In cli mode, agents discover and call it through the `posthog` tool. It is not registered as an additional top-level tool. In tools mode, it is registered individually with the rest of the available tools.
+
 You can pin the choice yourself with either a query parameter or a header. Only `tools` and `cli` are accepted:
 
 ```text

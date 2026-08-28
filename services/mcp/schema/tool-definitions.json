@@ -43,6 +43,22 @@
             "readOnlyHint": true
         }
     },
+    "get-more-tools": {
+        "description": "Check whether PostHog has another tool for the current goal and report a capability that is missing. Use this when the available tools do not support the requested operation, or when a specialized tool would materially improve the result even if a fallback exists. Describe the goal and missing capability without including personal data or sensitive query content. This records feedback for the PostHog team; it does not add tools to the current session. Continue with the best available fallback after reporting when possible.",
+        "category": "Feedback",
+        "feature": "feedback",
+        "summary": "Report a missing tool or workflow capability.",
+        "title": "Get more tools",
+        "required_scopes": [],
+        "always_available": true,
+        "feature_flag": "mcp-analytics",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "tasks-artifacts-list": {
         "description": "List the current PostHog Desktop task's artifacts and canvases. Use the returned artifact ids to filter tasks-comments-list when the user asks about comments on a specific artifact. The current task is fixed by the host and cannot be selected by the caller.",
         "category": "Tasks",

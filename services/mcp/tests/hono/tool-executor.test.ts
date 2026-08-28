@@ -176,18 +176,30 @@ describe('ToolExecutor', () => {
             expect(result.tools).toEqual([])
         })
 
-        it('returns single exec tool entry when useSingleExec is true', async () => {
-            const state = makeState(
-                catalog
-                    .getPreBuiltEntries()
-                    .slice(0, 5)
-                    .map((e) => ({ name: e.name })),
-                { useSingleExec: true }
-            )
+        it('keeps get-more-tools inside the exec dispatcher when useSingleExec is true', async () => {
+            const getMoreToolsTool = catalog
+                .getFilteredTools({ scopes: ['*'], featureFlags: { 'mcp-analytics': true } })
+                .find((tool) => tool.name === 'get-more-tools')
+            expect(getMoreToolsTool).not.toBeUndefined()
+
+            const state = makeState([getMoreToolsTool!], { useSingleExec: true })
 
             const result = await executor.handleToolsList(state)
             expect(result.tools).toHaveLength(1)
             expect(result.tools[0]!.name).toBe('exec')
+
+            const callResult = (await executor.handleToolCall(
+                {
+                    name: 'exec',
+                    arguments: {
+                        command:
+                            'call get-more-tools {"goal":"export billing data","missing_capability":"billing export","blocked":false}',
+                    },
+                },
+                state
+            )) as any
+            expect(callResult.isError).toBeFalsy()
+            expect(callResult.content[0].text).toContain('we have shown you the full tool list')
         })
 
         // Active project metadata reaches the model on the exec `command` for every

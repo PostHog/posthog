@@ -298,6 +298,24 @@ export const FeedbackSubmitSchema = z
         }
     })
 
+export const GetMoreToolsSchema = z
+    .object({
+        goal: z.string().min(1).max(2000).describe('What the user is trying to accomplish.'),
+        missing_capability: z
+            .string()
+            .min(1)
+            .max(2000)
+            .describe('The tool or workflow capability that would materially help accomplish the goal.'),
+        blocked: z.boolean().describe('Whether the missing capability prevents completing the task.'),
+        attempted_tool: z
+            .string()
+            .min(1)
+            .max(200)
+            .optional()
+            .describe('The closest available tool that was attempted, when applicable.'),
+    })
+    .strict()
+
 const SavedMetricAttachItemSchema = z.object({
     id: z
         .number()
