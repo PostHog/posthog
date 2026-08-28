@@ -28,12 +28,10 @@ export class PersonPropertyService {
             defaultRetryConfig.MAX_RETRIES_DEFAULT,
             defaultRetryConfig.RETRY_INTERVAL_DEFAULT,
             undefined,
-            // A fence wait that ran out one full ceiling will run out three:
-            // the ceiling already covers a whole merge with its transport
-            // retries, so retrying here can only stack ceilings past the
-            // consumer's poll interval and turn the intended redelivery
-            // into an eviction. The batch fails instead and redelivery
-            // meets the fence resolved.
+            // The fence-wait ceiling already covers a whole merge with its
+            // transport retries, so retrying a timeout here only stacks
+            // ceilings past the consumer's poll interval and turns the
+            // intended redelivery into an eviction.
             [PersonPropertiesSizeViolationError, PersonhogFenceTimeoutError]
         )
     }

@@ -177,11 +177,10 @@ function planRun<T extends MergeFoldScanItem>(
         return
     }
 
-    // The saga refuses a request carrying more sources than this, so a run
-    // longer than the cap becomes several plans rather than one the server
-    // rejects. Rejection is not a graceful degradation: the request is spent,
-    // the fold is abandoned, and every pair falls back to its own sequential
-    // merge — in exactly the storm folding exists for.
+    // A run longer than the cap becomes several plans, because the saga
+    // refuses an oversized request outright and the refusal abandons the
+    // fold into per-pair sequential merges, exactly the storm folding
+    // exists to avoid.
     const planByAnonId = new Map<string, MergeFoldPlan>()
     const ordered = [...pairByAnonId.values()]
     for (let offset = 0; offset < ordered.length; offset += MAX_FOLD_SOURCES) {

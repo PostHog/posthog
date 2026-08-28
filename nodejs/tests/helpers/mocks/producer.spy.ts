@@ -120,10 +120,8 @@ export class KafkaProducerObserver {
 
     /**
      * Re-arms the observer for the next test. Reinstalls the spy rather than
-     * only clearing it, because a suite whose `afterEach` calls
-     * `jest.restoreAllMocks()` uninstalls it: a cleared-but-uninstalled spy
-     * reports no produces at all, so every assertion over it passes whatever
-     * the code did.
+     * clearing it, because `jest.restoreAllMocks()` in an `afterEach`
+     * uninstalls it and an uninstalled spy passes every assertion vacuously.
      */
     public resetKafkaProducer() {
         this.produceSpy.mockRestore()

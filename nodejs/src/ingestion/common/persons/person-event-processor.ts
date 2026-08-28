@@ -74,11 +74,10 @@ export class PersonEventProcessor {
         const mergeMode = this.context.mergeMode
 
         if (error instanceof PersonMergeUnknownOutcomeError) {
-            // A backend a release ahead of this build. Throwing would restart
-            // the pod, and every redelivery reaches the same build until the
-            // roll finishes, so the event waits in the DLQ where it stays
-            // replayable. Not dropped: the merge may or may not have
-            // happened, and only a replay after the roll can tell.
+            // Every redelivery reaches this same build until the roll
+            // finishes, so the event waits in the DLQ where it stays
+            // replayable. The merge may or may not have happened; only a
+            // replay after the roll can tell.
             logger.error('merge backend answered an outcome this build cannot name; routing the event to the DLQ', {
                 team_id: this.context.team.id,
                 distinct_id: this.context.distinctId,

@@ -20,20 +20,12 @@ export function lifecycleOpIdFromEvent(teamId: number, eventUuid: string): strin
 }
 
 /**
- * The merge saga's idempotency key. The saga freezes the request behind
- * this key and rejects any later call that presents the same key with a
- * different frozen request, so a folded merge and the single-source merges
- * it falls back to must not share one — they are different operations on
- * the same event.
- *
- * The sources enter in request order, because the saga compares them in
- * order: two calls that differ only in order are different merges to it,
- * and giving them one key would make the second a permanent
- * FAILED_PRECONDITION instead of a fresh op that converges as a no-op.
- * Fold plans are batch-deterministic, so a redelivery presents the same
- * order and derives the same key. Each id is length-prefixed so the
- * encoding is injective — a comma inside a distinct id cannot make two
- * different source lists read as one.
+ * The merge saga's idempotency key: the saga freezes the request behind it
+ * and rejects the same key presented with a different request, so a folded
+ * merge and the single-source merges it falls back to must not share one.
+ * Source order and the length-prefixed encoding are part of the identity,
+ * because the saga compares sources in order and a comma inside a distinct
+ * id must not make two different source lists read as one.
  */
 export function mergeOpIdFromRequest(
     teamId: number,

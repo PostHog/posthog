@@ -120,16 +120,13 @@ export interface PersonhogPersonsStoreOptions {
      */
     syncMergeMoveLimit: number
     /**
-     * The ceiling on any wait for a local fence. A fence is held by a
-     * sibling merge call in this process for that call's whole duration, so
-     * this must exceed the merge deadline times its transport-retry
-     * attempts, or the leak alarm fires on legitimately slow merges and
-     * fails their co-batch work. The caller derives it from those knobs;
-     * see the wiring in ingestion-api-server. It deliberately does not
-     * cover the compound worst case (conflict-salted retries that are each
-     * transport-degraded, several minutes): expiry there is a safe
+     * The ceiling on any wait for a local fence, derived by the caller (see
+     * the wiring in ingestion-api-server) to exceed the merge deadline
+     * times its transport-retry attempts, because a fence is held by a
+     * sibling merge call for that call's whole duration. Compound worst
+     * cases are deliberately not covered: expiry there is a safe
      * redelivery, and a ceiling that large would collide with the
-     * consumer's poll interval instead.
+     * consumer's poll interval.
      */
     fenceWaitMs: number
 }
@@ -137,18 +134,11 @@ export interface PersonhogPersonsStoreOptions {
 /**
  * The fence-wait ceiling for a given merge deadline: the deadline times
  * the transport-retry attempts the repository actually makes, plus a
- * margin for the other work a fence is held across — the in-flight
- * write settle, one concurrency wave of pre-merge lane writes with any
- * tombstone-redirect resolves they pay, and the survivor refresh, each
- * bounded by the much shorter point-read deadline. (The merge's own
- * identity resolve runs before the fences install and is not held
- * work.) The margin covers the typical case plus any one contributor
- * fully transport-degraded, not all of them compounded. Deliberately
- * not covered: that compound, more fenced lanes than the write
- * concurrency admits in one wave, a lane with many segments each fully
- * transport-degraded, and the conflict-salted retry compound; each
- * expires into a safe redelivery, where a ceiling large enough for
- * them would collide with the consumer's poll interval instead.
+ * margin for the other work a fence is held across (in-flight write
+ * settles, one wave of pre-merge lane writes, the survivor refresh).
+ * Compound degradations beyond that margin deliberately expire into a
+ * safe redelivery, because a ceiling large enough for them would collide
+ * with the consumer's poll interval.
  */
 export function derivedFenceWaitMs(mergeTimeoutMs: number): number {
     return mergeTimeoutMs * GRPC_DEFAULT_ATTEMPTS + 15_000
@@ -221,10 +211,10 @@ const CREATE_EVENT_NAME = '$create_person'
 const DIRECT_UPDATE_EVENT_NAME = '$direct_update'
 
 /**
- * A wait ran out the deadline it was given while the person was still fenced.
- * Callers share one deadline across a chain of waits, so this is not
- * necessarily one fence outlasting the fence-wait ceiling. Fails the batch rather than
- * folding against a person the merge is still deciding.
+ * A wait ran out its deadline while the person was still fenced; callers
+ * share one deadline across a chain of waits, so this is not necessarily
+ * one fence outlasting the fence-wait ceiling. Fails the batch rather
+ * than folding against a person the merge is still deciding.
  */
 export class PersonhogFenceTimeoutError extends Error {
     constructor(personKey: string, waitedMs: number) {
@@ -252,11 +242,10 @@ export class PersonhogUnsupportedFieldError extends Error {
 const REDIRECT_MAX_ATTEMPTS = 5
 
 /**
- * How many reads a fold spends on a distinct id whose edge names a person the
- * caller does not hold. One read settles the answer into the memo; a further
- * one is only needed when a merge landed during that read and made it
- * unrecordable. Two consecutive overtakes on one id is already pathological,
- * so the third gives up rather than reading against a moving memo forever.
+ * How many reads a fold spends on a distinct id whose edge names a person
+ * the caller does not hold. One read normally settles the answer into the
+ * memo, so two consecutive merge overtakes is already pathological and the
+ * third gives up rather than reading against a moving memo forever.
  */
 const PERSON_NOW_MAX_READS = 3
 
@@ -325,39 +314,31 @@ interface OpsLaneEntry {
      */
     inFlight?: boolean
     /**
-     * Settles when the current direct write finishes, before any redirect. A
-     * merge awaits this after fencing so a write already on the wire lands
-     * before the saga applies the merge event's own $set. Redirects are
-     * excluded because they wait on the merge's fence.
+     * Settles when the current direct write finishes, so a merge that
+     * fenced can await a write already on the wire before the saga applies
+     * the merge event's own $set. Redirects are excluded because they wait
+     * on the merge's fence.
      */
     directWriteSettled?: Promise<void>
     /** Resolves `directWriteSettled`; armed with it at claim time. */
     settleWrite?: () => void
     /**
      * Set when a shadow-mode release abandoned this entry while its write
-     * was in flight. A successful write drains it normally; a failed one
-     * would otherwise leave an entry with segments and no owner that no
-     * later abandon can reach, so the settle sheds it instead once nothing
-     * references it. A live batch referencing the entry needs no clearing:
-     * the settle's own reference check is what protects its ops.
+     * was in flight. A failed write would otherwise leave an ownerless
+     * entry no later abandon can reach, so the settle sheds it once
+     * nothing references it.
      */
     abandoned?: boolean
 }
 
 /**
  * The personhog person store: resolution and creation through the identity
- * service, person state through the leader's strong reads, and property
- * updates as raw op folds the leader refines under its per-person lock.
- *
- * Where the Postgres store refines ops against a fetched snapshot before
- * writing, this one writes them as stated, so it needs no version-race
- * machinery. Fetches memoize per batch; folded ops accumulate per person as
- * a lane of segments, and a flush writes one call per segment. Ops fold into
- * the open segment where they can, so a lane splits only where the leader's
- * apply order makes a single call answer differently from two.
- *
- * Person uuids derive from team_id:distinct_id on the identity service, so
- * the uuid argument to createPerson is advisory.
+ * service (where person uuids derive from team_id:distinct_id, making the
+ * uuid argument to createPerson advisory), person state through the
+ * leader's strong reads, and property updates buffered as per-person lanes
+ * of folded ops that flush writes one call per segment. Unlike the
+ * Postgres store it writes ops as stated rather than refining them against
+ * a fetched snapshot, so it needs no version-race machinery.
  */
 export class PersonhogPersonsStore implements PersonsStore {
     readonly backend = 'personhog' as const
@@ -390,18 +371,17 @@ export class PersonhogPersonsStore implements PersonsStore {
         (personKey) => this.entries.get(personKey)?.inFlight === true
     )
     /**
-     * Every merge currently holding each person. A fold onto one waits for
-     * those merges to settle, so ops cannot accumulate behind a sent request.
-     * Set-valued because a person can be one merge's source and another's
-     * target, so it stays fenced until its last holder releases.
+     * Every merge currently holding each person, so a fold can wait them
+     * out rather than accumulating ops behind a sent request. Set-valued
+     * because a person can be one merge's source and another's target,
+     * staying fenced until its last holder releases.
      */
     private fences: Map<string, Set<Promise<void>>> = new Map()
     /**
-     * Redirects in flight, keyed by the person being written TO. The lane
+     * Redirects in flight, keyed by the person being written TO; the lane
      * itself sits under its vanished person's key, so a merge fencing the
-     * survivor cannot find it through the entry map and needs this registry
-     * to wait it out. Set-valued: one pass can redirect several lanes to one
-     * survivor.
+     * survivor needs this registry to wait it out. Set-valued because one
+     * pass can redirect several lanes to one survivor.
      */
     private redirectsInFlight: Map<string, Set<Promise<void>>> = new Map()
     /** Serializes flush passes; see flush(). */
@@ -416,11 +396,10 @@ export class PersonhogPersonsStore implements PersonsStore {
         // non-integer throws a RangeError inside BigInt() when the request is
         // built. Either fails every merge in the deployment, so fail startup.
         assertMoveLimit('PERSONHOG_SYNC_MERGE_MOVE_LIMIT', this.options.syncMergeMoveLimit)
-        // pLimit throws on a value below 1 or a non-integer, and it is built
-        // after lanes have been claimed for a write. Failing there leaves
-        // them marked in flight with nothing left to clear the mark, so every
-        // later pass defers them and the flush exhausts its rounds. Startup
-        // is the only place this can fail usefully.
+        // pLimit throws on a value below 1 or a non-integer, and it is
+        // built only after lanes are claimed for a write, which would leave
+        // them marked in flight with nothing left to clear the mark.
+        // Startup is the only place this can fail usefully.
         if (!Number.isInteger(this.options.maxConcurrentUpdates) || this.options.maxConcurrentUpdates < 1) {
             throw new Error(
                 `PERSONHOG_STORE_MAX_CONCURRENT_UPDATES must be an integer >= 1, got ${this.options.maxConcurrentUpdates}`
@@ -476,12 +455,10 @@ export class PersonhogPersonsStore implements PersonsStore {
         // (merged or deleted mid-flight); record the resolution miss and
         // let the caller's create path re-resolve authoritatively.
         //
-        // A document below the standing floor is provably stale: the memo
-        // would refuse to install it, but handing it to the caller would
-        // let the fold classify ops against it and suppress a genuine
-        // change as no-change — the same returned-copy asymmetry the merge
-        // path guards with its version comparison. Re-read bounded; on
-        // exhaustion fail the batch rather than classify against it.
+        // A document below the standing floor is provably stale, and
+        // handing it to the caller would let the fold suppress a genuine
+        // change as no-change. Re-read bounded; on exhaustion fail the
+        // batch rather than classify against it.
         let person: InternalPerson | null
         for (let attempt = 1; ; attempt++) {
             person = await this.repository.fetchPersonById(teamId, resolved.person.id, CALLER_TAG)
@@ -559,18 +536,12 @@ export class PersonhogPersonsStore implements PersonsStore {
             // pays the same leader read the update fetch does.
             const leaderDoc = await this.repository.fetchPersonById(teamId, person.id, CALLER_TAG)
             if (leaderDoc === null) {
-                // The leader answers null only for a person deleted or
-                // merged away — a merge on another pod leaves no local
-                // stamp for the moved check below to see, and this read is
-                // the one death signal this pod gets. Stamped like the
-                // redirect's gone arm: the marks keep the dead document out
-                // of the memo (the caller still folds against it, which the
-                // flush's destroyed-person rescue converts into a write the
-                // tombstone redirect carries to the survivor), and the id
-                // bumps refuse any read already on the wire that would
-                // reinstall the dead answer. The caller gets the identity
-                // answer; the next event's resolve reads the survivor once
-                // identity catches up.
+                // A null from the leader means the person was deleted or
+                // merged away, and this read is the one death signal this
+                // pod gets for a merge on another pod. The marks and id
+                // bumps keep the dead answer out of the memo (the flush's
+                // destroyed-person rescue redirects any folded ops to the
+                // survivor); the caller still gets the identity answer.
                 personhogStoreDeathStampCounter.inc({ site: 'create_leader_null' })
                 this.memo.markDestroyed(`${teamId}:${person.id}`)
                 for (const key of writtenKeys) {
@@ -594,12 +565,10 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
         const personKey = `${teamId}:${person.id}`
         this.memo.recordResolution(batchId, `${teamId}:${primaryDistinctId.distinctId}`, personKey)
-        // Extras are never memoized, on either branch: `created` speaks only
-        // for the primary. The service's create leaves a live conflicting
-        // extra mapped to its existing person while still reporting the
-        // primary's creation, so an edge recorded here could name a person
-        // the service never mapped that id to. Extras resolve on first
-        // touch instead.
+        // Extras are never memoized: `created` speaks only for the primary,
+        // and the service can leave a live conflicting extra mapped to its
+        // existing person, so an edge recorded here could name a person the
+        // service never mapped that id to. Extras resolve on first touch.
         this.memo.offerBaseline(personKey, person, leaderBacked ? 'leader-read' : 'identity-read')
         // The identity service publishes its own downstream messages on
         // the creation branch, so none are surfaced here.
@@ -649,12 +618,10 @@ export class PersonhogPersonsStore implements PersonsStore {
     }
 
     /**
-     * Waits a held person out and folds onto whoever owns the id afterwards.
-     * The person that comes back is often not the one waited on, since a
-     * merge repoints the id to its survivor before releasing and that
-     * survivor may be held by another merge. Folding onto a held person would
-     * land the ops inside that merge's request, so the wait repeats until the
-     * id settles on someone free.
+     * Waits a held person out and folds onto whoever owns the id
+     * afterwards, repeating because a merge repoints the id to a survivor
+     * that may itself be held. Folding onto a held person would land the
+     * ops inside that merge's request.
      */
     private async foldAfterFences(
         person: InternalPerson,
@@ -720,15 +687,10 @@ export class PersonhogPersonsStore implements PersonsStore {
 
     /**
      * Waits out every merge holding the person, including fences installed
-     * behind them: a release only proves the earlier merges settled.
-     *
-     * Whether a caller waits at all depends on `ownFence`. A caller holding
-     * no fence waits, leaving when the person comes free or the deadline
-     * runs out. A caller holding one never waits; the refusal below says why.
-     *
-     * Callers pass one deadline for a whole chain rather than a budget per
-     * round, because rounds nest inside repointing hops and redirect
-     * retries, and per-round budgets would multiply.
+     * behind them, except that a caller holding a fence of its own never
+     * waits (the refusal below says why). Callers pass one deadline for a
+     * whole chain because rounds nest inside repointing hops and redirect
+     * retries, where per-round budgets would multiply.
      */
     private async awaitFences(personKey: string, ownFence: Promise<void> | undefined, deadline: number): Promise<void> {
         const startedAt = Date.now()
@@ -738,12 +700,11 @@ export class PersonhogPersonsStore implements PersonsStore {
                 return
             }
             if (ownFence !== undefined) {
-                // A fence holder never waits on somebody else's fence.
-                // Two merges whose person sets cross would each block on a
-                // fence only the other can release, and neither releases
-                // until its own call returns. Refusing unwinds this merge and
-                // drops its fences, so the contention clears and the step's
-                // retry runs once that merge has settled.
+                // A fence holder never waits on somebody else's fence,
+                // because two merges whose person sets cross would each
+                // block on a fence only the other can release. Refusing
+                // unwinds this merge and drops its fences, and the step's
+                // retry runs once the other merge has settled.
                 personhogStoreFlushCounter.inc({ outcome: 'redirect_fenced_during_merge' })
                 throw new CountedRedirectError(
                     `person ${personKey} is held by another merge; failing rather than waiting under our own fence`
@@ -769,23 +730,12 @@ export class PersonhogPersonsStore implements PersonsStore {
     }
 
     /**
-     * The person this distinct id belongs to now. The caller resolved its own
-     * copy earlier, so a merge that has since destroyed that person leaves it
-     * naming somebody who no longer exists; folding onto that would repoint
-     * the distinct id back at the dead person and hand every later event a
-     * pre-merge view.
-     *
-     * A successful merge repoints every id it destroyed before releasing the
-     * fence, so the memo is authoritative and a miss on both facts means the
-     * id was left alone. A failed merge releases the team's resolutions
-     * instead, so a miss there falls back to the caller's person; if that
-     * person did die, the write meets the tombstone and the redirect reaches
-     * the survivor.
-     *
-     * The answer always leaves through the memo, never straight out of a
-     * read. A read is the one await on this path, and a merge completing
-     * inside it would otherwise hand back a person it has already destroyed,
-     * which the fold would then name as the id's owner.
+     * The person this distinct id belongs to now, because a merge may have
+     * destroyed the copy the caller resolved earlier, and folding onto that
+     * would repoint the id back at the dead person and hand every later
+     * event a pre-merge view. The answer always leaves through the memo,
+     * never straight out of a read, so a merge completing inside the read's
+     * await cannot hand back a person it has already destroyed.
      */
     private async personNow(person: InternalPerson, distinctId: string, batchId: number): Promise<InternalPerson> {
         const distinctKey = `${person.team_id}:${distinctId}`
@@ -798,12 +748,10 @@ export class PersonhogPersonsStore implements PersonsStore {
             if (resolved) {
                 return resolved
             }
-            // Identity and document are separate facts, and a miss above
-            // answers both at once. An edge naming somebody other than the
-            // caller's person is the newer truth, and the caller's person is
-            // the one a merge left behind, so the document has to be read
-            // rather than folded onto. Dropping a baseline is only safe
-            // because of this.
+            // A miss above answers identity and document at once. An edge
+            // naming somebody other than the caller's person is the newer
+            // truth, so the document has to be read rather than folded
+            // onto, which is what makes dropping a baseline safe.
             const edge = this.memo.resolutionOf(distinctKey)
             if (edge == null || edge === `${person.team_id}:${person.id}`) {
                 return person
@@ -903,17 +851,11 @@ export class PersonhogPersonsStore implements PersonsStore {
 
         const personKey = `${person.team_id}:${person.id}`
         this.referenceEntry(batchId, personKey)
-        // A first touch arrives with the person its caller read and no
-        // baseline recorded, and the lane about to hold ops is worthless
-        // without a document to replay them over.
-        //
-        // Only while the lane is empty, because only then is the caller's
-        // person known to be free of unsent ops. Once a lane exists the
-        // caller is holding a view this store composed, and seeding from it
-        // would replay ops it already contains: an event that both sets and
-        // unsets a key resolves the other way on a document that has already
-        // taken it. With no baseline the view is genuinely unknown, which is
-        // what a lookup miss says, and the next read settles it.
+        // A first touch arrives with no baseline recorded, and the lane
+        // about to hold ops is worthless without a document to replay them
+        // over. Seeded only while the lane is empty: once a lane exists the
+        // caller holds a view this store composed, and seeding from it
+        // would replay ops it already contains.
         if (!this.hasUnwrittenOps(personKey)) {
             this.memo.offerBaseline(personKey, person, 'identity-read')
         }
@@ -1011,11 +953,11 @@ export class PersonhogPersonsStore implements PersonsStore {
             if (inFlightWrites.length > 0) {
                 await Promise.all(inFlightWrites)
             }
-            // Every op id this request could be running under. Derived before
-            // the writes, which may bounce off a fence this same saga holds
-            // from an earlier parked delivery; only the op id tells that from
-            // somebody else's. Conflict suffixes are included because a
-            // parked delivery may have used one.
+            // Every op id this request could be running under, conflict
+            // suffixes included, derived before the writes because they may
+            // bounce off a fence this same saga holds from an earlier
+            // parked delivery. Only the op id tells that from somebody
+            // else's.
             const sagaOpIds = this.sagaOpIdCandidates(request)
             // Written behind the fence, so the saga folds people whose
             // buffered changes already landed with their own precedence, and
@@ -1062,14 +1004,10 @@ export class PersonhogPersonsStore implements PersonsStore {
             )
         } catch (error) {
             // This answer decides which persons are held and written before
-            // the fold. Falling back to the memo would leave any person it
-            // has not seen unheld and unwritten, and the saga folds it
-            // anyway, so its buffered ops land after the fold unordered.
-            //
-            // Wrapped, because an unwrapped error reaches the merge service's
-            // catch-all, which logs and acks the event with the merge lost.
-            // The call retries internally, so getting here means identity is
-            // unreachable.
+            // the fold; a memo fallback would leave unseen persons unheld,
+            // their buffered ops landing after the fold unordered. Wrapped
+            // because an unwrapped error reaches the merge service's
+            // catch-all, which would ack the event with the merge lost.
             personhogStoreMergeCacheCounter.inc({ action: 'fence_resolve_failed' })
             throw new PersonMergeCallFailedError(
                 `personhog merge fence resolve failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -1109,31 +1047,23 @@ export class PersonhogPersonsStore implements PersonsStore {
         // covers the person, so deferrals have to be counted to be seen.
         const pass = { deferrals: 0 }
         const captured: CapturedLane[] = []
-        // Every fenced person's lane, whichever distinct id opened it. A lane
-        // belongs to the person, and `entry.distinctId` only records which of
-        // that person's ids folded first. The merge is about to destroy some
-        // of these persons and discard whatever they still hold, so a lane
-        // skipped here is a lost write.
-        //
-        // The reference backend reaches the same pending update through any
-        // of a person's ids: its cache maps the id to the person and returns
-        // that person's buffered write, which the merge then folds into the
-        // survivor. Filtering by the merge's named ids would drop properties
-        // Postgres keeps.
+        // Every fenced person's lane, whichever distinct id opened it: the
+        // merge is about to destroy some of these persons, so a lane
+        // skipped here is a lost write. Filtering by the merge's named ids
+        // would drop properties Postgres keeps, since the reference
+        // backend's cache reaches a person's pending update through any of
+        // its ids.
         for (const personKey of personKeys) {
             const entry = this.entries.get(personKey)
             if (!entry || entry.segments.length === 0) {
                 continue
             }
-            // Still in flight after the wait above means a redirect owns the
-            // lane, and neither handle this merge waited on covers it: the
-            // settle promise was cleared when the person turned out to be
-            // gone, and the redirect registers under the survivor's key.
-            // Waiting is not an option either, since the promise is cleared
-            // precisely so a redirect can wait on merge fences without
-            // closing a loop. So the merge defers and its batch redelivers,
-            // which costs a round trip but never folds a person whose
-            // buffered ops are unaccounted for.
+            // Still in flight after the wait above means a redirect owns
+            // the lane, which no handle this merge waited on covers, and
+            // waiting is impossible because the settle promise is cleared
+            // precisely so redirects can wait on merge fences without
+            // closing a loop. So the merge defers and its batch redelivers
+            // rather than folding a person whose ops are unaccounted for.
             if (entry.inFlight) {
                 pass.deferrals += 1
                 personhogStoreFenceCounter.inc({ outcome: 'premerge_lane_in_flight' })
@@ -1180,18 +1110,12 @@ export class PersonhogPersonsStore implements PersonsStore {
                     continue
                 }
                 // Any other holder takes the claim-race route the saga
-                // reports as skipped_conflict: drop the merge with a warning
-                // and keep the event's property updates. That includes a
-                // sibling — a fence whose creator is this very event but
-                // whose operation this request cannot reconstruct, such as a
-                // parked fold this delivery re-batched away from. A sibling
-                // cannot be driven forward from here (only a retry under its
-                // own op id resumes it), and a parked one never settles by
-                // itself, so deferring to redelivery could loop without
-                // bound. The classification still travels: the label and the
-                // error name whether our own event's earlier work or a
-                // stranger holds the person, which is the difference between
-                // retrying the parked op and investigating a conflict.
+                // reports as skipped_conflict: drop the merge with a
+                // warning and keep the event's property updates. That
+                // includes a same-event sibling operation, which cannot be
+                // driven forward from here (only a retry under its own op
+                // id resumes it) and may never settle by itself, so
+                // deferring to redelivery could loop without bound.
                 const sibling =
                     error.fencingCreatorEventUuid !== undefined &&
                     error.fencingCreatorEventUuid.toLowerCase() === request.eventUuid.toLowerCase()
@@ -1231,13 +1155,11 @@ export class PersonhogPersonsStore implements PersonsStore {
     }
 
     /**
-     * Every op id `runMerge` could send: the plain derivation and the conflict
-     * suffixes its retries carry. A fence held by any of them belongs to this
-     * request's own saga, including from an earlier delivery, since every id
-     * derives from the event rather than from this delivery. This set is the
-     * ownership test; the fence's creator event uuid cannot replace it,
-     * because the creator identifies the event and an event can own several
-     * operations. The creator classifies same-event siblings instead.
+     * Every op id `runMerge` could send: the plain derivation and the
+     * conflict suffixes its retries carry, all derived from the event, so a
+     * fence held by any of them belongs to this request's own saga even
+     * across deliveries. The fence's creator event uuid cannot replace this
+     * ownership test, because an event can own several operations.
      */
     private sagaOpIdCandidates(request: MergePersonsRequest): Set<string> {
         const moveLimit = moveLimitFor(request.mergeMode, this.options.syncMergeMoveLimit)
@@ -1256,14 +1178,13 @@ export class PersonhogPersonsStore implements PersonsStore {
         batchId: number,
         beliefs: Map<string, string>
     ): Promise<MergePersonsResult> {
-        // Verdicts are recorded durably against the op id, so a retry would
-        // replay the same answer. A skipped_conflict is transient, so each
-        // retry salts a counter suffix into the derivation for a fresh look,
-        // and exhaustion throws the claim error Postgres throws. It cannot
-        // double-merge: a conflict verdict proves the aborted op destroyed
-        // nothing, and a fresh op against an already merged graph settles as
-        // noop_same_person. Retrying is for a single source only, because a
-        // fold's fresh op id would re-run the sources that did settle.
+        // Verdicts are recorded durably against the op id, so a
+        // skipped_conflict retry salts a counter suffix into the derivation
+        // for a fresh look; it cannot double-merge, because a conflict
+        // verdict proves the aborted op destroyed nothing and a fresh op
+        // against an already merged graph settles as noop_same_person.
+        // Retrying is for a single source only, because a fold's fresh op
+        // id would re-run the sources that did settle.
         const singleSource = request.sources.length === 1
         let conflictRetries = 0
         let result
@@ -1317,16 +1238,14 @@ export class PersonhogPersonsStore implements PersonsStore {
                     personhogStoreMergeCallFailedCounter.inc({ error: 'InvalidArgumentSettled' })
                     throw error
                 }
-                // The replay guard's refusal is deterministic: the op id
-                // names a different recorded merge, and every redelivery
-                // meets the same comparison forever, so wrapping it would
-                // wedge the partition on one duplicated event uuid. Like
-                // InvalidArgument it propagates raw to be acked loudly. It
-                // refuses before any durable work, so the team view stands.
-                // Keyed on the refusal's reason slug rather than the status
-                // code, because a semantic refusal can also arrive from a
-                // later saga step — after sources were sealed or flipped —
-                // where skipping the invalidation below would be wrong.
+                // The replay guard's refusal is deterministic (the op id
+                // names a different recorded merge) and pre-durable, so it
+                // propagates raw to be acked loudly rather than wedging
+                // the partition on one duplicated event uuid. Keyed on the
+                // refusal's reason slug rather than the status code,
+                // because a semantic refusal can also arrive from a later
+                // saga step, where skipping the invalidation below would
+                // be wrong.
                 if (
                     error instanceof ConnectError &&
                     error.metadata.get(SEMANTIC_REFUSAL_METADATA_KEY) === SEMANTIC_REFUSAL_OP_ID_REUSED
@@ -1338,11 +1257,11 @@ export class PersonhogPersonsStore implements PersonsStore {
                 // sealed sources or flipped their ids onto the survivor.
                 // How far it got is unknowable, so invalidate as if it had.
                 this.invalidateTeamAfterFailedMerge(request.teamId)
-                // No verdict arrived, so an ack would lose the merge whenever
-                // the saga did not commit. The typed wrapper makes the merge
-                // service fail the batch, and redelivery replays the saga
-                // idempotently. Only the call is wrapped, so a bug in
-                // post-verdict processing surfaces as itself.
+                // No verdict arrived, so an ack could lose the merge; the
+                // typed wrapper makes the merge service fail the batch, and
+                // redelivery replays the saga idempotently. Only the call
+                // is wrapped, so a bug in post-verdict processing surfaces
+                // as itself.
                 personhogStoreMergeCallFailedCounter.inc({
                     // gRPC codes are a closed set; naming them separates a
                     // replay-guard bounce from transport trouble at a glance.
@@ -1397,32 +1316,21 @@ export class PersonhogPersonsStore implements PersonsStore {
             result.survivor ? `${request.teamId}:${result.survivor.id}` : undefined,
             batchId
         )
-        // A fold that skipped any source on a lifecycle conflict, the move
-        // limit, or a definitive refusal aborts, after the reconcile above
-        // has taken account of the sources that did merge. The Postgres
-        // fold is all-or-nothing — a held person or an over-limit source
-        // aborts its whole transaction — so every event gets its own
-        // sequential decision: a conflicted source retries under salted op
-        // ids, an over-limit one receives its merge-mode verdict (DLQ or
-        // redirect), a refused one settles as its own warned loss, and an
-        // already-merged one settles as a same-person no-op. Executing the
-        // fold instead would ack the skipped sources with nothing behind
-        // them, which is a durability decision Postgres never makes — an
-        // aborted fold's response still carries a survivor, but only as the
-        // person the event's writes were delivered to, never as an executed
-        // merge. Retrying the whole fold under a fresh op id is not an
-        // option either, since it would re-run the sources that settled.
+        // A fold that skipped any source aborts, after the reconcile above
+        // has taken account of the sources that did merge: acking the
+        // skipped sources with nothing behind them is a durability decision
+        // the all-or-nothing Postgres fold never makes, so each gets its
+        // own sequential decision on redelivery. Retrying the whole fold
+        // under a fresh op id is not an option either, since it would
+        // re-run the sources that settled.
         if (!singleSource) {
             const overLimit = result.results.some((source) => source.outcome === 'skipped_move_limit')
             const conflicted = result.results.some((source) => source.outcome === 'skipped_conflict')
             const refused = result.results.some((source) => source.outcome === 'skipped_refused')
-            // Abort-ness is reconstructed from verdict names, so the net has
-            // to catch every aborted shape. An error verdict with no merged
-            // source alongside it can only be an abort: completion implies
-            // at least one source folded, since the all-fell-out case aborts
-            // before the fold. This is the belt for shapes the named checks
-            // miss — the vanished-source abort still records error, and so
-            // do rows frozen by the vocabulary this branch briefly shipped.
+            // Abort-ness is reconstructed from verdict names, so the net
+            // has to catch every aborted shape. An error verdict with no
+            // merged source alongside it can only be an abort, because
+            // completion implies at least one source folded.
             const errored = merged.length === 0 && result.results.some((source) => source.outcome === 'error')
             if (overLimit || conflicted || refused || errored) {
                 personhogStoreMergeCacheCounter.inc({ action: 'fold_skip_abort' })
@@ -1445,17 +1353,13 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
         let survivor = result.survivor
         if (result.survivor) {
-            // Update authority enters the memo only through leader reads and
-            // own-write answers, never through a response document: a fold's
-            // survivor is frozen at its commit and replays for the retention
-            // window, and every other shape answers the sync plane's own
-            // resolve, which lags the leader the way any identity answer
-            // does. Classifying a later op against either can suppress a
+            // Update authority enters the memo only through leader reads
+            // and own-write answers, never through a response document,
+            // whose replayed or identity-lagged state could suppress a
             // genuinely new value as no-change. So the survivor's version
             // only floors the key (state the leader provably passed), and
             // one leader read supplies the document the batch folds
-            // against — the same read the update fetch and the create path
-            // pay.
+            // against.
             const survivorKey = `${request.teamId}:${result.survivor.id}`
             this.memo.dropBaselineBehindWrites(
                 survivorKey,
@@ -1476,13 +1380,12 @@ export class PersonhogPersonsStore implements PersonsStore {
             try {
                 refreshed = await this.repository.fetchPersonById(request.teamId, result.survivor.id, CALLER_TAG)
             } catch (error) {
-                // The verdict is durable and reconciled; only the refresh is
-                // lost. Installing nothing degrades to read amplification —
-                // later update-class reads pay the leader — while throwing
-                // would fail a batch whose merge committed. The caller still
-                // folds this event against the response document, which is
-                // safe for the merge's own ops: the request carried them and
-                // the service already applied them durably.
+                // The verdict is durable and reconciled; only the refresh
+                // is lost, so installing nothing degrades to read
+                // amplification while throwing would fail a batch whose
+                // merge committed. The caller still folds against the
+                // response document, which is safe because the service
+                // already applied the merge's own ops durably.
                 personhogStoreMergeCacheCounter.inc({ action: 'survivor_refresh_failed' })
                 logger.warn('🤔', 'merge survivor refresh failed; batch proceeds without a leader document', {
                     team_id: request.teamId,
@@ -1511,13 +1414,11 @@ export class PersonhogPersonsStore implements PersonsStore {
             } else if (this.memo.epochOf(request.teamId) !== epochBefore) {
                 // The team view was invalidated while the read was on the
                 // wire, so this answer may predate destructions nobody
-                // verdicted to this pod. Installing nothing degrades to
-                // read amplification, the same as a failed read; the caller
-                // still folds this event safely, since its ops are durable
-                // server-side in every survivor-returning shape. A stamp
-                // swept at the watermark mid-read trips this too — a
-                // one-shot spurious decline in the same safe direction, so
-                // the counter reads as an upper bound on invalidations.
+                // verdicted to this pod; installing nothing degrades to
+                // read amplification, and the caller's fold stays safe
+                // because its ops are durable server-side. A mid-read
+                // watermark sweep trips this too, so the counter reads as
+                // an upper bound on invalidations.
                 personhogStoreMergeCacheCounter.inc({ action: 'refresh_stale_epoch' })
                 survivor = newerSurvivor(result.survivor, refreshed)
             } else {
@@ -1537,25 +1438,20 @@ export class PersonhogPersonsStore implements PersonsStore {
             survivor,
             results: result.results,
             // Only a newborn that is also identified has everything the
-            // follow-up update would apply, which is the state the Postgres
-            // backend's own creation leaves behind when it reports the same.
-            // A birth whose every source was skipped is not identified: the
-            // flip rests on a source settling as attached or as the same
-            // person, and there was none, so the follow-up is the only thing
-            // that will ever identify that person. Only the inline
-            // settlement reports a birth, so no saga is involved. Judged on
-            // the response document rather than the refreshed one, because
-            // the question is what the merge itself left behind.
+            // follow-up update would apply; a birth whose every source was
+            // skipped is not identified, so the follow-up is the only thing
+            // that will ever identify that person. Judged on the response
+            // document rather than the refreshed one, because the question
+            // is what the merge itself left behind.
             survivorNeedsUpdate: !(result.survivorWasBorn && result.survivor?.is_identified === true),
         }
     }
 
     /**
-     * Whether a lane still holds ops no write has taken. Not the same as an
-     * entry existing: an entry outlives its segments, since a flush drains
-     * one while the batch still references it and a merge discard empties
-     * one. A drained lane holds nothing a fetch could be missing, so it must
-     * not go on winning against one.
+     * Whether a lane still holds ops no write has taken, which an existing
+     * entry alone does not prove: an entry outlives its segments. A drained
+     * lane holds nothing a fetch could be missing, so it must not go on
+     * winning against one.
      */
     private hasUnwrittenOps(personKey: string): boolean {
         return (this.entries.get(personKey)?.segments.length ?? 0) > 0
@@ -1591,16 +1487,12 @@ export class PersonhogPersonsStore implements PersonsStore {
     }
 
     /**
-     * A direct diff update, applied rather than folded: the caller resolved
-     * the diff already, so it maps onto the leader's folded-update RPC. Only
-     * diff-expressible fields of `otherUpdates` are supported; anything else
-     * has no RPC field and fails loudly rather than dropping silently.
-     */
-    /**
-     * Deliberately outside the local fence and lane protocol that folds
-     * honor: a direct write racing a remote merge is stopped by the leader's
-     * own fence instead, which fails the batch to redelivery. Local fences
-     * order buffered work; this path buffers nothing.
+     * A direct diff update mapped onto the leader's folded-update RPC;
+     * fields of `otherUpdates` with no RPC counterpart fail loudly rather
+     * than dropping silently. Deliberately outside the local fence and lane
+     * protocol, which orders buffered work: this path buffers nothing, and
+     * a race with a remote merge is stopped by the leader's own fence,
+     * failing the batch to redelivery.
      */
     async updatePersonWithPropertiesDiffForUpdate(
         person: InternalPerson,
@@ -1783,20 +1675,15 @@ export class PersonhogPersonsStore implements PersonsStore {
     }
 
     /**
-     * Writes the batch's folded lanes to the leader, one entry per person,
-     * segments in order. No Postgres fallback and nothing publishes: the
-     * leader's changelog is this backend's person feed. A missing person
-     * redirects to whatever its distinct id resolves to now; a person
-     * genuinely gone and a size rejection are counted and dropped, since
-     * neither can succeed on retry. Anything else fails the flush.
-     *
-     * Passes serialize. A pass snapshots each lane's segment count and
-     * removes segments as they land, so a partial failure keeps what it did
-     * not attempt for a later pass to write again.
-     *
-     * A lane with no update-worthy change is suppressed rather than written,
-     * as Postgres does. `triggersUpdate` accumulates across batches, so one
-     * batch's real change carries a sibling's filtered-only fold with it.
+     * Writes the batch's folded lanes to the leader, one call per segment;
+     * nothing publishes, because the leader's changelog is this backend's
+     * person feed. A missing person redirects to whatever its distinct id
+     * resolves to now, a person genuinely gone and a size rejection are
+     * counted and dropped since neither can succeed on retry, and anything
+     * else fails the flush. Passes serialize, snapshotting each lane's
+     * segment count so a partial failure keeps what it did not attempt,
+     * and a lane with no update-worthy change is suppressed as Postgres
+     * does.
      */
     async flush(): Promise<FlushResult[]> {
         const run = this.flushChain.then(() => this.flushPass())
@@ -1809,13 +1696,10 @@ export class PersonhogPersonsStore implements PersonsStore {
 
     private async flushPass(): Promise<FlushResult[]> {
         // Success here is what lets the batch ack, so the pass must not
-        // return while any lane still holds unwritten segments. A lane parked
-        // behind a merge is waited out and written, or the pass fails and the
-        // batch redelivers; acking past one would commit offsets over writes
-        // that exist only in this process.
-        //
-        // One deadline across every round, since per-round budgets would add
-        // up on a pass that already runs at the end of the request.
+        // return while any lane still holds unwritten segments: a lane
+        // parked behind a merge is waited out and written, or the pass
+        // fails and the batch redelivers. One deadline across every round,
+        // since per-round budgets would add up.
         const waitDeadline = Date.now() + this.options.fenceWaitMs
         for (let round = 0; ; round++) {
             const pass = { deferrals: 0 }
@@ -1837,10 +1721,9 @@ export class PersonhogPersonsStore implements PersonsStore {
                     `flush cannot complete: ${pass.deferrals} lanes deferred behind merges that did not settle`
                 )
             }
-            // Wait out whatever is still fenced. Concurrently, because the
-            // fences overlap and waiting serially would cost fenced-lane
-            // count times the ceiling. Settled rather than raced, so one
-            // lane's timeout does not leave the others rejecting unobserved.
+            // Wait out whatever is still fenced, concurrently because the
+            // fences overlap. Settled rather than raced, so one lane's
+            // timeout does not leave the others rejecting unobserved.
             const waited = await Promise.allSettled(
                 [...this.entries]
                     .filter(([, entry]) => entry.segments.length > 0)
@@ -1854,10 +1737,10 @@ export class PersonhogPersonsStore implements PersonsStore {
     }
 
     private async writeEligibleLanes(countDeferrals: boolean, pass: { deferrals: number }): Promise<void> {
-        // Entries are never removed to be written. A pass records the
-        // segment count, marks the lane in flight, and truncates exactly that
-        // many on success, so a failure leaves the entry as it was with no
-        // claim to strand. No await in this block: the snapshot is atomic.
+        // A pass records the segment count, marks the lane in flight, and
+        // truncates exactly that many on success, so a failure leaves the
+        // entry as it was with no claim to strand. No await in this block:
+        // the snapshot is atomic.
         const captured: CapturedLane[] = []
         for (const [personKey, entry] of this.entries) {
             if (entry.segments.length === 0) {
@@ -1872,10 +1755,10 @@ export class PersonhogPersonsStore implements PersonsStore {
                 pass.deferrals += 1
                 continue
             }
-            // A fenced person's merge is on the wire. Writing its lane now
-            // could hit the tombstone and redirect to the survivor before
-            // reconcile has decided the person's fate. The drain loop waits
-            // the merge out and writes the lane before the flush returns.
+            // A fenced person's merge is on the wire, and writing its lane
+            // now could hit the tombstone and redirect to the survivor
+            // before reconcile has decided the person's fate. The drain
+            // loop writes it once the merge settles.
             if (this.fences.has(personKey)) {
                 pass.deferrals += 1
                 if (countDeferrals) {
@@ -1935,18 +1818,17 @@ export class PersonhogPersonsStore implements PersonsStore {
         segments: number,
         pass?: { deferrals: number },
         /**
-         * The fence this write's own merge installed, if a merge issued it.
-         * Parking behind it would be parking behind itself. Tested by
-         * identity, never by key, so a second merge on the same person still
-         * holds this write back.
+         * The fence this write's own merge installed, since parking behind
+         * it would be parking behind itself. Tested by identity, never by
+         * key, so a second merge on the same person still holds this write
+         * back.
          */
         ownFence?: Promise<void>
     ): Promise<void> {
-        // Capture marked this lane, but execution can begin macrotasks later
-        // behind a pLimit slot. A merge can fence the person in that gap and
-        // cannot see a write with no promise yet, so the fence is re-checked
-        // at the moment writing starts. A fenced lane defers to the drain
-        // loop, which writes it once the merge has released.
+        // A merge can fence the person between capture and this write's
+        // pLimit slot, so the fence is re-checked at the moment writing
+        // starts. A fenced lane defers to the drain loop, which writes it
+        // once the merge has released.
         if (this.isHeldByOther(personKey, ownFence)) {
             // A merge's own pre-merge write is not a flush, and conflating
             // the two would file the signal that a merge is contending under
@@ -1964,10 +1846,10 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
         try {
             // Suppressing a filtered-only lane is a flush rule, not a merge
-            // one. The reference backend reads the source through its cache,
-            // so those pending values are already folded into the survivor's
-            // properties before it clears anything; dropping them here would
-            // lose a write it keeps. A merge-issued write is a forced write.
+            // one: the reference backend folds a source's pending values
+            // into the survivor before clearing anything, so dropping them
+            // here would lose a write it keeps. A merge-issued write is a
+            // forced write.
             if (!entry.triggersUpdate && ownFence === undefined) {
                 if (!this.memo.isDestroyed(personKey)) {
                     personhogStoreFlushCounter.inc({ outcome: 'filtered' })
@@ -2041,11 +1923,11 @@ export class PersonhogPersonsStore implements PersonsStore {
                 } catch (error) {
                     if (error instanceof NoRowsUpdatedError) {
                         // The person was merged or deleted since the fold.
-                        // Settled before the redirect phase, because the
+                        // Settled before the redirect phase because the
                         // redirect waits on merge fences and a merge waiting
-                        // on this promise would close a cycle. A size-drop
-                        // resume keeps it pending, since that write is still
-                        // a direct one the merge must order behind.
+                        // on this promise would close a cycle; a size-drop
+                        // resume stays pending, since that write is still a
+                        // direct one the merge must order behind.
                         entry.settleWrite?.()
                         entry.settleWrite = undefined
                         entry.directWriteSettled = undefined
@@ -2054,18 +1936,13 @@ export class PersonhogPersonsStore implements PersonsStore {
                     }
                     if (error instanceof PersonhogPropertiesSizeError) {
                         // The rejected segment can never succeed, so it goes
-                        // and the loop writes the remainder now. Postgres
-                        // loses more here — one oversized row aborts its whole
-                        // batch statement, taking every other person in that
-                        // flush with it — and that is not a loss worth
-                        // reproducing.
-                        //
-                        // The customer-facing warning comes from the leader,
-                        // which emits PersonPropertiesSizeViolation on this
-                        // same rejection but throttles it to one per team per
-                        // hour. The log line is what attributes the
-                        // individual discard, which the throttle would
-                        // otherwise swallow.
+                        // and the loop writes the remainder now, unlike
+                        // Postgres, where one oversized row aborts its whole
+                        // batch statement. The customer-facing warning comes
+                        // from the leader, which emits
+                        // PersonPropertiesSizeViolation but throttles it to
+                        // one per team per hour, so the log line is what
+                        // attributes the individual discard.
                         personhogStoreFlushCounter.inc({ outcome: 'size_violation' })
                         // Nothing to repair in the memo: the baseline is a
                         // leader document and never counted these ops, so
@@ -2134,17 +2011,12 @@ export class PersonhogPersonsStore implements PersonsStore {
         })
     }
 
-    /** An authoritative document with a lane's still-unwritten ops replayed on top. */
     /**
      * A service document with a lane's unsent ops applied on top, which is
-     * what a read of that person should answer.
-     *
-     * Built from the same refine-and-apply pair the Postgres backend writes
-     * through, rather than a second reading of the leader's rules: its
-     * `$unset` already skips a key the op itself introduced, which is the
-     * leader's pre-op-document rule, and it declines a denied event's
-     * properties. Outcomes stay unrecorded because these events were counted
-     * when they were folded.
+     * what a read of that person should answer. Built from the same
+     * refine-and-apply pair the Postgres backend writes through rather than
+     * a second reading of the leader's rules, and outcomes stay unrecorded
+     * because these events were counted when they were folded.
      */
     private projectOver(person: InternalPerson, segments: EventOps[]): InternalPerson {
         let projected = person
@@ -2203,18 +2075,13 @@ export class PersonhogPersonsStore implements PersonsStore {
             if (applied !== undefined && typeof answer?.version === 'number') {
                 applied.version = Math.max(applied.version ?? 0, answer.version)
             }
-            // The document the leader answered is this person's state as of
-            // the write, so the baseline tracks the leader rather than the
-            // last read. Without it a read issued before this write and
-            // delivered after it carries the same version as the baseline,
-            // and nothing can tell the two apart. A response carrying no
-            // document leaves the baseline naming a version the leader has
-            // moved past, which the next read has to replace.
-            //
-            // Only where the lane owns the person. A redirect writes to a
-            // survivor whose baseline answers for its own lane, and this
-            // lane's ops are not that lane's; the redirect drops that
-            // survivor's baseline once it is done.
+            // Installing the answered document keeps the baseline tracking
+            // the leader, because a read issued before this write and
+            // delivered after it carries the same version as the baseline
+            // and nothing could tell the two apart. Only where the lane
+            // owns the person: a redirect writes to a survivor whose
+            // baseline answers for another lane, and the redirect drops
+            // that baseline once it is done.
             if (personId === entry.personId) {
                 const personKey = `${entry.teamId}:${personId}`
                 if (answer !== null) {
@@ -2240,13 +2107,10 @@ export class PersonhogPersonsStore implements PersonsStore {
 
     /**
      * Re-resolves a lane's distinct id after its person vanished and writes
-     * the snapshot to the survivor.
-     *
-     * Answers 'written' once the survivor takes them, 'size_violation' when
-     * the leader rejects a unit at the properties ceiling, and 'gone' when
-     * the id resolves to nobody, the one outcome the caller discards on. The
-     * other dead ends throw instead: an id still naming the vanished person
-     * is identity lag, and a survivor that vanishes restarts the loop.
+     * the snapshot to the survivor, answering 'written', 'size_violation',
+     * or 'gone', the one outcome the caller discards on. The other dead
+     * ends throw instead: an id still naming the vanished person is
+     * identity lag, and a survivor that vanishes restarts the loop.
      */
     private async redirectToSurvivor(
         entry: OpsLaneEntry,
@@ -2254,17 +2118,12 @@ export class PersonhogPersonsStore implements PersonsStore {
         fenceDeadline: number,
         ownFence?: Promise<void>
     ): Promise<RedirectOutcome> {
-        // Each pass re-resolves against the person the previous one failed to
-        // write, so consecutive merges on one lineage converge rather than
-        // dropping. Postgres loops its refresh for the same reason.
-        //
-        // A lane captured before its person was fenced can arrive mid-merge,
-        // where writing would land pre-merge ops raw, so the repointed
-        // resolution has to exist first. A flush-issued redirect waits for
-        // it; a merge-issued one refuses, since it holds fences of its own.
-        // `awaitFences` owns that split.
-        // The caller's deadline covers every fence this redirect waits on,
-        // opening wait and per-attempt alike.
+        // Each pass re-resolves against the person the previous one failed
+        // to write, so consecutive merges on one lineage converge rather
+        // than dropping. A lane can arrive here mid-merge, where writing
+        // would land pre-merge ops raw, so a flush-issued redirect waits
+        // the fence out while a merge-issued one refuses (`awaitFences`
+        // owns that split), all under the caller's one deadline.
         const ownKey = `${entry.teamId}:${entry.personId}`
         await this.awaitFences(ownKey, ownFence, fenceDeadline)
         let vanished = entry.personId
@@ -2351,10 +2210,9 @@ export class PersonhogPersonsStore implements PersonsStore {
                     this.memo.dropBaseline(`${entry.teamId}:${entry.personId}`)
                     return 'gone'
                 }
-                // Registered before the write goes on the wire. The recheck
-                // above and this registration are one synchronous block, as
-                // are a merge's fence-install and registry check, so either
-                // the merge sees this redirect or this attempt saw the fence.
+                // Registered before the write goes on the wire, in one
+                // synchronous block with the recheck above, so either a
+                // merge sees this redirect or this attempt saw the fence.
                 // Otherwise a merge fencing the survivor mid-RPC could land
                 // its writes first and have these older ops overwrite them.
                 const survivorKey = `${entry.teamId}:${survivorId}`
@@ -2371,13 +2229,10 @@ export class PersonhogPersonsStore implements PersonsStore {
                 try {
                     // The person was merged away before this lane could be
                     // written, which another pod can cause because ingestion
-                    // partitions by distinct id and personhog by person.
-                    //
-                    // The ops travel as they stand, deletions included, as
-                    // Postgres carries its pending sets and unsets across and
-                    // retries unchanged. Weakening them would diverge from
-                    // that backend and discard a deletion the customer asked
-                    // for.
+                    // partitions by distinct id and personhog by person. The
+                    // ops travel as they stand, deletions included, because
+                    // weakening them would diverge from Postgres and discard
+                    // a deletion the customer asked for.
                     await this.writeSegments(entry, survivorId, progress, surviving)
                 } finally {
                     settleRedirect()
@@ -2400,14 +2255,12 @@ export class PersonhogPersonsStore implements PersonsStore {
                 this.memo.bumpId(`${entry.teamId}:${entry.distinctId}`)
                 personhogStoreDeathStampCounter.inc({ site: 'redirect_written' })
                 this.memo.markDestroyed(`${entry.teamId}:${entry.personId}`)
-                // These ops just landed on the survivor, and its baseline
-                // answers for its own lane, which cannot know about them. The
-                // leader can answer the merged document; this batch cannot
-                // rebuild it, since the two lanes' unwritten ops have no
-                // defined order between them. So drop it and re-read rather
-                // than reconstruct — unless the survivor's own lane wrote
-                // concurrently and installed a document past these writes,
-                // which already contains them.
+                // These ops just landed on the survivor, whose baseline
+                // answers for its own lane and cannot know about them, and
+                // the two lanes' unwritten ops have no defined order to
+                // rebuild from. So drop it and re-read, unless the
+                // survivor's own lane concurrently installed a document
+                // past these writes, which already contains them.
                 this.memo.dropBaselineBehindWrites(`${entry.teamId}:${survivorId}`, surviving.version)
                 return 'written'
             } catch (error) {
@@ -2473,20 +2326,13 @@ export class PersonhogPersonsStore implements PersonsStore {
 
     /**
      * Reconciles the batch view against the persons a merge destroyed,
-     * matching what the Postgres store does when it deletes a source:
-     * clear the person and every distinct id that mapped to it.
-     *
-     * Two keys, because neither alone suffices. Reported person ids reach
-     * ids the request never named, but a server predating the field reports
-     * none; the named source distinct ids are always present and resolve
-     * through the memo. Using both degrades to the older behavior rather
-     * than to nothing.
-     *
-     * Ops still buffered for a destroyed person are kept, whether the
-     * evidence is authoritative or a belief. Their next write meets the
-     * tombstone and redirects to the survivor, which is what the reference
-     * backend does with them too: its merge folds a source's pending
-     * properties into the survivor before deleting the row.
+     * clearing each person and every distinct id that mapped to it; both
+     * reported person ids and named source distinct ids are used, because a
+     * server predating the id field reports none and using both degrades to
+     * the older behavior rather than to nothing. Ops still buffered for a
+     * destroyed person are kept: their next write meets the tombstone and
+     * redirects to the survivor, as the reference backend folds a source's
+     * pending properties across before deleting the row.
      */
     private reconcileMergedPersons(
         teamId: number,
@@ -2494,12 +2340,11 @@ export class PersonhogPersonsStore implements PersonsStore {
         survivorKey: string | undefined,
         batchId: number
     ): void {
-        // Two classes, because the evidence differs. A server-named person
-        // id is authoritative: that person is gone, its ids belong to the
-        // survivor, its baseline and its buffered ops must go. A key
-        // inferred from the memo is only as good as the memo, since a
-        // replayed verdict or a merge on another pod can make it name a live
-        // person, so those only release resolutions.
+        // A server-named person id is authoritative: that person is gone,
+        // and its ids, baseline, and buffered ops go with it. A key
+        // inferred from the memo is only as good as the memo (a replayed
+        // verdict can make it name a live person), so those only release
+        // resolutions.
         const authoritative = new Set<string>()
         const inferred = new Set<string>()
         for (const { personKey, distinctKey, beliefKey } of destroyed) {
@@ -2538,19 +2383,12 @@ export class PersonhogPersonsStore implements PersonsStore {
         if (authoritative.size === 0 && inferred.size === 0) {
             return
         }
-        // A lane still holding ops for a person this merge destroyed is left
-        // to write. Its next flush meets the tombstone and redirects to the
-        // survivor, which is the mechanism that exists for exactly this.
-        //
-        // The reference backend keeps those ops too: its merge reads each
-        // source through the cache that holds them, folds their properties
-        // into the survivor, and only then deletes the row and clears the
-        // entry. Discarding here would drop writes Postgres carries across,
-        // and unlike the redirect it cannot be undone. Every way a lane can
-        // still be pending at this point — a person born after the fence set
-        // was computed, one whose id the merge never named, or one the saga
-        // itself was holding when the pre-merge drain ran — is a lane whose
-        // ops nothing else will write.
+        // A lane still holding ops for a person this merge destroyed is
+        // left to write: its next flush meets the tombstone and redirects
+        // to the survivor. Discarding here would drop writes the reference
+        // backend carries across (it folds a source's pending properties
+        // into the survivor before deleting the row), and unlike the
+        // redirect it cannot be undone.
         let stranded = 0
         for (const [personKey, entry] of this.entries) {
             if (!authoritative.has(personKey) || entry.segments.length === 0) {
@@ -2608,13 +2446,11 @@ export class PersonhogPersonsStore implements PersonsStore {
     }
 
     /**
-     * A failed merge call may still have destroyed persons this batch cached,
-     * and which ones is unknowable with no verdict, so the team's resolutions
-     * are dropped and re-resolve on next access.
-     *
-     * Documents are dropped only for persons holding no folded ops. One with
-     * a pending lane behind it is the batch's own read-your-write view, so
-     * dropping it would hide earlier updates from this batch's later events.
+     * A failed merge call may still have destroyed persons this batch
+     * cached, and which ones is unknowable with no verdict, so the team's
+     * resolutions are dropped and re-resolve on next access. Documents are
+     * dropped only for persons holding no folded ops, because a pending
+     * lane's document is the batch's own read-your-write view.
      */
     private invalidateTeamAfterFailedMerge(teamId: number): void {
         const cleared = this.memo.invalidateTeam(teamId)
@@ -2657,14 +2493,11 @@ export class PersonhogPersonsStore implements PersonsStore {
     /**
      * Releases a batch, discarding the unwritten segments the batch alone
      * was keeping: the shadow valve. A shadow flush failure cannot fail
-     * the batch, so the authoritative backend acks and releases while
-     * these lanes still hold ops, and keeping them would grow without
-     * bound under a sustained personhog outage — the one shadow fault
-     * that could take the authoritative process down. What is shed is
-     * shadow fidelity, counted; the data's authority is the other
-     * backend. Segments a still-open batch also references stay for that
-     * batch's flush, and an in-flight lane keeps its claim, since its
-     * write settles it either way.
+     * the batch, so keeping these lanes would grow without bound under a
+     * sustained personhog outage (the one shadow fault that could take
+     * the authoritative process down); what is shed is counted shadow
+     * fidelity, while segments a still-open batch references stay and an
+     * in-flight lane keeps its claim.
      */
     abandonBatch(batchId: number): void {
         this.prefetchingBatches.delete(batchId)

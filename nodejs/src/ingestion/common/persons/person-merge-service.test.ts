@@ -150,11 +150,9 @@ describe('PersonMergeService store-owned merges', () => {
     })
 
     it('attributes a multi-result answer to its own source', async () => {
-        // The contract answers one result per requested source, so a
-        // single-source call cannot legitimately receive two. Decoding is
-        // keyed by source rather than position anyway, so an anomalous
-        // answer reads this source's own verdict instead of whichever
-        // happens to be first — the anomaly stays inert.
+        // A single-source call cannot legitimately receive two results.
+        // Decoding is keyed by source rather than position, so an anomalous
+        // answer reads this source's own verdict and stays inert.
         store.mergePersons.mockResolvedValue({
             survivor,
             results: [
@@ -197,12 +195,9 @@ describe('PersonMergeService store-owned merges', () => {
     })
 
     it('a deterministic raw refusal acks once with a warning instead of wedging the batch', async () => {
-        // The replay guard's op_id_reused refusal is deterministic:
-        // rethrowing would redeliver one duplicated event uuid into the
-        // same refusal until the recorded op ages out, and retrying it
-        // re-runs the same comparison. The generic catch must ack it, the
-        // retry layer must not spin on it, and the settled loss must leave
-        // a customer-visible trace like every other settled loss.
+        // The op_id_reused refusal is deterministic, so rethrowing or
+        // retrying would spin on the same refusal until the recorded op
+        // ages out. It must ack once and leave a customer-visible trace.
         const before = await counterTotal(ingestionWarningCounter)
         const settledBefore = await counterTotal(mergeSettledFailureCounter)
         store.mergePersons.mockRejectedValue(
@@ -256,11 +251,10 @@ describe('PersonMergeService store-owned merges', () => {
     })
 
     it('a verdict this build cannot name is neither acked nor treated as a transport failure', async () => {
-        // 'error' is acked because the backend replays it and redelivery
-        // cannot change the answer. An unnamed verdict carries no such
-        // promise — the merge may have happened — and it is not transient
-        // either, since every redelivery reaches this same build until the
-        // roll finishes. It gets its own class, which the processor DLQs.
+        // An unnamed verdict may mean the merge happened, and every
+        // redelivery reaches this same build until the roll finishes, so
+        // it can be neither acked nor retried. Its own class is what the
+        // processor DLQs.
         store.mergePersons.mockResolvedValue(result('unknown'))
         const service = makeService()
 
@@ -401,12 +395,10 @@ describe('PersonMergeService store-owned merges', () => {
         })
 
         it('a source the fold settled as failed leaves a customer-visible trace', async () => {
-            // The op is terminal, so redelivery cannot reach a different
-            // answer, and the source's own event later reads the executed
-            // plan and acks. Dropping the arm would make the lost merge
-            // silent. Asserted on the counter: the warning itself is
-            // debounced per team and type, and an earlier test in this file
-            // legitimately consumes the token.
+            // The op is terminal and the source's own event later acks, so
+            // dropping this arm would make the lost merge silent. Asserted
+            // on the counter because the warning is debounced per team and
+            // type.
             const before = await counterTotal(mergeSettledFailureCounter)
             store.mergePersons.mockResolvedValue({
                 survivor,

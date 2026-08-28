@@ -52,11 +52,10 @@ export class PersonMergeCallFailedError extends PersonMergeError {
 }
 
 /**
- * A verdict this build has no name for, which only a backend running ahead of
- * it produces. Neither settled nor transient: the merge may have happened, so
- * acking would record a loss that may not exist, and redelivery cannot help
- * until the deploy finishes. The event goes to the DLQ, where it stays
- * replayable and costs nothing while the roll completes.
+ * A verdict this build has no name for, produced only by a backend a release
+ * ahead. Neither settled nor transient: the merge may have happened and
+ * redelivery reaches the same build until the roll finishes, so the event
+ * goes to the DLQ where it stays replayable.
  */
 export class PersonMergeUnknownOutcomeError extends PersonMergeError {
     readonly type = 'UNKNOWN_OUTCOME' as const

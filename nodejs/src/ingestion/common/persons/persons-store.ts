@@ -26,8 +26,8 @@ export interface MergePersonsSource {
 /**
  * Per-source verdicts a merge can answer. Both backends share the
  * vocabulary; 'skipped_race' and the 'failed_*' verdicts come only from the
- * Postgres merge's retrying transaction. 'error' is the saga's fallback
- * verdict, and the Postgres path has an arm for it that nothing reaches.
+ * Postgres merge's retrying transaction, and 'error' in practice only from
+ * the saga.
  */
 export type MergePersonsOutcome =
     | 'merged'
@@ -61,11 +61,10 @@ export interface MergePersonsSourceResult {
     /** The source person the verdict speaks about. Postgres only; the saga reports ids. */
     sourcePersonUuid?: string
     /**
-     * The source person this verdict destroyed, on a merged source only. A
-     * merged-away person is permanent, so a caller may reconcile cached state
-     * against it without re-reading, reaching persons cached under ids the
-     * request never named. On every other verdict the Postgres backend omits
-     * it and the personhog client answers null.
+     * The source person this verdict destroyed, on a merged source only: a
+     * merged-away person is permanent, so a caller may reconcile cached
+     * state against it without re-reading. On every other verdict the
+     * Postgres backend omits it and the personhog client answers null.
      */
     sourcePersonId?: string | null
 }
@@ -79,7 +78,7 @@ export interface MergePersonsRequest {
      */
     sources: MergePersonsSource[]
     /**
-     * The source belonging to the event that initiated this request. Not
+     * The source belonging to the event that initiated this request; not
      * always the first source, since the plan's first event can be dropped
      * before the person step. The Postgres merge bootstraps it through the
      * sequential path when a folded merge finds no target.
@@ -103,10 +102,10 @@ export interface MergePersonsRequest {
      */
     mergeMode: MergeMode
     /**
-     * Merge event created_at, epoch millis. Consulted only where nothing
-     * resolves and a person is born from the request. Where anything does
-     * resolve, the survivor takes the earliest created_at among itself and
-     * the persons merged into it. Both backends agree on that.
+     * Merge event created_at, epoch millis; consulted only where nothing
+     * resolves and a person is born from the request. Otherwise both
+     * backends give the survivor the earliest created_at among itself and
+     * the persons merged into it.
      */
     createdAtMs: number
 }
@@ -120,12 +119,10 @@ export interface MergePersonsResult {
     /** Post-commit ClickHouse production the caller may chain on; absent when the backend produced before returning. */
     kafkaAck?: Promise<void>
     /**
-     * Whether the caller still needs its follow-up property update. Absent
-     * means true, and the two backends answer it from different states:
-     * Postgres reports false when its own creation applied the event's
-     * properties, and also when creation conflicted onto a person already
-     * identified; personhog reports false only for a newborn that is also
-     * identified, since a birth whose every source was skipped is not.
+     * Whether the caller still needs its follow-up property update; absent
+     * means true. Postgres reports false when its own creation applied the
+     * event's properties or conflicted onto an already-identified person;
+     * personhog only for a newborn that is also identified.
      */
     survivorNeedsUpdate?: boolean
     /**

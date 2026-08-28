@@ -287,12 +287,10 @@ describe('PersonHogPersonOperations', () => {
             expect(passthrough.code).toBe(Code.Unavailable)
         })
 
-        // The status code on a fence refusal depends on which hop answers:
-        // the leader raises FAILED_PRECONDITION, and the router — the hop
-        // ingestion actually dials — retries the bounce and substitutes its
-        // own UNAVAILABLE once the retries run out, forwarding the fence
-        // metadata. Recognition has to key on the metadata, or the routed
-        // shape (the only one production sees) reads as a generic outage.
+        // The leader raises FAILED_PRECONDITION, but the router that
+        // ingestion actually dials substitutes UNAVAILABLE after its
+        // retries while forwarding the fence metadata. Keying on the status
+        // code would read the routed shape as a generic outage.
         it.each([
             ['the leader answers directly', Code.FailedPrecondition],
             ['the router substitutes its own status after exhausting retries', Code.Unavailable],

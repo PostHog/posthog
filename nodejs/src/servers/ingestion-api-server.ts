@@ -402,12 +402,11 @@ export class IngestionApiServer implements NodeServer {
                 maxConcurrentUpdates: this.config.PERSONHOG_STORE_MAX_CONCURRENT_UPDATES,
                 updateAllProperties: this.config.PERSON_PROPERTIES_UPDATE_ALL,
                 syncMergeMoveLimit: this.config.PERSONHOG_SYNC_MERGE_MOVE_LIMIT,
-                // Derived, not configured separately: a local fence is held
-                // for a sibling merge call's whole duration, so the wait
-                // ceiling must exceed the merge deadline times its
+                // Derived rather than configured separately: a local fence
+                // is held for a sibling merge call's whole duration, so the
+                // wait ceiling must exceed the merge deadline times its
                 // transport-retry attempts or the leak alarm fires on
-                // legitimately slow merges. Raising the merge deadline moves
-                // the ceiling with it.
+                // legitimately slow merges.
                 fenceWaitMs: derivedFenceWaitMs(this.config.PERSONHOG_MERGE_TIMEOUT_MS),
             })
             personsStore = new RoutingPersonsStore(this.personsStore, personhogStore, personsStoreMode)

@@ -53,17 +53,6 @@ export function assertPersonsStoreModeConfig(
 }
 
 /**
- * Routes person-store verbs between the Postgres backend and the personhog
- * one. The mode applies to the whole deployment: personhog sends every
- * verb to the personhog store, and shadow runs the Postgres call as the
- * authoritative result with the personhog call after it, its failures
- * counted and logged but never failing the batch. Merges route through
- * `mergePersons` like any other verb — each backend runs its own whole
- * merge, the identity service's saga or the Postgres store's own merge —
- * so shadow mode rehearses every merge, folds included, against the
- * personhog backend's own graph.
- */
-/**
  * Whether two property maps say the same thing. Compared by serialised value
  * rather than by reference so a nested object that was rebuilt on one side
  * does not read as a difference.
@@ -78,14 +67,10 @@ function propertiesMatch(left: Properties, right: Properties): boolean {
 }
 
 /**
- * Structural equality for JSON property values, insensitive to the order of
- * an object's keys. Postgres stores jsonb with its own key ordering while the
- * personhog side arrives over proto in the order it was written, so comparing
- * serialised forms would report every nested object as a difference and bury
- * the divergences that are real.
- *
- * Array order is still significant, because it is significant to the
- * customer's data.
+ * Key-order-insensitive structural equality for JSON property values, because
+ * Postgres jsonb reorders object keys while personhog answers in write order,
+ * so a serialised comparison would flag every nested object. Array order
+ * stays significant because it is significant to the customer's data.
  */
 function stableEqual(left: unknown, right: unknown): boolean {
     if (left === right) {
@@ -121,12 +106,9 @@ function differingKeys(left: Properties, right: Properties): string[] {
 }
 
 /**
- * A bounded label for a shadow failure. A gRPC fault is labelled by its
- * status code, because every one of them arrives as the same ConnectError
- * class and the code is the whole distinction — an identity service that is
- * unreachable, one that timed out, and one that refused all read alike
- * otherwise. Everything else falls back to its class name, which is a small
- * stable set here.
+ * A bounded metric label for a shadow failure. Every gRPC fault arrives as
+ * the same ConnectError class, so those are labelled by status code and
+ * everything else by its class name.
  */
 function errorClass(error: unknown): string {
     if (error instanceof ConnectError) {
@@ -136,6 +118,15 @@ function errorClass(error: unknown): string {
     return typeof name === 'string' && name.length > 0 && name.length <= 64 ? name : 'unknown'
 }
 
+/**
+ * Routes person-store verbs between the Postgres backend and the personhog
+ * one: personhog mode sends every verb to the personhog store, and shadow
+ * runs the Postgres call as the authoritative result with the personhog
+ * call after it, its failures counted but never failing the batch. Merges
+ * route through `mergePersons` like any other verb, each backend running
+ * its own whole merge, so shadow rehearses every merge (folds included)
+ * against the personhog backend's own graph.
+ */
 export class RoutingPersonsStore implements PersonsStore {
     constructor(
         private pg: PersonsStore,
@@ -205,13 +196,10 @@ export class RoutingPersonsStore implements PersonsStore {
 
     /**
      * Records whether the shadow backend answered the same person as the
-     * authoritative one. This is the whole point of running shadow: an error
-     * counter says personhog fell over, and nothing else says it answered
-     * differently, which is the failure the rollout is looking for.
-     *
-     * Row ids are not compared. The two backends allocate from independent
-     * sequences, so their ids legitimately differ; the uuid is the identifier
-     * both derive the same way and is what downstream data is keyed by.
+     * authoritative one, which is the divergence signal the error counter
+     * cannot carry. Row ids are not compared because the backends allocate
+     * from independent sequences; the uuid is the identifier both derive
+     * the same way.
      */
     private comparePerson(verb: string, authoritative: unknown, shadow: unknown): void {
         // Absence arrives as null from either backend, and as undefined from
@@ -447,15 +435,12 @@ export class RoutingPersonsStore implements PersonsStore {
     }
 
     /**
-     * Records whether the two backends reached the same merge verdict. The
-     * survivor a merge picks decides which person every later event in the
-     * batch lands on, so a disagreement here is the most consequential one
-     * shadow mode can surface — and the one a row diff is least able to see,
-     * because both sides end with a plausible-looking person.
-     *
-     * Per-source outcomes are compared by name. The vocabularies are not
-     * identical between backends, which is recorded in the parity notes, so
-     * a difference here is a finding to read rather than an alarm by itself.
+     * Records whether the two backends reached the same merge verdict; the
+     * survivor decides which person every later event in the batch lands on,
+     * so a disagreement here is the most consequential shadow can surface.
+     * The outcome vocabularies are not identical between backends (see the
+     * parity notes), so an outcome difference is a finding to read rather
+     * than an alarm by itself.
      */
     private compareMerge(authoritative: unknown, shadow: unknown): void {
         const left = authoritative as MergePersonsResult
@@ -522,13 +507,10 @@ export class RoutingPersonsStore implements PersonsStore {
             this.personhog.releaseBatch(batchId)
             return
         }
-        // Shadow's contract is that the non-authoritative backend cannot fail
-        // the batch, and release runs in the pipeline's finally, where a
-        // throw would also mask whatever sent it there. The release abandons
-        // rather than keeps: a shadow flush failure already acked the batch
-        // on the authoritative side, so segments still buffered here would
-        // be retained forever, and hours of identity outage would grow them
-        // without bound inside the authoritative process.
+        // Release runs in the pipeline's finally, where the shadow backend
+        // must not throw. Abandon rather than keep: the batch is already
+        // acked on the authoritative side, so segments kept here would
+        // accumulate without bound through an identity outage.
         try {
             this.personhog.abandonBatch(batchId)
         } catch (error) {

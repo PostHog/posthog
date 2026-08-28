@@ -53,10 +53,9 @@ export class PersonhogPropertiesSizeError extends Error {
 
 /**
  * The leader refused a write because a lifecycle operation holds the
- * person. Distinct from every other FAILED_PRECONDITION on this surface,
- * and it names the holder: a caller that recognises the op as its own can
- * drive that operation forward, where any other holder means back off and
- * let redelivery retry.
+ * person. It names the holder so a caller that recognises the op as its own
+ * can drive it forward, where any other holder means back off and let
+ * redelivery retry.
  */
 export class PersonhogFencedError extends Error {
     constructor(
@@ -248,13 +247,11 @@ export class PersonHogPersonOperations {
                 if (error.code === Code.InvalidArgument && error.rawMessage.includes('size limit')) {
                     throw new PersonhogPropertiesSizeError(error.rawMessage, update.teamId, update.personId)
                 }
-                // Keyed on the metadata, not the status code, because the
-                // code depends on the path: the leader answers a fence with
-                // FAILED_PRECONDITION, while the router — which is what
-                // ingestion actually dials — retries a fence bounce and
-                // hands back its own UNAVAILABLE once they run out, carrying
-                // these keys forward. Matching the code would recognise the
-                // fence on the direct path and miss it on the routed one.
+                // Keyed on the metadata rather than the status code, because
+                // the code depends on the path: the leader answers a fence
+                // with FAILED_PRECONDITION, while the router that ingestion
+                // actually dials hands back its own UNAVAILABLE with these
+                // keys carried forward.
                 if (error.metadata.has(FENCED_METADATA_KEY)) {
                     throw new PersonhogFencedError(
                         error.rawMessage,

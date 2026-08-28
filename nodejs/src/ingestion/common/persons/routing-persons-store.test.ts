@@ -258,11 +258,9 @@ describe('RoutingPersonsStore', () => {
             })
             const store = makeStore(stores, 'shadow')
 
-            // Shadow's whole contract is that the non-authoritative backend
-            // cannot fail the caller. These two were the exceptions: release
-            // runs in the pipeline's finally, and shutdown rejects on lanes
-            // holding ops, which is the wrong alarm when personhog owns
-            // nothing.
+            // Shadow's contract is that the non-authoritative backend
+            // cannot fail the caller; release and shutdown were the two
+            // paths that still could.
             await expect(Promise.resolve(act(store))).resolves.not.toThrow()
             expect(personhogStoreShadowErrorsCounter.labels).toHaveBeenCalledWith({
                 verb,

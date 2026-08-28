@@ -186,14 +186,11 @@ export class PersonMergeService {
                 })
                 .inc()
             if (e instanceof ConnectError) {
-                // A raw refusal acked here is a settled merge loss
-                // (InvalidArgument, or a deterministic semantic refusal such
-                // as a reused op id) — a designed verdict, not a
-                // malfunction, so it counts on the settled-loss series and
-                // logs as a warning instead of landing in error tracking at
-                // whatever rate customers duplicate event uuids. Every
-                // other settled loss leaves a customer-visible trace, so
-                // this one does too.
+                // A raw refusal (InvalidArgument, or a semantic refusal such
+                // as a reused op id) is a designed verdict no redelivery can
+                // change, so it acks as a settled loss and logs as a warning
+                // rather than filling error tracking. The ingestion warning
+                // keeps it customer-visible like every other settled loss.
                 mergeSettledFailureCounter.inc()
                 logger.warn('🤔', 'merge refused deterministically; settled as lost', {
                     team_id: this.context.team.id,
@@ -372,12 +369,10 @@ export class PersonMergeService {
                 throw error
             }
             if (error instanceof PersonMergeCallFailedError) {
-                // No verdict arrived, so the saga may have sealed sources and
-                // still be running. The Postgres fold can fall back safely
-                // because its abort is a rolled-back transaction that leaves
-                // nothing behind; a live saga leaves fences the sequential
-                // merges would meet under different op ids and drop. Failing
-                // the batch lets redelivery replay the same fold idempotently.
+                // No verdict arrived, so the saga may still be running with
+                // fences the sequential fallback would meet under different
+                // op ids and drop. Failing the batch lets redelivery replay
+                // the same fold idempotently.
                 throw error
             }
             // Any other failure falls back to the sequential path: the current
@@ -394,11 +389,10 @@ export class PersonMergeService {
         }
         if (result.foldAborted) {
             // The store already logged its abort with the underlying error.
-            // An abort can still carry an ack: a bootstrap that committed
-            // before the fold produced its person and distinct-id messages,
-            // and the rollback did not unmake them. Awaiting before the
-            // fallback keeps the event from acking ahead of its own writes,
-            // and a delivery failure fails the batch rather than hiding.
+            // An abort can still carry an ack, because a bootstrap that
+            // committed before the fold produced messages the rollback did
+            // not unmake; awaiting here keeps the event from acking ahead
+            // of its own writes.
             if (result.kafkaAck) {
                 await result.kafkaAck
             }
@@ -417,11 +411,10 @@ export class PersonMergeService {
             return null
         }
 
-        // A verdict this build cannot name means a backend a release ahead
-        // answered something new, and whether that source merged is unknown.
-        // Marking the plan executed would ack every event in the run on that
-        // unknown, so the fold gives up and each event decides for itself —
-        // where the single-source path fails the batch and redelivers.
+        // A verdict this build cannot name comes from a backend a release
+        // ahead, so whether that source merged is unknown. The fold gives up
+        // rather than ack the whole run on that unknown, and each event
+        // decides for itself.
         const unnamed = result.results.find((source) => source.outcome === 'unknown')
         if (unnamed !== undefined) {
             mergeUnknownOutcomeCounter.inc()
@@ -470,19 +463,11 @@ export class PersonMergeService {
         // answer.
         const sourceResult = result.results.find((source) => source.sourceDistinctId === otherPersonDistinctId)
         if (sourceResult === undefined) {
-            // No verdict for the source we asked about: a malformed response,
-            // not an answer the backend settled on. It cannot take the
-            // settled-failure path, which acks on the promise that the merge
-            // did not happen, because a response missing its verdict says
-            // nothing about what happened.
-            //
-            // Redelivery will not clear it either. The saga records the op
-            // and replays the recorded outcome for the same op id, so a
-            // response that is wrong once is wrong every time and the
-            // partition stops advancing. That is the loud failure this
-            // deserves — a caller inventing a verdict here would be worse —
-            // but it needs to be attributable, so the counter names the team
-            // and the log carries the ids to reproduce it with.
+            // A response missing the verdict for the source we asked about
+            // says nothing about what happened, so it must not take the
+            // settled-failure path that acks the merge as lost. The saga
+            // replays the recorded outcome per op id, so this stalls the
+            // partition by design; the counter and log make it attributable.
             mergeResponseMismatchCounter.labels({ call: this.context.event.event }).inc()
             logger.error('merge response carried no verdict for its requested source; failing the batch', {
                 team_id: this.context.team.id,
@@ -592,13 +577,10 @@ export class PersonMergeService {
                     )
                 )
             case 'unknown':
-                // A backend a release ahead answered something this build has
-                // no name for. Unlike 'error' that is not a verdict, so the
-                // merge may have happened and acking would record a loss that
-                // might not exist. Redelivery cannot resolve it either, since
-                // every retry reaches the same build until the roll finishes,
-                // and a thrown error here restarts the pod. The event goes to
-                // the DLQ instead: replayable, and costing nothing meanwhile.
+                // Not a verdict, unlike 'error': the merge may have happened,
+                // so acking would record a loss that might not exist. Every
+                // redelivery reaches this same build until the roll finishes,
+                // so the event goes to the DLQ, replayable afterwards.
                 mergeUnknownOutcomeCounter.inc()
                 return mergeError(
                     new PersonMergeUnknownOutcomeError(
@@ -625,10 +607,9 @@ export class PersonMergeService {
                         distinctId: mergeIntoDistinctId,
                         eventUuid: this.context.event.uuid,
                         // Both travel because each backend names the person
-                        // differently. The saga, which produces this verdict,
-                        // sets a row id only for a merged source, so it sends
-                        // neither. Postgres has an unreachable arm that would
-                        // carry the uuid.
+                        // differently: the saga sets a row id only for a
+                        // merged source so it sends neither, and Postgres
+                        // would carry the uuid.
                         otherPersonId: sourceResult.sourcePersonUuid,
                         sourcePersonId: sourceResult.sourcePersonId,
                         outcome,

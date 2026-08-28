@@ -890,11 +890,9 @@ describe('PersonhogPersonsStore', () => {
         })
 
         it('an aborted row recorded in the error vocabulary still aborts the fold', async () => {
-            // Abort-ness is reconstructed from verdict names, and completion
-            // implies at least one merged source, so error-without-merged
-            // can only be an abort: the vanished-source arm still records
-            // it, and so do rows frozen by the vocabulary this branch
-            // briefly shipped. Executing would misattribute the run.
+            // Completion implies at least one merged source, so an
+            // error-without-merged row can only be an abort; executing it
+            // would misattribute the run.
             const bound = store.forBatch(0)
             repository.mergePersons = jest.fn().mockResolvedValue({
                 survivor: { ...person, id: '7' },
@@ -1396,12 +1394,10 @@ describe('PersonhogPersonsStore', () => {
 
                 memo.releaseBatch(0)
 
-                // A read stamp dies with its last possible reader. The
-                // destroyed mark's consumer is not a read: a recorded merge
-                // verdict replays on redelivery in an arbitrarily later
-                // batch, and sweeping the mark at the watermark would let
-                // the replay resurrect the destroyed person as the batch's
-                // leader-backed answer.
+                // The destroyed mark must outlive the read-stamp watermark:
+                // a recorded merge verdict replays in an arbitrarily later
+                // batch, and sweeping the mark with the stamps would let
+                // that replay resurrect the destroyed person.
                 expect(memo.versionOf('1:d1')).toBe(0)
                 expect(memo.isDestroyed('1:9')).toBe(true)
 
@@ -1655,11 +1651,9 @@ describe('PersonhogPersonsStore', () => {
         })
 
         it('a filtered-only lane folded against a destroyed person writes instead of vanishing', async () => {
-            // The caller still folds against the dead document it was
-            // handed, and every op diffing clean against it proves nothing
-            // about the survivor. The reference backend classifies against
-            // the survivor it reads through its cache, so the lane must
-            // write and let the tombstone redirect carry the ops there.
+            // Ops diffing clean against the dead document prove nothing
+            // about the survivor, so the lane must write and let the
+            // tombstone redirect carry them there.
             person.properties = { $browser: 'Firefox' }
             repository.getOrCreatePersonByDistinctId.mockResolvedValue({ person, created: false } as never)
             repository.fetchPersonById.mockResolvedValue(null as never)
@@ -1740,11 +1734,10 @@ describe('PersonhogPersonsStore', () => {
         })
 
         it('a late own-write answer cannot roll the view back across a newer one', () => {
-            // The lane and the direct diff update are independent writers on
-            // one person; their answers can be delivered inverted. Installing
-            // the earlier answer over the later would revive state an applied
-            // write replaced, and a later event matching it would be filtered
-            // into a lost write.
+            // Two independent writers' answers can be delivered inverted;
+            // installing the earlier over the later would revive replaced
+            // state and let a later matching event be filtered into a lost
+            // write.
             const memo = (store as any).memo
             memo.offerBaseline('1:7', { ...person, version: 3, properties: { k: 'newer' } }, 'own-write')
             memo.offerBaseline('1:7', { ...person, version: 2, properties: { k: 'older' } }, 'own-write')
@@ -2285,13 +2278,10 @@ describe('PersonhogPersonsStore', () => {
 
         it('a birth left unidentified still needs its follow-up update', async () => {
             const bound = store.forBatch(0)
-            // An illegal source settles inline, so the call births the target
-            // and has nothing to flip the identified flag on: that flip rests
-            // on a source settling as attached or as the same person. Only
-            // the follow-up update will ever identify this person, so the
-            // merge must not report that one is unnecessary. A refused
-            // identified source cannot stand in here — that outcome comes
-            // only from the saga, which never reports a birth.
+            // An illegal source settling inline births the target with
+            // nothing to flip the identified flag, so only the follow-up
+            // update will ever identify this person. Reporting that update
+            // unnecessary would leave the person unidentified for good.
             repository.mergePersons = jest.fn().mockResolvedValue({
                 survivor: { ...person, is_identified: false },
                 results: [{ sourceDistinctId: 'anon-1', outcome: 'skipped_illegal', sourcePersonId: null }],
@@ -2419,10 +2409,8 @@ describe('PersonhogPersonsStore', () => {
 
         it('a round that deferred keeps going even when nothing is parked at the exit check', async () => {
             // The loop keys off what the round left behind, not what is
-            // parked at this instant. Both readings agree while a lane is
-            // still fenced; they part when the fence is gone and a fold has
-            // put new ops on the lane, which is when reading the instant
-            // acks over unwritten work.
+            // parked at this instant; reading the instant acks over ops a
+            // fold parked after the fence lifted.
             const narrowStore = new PersonhogPersonsStore(repository, { maxConcurrentUpdates: 1 })
             const bound = narrowStore.forBatch(0)
             repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }] as never)
@@ -2703,11 +2691,9 @@ describe('PersonhogPersonsStore', () => {
                 ],
             })
 
-            // An aborted response still carries a survivor — the person the
-            // event's writes were delivered to — so without the abort the
-            // caller reads a fold that merged nothing as executed and
-            // misattributes every event in the run to the target while the
-            // source ids still map to their own persons.
+            // An aborted response still carries a survivor, so without the
+            // abort flag the caller would read a fold that merged nothing
+            // as executed and misattribute every event in the run.
             expect(result.foldAborted).toBe('refused')
             expect(result.survivor).toBeNull()
         })
@@ -3310,11 +3296,9 @@ describe('PersonhogPersonsStore', () => {
 
         it('a caller mutating a fetched absent-person fallback cannot corrupt the memo', async () => {
             const bound = store.forBatch(0)
-            // d2's person is only identity-backed, so the update read
-            // re-resolves and the stale response answers nothing. The
-            // fallback serves the live mapping's state, which must be a
-            // copy: this is the one fetch branch that returned the shared
-            // memo object.
+            // The absent-person fallback was the one fetch branch that
+            // returned the shared memo object, so a caller mutating its
+            // answer corrupted the memo.
             repository.resolvePersonsByDistinctIds.mockResolvedValueOnce([
                 { teamId: 1, distinctId: 'd2', person: { ...person, id: '8', properties: { plan: 'free' } } },
             ] as never)
@@ -3411,10 +3395,8 @@ describe('PersonhogPersonsStore', () => {
 
         it('a fold waits out a legitimately slow merge instead of failing at the old ceiling', async () => {
             // A merge under its transport-retried deadline can hold its
-            // fence far past thirty seconds while succeeding. The wait
-            // ceiling is derived to exceed that hold, so a fold behind it
-            // waits and lands rather than converting a slow saga into a
-            // batch failure.
+            // fence far past thirty seconds while succeeding; a lower wait
+            // ceiling would convert that slow saga into a batch failure.
             jest.useFakeTimers()
             try {
                 const bound = store.forBatch(0)
@@ -3463,14 +3445,10 @@ describe('PersonhogPersonsStore', () => {
         })
 
         it('a flush exhausts its rounds rather than acking over lanes a merge never released', async () => {
-            // The rounds guard is the direct defense of the ack: degraded to
-            // a return, the batch would commit offsets over segments that
-            // exist only in this process. A continuously held fence trips
-            // the wait deadline first, so this drives the guard's own case:
-            // a fence present at every capture but released at every wait,
-            // the release-and-reinstall timing a merge storm produces —
-            // modeled by letting the waits resolve while the fence map keeps
-            // its entry.
+            // Degraded to a return, the rounds guard would let the batch
+            // commit offsets over segments that exist only in this process.
+            // The driving case is a fence present at every capture but
+            // released at every wait, the timing a merge storm produces.
             const bound = store.forBatch(0)
             await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
             ;(store as any).fences.set('1:7', new Set([new Promise<void>(() => {})]))
@@ -4448,13 +4426,10 @@ describe('PersonhogPersonsStore', () => {
         })
 
         it('a same-event sibling fence drops the merge like a foreign one, labeled as ours', async () => {
-            // The fence's creator is this request's own event, but its op id
-            // is no candidate: our event's earlier work under a shape this
-            // delivery cannot reconstruct, such as a parked fold this
-            // delivery re-batched away from. Proceeding would fold the
-            // person with its lane unwritten, and deferring could loop
-            // forever against a parked op nothing resumes — so it takes the
-            // claim-race drop, carrying the sibling attribution.
+            // The fence is our own event's, under an op id this delivery
+            // cannot reconstruct. Proceeding would fold the person with its
+            // lane unwritten and deferring could loop forever, so it takes
+            // the claim-race drop with the sibling attribution.
             personhogStoreFenceCounter.reset()
             repository.updatePersonProperties.mockRejectedValue(
                 new PersonhogFencedError('PERSON_MERGING', '7', 'an-underivable-op-id', 'event-uuid') as never
@@ -4545,10 +4520,9 @@ describe('PersonhogPersonsStore', () => {
             const written = repository.updatePersonProperties.mock.calls.map(([call]) => call.personId)
             expect(written).toContain('12')
             expect(repository.mergePersons).toHaveBeenCalledTimes(1)
-            // The point is that it never waited. Asserting only that the
-            // write happened would pass even with the guard removed, because
-            // the fence wait expires and lets it through — just seconds
-            // later. No recorded wait is the observable difference.
+            // With the guard removed the write would still happen once the
+            // fence wait expires, so no recorded wait is the only
+            // observable difference.
             expect((await personhogStoreFenceCounter.get()).values).toEqual([])
         })
 
@@ -4700,11 +4674,10 @@ describe('PersonhogPersonsStore', () => {
         })
 
         it('carries a stranded lane to the survivor at full strength, deletions included', async () => {
-            // Another pod merged away a person this one holds ops for, which
-            // is possible because ingestion partitions by distinct id and
-            // personhog by person. Postgres carries its pending sets and
-            // unsets across unchanged, so weakening them here would lose a
-            // deletion the customer asked for and diverge from that backend.
+            // Another pod merged away a person this one holds ops for.
+            // Postgres carries pending sets and unsets across unchanged, so
+            // weakening them here would lose a deletion the customer asked
+            // for and diverge from that backend.
             repository.resolvePersonsByDistinctIds.mockImplementation(((keys: { distinctId: string }[]) =>
                 Promise.resolve(
                     keys.map(({ distinctId }) => ({ teamId: 1, distinctId, person: { ...person, id: '7' } }))

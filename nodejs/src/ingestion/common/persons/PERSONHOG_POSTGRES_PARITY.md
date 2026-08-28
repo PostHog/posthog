@@ -44,13 +44,13 @@ The saga result names persons by row id, and only for a merged source, so warnin
 
 The saga enforces a per-merge distinct-id move limit in every mode. The Postgres backend's SYNC mode does not: its moves are unbounded. A person with more distinct ids than the limit therefore merges on Postgres and comes back `skipped_move_limit` on personhog, where `PersonEventProcessor` routes the event to the DLQ rather than dropping it or failing the batch into a redelivery loop.
 
-This is a difference in what happens to the event, not only in what is stored, and it is the one divergence that costs an event its place in the stream. It is invisible while Postgres is authoritative, because the DLQ decision is made from the authoritative result. It becomes live at cutover, and the permanent answer is saga-side chunked moves rather than a larger limit.
+This is a difference in what happens to the event, not only in what is stored, and it is the one divergence that costs an event its place in the stream. It is invisible while Postgres is authoritative, because the DLQ decision is made from the authoritative result. It becomes live at cutover.
 
 Folded traffic reaches the same decision by a different route: a fold whose source settles on the limit — or on a lifecycle conflict — aborts and falls back to sequential merges, matching Postgres's all-or-nothing fold, so each event still receives its own verdict rather than being acked on a fold that skipped it.
 
 ### Filtered-only ops: dropped here, accidentally retained there
 
-A lane whose every op filtered as no-change is discarded at flush — unless its person carries a destroyed mark, where no-change against the dead document proves nothing and the lane writes so the tombstone redirect can carry it to the survivor; those rescued ops take the redirect's plain-write precedence, so a value equal to the dead person's can override one the fold's target-wins rule preserved. For live persons the discard stands. The rescue's precondition is a local mark, which two shapes lack: a merge verdict from a server that reports no source person id (reconcile releases the resolutions but has no key to mark), and a person destroyed by another pod whose verdict never reaches this one. A filtered-only lane on a genuinely dead person is discarded unwritten in both, where a change-classified lane would still redirect. Postgres suppresses the write too, but keeps the filtered values in its cached entry, and while a concurrent batch holds the key a later event's real change writes them to the row along with its own. Same input under overlapping batches: the Postgres row carries the filtered values, the personhog row does not, and the shadow read comparison flags `properties`. The retention is an accident of the cache's lifetime, not a rule worth matching.
+A lane whose every op filtered as no-change is discarded at flush, except on a destroyed-marked person, where no-change against the dead document proves nothing and the lane writes so the tombstone redirect can carry it to the survivor (taking the redirect's plain-write precedence). The rescue needs a local mark, which two shapes lack: a merge verdict reporting no source person id, and a person destroyed by another pod whose verdict never reaches this one. Postgres suppresses the same write but keeps the filtered values in its cached entry, so under overlapping batches a later real change writes them to the row and the shadow comparison flags `properties`; that retention is an accident of the cache's lifetime, not a rule worth matching.
 
 ### The conflict-retry budget under contention
 
@@ -70,19 +70,7 @@ A fold can commit at the leader and the driver die before the step advance recor
 
 ### A crash-replayed merge and the seal its lane missed
 
-A merge that sealed its sources and crashed resumes from the recorded op on redelivery. The redelivered batch's pre-merge lane write bounces on the op's own fence and the merge proceeds, so ops folded after the crash are not in the sealed snapshot; they reach the survivor through the tombstone redirect, after the fold, where Postgres's cache-mediated merge would have read them before folding. A shared key can settle differently: the redirect's plain write overrides a value the fold's target-wins rule preserved. Divergence, not loss — one real customer value wins either way — and reachable only through a mid-saga crash plus a shared key with differing values. The claim covers every op: a change-classified op rides the redirect directly, and a filtered-only lane on a destroyed-marked person is rescued into the same redirect at flush rather than discarded.
-
-### Two upstream personhog defects the shadow can surface
-
-Both live in code that predates this branch and are queued as standalone fixes; until they land, their symptoms must be read as the known upstream issues, not store defects.
-
-The leader's fence RPC does not consult the authority clock the way every peer write RPC does, so a deposed pod inside its detection window can seal a merge source's state while the current owner keeps acking writes; the fold and the death document then build on the stale seal, and the acked writes after it are destroyed without a warning. The symptom is a shadow `properties` diff on a merge survivor missing writes acked near a leader handoff.
-
-A deleted person revived by a later create on the same distinct id never reaches the leader: the revival is an identity-plane write, and the leader's cached death document keeps answering absence. The store then stamps a destroyed mark off that answer (sites `create_leader_null` / `merge_refresh_null`) and the flush loops `redirect_lagged` batch failures until the cache entry evicts. A revival landing inside the delete saga's unmap-to-complete gap additionally gets the death document produced over it, leaving Postgres and the changelog in permanent disagreement about the person.
-
-### A reference-backend defect the shadow will surface
-
-The Postgres fold reads its sources from the repository rather than through the update cache, so a source's buffered same-batch update never reaches the survivor and dies with the source's cache entry; the sequential path reads through the cache and keeps it. personhog drains lanes to the leader before the saga runs, so its survivor carries the update. Until the fold is fixed upstream, a shadow `properties` diff on a folded merge whose source had a buffered update is the Postgres row missing data, not a personhog defect.
+A merge that sealed its sources and crashed resumes from the recorded op on redelivery, so ops folded after the crash miss the sealed snapshot and reach the survivor through the tombstone redirect after the fold, where Postgres would have read them before folding. A shared key can settle differently (the redirect's plain write overrides the fold's target-wins choice) — divergence, not loss, since one real customer value wins either way.
 
 ### A reused op id refuses forever where Postgres merges again
 
@@ -116,9 +104,7 @@ These are not backend divergences: they change behavior for both backends, inclu
 
 ## Known unexercised
 
-`person_merge_events` are not produced in personhog mode. The cohort stream processor consumes that topic, so this has to be built before cutover; it is invisible under shadow, where Postgres still produces them.
-
-Neither are the ClickHouse `person` and `person_distinct_id` rows. The Postgres repository emits those alongside each row it writes, and the personhog store has no equivalent emission point — the leader's changelog closes the loop back to Postgres rather than onward to ClickHouse. Also cutover-only, and also invisible under shadow.
+personhog mode produces neither `person_merge_events` nor the ClickHouse `person` and `person_distinct_id` rows; the leader's changelog closes the loop back to Postgres rather than onward to ClickHouse. Both are invisible under shadow, where Postgres still produces them.
 
 ## How parity is verified
 

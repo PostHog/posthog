@@ -4806,11 +4806,10 @@ describe('PersonState.processEvent()', () => {
                         error: new PersonMergeUnknownOutcomeError('unnamed verdict', 'some_new_outcome'),
                     })
 
-                    // Only a backend a release ahead produces this. Throwing
-                    // would tear the server down and every redelivery would
-                    // reach the same build until the roll finishes, so the
-                    // event waits in the DLQ where a replay can still settle
-                    // whether the merge happened.
+                    // Throwing on an unnamed verdict would crash-loop every
+                    // redelivery into this same build, so the event goes to
+                    // the DLQ where a replay can settle whether the merge
+                    // happened.
                     const result = await processor.processEvent()
                     expect(result.type).toBe(PipelineResultType.DLQ)
                 })

@@ -107,21 +107,18 @@ export interface MergeSagaResult {
         sourceDistinctId: string
         outcome: MergeSagaSourceOutcome
         /**
-         * The person this verdict destroyed, set only on a merged source.
-         * A merged-away person is permanent, so a caller may reconcile
-         * cached state against it without re-reading; every other verdict
-         * either destroys nothing or names one still live, so it answers
-         * null there rather than misleading.
+         * The person this verdict destroyed, set only on a merged source:
+         * a merged-away person is permanent, so a caller may reconcile
+         * cached state against it without re-reading. Every other verdict
+         * answers null because the person it would name is still live.
          */
         sourcePersonId: string | null
     }[]
     /**
-     * The call created the survivor rather than resolving or attaching to a
-     * person that already existed. Answered only where the merge settled
-     * without a saga; a saga run reports false whether or not it birthed.
-     * A newborn is identified only when some source settled as attached or
-     * as the same person, so this alone does not mean the follow-up
-     * property update has nothing left to write.
+     * The call created the survivor rather than resolving one that already
+     * existed; a saga run reports false whether or not it birthed. A newborn
+     * is identified only when some source attached or matched, so this alone
+     * does not mean the follow-up property update has nothing left to write.
      */
     survivorWasBorn: boolean
 }
@@ -292,12 +289,9 @@ export class PersonhogIdentityOperations {
     }
 
     /**
-     * Merge every source distinct id's person into the target's person
-     * via the identity service's merge saga. The service classifies each
-     * pair: same-person pairs settle inline, personless sources attach,
-     * an unresolved target is established, and distinct-person pairs run
-     * the durable saga. Retries with the same op id return the recorded
-     * outcome, so callers reuse the op id across retries.
+     * Merge every source distinct id's person into the target's person via
+     * the identity service's merge saga. Retries with the same op id return
+     * the recorded outcome, so callers reuse the op id across retries.
      */
     async mergePersons(request: MergeSagaRequest, callerTag?: string): Promise<MergeSagaResult> {
         const response = await this.client.mergePersons(
@@ -317,13 +311,12 @@ export class PersonhogIdentityOperations {
                 creatorEventUuid: request.creatorEventUuid,
             }),
             {
-                // A merge drives a multi-step saga, not a point read, so it
-                // gets its own deadline instead of the transport default.
-                // Must exceed the engine's lifecycle_execute_timeout_secs so
-                // the server answers first in the common case; the engine
-                // checks its deadline between steps, so a slow final step
-                // can still outlive this backstop, at the bounded cost of an
-                // abandoned lease the next claim waits out.
+                // A merge drives a multi-step saga rather than a point read,
+                // so it gets its own deadline instead of the transport
+                // default. It must exceed the engine's
+                // lifecycle_execute_timeout_secs so the server answers first
+                // in the common case, though a slow step can still outlive
+                // this backstop.
                 timeoutMs: this.options.mergeTimeoutMs,
                 ...(callerTag ? { headers: { 'x-caller-tag': callerTag } } : {}),
             }
