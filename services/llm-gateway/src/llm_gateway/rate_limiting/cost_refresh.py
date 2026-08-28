@@ -11,6 +11,8 @@ from litellm.litellm_core_utils.get_model_cost_map import get_model_cost_map
 from llm_gateway.baseten import (
     BASETEN_DEEPSEEK_METRIC_MODEL,
     BASETEN_DEEPSEEK_MODEL,
+    BASETEN_GLM53_FLASH_METRIC_MODEL,
+    BASETEN_GLM53_FLASH_MODEL,
     BASETEN_GLM53_METRIC_MODEL,
     BASETEN_GLM53_MODEL,
     BASETEN_METRIC_MODEL,
@@ -36,6 +38,7 @@ COST_ALIASES: dict[str, tuple[str, str]] = {
     "openai/zai-org/GLM-5.2": (BASETEN_METRIC_MODEL, "openai"),
     f"openai/{BASETEN_DEEPSEEK_MODEL}": (BASETEN_DEEPSEEK_METRIC_MODEL, "openai"),
     f"openai/{BASETEN_GLM53_MODEL}": (BASETEN_GLM53_METRIC_MODEL, "openai"),
+    f"openai/{BASETEN_GLM53_FLASH_MODEL}": (BASETEN_GLM53_FLASH_METRIC_MODEL, "openai"),
     "openai/moonshotai/kimi-k3": ("moonshotai/kimi-k3", "openai"),
 }
 
@@ -49,6 +52,7 @@ ALIAS_METRIC_LABELS: dict[str, tuple[str, str]] = {
     "openai/zai-org/GLM-5.2": ("baseten", BASETEN_METRIC_MODEL),
     f"openai/{BASETEN_DEEPSEEK_MODEL}": ("baseten", BASETEN_DEEPSEEK_METRIC_MODEL),
     f"openai/{BASETEN_GLM53_MODEL}": ("baseten", BASETEN_GLM53_METRIC_MODEL),
+    f"openai/{BASETEN_GLM53_FLASH_MODEL}": ("baseten", BASETEN_GLM53_FLASH_METRIC_MODEL),
     "openai/moonshotai/kimi-k3": ("modal", "moonshotai/kimi-k3"),
 }
 

@@ -578,6 +578,14 @@ TASKS_CREATE_JWT_SECRETS = get_list(
     get_from_env("TASKS_CREATE_JWT_SECRET", "local-dev-tasks-create-jwt" if DEBUG or TEST else "")
 )
 
+# Verifies the scoped JWTs the CDP worker's conversations ticket actions send to the internal
+# ticket route (the worker mints, Django verifies; products/conversations/backend/api/internal.py).
+# Comma-separated, newest first. Empty outside dev/test, so the internal route rejects every
+# request until the secret is provisioned and the worker stays on its legacy auth path (#82564).
+CONVERSATIONS_TICKETS_JWT_SECRETS = get_list(
+    get_from_env("CONVERSATIONS_TICKETS_JWT_SECRET", "local-dev-conversations-tickets-jwt" if DEBUG or TEST else "")
+)
+
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")
 
 # Used to generate embeddings on the fly, for use with the document embeddings table

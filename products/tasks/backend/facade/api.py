@@ -430,7 +430,9 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
 # first message; without them it silently falls back to `task.description`. Withheld from
 # human readers: a workflow task is team-readable, and its boot prompt embeds the triggering
 # event wholesale, which for a Slack trigger can be a private channel's message content.
-_TASK_RUN_AGENT_STATE_KEYS = frozenset({"initial_prompt_override"})
+# `end_run_when_done` gates the sandbox's `finish` tool for workflow runs; a key this
+# filter drops never reaches the agent server, so the gate would silently do nothing.
+_TASK_RUN_AGENT_STATE_KEYS = frozenset({"end_run_when_done", "initial_prompt_override"})
 
 
 def _public_task_run_state(state: dict | None, *, include_agent_keys: bool = False) -> dict:
@@ -629,6 +631,7 @@ def _task_detail_to_dto(
         latest_run_id=latest_run_id,
         channel=task.channel_id,
         slack_thread_references=_task_slack_thread_references(task),
+        origin_key=task.origin_key,
     )
 
 
@@ -2789,6 +2792,7 @@ def append_task_run_log(
     if run is None:
         return None
     run.append_log(entries)
+    run.clear_echoed_followup_messages(entries)
     run.heartbeat_workflow(agent_active=_entries_show_agent_activity(entries))
     return _task_run_detail_to_dto(run)
 
@@ -3823,6 +3827,7 @@ def signal_task_run_user_message(
 
     if reason := get_compute_quota_denial_reason(run.task):
         raise ComputeBillingLimitError({"team_id": team_id, "task_id": str(task_id), "run_id": str(run_id)}, reason)
+    accepted_at = django_timezone.now()
     try:
         context = {"actor_slack_user_id": actor_slack_user_id} if actor_slack_user_id else None
         signal_task_followup_message(
@@ -3841,6 +3846,11 @@ def signal_task_run_user_message(
             logger.warning("Follow-up signal target workflow gone for task run %s", run.id)
             return False
         raise
+    if message_id and content and content.strip():
+        try:
+            run.record_pending_followup_message(message_id, content, accepted_at=accepted_at)
+        except Exception:
+            logger.warning("Failed to record pending follow-up message for task run %s", run.id, exc_info=True)
     return True
 
 
