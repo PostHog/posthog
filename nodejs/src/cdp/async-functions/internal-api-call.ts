@@ -5,7 +5,7 @@ import { internalFetch } from '~/common/utils/request'
 
 import { AsyncFunctionContext } from '../async-function-registry'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
-import { fetchErrorDetail } from '../utils/cdp-fetch'
+import { RETRIABLE_STATUS_CODES, fetchErrorDetail } from '../utils/cdp-fetch'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
 
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -15,7 +15,9 @@ export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 // third-party calls.
 const MAX_ATTEMPTS = 3
 const BACKOFF_MS = 250
-const RETRIABLE_STATUSES = [502, 503, 504]
+// Same statuses the queued-fetch path retries (cdp-fetch.ts), so a transient Django 500
+// gets the same resilience here that it would have gotten through executeFetch.
+const RETRIABLE_STATUSES = RETRIABLE_STATUS_CODES
 
 /**
  * Calls an internal-only Django route (/api/projects/<team_id>/internal/...) on behalf of a
@@ -45,6 +47,20 @@ export async function callInternalApi(
     const { jwt, path, method, entityClaims, body, extraHeaders } = options
     const startedAt = performance.now()
 
+    // Counts once per handler call, not per retry attempt below: the retries are all one
+    // logical step from the VM's point of view, and the counted queued-fetch path only
+    // counts once per queued fetch too.
+    context.consumeInlineAsyncBudget()
+
+    const parseBody = (text: string | null): unknown => {
+        try {
+            return text ? parseJSON(text) : undefined
+        } catch {
+            // Non-JSON body passes through as text
+            return text
+        }
+    }
+
     let response: { status: number; body: unknown } | null = null
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -68,24 +84,23 @@ export async function callInternalApi(
             status = fetchResponse.status
             text = await fetchResponse.text()
         } catch (err) {
+            // Covers both a failed fetch (status stays null) and a body-read failure after a
+            // successful status line (status is set but the response can't be trusted) — either
+            // way this attempt did not complete, so it must not be treated as a success below.
             fetchError = err as Error
         }
 
-        if (status !== null && !RETRIABLE_STATUSES.includes(status)) {
-            let parsedBody: unknown = text
-            try {
-                parsedBody = text ? parseJSON(text) : undefined
-            } catch {
-                // Non-JSON body passes through as text
-            }
-            if (status >= 400) {
+        const succeeded = fetchError === null && status !== null && !RETRIABLE_STATUSES.includes(status)
+        if (succeeded) {
+            const parsedBody = parseBody(text)
+            if (status! >= 400) {
                 result.logs.push({
                     level: 'error',
                     timestamp: DateTime.now(),
                     message: `Internal API call failed with status code ${status}.`,
                 })
             }
-            response = { status, body: parsedBody }
+            response = { status: status!, body: parsedBody }
             break
         }
 
@@ -100,11 +115,21 @@ export async function callInternalApi(
         })
 
         if (!willRetry) {
-            // Same shape executeFetch pushes on a client-side failure, so template guards
-            // like `if (response.status != 200) throw` keep firing.
-            response = {
-                status: status ?? 500,
-                body: fetchError ? `${fetchError.name}: ${fetchErrorDetail(fetchError)}` : undefined,
+            if (status !== null && fetchError === null) {
+                // A real HTTP response came back (a retriable status like 503) and its body was
+                // read cleanly — keep it so templates and logs still see what upstream said,
+                // matching what executeFetch preserves on its own final failing attempt.
+                response = { status, body: parseBody(text) }
+            } else {
+                // Same shape executeFetch pushes on a client-side failure, so template guards
+                // like `if (response.status != 200) throw` keep firing. Also covers a body-read
+                // failure after a 200 header: without fetchError === null above, that never
+                // reaches the success branch and lands here as a proper failure instead of a
+                // silently empty 200.
+                response = {
+                    status: 500,
+                    body: fetchError ? `${fetchError.name}: ${fetchErrorDetail(fetchError)}` : undefined,
+                }
             }
             break
         }

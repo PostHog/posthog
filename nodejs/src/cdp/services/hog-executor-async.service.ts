@@ -100,6 +100,20 @@ export class HogExecutorAsyncService {
         let asyncFunctionCount = 0
         const maxAsyncFunctions = options?.maxAsyncFunctions ?? 1
 
+        // Shared with inline async handlers (see AsyncFunctionContext.consumeInlineAsyncBudget):
+        // they do real network I/O without ever setting queueParameters, so the queued-type
+        // counting below never sees them. Without this they could run unbounded up to the VM's
+        // own step cap, each holding this worker slot for the full retry round instead of
+        // rescheduling like a queued fetch does.
+        const consumeInlineAsyncBudget = (): void => {
+            asyncFunctionCount++
+            if (asyncFunctionCount > maxAsyncFunctions) {
+                throw new Error(
+                    `Max async functions reached: ${maxAsyncFunctions}. This function performed too many API calls in a single execution.`
+                )
+            }
+        }
+
         let result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null = null
         const metrics: MinimalAppMetric[] = []
         const logs: MinimalLogEntry[] = []
@@ -177,7 +191,7 @@ export class HogExecutorAsyncService {
                 // Finish execution, carrying forward previous execResult
                 // Tricky: We don't pass metrics in previousResult as they're accumulated in the local metrics array
                 const { metrics: _m, logs: _l, ...previousResultWithoutMetrics } = result || {}
-                result = await this.execute(nextInvocation, options, previousResultWithoutMetrics)
+                result = await this.execute(nextInvocation, options, previousResultWithoutMetrics, consumeInlineAsyncBudget)
             }
 
             logs.push(...result.logs)
@@ -210,7 +224,10 @@ export class HogExecutorAsyncService {
     async execute(
         invocation: CyclotronJobInvocationHogFunction,
         options: HogExecutorExecuteOptions = {},
-        previousResult: HogExecutorPreviousResult = {}
+        previousResult: HogExecutorPreviousResult = {},
+        // Callers outside executeWithAsyncFunctions' loop (e.g. the source-webhooks consumer)
+        // run at most one async step per execute() call already, so a no-op budget is safe there.
+        consumeInlineAsyncBudget: () => void = () => {}
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         return this.hogExecutor.execute(
             invocation,
@@ -247,6 +264,7 @@ export class HogExecutorAsyncService {
                             siteUrl: this.config.siteUrl,
                             internalApiBaseUrl: this.config.internalApiBaseUrl,
                             conversationsTicketsJwt: this.deps.conversationsTicketsJwt,
+                            consumeInlineAsyncBudget,
                         },
                         result
                     )

@@ -777,6 +777,74 @@ describe('Hog Executor', () => {
                 expect(pushed.status).toEqual(500)
                 expect(pushed.body).toContain('ECONNREFUSED')
             })
+
+            it('retries and then fails loudly when the body stream fails after a 200 header', async () => {
+                const fetchSpy = jest.spyOn(requestModule, 'internalFetch').mockResolvedValue({
+                    status: 200,
+                    headers: {},
+                    text: () => Promise.reject(new Error('other side closed')),
+                    json: () => Promise.reject(new Error('other side closed')),
+                    dump: () => Promise.resolve(),
+                })
+
+                mockExecHogForAsyncFunction('postHogGetTicket', [{ ticket_id: TICKET_UUID }])
+                const result = await executor.execute(createTicketInvocation())
+
+                // A 200 header with an unreadable body is not a success: it retries like any
+                // other failed attempt instead of silently returning an empty ticket.
+                expect(fetchSpy).toHaveBeenCalledTimes(3)
+                const [pushed] = result.invocation.state.vmState!.stack as [{ status: number; body: string }]
+                expect(pushed.status).toEqual(500)
+                expect(pushed.body).toContain('other side closed')
+            })
+
+            it('preserves the upstream body on the final attempt of a retriable status', async () => {
+                const fetchSpy = jest
+                    .spyOn(requestModule, 'internalFetch')
+                    .mockResolvedValue(mockInternalResponse(503, { error: 'database unavailable' }))
+
+                mockExecHogForAsyncFunction('postHogGetTicket', [{ ticket_id: TICKET_UUID }])
+                const result = await executor.execute(createTicketInvocation())
+
+                expect(fetchSpy).toHaveBeenCalledTimes(3)
+                expect(result.invocation.state.vmState!.stack).toEqual([
+                    { status: 503, body: { error: 'database unavailable' } },
+                ])
+            })
+
+            it('retries a transient 500 the same way the legacy fetch path does', async () => {
+                const fetchSpy = jest
+                    .spyOn(requestModule, 'internalFetch')
+                    .mockResolvedValueOnce(mockInternalResponse(500, { error: 'boom' }))
+                    .mockResolvedValue(mockInternalResponse(200, { id: TICKET_UUID }))
+
+                mockExecHogForAsyncFunction('postHogGetTicket', [{ ticket_id: TICKET_UUID }])
+                const result = await executor.execute(createTicketInvocation())
+
+                expect(fetchSpy).toHaveBeenCalledTimes(2)
+                expect(result.invocation.state.vmState!.stack).toEqual([{ status: 200, body: { id: TICKET_UUID } }])
+            })
+
+            it('rejects a second inline ticket call once the per-invocation async budget is spent', async () => {
+                const fetchSpy = jest
+                    .spyOn(requestModule, 'internalFetch')
+                    .mockResolvedValue(mockInternalResponse(200, { id: TICKET_UUID }))
+
+                const bytecode = await compileHog(`
+                    let a := postHogGetTicket({'ticket_id': '${TICKET_UUID}'})
+                    let b := postHogGetTicket({'ticket_id': '${TICKET_UUID}'})
+                    return b
+                `)
+                const invocation = createExampleInvocation(createHogFunction({ bytecode }), { inputs: {} })
+
+                const result = await executor.executeWithAsyncFunctions(invocation)
+
+                // Neither ticket call sets queueParameters, so without a shared budget both
+                // would run inline in the same worker slot regardless of maxAsyncFunctions.
+                expect(fetchSpy).toHaveBeenCalledTimes(1)
+                expect(result.error).toContain('Max async functions reached')
+                expect(result.finished).toBe(true)
+            })
         })
 
         describe('legacy secret_api_token fallback (JWT secret unprovisioned)', () => {
