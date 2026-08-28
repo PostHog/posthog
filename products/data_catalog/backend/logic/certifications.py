@@ -85,9 +85,10 @@ def _resolve_table(
         return table
     matches = list(live.filter(name=table_name).defer("columns"))
     if table_name is not None and "." in table_name:
+        suffix = table_name.rsplit(".", 1)[-1]
         matches += [
             table
-            for table in live.exclude(name=table_name).defer("columns")
+            for table in live.exclude(name=table_name).filter(name__iendswith=suffix).defer("columns")
             if get_data_warehouse_table_name(table.external_data_source, table.name) == table_name
         ]
     matches = _visible_targets(uac, team, matches, "warehouse_table")

@@ -118,6 +118,7 @@ class TestCertificationLogic(BaseTest):
             ("dotted", "stripe_subscriptions", None, "stripe.subscriptions", True),
             ("prefixed", "stripe_subscriptions", "prod_", "stripe.prod.subscriptions", True),
             ("raw", "stripe_subscriptions", None, "stripe_subscriptions", True),
+            ("mixed_case_stored_name", "Stripe_Subscriptions", None, "stripe.subscriptions", True),
             ("missing_dotted", "stripe_subscriptions", None, "stripe.refunds", False),
         ]
     )
