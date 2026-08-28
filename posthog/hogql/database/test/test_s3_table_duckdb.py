@@ -369,6 +369,33 @@ class TestS3TableDuckDBPrinting:
 
         assert rows == [("12345", 12.5)]
 
+    def test_csv_reader_keeps_nanosecond_timestamp_precision(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source_path = Path(temp_dir) / "events"
+            source_path.write_text("event_time\n2021-01-01 00:00:00.123456789\n")
+            context = HogQLContext(team_id=1)
+            table = S3Table(
+                name="events",
+                url="s3://bucket/events",
+                format="CSVWithNames",
+                access_key="access-key",
+                access_secret="access-secret",
+                column_names=("event_time",),
+                clickhouse_column_types=("DateTime64(9)",),
+                fields={},
+            )
+
+            sql = table.to_printed_duckdb(context)
+            positional_sql = re.sub(r"%\([^)]+\)s", "?", sql)
+            values = list(context.values.values())
+            values[0] = str(source_path)
+
+            with duckdb.connect() as connection:
+                # Cast in SQL: DuckDB returns TIMESTAMP_NS as a microsecond-only Python datetime.
+                rows = connection.execute(f"SELECT event_time::VARCHAR FROM {positional_sql}", values).fetchall()
+
+        assert rows == [("2021-01-01 00:00:00.123456789",)]
+
     def test_csv_reader_preserves_unsigned_integer_range(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             source_path = Path(temp_dir) / "orders"
