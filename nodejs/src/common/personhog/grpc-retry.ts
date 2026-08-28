@@ -40,11 +40,18 @@ function sleep(ms: number): Promise<void> {
  * error is non-retryable — both tagged with method + client + error_type
  * so they align with `personhog_errors_total` from timedGrpc.
  */
+/**
+ * Attempts a call makes under the default retry policy (the first try plus
+ * `maxRetries`). Exported so deadlines derived from a call's worst-case
+ * duration multiply by the same number the retry loop actually runs.
+ */
+export const GRPC_DEFAULT_ATTEMPTS = 3
+
 export async function withRetry<T>(
     fn: () => Promise<T>,
     client: string,
     method: string,
-    maxRetries: number = 2,
+    maxRetries: number = GRPC_DEFAULT_ATTEMPTS - 1,
     initialDelayMs: number = 50
 ): Promise<T> {
     let lastError: unknown

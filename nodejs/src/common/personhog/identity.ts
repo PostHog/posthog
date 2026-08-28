@@ -1,5 +1,6 @@
 import { create } from '@bufbuild/protobuf'
 import { Client, Code, ConnectError } from '@connectrpc/connect'
+import { Counter } from 'prom-client'
 
 import {
     GetDistinctIdsForPersonsRequestSchema,
@@ -70,32 +71,22 @@ export interface MergeSagaRequest {
     /** Merge event created_at, epoch millis; consulted only when an unresolved target births a fresh person. */
     createdAtMs: number
     /**
-     * Property operations the caller is still holding, one entry per
-     * distinct id. The service resolves each id alongside the merge's own
-     * and applies the operations before it fences anything, so they take
-     * part in the merge. Only the ids the response names were applied.
+     * The executing event's uuid, stable across retries. Stamped as
+     * $creator_event_uuid on a person the merge births, and carried onto
+     * the fences the saga installs, where the store classifies refusals
+     * by it — a per-delivery value would mis-aim that classification.
      */
-    carriedOperations?: MergeSagaCarriedOperations[]
+    creatorEventUuid: string
 }
 
-export interface MergeSagaCarriedOperations {
-    distinctId: string
-    set: Properties
-    setOnce: Properties
-    unset: string[]
-    /** Checked by the leader against the events that must never write properties. */
-    eventName: string
-    /** OR-merged by the leader; never reverts. */
-    isIdentified?: boolean
-    /** Epoch millis; max-merged by the leader. */
-    lastSeenAtMs?: number
-    /**
-     * The person these operations were buffered for. The service skips the
-     * entry without echoing it when the distinct id has been repointed to
-     * someone else, so the caller keeps the operations.
-     */
-    expectedPersonId?: string
-}
+/**
+ * Metadata key on identity's definitive refusals; the value is a reason
+ * slug. A refusal carrying it is deterministic for the request's exact
+ * shape: retrying the same request meets the same answer forever.
+ */
+export const SEMANTIC_REFUSAL_METADATA_KEY = 'x-semantic-refusal'
+/** The op id belongs to a different recorded merge; refused before any durable work. */
+export const SEMANTIC_REFUSAL_OP_ID_REUSED = 'op_id_reused'
 
 export type MergeSagaSourceOutcome =
     | 'merged'
@@ -105,7 +96,9 @@ export type MergeSagaSourceOutcome =
     | 'skipped_already_identified'
     | 'skipped_conflict'
     | 'skipped_move_limit'
+    | 'skipped_refused'
     | 'error'
+    | 'unknown'
 
 export interface MergeSagaResult {
     /** The surviving person; null only when the target no longer resolves. */
@@ -123,15 +116,26 @@ export interface MergeSagaResult {
         sourcePersonId: string | null
     }[]
     /**
-     * The carried distinct ids this call applied. Empty on a replay and on
-     * a server that does not read the field, so a caller may only discard
-     * what this names.
+     * The call created the survivor rather than resolving or attaching to a
+     * person that already existed. Answered only where the merge settled
+     * without a saga; a saga run reports false whether or not it birthed.
+     * A newborn is identified only when some source settled as attached or
+     * as the same person, so this alone does not mean the follow-up
+     * property update has nothing left to write.
      */
-    carriedApplied: string[]
+    survivorWasBorn: boolean
 }
 
+export const personhogUnknownMergeOutcomeCounter = new Counter({
+    name: 'personhog_unknown_merge_outcome_total',
+    help: 'Merge verdicts this build has no name for, by wire value; a newer identity service can introduce one',
+    labelNames: ['wire_value'],
+})
+
 const MERGE_OUTCOME_NAMES: Record<MergeSourceOutcome, MergeSagaSourceOutcome> = {
-    [MergeSourceOutcome.UNSPECIFIED]: 'error',
+    // Proto3 reads an omitted field as zero, so this says the server sent no
+    // verdict rather than that it refused the source.
+    [MergeSourceOutcome.UNSPECIFIED]: 'unknown',
     [MergeSourceOutcome.MERGED]: 'merged',
     [MergeSourceOutcome.NOOP_SAME_PERSON]: 'noop_same_person',
     [MergeSourceOutcome.ATTACHED]: 'attached',
@@ -139,7 +143,22 @@ const MERGE_OUTCOME_NAMES: Record<MergeSourceOutcome, MergeSagaSourceOutcome> = 
     [MergeSourceOutcome.SKIPPED_ALREADY_IDENTIFIED]: 'skipped_already_identified',
     [MergeSourceOutcome.SKIPPED_CONFLICT]: 'skipped_conflict',
     [MergeSourceOutcome.SKIPPED_MOVE_LIMIT]: 'skipped_move_limit',
+    [MergeSourceOutcome.SKIPPED_REFUSED]: 'skipped_refused',
     [MergeSourceOutcome.ERROR]: 'error',
+}
+
+/**
+ * The name this build knows for a wire verdict. An identity service a
+ * release ahead can answer something this build has never heard of, which is
+ * not a refusal and must not be recorded as one.
+ */
+function namedOutcome(wire: MergeSourceOutcome): MergeSagaSourceOutcome {
+    const named = MERGE_OUTCOME_NAMES[wire]
+    if (named !== undefined) {
+        return named
+    }
+    personhogUnknownMergeOutcomeCounter.labels({ wire_value: String(wire) }).inc()
+    return 'unknown'
 }
 
 /**
@@ -149,7 +168,10 @@ const MERGE_OUTCOME_NAMES: Record<MergeSourceOutcome, MergeSagaSourceOutcome> = 
  * surface.
  */
 export class PersonhogIdentityOperations {
-    constructor(private client: Client<typeof PersonHogIdentity>) {}
+    constructor(
+        private client: Client<typeof PersonHogIdentity>,
+        private options: { mergeTimeoutMs?: number } = {}
+    ) {}
 
     /**
      * Resolve-only counterpart of get-or-create: primary-backed
@@ -292,28 +314,28 @@ export class PersonhogIdentityOperations {
                 allowIdentifiedSources: request.allowIdentifiedSources,
                 moveLimit: BigInt(request.moveLimit),
                 createdAt: BigInt(request.createdAtMs),
-                carriedOperations: (request.carriedOperations ?? []).map((carried) => ({
-                    distinctId: carried.distinctId,
-                    setProperties: encodeJsonBytes(carried.set),
-                    setOnceProperties: encodeJsonBytes(carried.setOnce),
-                    unsetProperties: carried.unset,
-                    eventName: carried.eventName,
-                    isIdentified: carried.isIdentified,
-                    lastSeenAt: carried.lastSeenAtMs === undefined ? undefined : BigInt(carried.lastSeenAtMs),
-                    expectedPersonId:
-                        carried.expectedPersonId === undefined ? undefined : BigInt(carried.expectedPersonId),
-                })),
+                creatorEventUuid: request.creatorEventUuid,
             }),
-            callerTag ? { headers: { 'x-caller-tag': callerTag } } : undefined
+            {
+                // A merge drives a multi-step saga, not a point read, so it
+                // gets its own deadline instead of the transport default.
+                // Must exceed the engine's lifecycle_execute_timeout_secs so
+                // the server answers first in the common case; the engine
+                // checks its deadline between steps, so a slow final step
+                // can still outlive this backstop, at the bounded cost of an
+                // abandoned lease the next claim waits out.
+                timeoutMs: this.options.mergeTimeoutMs,
+                ...(callerTag ? { headers: { 'x-caller-tag': callerTag } } : {}),
+            }
         )
         return {
             survivor: response.survivor ? protoPersonToDomain(response.survivor) : null,
             results: response.results.map((result) => ({
                 sourceDistinctId: result.sourceDistinctId,
-                outcome: MERGE_OUTCOME_NAMES[result.outcome] ?? 'error',
+                outcome: namedOutcome(result.outcome),
                 sourcePersonId: result.sourcePersonId === undefined ? null : String(result.sourcePersonId),
             })),
-            carriedApplied: response.carriedApplied,
+            survivorWasBorn: response.survivorWasBorn,
         }
     }
 }

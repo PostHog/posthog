@@ -24,6 +24,17 @@ export function encodeJsonBytes(value: object): Uint8Array {
     return Object.keys(value).length === 0 ? new Uint8Array(0) : textEncoder.encode(JSON.stringify(value))
 }
 
+/** Set by the leader on any write refused because a lifecycle op holds the person. */
+const FENCED_METADATA_KEY = 'x-person-fenced'
+/** Carries the holding operation's id on that refusal. */
+const FENCED_OP_ID_METADATA_KEY = 'x-person-fenced-op-id'
+/**
+ * Carries the holding operation's creator event uuid, where the fence was
+ * installed with one. The op id above is derived and salted across
+ * conflict retries; this is the stable identity of the event behind it.
+ */
+const FENCED_CREATOR_METADATA_KEY = 'x-person-fenced-creator'
+
 /**
  * The leader rejected an update at the person-properties size ceiling.
  * Carries what the transport layer knows; callers holding the person's
@@ -37,6 +48,26 @@ export class PersonhogPropertiesSizeError extends Error {
     ) {
         super(message)
         this.name = 'PersonhogPropertiesSizeError'
+    }
+}
+
+/**
+ * The leader refused a write because a lifecycle operation holds the
+ * person. Distinct from every other FAILED_PRECONDITION on this surface,
+ * and it names the holder: a caller that recognises the op as its own can
+ * drive that operation forward, where any other holder means back off and
+ * let redelivery retry.
+ */
+export class PersonhogFencedError extends Error {
+    constructor(
+        message: string,
+        public readonly personId: string,
+        public readonly fencingOpId: string | undefined,
+        /** The uuid of the event whose merge holds the person, where the fence carries one. */
+        public readonly fencingCreatorEventUuid?: string
+    ) {
+        super(message)
+        this.name = 'PersonhogFencedError'
     }
 }
 
@@ -216,6 +247,21 @@ export class PersonHogPersonOperations {
                 }
                 if (error.code === Code.InvalidArgument && error.rawMessage.includes('size limit')) {
                     throw new PersonhogPropertiesSizeError(error.rawMessage, update.teamId, update.personId)
+                }
+                // Keyed on the metadata, not the status code, because the
+                // code depends on the path: the leader answers a fence with
+                // FAILED_PRECONDITION, while the router — which is what
+                // ingestion actually dials — retries a fence bounce and
+                // hands back its own UNAVAILABLE once they run out, carrying
+                // these keys forward. Matching the code would recognise the
+                // fence on the direct path and miss it on the routed one.
+                if (error.metadata.has(FENCED_METADATA_KEY)) {
+                    throw new PersonhogFencedError(
+                        error.rawMessage,
+                        update.personId,
+                        error.metadata.get(FENCED_OP_ID_METADATA_KEY) ?? undefined,
+                        error.metadata.get(FENCED_CREATOR_METADATA_KEY) ?? undefined
+                    )
                 }
             }
             throw error

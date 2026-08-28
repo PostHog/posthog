@@ -4787,6 +4787,34 @@ describe('PersonState.processEvent()', () => {
                     ])
                 })
 
+                it('a verdict this build cannot name goes to the DLQ rather than restarting the pod', async () => {
+                    const syncMode = { type: 'SYNC' as const, batchSize: undefined }
+                    const processor = createPersonEventProcessor(syncMode, {
+                        event: '$identify',
+                        distinct_id: firstUserDistinctId,
+                        properties: {
+                            $anon_distinct_id: secondUserDistinctId,
+                        },
+                    })
+
+                    const mergeService = (processor as any).mergeService as PersonMergeService
+                    const { PersonMergeUnknownOutcomeError } = await import(
+                        '~/ingestion/common/persons/person-merge-types.js'
+                    )
+                    jest.spyOn(mergeService, 'handleIdentifyOrAlias').mockResolvedValue({
+                        success: false,
+                        error: new PersonMergeUnknownOutcomeError('unnamed verdict', 'some_new_outcome'),
+                    })
+
+                    // Only a backend a release ahead produces this. Throwing
+                    // would tear the server down and every redelivery would
+                    // reach the same build until the roll finishes, so the
+                    // event waits in the DLQ where a replay can still settle
+                    // whether the merge happened.
+                    const result = await processor.processEvent()
+                    expect(result.type).toBe(PipelineResultType.DLQ)
+                })
+
                 it('LIMIT mode returns DLQ result when limit exceeded', async () => {
                     const limitMode = { type: 'LIMIT' as const, limit: 2 }
                     const processor = createPersonEventProcessor(limitMode, {

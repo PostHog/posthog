@@ -34,10 +34,7 @@ const tryDecompress = (value: string | Buffer): string => {
 }
 
 export class KafkaProducerObserver {
-    public readonly produceSpy: jest.SpyInstance<
-        Promise<void>,
-        Parameters<typeof KafkaProducerWrapper.prototype.produce>
-    >
+    public produceSpy: jest.SpyInstance<Promise<void>, Parameters<typeof KafkaProducerWrapper.prototype.produce>>
 
     constructor(private producer: KafkaProducerWrapper) {
         // Spy on the methods we need
@@ -121,7 +118,15 @@ export class KafkaProducerObserver {
         return result
     }
 
+    /**
+     * Re-arms the observer for the next test. Reinstalls the spy rather than
+     * only clearing it, because a suite whose `afterEach` calls
+     * `jest.restoreAllMocks()` uninstalls it: a cleared-but-uninstalled spy
+     * reports no produces at all, so every assertion over it passes whatever
+     * the code did.
+     */
     public resetKafkaProducer() {
-        this.produceSpy.mockClear()
+        this.produceSpy.mockRestore()
+        this.produceSpy = jest.spyOn(this.producer, 'produce')
     }
 }

@@ -106,10 +106,17 @@ function getFoldableAnonDistinctId(item: MergeFoldScanItem): string | null {
  * shared MergeFoldPlan, carried by the run's values as a `planned` decision,
  * with the distinct anon ids as pairs (first event wins the pair's eventUuid;
  * self-merges are excluded). Every other value gets the `immediate` decision.
- * Fold size is naturally bounded by the batch size; pathological per-source
- * distinct_id counts are handled by the merge-mode limit pre-check at
- * execution time.
+ * A run longer than the saga's source cap becomes several plans, since one
+ * oversized request is refused outright; pathological per-source distinct_id
+ * counts are handled by the merge-mode limit pre-check at execution time.
  */
+/**
+ * The most sources one folded request may carry, matching the saga's
+ * MAX_MERGE_BATCH_SIZE. Kept in step with it: a larger value here is refused
+ * server-side and costs the whole fold.
+ */
+const MAX_FOLD_SOURCES = 250
+
 export function createMergeFoldPlanningStep<T extends MergeFoldScanItem>(
     options: MergeFoldOptions
 ): ChunkProcessingStep<T, T & WithMergeFoldDecision> {
@@ -170,14 +177,24 @@ function planRun<T extends MergeFoldScanItem>(
         return
     }
 
-    const plan: MergeFoldPlan = {
-        targetDistinctId,
-        pairs: [...pairByAnonId.values()],
-        status: 'planned',
+    // The saga refuses a request carrying more sources than this, so a run
+    // longer than the cap becomes several plans rather than one the server
+    // rejects. Rejection is not a graceful degradation: the request is spent,
+    // the fold is abandoned, and every pair falls back to its own sequential
+    // merge — in exactly the storm folding exists for.
+    const planByAnonId = new Map<string, MergeFoldPlan>()
+    const ordered = [...pairByAnonId.values()]
+    for (let offset = 0; offset < ordered.length; offset += MAX_FOLD_SOURCES) {
+        const pairs = ordered.slice(offset, offset + MAX_FOLD_SOURCES)
+        const plan: MergeFoldPlan = { targetDistinctId, pairs, status: 'planned' }
+        for (const pair of pairs) {
+            planByAnonId.set(pair.anonDistinctId, plan)
+        }
     }
     for (let index = runStart; index < runEnd; index++) {
         const anonDistinctId = getFoldableAnonDistinctId(values[index])
-        if (anonDistinctId !== null && pairByAnonId.has(anonDistinctId)) {
+        const plan = anonDistinctId === null ? undefined : planByAnonId.get(anonDistinctId)
+        if (plan !== undefined) {
             results[index] = ok({ ...values[index], mergeFold: { type: 'planned', plan } })
         }
     }

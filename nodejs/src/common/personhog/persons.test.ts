@@ -11,7 +11,7 @@ import type {
 import { parseJSON } from '~/common/utils/json-parse'
 import { NoRowsUpdatedError } from '~/common/utils/utils'
 
-import { PersonHogPersonOperations, PersonhogPropertiesSizeError } from './persons'
+import { PersonHogPersonOperations, PersonhogFencedError, PersonhogPropertiesSizeError } from './persons'
 
 const textEncoder = new TextEncoder()
 
@@ -285,6 +285,71 @@ describe('PersonHogPersonOperations', () => {
             const passthrough = await unavailableOps.updatePersonProperties(foldedUpdate).catch((e) => e)
             expect(passthrough).toBeInstanceOf(ConnectError)
             expect(passthrough.code).toBe(Code.Unavailable)
+        })
+
+        // The status code on a fence refusal depends on which hop answers:
+        // the leader raises FAILED_PRECONDITION, and the router — the hop
+        // ingestion actually dials — retries the bounce and substitutes its
+        // own UNAVAILABLE once the retries run out, forwarding the fence
+        // metadata. Recognition has to key on the metadata, or the routed
+        // shape (the only one production sees) reads as a generic outage.
+        it.each([
+            ['the leader answers directly', Code.FailedPrecondition],
+            ['the router substitutes its own status after exhausting retries', Code.Unavailable],
+        ])('reads a fence refusal as a fence when %s', async (_case, code) => {
+            const { ops } = createOperations({
+                updatePersonProperties: () => {
+                    const metadata = new Headers()
+                    metadata.set('x-person-fenced', 'true')
+                    metadata.set('x-person-fenced-op-id', 'merge:op-77')
+                    metadata.set('x-person-fenced-creator', 'creator-event-42')
+                    throw new ConnectError('person 42 is held by a lifecycle operation', code, metadata)
+                },
+            })
+
+            const error = await ops
+                .updatePersonProperties({
+                    teamId: 7,
+                    personId: '42',
+                    eventName: '$folded_person_update',
+                    setProperties: { a: '1' },
+                    setOnceProperties: {},
+                    unsetProperties: [],
+                })
+                .catch((e) => e)
+
+            expect(error).toBeInstanceOf(PersonhogFencedError)
+            expect(error.personId).toBe('42')
+            expect(error.fencingOpId).toBe('merge:op-77')
+            expect(error.fencingCreatorEventUuid).toBe('creator-event-42')
+        })
+
+        it('a fence carrying no creator leaves the field unset', async () => {
+            const { ops } = createOperations({
+                updatePersonProperties: () => {
+                    const metadata = new Headers()
+                    metadata.set('x-person-fenced', 'true')
+                    throw new ConnectError(
+                        'person 42 is held by a lifecycle operation',
+                        Code.FailedPrecondition,
+                        metadata
+                    )
+                },
+            })
+
+            const error = await ops
+                .updatePersonProperties({
+                    teamId: 7,
+                    personId: '42',
+                    eventName: '$folded_person_update',
+                    setProperties: { a: '1' },
+                    setOnceProperties: {},
+                    unsetProperties: [],
+                })
+                .catch((e) => e)
+
+            expect(error).toBeInstanceOf(PersonhogFencedError)
+            expect(error.fencingCreatorEventUuid).toBeUndefined()
         })
     })
 })

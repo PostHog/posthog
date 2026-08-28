@@ -48,22 +48,3 @@ export function mergeOpIdFromRequest(
     const sources = sourceDistinctIds.map((distinctId) => `${distinctId.length}:${distinctId}`).join(',')
     return uuidv5(`${teamId}:${eventUuid}:${moveLimit}:${sources}`, LIFECYCLE_OP_UUIDV5_NAMESPACE)
 }
-
-/**
- * A stable fingerprint of the payload fields the replay guard compares but
- * the op id excludes. A FAILED_PRECONDITION retry salts its op id with
- * this: within one delivery the fingerprint is constant, so retries attach
- * to whatever the salted op recorded, and a later delivery whose payload
- * drifted (GeoIP refresh, transformation stamp) derives a different salt —
- * a fresh op that converges as a no-op when the recorded merge committed.
- * A counter-based salt cannot do this: it restarts every delivery, so a
- * few drifted redeliveries exhaust the reachable ids and wedge forever.
- */
-export function mergePayloadFingerprint(
-    eventSet: Record<string, unknown>,
-    eventSetOnce: Record<string, unknown>,
-    createdAtMs: number
-): string {
-    const payload = `${createdAtMs}:${JSON.stringify(eventSet)}:${JSON.stringify(eventSetOnce)}`
-    return uuidv5(payload, LIFECYCLE_OP_UUIDV5_NAMESPACE).slice(0, 8)
-}

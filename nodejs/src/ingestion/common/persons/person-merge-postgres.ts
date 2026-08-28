@@ -4,7 +4,7 @@ import { Counter, Histogram } from 'prom-client'
 import { PERSON_MERGE_EVENTS_OUTPUT } from '~/common/outputs'
 import { personMergeFailureCounter } from '~/common/persons/metrics'
 import { PersonMessage } from '~/common/persons/person-message'
-import { isDistinctIdIllegal } from '~/common/persons/person-utils'
+import { isDistinctIdUnmergeable } from '~/common/persons/person-utils'
 import {
     PersonClaimedByLifecycleOpError,
     PersonTombstoneBlockedError,
@@ -136,6 +136,12 @@ export interface PostgresMergePolicy {
 export class PostgresPersonMerge {
     private batchStore: PersonsStoreForBatch
     private createService: PersonCreateService
+    /**
+     * The bootstrap's produced messages, when one committed before the fold
+     * ran. Held on the request rather than inside the fold, because an abort
+     * unwinds past that scope while the commit it produced for stands.
+     */
+    private bootstrapAck?: Promise<void>
 
     constructor(
         private store: BatchWritingPersonsStore,
@@ -281,7 +287,7 @@ export class PostgresPersonMerge {
             })()
 
             this.discardOverrideCounts()
-            const lifecycleOpId = lifecycleOpIdFromEvent(teamId, this.request.opId)
+            const lifecycleOpId = lifecycleOpIdFromEvent(teamId, this.request.eventUuid)
             const result = await this.inTransaction('mergeDistinctIds-OneExists', async (tx) => {
                 // New-world merges claim the person's lifecycle mark, which keeps a concurrent
                 // tombstone from landing between this check and the distinct id insert (an
@@ -366,7 +372,7 @@ export class PostgresPersonMerge {
                         teamId,
                         null,
                         true,
-                        this.request.opId,
+                        this.request.eventUuid,
                         { distinctId: distinctId1, version: distinctId1Version },
                         [{ distinctId: distinctId2, version: distinctId2Version }],
                         tx
@@ -410,7 +416,11 @@ export class PostgresPersonMerge {
                 reason,
                 error,
             })
-            return { survivor: null, results: [], foldAborted: reason }
+            // A bootstrap that already committed produced its person and
+            // distinct-id messages before the abort, so its delivery still
+            // has to reach the event's ack. The transaction rolled back;
+            // that commit did not.
+            return { survivor: null, results: [], foldAborted: reason, kafkaAck: this.bootstrapAck }
         }
     }
 
@@ -462,7 +472,6 @@ export class PostgresPersonMerge {
     private async executeFoldInner(): Promise<MergePersonsResult> {
         const teamId = this.teamId
         const outcomes: MergePersonsSourceResult[] = []
-        let bootstrapAck: Promise<void> | undefined
 
         let target = await this.store.fetchForUpdate(teamId, this.targetDistinctId, this.batchId)
         let sourcesToFold = this.request.sources
@@ -484,7 +493,7 @@ export class PostgresPersonMerge {
             }
             target = bootstrap.survivor
             outcomes.push(...bootstrap.results)
-            bootstrapAck = bootstrap.kafkaAck
+            this.bootstrapAck = bootstrap.kafkaAck
             sourcesToFold = this.request.sources.filter((source) => source !== bootstrapSource)
         }
 
@@ -501,7 +510,7 @@ export class PostgresPersonMerge {
         const seenSourceIds = new Set<string>([target.id])
         const missingSources: MergePersonsSource[] = []
         for (const pair of sourcesToFold) {
-            if (isDistinctIdIllegal(pair.distinctId)) {
+            if (isDistinctIdUnmergeable(pair.distinctId)) {
                 outcomes.push({ sourceDistinctId: pair.distinctId, outcome: 'skipped_illegal' })
                 continue
             }
@@ -536,16 +545,17 @@ export class PostgresPersonMerge {
         }
 
         if (mergeSources.length === 0 && missingSources.length === 0) {
-            return { survivor: target, results: outcomes, kafkaAck: bootstrapAck }
+            return { survivor: target, results: outcomes, kafkaAck: this.bootstrapAck }
         }
 
         // Sequential property precedence: each source merges its properties
         // under the accumulated target's (target wins, earlier sources win
         // over later ones). Event $set/$set_once apply on top, as in mergePeople.
-        let mergedProperties: Properties = target.properties
-        for (const source of mergeSources) {
-            mergedProperties = { ...source.properties, ...mergedProperties }
+        const mergedProperties: Properties = {}
+        for (let i = mergeSources.length - 1; i >= 0; i--) {
+            Object.assign(mergedProperties, mergeSources[i].properties)
         }
+        Object.assign(mergedProperties, target.properties)
         const propertyUpdates = refineEventOps(this.request.eventOps, mergedProperties, this.policy.updateAllProperties)
         const [updatedTempPerson] = applyEventPropertyUpdates(propertyUpdates, {
             ...target,
@@ -557,7 +567,7 @@ export class PostgresPersonMerge {
 
         const currentTarget = target
         this.discardOverrideCounts()
-        const lifecycleOpId = lifecycleOpIdFromEvent(teamId, this.request.opId)
+        const lifecycleOpId = lifecycleOpIdFromEvent(teamId, this.request.eventUuid)
         const [mergedPerson, kafkaMessages] = await this.inTransaction('mergePeopleFold', async (tx) => {
             // New-world folds claim every person, keeping concurrent lifecycle operations
             // (other merges, the delete saga) off the targets and sources until commit.
@@ -642,7 +652,7 @@ export class PostgresPersonMerge {
         // The bootstrap's produce, when there was one, joins the fold's own
         // ack so the caller observes every message this merge produced.
         const foldAck = this.produceMessages(kafkaMessages)
-        const kafkaAck = bootstrapAck ? joinAcks(bootstrapAck, foldAck) : foldAck
+        const kafkaAck = this.bootstrapAck ? joinAcks(this.bootstrapAck, foldAck) : foldAck
         for (const source of mergeSources) {
             // Same fire-and-forget contract as executeTransaction.
             void this.producePersonMergeEvent(source, mergedPerson).catch(() => {})
@@ -749,16 +759,18 @@ export class PostgresPersonMerge {
             }
         }
 
-        const failedOutcome =
-            result.error instanceof PersonMergeLimitExceededError
-                ? ('skipped_move_limit' as const)
-                : result.error instanceof SourcePersonHasDistinctIdsError
-                  ? ('failed_source_has_distinct_ids' as const)
-                  : result.error instanceof TargetPersonNotFoundError
-                    ? ('failed_target_not_found' as const)
-                    : result.error instanceof SourcePersonNotFoundError
-                      ? ('failed_source_not_found' as const)
-                      : ('error' as const)
+        let failedOutcome: MergePersonsSourceResult['outcome']
+        if (result.error instanceof PersonMergeLimitExceededError) {
+            failedOutcome = 'skipped_move_limit'
+        } else if (result.error instanceof SourcePersonHasDistinctIdsError) {
+            failedOutcome = 'failed_source_has_distinct_ids'
+        } else if (result.error instanceof TargetPersonNotFoundError) {
+            failedOutcome = 'failed_target_not_found'
+        } else if (result.error instanceof SourcePersonNotFoundError) {
+            failedOutcome = 'failed_source_not_found'
+        } else {
+            failedOutcome = 'error'
+        }
         return {
             survivor: null,
             results: [
@@ -787,7 +799,7 @@ export class PostgresPersonMerge {
                 .inc()
 
             this.discardOverrideCounts()
-            const lifecycleOpId = lifecycleOpIdFromEvent(this.teamId, this.request.opId)
+            const lifecycleOpId = lifecycleOpIdFromEvent(this.teamId, this.request.eventUuid)
             const [mergedPerson, kafkaMessages] = await this.inTransaction('mergePeople', async (tx) => {
                 // New-world merges claim both persons in the lifecycle mark table: at
                 // most one live operation (merge or delete saga) may hold a person, so

@@ -51,6 +51,24 @@ export class PersonMergeCallFailedError extends PersonMergeError {
     }
 }
 
+/**
+ * A verdict this build has no name for, which only a backend running ahead of
+ * it produces. Neither settled nor transient: the merge may have happened, so
+ * acking would record a loss that may not exist, and redelivery cannot help
+ * until the deploy finishes. The event goes to the DLQ, where it stays
+ * replayable and costs nothing while the roll completes.
+ */
+export class PersonMergeUnknownOutcomeError extends PersonMergeError {
+    readonly type = 'UNKNOWN_OUTCOME' as const
+
+    constructor(
+        message: string,
+        public readonly outcome: string
+    ) {
+        super(message)
+    }
+}
+
 export class PersonMergeRaceConditionError extends PersonMergeError {
     readonly type = 'RACE_CONDITION' as const
 

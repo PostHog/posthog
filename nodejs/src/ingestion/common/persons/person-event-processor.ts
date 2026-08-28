@@ -6,8 +6,9 @@ import { InternalPerson, Person } from '~/types'
 
 import { PersonContext } from './person-context'
 import { PersonMergeService, mergeMoveLimitDroppedCounter } from './person-merge-service'
-import { PersonMergeLimitExceededError } from './person-merge-types'
+import { PersonMergeLimitExceededError, PersonMergeUnknownOutcomeError } from './person-merge-types'
 import { PersonPropertyService } from './person-property-service'
+import { PersonhogFenceTimeoutError } from './personhog-persons-store'
 
 /**
  * Main orchestrator for person processing operations.
@@ -44,6 +45,13 @@ export class PersonEventProcessor {
                     await this.propertyService.updatePersonProperties(personFromMerge)
                 return ok(updatedPerson, [identifyOrAliasKafkaAck, updateKafkaAck])
             } catch (error) {
+                // A fence wait that ran out its full ceiling is not a
+                // transient the fallback below can outwait: the ceiling
+                // already covers a whole merge, and a second one here would
+                // put a single event past the consumer's poll interval.
+                if (error instanceof PersonhogFenceTimeoutError) {
+                    throw error
+                }
                 // Shortcut didn't work, swallow the error and try normal retry loop below
                 logger.debug('🔁', `failed update after adding distinct IDs, retrying`, { error })
             }
@@ -64,6 +72,21 @@ export class PersonEventProcessor {
 
     private handleMergeError(error: unknown, event: PluginEvent): PipelineResult<Person, AsyncOutput> {
         const mergeMode = this.context.mergeMode
+
+        if (error instanceof PersonMergeUnknownOutcomeError) {
+            // A backend a release ahead of this build. Throwing would restart
+            // the pod, and every redelivery reaches the same build until the
+            // roll finishes, so the event waits in the DLQ where it stays
+            // replayable. Not dropped: the merge may or may not have
+            // happened, and only a replay after the roll can tell.
+            logger.error('merge backend answered an outcome this build cannot name; routing the event to the DLQ', {
+                team_id: this.context.team.id,
+                distinct_id: this.context.distinctId,
+                event_uuid: event.uuid,
+                outcome: error.outcome,
+            })
+            return dlq('Merge outcome unknown to this build', error)
+        }
 
         if (error instanceof PersonMergeLimitExceededError) {
             logger.info('Merge limit exceeded', {

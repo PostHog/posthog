@@ -1,3 +1,4 @@
+import { ConnectError } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
@@ -18,6 +19,7 @@ import {
     PersonMergeLimitExceededError,
     PersonMergeResponseMismatchError,
     PersonMergeResult,
+    PersonMergeUnknownOutcomeError,
     SourcePersonHasDistinctIdsError,
     SourcePersonNotFoundError,
     TargetPersonNotFoundError,
@@ -44,6 +46,17 @@ export const mergeFoldFallbackCounter = new Counter({
     name: 'person_merge_fold_fallback_total',
     help: 'Number of merge folds abandoned in favor of the sequential path.',
     labelNames: ['reason'],
+})
+
+export const mergeResponseMismatchCounter = new Counter({
+    name: 'person_merge_response_mismatch_total',
+    help: 'Merge responses carrying no verdict for the source that was asked about, which stalls the partition.',
+    labelNames: ['call'],
+})
+
+export const mergeUnknownOutcomeCounter = new Counter({
+    name: 'person_merge_unknown_outcome_total',
+    help: 'Merges failed because the backend answered a verdict this build cannot name, which a deploy skew produces',
 })
 
 export const mergeSettledFailureCounter = new Counter({
@@ -165,15 +178,6 @@ export class PersonMergeService {
                 // redeliver shape a failed Postgres merge transaction has.
                 throw e
             }
-            captureException(e, {
-                tags: { team_id: this.context.team.id, pipeline_step: 'processPersonsStep' },
-                extra: {
-                    location: 'handleIdentifyOrAlias',
-                    distinctId: this.context.distinctId,
-                    anonId: String(this.context.eventProperties['$anon_distinct_id']),
-                    alias: String(this.context.eventProperties['alias']),
-                },
-            })
             mergeFinalFailuresCounter
                 .labels({
                     backend: this.context.personStore.backend,
@@ -181,14 +185,55 @@ export class PersonMergeService {
                     error: e instanceof Error ? e.constructor.name : 'unknown',
                 })
                 .inc()
-            logger.error('handleIdentifyOrAlias failed', {
-                error: e,
-                team_id: this.context.team.id,
-                distinctId: this.context.distinctId,
-                event_name: this.context.event.event,
-                anon_distinct_id: String(this.context.eventProperties['$anon_distinct_id']),
-                alias: String(this.context.eventProperties['alias']),
-            })
+            if (e instanceof ConnectError) {
+                // A raw refusal acked here is a settled merge loss
+                // (InvalidArgument, or a deterministic semantic refusal such
+                // as a reused op id) — a designed verdict, not a
+                // malfunction, so it counts on the settled-loss series and
+                // logs as a warning instead of landing in error tracking at
+                // whatever rate customers duplicate event uuids. Every
+                // other settled loss leaves a customer-visible trace, so
+                // this one does too.
+                mergeSettledFailureCounter.inc()
+                logger.warn('🤔', 'merge refused deterministically; settled as lost', {
+                    team_id: this.context.team.id,
+                    distinctId: this.context.distinctId,
+                    event_name: this.context.event.event,
+                    error: String(e),
+                })
+                const warningAck = emitIngestionWarning(this.context.outputs, this.context.team.id, {
+                    type: 'merge_settled_failure',
+                    details: {
+                        distinctId: this.context.distinctId,
+                        eventUuid: this.context.event.uuid,
+                        sourcePersonDistinctId: String(
+                            this.context.eventProperties['$anon_distinct_id'] ?? this.context.eventProperties['alias']
+                        ),
+                        targetPersonDistinctId: this.context.distinctId,
+                        outcome: 'refused',
+                    },
+                    pipelineStep: 'person-merge',
+                }).then(() => undefined)
+                return mergeSuccess(undefined, warningAck, true)
+            } else {
+                captureException(e, {
+                    tags: { team_id: this.context.team.id, pipeline_step: 'processPersonsStep' },
+                    extra: {
+                        location: 'handleIdentifyOrAlias',
+                        distinctId: this.context.distinctId,
+                        anonId: String(this.context.eventProperties['$anon_distinct_id']),
+                        alias: String(this.context.eventProperties['alias']),
+                    },
+                })
+                logger.error('handleIdentifyOrAlias failed', {
+                    error: e,
+                    team_id: this.context.team.id,
+                    distinctId: this.context.distinctId,
+                    event_name: this.context.event.event,
+                    anon_distinct_id: String(this.context.eventProperties['$anon_distinct_id']),
+                    alias: String(this.context.eventProperties['alias']),
+                })
+            }
         } finally {
             clearTimeout(timeout)
         }
@@ -235,7 +280,17 @@ export class PersonMergeService {
         // Postgres merge throws them directly, the personhog store throws
         // only after its internal salted re-attempts exhaust — and each
         // re-entry runs against fresh state.
-        const result = await promiseRetry(() => this.context.personStore.mergePersons(request), 'merge_distinct_ids')
+        // A raw ConnectError here is a deterministic refusal the store
+        // deliberately unwrapped (InvalidArgument, or a semantic refusal
+        // like op_id_reused); retrying it re-runs the same comparison.
+        const result = await promiseRetry(
+            () => this.context.personStore.mergePersons(request),
+            'merge_distinct_ids',
+            undefined,
+            undefined,
+            undefined,
+            [ConnectError]
+        )
         return this.mapSingleSourceResult(result, otherPersonDistinctId, mergeIntoDistinctId)
     }
 
@@ -256,7 +311,7 @@ export class PersonMergeService {
             sources,
             triggerSourceDistinctId,
             eventOps: extractEventOps(this.context.event, this.context.updateAllProperties),
-            opId: this.context.event.uuid,
+            eventUuid: this.context.event.uuid,
             allowIdentifiedSources: this.context.event.event === '$merge_dangerously',
             mergeMode: this.context.mergeMode,
             // Passed as the event stated it, pre-epoch values included: what a
@@ -316,6 +371,15 @@ export class PersonMergeService {
                 // batch instead of being absorbed by the fallback.
                 throw error
             }
+            if (error instanceof PersonMergeCallFailedError) {
+                // No verdict arrived, so the saga may have sealed sources and
+                // still be running. The Postgres fold can fall back safely
+                // because its abort is a rolled-back transaction that leaves
+                // nothing behind; a live saga leaves fences the sequential
+                // merges would meet under different op ids and drop. Failing
+                // the batch lets redelivery replay the same fold idempotently.
+                throw error
+            }
             // Any other failure falls back to the sequential path: the current
             // event re-runs its own merge (a no-op if the fold partially
             // landed), and later events process individually with full retries.
@@ -330,6 +394,14 @@ export class PersonMergeService {
         }
         if (result.foldAborted) {
             // The store already logged its abort with the underlying error.
+            // An abort can still carry an ack: a bootstrap that committed
+            // before the fold produced its person and distinct-id messages,
+            // and the rollback did not unmake them. Awaiting before the
+            // fallback keeps the event from acking ahead of its own writes,
+            // and a delivery failure fails the batch rather than hiding.
+            if (result.kafkaAck) {
+                await result.kafkaAck
+            }
             this.abandonFold(plan, result.foldAborted)
             return null
         }
@@ -341,6 +413,24 @@ export class PersonMergeService {
                 distinct_id: plan.targetDistinctId,
                 pairs: plan.pairs.length,
                 reason,
+            })
+            return null
+        }
+
+        // A verdict this build cannot name means a backend a release ahead
+        // answered something new, and whether that source merged is unknown.
+        // Marking the plan executed would ack every event in the run on that
+        // unknown, so the fold gives up and each event decides for itself —
+        // where the single-source path fails the batch and redelivers.
+        const unnamed = result.results.find((source) => source.outcome === 'unknown')
+        if (unnamed !== undefined) {
+            mergeUnknownOutcomeCounter.inc()
+            this.abandonFold(plan, 'error')
+            logger.warn('🤔', 'fold settled a source on a verdict this build cannot name', {
+                team_id: this.context.team.id,
+                source_distinct_id: unnamed.sourceDistinctId,
+                target_distinct_id: request.targetDistinctId,
+                pairs: plan.pairs.length,
             })
             return null
         }
@@ -380,11 +470,27 @@ export class PersonMergeService {
         // answer.
         const sourceResult = result.results.find((source) => source.sourceDistinctId === otherPersonDistinctId)
         if (sourceResult === undefined) {
-            // No verdict for the source we asked about. That is a malformed
-            // response rather than an answer the merge backend settled on, so
-            // it must not take the settled-failure path: nothing is recorded
-            // against the op id, so a retry can genuinely reach a different
-            // result, and acking here would lose the merge for good.
+            // No verdict for the source we asked about: a malformed response,
+            // not an answer the backend settled on. It cannot take the
+            // settled-failure path, which acks on the promise that the merge
+            // did not happen, because a response missing its verdict says
+            // nothing about what happened.
+            //
+            // Redelivery will not clear it either. The saga records the op
+            // and replays the recorded outcome for the same op id, so a
+            // response that is wrong once is wrong every time and the
+            // partition stops advancing. That is the loud failure this
+            // deserves — a caller inventing a verdict here would be worse —
+            // but it needs to be attributable, so the counter names the team
+            // and the log carries the ids to reproduce it with.
+            mergeResponseMismatchCounter.labels({ call: this.context.event.event }).inc()
+            logger.error('merge response carried no verdict for its requested source; failing the batch', {
+                team_id: this.context.team.id,
+                event_uuid: this.context.event.uuid,
+                source_distinct_id: otherPersonDistinctId,
+                target_distinct_id: mergeIntoDistinctId,
+                verdicts: result.results.map((source) => source.sourceDistinctId),
+            })
             throw new PersonMergeResponseMismatchError(
                 `merge response for team ${this.context.team.id} carried no verdict for its requested source`
             )
@@ -485,6 +591,22 @@ export class PersonMergeService {
                         'Cannot delete source person due to concurrent distinct ID additions'
                     )
                 )
+            case 'unknown':
+                // A backend a release ahead answered something this build has
+                // no name for. Unlike 'error' that is not a verdict, so the
+                // merge may have happened and acking would record a loss that
+                // might not exist. Redelivery cannot resolve it either, since
+                // every retry reaches the same build until the roll finishes,
+                // and a thrown error here restarts the pod. The event goes to
+                // the DLQ instead: replayable, and costing nothing meanwhile.
+                mergeUnknownOutcomeCounter.inc()
+                return mergeError(
+                    new PersonMergeUnknownOutcomeError(
+                        `merge backend answered an outcome this build cannot name for source ${otherPersonDistinctId}`,
+                        outcome
+                    )
+                )
+            case 'skipped_refused':
             case 'error':
             default: {
                 // A verdict, not a transient fault: the merge backend records it
@@ -502,9 +624,11 @@ export class PersonMergeService {
                         targetPersonDistinctId: mergeIntoDistinctId,
                         distinctId: mergeIntoDistinctId,
                         eventUuid: this.context.event.uuid,
-                        // The Postgres backend names the person by uuid; the saga
-                        // reports a row id and no uuid, so both travel and
-                        // whichever exists identifies the person.
+                        // Both travel because each backend names the person
+                        // differently. The saga, which produces this verdict,
+                        // sets a row id only for a merged source, so it sends
+                        // neither. Postgres has an unreachable arm that would
+                        // carry the uuid.
                         otherPersonId: sourceResult.sourcePersonUuid,
                         sourcePersonId: sourceResult.sourcePersonId,
                         outcome,
@@ -567,6 +691,11 @@ export class PersonMergeService {
                     break
                 case 'skipped_conflict':
                 case 'skipped_race':
+                    // The same drop the single-source path counts, reached
+                    // through a fold instead. Counting only one of them makes
+                    // the rollout's drop rate read low by however much of the
+                    // traffic folds.
+                    mergeClaimDroppedCounter.labels({ call: this.context.event.event }).inc()
                     warningAcks.push(
                         emitIngestionWarning(this.context.outputs, this.context.team.id, {
                             type: 'merge_race_condition',

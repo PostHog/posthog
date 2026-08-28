@@ -73,11 +73,14 @@ export const isDistinctIdIllegal = (id: string): boolean => {
 }
 
 /**
- * Ids no merge can ever involve. Wider than the illegal list, which is ids
- * that never resolve to a person anywhere: NUL cannot exist in Postgres
- * text (the capture path strips it from event.distinct_id but not from
- * $anon_distinct_id or alias property values), and over 400 code points
- * cannot exist in the varchar(400) column.
+ * Ids no merge can involve, whichever backend runs it. Wider than the
+ * illegal list: NUL cannot exist in Postgres text and capture strips it from
+ * `event.distinct_id` but not from `$anon_distinct_id` or alias values, and
+ * anything over 400 code points cannot fit `posthog_persondistinctid`.
+ *
+ * A merge admitting one of these fails at the column rather than settling,
+ * so every path that picks merge participants has to agree on the answer.
  */
-export const isDistinctIdUnmergeable = (id: string): boolean =>
-    isDistinctIdIllegal(id) || id.includes('\u0000') || [...id].length > 400
+export const isDistinctIdUnmergeable = (id: string): boolean => {
+    return isDistinctIdIllegal(id) || id.includes('\u0000') || [...id].length > 400
+}

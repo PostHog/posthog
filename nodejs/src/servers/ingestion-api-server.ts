@@ -39,7 +39,7 @@ import {
 } from '~/ingestion/common/outputs/producers'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { effectivePersonMergeEventsEnabled } from '~/ingestion/common/persons/person-merge-event'
-import { PersonhogPersonsStore } from '~/ingestion/common/persons/personhog-persons-store'
+import { PersonhogPersonsStore, derivedFenceWaitMs } from '~/ingestion/common/persons/personhog-persons-store'
 import { PersonsStore } from '~/ingestion/common/persons/persons-store'
 import {
     RoutingPersonsStore,
@@ -159,7 +159,13 @@ export class IngestionApiServer implements NodeServer {
     private cookielessManager?: CookielessManager
     private pubsub?: PubSub
     private personsStore?: BatchWritingPersonsStore
-    private personhogStore?: PersonhogPersonsStore
+    /**
+     * The store the pipeline was handed: the Postgres one under `pg`, the
+     * routing wrapper otherwise. Shutdown goes through this rather than the
+     * concrete backends, so the routing store's own lifecycle rules — in
+     * shadow, a personhog fault must not fail process cleanup — actually run.
+     */
+    private pipelinePersonsStore?: PersonsStore
     private personhogClientClosers: Array<() => void> = []
     private groupStore?: BatchWritingGroupStore
     // Held so shutdown cleanup can produce ClickHouse messages returned by a
@@ -377,26 +383,36 @@ export class IngestionApiServer implements NodeServer {
                 writeMaxBytes: this.config.PERSONHOG_WRITE_MAX_BYTES,
                 clientName: 'ingestion-persons-store',
             })
-            const identityClients = createIdentityClients({
-                addr: this.config.PERSONHOG_IDENTITY_ADDR,
-                useTls: this.config.PERSONHOG_TLS,
-                timeoutMs: this.config.PERSONHOG_TIMEOUT_MS,
-                clientName: 'ingestion-persons-store',
-            })
+            const identityClients = createIdentityClients(
+                {
+                    addr: this.config.PERSONHOG_IDENTITY_ADDR,
+                    useTls: this.config.PERSONHOG_TLS,
+                    timeoutMs: this.config.PERSONHOG_TIMEOUT_MS,
+                    clientName: 'ingestion-persons-store',
+                },
+                { mergeTimeoutMs: this.config.PERSONHOG_MERGE_TIMEOUT_MS }
+            )
             this.personhogClientClosers = [() => routerClient.close(), identityClients.close]
             const writeRepository = new PersonHogPersonWriteRepository(
                 routerClient,
                 identityClients.identity,
                 'ingestion-persons-store'
             )
-            this.personhogStore = new PersonhogPersonsStore(writeRepository, {
+            const personhogStore = new PersonhogPersonsStore(writeRepository, {
                 maxConcurrentUpdates: this.config.PERSONHOG_STORE_MAX_CONCURRENT_UPDATES,
                 updateAllProperties: this.config.PERSON_PROPERTIES_UPDATE_ALL,
                 syncMergeMoveLimit: this.config.PERSONHOG_SYNC_MERGE_MOVE_LIMIT,
-                mergeRpcTimeoutMs: this.config.PERSONHOG_TIMEOUT_MS,
+                // Derived, not configured separately: a local fence is held
+                // for a sibling merge call's whole duration, so the wait
+                // ceiling must exceed the merge deadline times its
+                // transport-retry attempts or the leak alarm fires on
+                // legitimately slow merges. Raising the merge deadline moves
+                // the ceiling with it.
+                fenceWaitMs: derivedFenceWaitMs(this.config.PERSONHOG_MERGE_TIMEOUT_MS),
             })
-            personsStore = new RoutingPersonsStore(this.personsStore, this.personhogStore, personsStoreMode)
+            personsStore = new RoutingPersonsStore(this.personsStore, personhogStore, personsStoreMode)
         }
+        this.pipelinePersonsStore = personsStore
 
         this.groupStore = new BatchWritingGroupStore(groupRepository, clickhouseGroupRepository, {
             useBatchUpdates: this.config.GROUP_BATCH_WRITING_USE_BATCH_UPDATES,
@@ -645,10 +661,14 @@ export class IngestionApiServer implements NodeServer {
                 // shutdown so shutdown() can assert a clean cache.
                 if (this.personsStore) {
                     await this.personsStore.flushAndProduceMessages()
-                    await this.personsStore.shutdown()
                 }
-                if (this.personhogStore) {
-                    await this.personhogStore.shutdown()
+                // Through the store the pipeline used, so a routed shutdown
+                // applies its own rules to each backend instead of this
+                // server shutting the two down behind its back.
+                if (this.pipelinePersonsStore) {
+                    await this.pipelinePersonsStore.shutdown()
+                } else if (this.personsStore) {
+                    await this.personsStore.shutdown()
                 }
                 this.personhogClientClosers.forEach((close) => close())
                 if (this.groupStore) {
