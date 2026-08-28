@@ -204,8 +204,11 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   tier** when it is created (`select_review_tier`, `REVIEW_ARMS_BY_TIER` in `reviewer/constants.py`): a person's
   PR → `human` (Sol @ xhigh); an **agent PR** (a report created with a Signals link, which only the inbox trigger
   passes) → by the report's latest priority judgment, P0/P1 → xhigh, P2 → medium, P3/P4 → low, no readable
-  judgment → `agent_unprioritized` at xhigh with a warning. The priority is read through a new Signals facade
-  function (`persisted_report_priority`) in the fetch activity. The tier and the priority used are persisted
+  judgment → `agent_unprioritized` at xhigh with a warning. The priority is the one the report carried when the
+  implementation task was created: the inbox receiver reads it with a `created_at < task.created_at` cut-off
+  (`persisted_report_priority`) and passes it into the workflow inputs, so the implementation agent — which holds
+  the `task:write` artefact tool that appends judgments — cannot lower the effort of its own review (ReviewHog
+  finding on the PR). The tier and the priority used are persisted
   beside the arm (`review_tier`, `review_signal_priority`; migration 0031) and labeled on the review events
   (`review_tier`, `signal_priority`, `signal_report_id`, plus `turn_trigger_source`, the trigger of THIS turn —
   the row only remembers the trigger that created it). The validator stays Opus 5 @ xhigh for every tier.

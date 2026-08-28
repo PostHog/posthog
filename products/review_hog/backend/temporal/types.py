@@ -54,6 +54,9 @@ class ReviewPRWorkflowInputs:
     # The signals report whose implementation this run reviews (inbox trigger only): stamped onto the
     # ReviewReport as provenance, and the target of the `code_review` artefact receipt.
     signal_report_id: str | None = None
+    # The report's priority (a `ReportPriority` value) as the inbox trigger read it, before the
+    # implementation agent could write its own. Decides the tier of a new report; None otherwise.
+    signal_priority: str | None = None
     # Branch target (PR-less review): the pushed head branch to review when no PR URL is known.
     head_branch: str | None = None
     # Per-run override for chaining the resolution stage after this turn (fire-and-forget

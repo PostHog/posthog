@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import ValidationError
 
 from products.signals.backend.artefact_schemas import PriorityAssessment
@@ -5,8 +7,12 @@ from products.signals.backend.enums import ReportPriority
 from products.signals.backend.models import SignalReportArtefact
 
 
-def persisted_report_priority(*, team_id: int, report_id: str) -> ReportPriority | None:
-    """The priority from the report's latest ``priority_judgment`` artefact, or ``None`` without a readable one.
+def persisted_report_priority(*, team_id: int, report_id: str, before: datetime) -> ReportPriority | None:
+    """The priority from the report's latest ``priority_judgment`` written before ``before``, or ``None``.
+
+    ``before`` is the trust cut-off. The implementation agent holds the artefact tool that appends
+    judgments, so a caller that routes on the priority reads it as of the moment that agent's task
+    was created, before the agent could vote on how hard its own PR gets reviewed.
 
     Latest-wins, because re-research and the artefact API append new judgments instead of editing
     the old one. The ``-id`` tiebreak keeps the pick deterministic when two judgments share a
@@ -17,7 +23,10 @@ def persisted_report_priority(*, team_id: int, report_id: str) -> ReportPriority
     """
     artefact = (
         SignalReportArtefact.objects.filter(
-            team_id=team_id, report_id=report_id, type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT
+            team_id=team_id,
+            report_id=report_id,
+            type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+            created_at__lt=before,
         )
         .order_by("-created_at", "-id")
         .first()

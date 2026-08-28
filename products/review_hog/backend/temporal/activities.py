@@ -138,7 +138,7 @@ from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
 from products.review_hog.backend.temporal.types import TRIGGER_LABEL, TRIGGER_MANUAL
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import CodeReview, CodeReviewCounts
-from products.signals.backend.facade.api import persisted_report_priority
+from products.signals.backend.enums import ReportPriority
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 
@@ -167,6 +167,8 @@ class FetchPRDataInput:
     # Provenance stamped onto the ReviewReport at upsert (see `upsert_review_report`).
     signal_report_id: str | None = None
     trigger_source: str = TRIGGER_MANUAL
+    # `ReportPriority` value the trigger read before the implementation agent could write its own.
+    signal_priority: str | None = None
 
 
 @dataclass
@@ -553,13 +555,8 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         pr_metadata=pr_metadata,
         signal_report_id=input.signal_report_id,
         trigger_source=input.trigger_source,
-        # Read on every turn of an inbox report (one indexed query) although only the creating turn
-        # routes on it: the upsert is what knows whether the row exists.
-        signal_priority=(
-            persisted_report_priority(team_id=input.team_id, report_id=input.signal_report_id)
-            if input.signal_report_id is not None
-            else None
-        ),
+        # Only the creating turn routes on it: the upsert is what knows whether the row exists.
+        signal_priority=ReportPriority(input.signal_priority) if input.signal_priority is not None else None,
         lift_tier_on_human_trigger=True,
     )
     # Read the report's watermark BEFORE persist_commit_snapshot advances it, so the parent can decide

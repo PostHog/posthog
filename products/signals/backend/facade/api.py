@@ -21,7 +21,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
 from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP, SignalRemediation
-from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, ReportPriority, SignalSourceProduct
+from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
 from products.signals.backend.signal_metadata import fetch_signal_stats_for_source_slice
 
@@ -157,15 +157,6 @@ def persisted_repo_selection(report_id: str) -> "RepoSelectionResult | None":
     )
 
     return persisted_repo_selection_impl(report_id)
-
-
-def persisted_report_priority(*, team_id: int, report_id: str) -> ReportPriority | None:
-    """Facade entrypoint for a report's latest priority judgment. See priority.persisted_report_priority."""
-    from products.signals.backend.report_generation.priority import (
-        persisted_report_priority as persisted_report_priority_impl,  # noqa: PLC0415 — avoids importing model layer at facade import time
-    )
-
-    return persisted_report_priority_impl(team_id=team_id, report_id=report_id)
 
 
 def autostart_base_branch_for_repository(team_id: int, repository: str | None) -> str | None:

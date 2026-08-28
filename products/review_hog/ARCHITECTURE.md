@@ -390,8 +390,11 @@ arm** (adapter / model / effort / permission mode) plus the tier it was chosen f
 PRs the Signals priority that placed it there, `review_signal_priority`), decided once at report creation and kept
 for the report's life, so a report never mixes arms across turns. The tier table (`REVIEW_ARMS_BY_TIER`,
 `constants.py`): a person's PR → `human` (xhigh); an **agent PR** — a report created with a Signals link, which
-only the inbox trigger passes — routes by the report's latest priority judgment (read through the Signals facade
-`persisted_report_priority` in the fetch activity): P0/P1 → xhigh, P2 → medium, P3/P4 → low, no readable judgment
+only the inbox trigger passes — routes by the report's priority **as it stood when the implementation task was
+created** (the inbox receiver reads the latest `priority_judgment` with a `created_at < task.created_at` cut-off via
+`persisted_report_priority` and passes it into the workflow inputs; the implementation agent can append judgments
+through the artefact API, so a later one must not pick its own review's effort): P0/P1 → xhigh, P2 → medium,
+P3/P4 → low, no readable judgment
 → `agent_unprioritized` at xhigh with a warning. One exception to stickiness: a person's trigger (label / UI /
 CLI) that starts a **review** of a report in a cheaper tier lifts it to `human` for that and every later turn,
 never the reverse; a resolve-only run upserts the same row but does not lift (`lift_tier_on_human_trigger`). The

@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -15,6 +16,7 @@ from posthog.models.user import User
 import products.review_hog.backend.temporal.client  # noqa: F401
 from products.review_hog.backend.models import ReviewUserSettings
 from products.review_hog.backend.receivers import resolve_stamphog_acting_reviewer
+from products.signals.backend.enums import ReportPriority
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.tasks.backend.models import Task, TaskRun
 
@@ -156,8 +158,30 @@ class TestInboxTrigger(BaseTest):
             acting_user_id=self.alice.id,
             trigger_source="inbox",
             signal_report_id=str(task.signal_report_id),
+            signal_priority=None,
             pr_url=_PR_URL,
         )
+
+    @patch(_START, return_value="wf-1")
+    def test_review_routes_on_the_priority_from_before_the_implementation_task(self, mock_start) -> None:
+        # The agent can append a priority_judgment through the artefact API while it works; only the
+        # judgment the report carried when its task was created may pick the review tier.
+        self._mock_start = mock_start
+        self._suggest_reviewers(["alice"])
+        self._opt_in(self.alice)
+        task = self._task()
+        for priority, offset in (("P1", -timedelta(minutes=5)), ("P4", timedelta(minutes=5))):
+            artefact = SignalReportArtefact.objects.create(
+                team=self.team,
+                report=self.signal_report,
+                type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+                content=json.dumps({"explanation": "x", "priority": priority}),
+            )
+            SignalReportArtefact.objects.filter(pk=artefact.pk).update(created_at=task.created_at + offset)
+
+        self._record_output(self._run(task), {"pr_url": _PR_URL})
+
+        assert mock_start.call_args.kwargs["signal_priority"] is ReportPriority.P1
 
     @patch(_START, return_value="wf-1")
     def test_pr_review_is_skipped_while_the_prs_resolution_is_running(self, mock_start) -> None:

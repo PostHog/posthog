@@ -44,7 +44,9 @@ from django.db import transaction
 from django.db.models.signals import post_save
 
 from products.review_hog.backend.models import ReviewUserSettings
+from products.signals.backend.enums import ReportPriority
 from products.signals.backend.models import SignalReportArtefact
+from products.signals.backend.report_generation.priority import persisted_report_priority
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 from products.stamphog.backend.facade.inbox_hooks import register_inbox_acting_reviewer_resolver
 
@@ -114,12 +116,18 @@ def handle_task_run_saved(sender: type, instance: Any, created: bool, **kwargs: 
         # robust=True on both: the two dispatches are independent but share one commit-hook queue, so
         # a failure in one must not cancel the other. Django logs the failing hook and runs the rest.
         if settings_by_user[acting_user_id].review_inbox_prs:
+            # The priority as it stood when the implementation task was created. The agent can append
+            # judgments through the artefact API, so a later one may be its own vote on its review.
+            signal_priority = persisted_report_priority(
+                team_id=instance.team_id, report_id=str(task.signal_report_id), before=task.created_at
+            )
             transaction.on_commit(
                 lambda: _start_review(
                     pr_url=pr_url,
                     team_id=instance.team_id,
                     user_id=acting_user_id,
                     signal_report_id=str(task.signal_report_id),
+                    signal_priority=signal_priority,
                 ),
                 robust=True,
             )
@@ -251,7 +259,9 @@ def _start_stamphog_review(
         logger.exception("review_hog_stamphog_inbox_review_queue_failed")
 
 
-def _start_review(*, pr_url: str, team_id: int, user_id: int, signal_report_id: str) -> None:
+def _start_review(
+    *, pr_url: str, team_id: int, user_id: int, signal_report_id: str, signal_priority: ReportPriority | None
+) -> None:
     """Fire-and-forget the review workflow; Temporal being down must never surface into the saver.
 
     Honors the busy-guard, the same refusal the trigger/resolve endpoints apply, so an inbox review
@@ -291,6 +301,7 @@ def _start_review(*, pr_url: str, team_id: int, user_id: int, signal_report_id: 
             acting_user_id=user_id,
             trigger_source=TRIGGER_INBOX,
             signal_report_id=signal_report_id,
+            signal_priority=signal_priority,
             pr_url=pr_url,
         )
         logger.info("review_hog_inbox_review_started: workflow %s for signal report %s", workflow_id, signal_report_id)

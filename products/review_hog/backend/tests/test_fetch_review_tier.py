@@ -1,5 +1,3 @@
-import json
-
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -9,7 +7,7 @@ from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.temporal.activities import FetchPRDataInput, _fetch_and_persist
 from products.review_hog.backend.temporal.types import TRIGGER_INBOX
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.models import SignalReport
 
 _MODULE = "products.review_hog.backend.temporal.activities"
 
@@ -37,16 +35,10 @@ class TestFetchDecidesTheTier(BaseTest):
     @patch(f"{_MODULE}._installation_auth", return_value=("tok", "9876543"))
     @patch(f"{_MODULE}.PRFetcher")
     def test_inbox_fetch_routes_a_new_report_by_its_signal_reports_priority(self, mock_fetcher, _auth) -> None:
-        # The tier is only as good as this wiring: a fetch that forgets to hand the report's
+        # The tier is only as good as this wiring: a fetch that forgets to hand the trigger's
         # priority to the upsert routes every agent PR as unprioritized, which is silently xhigh.
         signal_report = SignalReport.objects.create(
             team=self.team, status=SignalReport.Status.IN_PROGRESS, signal_count=1, total_weight=1.0
-        )
-        SignalReportArtefact.objects.create(
-            team=self.team,
-            report=signal_report,
-            type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
-            content=json.dumps({"explanation": "cosmetic", "priority": "P3"}),
         )
         mock_fetcher.return_value.fetch_pr_data.return_value = (_pr_metadata(), [], [], "")
 
@@ -62,6 +54,7 @@ class TestFetchDecidesTheTier(BaseTest):
                     pr_url="https://github.com/o/r/pull/9",
                     signal_report_id=str(signal_report.id),
                     trigger_source=TRIGGER_INBOX,
+                    signal_priority="P3",
                 )
             )
 
