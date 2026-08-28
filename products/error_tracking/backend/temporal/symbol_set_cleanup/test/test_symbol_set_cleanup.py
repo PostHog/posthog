@@ -19,6 +19,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from products.error_tracking.backend.models import ErrorTrackingStackFrame, ErrorTrackingSymbolSet
 from products.error_tracking.backend.temporal.symbol_set_cleanup.activities import (
     _assigned_buckets,
+    _bucket_queryset,
     _cleanup_queryset,
     _delete_symbol_set_contents_with_pacing,
     cleanup_symbol_sets_activity,
@@ -214,6 +215,19 @@ class TestSymbolSetCleanupActivity(BaseTest):
 
         assert queryset.db == "replica"
         assert not queryset.query.select_for_update
+
+    def test_dry_run_candidates_are_an_ordered_bucket_index_range(self) -> None:
+        queryset = _bucket_queryset(
+            query_filter=Q(last_used__isnull=False, last_used__lt=timezone.now() - timedelta(days=30)),
+            bucket=0,
+        )
+
+        with connection.cursor() as db_cursor:
+            db_cursor.execute("SET LOCAL enable_seqscan = off")
+        plan = queryset[:1].explain()
+
+        assert "Index Scan using et_symset_bucket_cleanup_idx" in plan
+        assert "Sort" not in plan
 
     def test_used_cursor_is_an_ordered_bucket_index_range(self) -> None:
         cursor = (
