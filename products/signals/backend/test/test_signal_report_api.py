@@ -11,6 +11,7 @@ from unittest.mock import patch
 from django.apps import apps
 from django.core.cache import cache
 from django.db import connection
+from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -47,6 +48,7 @@ from products.signals.backend.task_run_artefacts import (
     record_implementation_task,
     record_report_task,
 )
+from products.signals.backend.views import classify_report_list_client
 from products.tasks.backend.facade.api import Channel
 
 if TYPE_CHECKING:
@@ -68,6 +70,18 @@ def authenticate_as_sandbox_token(test: APIBaseTest) -> None:
     token = create_oauth_access_token_for_user(test.user, test.team.id, scopes=["task:read", "task:write"])
     test.client.logout()
     test.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+
+class TestReportListClientClassification(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("desktop", "posthog/desktop.hog.dev; version: 0.61.84", "desktop"),
+            ("web", "Mozilla/5.0 AppleWebKit/537.36 Chrome/140.0.0.0", "web"),
+            ("other", "PostmanRuntime/7.45.0", "other"),
+        ]
+    )
+    def test_classifies_user_agent(self, _name: str, user_agent: str, expected: str) -> None:
+        assert classify_report_list_client(user_agent) == expected
 
 
 class TestSignalReportDeleteAPI(APIBaseTest):

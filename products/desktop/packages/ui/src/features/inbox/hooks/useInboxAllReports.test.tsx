@@ -143,19 +143,19 @@ describe("useInboxAllReports", () => {
     const { result } = renderCounts();
 
     await waitFor(() => {
-      expect(result.current.allReports).toHaveLength(100);
+      expect(result.current.allReports).toHaveLength(50);
     });
 
     await result.current.fetchNextPage();
 
     await waitFor(() => {
       expect(result.current.allReports.map((report) => report.id)).toEqual(
-        Array.from({ length: 200 }, (_, index) => `report-${index}`),
+        Array.from({ length: 100 }, (_, index) => `report-${index}`),
       );
     });
     expect(pipelineRequests()).toMatchObject([
-      { limit: 100, offset: 0 },
-      { limit: 100, offset: 100 },
+      { limit: 50, offset: 0 },
+      { limit: 50, offset: 50 },
     ]);
   });
 

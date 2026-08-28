@@ -180,6 +180,14 @@ REVIEWER_PAGINATION_THRESHOLD = 1200
 PR_GITHUB_CACHE_SECONDS = 15
 
 
+def classify_report_list_client(user_agent: str | None) -> str:
+    if user_agent and user_agent.startswith("posthog/desktop.hog.dev;"):
+        return "desktop"
+    if user_agent and user_agent.startswith("Mozilla/"):
+        return "web"
+    return "other"
+
+
 class EmitSignalSerializer(serializers.Serializer):
     source_product = serializers.CharField(max_length=100)
     source_type = serializers.CharField(max_length=100)
@@ -1616,7 +1624,11 @@ class SignalReportViewSet(
         # so a slow load can be attributed to Postgres (queryset annotations), ClickHouse (source
         # products), the task facade (PR urls), or serialization, rather than one opaque request.
         count_only = self._count_only_requested()
-        trace.get_current_span().set_attribute("signals.reports.list.count_only", count_only)
+        list_span = trace.get_current_span()
+        list_span.set_attribute(
+            "signals.reports.list.client", classify_report_list_client(request.headers.get("user-agent"))
+        )
+        list_span.set_attribute("signals.reports.list.count_only", count_only)
 
         with tracer.start_as_current_span("signals.reports.list.queryset"):
             queryset = self.filter_queryset(self.get_queryset())
@@ -1627,11 +1639,10 @@ class SignalReportViewSet(
                 reports = list(page if page is not None else queryset)
 
         if count_only:
-            trace.get_current_span().set_attribute("signals.reports.list.total_count", total_count)
+            list_span.set_attribute("signals.reports.list.total_count", total_count)
             return Response({"count": total_count, "next": None, "previous": None, "results": []})
 
         report_ids = [str(r.id) for r in reports]
-        list_span = trace.get_current_span()
         list_span.set_attribute("signals.reports.list.count", len(report_ids))
         if page is not None:
             page_limit = getattr(self.paginator, "limit", None)
