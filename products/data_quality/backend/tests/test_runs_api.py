@@ -12,9 +12,7 @@ from posthog.constants import AvailableFeature
 from posthog.test.db_context_capturing import capture_db_queries
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.dag import DAG
-from products.data_modeling.backend.models.node import Node
+from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Node
 from products.data_quality.backend.facade import api
 from products.data_quality.backend.facade.enums import CheckRunStatus, CheckType, SubjectStatus, SubjectType
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun

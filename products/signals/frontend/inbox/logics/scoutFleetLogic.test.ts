@@ -47,6 +47,7 @@ const BASE_CONFIG: SignalScoutConfigApi = {
     skill_name: 'signals-scout-errors',
     description: 'Finds error trends.',
     scout_origin: 'canonical',
+    owners: [],
     enabled: true,
     status: 'active',
     pause_reason: null,

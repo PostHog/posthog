@@ -81,8 +81,8 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
     # Overrides the abstract base's max_length=100 so the column can hold a CIMD
-    # metadata-document URL as the client's identifier (sized to match cimd_metadata_url).
-    # Non-CIMD clients keep the generated opaque value.
+    # metadata-document URL as the client's identifier. Non-CIMD clients keep the
+    # generated opaque value.
     client_id: models.CharField = models.CharField(
         max_length=2048, unique=True, default=generate_client_id, db_index=True
     )
@@ -190,6 +190,9 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         verbose_name="Is CIMD client",
         help_text="True if this client was registered via Client ID Metadata Document (CIMD)",
     )
+    # Superseded by client_id, which now holds this same URL. Nothing resolves a client
+    # through it any more; it stays written on create so a rollback to code that does keeps
+    # working, and is dropped once that window closes.
     cimd_metadata_url: models.URLField = models.URLField(
         max_length=2048,
         null=True,
@@ -313,21 +316,6 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
     # Client authentication is registration state on purpose. A client_id is public, so
     # inferring the method from what a request happens to present would let anyone act as a
     # confidential client by presenting nothing at all.
-
-    @property
-    def effective_client_id(self) -> str:
-        """The identifier this client uses for itself on the wire.
-
-        For a CIMD client that is its metadata URL, which is what the client sends and what it
-        names itself by in a signed assertion; the ``client_id`` column holds an opaque value
-        generated at registration. For every other client the two are the same.
-
-        Gated on ``is_cimd_client`` so a stray ``cimd_metadata_url`` on a non-CIMD app cannot
-        change which identifier an assertion's ``iss``/``sub`` are checked against.
-        """
-        if self.is_cimd_client and self.cimd_metadata_url:
-            return self.cimd_metadata_url
-        return self.client_id
 
     @property
     def requires_client_authentication(self) -> bool:
@@ -934,7 +922,7 @@ def generate_random_token_cimd_verification() -> str:
 # unparseable-input branch. Issuance validates and normalizes before storing (see
 # `CIMDVerificationTokenCreateSerializer` in posthog/api/cimd_verification_token.py), so no
 # stored `CIMDVerificationToken.cimd_url` can ever equal this — it exists only to give the
-# refresh path (which normalizes `OAuthApplication.cimd_metadata_url` read straight from the
+# refresh path (which normalizes `OAuthApplication.client_id` read straight from the
 # database, unrevalidated) a value to compare against instead of raising.
 UNNORMALIZABLE_CIMD_URL = "\x00unnormalizable"
 
@@ -1122,11 +1110,11 @@ def _block_cimd_url_on_application_delete(sender, instance: OAuthApplication, **
     # Auto-blocklist a CIMD URL when its app is deleted, so a metadata refresh
     # can't immediately recreate the same partner. Admin can explicitly
     # unblock via unblock_cimd_url if they want to allow re-registration.
-    if not (instance.is_cimd_client and instance.cimd_metadata_url):
+    if not instance.is_cimd_client:
         return
     from posthog.api.oauth.cimd import block_cimd_url
 
     block_cimd_url(
-        instance.cimd_metadata_url,
+        instance.client_id,
         reason=f"Auto-blocked on deletion of OAuthApplication {instance.pk}",
     )

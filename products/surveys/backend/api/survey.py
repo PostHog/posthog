@@ -1031,6 +1031,24 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         return value
 
+    def validate_targeting_flag_filters(self, value):
+        if value is None:
+            return value
+
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("targeting_flag_filters must be an object")
+
+        return value
+
+    def validate_form_content(self, value):
+        if value is None:
+            return value
+
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("form_content must be an object")
+
+        return value
+
     def _resolve_base_language(self) -> str:
         """Resolve the survey's base language from incoming data, falling back to the instance, then 'en'."""
         initial_data = getattr(self, "initial_data", None)
