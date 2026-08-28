@@ -378,12 +378,10 @@ describe('mcpGatewayLogic', () => {
         )
     })
 
-    it('adds a custom server with team sharing and every agent selected by default', async () => {
+    it('adds a custom server shared with the team and with every agent by default', async () => {
         const pendingInstall = deferred<Awaited<ReturnType<typeof mcpServerInstallationsInstallCustomCreate>>>()
         mockInstallCustom.mockReturnValue(pendingInstall.promise)
-        logic.actions.loadServiceAccountsSuccess([serviceAccount()])
         logic.actions.openAddServerModal()
-        expect(logic.values.addServerForm.agentIds).toEqual(['scout-id'])
         logic.actions.setAddServerFormValue('name', '  Custom server  ')
         logic.actions.setAddServerFormValue('url', ' https://mcp.example.com/mcp ')
         logic.actions.setAddServerFormValue('authType', 'api_key')
@@ -403,7 +401,7 @@ describe('mcpGatewayLogic', () => {
                 api_key: 'secret-key',
                 scope: 'personal',
                 team_enabled: true,
-                agent_ids: ['scout-id'],
+                agent_scope: 'team',
             })
         )
 

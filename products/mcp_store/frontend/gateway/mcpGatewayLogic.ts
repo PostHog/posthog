@@ -1233,15 +1233,6 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
     }),
 
     listeners(({ actions, cache, values }) => ({
-        openAddServerModal: () => {
-            if (!values.canManageAgentAccess) {
-                return
-            }
-            actions.setAddServerFormValue(
-                'agentIds',
-                values.serviceAccounts.map((account) => account.id)
-            )
-        },
         setAddServerFormValue: ({ field, value }) => {
             if (field !== 'authType') {
                 return
@@ -1455,6 +1446,7 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
                 }
                 actions.closeConnectionModal()
                 actions.refreshServersAfterConnection()
+                actions.loadServiceAccounts()
                 lemonToast.success(`Connected to ${server.name}`)
             } catch (error: unknown) {
                 actions.loadServers()
