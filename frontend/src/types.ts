@@ -775,6 +775,8 @@ export interface ConversationsSettings {
     widget_identification_form_title?: string
     widget_identification_form_description?: string
     widget_placeholder_text?: string
+    widget_ticket_recovery_text?: string
+    widget_ticket_recovery_link_text?: string
     widget_position?: 'bottom_left' | 'bottom_right' | 'top_left' | 'top_right'
     slack_enabled?: boolean
     slack_team_id?: string | null

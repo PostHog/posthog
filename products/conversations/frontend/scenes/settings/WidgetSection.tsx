@@ -32,6 +32,10 @@ export function WidgetSection(): JSX.Element {
         saveIdentificationFormDescription,
         setPlaceholderTextValue,
         savePlaceholderText,
+        setTicketRecoveryTextValue,
+        saveTicketRecoveryText,
+        setTicketRecoveryLinkTextValue,
+        saveTicketRecoveryLinkText,
     } = useActions(supportSettingsLogic)
     const {
         widgetEnabledLoading,
@@ -39,6 +43,8 @@ export function WidgetSection(): JSX.Element {
         identificationFormTitleValue,
         identificationFormDescriptionValue,
         placeholderTextValue,
+        ticketRecoveryTextValue,
+        ticketRecoveryLinkTextValue,
     } = useValues(supportSettingsLogic)
 
     return (
@@ -184,6 +190,58 @@ export function WidgetSection(): JSX.Element {
                                             onClick={savePlaceholderText}
                                             disabledReason={
                                                 !placeholderTextValue ? 'Enter placeholder text' : undefined
+                                            }
+                                        >
+                                            Save
+                                        </LemonButton>
+                                    </div>
+                                </div>
+                                <LemonDivider />
+                                <div className="flex items-center gap-4 py-2 justify-between">
+                                    <label className="w-40 shrink-0 font-medium">Ticket recovery text</label>
+                                    <div className="flex gap-2 flex-1">
+                                        <LemonInput
+                                            value={
+                                                ticketRecoveryTextValue ??
+                                                currentTeam?.conversations_settings?.widget_ticket_recovery_text ??
+                                                "Don't see your previous tickets?"
+                                            }
+                                            placeholder="Enter ticket recovery text"
+                                            onChange={setTicketRecoveryTextValue}
+                                            fullWidth
+                                        />
+                                        <LemonButton
+                                            type="primary"
+                                            onClick={saveTicketRecoveryText}
+                                            disabledReason={
+                                                !ticketRecoveryTextValue ? 'Enter ticket recovery text' : undefined
+                                            }
+                                        >
+                                            Save
+                                        </LemonButton>
+                                    </div>
+                                </div>
+                                <LemonDivider />
+                                <div className="flex items-center gap-4 py-2 justify-between">
+                                    <label className="w-40 shrink-0 font-medium">Ticket recovery link</label>
+                                    <div className="flex gap-2 flex-1">
+                                        <LemonInput
+                                            value={
+                                                ticketRecoveryLinkTextValue ??
+                                                currentTeam?.conversations_settings?.widget_ticket_recovery_link_text ??
+                                                'Recover them here'
+                                            }
+                                            placeholder="Enter ticket recovery link text"
+                                            onChange={setTicketRecoveryLinkTextValue}
+                                            fullWidth
+                                        />
+                                        <LemonButton
+                                            type="primary"
+                                            onClick={saveTicketRecoveryLinkText}
+                                            disabledReason={
+                                                !ticketRecoveryLinkTextValue
+                                                    ? 'Enter ticket recovery link text'
+                                                    : undefined
                                             }
                                         >
                                             Save
