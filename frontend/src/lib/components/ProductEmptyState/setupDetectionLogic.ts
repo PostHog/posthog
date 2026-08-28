@@ -181,6 +181,9 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
         afterMount(({ actions, values, cache }) => {
             if (cacheHasData && readCachedHasData(values.currentTeamId, productKey)) {
                 actions.setDetectedStatus('has-data')
+                // The cache skips detection, not the side effects - returning users take
+                // this path on every later visit.
+                onDetected?.('has-data')
                 return
             }
             // The API layer resolves the project from bootstrap state, so a check fired

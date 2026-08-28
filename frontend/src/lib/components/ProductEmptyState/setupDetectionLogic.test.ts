@@ -121,6 +121,7 @@ describe('createSetupDetectionLogic', () => {
     })
 
     it('with cacheHasData, remembers has-data and skips detection on the next mount', async () => {
+        const onDetected = jest.fn()
         const buildCached = (
             detect: jest.Mock<Promise<ProductSetupStatus>, []>
         ): ReturnType<ReturnType<typeof createSetupDetectionLogic>['build']> =>
@@ -129,12 +130,14 @@ describe('createSetupDetectionLogic', () => {
                 path: ['test', 'setupDetectionLogic'],
                 detect,
                 cacheHasData: true,
+                onDetected,
             }).build()
 
         const first = buildCached(jest.fn().mockResolvedValue('has-data'))
         first.mount()
         await expectLogic(first).toFinishAllListeners()
         first.unmount()
+        onDetected.mockClear()
 
         // A stale-cached needs-setup would gate projects with real data, so only
         // has-data may skip detection.
@@ -144,6 +147,7 @@ describe('createSetupDetectionLogic', () => {
         await expectLogic(second).toFinishAllListeners()
         expect(detect).not.toHaveBeenCalled()
         expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('has-data')
+        expect(onDetected).toHaveBeenCalledWith('has-data')
     })
 
     it('does not poll when no interval is configured', async () => {

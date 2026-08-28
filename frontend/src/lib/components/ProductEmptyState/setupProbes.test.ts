@@ -37,6 +37,8 @@ describe('statusFromProbeDefinitions', () => {
         ['2020-01-01T00:00:00Z', 'needs-setup'],
         [new Date().toISOString(), 'has-data'],
         [null, 'has-data'],
+        // Half a day past the window: whole-day rounding would still read this as fresh.
+        [new Date(Date.now() - 90.5 * 24 * 60 * 60 * 1000).toISOString(), 'needs-setup'],
     ] as const)('with staleAfterDays, last_seen_at %s maps to %s', (lastSeenAt, expected) => {
         const staleAwareProbe: ProductSetupProbe = {
             productKey: ProductKey.AI_OBSERVABILITY,

@@ -52,7 +52,9 @@ export function statusFromProbeDefinitions(
                 (definition) =>
                     probe.staleAfterDays === undefined ||
                     !definition.last_seen_at ||
-                    dayjs().diff(dayjs(definition.last_seen_at), 'day') <= probe.staleAfterDays
+                    // Seconds, to match the `isDefinitionStale` the products themselves use:
+                    // a `has-data` published here cannot be replaced by a later `needs-setup`.
+                    dayjs().diff(dayjs(definition.last_seen_at), 'second') <= probe.staleAfterDays * 24 * 60 * 60
             )
             .map((definition) => definition.name)
     )
