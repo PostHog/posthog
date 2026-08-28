@@ -1233,6 +1233,15 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
     }),
 
     listeners(({ actions, cache, values }) => ({
+        openAddServerModal: () => {
+            if (!values.canManageAgentAccess) {
+                return
+            }
+            actions.setAddServerFormValue(
+                'agentIds',
+                values.serviceAccounts.map((account) => account.id)
+            )
+        },
         setAddServerFormValue: ({ field, value }) => {
             if (field !== 'authType') {
                 return
