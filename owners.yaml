@@ -53,6 +53,8 @@ rules:
           - '/nodejs/bin/'
           - '/rust/bin/'
       owners: team-devex
+    - match: '/bin/inject_mcp_intents.py'
+      owners: team-mcp-analytics
     - match: '/.agents/skills/manage-dashboard-widgets/'
       owners: team-analytics-platform
     - match: '/.claude/'
