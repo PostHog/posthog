@@ -43,7 +43,12 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
                 source=EventSource(inputs.source) if inputs.source else None,
             )
         except Exception as e:
-            await database_sync_to_async(asset.refresh_from_db, thread_sensitive=False)()
+            # The row can be deleted mid-render, so a refresh here would raise DoesNotExist and hide
+            # the real failure before it reaches the ApplicationError wrapper below.
+            try:
+                await database_sync_to_async(asset.refresh_from_db, thread_sensitive=False)()
+            except ExportedAsset.DoesNotExist:
+                pass
             exception_class = type(e).__name__
             error_trace = "\n".join(traceback.format_exception(e)[:5])
             logger.warning(

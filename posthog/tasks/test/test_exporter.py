@@ -170,6 +170,24 @@ class TestExportAssetFailureRecording(APIBaseTest):
         assert asset.failure_type == "user"
 
     @patch("products.exports.backend.tasks.image_exporter.export_image")
+    def test_failure_recording_tolerates_deleted_row(self, mock_export_direct: MagicMock) -> None:
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+        )
+
+        def delete_then_fail(*args: object, **kwargs: object) -> None:
+            ExportedAsset.objects_including_ttl_deleted.filter(pk=asset.pk).delete()
+            raise QueryError("Invalid query syntax")
+
+        mock_export_direct.side_effect = delete_then_fail
+
+        # The row is gone, so the failure write matches nothing. The original error must resurface,
+        # not a DatabaseError from a save() against a missing row.
+        with self.assertRaises(QueryError):
+            exporter.export_asset_direct(asset)
+
+    @patch("products.exports.backend.tasks.image_exporter.export_image")
     def test_transient_error_records_failure_without_retry(self, mock_export_direct: MagicMock) -> None:
         mock_export_direct.side_effect = ClickHouseAtCapacity()
 

@@ -118,6 +118,27 @@ async def test_export_asset_activity_propagates_user_errors(mock_exporter: Magic
     assert "ExcelColumnLimitExceeded" in str(app_error) or "18,278 columns" in str(app_error)
 
 
+@patch("posthog.temporal.exports.activities.exporter")
+async def test_export_asset_activity_deleted_mid_render(mock_exporter: MagicMock, activity_environment, team):
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team,
+        export_format=ExportedAsset.ExportFormat.PNG,
+    )
+
+    def fake_export(asset_obj, **kwargs):
+        ExportedAsset.objects_including_ttl_deleted.filter(pk=asset_obj.pk).delete()
+        raise TimeoutError("Timeout while waiting for .InsightCard")
+
+    mock_exporter.export_asset_direct = fake_export
+
+    # The render timeout must survive as the wrapped error, not be masked by the row's disappearance.
+    with pytest.raises(ApplicationError) as exc_info:
+        await activity_environment.run(export_asset_activity, ExportAssetActivityInputs(exported_asset_id=asset.id))
+
+    assert exc_info.value.type == "TimeoutError"
+    assert exc_info.value.non_retryable is False
+
+
 @pytest.mark.parametrize(
     "exception,expected_non_retryable",
     [
