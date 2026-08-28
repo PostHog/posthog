@@ -26,6 +26,7 @@ from posthog.storage.gateway_credential_cache import (
     GATEWAY_CREDENTIAL_FIELDS,
     GATEWAY_CREDENTIAL_LAST_USED_KEY,
     GATEWAY_CREDENTIAL_SECRET_KEY_CACHE_TTL,
+    GATEWAY_KNOWN_TIERS,
     OVERSPEND_ALLOWANCE_KEY,
     TIER_KEY,
     clear_gateway_credential,
@@ -225,6 +226,19 @@ class TestGatewayCredentialWireShape(GatewayCredentialTestMixin):
         blob = self._read_blob(credential_hash(credential))
         assert blob is not None
         self.assertNotIn(TIER_KEY, blob)
+
+    def test_the_writable_tiers_are_the_gateway_vocabulary_minus_the_sentinel(self):
+        # The gateway owns this vocabulary in internal/principal/tiers.go and
+        # holds free/pro/enterprise/unknown. "unknown" is its sentinel for a tier
+        # it could not resolve, so projecting it would assert a value rather than
+        # leave the field absent; the writable set is the rest.
+        #
+        # Nothing can import across the repositories, so this pins the literal and
+        # catches this set drifting on its own. A gateway-side change shows up as
+        # gateway.auth.tier_unrecognized.total going nonzero for credential blobs,
+        # but not for a tier already stamped into a live scoped-token structure,
+        # which degrades to unknown with no signal.
+        self.assertEqual(GATEWAY_KNOWN_TIERS, {"free", "pro", "enterprise"})
 
 
 class TestOverspendAllowanceFormatting(BaseTest):
