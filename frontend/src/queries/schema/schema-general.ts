@@ -9284,6 +9284,9 @@ export const externalDataSources = [
     'Tana',
     'Zenchef',
     'Lovable',
+    'Anvil',
+    'Coolify',
+    'SocialPilot',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

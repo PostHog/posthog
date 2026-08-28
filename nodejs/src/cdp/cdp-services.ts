@@ -397,7 +397,7 @@ export function createCdpCoreServices(
     )
 
     const trackingCodeSigner = new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)
-    const teamWorkflowsConfigService = new TeamWorkflowsConfigService(deps.postgres)
+    const teamWorkflowsConfigService = new TeamWorkflowsConfigService(deps.postgres, deps.pubSub)
     const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, config)
     const messageAssetsService = new MessageAssetsService(outputs)
     // Constructed here (rather than below with the other messaging services) so it can be threaded

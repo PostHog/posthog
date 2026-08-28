@@ -3452,6 +3452,7 @@ export namespace Schemas {
       BoldNumber: 'BoldNumber',
       Metric: 'Metric',
       ActionsPie: 'ActionsPie',
+      ActionsDonut: 'ActionsDonut',
       ActionsBarValue: 'ActionsBarValue',
       ActionsTable: 'ActionsTable',
       WorldMap: 'WorldMap',
@@ -11691,6 +11692,7 @@ export namespace Schemas {
       source_run?: QuarantineSourceRun | null;
       id: string;
       reason: string;
+      source: string;
       /** @nullable */
       expires_at: string | null;
       created_at: string;
@@ -19982,6 +19984,7 @@ export namespace Schemas {
 
     /**
      * * `text` - text
+     * * `link` - link
      * * `number` - number
      * * `currency` - currency
      * * `percent` - percent
@@ -19995,6 +19998,7 @@ export namespace Schemas {
 
     export const CustomPropertyDisplayTypeEnum = {
       Text: 'text',
+      Link: 'link',
       Number: 'number',
       Currency: 'currency',
       Percent: 'percent',
@@ -20281,9 +20285,10 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.
+      /** How the property is interpreted and rendered: 'text', 'link', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'. Links require an HTTP or HTTPS URL.
        *
        * * `text` - text
+       * * `link` - link
        * * `number` - number
        * * `currency` - currency
        * * `percent` - percent
@@ -20417,7 +20422,7 @@ export namespace Schemas {
     export interface CustomPropertyValueWrite {
       /** UUID of the custom property definition whose value to set for this account. */
       definition: string;
-      /** Value to store, matching the definition's type: a number for number/currency/percent, a boolean for boolean, an ISO-8601 string for date/datetime, or text for text properties. */
+      /** Value to store, matching the definition's type: a number for number/currency/percent, a boolean for boolean, an ISO-8601 string for date/datetime, an HTTP or HTTPS URL for link properties, or text for text properties. */
       value: string | number | boolean;
     }
 
@@ -23989,6 +23994,9 @@ export namespace Schemas {
      * * `Tana` - Tana
      * * `Zenchef` - Zenchef
      * * `Lovable` - Lovable
+     * * `Anvil` - Anvil
+     * * `Coolify` - Coolify
+     * * `SocialPilot` - SocialPilot
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -25314,6 +25322,9 @@ export namespace Schemas {
       Tana: 'Tana',
       Zenchef: 'Zenchef',
       Lovable: 'Lovable',
+      Anvil: 'Anvil',
+      Coolify: 'Coolify',
+      SocialPilot: 'SocialPilot',
     } as const;
 
     /**
@@ -26652,7 +26663,10 @@ export namespace Schemas {
        * * `NationBuilder` - NationBuilder
        * * `Tana` - Tana
        * * `Zenchef` - Zenchef
-       * * `Lovable` - Lovable */
+       * * `Lovable` - Lovable
+       * * `Anvil` - Anvil
+       * * `Coolify` - Coolify
+       * * `SocialPilot` - SocialPilot */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -27058,6 +27072,13 @@ export namespace Schemas {
       key: string;
       /** Feature flag name */
       name: string;
+    }
+
+    export interface DeploymentFrequencyBucket {
+      /** Bucket start, aligned to series_granularity (top of hour, midnight, or Monday). */
+      bucket_start: string;
+      /** Deployments whose first success status landed in this bucket, within the environment scope. Zero-filled: 0 means nothing shipped. */
+      deployment_count: number;
     }
 
     export interface DeprovisionWarehouseResponse {
@@ -28679,7 +28700,10 @@ export namespace Schemas {
        * * `NationBuilder` - NationBuilder
        * * `Tana` - Tana
        * * `Zenchef` - Zenchef
-       * * `Lovable` - Lovable */
+       * * `Lovable` - Lovable
+       * * `Anvil` - Anvil
+       * * `Coolify` - Coolify
+       * * `SocialPilot` - SocialPilot */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -28840,6 +28864,126 @@ export namespace Schemas {
       All: 'all',
       Selected: 'selected',
     } as const;
+
+    export interface MergeToDeployBucket {
+      /** Bucket start, aligned to series_granularity (top of hour, midnight, or Monday). Keyed on deploy time: a PR lands in the bucket its first post-merge deploy succeeded in. */
+      bucket_start: string;
+      /** PRs whose first post-merge successful deployment landed in this bucket (bots and drafts excluded; narrowed by github_team when given). */
+      deployed_pr_count: number;
+      /**
+         * Fastest merge-to-deploy in this bucket, in seconds. Null when nothing deployed.
+         * @nullable
+         */
+      min_seconds: number | null;
+      /**
+         * 25th percentile merge-to-deploy seconds. Null when nothing deployed.
+         * @nullable
+         */
+      p25_seconds: number | null;
+      /**
+         * Median merge-to-deploy seconds. Null when nothing deployed.
+         * @nullable
+         */
+      p50_seconds: number | null;
+      /**
+         * Mean merge-to-deploy seconds. Null when nothing deployed.
+         * @nullable
+         */
+      mean_seconds: number | null;
+      /**
+         * 75th percentile merge-to-deploy seconds. Null when nothing deployed.
+         * @nullable
+         */
+      p75_seconds: number | null;
+      /**
+         * Slowest merge-to-deploy in this bucket, in seconds. Null when nothing deployed.
+         * @nullable
+         */
+      max_seconds: number | null;
+    }
+
+    export interface DoraOverview {
+      /** Successful deployments per bucket across the window, oldest first, zero-filled, bucketed by series_granularity. Empty when the deploy tables aren't synced. */
+      deployment_frequency_series: DeploymentFrequencyBucket[];
+      /** Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot series (min/p25/p50/mean/p75/max seconds per bucket). Empty when the deploy tables aren't synced, or when github_team was passed without membership data synced. */
+      merge_to_deploy_series: MergeToDeployBucket[];
+      /** False when the deployments/deployment_statuses tables aren't synced for the selected repo; every other field is then empty or null, never a fake zero. */
+      deploy_data_available: boolean;
+      /** What the environment filter resolved to: 'production' (deployments GitHub marks production_environment), an exact environment name (the one passed, or the busiest persistent environment when nothing is marked production), or 'persistent' (no persistent environment deployed in the window, so every non-transient one counts). Transient environments (ephemeral per-PR previews) never join a default scope. The scope resolves from deployments in the scan window, so two different windows can resolve different scopes and are not always comparable. */
+      environment_scope: string;
+      /** Distinct persistent environments deployed to in the scan window, most-deployed first — the environment picker's options. Transient environments are omitted but stay reachable by exact name. */
+      environments: string[];
+      /** True when the optional team-membership snapshot is synced. When false, a github_team filter cannot be honored and the merge-to-deploy figures go empty rather than silently unfiltered. */
+      has_membership_data: boolean;
+      /** Distinct GitHub team slugs from the membership snapshot, sorted — the team picker's options. Empty when membership isn't synced. */
+      github_teams: string[];
+      /** Deployments whose first success status landed in the window, within the environment scope. */
+      deployment_count: number;
+      /** Same count over the equal-length window before date_from. */
+      deployment_count_prev: number;
+      /**
+         * deployment_count normalized by the window length in days. Null only when the deploy tables aren't synced.
+         * @nullable
+         */
+      deployments_per_day: number | null;
+      /**
+         * Previous-window twin of deployments_per_day. Null only when the deploy tables aren't synced.
+         * @nullable
+         */
+      deployments_per_day_prev: number | null;
+      /**
+         * Median seconds from a PR's merge to the first successful deployment containing it (bots/drafts excluded; narrowed by github_team when given). Containment is resolved through the deploy's head commit, not the deploy's success time. Keyed on deploy time. This is merge-to-deploy, not full commit-to-deploy DORA lead time. Null when nothing deployed in the window.
+         * @nullable
+         */
+      median_merge_to_deploy_seconds: number | null;
+      /**
+         * Previous-window twin of median_merge_to_deploy_seconds.
+         * @nullable
+         */
+      median_merge_to_deploy_seconds_prev: number | null;
+      /** PRs first deployed in the window — the population behind the merge-to-deploy median and box plot. */
+      deployed_pr_count: number;
+      /** Previous-window twin of deployed_pr_count. */
+      deployed_pr_count_prev: number;
+      /** Deployments with at least one failure/error status, keyed on the first failure time. */
+      failed_deployment_count: number;
+      /** Previous-window twin of failed_deployment_count. */
+      failed_deployment_count_prev: number;
+      /**
+         * Failed deployments over deployments that reached any outcome (success or failure). A change-failure proxy: no incident data is linked, so a deploy that succeeded but broke production is not counted. Null when nothing reached an outcome.
+         * @nullable
+         */
+      failed_deployment_share: number | null;
+      /**
+         * Previous-window twin of failed_deployment_share.
+         * @nullable
+         */
+      failed_deployment_share_prev: number | null;
+      /**
+         * Median seconds from a deployment's first failure status to the next successful deployment in the same environment. A time-to-restore proxy: recovery by anything other than a deploy is invisible, and failures not yet recovered are excluded. Null when no failed deploy recovered in the window.
+         * @nullable
+         */
+      median_failed_deploy_to_next_success_seconds: number | null;
+      /**
+         * Previous-window twin of median_failed_deploy_to_next_success_seconds.
+         * @nullable
+         */
+      median_failed_deploy_to_next_success_seconds_prev: number | null;
+      /** PRs merged in the window (bots and drafts excluded; narrowed by github_team when given) — the denominator behind unattributed_merged_pr_share. */
+      merged_pr_count: number;
+      /**
+         * Share of merged_pr_count no successful in-scope deployment attributed: recent merges still waiting for their deploy, plus merges whose deploy the scope or scan bounds miss. Null when nothing merged in the window.
+         * @nullable
+         */
+      unattributed_merged_pr_share: number | null;
+      /**
+         * The newest deployment status row synced, any environment — how fresh the deploy data is. Windows ending after this instant undercount. Null when the deploy tables are empty.
+         * @nullable
+         */
+      latest_deploy_status_at: string | null;
+      /** Bucket width of both series, chosen to fit the window: 'hour', 'day', or 'week'. */
+      series_granularity: string;
+    }
 
     export interface DraftCustomManifestRequest {
       /** Optional human name of the API being connected (e.g. 'Acme CRM'). Used only to orient the model. */
@@ -33316,7 +33460,7 @@ export namespace Schemas {
     export interface FeatureFlagFilterPropertyGenericSchema {
       /** Property key used in this feature flag condition. */
       key: string;
-      /** Property filter type. Common values are 'person' and 'cohort'.
+      /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
        *
        * * `cohort` - cohort
        * * `person` - person
@@ -33328,7 +33472,7 @@ export namespace Schemas {
          */
       cohort_name?: string | null;
       /**
-         * Group type index when using group-based filters.
+         * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
          * @nullable
          */
       group_type_index?: number | null;
@@ -33356,7 +33500,7 @@ export namespace Schemas {
     export interface FeatureFlagFilterPropertyExistsSchema {
       /** Property key used in this feature flag condition. */
       key: string;
-      /** Property filter type. Common values are 'person' and 'cohort'.
+      /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
        *
        * * `cohort` - cohort
        * * `person` - person
@@ -33368,7 +33512,7 @@ export namespace Schemas {
          */
       cohort_name?: string | null;
       /**
-         * Group type index when using group-based filters.
+         * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
          * @nullable
          */
       group_type_index?: number | null;
@@ -33384,7 +33528,7 @@ export namespace Schemas {
     export interface FeatureFlagFilterPropertyDateSchema {
       /** Property key used in this feature flag condition. */
       key: string;
-      /** Property filter type. Common values are 'person' and 'cohort'.
+      /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
        *
        * * `cohort` - cohort
        * * `person` - person
@@ -33396,7 +33540,7 @@ export namespace Schemas {
          */
       cohort_name?: string | null;
       /**
-         * Group type index when using group-based filters.
+         * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
          * @nullable
          */
       group_type_index?: number | null;
@@ -33439,7 +33583,7 @@ export namespace Schemas {
     export interface FeatureFlagFilterPropertySemverSchema {
       /** Property key used in this feature flag condition. */
       key: string;
-      /** Property filter type. Common values are 'person' and 'cohort'.
+      /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
        *
        * * `cohort` - cohort
        * * `person` - person
@@ -33451,7 +33595,7 @@ export namespace Schemas {
          */
       cohort_name?: string | null;
       /**
-         * Group type index when using group-based filters.
+         * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
          * @nullable
          */
       group_type_index?: number | null;
@@ -33486,7 +33630,7 @@ export namespace Schemas {
     export interface FeatureFlagFilterPropertyMultiContainsSchema {
       /** Property key used in this feature flag condition. */
       key: string;
-      /** Property filter type. Common values are 'person' and 'cohort'.
+      /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
        *
        * * `cohort` - cohort
        * * `person` - person
@@ -33498,7 +33642,7 @@ export namespace Schemas {
          */
       cohort_name?: string | null;
       /**
-         * Group type index when using group-based filters.
+         * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
          * @nullable
          */
       group_type_index?: number | null;
@@ -33546,7 +33690,7 @@ export namespace Schemas {
          */
       cohort_name?: string | null;
       /**
-         * Group type index when using group-based filters.
+         * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
          * @nullable
          */
       group_type_index?: number | null;
@@ -33592,7 +33736,7 @@ export namespace Schemas {
          */
       cohort_name?: string | null;
       /**
-         * Group type index when using group-based filters.
+         * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
          * @nullable
          */
       group_type_index?: number | null;
@@ -34315,6 +34459,8 @@ export namespace Schemas {
      * * `cold_run` - Cold Run
      * * `stale_refresh` - Stale Refresh
      * * `auto_refresh` - Auto Refresh
+     * * `experiment_config_change` - Experiment Config Change
+     * * `metric_config_change` - Metric Config Change
      * * `config_change` - Config Change
      * * `experiment_launch` - Experiment Launch
      * * `experiment_stop` - Experiment Stop
@@ -34329,6 +34475,8 @@ export namespace Schemas {
       ColdRun: 'cold_run',
       StaleRefresh: 'stale_refresh',
       AutoRefresh: 'auto_refresh',
+      ExperimentConfigChange: 'experiment_config_change',
+      MetricConfigChange: 'metric_config_change',
       ConfigChange: 'config_change',
       ExperimentLaunch: 'experiment_launch',
       ExperimentStop: 'experiment_stop',
@@ -34414,6 +34562,8 @@ export namespace Schemas {
        * * `cold_run` - Cold Run
        * * `stale_refresh` - Stale Refresh
        * * `auto_refresh` - Auto Refresh
+       * * `experiment_config_change` - Experiment Config Change
+       * * `metric_config_change` - Metric Config Change
        * * `config_change` - Config Change
        * * `experiment_launch` - Experiment Launch
        * * `experiment_stop` - Experiment Stop
@@ -36916,7 +37066,10 @@ export namespace Schemas {
        * * `NationBuilder` - NationBuilder
        * * `Tana` - Tana
        * * `Zenchef` - Zenchef
-       * * `Lovable` - Lovable */
+       * * `Lovable` - Lovable
+       * * `Anvil` - Anvil
+       * * `Coolify` - Coolify
+       * * `SocialPilot` - SocialPilot */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -38275,7 +38428,10 @@ export namespace Schemas {
        * * `NationBuilder` - NationBuilder
        * * `Tana` - Tana
        * * `Zenchef` - Zenchef
-       * * `Lovable` - Lovable */
+       * * `Lovable` - Lovable
+       * * `Anvil` - Anvil
+       * * `Coolify` - Coolify
+       * * `SocialPilot` - SocialPilot */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -39002,6 +39158,11 @@ export namespace Schemas {
       readonly account: FeatureRequestAccount;
       /** Active account links visible to the caller, with account-specific evidence. */
       readonly account_links: readonly FeatureRequestAccountLink[];
+      /**
+         * Total evidence items recorded across visible account links.
+         * @minimum 0
+         */
+      readonly evidence_count: number;
       /** Product areas affected by this request. */
       readonly product_areas: readonly FeatureRequestProductArea[];
       /**
@@ -43775,6 +43936,8 @@ export namespace Schemas {
       email?: string | null;
       /** When the recording ends in ISO format. */
       end_time: string;
+      /** Number of captured rrweb events in the recording. Only present once metadata is loaded. */
+      event_count?: number | null;
       /** When the recording expires, in ISO format. */
       expiry_time?: string | null;
       /** External references to third party issues. */
@@ -43804,6 +43967,8 @@ export namespace Schemas {
       start_time: string;
       start_url?: string | null;
       summary?: string | null;
+      /** Total stored size of the recording's snapshot data in bytes. Only present once metadata is loaded. */
+      total_size?: number | null;
       /** Whether this recording has been viewed by you already. */
       viewed: boolean;
       /** user ids of other users who have viewed this recording */
@@ -49371,7 +49536,8 @@ export namespace Schemas {
       display_name?: string;
       /** @maxLength 2048 */
       url?: string;
-      description?: string;
+      /** Installation description, falling back to the linked template description. */
+      readonly description: string;
       auth_type?: MCPAuthTypeEnum;
       is_enabled?: boolean;
       readonly scope: MCPServerInstallationScopeEnum;
@@ -52310,6 +52476,106 @@ export namespace Schemas {
     }
 
     /**
+     * * `discussions_mentioned` - discussions_mentioned
+     * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
+     * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
+     * * `materialized_view_sync_failed` - materialized_view_sync_failed
+     * * `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily
+     * * `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate
+     * * `organization_member_join_email_disabled` - organization_member_join_email_disabled
+     * * `pipeline_notifications_disabled` - pipeline_notifications_disabled
+     * * `project_weekly_digest_disabled` - project_weekly_digest_disabled
+     * * `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled
+     */
+    export type SettingEnum = typeof SettingEnum[keyof typeof SettingEnum];
+
+
+    export const SettingEnum = {
+      DiscussionsMentioned: 'discussions_mentioned',
+      ErrorTrackingIssueAssigned: 'error_tracking_issue_assigned',
+      ErrorTrackingWeeklyDigestProjectEnabled: 'error_tracking_weekly_digest_project_enabled',
+      MaterializedViewSyncFailed: 'materialized_view_sync_failed',
+      MaterializedViewSyncFailedDaily: 'materialized_view_sync_failed_daily',
+      MaterializedViewSyncFailedImmediate: 'materialized_view_sync_failed_immediate',
+      OrganizationMemberJoinEmailDisabled: 'organization_member_join_email_disabled',
+      PipelineNotificationsDisabled: 'pipeline_notifications_disabled',
+      ProjectWeeklyDigestDisabled: 'project_weekly_digest_disabled',
+      WebAnalyticsWeeklyDigestProjectEnabled: 'web_analytics_weekly_digest_project_enabled',
+    } as const;
+
+    export interface OrganizationNotificationLock {
+      /** Notification setting this rule enforces.
+       *
+       * * `discussions_mentioned` - discussions_mentioned
+       * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
+       * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
+       * * `materialized_view_sync_failed` - materialized_view_sync_failed
+       * * `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily
+       * * `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate
+       * * `organization_member_join_email_disabled` - organization_member_join_email_disabled
+       * * `pipeline_notifications_disabled` - pipeline_notifications_disabled
+       * * `project_weekly_digest_disabled` - project_weekly_digest_disabled
+       * * `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled */
+      setting: SettingEnum;
+      /** What the setting applies to: a project ID or an organization ID. Empty for a setting that is a single switch. */
+      scope_id: string;
+      /** The value the organization enforces. */
+      locked_value: boolean;
+    }
+
+    export interface OrganizationNotificationLockChange {
+      /** Member this rule applies to. */
+      user_id: number;
+      /** Notification setting to lock or unlock.
+       *
+       * * `discussions_mentioned` - discussions_mentioned
+       * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
+       * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
+       * * `materialized_view_sync_failed` - materialized_view_sync_failed
+       * * `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily
+       * * `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate
+       * * `organization_member_join_email_disabled` - organization_member_join_email_disabled
+       * * `pipeline_notifications_disabled` - pipeline_notifications_disabled
+       * * `project_weekly_digest_disabled` - project_weekly_digest_disabled
+       * * `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled */
+      setting: SettingEnum;
+      /** Project ID for a setting that breaks down by project, organization ID for the member-join email, empty for a single switch. */
+      scope_id?: string;
+      /**
+         * Value to enforce, or null to remove the rule and give the member their own setting back.
+         * @nullable
+         */
+      locked_value: boolean | null;
+    }
+
+    export interface OrganizationNotificationLockBulkUpdate {
+      /**
+         * Only the entries you changed. Anything left out keeps whatever it had.
+         * @maxItems 2000
+         */
+      changes: OrganizationNotificationLockChange[];
+    }
+
+    export interface OrganizationNotificationMember {
+      /** Numeric ID of the member, used as the key when saving changes. */
+      user_id: number;
+      /** Stable public identifier of the member. */
+      uuid: string;
+      /** Member's first name, for display. */
+      first_name: string;
+      /** Member's last name, for display. */
+      last_name: string;
+      /** Member's email address, which is where these notifications go. */
+      email: string;
+      /** Member's organization membership level: 1 for member, 8 for admin, 15 for owner. */
+      organization_membership_level: number;
+      /** False when the member's membership level is above yours, which means you cannot change their settings. */
+      editable: boolean;
+      /** Rules in force for this member. */
+      locks: OrganizationNotificationLock[];
+    }
+
+    /**
      * Serializer for organization-scoped OAuth applications (read-only).
      */
     export interface OrganizationOAuthApplication {
@@ -54364,6 +54630,7 @@ export namespace Schemas {
       identifier: string;
       run_type: string;
       reason: string;
+      source: string;
       /** @nullable */
       expires_at: string | null;
       created_at: string;
@@ -55397,6 +55664,16 @@ export namespace Schemas {
       readonly external_references: readonly SessionRecordingExternalReferencesItem[];
       /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
       readonly matches_filters: boolean;
+      /**
+         * Total stored size of the recording's snapshot data in bytes. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+         * @nullable
+         */
+      readonly total_size: number | null;
+      /**
+         * Number of captured rrweb events in the recording. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+         * @nullable
+         */
+      readonly event_count: number | null;
     }
 
     export interface PaginatedSessionRecordingList {
@@ -57108,6 +57385,11 @@ export namespace Schemas {
       /** @nullable */
       channel?: string | null;
       readonly slack_thread_references: readonly SlackThreadReferenceDTO[];
+      /**
+         * Stable key of the server-side flow that created this task, e.g. `desktop_onboarding_session:<user_id>`. Null for tasks people create themselves.
+         * @nullable
+         */
+      origin_key?: string | null;
     }
 
     export interface PaginatedTaskDetailDTOList {
@@ -58020,6 +58302,8 @@ export namespace Schemas {
       readonly is_email_verified: boolean | null;
       /** Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is. */
       notification_settings?: UserNotificationSettings;
+      /** Notification settings an organization admin enforces on this user. The matching controls are read-only, and `notification_settings` still holds the user's own choice underneath. Read-only. */
+      readonly notification_locks: readonly OrganizationNotificationLock[];
       /**
          * Whether PostHog should anonymize events captured for this user when identified.
          * @nullable
@@ -59708,9 +59992,10 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.
+      /** How the property is interpreted and rendered: 'text', 'link', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'. Links require an HTTP or HTTPS URL.
        *
        * * `text` - text
+       * * `link` - link
        * * `number` - number
        * * `currency` - currency
        * * `percent` - percent
@@ -64886,6 +65171,16 @@ export namespace Schemas {
       readonly external_references?: readonly PatchedSessionRecordingExternalReferencesItem[];
       /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
       readonly matches_filters?: boolean;
+      /**
+         * Total stored size of the recording's snapshot data in bytes. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+         * @nullable
+         */
+      readonly total_size?: number | null;
+      /**
+         * Number of captured rrweb events in the recording. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+         * @nullable
+         */
+      readonly event_count?: number | null;
     }
 
     /**
@@ -66743,6 +67038,8 @@ export namespace Schemas {
       readonly is_email_verified?: boolean | null;
       /** Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is. */
       notification_settings?: PatchedUserNotificationSettings;
+      /** Notification settings an organization admin enforces on this user. The matching controls are read-only, and `notification_settings` still holds the user's own choice underneath. Read-only. */
+      readonly notification_locks?: readonly OrganizationNotificationLock[];
       /**
          * Whether PostHog should anonymize events captured for this user when identified.
          * @nullable
@@ -72838,6 +73135,8 @@ export namespace Schemas {
        * * `cold_run` - Cold Run
        * * `stale_refresh` - Stale Refresh
        * * `auto_refresh` - Auto Refresh
+       * * `experiment_config_change` - Experiment Config Change
+       * * `metric_config_change` - Metric Config Change
        * * `config_change` - Config Change
        * * `experiment_launch` - Experiment Launch
        * * `experiment_stop` - Experiment Stop
@@ -75072,6 +75371,8 @@ export namespace Schemas {
       readonly description: string;
       /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
       readonly scout_origin: ScoutOriginEnum;
+      /** Who answers for this scout, seed-creator first. Ownership is recorded on the scout's skill rather than on this config, so editing the skill or toggling the scout leaves it unchanged. Reports the scout files suggest these people as reviewers. Prefer this over `created_by`-style fields, which only say who last flipped a switch. Empty when nobody owns the scout, when the owners are no longer members with access to the project, or when the caller is a scout sandbox token: owners are member PII, and a scout reads them through the skill API instead. */
+      readonly owners: readonly UserBasic[];
       /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Derived from `status`: true for `active` and `pending_pause`, false for the paused statuses. */
       readonly enabled: boolean;
       /** Lifecycle status. `active`: runs on its schedule. `pending_pause`: still running, but flagged by the system to pause soon unless something changes (any config edit clears it). `paused_by_system`: paused automatically, see `pause_reason`; set `enabled=true` to resume. `paused_by_user`: switched off by a person and never resumed automatically.
@@ -77998,7 +78299,10 @@ export namespace Schemas {
        * * `NationBuilder` - NationBuilder
        * * `Tana` - Tana
        * * `Zenchef` - Zenchef
-       * * `Lovable` - Lovable */
+       * * `Lovable` - Lovable
+       * * `Anvil` - Anvil
+       * * `Coolify` - Coolify
+       * * `SocialPilot` - SocialPilot */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -79365,7 +79669,10 @@ export namespace Schemas {
        * * `NationBuilder` - NationBuilder
        * * `Tana` - Tana
        * * `Zenchef` - Zenchef
-       * * `Lovable` - Lovable */
+       * * `Lovable` - Lovable
+       * * `Anvil` - Anvil
+       * * `Coolify` - Coolify
+       * * `SocialPilot` - SocialPilot */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -80722,7 +81029,10 @@ export namespace Schemas {
        * * `NationBuilder` - NationBuilder
        * * `Tana` - Tana
        * * `Zenchef` - Zenchef
-       * * `Lovable` - Lovable */
+       * * `Lovable` - Lovable
+       * * `Anvil` - Anvil
+       * * `Coolify` - Coolify
+       * * `SocialPilot` - SocialPilot */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -84667,6 +84977,14 @@ export namespace Schemas {
       summary: unknown;
     }
 
+    export interface UnquarantineQuery {
+      /**
+         * Snapshot identifier to unquarantine
+         * @maxLength 512
+         */
+      identifier: string;
+    }
+
     export interface UpdateAppInput {
       /** New name for the app. */
       name?: string;
@@ -87150,6 +87468,23 @@ export namespace Schemas {
       filters?: _MetricFilter[];
       /** Labels to split this clause into separate series by. */
       groupBy?: _MetricGroupBy[];
+    }
+
+    export interface _MetricErrorSpike {
+      /** When the error spike was detected, ISO 8601. */
+      detected_at: string;
+      /** Error Tracking issue that spiked. */
+      issue_id: string;
+      /**
+         * Issue name, if one is set.
+         * @nullable
+         */
+      issue_name: string | null;
+    }
+
+    export interface _MetricErrorSpikesResponse {
+      /** Error Tracking issue spikes detected in the window, newest first. Team-wide: not yet scoped to a specific metric's service. */
+      results: _MetricErrorSpike[];
     }
 
     /**
@@ -91117,6 +91452,33 @@ export namespace Schemas {
     source_id?: string;
     };
 
+    export type EngineeringAnalyticsDoraParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Exact deploy environment to scope to (from the response's `environments` list). Omit to scope to production-marked deployments, falling back to every persistent (non-transient) environment when none are marked production.
+     */
+    environment?: string;
+    /**
+     * GitHub team slug (from the response's `github_teams` list) to narrow the PR-scoped merge-to-deploy figures to that team's authors. Deploy counts stay repo-wide. Needs the team-membership snapshot synced; without it the merge-to-deploy figures return empty rather than silently unfiltered.
+     */
+    github_team?: string;
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
     export type EngineeringAnalyticsFlakyTestsParams = {
     /**
      * Window start: relative ('-7d', '-30d') or ISO8601. Defaults to -7d; the window may span at most 30 days.
@@ -92511,6 +92873,16 @@ export namespace Schemas {
      * * `priority` - Priority: low to high
      * * `title` - Title: A to Z
      * * `-title` - Title: Z to A
+     * * `account` - Accounts: A to Z
+     * * `-account` - Accounts: Z to A
+     * * `product_area` - Product areas: A to Z
+     * * `-product_area` - Product areas: Z to A
+     * * `status` - Status: A to Z
+     * * `-status` - Status: Z to A
+     * * `created_by` - Created by: A to Z
+     * * `-created_by` - Created by: Z to A
+     * * `evidence_count` - Evidence: low to high
+     * * `-evidence_count` - Evidence: high to low
      * @minLength 1
      */
     request_ordering?: string;
@@ -95574,6 +95946,17 @@ export namespace Schemas {
      * @maxLength 255
      */
     search?: string;
+    };
+
+    export type MetricsErrorSpikesRetrieveParams = {
+    /**
+     * Lower bound (inclusive) for the spike window. ISO 8601.
+     */
+    dateFrom: string;
+    /**
+     * Upper bound (exclusive) for the spike window. Defaults to now if omitted.
+     */
+    dateTo?: string;
     };
 
     export type MetricsValuesRetrieveParams = {

@@ -1723,6 +1723,11 @@ export interface TaskDetailDTOApi {
     /** @nullable */
     channel?: string | null
     readonly slack_thread_references: readonly SlackThreadReferenceDTOApi[]
+    /**
+     * Stable key of the server-side flow that created this task, e.g. `desktop_onboarding_session:<user_id>`. Null for tasks people create themselves.
+     * @nullable
+     */
+    origin_key?: string | null
 }
 
 export interface PaginatedTaskDetailDTOListApi {

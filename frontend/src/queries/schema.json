@@ -5189,6 +5189,10 @@
                     "type": "string"
                 },
                 {
+                    "const": "ActionsDonut",
+                    "type": "string"
+                },
+                {
                     "const": "ActionsBarValue",
                     "type": "string"
                 },
@@ -5313,6 +5317,7 @@
                         "BoldNumber",
                         "Metric",
                         "ActionsPie",
+                        "ActionsDonut",
                         "ActionsBarValue",
                         "ActionsTable",
                         "WorldMap",
@@ -16003,6 +16008,7 @@
                 "BoldNumber",
                 "Metric",
                 "ActionsPie",
+                "ActionsDonut",
                 "ActionsBarValue",
                 "ActionsTable",
                 "WorldMap",
@@ -26879,7 +26885,10 @@
                 "NationBuilder",
                 "Tana",
                 "Zenchef",
-                "Lovable"
+                "Lovable",
+                "Anvil",
+                "Coolify",
+                "SocialPilot"
             ],
             "type": "string"
         },
@@ -50133,6 +50142,10 @@
                     "description": "When the recording ends in ISO format.",
                     "type": "string"
                 },
+                "event_count": {
+                    "description": "Number of captured rrweb events in the recording. Only present once metadata is loaded.",
+                    "type": ["number", "null"]
+                },
                 "expiry_time": {
                     "description": "When the recording expires, in ISO format.",
                     "type": "string"
@@ -50203,6 +50216,10 @@
                 },
                 "summary": {
                     "type": "string"
+                },
+                "total_size": {
+                    "description": "Total stored size of the recording's snapshot data in bytes. Only present once metadata is loaded.",
+                    "type": ["number", "null"]
                 },
                 "viewed": {
                     "description": "Whether this recording has been viewed by you already.",
