@@ -4,6 +4,9 @@ import { router, combineUrl } from 'kea-router'
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTab, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
+import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
@@ -46,11 +49,19 @@ export function MCPAnalyticsScene(): JSX.Element {
 function MCPAnalyticsSceneContent(): JSX.Element {
     const { searchParams } = useValues(router)
     const { activeTab } = useValues(mcpAnalyticsSceneLogic)
-    const { onboardingState, dashboardStage } = useValues(mcpAnalyticsOnboardingLogic)
+    const { onboardingState } = useValues(mcpAnalyticsOnboardingLogic)
     const { notificationCount } = useValues(mcpAnalyticsNotificationsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const intentRoutingEnabled = !!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING]
 
-    // search is Sessions-only — drop it when leaving the tab; the date range stays shared.
-    const { search: _search, ...sharedParams } = searchParams
+    if (activeTab === 'intent-clustering' && !intentRoutingEnabled) {
+        return <NotFound object="page" />
+    }
+
+    // landing is a one-shot redirect marker, while search is Sessions-only.
+    // The date range stays shared across every tab.
+    const { landing: _landing, ...tabParams } = searchParams
+    const { search: _search, ...sharedParams } = tabParams
 
     const activityTab: LemonTab<MCPAnalyticsTab> = {
         key: 'activity',
@@ -68,15 +79,13 @@ function MCPAnalyticsSceneContent(): JSX.Element {
     }
 
     const tabs: LemonTab<MCPAnalyticsTab>[] = [
-        // The default landing tab leads: Activity while the project is low-volume,
-        // Dashboard once it graduates — matching the landing redirect so the first
-        // tab is always the one you arrive on.
-        ...(dashboardStage === 'activity' ? [activityTab, dashboardTab] : [dashboardTab, activityTab]),
+        dashboardTab,
+        activityTab,
         {
             key: 'sessions',
             label: 'Sessions',
             content: <MCPSessionsPlaylist />,
-            link: combineUrl(urls.mcpAnalyticsSessions(), searchParams).url,
+            link: combineUrl(urls.mcpAnalyticsSessions(), tabParams).url,
             'data-attr': 'mcp-analytics-sessions-tab',
         },
         {
@@ -86,13 +95,17 @@ function MCPAnalyticsSceneContent(): JSX.Element {
             link: combineUrl(urls.mcpAnalyticsToolQuality(), sharedParams).url,
             'data-attr': 'mcp-analytics-tool-quality-tab',
         },
-        {
-            key: 'intent-clustering',
-            label: 'Intent clustering',
-            content: <MCPAnalyticsClustering />,
-            link: combineUrl(urls.mcpAnalyticsIntentClustering(), sharedParams).url,
-            'data-attr': 'mcp-analytics-intent-clustering-tab',
-        },
+        ...(intentRoutingEnabled
+            ? [
+                  {
+                      key: 'intent-clustering' as const,
+                      label: 'Intent clustering',
+                      content: <MCPAnalyticsClustering />,
+                      link: combineUrl(urls.mcpAnalyticsIntentClustering(), sharedParams).url,
+                      'data-attr': 'mcp-analytics-intent-clustering-tab',
+                  },
+              ]
+            : []),
         {
             key: 'notifications',
             label: (
