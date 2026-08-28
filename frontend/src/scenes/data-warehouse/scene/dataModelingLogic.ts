@@ -15,6 +15,7 @@ import { urlToAction } from 'kea-router'
 import type { RefObject } from 'react'
 
 import api from 'lib/api'
+import { createFuse } from 'lib/utils/fuseSearch'
 import { urls } from 'scenes/urls'
 
 import {
@@ -32,6 +33,11 @@ import { Edge, ElkDirection, Node, NodeHandle, SearchMode, ViewMode } from './mo
 
 const POLL_INTERVAL_MS = 5000
 const MIN_RUNNING_DURATION_MS = 2000
+
+// Match the SQL editor sidebar's fuzzy search (queryDatabaseLogic) so the same term gives the same
+// answer in both places. ignoreLocation lets a match land anywhere in the name.
+const graphNodeFuse = createFuse<Node>([], { keys: ['data.name'], ignoreLocation: true })
+const modelingNodeFuse = createFuse<DataModelingNode>([], { keys: ['name'], ignoreLocation: true })
 
 const nodeStartTimes: Map<string, number> = new Map()
 
@@ -870,8 +876,11 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
                 if (parsedSearch.mode !== 'search') {
                     return highlightedNodeIds(parsedSearch.baseName, parsedSearch.mode)
                 }
-                const lowerBaseName = parsedSearch.baseName.toLowerCase()
-                return new Set(nodes.filter((n) => n.data.name.toLowerCase().includes(lowerBaseName)).map((n) => n.id))
+                if (!parsedSearch.baseName) {
+                    return null
+                }
+                graphNodeFuse.setCollection(nodes)
+                return new Set(graphNodeFuse.search(parsedSearch.baseName).map((r) => r.item.id))
             },
         ],
         filteredNodes: [
@@ -881,7 +890,11 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
                     return dataModelingNodes
                 }
                 const { baseName } = parseSearchTerm(searchTerm)
-                return dataModelingNodes.filter((n) => n.name.toLowerCase().includes(baseName.toLowerCase()))
+                if (!baseName) {
+                    return dataModelingNodes
+                }
+                modelingNodeFuse.setCollection(dataModelingNodes)
+                return modelingNodeFuse.search(baseName).map((r) => r.item)
             },
         ],
         selectedDag: [

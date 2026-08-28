@@ -136,4 +136,61 @@ describe('dataModelingLogic', () => {
         const [source, target] = logic.values.enrichedNodes
         expect(Math.abs(target.position.x - source.position.x)).toBeLessThan(1000)
     })
+
+    // A typo must still find the model, matching the SQL editor sidebar. A revert to String.includes()
+    // would drop these hits and make a failed search look like a missing model.
+    it('fuzzy-matches the list search so a near-miss term still finds the node', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/data_modeling_nodes/': {
+                    results: [
+                        {
+                            id: 'n1',
+                            name: 'customer_orders',
+                            type: 'view',
+                            dag: 'dag-123',
+                            created_at: '2024-01-01T00:00:00Z',
+                            updated_at: '2024-01-01T00:00:00Z',
+                            upstream_count: 0,
+                            downstream_count: 0,
+                        },
+                    ],
+                },
+            },
+        })
+        logic = dataModelingLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadDataModelingNodesSuccess'])
+
+        logic.actions.setSearchTerm('custmer')
+        expect(logic.values.filteredNodes.map((n) => n.name)).toEqual(['customer_orders'])
+    })
+
+    it('fuzzy-matches the graph search so a near-miss term still highlights the node', async () => {
+        logic = dataModelingLogic()
+        logic.mount()
+        await expectLogic(logic)
+            .toDispatchActions(['loadDataModelingNodesSuccess', 'loadDataModelingEdgesSuccess'])
+            .toFinishAllListeners()
+
+        const nodes: Node[] = [
+            {
+                id: 'match',
+                type: 'model',
+                position: { x: 0, y: 0 },
+                data: { id: 'match', name: 'customer_orders', type: 'view', upstreamCount: 0, downstreamCount: 0 },
+            },
+            {
+                id: 'other',
+                type: 'model',
+                position: { x: 100, y: 0 },
+                data: { id: 'other', name: 'sessions', type: 'view', upstreamCount: 0, downstreamCount: 0 },
+            },
+        ]
+        logic.actions.setNodesRaw(nodes)
+        logic.actions.setDebouncedSearchTerm('custmer')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.searchMatchedNodeIds).toEqual(new Set(['match']))
+    })
 })
