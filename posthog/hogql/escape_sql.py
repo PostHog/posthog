@@ -267,6 +267,12 @@ def escape_duckdb_identifier(v: str) -> str:
     return _quote_postgres_wire_identifier(v, extra_reserved_keywords=DUCKDB_EXTRA_RESERVED_KEYWORDS)
 
 
+def escape_trino_identifier(v: str) -> str:
+    if "%" in v:
+        raise QueryError(f'The Trino identifier "{v}" is not permitted as it contains the "%" character')
+    return '"' + v.replace('"', '""') + '"'
+
+
 def escape_snowflake_identifier(v: str) -> str:
     # Always double-quote: Snowflake folds unquoted identifiers to uppercase, so quoting
     # preserves the column's stored case. ``%`` is rejected for parity with the other

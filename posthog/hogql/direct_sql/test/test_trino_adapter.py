@@ -1,7 +1,11 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.hogql.direct_sql.trino_adapter import TrinoAdapter, ensure_read_only_raw_trino_statement
+from posthog.hogql.direct_sql.trino_adapter import (
+    TrinoAdapter,
+    convert_pyformat_placeholders,
+    ensure_read_only_raw_trino_statement,
+)
 from posthog.hogql.errors import ExposedHogQLError
 
 
@@ -24,6 +28,21 @@ def test_raw_trino_queries_accept_single_select(sql: str) -> None:
     assert ensure_read_only_raw_trino_statement(sql) == sql
 
 
+def test_convert_pyformat_placeholders_preserves_occurrence_order() -> None:
+    sql, values = convert_pyformat_placeholders(
+        "SELECT %(second)s, %(first)s, %(second)s",
+        {"first": "a", "second": "b"},
+    )
+
+    assert sql == "SELECT ?, ?, ?"
+    assert values == ["b", "a", "b"]
+
+
+def test_convert_pyformat_placeholders_rejects_missing_values() -> None:
+    with pytest.raises(ExposedHogQLError, match="Missing bound value"):
+        convert_pyformat_placeholders("SELECT %(missing)s", {})
+
+
 def test_execute_returns_rows_and_types() -> None:
     adapter = TrinoAdapter()
     request = MagicMock()
@@ -31,6 +50,7 @@ def test_execute_returns_rows_and_types() -> None:
     request.team.pk = 1
     request.source.id = "source-id"
     request.settings.max_execution_time = 30
+    request.values = None
     request.timings.measure.return_value.__enter__.return_value = None
     request.timings.measure.return_value.__exit__.return_value = None
     cursor = MagicMock()
@@ -50,7 +70,7 @@ def test_execute_returns_rows_and_types() -> None:
     ):
         result = adapter.execute(request)
 
-    cursor.execute.assert_called_once_with(request.sql)
+    cursor.execute.assert_called_once_with(request.sql, None)
     cursor.fetchmany.assert_called_once_with(1_000_001)
     assert result.results == [(1, True)]
     assert result.print_columns == ["id", "active"]

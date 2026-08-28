@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import threading
 from typing import TYPE_CHECKING, cast
 
@@ -29,6 +30,23 @@ DIRECT_TRINO_MAX_ROWS = 1_000_000
 RAW_TRINO_READ_ONLY_ERROR = "Raw Trino queries must be read-only SELECT statements."
 DIRECT_TRINO_ROW_CAP_ERROR = f"Trino query returned more than {DIRECT_TRINO_MAX_ROWS:,} rows. Add a LIMIT clause."
 DIRECT_TRINO_TIMEOUT_ERROR = "Trino query timed out."
+_PYFORMAT_PLACEHOLDER_RE = re.compile(r"%\((?P<name>[A-Za-z0-9_]+)\)s")
+
+
+def convert_pyformat_placeholders(sql: str, values: dict[str, object] | None) -> tuple[str, list[object]]:
+    bound_values: list[object] = []
+
+    def replace(match: re.Match[str]) -> str:
+        name = match.group("name")
+        if values is None or name not in values:
+            raise ExposedHogQLError(f"Missing bound value for Trino parameter '{name}'.")
+        bound_values.append(values[name])
+        return "?"
+
+    converted = _PYFORMAT_PLACEHOLDER_RE.sub(replace, sql)
+    if values and not bound_values:
+        raise ExposedHogQLError("Trino query has bound values but no parameter placeholders.")
+    return converted, bound_values
 
 
 def ensure_read_only_raw_trino_statement(sql: str) -> str:
@@ -72,7 +90,7 @@ class _CancelWatchdog:
 
 class TrinoAdapter:
     engine = "trino"
-    dialect: HogQLDialect | None = None
+    dialect: HogQLDialect | None = "trino"
 
     def validate_source_config(self, source: ExternalDataSource, team: Team) -> tuple[TrinoSource, TrinoSourceConfig]:
         from products.warehouse_sources.backend.facade.source_management import (
@@ -113,6 +131,7 @@ class TrinoAdapter:
         span.set_attribute("team_id", request.team.pk)
         span.set_attribute("query_type", request.query_type)
         span.set_attribute("source_id", str(request.source.id))
+        sql, values = convert_pyformat_placeholders(request.sql, request.values)
 
         try:
             with request.timings.measure("trino_execute"), observe_direct_query("trino"):
@@ -121,7 +140,7 @@ class TrinoAdapter:
                     with _CancelWatchdog(cursor, timeout_seconds) as watchdog:
                         try:
                             cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute -- direct SQL is intentionally user-authored and SELECT-gated
-                                request.sql
+                                sql, values or None
                             )
                             results = cursor.fetchmany(DIRECT_TRINO_MAX_ROWS + 1)
                         except Exception as error:

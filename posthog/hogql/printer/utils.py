@@ -28,6 +28,7 @@ from posthog.hogql.printer.mysql import MySQLPrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.printer.redshift import RedshiftPrinter
 from posthog.hogql.printer.snowflake import SnowflakePrinter
+from posthog.hogql.printer.trino import TrinoPrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
@@ -39,6 +40,7 @@ from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.logical_property_lowering import lower_property_access
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
+from posthog.hogql.transforms.trino.normalize import normalize_trino_ast
 from posthog.hogql.transforms.type_aware_simplification import (
     simplify_argmax_over_non_nullable,
     simplify_redundant_type_operations,
@@ -55,6 +57,7 @@ PRINTER_CLASSES: dict[HogQLDialect, type[BasePrinter]] = {
     "mysql": MySQLPrinter,
     "snowflake": SnowflakePrinter,
     "redshift": RedshiftPrinter,
+    "trino": TrinoPrinter,
     "hogql": HogQLPrinter,
 }
 
@@ -339,6 +342,25 @@ def prepare_ast_for_printing(
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN:
         with context.timings.measure("resolve_in_cohorts"):
             resolve_in_cohorts(node, dialect, stack, context, resolver_factory=resolver_factory)
+
+    if dialect == "trino":
+        from posthog.hogql.transforms.trino.validate import (  # noqa: PLC0415 — breaks validator → printer package cycle
+            validate_trino_ready_ast,
+        )
+
+        with context.timings.measure("trino_lowering"):
+            normalize_trino_ast(node)
+        with context.timings.measure("resolve_types_after_trino_lowering"):
+            node = clone_expr(node, clear_types=True)
+            node = resolve_types(
+                node,
+                context,
+                dialect=dialect,
+                scopes=[scope.type for scope in stack if scope.type is not None] if stack else None,
+                resolver_factory=resolver_factory,
+            )
+        with context.timings.measure("validate_trino_ready_ast"):
+            validate_trino_ready_ast(node)
 
     # Drop argmax_select's tuple()/tupleElement() wrap for non-nullable columns; runs last so resolved nullability is final. ClickHouse-only.
     if dialect == "clickhouse":
