@@ -470,6 +470,16 @@ class TestBackfillEmailSendingTiers(BaseTest):
         decisions = BackfillCommand()._decide(histories={}, team_ids=[self.team.id])
         assert [(d.new_tier, d.reason) for d in decisions] == [(0, "staff_suspension")]
 
+    def test_apply_does_not_overwrite_a_concurrent_staff_change(self) -> None:
+        # The fleet scan computes decisions before it writes. A staff pin landing in that gap must
+        # win over the stale decision, matching the daily sweep's compare-and-set.
+        TeamWorkflowsConfig.objects.update_or_create(
+            team=self.team, defaults={"email_sending_tier": 1, "email_sending_tier_pinned": True}
+        )
+        stale = TierDecision(team_id=self.team.id, previous_tier=1, new_tier=4, reason="clean_and_used")
+        assert BackfillCommand()._apply([stale]) == 0
+        assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == 1
+
     def test_history_for_a_deleted_team_is_dropped(self) -> None:
         # app_metrics2 in ClickHouse outlives a team deleted from Postgres, so its history can name a
         # team that no longer exists. It must not reach the distribution or the write count.

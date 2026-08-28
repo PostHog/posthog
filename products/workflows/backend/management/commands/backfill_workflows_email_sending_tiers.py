@@ -142,10 +142,22 @@ class Command(BaseCommand):
             team = teams.get(decision.team_id)
             if team is None:
                 continue
-            config = get_or_create_team_extension(team, TeamWorkflowsConfig)
-            config.email_sending_tier = decision.new_tier
-            config.email_sending_tier_updated_at = now
-            config.save(update_fields=["email_sending_tier", "email_sending_tier_updated_at"])
+            get_or_create_team_extension(team, TeamWorkflowsConfig)
+            # Compare-and-set against the state the decision was computed from, like the daily
+            # sweep's write: a staff pin, suspension, or manual tier set landing during the fleet
+            # scan must not be overwritten by a stale decision. A no-op here is left for the next
+            # sweep, which recomputes from the new state.
+            updated = TeamWorkflowsConfig.objects.filter(
+                team_id=decision.team_id,
+                email_sending_tier=decision.previous_tier,
+                email_sending_tier_pinned=False,
+                email_sending_suspended_at__isnull=decision.reason != "staff_suspension",
+            ).update(
+                email_sending_tier=decision.new_tier,
+                email_sending_tier_updated_at=now,
+            )
+            if not updated:
+                continue
             written += 1
             logger.info(
                 "workflows_email_sending_tier_backfilled",
