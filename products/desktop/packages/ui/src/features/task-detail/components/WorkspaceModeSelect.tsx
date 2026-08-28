@@ -24,6 +24,10 @@ import {
 import type { Adapter, WorkspaceMode } from "@posthog/shared";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import {
+  shouldShowClaudeSubscriptionControls,
+  useClaudeSubscription,
+} from "@posthog/ui/features/settings/useClaudeSubscription";
+import {
   shouldShowCodexSubscriptionControls,
   useCodexSubscription,
 } from "@posthog/ui/features/settings/useCodexSubscription";
@@ -84,6 +88,7 @@ export function WorkspaceModeSelect({
   const { localWorkspaces } = useHostCapabilities();
   const cloudModeEnabled = useCloudModeEnabled();
   const codexSubscription = useCodexSubscription();
+  const claudeSubscription = useClaudeSubscription();
 
   const { environments } = useSandboxEnvironments();
   const { images, customImagesEnabled } = useSandboxCustomImages();
@@ -165,15 +170,33 @@ export function WorkspaceModeSelect({
         {localModes.length > 0 && (
           <div className="flex items-center justify-between px-2 py-1">
             <MenuLabel className="p-0">Local</MenuLabel>
-            {shouldShowCodexSubscriptionControls({
+            {(shouldShowCodexSubscriptionControls({
               flagEnabled: codexSubscription.flagEnabled,
               adapter,
-            }) && (
+            }) ||
+              shouldShowClaudeSubscriptionControls({
+                flagEnabled: claudeSubscription.flagEnabled,
+                adapter,
+              })) && (
               <div className="flex items-center gap-1.5">
-                {codexSubscription.subscriptionOn &&
+                {shouldShowCodexSubscriptionControls({
+                  flagEnabled: codexSubscription.flagEnabled,
+                  adapter,
+                }) &&
+                  codexSubscription.subscriptionOn &&
                   codexSubscription.loggedIn && (
                     <span className="text-[11px] text-muted-foreground">
                       Using Codex subscription
+                    </span>
+                  )}
+                {shouldShowClaudeSubscriptionControls({
+                  flagEnabled: claudeSubscription.flagEnabled,
+                  adapter,
+                }) &&
+                  claudeSubscription.subscriptionOn &&
+                  claudeSubscription.loggedIn && (
+                    <span className="text-[11px] text-muted-foreground">
+                      Using Claude subscription
                     </span>
                   )}
                 <button

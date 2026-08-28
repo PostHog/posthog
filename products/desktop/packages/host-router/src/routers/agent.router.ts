@@ -9,6 +9,7 @@ import {
   cancelPermissionInput,
   cancelPromptInput,
   cancelSessionInput,
+  claudeSubscriptionStatusOutput,
   codexSubscriptionLoginOutput,
   codexSubscriptionStatusOutput,
   getPiModelCatalogInput,
@@ -92,6 +93,14 @@ export const agentRouter = router({
       ctx.container
         .get<AgentService>(AGENT_SERVICE)
         .getCodexSubscriptionStatus(),
+    ),
+
+  claudeSubscriptionStatus: publicProcedure
+    .output(claudeSubscriptionStatusOutput)
+    .query(({ ctx }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .getClaudeSubscriptionStatus(),
     ),
 
   codexSubscriptionLoginStart: publicProcedure

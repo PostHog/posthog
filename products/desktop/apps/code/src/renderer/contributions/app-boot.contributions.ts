@@ -1,5 +1,9 @@
 import type { Contribution } from "@posthog/di/contribution";
-import { CODEX_OWN_SUBSCRIPTION_FLAG } from "@posthog/shared";
+import {
+  CLAUDE_OWN_SUBSCRIPTION_FLAG,
+  CODEX_OWN_SUBSCRIPTION_FLAG,
+} from "@posthog/shared";
+import { registerClaudeSubscriptionAtBoot } from "@posthog/ui/features/settings/useClaudeSubscription";
 import { registerCodexSubscriptionAtBoot } from "@posthog/ui/features/settings/useCodexSubscription";
 import {
   initializePostHog,
@@ -46,6 +50,19 @@ export class AnalyticsBootContribution implements Contribution {
         );
       } catch (error) {
         log.warn("Failed to register codex subscription super properties", {
+          error,
+        });
+      }
+      try {
+        const claudeFlagEnabled =
+          posthogFeatureFlags.isEnabled(CLAUDE_OWN_SUBSCRIPTION_FLAG) ||
+          import.meta.env.DEV;
+        await registerClaudeSubscriptionAtBoot(
+          () => trpcClient.agent.claudeSubscriptionStatus.query(),
+          claudeFlagEnabled,
+        );
+      } catch (error) {
+        log.warn("Failed to register claude subscription super properties", {
           error,
         });
       }

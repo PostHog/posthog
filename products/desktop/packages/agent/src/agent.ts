@@ -82,7 +82,16 @@ export class Agent {
     taskRunId: string,
     options: TaskExecutionOptions = {},
   ): Promise<InProcessAcpConnection> {
-    const gatewayConfig = await this._resolveGatewayConfig(options.gatewayUrl);
+    // Own-subscription Claude sessions authenticate with the machine's Claude
+    // Code login, so the gateway (and the credential it would fetch) is not
+    // needed. Skipping resolution also keeps a missing/failed gateway config
+    // from failing the run.
+    const claudeSubscription =
+      options.adapter === "claude" &&
+      options.claudeModelAccess === "own-subscription";
+    const gatewayConfig = claudeSubscription
+      ? null
+      : await this._resolveGatewayConfig(options.gatewayUrl);
     this.taskRunId = taskRunId;
 
     // getTask and getUserNode are independent, so start both before building
@@ -181,12 +190,12 @@ export class Agent {
           : (allowedModelIds[0] ?? sanitizedModel);
       }
     }
-    if (!sanitizedModel && options.adapter !== "codex") {
+    if (!sanitizedModel && options.adapter !== "codex" && !claudeSubscription) {
       sanitizedModel = DEFAULT_GATEWAY_MODEL;
     }
 
     const claudeGatewayEnv: GatewayEnv | undefined =
-      options.adapter !== "codex" && gatewayConfig
+      options.adapter !== "codex" && !claudeSubscription && gatewayConfig
         ? {
             anthropicBaseUrl: gatewayConfig.gatewayUrl,
             anthropicAuthToken: gatewayConfig.apiKey,
@@ -221,6 +230,7 @@ export class Agent {
       posthogApiConfig: this.posthogApiConfig,
       enricherEnabled: this.enricherEnabled,
       claudeGatewayEnv,
+      claudeUseMachineAuth: claudeSubscription,
       contextWiki: options.contextWiki,
       codexOptions:
         options.adapter === "codex" && (codexSubscription || gatewayConfig)

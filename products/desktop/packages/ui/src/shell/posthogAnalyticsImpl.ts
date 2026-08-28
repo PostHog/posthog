@@ -38,10 +38,16 @@ export type CodexSubscriptionState = {
   connected: boolean;
 };
 
+export type ClaudeSubscriptionState = {
+  access: "posthog-gateway" | "own-subscription";
+  connected: boolean;
+};
+
 // Cached so it can be re-applied after posthog.reset() clears super properties.
 let registeredAppVersion: string | null = null;
 let registeredHostInfo: HostInfoProperties | null = null;
 let registeredCodexSubscription: CodexSubscriptionState | null = null;
+let registeredClaudeSubscription: ClaudeSubscriptionState | null = null;
 
 // posthog.reset() wipes super properties, so these are re-registered after each reset.
 function registerPersistentSuperProperties(): void {
@@ -55,6 +61,9 @@ function registerPersistentSuperProperties(): void {
       : {}),
     ...(registeredCodexSubscription !== null
       ? codexSubscriptionProperties(registeredCodexSubscription)
+      : {}),
+    ...(registeredClaudeSubscription !== null
+      ? claudeSubscriptionProperties(registeredClaudeSubscription)
       : {}),
   });
 }
@@ -86,6 +95,30 @@ export function registerCodexSubscription(state: CodexSubscriptionState): void {
   }
 
   posthog.register(codexSubscriptionProperties(state));
+}
+
+export function registerClaudeSubscription(
+  state: ClaudeSubscriptionState,
+): void {
+  registeredClaudeSubscription = state;
+  if (!isInitialized) {
+    return;
+  }
+
+  posthog.register(claudeSubscriptionProperties(state));
+}
+
+function claudeSubscriptionProperties({
+  access,
+  connected,
+}: ClaudeSubscriptionState): {
+  claude_model_access: string;
+  claude_subscription_connected: boolean;
+} {
+  return {
+    claude_model_access: access,
+    claude_subscription_connected: connected,
+  };
 }
 
 type PendingFlagListener = {

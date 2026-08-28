@@ -88,6 +88,10 @@
       "types": "./dist/adapters/codex-app-server/subscription-login.d.ts",
       "import": "./dist/adapters/codex-app-server/subscription-login.js"
     },
+    "./adapters/claude/subscription-login": {
+      "types": "./dist/adapters/claude/subscription-login.d.ts",
+      "import": "./dist/adapters/claude/subscription-login.js"
+    },
     "./adapters/claude/session/jsonl-hydration": {
       "types": "./dist/adapters/claude/session/jsonl-hydration.d.ts",
       "import": "./dist/adapters/claude/session/jsonl-hydration.js"

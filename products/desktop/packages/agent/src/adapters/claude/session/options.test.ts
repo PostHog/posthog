@@ -447,6 +447,87 @@ describe("buildSessionOptions", () => {
     );
   });
 
+  describe("useMachineAuth (own Claude subscription)", () => {
+    const STRIPPED_KEYS = [
+      "ANTHROPIC_BASE_URL",
+      "ANTHROPIC_AUTH_TOKEN",
+      "ANTHROPIC_API_KEY",
+      "ANTHROPIC_CUSTOM_HEADERS",
+    ] as const;
+    const original: Partial<Record<string, string | undefined>> = {};
+
+    beforeEach(() => {
+      for (const key of STRIPPED_KEYS) {
+        original[key] = process.env[key];
+        process.env[key] = `ambient-${key}`;
+      }
+      process.env.CLAUDE_CODE_OAUTH_TOKEN = "user-oauth-token";
+    });
+
+    afterEach(() => {
+      for (const key of STRIPPED_KEYS) {
+        const value = original[key];
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+      delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    });
+
+    it("strips ambient and gateway ANTHROPIC_* credentials and sends no x-posthog headers", () => {
+      const env = buildSessionOptions({
+        ...makeParams(),
+        useMachineAuth: true,
+        gatewayEnv: {
+          anthropicBaseUrl: "https://gateway.example.com",
+          anthropicAuthToken: "gateway-token",
+          openaiBaseUrl: "https://gateway.example.com/v1",
+          openaiApiKey: "gateway-token",
+          anthropicCustomHeaders: "x-posthog-property-task_id: task-abc",
+          posthogProjectId: "42",
+        },
+      }).env;
+
+      expect(env).toBeDefined();
+      for (const key of STRIPPED_KEYS) {
+        expect(env?.[key]).toBeUndefined();
+      }
+      expect(env?.OPENAI_BASE_URL).toBeUndefined();
+      expect(env?.OPENAI_API_KEY).toBeUndefined();
+      // A user-provided OAuth token is itself a subscription credential — keep it.
+      expect(env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("user-oauth-token");
+      // No gateway telemetry without a gateway base URL.
+      expect(env?.CLAUDE_CODE_ENABLE_TELEMETRY).toBeUndefined();
+      // Every remaining value must not carry a posthog header payload.
+      for (const [key, value] of Object.entries(env ?? {})) {
+        expect(value).not.toContain("x-posthog-");
+        expect(key).not.toMatch(/X-PostHog/i);
+      }
+    });
+
+    it("keeps session behavior flags and the Electron node mode", () => {
+      const env = buildSessionOptions({
+        ...makeParams(),
+        useMachineAuth: true,
+      }).env;
+
+      expect(env?.CLAUDE_CODE_ENABLE_ASK_USER_QUESTION_TOOL).toBe("true");
+      expect(env?.ENABLE_TOOL_SEARCH).toBe("auto:0");
+      expect(env?.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS).toBe("1");
+    });
+
+    it("skips the pinned gateway-era fallback model", () => {
+      const options = buildSessionOptions({
+        ...makeParams(),
+        useMachineAuth: true,
+      });
+
+      expect(options.fallbackModel).toBeUndefined();
+    });
+  });
+
   describe("per-session context wiki env", () => {
     const KEYS = [
       "POSTHOG_CONTEXT_LAYER_PATH",

@@ -38,6 +38,11 @@ export type AcpConnectionConfig = {
   enricherEnabled?: boolean;
   /** Explicit gateway config for the Claude adapter — prevents global process.env mutation. */
   claudeGatewayEnv?: GatewayEnv;
+  /**
+   * Claude adapter: authenticate model calls with the machine's own Claude
+   * Code login instead of gateway env credentials.
+   */
+  claudeUseMachineAuth?: boolean;
   /** Per-session context wiki mount — prevents global process.env mutation. */
   contextWiki?: ContextWikiEnv;
 };
@@ -125,6 +130,7 @@ function createClaudeConnection(config: AcpConnectionConfig): AcpConnection {
       onStructuredOutput: config.onStructuredOutput,
       posthogApiConfig: resolveEnricherApiConfig(config),
       gatewayEnv: config.claudeGatewayEnv,
+      useMachineAuth: config.claudeUseMachineAuth === true,
       contextWiki: config.contextWiki,
     });
     return agent;
