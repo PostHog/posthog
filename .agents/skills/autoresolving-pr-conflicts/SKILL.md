@@ -57,9 +57,8 @@ This format is shared with the CI-based implementation in `.github/workflows/pr-
 
 Marker state is only trusted from our own App: a commenter could otherwise plant a marker to fake "already attempted" and get a PR skipped.
 The helper filters to comments authored by `AUTORESOLVE_BOT_LOGIN`, which must be set in the run environment; it fails closed without it.
-That value is the login that actually authors your comments, which is not always the identity `gh api user` reports. A run whose API token resolves to a human can still post as `<slug>[bot]`.
-Post one comment, read back its `user.login`, and use that.
-Getting it wrong is silent and costly: `get` matches nothing so every sweep re-resolves every PR, and `set` cannot find the sticky comment to update so it appends a new one each time.
+Use the value as given. Never derive it from your token's own API identity, which is not always the account that authors your comments.
+A wrong value is silent and costly: `get` matches nothing so every sweep re-resolves every PR, and `set` cannot find the sticky comment to update so it appends a new one each time.
 All marker reads and writes go through the helper (run from your sweep-start snapshot), never through direct comment reads:
 
 - `autoresolve-marker.sh get <owner/repo> <pr>` prints the last validated `<head>:<master>` tuple, or nothing. It exits 3 when the PR carries a marker written under a different login, which means `AUTORESOLVE_BOT_LOGIN` is wrong: stop the sweep and report it, because continuing re-resolves every PR and appends a comment per run.
