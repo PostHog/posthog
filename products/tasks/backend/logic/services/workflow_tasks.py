@@ -122,7 +122,6 @@ def create_workflow_task(
     origin_key: str | None = None,
     event: dict[str, Any] | None = None,
     slack_context: contracts.WorkflowTaskSlackContext | None = None,
-    end_run_when_done: bool = False,
 ) -> contracts.WorkflowTaskDTO:
     """Create a workflow-origin task and start its agent run.
 
@@ -137,11 +136,10 @@ def create_workflow_task(
     the workflow or its team reached the daily created-task cap. A replayed
     `origin_key` bypasses the gate and every cap.
 
-    `event` is rendered into the agent's prompt as data. `end_run_when_done` ends the run
-    the moment the agent is done, and skips the Slack thread binding: an ended run cannot
-    relay its reply, so binding the thread would only mislead. A thread-bound run instead
-    stays live until its inactivity timeout, so its reply posts and thread replies reach
-    the agent; a run with no binding always ends itself. `slack_context` binds the run to
+    `event` is rendered into the agent's prompt as data. The Slack thread binding decides
+    the run's lifetime: a thread-bound run stays live until its inactivity timeout, so its
+    reply posts and thread replies reach the agent, while a run with no binding ends
+    itself the moment the agent is done. `slack_context` binds the run to
     the Slack thread that triggered the workflow. The task is created either way: a context
     is dropped, rather than failing the create, when it resolves to no Slack integration of
     this team, when the channel is externally shared without an approval, or when another
@@ -203,13 +201,6 @@ def create_workflow_task(
         # prompt twice. The override is only read by the boot path, so it delivers once.
         "initial_prompt_override": _render_run_message(prompt, event),
     }
-
-    # The end-run opt-in and the thread binding are mutually exclusive: `finish` ends the
-    # run before the end-of-turn reply relay fires, so a bound thread would get the
-    # completion stub and never the agent's reply. The opt-in wins and the thread stays
-    # unbound, which also skips the thread lock and the acknowledgement reaction.
-    if end_run_when_done:
-        slack_context = None
 
     try:
         # One transaction so a duplicate origin_key rolls back the task, its run, and the

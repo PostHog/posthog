@@ -120,10 +120,6 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
         required=False,
         help_text="Stable key for this invocation. A retried request with the same key returns the existing task.",
     )
-    end_run_when_done = serializers.BooleanField(
-        default=False,
-        help_text="End the run and release its sandbox the moment the agent finishes. By default the run stays open for its idle window so Slack thread replies reach the agent.",
-    )
 
 
 class WorkflowTaskResponseSerializer(serializers.Serializer):
@@ -198,7 +194,6 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
                 slack_context=(
                     WorkflowTaskSlackContext(**data["slack_context"]) if data.get("slack_context") else None
                 ),
-                end_run_when_done=data["end_run_when_done"],
             )
         except WorkflowTaskConnectorsInvalid as error:
             raise serializers.ValidationError(

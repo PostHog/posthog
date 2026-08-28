@@ -49,10 +49,6 @@ if (not empty(inputs.max_parallel_tasks)) {
   payload.max_parallel_tasks := inputs.max_parallel_tasks
 }
 
-if (inputs.end_run_when_done = true) {
-  payload.end_run_when_done := true
-}
-
 if (inputs.reply_in_slack_thread != false and event.event == '$slack_message_received' and not empty(event.properties.channel) and not empty(event.properties.ts)) {
   payload.slack_context := {
     'integration_id': event.properties.integration_id,
@@ -145,19 +141,10 @@ return response.body
                 'New runs are skipped while this many tasks from this workflow are still running. Protects against a burst of trigger events starting too many agents at once. Daily limits on how many tasks a workflow and project can create also apply.',
         },
         {
-            key: 'end_run_when_done',
-            type: 'boolean',
-            label: 'End the run when the agent finishes',
-            secret: false,
-            required: false,
-            default: false,
-            templating: false,
-            description:
-                'Shuts the agent down as soon as it finishes. The run then skips Slack thread replies in both directions. Leave this off to keep the run open for about 2 minutes after it finishes, so the agent replies in the Slack thread and replies there reach it.',
-        },
-        {
             // Only meaningful on a Slack-triggered workflow; the builder hides it for other
             // triggers, and the hog code above no-ops when the trigger event isn't a Slack message.
+            // Off, the backend sees no slack_context and ends the run when the agent finishes;
+            // on, the run stays open for its idle window so the thread reply can relay.
             key: 'reply_in_slack_thread',
             type: 'boolean',
             label: 'Reply in the Slack thread',

@@ -281,7 +281,7 @@ class TestFacadeReadsAndMappers(TestCase):
         expected = "framed prompt" if include_agent_state else None
         assert detail.state.get("initial_prompt_override") == expected
         # The finish-tool gate reads this key at agent boot; a filter that drops it makes
-        # the workflow action's end-run toggle silently do nothing.
+        # every unbound workflow run idle out instead of ending itself.
         assert detail.state.get("end_run_when_done") == (True if include_agent_state else None)
         assert "sandbox_jwt_kid" not in detail.state
 

@@ -431,7 +431,7 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
 # human readers: a workflow task is team-readable, and its boot prompt embeds the triggering
 # event wholesale, which for a Slack trigger can be a private channel's message content.
 # `end_run_when_done` gates the sandbox's `finish` tool for workflow runs; a key this
-# filter drops never reaches the agent server, so the toggle would silently do nothing.
+# filter drops never reaches the agent server, so the gate would silently do nothing.
 _TASK_RUN_AGENT_STATE_KEYS = frozenset({"end_run_when_done", "initial_prompt_override"})
 
 
