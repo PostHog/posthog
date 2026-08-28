@@ -7,7 +7,9 @@ from typing import Optional
 import dagster
 
 from posthog.clickhouse import query_tagging
+from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level
 from posthog.clickhouse.query_tagging import DagsterTags
+from posthog.settings import TEST
 
 
 def dagster_tags(
@@ -80,6 +82,21 @@ def check_for_concurrent_runs(
         return dagster.SkipReason(f"Skipping {job_name} run because another run of the same job is already active")
 
     return None
+
+
+def skip_on_kill_switch(fn: Callable) -> Callable:
+    """Decorator that skips schedule execution while the ClickHouse kill switch is on."""
+
+    @wraps(fn)
+    def wrapper(context: dagster.ScheduleEvaluationContext):
+        if not TEST:
+            kill_switch_level = get_kill_switch_level()
+            if kill_switch_level != KillSwitchLevel.OFF:
+                context.log.info(f"Skipping due to ClickHouse kill switch: {kill_switch_level}")
+                return dagster.SkipReason(f"ClickHouse kill switch is enabled ({kill_switch_level})")
+        return fn(context)
+
+    return wrapper
 
 
 def skip_if_already_running(fn: Callable) -> Callable:
