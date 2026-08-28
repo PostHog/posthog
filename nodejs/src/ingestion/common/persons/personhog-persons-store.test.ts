@@ -2189,7 +2189,7 @@ describe('PersonhogPersonsStore', () => {
             repository.mergePersons = jest.fn().mockResolvedValue({
                 survivor,
                 results: [{ sourceDistinctId: 'anon-1', outcome: 'merged', sourcePersonId: '9' }],
-                survivorWasBorn: false,
+                survivorCreated: false,
             } as never)
             await bound.mergePersons({
                 teamId: 1,
@@ -2258,7 +2258,7 @@ describe('PersonhogPersonsStore', () => {
                 repository.mergePersons = jest.fn().mockResolvedValue({
                     survivor,
                     results: [{ sourceDistinctId, outcome: 'merged', sourcePersonId }],
-                    survivorWasBorn: false,
+                    survivorCreated: false,
                 } as never)
             }
 
@@ -2285,7 +2285,7 @@ describe('PersonhogPersonsStore', () => {
             repository.mergePersons = jest.fn().mockResolvedValue({
                 survivor: { ...person, is_identified: false },
                 results: [{ sourceDistinctId: 'anon-1', outcome: 'skipped_illegal', sourcePersonId: null }],
-                survivorWasBorn: true,
+                survivorCreated: true,
             } as never)
 
             const result = await bound.mergePersons({
@@ -2325,7 +2325,7 @@ describe('PersonhogPersonsStore', () => {
             repository.mergePersons = jest.fn().mockResolvedValue({
                 survivor: responseSurvivor,
                 results: [{ sourceDistinctId: 'anon-1', outcome: 'attached', sourcePersonId: null }],
-                survivorWasBorn: false,
+                survivorCreated: false,
             } as never)
             const result = await bound.mergePersons(mergeReq())
 

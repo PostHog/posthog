@@ -31,7 +31,7 @@ describe('PersonhogIdentityOperations', () => {
     // Both fields are new on this RPC and nothing else exercises the wire,
     // where a dropped mapping is silent: the caller would simply always run
     // its follow-up update and no newborn would carry its creating event.
-    it('carries the creator event uuid out and the birth flag back', async () => {
+    it('carries the creator event uuid out and the created flag back', async () => {
         const handler = jest.fn((req: MergePersonsRequest) => ({
             opId: req.opId,
             survivor: {
@@ -44,7 +44,7 @@ describe('PersonhogIdentityOperations', () => {
                 isIdentified: true,
             },
             results: [{ sourceDistinctId: 'anon-1', outcome: 1 }],
-            survivorWasBorn: true,
+            survivorCreated: true,
         }))
         const ops = makeOps({ mergePersons: handler })
 
@@ -62,7 +62,7 @@ describe('PersonhogIdentityOperations', () => {
         })
 
         expect(handler.mock.calls[0][0].creatorEventUuid).toBe('event-uuid')
-        expect(result.survivorWasBorn).toBe(true)
+        expect(result.survivorCreated).toBe(true)
         expect(result.survivor?.id).toBe('7')
     })
 
@@ -73,7 +73,7 @@ describe('PersonhogIdentityOperations', () => {
         // progress behind lease expiry.
         const client = {
             mergePersons: jest.fn((_req: unknown, _options?: unknown) =>
-                Promise.resolve({ opId: '', results: [], survivorWasBorn: false })
+                Promise.resolve({ opId: '', results: [], survivorCreated: false })
             ),
         }
         const ops = new PersonhogIdentityOperations(client as never, { mergeTimeoutMs: 35_000 })
@@ -106,7 +106,7 @@ describe('PersonhogIdentityOperations', () => {
                 opId: req.opId,
                 survivor: undefined,
                 results: [{ sourceDistinctId: 'anon-1', outcome: wire }],
-                survivorWasBorn: false,
+                survivorCreated: false,
             })),
         })
 

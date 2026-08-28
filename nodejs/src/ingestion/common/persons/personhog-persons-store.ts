@@ -1395,7 +1395,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                 return {
                     survivor: result.survivor,
                     results: result.results,
-                    survivorNeedsUpdate: !(result.survivorWasBorn && result.survivor?.is_identified === true),
+                    survivorNeedsUpdate: !(result.survivorCreated && result.survivor?.is_identified === true),
                 }
             }
             if (refreshed === null) {
@@ -1443,7 +1443,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             // that will ever identify that person. Judged on the response
             // document rather than the refreshed one, because the question
             // is what the merge itself left behind.
-            survivorNeedsUpdate: !(result.survivorWasBorn && result.survivor?.is_identified === true),
+            survivorNeedsUpdate: !(result.survivorCreated && result.survivor?.is_identified === true),
         }
     }
 

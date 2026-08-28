@@ -116,11 +116,11 @@ export interface MergeSagaResult {
     }[]
     /**
      * The call created the survivor rather than resolving one that already
-     * existed; a saga run reports false whether or not it birthed. A newborn
-     * is identified only when some source attached or matched, so this alone
-     * does not mean the follow-up property update has nothing left to write.
+     * existed; a saga run reports false whether or not it created one. A new
+     * person is identified only when some source attached or matched, so this
+     * alone does not mean the follow-up update has nothing left to write.
      */
-    survivorWasBorn: boolean
+    survivorCreated: boolean
 }
 
 export const personhogUnknownMergeOutcomeCounter = new Counter({
@@ -328,7 +328,7 @@ export class PersonhogIdentityOperations {
                 outcome: namedOutcome(result.outcome),
                 sourcePersonId: result.sourcePersonId === undefined ? null : String(result.sourcePersonId),
             })),
-            survivorWasBorn: response.survivorWasBorn,
+            survivorCreated: response.survivorCreated,
         }
     }
 }
