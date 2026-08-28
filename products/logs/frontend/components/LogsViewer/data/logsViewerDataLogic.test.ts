@@ -385,6 +385,12 @@ describe('logsViewerDataLogic', () => {
             }).toDispatchActions(['handleQueryChange', 'runQuery'])
         })
 
+        it('runQuery bumps the facet refresh so the rail re-fetches its counts', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.runQuery()
+            }).toDispatchActions([filtersLogic.actionCreators.bumpFacetRefresh()])
+        })
+
         it('setFilters triggers runQuery', async () => {
             await expectLogic(logic, () => {
                 filtersLogic.actions.setFilters({ searchTerm: 'new search' })

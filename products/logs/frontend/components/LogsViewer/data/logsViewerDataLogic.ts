@@ -202,6 +202,9 @@ export interface logsViewerDataLogicActions {
         orderBy: LogsOrderBy
         source: 'header' | 'toolbar'
     } // logsViewerConfigLogic
+    bumpFacetRefresh: () => {
+        value: true
+    } // logsViewerFiltersLogic
     setDateRange: (dateRange: DateRange) => {
         dateRange: DateRange
     } // logsViewerFiltersLogic
@@ -475,7 +478,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             teamLogic,
             ['addProductIntent'],
             logsViewerFiltersLogic({ id }),
-            ['setDateRange', 'setFilterGroup', 'setFilters', 'setSearchTerm'],
+            ['setDateRange', 'setFilterGroup', 'setFilters', 'setSearchTerm', 'bumpFacetRefresh'],
             logsViewerConfigLogic({ id }),
             ['setOrderBy', 'setColumns', 'addColumn', 'removeColumn'],
         ],
@@ -1091,6 +1094,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             actions.clearLogs()
             actions.fetchLogs()
             actions.fetchSparkline()
+            actions.bumpFacetRefresh()
             actions.cancelInProgressLiveTail(null)
         },
         cancelInProgressLogs: ({ logsAbortController }) => {

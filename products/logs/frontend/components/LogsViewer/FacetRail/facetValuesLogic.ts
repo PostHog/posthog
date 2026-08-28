@@ -24,6 +24,7 @@ export interface FacetValuesLogicProps {
 export interface facetValuesLogicValues {
     collapsedFacets: string[] // facetRailLogic
     filters: LogsViewerFilters // logsViewerFiltersLogic
+    facetRefreshCounter: number // logsViewerFiltersLogic
     personId: string | undefined // logsViewerFiltersLogic
     queryFilterGroup: UniversalFiltersGroup // logsViewerFiltersLogic
     utcDateRange: {
@@ -87,6 +88,7 @@ export interface facetValuesLogicMeta {
                 explicitDate: boolean | null | undefined
             },
             currentTeamId: number | null,
+            facetRefreshCounter: number,
             arg: FacetConfig
         ) => string
         fetchSignature: (scopeSignature: string, facetSearch: string) => string
@@ -120,7 +122,7 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
     connect((props: FacetValuesLogicProps) => ({
         values: [
             logsViewerFiltersLogic({ id: props.id }),
-            ['filters', 'utcDateRange', 'queryFilterGroup', 'personId'],
+            ['filters', 'utcDateRange', 'queryFilterGroup', 'personId', 'facetRefreshCounter'],
             teamLogic,
             ['currentTeamId'],
             facetRailLogic({ id: props.id }),
@@ -203,7 +205,8 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
             (s) => [s.collapsedFacets, (_, p) => p.facet],
             (collapsedFacets: string[], facet: FacetConfig): boolean => collapsedFacets.includes(facet.key),
         ],
-        // Everything that can change this facet's values, minus its own selection.
+        // Everything that can change this facet's values, minus its own selection. The refresh nonce
+        // is appended so a manual re-run on an unchanged relative range still invalidates the cache.
         scopeSignature: [
             (s) => [
                 s.filters,
@@ -211,6 +214,7 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
                 s.personId,
                 s.utcDateRange,
                 s.currentTeamId,
+                s.facetRefreshCounter,
                 (_, p) => p.facet as FacetConfig,
             ],
             (
@@ -223,15 +227,16 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
                     explicitDate: boolean | null | undefined
                 },
                 currentTeamId: number | null,
+                facetRefreshCounter: number,
                 facet: FacetConfig
             ): string =>
-                facetScopeSignature(facet, {
+                `${facetScopeSignature(facet, {
                     currentTeamId,
                     utcDateRange,
                     searchTerm: filters.searchTerm,
                     queryFilterGroup,
                     personId,
-                }),
+                })}|r${facetRefreshCounter}`,
         ],
         // One trigger for the one in-flight request: a scope change and a keystroke in this facet's
         // search box supersede each other rather than racing.
