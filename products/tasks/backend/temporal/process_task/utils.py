@@ -787,12 +787,12 @@ def _resolve_mcp_consumer(interaction_origin: str | None) -> str:
     return "posthog-code"
 
 
-# Read before the agent has connected to the PostHog MCP, so it has to name the capabilities
-# someone would search for rather than describe the server.
+# Names capabilities rather than describing the server, because the agent's tool search reads
+# this before the PostHog MCP has ever connected.
 POSTHOG_MCP_DESCRIPTION = (
-    "PostHog: query product data and manage the project — events, insights, dashboards, "
-    "SQL queries, feature flags, experiments, surveys, error tracking, session replay, "
-    "logs, LLM analytics, and the data warehouse."
+    "Query and manage a PostHog project: events, insights, dashboards, SQL queries, "
+    "feature flags, experiments, surveys, error tracking, session replay, logs, "
+    "LLM analytics, and the data warehouse."
 )
 
 

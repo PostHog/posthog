@@ -16,14 +16,14 @@ import type { AgentAuth, AgentLogger, AgentScopedLogger } from "./ports";
 import type { Credentials } from "./schemas";
 
 /**
- * Read before the agent has connected to the PostHog MCP, so it names the capabilities
- * someone would search for rather than describing the server. Mirrors
- * POSTHOG_MCP_DESCRIPTION in products/tasks (the cloud-run equivalent).
+ * Names capabilities rather than describing the server, because the agent's tool search
+ * reads this before the PostHog MCP has ever connected. Mirrors POSTHOG_MCP_DESCRIPTION
+ * in products/tasks, which does the same for cloud runs.
  */
 const POSTHOG_MCP_DESCRIPTION =
-  "PostHog: query product data and manage the project — events, insights, dashboards, " +
-  "SQL queries, feature flags, experiments, surveys, error tracking, session replay, " +
-  "logs, LLM analytics, and the data warehouse.";
+  "Query and manage a PostHog project: events, insights, dashboards, SQL queries, " +
+  "feature flags, experiments, surveys, error tracking, session replay, logs, " +
+  "LLM analytics, and the data warehouse.";
 
 const VALID_APPROVAL_STATES = new Set([
   "approved",
