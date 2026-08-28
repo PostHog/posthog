@@ -27,8 +27,8 @@ pub struct KeyOffset {
 }
 
 /// A slice of a batch assigned to one worker, carrying the messages and the
-/// routing keys of all distinct_ids included. Routing keys are needed to
-/// decrement pin ref-counts when the sub-batch resolves.
+/// routing keys they belong to. Routing keys are needed to decrement pin
+/// ref-counts when the sub-batch resolves.
 pub struct SubBatch {
     pub worker: WorkerId,
     pub messages: Vec<SerializedKafkaMessage>,
@@ -50,7 +50,7 @@ struct Pin {
 
 /// Mutable assignment state, held behind a single Mutex.
 struct PinTable {
-    /// `"{token}:{distinct_id}"` → sticky assignment.
+    /// Kafka message key → sticky assignment.
     pins: HashMap<String, Pin>,
     /// Outstanding (in-flight) message count per worker. Both routing strategies
     /// use it as the per-worker load signal so new key-groups land on
@@ -131,9 +131,9 @@ impl WorkerAssignments {
                 key_offsets: Vec::new(),
             });
 
-        // Only keyed messages participate in the key-order sentinel: a
-        // null-key message lives on an arbitrary partition, so its offset
-        // must not advance the key's ACK watermark.
+        // Only keyed messages participate in the key-order sentinel: an
+        // unkeyed message lives on an arbitrary partition and is grouped under
+        // a synthetic key, so it has no ACK watermark to advance.
         if let Some(max_offset) = group
             .messages
             .iter()
@@ -157,7 +157,7 @@ impl WorkerAssignments {
             .map(|(worker, builder)| SubBatchInfo {
                 worker: worker.to_string(),
                 messages: builder.message_count(),
-                distinct_ids: builder.routing_keys.len(),
+                routing_keys: builder.routing_keys.len(),
             })
             .collect()
     }
@@ -183,11 +183,12 @@ impl WorkerAssignments {
     }
 }
 
-/// Routes batches to Node.js workers with sticky per-distinct_id assignment.
+/// Routes batches to Node.js workers with sticky per-key assignment.
 ///
-/// **Assignment** (`assign`): groups messages by `token:distinct_id`, honors
+/// **Assignment** (`assign`): groups messages by Kafka message key, honors
 /// existing pins for live workers, routes new keys onto a healthy worker via the
 /// configured [`RoutingStrategy`], and returns one `SubBatch` per worker.
+/// Unkeyed messages carry no ordering promise and may land on any worker.
 ///
 /// **Stickiness**: a routing key stays on the same worker across batches
 /// (ref-counted pin). Pins are dropped when a worker is declared dead (or leaves
@@ -369,16 +370,16 @@ impl Dispatcher {
     ) -> Vec<SubBatch> {
         let GroupedMessages {
             groups: key_groups,
-            missing_header_count,
+            unkeyed_count,
         } = group_messages_by_routing_key(messages);
 
-        if missing_header_count > 0 {
-            counter!("ingestion_consumer_dispatcher_missing_routing_headers_total")
-                .increment(missing_header_count);
+        if unkeyed_count > 0 {
+            counter!("ingestion_consumer_dispatcher_unkeyed_messages_total")
+                .increment(unkeyed_count);
         }
 
-        let distinct_ids = key_groups.len();
-        histogram!("ingestion_consumer_distinct_ids_per_batch").record(distinct_ids as f64);
+        let routing_keys = key_groups.len();
+        histogram!("ingestion_consumer_routing_keys_per_batch").record(routing_keys as f64);
 
         let mut assignments = WorkerAssignments::new();
 
@@ -579,7 +580,7 @@ impl Dispatcher {
         }
         record_if(&self.debug_recorder, || DebugEventKind::BatchAssigned {
             batch_id: batch_id.to_string(),
-            distinct_ids,
+            routing_keys,
             sub_batches: assignments.sub_batch_infos(),
             deferred_groups: drain_deferred_count + cascade_deferred_count,
             unroutable_groups: unroutable_deferred_count,
@@ -770,7 +771,7 @@ impl Dispatcher {
         for group in groups {
             // Prefer the key's existing pin when it still points to a healthy
             // worker, so a key deferred across several batches re-homes to a
-            // single survivor — preserving per-distinct_id (person-batching)
+            // single survivor — preserving per-key (person-batching)
             // locality instead of scattering its messages across workers.
             // Fall back to load-based selection for a fresh key, when the
             // pinned worker is itself unhealthy (e.g. the drainer we're
@@ -905,7 +906,7 @@ impl Dispatcher {
             }
             // Don't evict a pin while the key still has deferred groups awaiting
             // flush — new messages must keep deferring behind them to preserve
-            // per-distinct_id order.
+            // per-key order.
             let still_deferring = table.stash.is_deferring(key);
             if let Some(pin) = table.pins.get_mut(key) {
                 // Skip stale resolves: a key's pin may have been re-pointed to a
@@ -951,7 +952,7 @@ impl Dispatcher {
         record_if(&self.debug_recorder, || DebugEventKind::SubBatchResolved {
             worker: worker.to_string(),
             messages: message_count,
-            distinct_ids: routing_keys.len(),
+            routing_keys: routing_keys.len(),
             cleared_deferral: clears_deferral,
         });
     }
@@ -1145,18 +1146,19 @@ fn record_stash_gauges(stash: &Stash) {
 
 struct GroupedMessages {
     groups: Vec<MessageGroup>,
-    missing_header_count: u64,
+    unkeyed_count: u64,
 }
 
 fn group_messages_by_routing_key(messages: Vec<SerializedKafkaMessage>) -> GroupedMessages {
     let mut grouped_messages: HashMap<String, Vec<SerializedKafkaMessage>> = HashMap::new();
-    let mut missing_header_count = 0u64;
+    let mut unkeyed_count = 0u64;
 
     for message in messages {
-        let routing_key = routing_key(&message).unwrap_or_else(|| {
-            missing_header_count += 1;
-            // Use a synthetic unique key so messages missing routing headers spread
-            // across workers instead of all pinning to one shared fallback key.
+        let routing_key = message.key.clone().unwrap_or_else(|| {
+            unkeyed_count += 1;
+            // An unkeyed message has no order to preserve, so it can go to any
+            // worker. A synthetic per-message key spreads such messages across
+            // workers instead of pinning them all to one shared fallback key.
             format!(":{}:{}", message.partition, message.offset)
         });
         grouped_messages
@@ -1173,15 +1175,8 @@ fn group_messages_by_routing_key(messages: Vec<SerializedKafkaMessage>) -> Group
                 messages,
             })
             .collect(),
-        missing_header_count,
+        unkeyed_count,
     }
-}
-
-/// Extract the routing key from a message's `token` and `distinct_id` headers.
-fn routing_key(message: &SerializedKafkaMessage) -> Option<String> {
-    let token = message.headers.get("token")?;
-    let distinct_id = message.headers.get("distinct_id")?;
-    Some(format!("{token}:{distinct_id}"))
 }
 
 #[cfg(test)]
@@ -1203,33 +1198,30 @@ mod tests {
         WorkerId::from(worker_url(i).as_str())
     }
 
-    fn make_msg(token: &str, distinct_id: &str) -> SerializedKafkaMessage {
-        let mut headers = HashMap::new();
-        headers.insert("token".to_string(), token.to_string());
-        headers.insert("distinct_id".to_string(), distinct_id.to_string());
+    fn make_msg(key: &str) -> SerializedKafkaMessage {
         SerializedKafkaMessage {
             topic: "test".to_string(),
             partition: 0,
             offset: 0,
             timestamp: 0,
-            key: Some(format!("{token}:{distinct_id}")),
+            key: Some(key.to_string()),
             value: None,
-            headers,
+            headers: HashMap::new(),
         }
     }
 
-    fn make_msgs(specs: &[(&str, &str)]) -> Vec<SerializedKafkaMessage> {
-        specs.iter().map(|(t, d)| make_msg(t, d)).collect()
+    fn make_msgs(keys: &[&str]) -> Vec<SerializedKafkaMessage> {
+        keys.iter().map(|k| make_msg(k)).collect()
     }
 
-    fn make_msg_at(token: &str, distinct_id: &str, offset: i64) -> SerializedKafkaMessage {
+    fn make_msg_at(key: &str, offset: i64) -> SerializedKafkaMessage {
         SerializedKafkaMessage {
             offset,
-            ..make_msg(token, distinct_id)
+            ..make_msg(key)
         }
     }
 
-    fn make_msg_with_headers(headers: HashMap<String, String>) -> SerializedKafkaMessage {
+    fn make_unkeyed_msg() -> SerializedKafkaMessage {
         SerializedKafkaMessage {
             topic: "test".to_string(),
             partition: 7,
@@ -1237,7 +1229,7 @@ mod tests {
             timestamp: 0,
             key: None,
             value: None,
-            headers,
+            headers: HashMap::new(),
         }
     }
 
@@ -1273,29 +1265,18 @@ mod tests {
     // ---- routing key ----
 
     #[test]
-    fn test_routing_key_format() {
-        let msg = make_msg("tok", "user-1");
-        assert_eq!(routing_key(&msg), Some("tok:user-1".to_string()));
+    fn test_group_messages_by_routing_key_uses_kafka_key() {
+        let grouped = group_messages_by_routing_key(vec![make_msg("tok:user-1")]);
+
+        assert_eq!(grouped.unkeyed_count, 0);
+        assert_eq!(grouped.groups[0].routing_key, "tok:user-1");
     }
 
     #[test]
-    fn test_routing_key_missing_headers() {
-        assert_eq!(routing_key(&make_msg_with_headers(HashMap::new())), None);
-    }
+    fn test_group_messages_by_routing_key_uses_synthetic_key_for_unkeyed_messages() {
+        let grouped = group_messages_by_routing_key(vec![make_unkeyed_msg()]);
 
-    #[test]
-    fn test_routing_key_requires_token_and_distinct_id() {
-        let mut headers = HashMap::new();
-        headers.insert("token".to_string(), "tok".to_string());
-
-        assert_eq!(routing_key(&make_msg_with_headers(headers)), None);
-    }
-
-    #[test]
-    fn test_group_messages_by_routing_key_uses_synthetic_key_for_missing_headers() {
-        let grouped = group_messages_by_routing_key(vec![make_msg_with_headers(HashMap::new())]);
-
-        assert_eq!(grouped.missing_header_count, 1);
+        assert_eq!(grouped.unkeyed_count, 1);
         assert_eq!(grouped.groups.len(), 1);
         assert_eq!(grouped.groups[0].routing_key, ":7:42");
         assert_eq!(grouped.groups[0].messages.len(), 1);
@@ -1303,10 +1284,9 @@ mod tests {
 
     #[test]
     fn test_group_messages_by_routing_key_groups_same_routing_key() {
-        let grouped =
-            group_messages_by_routing_key(make_msgs(&[("tok", "user-1"), ("tok", "user-1")]));
+        let grouped = group_messages_by_routing_key(make_msgs(&["tok:user-1", "tok:user-1"]));
 
-        assert_eq!(grouped.missing_header_count, 0);
+        assert_eq!(grouped.unkeyed_count, 0);
         assert_eq!(grouped.groups.len(), 1);
         assert_eq!(grouped.groups[0].routing_key, "tok:user-1");
         assert_eq!(grouped.groups[0].messages.len(), 2);
@@ -1322,14 +1302,14 @@ mod tests {
             wid(1),
             MessageGroup {
                 routing_key: "tok:user-1".to_string(),
-                messages: make_msgs(&[("tok", "user-1")]),
+                messages: make_msgs(&["tok:user-1"]),
             },
         );
         assignments.add_group(
             wid(1),
             MessageGroup {
                 routing_key: "tok:user-2".to_string(),
-                messages: make_msgs(&[("tok", "user-2")]),
+                messages: make_msgs(&["tok:user-2"]),
             },
         );
 
@@ -1350,26 +1330,15 @@ mod tests {
 
     #[test]
     fn test_key_offsets_only_track_keyed_messages() {
-        // A null-key (overflow) message lands on an arbitrary partition; its
-        // offset advancing the ACK watermark would make the next keyed send
+        // An unkeyed (overflow) message lands on an arbitrary partition; its
+        // offset advancing an ACK watermark would make a later keyed send
         // look like a resend_after_ack.
-        let keyed = SerializedKafkaMessage {
-            offset: 100,
-            ..make_msg("tok", "user-1")
-        };
-        let unkeyed = SerializedKafkaMessage {
-            key: None,
-            partition: 1,
-            offset: 5000,
-            ..make_msg("tok", "user-1")
-        };
-
         let mut assignments = WorkerAssignments::new();
         assignments.add_group(
             wid(1),
             MessageGroup {
                 routing_key: "tok:user-1".to_string(),
-                messages: vec![keyed, unkeyed.clone()],
+                messages: vec![make_msg_at("tok:user-1", 100)],
             },
         );
         let sub_batches = assignments.into_sub_batches();
@@ -1377,13 +1346,13 @@ mod tests {
         assert_eq!(sub_batches[0].key_offsets[0].routing_key, "tok:user-1");
         assert_eq!(sub_batches[0].key_offsets[0].max_offset, 100);
 
-        // An all-unkeyed group produces no ACK watermark at all.
+        // An unkeyed group produces no ACK watermark at all.
         let mut assignments = WorkerAssignments::new();
         assignments.add_group(
             wid(1),
             MessageGroup {
-                routing_key: "tok:user-1".to_string(),
-                messages: vec![unkeyed],
+                routing_key: ":7:42".to_string(),
+                messages: vec![make_unkeyed_msg()],
             },
         );
         assert!(assignments.into_sub_batches()[0].key_offsets.is_empty());
@@ -1396,7 +1365,7 @@ mod tests {
         let registry = healthy_registry(1);
         let dispatcher = Dispatcher::new(registry);
 
-        let sub_batches = dispatcher.assign("b", make_msgs(&[("t", "a"), ("t", "b"), ("t", "c")]));
+        let sub_batches = dispatcher.assign("b", make_msgs(&["t:a", "t:b", "t:c"]));
 
         assert_eq!(sub_batches.len(), 1);
         assert_eq!(sub_batches[0].worker, wid(0));
@@ -1411,11 +1380,11 @@ mod tests {
     }
 
     #[test]
-    fn test_same_distinct_id_merges_within_batch() {
+    fn test_same_key_merges_within_batch() {
         let registry = healthy_registry(3);
         let dispatcher = Dispatcher::new(registry);
 
-        let batch1 = dispatcher.assign("b", make_msgs(&[("t", "user-1")]));
+        let batch1 = dispatcher.assign("b", make_msgs(&["t:user-1"]));
         assert_eq!(batch1.len(), 1);
         let worker = batch1[0].worker.clone();
         dispatcher.on_sub_batch_resolved(
@@ -1427,7 +1396,7 @@ mod tests {
         );
 
         // Both user-1 messages merge into one sub-batch.
-        let batch2 = dispatcher.assign("b", make_msgs(&[("t", "user-1"), ("t", "user-1")]));
+        let batch2 = dispatcher.assign("b", make_msgs(&["t:user-1", "t:user-1"]));
         assert_eq!(batch2.len(), 1);
     }
 
@@ -1439,13 +1408,13 @@ mod tests {
         let dispatcher = Dispatcher::new(registry);
 
         // First batch pins "t:user-1" to some worker.
-        let b1 = dispatcher.assign("b", make_msgs(&[("t", "user-1")]));
+        let b1 = dispatcher.assign("b", make_msgs(&["t:user-1"]));
         let pinned_worker = b1[0].worker.clone();
 
         // Do NOT resolve b1 — pin stays alive with ref_count=1.
 
         // Second batch: same key must hit the same worker.
-        let b2 = dispatcher.assign("b", make_msgs(&[("t", "user-1")]));
+        let b2 = dispatcher.assign("b", make_msgs(&["t:user-1"]));
         assert_eq!(b2.len(), 1);
         assert_eq!(b2[0].worker, pinned_worker);
     }
@@ -1456,7 +1425,7 @@ mod tests {
         let dispatcher = Dispatcher::new(registry);
 
         // With 2 workers, bin-packing should spread 2 fresh keys across them.
-        let sub_batches = dispatcher.assign("b", make_msgs(&[("t", "user-1"), ("t", "user-2")]));
+        let sub_batches = dispatcher.assign("b", make_msgs(&["t:user-1", "t:user-2"]));
 
         let total_msgs: usize = sub_batches.iter().map(|b| b.messages.len()).sum();
         assert_eq!(total_msgs, 2);
@@ -1469,7 +1438,7 @@ mod tests {
         let registry = healthy_registry(2);
         let dispatcher = Dispatcher::new(registry);
 
-        let b1 = dispatcher.assign("b", make_msgs(&[("t", "user-1")]));
+        let b1 = dispatcher.assign("b", make_msgs(&["t:user-1"]));
         let worker = b1[0].worker.clone();
 
         assert!(dispatcher
@@ -1500,11 +1469,11 @@ mod tests {
         let registry = healthy_registry(2);
         let dispatcher = Dispatcher::new(registry);
 
-        let b1 = dispatcher.assign("b", make_msgs(&[("t", "user-1")]));
+        let b1 = dispatcher.assign("b", make_msgs(&["t:user-1"]));
         let worker = b1[0].worker.clone();
 
         // Second batch, same key, pin not yet resolved: ref_count should be 2.
-        dispatcher.assign("b", make_msgs(&[("t", "user-1")]));
+        dispatcher.assign("b", make_msgs(&["t:user-1"]));
         assert_eq!(
             dispatcher.pin_table.lock().unwrap().pins["t:user-1"].ref_count,
             2
@@ -1533,7 +1502,7 @@ mod tests {
         let dispatcher = Dispatcher::new(registry);
 
         // Two messages for one key → one sub-batch carrying two messages.
-        let b1 = dispatcher.assign("b", make_msgs(&[("t", "user-1"), ("t", "user-1")]));
+        let b1 = dispatcher.assign("b", make_msgs(&["t:user-1", "t:user-1"]));
         let worker = b1[0].worker.clone();
 
         assert_eq!(in_flight_of(&dispatcher, &worker), 2);
@@ -1544,7 +1513,7 @@ mod tests {
         let registry = healthy_registry(2);
         let dispatcher = Dispatcher::new(registry);
 
-        let b1 = dispatcher.assign("b", make_msgs(&[("t", "user-1"), ("t", "user-1")]));
+        let b1 = dispatcher.assign("b", make_msgs(&["t:user-1", "t:user-1"]));
         let worker = b1[0].worker.clone();
 
         dispatcher.on_sub_batch_resolved(
@@ -1566,7 +1535,7 @@ mod tests {
         let registry = healthy_registry(1);
         let dispatcher = Dispatcher::new(registry);
 
-        dispatcher.assign("b", make_msgs(&[("t", "a"), ("t", "b"), ("t", "c")]));
+        dispatcher.assign("b", make_msgs(&["t:a", "t:b", "t:c"]));
 
         assert_eq!(in_flight_of(&dispatcher, &wid(0)), 3);
     }
@@ -1587,7 +1556,7 @@ mod tests {
             .insert(wid(0), 3);
 
         // A fresh key should go to worker 1 (load = 0).
-        let b = dispatcher.assign("b", make_msgs(&[("t", "fresh")]));
+        let b = dispatcher.assign("b", make_msgs(&["t:fresh"]));
         assert_eq!(b.len(), 1);
         assert_eq!(b[0].worker, wid(1));
     }
@@ -1601,9 +1570,9 @@ mod tests {
         let registry = healthy_registry(2);
         let dispatcher = Dispatcher::new(registry);
 
-        let mut specs: Vec<(&str, &str)> = vec![("t", "heavy"); 10];
-        for d in ["a", "b", "c", "d", "e"] {
-            specs.push(("t", d));
+        let mut specs: Vec<&str> = vec!["t:heavy"; 10];
+        for d in ["t:a", "t:b", "t:c", "t:d", "t:e"] {
+            specs.push(d);
         }
 
         let sub_batches = dispatcher.assign("b", make_msgs(&specs));
@@ -1633,7 +1602,7 @@ mod tests {
         let dispatcher = Dispatcher::new(Arc::clone(&registry));
 
         // Pin "user-1" to whichever worker gets it first.
-        let b1 = dispatcher.assign("b", make_msgs(&[("t", "user-1")]));
+        let b1 = dispatcher.assign("b", make_msgs(&["t:user-1"]));
         let original_worker = b1[0].worker.clone();
         let other_worker = if original_worker == wid(0) {
             wid(1)
@@ -1659,7 +1628,7 @@ mod tests {
             false,
         );
 
-        let b2 = dispatcher.assign("b", make_msgs(&[("t", "user-1")]));
+        let b2 = dispatcher.assign("b", make_msgs(&["t:user-1"]));
         assert_eq!(b2.len(), 1);
         assert_eq!(b2[0].worker, other_worker);
     }
@@ -1677,7 +1646,7 @@ mod tests {
         }
 
         // Both workers are Unhealthy — the dispatcher should not route to them.
-        let b = dispatcher.assign("b", make_msgs(&[("t", "user-1")]));
+        let b = dispatcher.assign("b", make_msgs(&["t:user-1"]));
         assert!(b.is_empty());
     }
 
@@ -1691,7 +1660,7 @@ mod tests {
     fn test_p2c_single_worker_all_messages_go_there() {
         let dispatcher = p2c_dispatcher(1, 1);
 
-        let sub_batches = dispatcher.assign("b", make_msgs(&[("t", "a"), ("t", "b"), ("t", "c")]));
+        let sub_batches = dispatcher.assign("b", make_msgs(&["t:a", "t:b", "t:c"]));
 
         assert_eq!(sub_batches.len(), 1);
         assert_eq!(sub_batches[0].worker, wid(0));
@@ -1703,11 +1672,11 @@ mod tests {
         let dispatcher = p2c_dispatcher(3, 7);
 
         // First batch pins "t:user-1"; do NOT resolve so the pin stays alive.
-        let b1 = dispatcher.assign("b", make_msgs(&[("t", "user-1")]));
+        let b1 = dispatcher.assign("b", make_msgs(&["t:user-1"]));
         let pinned_worker = b1[0].worker.clone();
 
         // Second batch with the same key must hit the same worker, bypassing P2C.
-        let b2 = dispatcher.assign("b", make_msgs(&[("t", "user-1")]));
+        let b2 = dispatcher.assign("b", make_msgs(&["t:user-1"]));
         assert_eq!(b2.len(), 1);
         assert_eq!(b2[0].worker, pinned_worker);
     }
@@ -1718,7 +1687,7 @@ mod tests {
         // key steers the second to the other worker — one message each.
         let dispatcher = p2c_dispatcher(2, 3);
 
-        let sub_batches = dispatcher.assign("b", make_msgs(&[("t", "user-1"), ("t", "user-2")]));
+        let sub_batches = dispatcher.assign("b", make_msgs(&["t:user-1", "t:user-2"]));
 
         assert_eq!(sub_batches.len(), 2, "both workers must carry a message");
         let total: usize = sub_batches.iter().map(|b| b.messages.len()).sum();
@@ -1737,7 +1706,7 @@ mod tests {
             .in_flight
             .insert(wid(0), 5);
 
-        let b = dispatcher.assign("b", make_msgs(&[("t", "fresh")]));
+        let b = dispatcher.assign("b", make_msgs(&["t:fresh"]));
         assert_eq!(b.len(), 1);
         assert_eq!(b[0].worker, wid(1));
     }
@@ -1754,7 +1723,7 @@ mod tests {
             }
         }
 
-        let b = dispatcher.assign("b", make_msgs(&[("t", "user-1")]));
+        let b = dispatcher.assign("b", make_msgs(&["t:user-1"]));
         assert!(b.is_empty());
     }
 
@@ -1775,7 +1744,7 @@ mod tests {
             Dispatcher::with_strategy(healthy_registry(6), RoutingStrategy::Aperture);
         dispatcher.set_aperture(peer_tracker("10.0.0.2", &["10.0.0.1", "10.0.0.2"]), 2);
 
-        let msgs: Vec<_> = (0..10).map(|i| make_msg("t", &format!("u{i}"))).collect();
+        let msgs: Vec<_> = (0..10).map(|i| make_msg(&format!("t:u{i}"))).collect();
         let sub_batches = dispatcher.assign("b", msgs);
 
         let total: usize = sub_batches.iter().map(|b| b.messages.len()).sum();
@@ -1798,7 +1767,7 @@ mod tests {
             let mut dispatcher =
                 Dispatcher::with_strategy(healthy_registry(6), RoutingStrategy::Aperture);
             dispatcher.set_aperture(peer_tracker(self_ip, &["10.0.0.1", "10.0.0.2"]), 2);
-            let msgs: Vec<_> = keys.iter().map(|k| make_msg("t", k)).collect();
+            let msgs: Vec<_> = keys.iter().map(|k| make_msg(k)).collect();
             used.push(
                 dispatcher
                     .assign("b", msgs)
@@ -1822,7 +1791,7 @@ mod tests {
             Dispatcher::with_strategy_seeded(healthy_registry(4), RoutingStrategy::Aperture, 7);
         dispatcher.set_aperture(peer_tracker("10.0.0.9", &["10.0.0.1", "10.0.0.2"]), 1);
 
-        let msgs: Vec<_> = (0..30).map(|i| make_msg("t", &format!("u{i}"))).collect();
+        let msgs: Vec<_> = (0..30).map(|i| make_msg(&format!("t:u{i}"))).collect();
         let sub_batches = dispatcher.assign("b", msgs);
 
         let total: usize = sub_batches.iter().map(|b| b.messages.len()).sum();
@@ -1850,7 +1819,7 @@ mod tests {
             },
         );
 
-        let sub_batches = dispatcher.assign("b", make_msgs(&[("t", "pinned")]));
+        let sub_batches = dispatcher.assign("b", make_msgs(&["t:pinned"]));
 
         assert_eq!(sub_batches.len(), 1);
         assert_eq!(
@@ -1901,7 +1870,7 @@ mod tests {
         let dispatcher = Dispatcher::new(Arc::clone(&registry));
         registry.start_draining(&worker_url(0));
 
-        let msgs: Vec<_> = (0..10).map(|i| make_msg("t", &format!("u{i}"))).collect();
+        let msgs: Vec<_> = (0..10).map(|i| make_msg(&format!("t:u{i}"))).collect();
         let sub_batches = dispatcher.assign("b", msgs);
 
         assert!(
@@ -1922,7 +1891,7 @@ mod tests {
         registry.start_draining(&worker_url(0));
         registry.start_draining(&worker_url(1));
 
-        let b = dispatcher.assign("batch-1", make_msgs(&[("t", "fresh")]));
+        let b = dispatcher.assign("batch-1", make_msgs(&["t:fresh"]));
         assert!(b.is_empty(), "nothing is routable while the pool drains");
         assert!(
             dispatcher.has_deferred("batch-1"),
@@ -1949,14 +1918,12 @@ mod tests {
         registry.start_draining(&worker_url(0));
         registry.start_draining(&worker_url(1));
 
-        assert!(dispatcher
-            .assign("batch-1", make_msgs(&[("t", "k")]))
-            .is_empty());
+        assert!(dispatcher.assign("batch-1", make_msgs(&["t:k"])).is_empty());
         assert!(dispatcher.has_deferred("batch-1"));
 
         registry.add_worker(wid(0));
 
-        let b2 = dispatcher.assign("batch-2", make_msgs(&[("t", "k")]));
+        let b2 = dispatcher.assign("batch-2", make_msgs(&["t:k"]));
         assert!(
             b2.is_empty(),
             "newer messages must not race ahead of the key's stashed ones"
@@ -1985,7 +1952,7 @@ mod tests {
         let dispatcher = Dispatcher::new(Arc::clone(&registry));
 
         // Pin "user-1"; do NOT resolve, so the pin stays live on its worker.
-        let b1 = dispatcher.assign("batch-1", make_msgs(&[("t", "user-1")]));
+        let b1 = dispatcher.assign("batch-1", make_msgs(&["t:user-1"]));
         let pinned = b1[0].worker.clone();
 
         registry.start_draining(&pinned);
@@ -1993,7 +1960,7 @@ mod tests {
         // The live pin points at a draining worker — new messages for the key are
         // deferred (held), not sent and not rerouted, so they can't pass the
         // earlier in-flight message still being processed on that worker.
-        let b2 = dispatcher.assign("batch-2", make_msgs(&[("t", "user-1")]));
+        let b2 = dispatcher.assign("batch-2", make_msgs(&["t:user-1"]));
         assert!(
             b2.is_empty(),
             "messages for a draining-pinned key must be deferred, not routed"
@@ -2009,17 +1976,17 @@ mod tests {
         dispatcher.set_debug_recorder(Arc::clone(&recorder));
 
         // Pin user-1, then drain its worker.
-        let b1 = dispatcher.assign("batch-1", make_msgs(&[("t", "user-1")]));
+        let b1 = dispatcher.assign("batch-1", make_msgs(&["t:user-1"]));
         registry.start_draining(&b1[0].worker);
 
         // First deferral: pin points at a drainer, nothing stashed yet — seed.
         assert!(dispatcher
-            .assign("batch-2", make_msgs(&[("t", "user-1")]))
+            .assign("batch-2", make_msgs(&["t:user-1"]))
             .is_empty());
         // Second deferral: the key is already deferring — cascade, even though
         // the pinned worker is still draining.
         assert!(dispatcher
-            .assign("batch-3", make_msgs(&[("t", "user-1")]))
+            .assign("batch-3", make_msgs(&["t:user-1"]))
             .is_empty());
 
         let reasons: Vec<_> = recorder
@@ -2065,13 +2032,11 @@ mod tests {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         dispatcher.set_eager_flush_sender(tx);
 
-        let b1 = dispatcher.assign("batch-1", make_msgs(&[("t", "k")]));
+        let b1 = dispatcher.assign("batch-1", make_msgs(&["t:k"]));
         let pinned = b1[0].worker.clone();
         registry.start_draining(&pinned);
         for batch in ["batch-2", "batch-3", "batch-4"] {
-            assert!(dispatcher
-                .assign(batch, make_msgs(&[("t", "k")]))
-                .is_empty());
+            assert!(dispatcher.assign(batch, make_msgs(&["t:k"])).is_empty());
         }
 
         // Resolving the blocking send releases the oldest stashed group
@@ -2113,12 +2078,10 @@ mod tests {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         dispatcher.set_eager_flush_sender(tx);
 
-        let b1 = dispatcher.assign("batch-1", make_msgs(&[("t", "k")]));
+        let b1 = dispatcher.assign("batch-1", make_msgs(&["t:k"]));
         let pinned = b1[0].worker.clone();
         registry.start_draining(&pinned);
-        assert!(dispatcher
-            .assign("batch-2", make_msgs(&[("t", "k")]))
-            .is_empty());
+        assert!(dispatcher.assign("batch-2", make_msgs(&["t:k"])).is_empty());
 
         // Drain the survivor too — nothing is routable at resolve time.
         for worker in registry.workers() {
@@ -2143,12 +2106,10 @@ mod tests {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         dispatcher.set_eager_flush_sender(tx);
 
-        let b1 = dispatcher.assign("batch-1", make_msgs(&[("t", "k")]));
+        let b1 = dispatcher.assign("batch-1", make_msgs(&["t:k"]));
         let pinned = b1[0].worker.clone();
         registry.start_draining(&pinned);
-        assert!(dispatcher
-            .assign("batch-2", make_msgs(&[("t", "k")]))
-            .is_empty());
+        assert!(dispatcher.assign("batch-2", make_msgs(&["t:k"])).is_empty());
 
         dispatcher.on_sub_batch_resolved(&pinned, 1, &b1[0].routing_keys, false, false);
         let flush = rx.try_recv().expect("group released");
@@ -2182,22 +2143,22 @@ mod tests {
         let registry = healthy_registry(2);
         let dispatcher = Dispatcher::new(Arc::clone(&registry));
 
-        let b0 = dispatcher.assign("b0", make_msgs(&[("t", "k")]));
+        let b0 = dispatcher.assign("b0", make_msgs(&["t:k"]));
         let pinned = b0[0].worker.clone();
 
         // Load the OTHER worker so the next 600-message key lands on the
         // pinned one (bin-packing places on the least-loaded worker).
-        let b1 = dispatcher.assign("b1", make_msgs(&vec![("t", "b"); 500]));
+        let b1 = dispatcher.assign("b1", make_msgs(&vec!["t:b"; 500]));
         let other = b1[0].worker.clone();
         assert_ne!(other, pinned);
-        let b2 = dispatcher.assign("b2", make_msgs(&vec![("t", "d"); 600]));
+        let b2 = dispatcher.assign("b2", make_msgs(&vec!["t:d"; 600]));
         assert_eq!(
             b2[0].worker, pinned,
             "600-msg key lands on the pinned worker"
         );
 
         // K's send fails: its group re-stashes, nothing for K is in flight.
-        dispatcher.defer_failed("b0", make_msgs(&[("t", "k")]));
+        dispatcher.defer_failed("b0", make_msgs(&["t:k"]));
         dispatcher.on_sub_batch_resolved(&pinned, 1, &b0[0].routing_keys, false, true);
 
         (dispatcher, pinned, other)
@@ -2239,12 +2200,12 @@ mod tests {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         dispatcher.set_eager_flush_sender(tx);
 
-        let b0 = dispatcher.assign("b0", make_msgs(&[("t", "k")]));
+        let b0 = dispatcher.assign("b0", make_msgs(&["t:k"]));
         let pinned = b0[0].worker.clone();
-        let b2 = dispatcher.assign("b2", make_msgs(&vec![("t", "d"); 600]));
+        let b2 = dispatcher.assign("b2", make_msgs(&vec!["t:d"; 600]));
         let other = b2[0].worker.clone();
         assert_ne!(other, pinned);
-        let b3 = dispatcher.assign("b3", make_msgs(&vec![("t", "e"); 700]));
+        let b3 = dispatcher.assign("b3", make_msgs(&vec!["t:e"; 700]));
         assert_eq!(
             b3[0].worker, pinned,
             "700-msg key lands on the pinned worker"
@@ -2252,9 +2213,9 @@ mod tests {
 
         // A second K send is honored onto the pin, fails, and re-stashes; the
         // resolve is marked failed so nothing releases yet.
-        let b1 = dispatcher.assign("b1", make_msgs(&[("t", "k")]));
+        let b1 = dispatcher.assign("b1", make_msgs(&["t:k"]));
         assert_eq!(b1[0].worker, pinned);
-        dispatcher.defer_failed("b1", make_msgs(&[("t", "k")]));
+        dispatcher.defer_failed("b1", make_msgs(&["t:k"]));
         dispatcher.on_sub_batch_resolved(&pinned, 1, &b1[0].routing_keys, false, true);
         // The other worker drains fully; the pinned one still holds 700.
         dispatcher.on_sub_batch_resolved(&other, 600, &["t:d".to_string()], false, false);
@@ -2274,7 +2235,7 @@ mod tests {
         let registry = healthy_registry(2);
         let dispatcher = Dispatcher::new(Arc::clone(&registry));
 
-        let b1 = dispatcher.assign("batch-1", make_msgs(&[("t", "user-1")]));
+        let b1 = dispatcher.assign("batch-1", make_msgs(&["t:user-1"]));
         let pinned = b1[0].worker.clone();
 
         // Kill the pinned worker via passive signal, leaving b1 in-flight.
@@ -2284,7 +2245,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(40)).await;
         assert!(registry.is_dead(&pinned));
 
-        let b2 = dispatcher.assign("batch-2", make_msgs(&[("t", "user-1")]));
+        let b2 = dispatcher.assign("batch-2", make_msgs(&["t:user-1"]));
         assert!(
             b2.is_empty(),
             "messages for a dead-pinned key with in-flight must be deferred"
@@ -2298,10 +2259,10 @@ mod tests {
         let dispatcher = Dispatcher::new(Arc::clone(&registry));
 
         // Pin user-1, then drain its worker so the next batch defers.
-        let b1 = dispatcher.assign("batch-1", make_msgs(&[("t", "user-1")]));
+        let b1 = dispatcher.assign("batch-1", make_msgs(&["t:user-1"]));
         let pinned = b1[0].worker.clone();
         registry.start_draining(&pinned);
-        let b2 = dispatcher.assign("batch-2", make_msgs(&[("t", "user-1")]));
+        let b2 = dispatcher.assign("batch-2", make_msgs(&["t:user-1"]));
         assert!(b2.is_empty());
 
         // Resolve batch-1's in-flight so the worker finishes draining.
@@ -2334,11 +2295,11 @@ mod tests {
         let recorder = DebugRecorder::new(100, Duration::from_secs(60));
         dispatcher.set_debug_recorder(Arc::clone(&recorder));
 
-        let b1 = dispatcher.assign("batch-1", make_msgs(&[("t", "user-1")]));
+        let b1 = dispatcher.assign("batch-1", make_msgs(&["t:user-1"]));
         let pinned = b1[0].worker.clone();
         registry.start_draining(&pinned);
         assert!(dispatcher
-            .assign("batch-2", make_msgs(&[("t", "user-1")]))
+            .assign("batch-2", make_msgs(&["t:user-1"]))
             .is_empty());
         dispatcher.on_sub_batch_resolved(
             &pinned,
@@ -2379,10 +2340,10 @@ mod tests {
         let registry = healthy_registry(2);
         let dispatcher = Dispatcher::new(Arc::clone(&registry));
 
-        let b1 = dispatcher.assign("batch-1", make_msgs(&[("t", "user-1")]));
+        let b1 = dispatcher.assign("batch-1", make_msgs(&["t:user-1"]));
         let pinned = b1[0].worker.clone();
         registry.start_draining(&pinned);
-        dispatcher.assign("batch-2", make_msgs(&[("t", "user-1")]));
+        dispatcher.assign("batch-2", make_msgs(&["t:user-1"]));
 
         // Resolving batch-1 drops ref_count to 0, but the deferred batch-2 group
         // must keep the pin from being evicted (so order is preserved on flush).
@@ -2410,11 +2371,11 @@ mod tests {
         let registry = healthy_registry(2);
         let dispatcher = Dispatcher::new(Arc::clone(&registry));
 
-        let b1 = dispatcher.assign("batch-1", make_msgs(&[("t", "user-1")]));
+        let b1 = dispatcher.assign("batch-1", make_msgs(&["t:user-1"]));
         let worker = b1[0].worker.clone();
 
         // Simulate a send failure: defer the failed messages, then resolve.
-        dispatcher.defer_failed("batch-1", make_msgs(&[("t", "user-1")]));
+        dispatcher.defer_failed("batch-1", make_msgs(&["t:user-1"]));
         dispatcher.on_sub_batch_resolved(
             &worker,
             b1[0].messages.len(),
@@ -2445,33 +2406,32 @@ mod tests {
     fn test_assign_and_send_enqueues_before_a_racing_defer_failed_lands() {
         let registry = healthy_registry(1);
         let dispatcher = Arc::new(Dispatcher::new(registry));
-        let b1 = dispatcher.assign("batch-1", make_msgs(&[("t", "user-1")]));
+        let b1 = dispatcher.assign("batch-1", make_msgs(&["t:user-1"]));
         assert_eq!(b1.len(), 1, "batch-1 pins the key with an in-flight send");
 
         let racing = Arc::clone(&dispatcher);
         let mut race = None;
-        let sent =
-            dispatcher.assign_and_send("batch-2", make_msgs(&[("t", "user-1")]), |sub_batch| {
-                // Admitted behind batch-1's live pin. batch-1's send now fails
-                // and tries to stash its messages before this group is enqueued.
-                let dispatcher = Arc::clone(&racing);
-                let handle = std::thread::spawn(move || {
-                    dispatcher.defer_failed("batch-1", make_msgs(&[("t", "user-1")]));
-                });
-                std::thread::sleep(Duration::from_millis(50));
-                assert!(
-                    !handle.is_finished(),
-                    "defer_failed must wait until the admitted group is enqueued"
-                );
-                race = Some(handle);
-                sub_batch
+        let sent = dispatcher.assign_and_send("batch-2", make_msgs(&["t:user-1"]), |sub_batch| {
+            // Admitted behind batch-1's live pin. batch-1's send now fails
+            // and tries to stash its messages before this group is enqueued.
+            let dispatcher = Arc::clone(&racing);
+            let handle = std::thread::spawn(move || {
+                dispatcher.defer_failed("batch-1", make_msgs(&["t:user-1"]));
             });
+            std::thread::sleep(Duration::from_millis(50));
+            assert!(
+                !handle.is_finished(),
+                "defer_failed must wait until the admitted group is enqueued"
+            );
+            race = Some(handle);
+            sub_batch
+        });
         assert_eq!(sent.len(), 1, "batch-2 was admitted and handed to send");
         race.take().expect("send ran").join().expect("defer_failed");
 
         // The stash landed after the enqueue, so newer work for the key now
         // queues behind it instead of being admitted.
-        let b3 = dispatcher.assign("batch-3", make_msgs(&[("t", "user-1")]));
+        let b3 = dispatcher.assign("batch-3", make_msgs(&["t:user-1"]));
         assert!(b3.is_empty(), "newer work defers behind the stashed group");
         assert!(dispatcher.has_deferred("batch-3"));
     }
@@ -2482,12 +2442,12 @@ mod tests {
         let dispatcher = Dispatcher::new(Arc::clone(&registry));
 
         // Pin user-1, keep it in-flight, then drain its worker.
-        let b1 = dispatcher.assign("batch-1", make_msgs(&[("t", "user-1")]));
+        let b1 = dispatcher.assign("batch-1", make_msgs(&["t:user-1"]));
         let pinned = b1[0].worker.clone();
         registry.start_draining(&pinned);
 
         // batch-2 defers behind the draining pin.
-        let b2 = dispatcher.assign("batch-2", make_msgs(&[("t", "user-1")]));
+        let b2 = dispatcher.assign("batch-2", make_msgs(&["t:user-1"]));
         assert!(b2.is_empty());
         assert!(dispatcher.has_deferred("batch-2"));
 
@@ -2498,7 +2458,7 @@ mod tests {
         // Even so, new messages must keep deferring: the key still has deferred
         // groups outstanding, so honoring the (now-healthy-again) pin would let
         // newer messages jump ahead of the older deferred ones.
-        let b3 = dispatcher.assign("batch-3", make_msgs(&[("t", "user-1")]));
+        let b3 = dispatcher.assign("batch-3", make_msgs(&["t:user-1"]));
         assert!(
             b3.is_empty(),
             "must keep deferring while earlier deferred work is unflushed"
@@ -2528,7 +2488,7 @@ mod tests {
         assert!(!dispatcher.has_deferred("batch-2") && !dispatcher.has_deferred("batch-3"));
 
         // With the stash drained, a fresh batch honors the pin again.
-        let b4 = dispatcher.assign("batch-4", make_msgs(&[("t", "user-1")]));
+        let b4 = dispatcher.assign("batch-4", make_msgs(&["t:user-1"]));
         assert_eq!(b4.len(), 1, "honors the pin once nothing is deferred");
     }
 
@@ -2541,13 +2501,13 @@ mod tests {
         let registry = healthy_registry(2);
         let dispatcher = Dispatcher::new(Arc::clone(&registry));
 
-        let b1 = dispatcher.assign("batch-1", make_msgs(&[("t", "user-1")]));
+        let b1 = dispatcher.assign("batch-1", make_msgs(&["t:user-1"]));
         let pinned = b1[0].worker.clone();
         registry.start_draining(&pinned);
 
         // batch-2 defers; batch-1 resolves; flush batch-2 to the survivor.
         assert!(dispatcher
-            .assign("batch-2", make_msgs(&[("t", "user-1")]))
+            .assign("batch-2", make_msgs(&["t:user-1"]))
             .is_empty());
         dispatcher.on_sub_batch_resolved(
             &pinned,
@@ -2560,7 +2520,7 @@ mod tests {
         assert_eq!(flushed.len(), 1);
 
         // Flushed but NOT yet resolved → a newer batch must still defer.
-        let b3 = dispatcher.assign("batch-3", make_msgs(&[("t", "user-1")]));
+        let b3 = dispatcher.assign("batch-3", make_msgs(&["t:user-1"]));
         assert!(
             b3.is_empty(),
             "newer messages must not race the in-flight flushed messages"
@@ -2585,7 +2545,7 @@ mod tests {
             true,
             false,
         );
-        let b4 = dispatcher.assign("batch-4", make_msgs(&[("t", "user-1")]));
+        let b4 = dispatcher.assign("batch-4", make_msgs(&["t:user-1"]));
         assert_eq!(
             b4.len(),
             1,
@@ -2599,14 +2559,14 @@ mod tests {
         let dispatcher = Dispatcher::new(Arc::clone(&registry));
 
         // batch-1 pins user-1 (offset 0); keep it in-flight, then drain its worker.
-        let b1 = dispatcher.assign("batch-1", vec![make_msg_at("t", "user-1", 0)]);
+        let b1 = dispatcher.assign("batch-1", vec![make_msg_at("t:user-1", 0)]);
         let pinned = b1[0].worker.clone();
         registry.start_draining(&pinned);
 
         // The next two batches each carry user-1's next message — both defer,
         // each held under its own batch, behind the draining pin.
-        let b2 = dispatcher.assign("batch-2", vec![make_msg_at("t", "user-1", 1)]);
-        let b3 = dispatcher.assign("batch-3", vec![make_msg_at("t", "user-1", 2)]);
+        let b2 = dispatcher.assign("batch-2", vec![make_msg_at("t:user-1", 1)]);
+        let b3 = dispatcher.assign("batch-3", vec![make_msg_at("t:user-1", 2)]);
         assert!(
             b2.is_empty() && b3.is_empty(),
             "both must defer behind the drainer"
@@ -2633,7 +2593,7 @@ mod tests {
     #[test]
     fn test_cross_batch_deferred_flush_stays_on_one_survivor() {
         // A key deferred across multiple batches during a drain must re-home to a
-        // SINGLE survivor — otherwise one distinct_id's events scatter across
+        // SINGLE survivor — otherwise one key's events scatter across
         // workers and lose person-batching locality. Needs >=2 survivors after a
         // drain, so 3 workers. (With 2 workers there's one survivor and the bug is
         // masked, which is why `..._preserves_order` above can't catch it.)
@@ -2641,16 +2601,16 @@ mod tests {
         let dispatcher = Dispatcher::new(Arc::clone(&registry));
 
         // Pin user-1, keep it in-flight, then drain its worker.
-        let b1 = dispatcher.assign("batch-1", make_msgs(&[("t", "user-1")]));
+        let b1 = dispatcher.assign("batch-1", make_msgs(&["t:user-1"]));
         let pinned = b1[0].worker.clone();
         registry.start_draining(&pinned);
 
         // Two later batches each carry user-1 → both defer behind the drainer.
         assert!(dispatcher
-            .assign("batch-2", make_msgs(&[("t", "user-1")]))
+            .assign("batch-2", make_msgs(&["t:user-1"]))
             .is_empty());
         assert!(dispatcher
-            .assign("batch-3", make_msgs(&[("t", "user-1")]))
+            .assign("batch-3", make_msgs(&["t:user-1"]))
             .is_empty());
 
         // Drain completes when batch-1's in-flight resolves.
@@ -2689,7 +2649,7 @@ mod tests {
         let dispatcher = Dispatcher::new(Arc::clone(&registry));
 
         // Send a batch to worker 0, then mark it draining while in-flight.
-        let b = dispatcher.assign("b", make_msgs(&[("t", "a")]));
+        let b = dispatcher.assign("b", make_msgs(&["t:a"]));
         let worker = b[0].worker.clone();
         registry.start_draining(&worker);
         assert!(

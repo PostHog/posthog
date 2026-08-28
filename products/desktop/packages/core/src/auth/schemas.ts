@@ -139,10 +139,6 @@ export const loginOutput = z.object({
 });
 export type LoginOutput = z.infer<typeof loginOutput>;
 
-export const redeemInviteCodeInput = z.object({
-  code: z.string().min(1),
-});
-
 export const selectProjectInput = z.object({
   projectId: z.number(),
 });

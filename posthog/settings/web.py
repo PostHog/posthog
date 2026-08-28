@@ -357,16 +357,8 @@ SESSION_COOKIE_CREATED_AT_KEY = get_from_env("SESSION_COOKIE_CREATED_AT_KEY", "s
 # off in the test suite (like AXES_ENABLED) so its per-request feature-flag check doesn't run during
 # tests that assert posthoganalytics.feature_enabled call counts.
 SESSION_RISK_ENABLED = get_from_env("SESSION_RISK_ENABLED", not TEST, type_cast=str_to_bool)
-# Kill switch for the real-time signup enrichment workflow (products/growth/backend/enrichment).
-# Off by default: it must stay off until the launch fill-rate/failure alert is in place. Also the
-# de facto per-region toggle, since it is the only region-specific control — dispatch itself is
-# open to both US and EU (see get_instance_region gate in signup_enrichment/trigger.py), so a
-# region stays enrichment-free only by leaving this unset there. Fire-and-forget from signup, so
-# this only gates whether the workflow is dispatched at all.
-GROWTH_SIGNUP_ENRICHMENT_ENABLED = get_from_env("GROWTH_SIGNUP_ENRICHMENT_ENABLED", False, type_cast=str_to_bool)
-# Max orgs the daily ICP re-enrichment sweep re-fetches per run — the Harmonic spend/rate
-# bound for products/growth/backend/temporal/signup_enrichment/reenrichment.py.
-GROWTH_ICP_REENRICH_DAILY_CAP = get_from_env("GROWTH_ICP_REENRICH_DAILY_CAP", 500, type_cast=int)
+# GROWTH_SIGNUP_ENRICHMENT_ENABLED and GROWTH_ICP_REENRICH_DAILY_CAP are instance settings
+# (dynamic_settings.py): the env var seeds the default, the DB row is the value every pod reads.
 # The internal analytics project the enrichment pipeline reads/writes bridge and mirror data
 # against (products/growth/backend/enrichment). Region-defaulted to the deployment's own internal
 # project (the same team split the usage report uses), so enrichment lookups never touch another
@@ -524,6 +516,10 @@ if DEBUG:
 
 SPECTACULAR_SETTINGS = {
     "OAS_VERSION": "3.1.0",
+    "SERVERS": [
+        {"url": "https://us.posthog.com", "description": "PostHog Cloud US"},
+        {"url": "https://eu.posthog.com", "description": "PostHog Cloud EU"},
+    ],
     "AUTHENTICATION_WHITELIST": ["posthog.auth.PersonalAPIKeyAuthentication"],
     "GET_MOCK_REQUEST": "posthog.api.documentation.build_openapi_mock_request",
     "PREPROCESSING_HOOKS": ["posthog.api.documentation.preprocess_exclude_path_format"],
@@ -701,6 +697,8 @@ SPECTACULAR_SETTINGS = {
         "LayoutCompactionEnum": ["vertical", "horizontal", "stable"],
         "DesktopAccessReasonEnum": "products.tasks.backend.facade.contracts.DESKTOP_ACCESS_REASON_SCHEMA_VALUES",
         "PropertyGroupOperator": ["AND", "OR"],
+        # `mode` is a generic field name; name the Redshift batch-export mode set explicitly.
+        "RedshiftExportModeEnum": ["INSERT", "COPY"],
         # `severity` is shared by a data quality check, its overview projection, and the severity a
         # past run was judged at.
         "DataQualityCheckSeverityEnum": ["error", "warn"],
@@ -778,11 +776,17 @@ SPECTACULAR_SETTINGS = {
         # choice set (top-level column vs span attribute vs resource attribute).
         "SpanPropertyTypeEnum": ["span", "span_attribute", "span_resource_attribute"],
         "LogsViewColumnTypeEnum": ["timestamp", "level", "source", "trace_id", "span_id", "message", "custom"],
+        # The AI observability instrumentation checklist exposes the same key set twice: as `key` on a
+        # graded check and as `check` on the dismiss/restore body. Mirrors CheckKey in
+        # products/ai_observability/backend/instrumentation_checklist/grading.py; a member added there
+        # changes the hash, so this warning comes back rather than drifting silently.
+        "AIObservabilityInstrumentationCheckEnum": ["sessions", "tool_calls", "user_identity", "trace_structure"],
         # LoopTriggerWrite.type and LoopPreviewRequest.trigger_type share the same
         # schedule/github/api choice set — pin them to a single named enum.
         "LoopTriggerTypeEnum": ["schedule", "github", "api"],
         "CustomPropertyDisplayTypeEnum": [
             "text",
+            "link",
             "number",
             "currency",
             "percent",

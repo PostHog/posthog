@@ -4,6 +4,7 @@ import type { LoopSchemas } from "@posthog/api-client/loops";
 import {
   flattenSelectOptions,
   isDefaultSelectOption,
+  isGlm53FlashModelId,
   isGlm53ModelId,
   isGlmModelId,
   isRestrictedModelOption,
@@ -48,6 +49,7 @@ const FALLBACK_MODEL_OPTIONS: Record<
     { value: "claude-fable-5", label: "Claude Fable 5" },
     { value: "@cf/zai-org/glm-5.2", label: "GLM-5.2" },
     { value: "zai-org/glm-5.3", label: "GLM-5.3" },
+    { value: "zai-org/glm-5.3-flash", label: "GLM-5.3 Flash" },
     { value: "moonshotai/kimi-k3", label: "Kimi K3" },
   ],
   codex: [
@@ -82,11 +84,13 @@ export function loopModelOptions(
   {
     glmEnabled,
     glm53Enabled,
+    glm53FlashEnabled,
     kimiEnabled,
     pinnedModel,
   }: {
     glmEnabled: boolean;
     glm53Enabled?: boolean;
+    glm53FlashEnabled?: boolean;
     kimiEnabled?: boolean;
     pinnedModel: string;
   },
@@ -106,7 +110,11 @@ export function loopModelOptions(
   const options = (served.length > 0 ? served : FALLBACK_MODEL_OPTIONS[adapter])
     .filter(
       (option) =>
-        (isGlm53ModelId(option.value) ? glm53Enabled : glmEnabled) ||
+        (isGlm53FlashModelId(option.value)
+          ? glm53FlashEnabled
+          : isGlm53ModelId(option.value)
+            ? glm53Enabled
+            : glmEnabled) ||
         option.value === pinnedModel ||
         !isGlmModelId(option.value),
     )

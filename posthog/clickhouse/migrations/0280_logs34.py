@@ -16,7 +16,7 @@ from posthog.clickhouse.logs import (
 )
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 
-# 0305 dropped log_attributes2 and the two views that wrote to it, so the SQL
+# 0309 dropped log_attributes2 and the two views that wrote to it, so the SQL
 # they need is inlined here instead of in a shared definition module.
 
 TABLE_NAME = "logs34"

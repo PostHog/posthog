@@ -219,7 +219,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
-  const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
+  const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
   // With channel reports on, spaces own reports and the inbox entry goes away.
   const channelReportsEnabled = useChannelReportsEnabled();
   const spendAnalysisEnabled = useSpendAnalysisEnabled();

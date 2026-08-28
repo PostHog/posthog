@@ -31,7 +31,7 @@ USAGE_REPORT_EVENTS_PREAGG_COLUMNS = """
 
 # Slim Kafka engine table schema — only the columns the MV projects.
 # JSONEachRow ignores unknown fields, so the events_json topic payloads work as-is.
-_KAFKA_USAGE_REPORT_EVENTS_PREAGG_COLUMNS = """
+KAFKA_USAGE_REPORT_EVENTS_PREAGG_COLUMNS = """
     uuid UUID,
     event VARCHAR,
     properties VARCHAR CODEC(ZSTD(3)),
@@ -92,7 +92,7 @@ def KAFKA_USAGE_REPORT_EVENTS_PREAGG_TABLE_SQL() -> str:
     return f"""
 CREATE TABLE IF NOT EXISTS {KAFKA_USAGE_REPORT_EVENTS_PREAGG_TABLE}
 (
-    {_KAFKA_USAGE_REPORT_EVENTS_PREAGG_COLUMNS}
+    {KAFKA_USAGE_REPORT_EVENTS_PREAGG_COLUMNS}
 )
 ENGINE = {
         kafka_engine(
@@ -105,13 +105,10 @@ SETTINGS kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_
 """
 
 
-def USAGE_REPORT_EVENTS_PREAGG_MV_SQL() -> str:
+def USAGE_REPORT_EVENTS_PREAGG_MV_SELECT_SQL(source_table: str) -> str:
     # Dedup tuple includes `event` (avoids cross-event uuid collisions) but not `date`
     # (so day-boundary replays still dedupe).
-    return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {USAGE_REPORT_EVENTS_PREAGG_MV}
-TO {WRITABLE_USAGE_REPORT_EVENTS_PREAGG_TABLE}
-AS SELECT
+    return f"""SELECT
     toDate(timestamp) AS date,
     team_id,
     person_mode,
@@ -119,6 +116,13 @@ AS SELECT
     event,
     uniqExactState((cityHash64(distinct_id), cityHash64(toString(uuid)), cityHash64(event))) AS distinct_events_unique,
     sumState(toUInt64(1)) AS event_count
-FROM {KAFKA_USAGE_REPORT_EVENTS_PREAGG_TABLE}
-GROUP BY date, team_id, person_mode, lib, event
+FROM {source_table}
+GROUP BY date, team_id, person_mode, lib, event"""
+
+
+def USAGE_REPORT_EVENTS_PREAGG_MV_SQL() -> str:
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {USAGE_REPORT_EVENTS_PREAGG_MV}
+TO {WRITABLE_USAGE_REPORT_EVENTS_PREAGG_TABLE}
+AS {USAGE_REPORT_EVENTS_PREAGG_MV_SELECT_SQL(KAFKA_USAGE_REPORT_EVENTS_PREAGG_TABLE)}
 """

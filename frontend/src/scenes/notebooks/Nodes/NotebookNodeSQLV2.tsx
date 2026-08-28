@@ -152,6 +152,7 @@ const Component = ({
         runId: attributes.runId ?? null,
         hasResult: !!attributes.result,
         getContent: () => notebookLogic.values.content ?? null,
+        getVariables: () => notebookLogic.values.runnableVariables,
     })
     const {
         isRunning,
@@ -162,6 +163,7 @@ const Component = ({
         pageLoading,
         operationBlockReason,
         isStale,
+        staleReason,
         isChainRunning,
         staleDownstreamCount,
         pendingKernelStart,
@@ -245,7 +247,7 @@ const Component = ({
             >
                 {isStale ? (
                     <div className="shrink-0 pb-2" onClick={(event) => event.stopPropagation()}>
-                        <NotebookStaleCellBanner />
+                        <NotebookStaleCellBanner reason={staleReason ?? undefined} />
                     </div>
                 ) : staleDownstreamCount > 0 && !isChainRunning ? (
                     <div className="shrink-0 pb-2" onClick={(event) => event.stopPropagation()}>
@@ -397,6 +399,7 @@ const Settings = ({
         runId: attributes.runId ?? null,
         hasResult: !!attributes.result,
         getContent: () => notebookLogic.values.content ?? null,
+        getVariables: () => notebookLogic.values.runnableVariables,
     })
     const { isRunning } = useValues(dataLogic)
     const { runNode } = useActions(dataLogic)

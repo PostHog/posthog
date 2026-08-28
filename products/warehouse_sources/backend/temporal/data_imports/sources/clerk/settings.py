@@ -49,7 +49,13 @@ CLERK_ENDPOINTS: dict[str, ClerkEndpointConfig] = {
         fan_out=ClerkFanOut(parent="users", parent_field="id", query_param="user_id"),
     ),
     "organization_invitations": ClerkEndpointConfig(
-        name="organization_invitations", path="/organization_invitations", is_wrapped_response=True
+        name="organization_invitations",
+        path="/organization_invitations",
+        is_wrapped_response=True,
+        # Clerk answers 404 resource_not_found for the organization invitations list on instances
+        # that don't have Organizations switched on — the same feature-off signal the domains and
+        # OAuth applications endpoints give. Skip zero rows instead of failing the schema every run.
+        gated_feature="Organizations",
     ),
     "organization_domains": ClerkEndpointConfig(
         name="organization_domains", path="/organization_domains", is_wrapped_response=True

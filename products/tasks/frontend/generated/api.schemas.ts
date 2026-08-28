@@ -8,15 +8,10 @@
  * OpenAPI spec version: 1.0.0
  */
 export interface LegacyDesktopAccessResponseApi {
-    /** Whether the user has legacy PostHog Desktop access. */
+    /** Whether the current project can use PostHog Desktop. */
     has_access: boolean
     /** Whether the independent Loops feature is enabled. */
     has_loops_access: boolean
-}
-
-export interface CodeInviteRedeemRequestApi {
-    /** @maxLength 50 */
-    code: string
 }
 
 /**
@@ -849,16 +844,22 @@ export interface SandboxCustomImageBuildApi {
 }
 
 /**
- * List response for sandbox environments (subset of fields).
+ * A sandbox environment, as returned by list, detail, create and update.
  */
 export interface SandboxEnvironmentDTOApi {
     id: string
     name: string
     network_access_level: string
     allowed_domains?: string[]
+    include_default_domains: boolean
     repositories?: string[]
+    /** Whether any environment variables are set on this environment. */
+    has_environment_variables?: boolean
+    /** Names of the environment variables that are set, sorted. Values are write-only and never returned. */
+    environment_variable_keys?: string[]
     private: boolean
     internal: boolean
+    effective_domains?: string[]
     created_by?: TaskUserBasicInfoApi | null
     /** @nullable */
     created_at?: string | null
@@ -1656,6 +1657,8 @@ export interface TaskRunDetailDTOApi {
     updated_at?: string | null
     /** @nullable */
     completed_at?: string | null
+    /** True when this run's sandbox serves a dev stack preview, so clients can offer the preview link. Open it through the run's `preview/` endpoint, which mints a fresh access token on every request. */
+    preview_available?: boolean
 }
 
 export interface SlackThreadReferenceDTOApi {
@@ -3131,16 +3134,6 @@ export const RunStatusEnumApi = {
     Cancelled: 'cancelled',
 } as const
 
-/**
- * * `local` - local
- */
-export type TaskRunUpdateEnvironmentEnumApi =
-    (typeof TaskRunUpdateEnvironmentEnumApi)[keyof typeof TaskRunUpdateEnvironmentEnumApi]
-
-export const TaskRunUpdateEnvironmentEnumApi = {
-    Local: 'local',
-} as const
-
 export interface PatchedTaskRunUpdateApi {
     /** Current execution status
      *
@@ -3174,10 +3167,6 @@ export interface PatchedTaskRunUpdateApi {
      * @nullable
      */
     error_message?: string | null
-    /** Transition a cloud run to local. Use the resume_in_cloud action to move a run into cloud.
-     *
-     * * `local` - local */
-    environment?: TaskRunUpdateEnvironmentEnumApi
 }
 
 /**

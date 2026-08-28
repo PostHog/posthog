@@ -35,6 +35,7 @@ import { ElapsedTime } from '../DataNode/ElapsedTime'
 import { Reload } from '../DataNode/Reload'
 import { QueryFeature } from '../DataTable/queryFeatures'
 import { PieChart } from './Components/Charts/PieChart'
+import { SqlBoxPlot } from './Components/Charts/SqlBoxPlot'
 import { SqlChart } from './Components/Charts/SqlChart'
 import { SqlScatterGraph } from './Components/Charts/SqlScatterGraph'
 import { TwoDimensionalHeatmap } from './Components/Heatmap/TwoDimensionalHeatmap'
@@ -181,6 +182,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         isChartSettingsPanelOpen,
         xData,
         yData,
+        columns,
         chartSettings,
         dashboardId,
         dataVisualizationProps,
@@ -296,6 +298,17 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 xData={xData}
                 yData={yData}
                 chartSettings={chartSettings}
+                presetChartHeight={presetChartHeight}
+            />
+        )
+    } else if (effectiveVisualizationType === ChartDisplayType.BoxPlot) {
+        const rows = ('results' in response ? response.results : 'result' in response ? response.result : []) ?? []
+        component = (
+            <SqlBoxPlot
+                rows={Array.isArray(rows) ? rows : []}
+                columns={columns}
+                chartSettings={chartSettings}
+                analyticsKey={dataVisualizationProps.key}
                 presetChartHeight={presetChartHeight}
             />
         )

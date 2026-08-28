@@ -152,8 +152,6 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "Artifact",
         "BatchExportLogEntry",
         "BatchExportRun",
-        "CodeInvite",
-        "CodeInviteRedemption",
         # Comment↔Slack-thread mirror mapping — looked up by source_comment FK or
         # (scope, item_id) within team scope, and by internally-generated task-arg id;
         # never by user-supplied CommentSlackThread id through an API. Fail-closed via
@@ -371,8 +369,6 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # --- Other models missing direct team_id ---
         "BatchExportDestination",  # via Integration
         "BatchExportRun",  # via BatchExport
-        "CodeInvite",  # user-scoped but stores team data
-        "CodeInviteRedemption",  # via CodeInvite
         "SandboxSnapshot",  # via Integration
         "SlackUserProfileCache",  # via Integration
         "SlackSettings",  # via Integration

@@ -4275,7 +4275,6 @@ export namespace Schemas {
     created_at: string;
     updated_at: string;
   };
-  export type CodeInviteRedeemRequest = { code: string };
   export type CodexRuntimeAdapterEnum = "codex";
   export type CodexTaskRunCreateSchemaInitialPermissionModeEnum = "plan" | "auto" | "read-only" | "full-access";
   export type CodexTaskRunCreateSchema = {

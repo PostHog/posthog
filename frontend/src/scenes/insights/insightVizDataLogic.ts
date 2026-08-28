@@ -9,7 +9,12 @@ import {
 } from 'lib/components/InsightLegend/utils'
 import { Intervals, intervals } from 'lib/components/IntervalFilter/intervals'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
-import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES, NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import {
+    FEATURE_FLAGS,
+    NON_TIME_SERIES_DISPLAY_TYPES,
+    NON_VALUES_ON_SERIES_DISPLAY_TYPES,
+    PIE_DISPLAY_TYPES,
+} from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils/dateFilters'
@@ -162,6 +167,7 @@ export const DISPLAYS_WITH_IN_CHART_LEGEND = [
     ChartDisplayType.ActionsBar,
     ChartDisplayType.ActionsUnstackedBar,
     ChartDisplayType.ActionsPie,
+    ChartDisplayType.ActionsDonut,
 ]
 
 // Omit must distribute over the query-node union: a plain Omit would collapse the update type
@@ -2301,7 +2307,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     ((isTrends || isStickiness || isLifecycle) &&
                         (insightFilter as TrendsFilter)?.showValuesOnSeries) ||
                     (isTrends &&
-                        (insightFilter as TrendsFilter)?.display === ChartDisplayType.ActionsPie &&
+                        PIE_DISPLAY_TYPES.includes((insightFilter as TrendsFilter)?.display as ChartDisplayType) &&
                         (insightFilter as TrendsFilter)?.showValuesOnSeries === undefined)
                 )
             },

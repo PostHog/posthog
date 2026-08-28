@@ -23,7 +23,6 @@ import { foldersRouter } from "./routers/folders.router";
 import { fsRouter } from "./routers/fs.router";
 import { gitRouter } from "./routers/git.router";
 import { githubIntegrationRouter } from "./routers/github-integration.router";
-import { handoffRouter } from "./routers/handoff.router";
 import { integrationRouter } from "./routers/integration.router";
 import { linearIntegrationRouter } from "./routers/linear-integration.router";
 import { llmGatewayRouter } from "./routers/llm-gateway.router";
@@ -75,7 +74,6 @@ export const hostRouter = router({
   folders: foldersRouter,
   fs: fsRouter,
   git: gitRouter,
-  handoff: handoffRouter,
   integration: integrationRouter,
   githubIntegration: githubIntegrationRouter,
   releaseFeed: releaseFeedRouter,
