@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { OAUTH_SCOPES_HIDDEN, OAUTH_SCOPES_SUPPORTED } from '@/lib/constants'
 import { hasScope } from '@/lib/api'
+import { OAUTH_SCOPES_HIDDEN, OAUTH_SCOPES_SUPPORTED } from '@/lib/constants'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
@@ -821,6 +821,14 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(on).toContain('billing-spend-get')
     })
 
+    it('customer-analytics-csp flag gates account meeting tools', () => {
+        const off = getToolsForFeatures({ featureFlags: { 'customer-analytics-csp': false } })
+        expect(off).not.toContain('accounts-meetings-list')
+
+        const on = getToolsForFeatures({ featureFlags: { 'customer-analytics-csp': true } })
+        expect(on).toContain('accounts-meetings-list')
+    })
+
     it('revamped-py-notebooks flag swaps the notebook surface without duplicates', () => {
         // Flag ON: the cell tools take over create/read/edit — the model never sees two
         // tools for the same job. Flag OFF: only the legacy surface.
@@ -880,7 +888,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'engineering-analytics',
                 'web-analytics-path-cleaning-suggestions',
                 'stamphog',
-                'product-data-catalog',
                 'loops',
                 'review-hog',
                 'warehouse-person-properties',
@@ -889,6 +896,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'streamlit-apps',
                 'posthog-connect',
                 'experiment-behavior-comparison',
+                'experiment-flag-cleanup-pr',
                 'data-warehouse-scene',
                 'data-quality-checks',
                 'context-layer',

@@ -139,8 +139,33 @@ def _repo_overview() -> contracts.RepoOverview:
         billable_minutes_prev=90.0,
         estimated_cost_usd=12.5,
         estimated_cost_usd_prev=11.0,
+        cost_per_merge_usd=0.3,
+        cost_per_merge_usd_prev=0.275,
         merge_queue_billable_minutes=30.0,
         merge_queue_billable_minutes_prev=0.0,
+        merge_queue_merged_pr_count=38,
+        merge_queue_merged_pr_count_prev=35,
+        merge_queue_median_first_gate_to_merge_seconds=1920.0,
+        merge_queue_median_first_gate_to_merge_seconds_prev=2460.0,
+        merge_queue_p90_first_gate_to_merge_seconds=11280.0,
+        merge_queue_p90_first_gate_to_merge_seconds_prev=13500.0,
+        merge_queue_p95_first_gate_to_merge_seconds=15600.0,
+        merge_queue_p95_first_gate_to_merge_seconds_prev=17700.0,
+        merge_queue_p99_first_gate_to_merge_seconds=22200.0,
+        merge_queue_p99_first_gate_to_merge_seconds_prev=25200.0,
+        merge_queue_avg_attempts_per_merge=2.0,
+        merge_queue_avg_attempts_per_merge_prev=1.8,
+        merge_queue_multi_attempt_merge_share=0.42,
+        merge_queue_multi_attempt_merge_share_prev=0.38,
+        merge_queue_failed_gate_merge_share=0.34,
+        merge_queue_failed_gate_merge_share_prev=0.28,
+        merge_queue_trunk_available=True,
+        merge_queue_failed_or_cancelled_share=0.044,
+        merge_queue_failed_or_cancelled_share_prev=0.032,
+        merge_queue_skip_the_line_count=8,
+        merge_queue_skip_the_line_count_prev=5,
+        median_time_to_green_seconds=780.0,
+        median_time_to_green_seconds_prev=540.0,
         jobs_available=True,
         default_branch="master",
         cost_series=[],
@@ -332,6 +357,10 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert data["merged_pr_count"] == 42
         assert data["merged_pr_count_prev"] == 40
         assert data["merge_queue_billable_minutes"] == 30.0  # the digest's queue row reads this key
+        assert data["merge_queue_merged_pr_count"] == 38
+        assert data["merge_queue_median_first_gate_to_merge_seconds"] == 1920.0
+        assert data["merge_queue_failed_or_cancelled_share"] == 0.044
+        assert data["median_time_to_green_seconds"] == 780.0
         assert data["cost_series"] == []
 
     def test_repo_overview_400_on_bad_include_series(self) -> None:

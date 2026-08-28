@@ -701,12 +701,27 @@ export interface eventUsageLogicActions {
         action: 'discarded' | 'kept_editing' | 'shown'
         dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
     }
+    reportDashboardEmptyAddChartClicked: (dashboardId: number | undefined) => {
+        dashboardId: number | undefined
+    }
     reportDashboardEmptyAiPromptClicked: (
         promptLabel: string,
-        dashboardId: number | undefined
+        dashboardId: number | undefined,
+        promptType: 'custom_prompt' | 'starter_question'
     ) => {
         dashboardId: number | undefined
         promptLabel: string
+        promptType: 'custom_prompt' | 'starter_question'
+    }
+    reportDashboardEmptyAiPromptSubmitted: (
+        dashboardId: number | undefined,
+        promptType: 'custom_prompt' | 'starter_question'
+    ) => {
+        dashboardId: number | undefined
+        promptType: 'custom_prompt' | 'starter_question'
+    }
+    reportDashboardEmptyWebAnalyticsClicked: (dashboardId: number | undefined) => {
+        dashboardId: number | undefined
     }
     reportDashboardExported: (
         dashboardId: number,
@@ -1193,10 +1208,12 @@ export interface eventUsageLogicActions {
                 | 'auto_refresh'
                 | 'cold_run'
                 | 'config_change'
+                | 'experiment_config_change'
                 | 'experiment_launch'
                 | 'experiment_stop'
                 | 'experiment_update'
                 | 'manual'
+                | 'metric_config_change'
                 | 'stale_refresh'
         }
     ) => {
@@ -1214,10 +1231,12 @@ export interface eventUsageLogicActions {
                 | 'auto_refresh'
                 | 'cold_run'
                 | 'config_change'
+                | 'experiment_config_change'
                 | 'experiment_launch'
                 | 'experiment_stop'
                 | 'experiment_update'
                 | 'manual'
+                | 'metric_config_change'
                 | 'stale_refresh'
                 | undefined
         }
@@ -1303,7 +1322,7 @@ export interface eventUsageLogicActions {
             successful_count: number
             total_duration_ms: number
             total_metrics_count: number
-            triggered_by: 'auto_refresh' | 'config_change' | 'manual' | 'page_load'
+            triggered_by: 'auto_refresh' | 'experiment_config_change' | 'manual' | 'metric_config_change' | 'page_load'
         }
     ) => {
         context: {
@@ -1319,13 +1338,10 @@ export interface eventUsageLogicActions {
             successful_count: number
             total_duration_ms: number
             total_metrics_count: number
-            triggered_by: 'auto_refresh' | 'config_change' | 'manual' | 'page_load'
+            triggered_by: 'auto_refresh' | 'experiment_config_change' | 'manual' | 'metric_config_change' | 'page_load'
         }
         experimentId: ExperimentIdType
         teamId: number | null | undefined
-    }
-    reportExperimentSessionReplaySummaryRequested: (experiment: Experiment) => {
-        experiment: Experiment
     }
     reportExperimentSharedMetricAssigned: (
         experimentId: ExperimentIdType,
@@ -2443,10 +2459,21 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             source: DashboardEventSource
         ) => ({ dashboardId, insightId, source }),
         /** Empty-state AI prompt chips (ai-first empty dashboard only). */
-        reportDashboardEmptyAiPromptClicked: (promptLabel: string, dashboardId: number | undefined) => ({
+        reportDashboardEmptyAiPromptClicked: (
+            promptLabel: string,
+            dashboardId: number | undefined,
+            promptType: 'starter_question' | 'custom_prompt'
+        ) => ({
             promptLabel,
             dashboardId,
+            promptType,
         }),
+        reportDashboardEmptyAiPromptSubmitted: (
+            dashboardId: number | undefined,
+            promptType: 'custom_prompt' | 'starter_question'
+        ) => ({ dashboardId, promptType }),
+        reportDashboardEmptyAddChartClicked: (dashboardId: number | undefined) => ({ dashboardId }),
+        reportDashboardEmptyWebAnalyticsClicked: (dashboardId: number | undefined) => ({ dashboardId }),
         reportDashboardExported: (dashboardId: number, exportFormat: ExporterFormat) => ({
             dashboardId,
             exportFormat,
@@ -2635,7 +2662,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 successful_count: number
                 errored_count: number
                 cached_count: number
-                triggered_by: 'page_load' | 'manual' | 'auto_refresh' | 'config_change'
+                triggered_by:
+                    | 'page_load'
+                    | 'manual'
+                    | 'auto_refresh'
+                    | 'experiment_config_change'
+                    | 'metric_config_change'
                 force_refresh: boolean
                 refresh_id: string
                 experiment_duration_hours: number | null
@@ -2661,6 +2693,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                     | 'cold_run'
                     | 'stale_refresh'
                     | 'auto_refresh'
+                    | 'experiment_config_change'
+                    | 'metric_config_change'
                     | 'config_change'
                     | 'experiment_launch'
                     | 'experiment_stop'
@@ -2685,7 +2719,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             metric,
         }),
         reportExperimentAiSummaryRequested: (experiment: Experiment) => ({ experiment }),
-        reportExperimentSessionReplaySummaryRequested: (experiment: Experiment) => ({ experiment }),
         reportExperimentTabViewed: (experimentId: ExperimentIdType, tab: string) => ({ experimentId, tab }),
         reportExperimentRecordingsTabViewed: (
             experimentId: ExperimentIdType,
@@ -3519,9 +3552,29 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 source,
             })
         },
-        reportDashboardEmptyAiPromptClicked: async ({ promptLabel, dashboardId }) => {
+        reportDashboardEmptyAiPromptClicked: async ({ promptLabel, dashboardId, promptType }) => {
             posthog.capture('dashboard empty ai prompt clicked', {
                 prompt_label: promptLabel,
+                dashboard_id: dashboardId,
+                prompt_type: promptType,
+                source: 'web',
+            })
+        },
+        reportDashboardEmptyAiPromptSubmitted: async ({ dashboardId, promptType }) => {
+            posthog.capture('dashboard empty ai prompt submitted', {
+                dashboard_id: dashboardId,
+                prompt_type: promptType,
+                source: 'web',
+            })
+        },
+        reportDashboardEmptyAddChartClicked: async ({ dashboardId }) => {
+            posthog.capture('dashboard empty add chart clicked', {
+                dashboard_id: dashboardId,
+                source: 'web',
+            })
+        },
+        reportDashboardEmptyWebAnalyticsClicked: async ({ dashboardId }) => {
+            posthog.capture('dashboard empty web analytics clicked', {
                 dashboard_id: dashboardId,
                 source: 'web',
             })
@@ -3876,11 +3929,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportExperimentAiSummaryRequested: ({ experiment }) => {
             posthog.capture('experiment ai summary requested', {
-                ...getEventPropertiesForExperiment(experiment),
-            })
-        },
-        reportExperimentSessionReplaySummaryRequested: ({ experiment }) => {
-            posthog.capture('experiment session replay summary requested', {
                 ...getEventPropertiesForExperiment(experiment),
             })
         },

@@ -4,8 +4,14 @@ import { EXTERNAL_LINKS, isNotAuthenticatedError } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/authQueries";
 import { AuthScreen } from "@posthog/ui/features/auth/components/AuthScreen";
-import { InviteCodeScreen } from "@posthog/ui/features/auth/components/InviteCodeScreen";
+import { DesktopAccessScreen } from "@posthog/ui/features/auth/components/DesktopAccessScreen";
 import { ScopeReauthPrompt } from "@posthog/ui/features/auth/components/ScopeReauthPrompt";
+import {
+  useLogoutMutation,
+  useRetryDesktopAccessMutation,
+  useSelectProjectMutation,
+  useSwitchOrgMutation,
+} from "@posthog/ui/features/auth/useAuthMutations";
 import { useAuthSession } from "@posthog/ui/features/auth/useAuthSession";
 import { useIsOrgAdmin } from "@posthog/ui/features/auth/useOrgRole";
 import { CanvasGenerationToaster } from "@posthog/ui/features/canvas/freeform/useCanvasGenerationToasts";
@@ -24,6 +30,10 @@ import { UpdateBanner } from "@posthog/ui/features/sidebar/components/UpdateBann
 import { PendingPromptRecovery } from "@posthog/ui/features/task-detail/components/PendingPromptRecovery";
 import { router } from "@posthog/ui/router/router";
 import { AppLoadingScreen } from "@posthog/ui/shell/AppLoadingScreen";
+import {
+  isBackgroundAccessRecheck,
+  nextLastAllowedProjectId,
+} from "@posthog/ui/shell/desktopAccessGate";
 import { ErrorBoundary } from "@posthog/ui/shell/ErrorBoundary";
 import { ensureSession } from "@posthog/ui/shell/firstRun";
 import { logger } from "@posthog/ui/shell/logger";
@@ -32,6 +42,7 @@ import {
   rememberStartupLocation,
   resolveStartupLocation,
 } from "@posthog/ui/shell/startupLocation";
+import { useAppLoadingGateTelemetry } from "@posthog/ui/shell/useAppLoadingGateTelemetry";
 import { useAppVisibilityWatchdog } from "@posthog/ui/shell/useAppVisibilityWatchdog";
 import { RouterProvider } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
@@ -51,7 +62,49 @@ function App({ devToolbar }: AppProps) {
     (state) => state.hasCompletedOnboarding,
   );
   const isAuthenticated = authState.status === "authenticated";
-  const hasCodeAccess = authState.hasCodeAccess;
+  const desktopAccess = authState.desktopAccess;
+  const selectProjectMutation = useSelectProjectMutation();
+  const switchOrgMutation = useSwitchOrgMutation();
+  const retryDesktopAccessMutation = useRetryDesktopAccessMutation();
+  const logoutMutation = useLogoutMutation();
+  const desktopAccessIsCurrent =
+    desktopAccess.projectId === authState.currentProjectId;
+  const hasDesktopAccess =
+    desktopAccessIsCurrent && desktopAccess.status === "allowed";
+  // Once the app has shown for a project, a background access recheck for
+  // that same project must not unmount it into the loading screen (see
+  // isBackgroundAccessRecheck). The ref updates in an effect, so when a
+  // "checking" flip renders it still holds the project from the last settled
+  // render.
+  const lastAllowedProjectRef = useRef<number | null>(null);
+  useEffect(() => {
+    lastAllowedProjectRef.current = nextLastAllowedProjectId(
+      lastAllowedProjectRef.current,
+      {
+        isAuthenticated,
+        currentProjectId: authState.currentProjectId,
+        accessIsCurrent: desktopAccessIsCurrent,
+        accessStatus: desktopAccess.status,
+      },
+    );
+  }, [
+    isAuthenticated,
+    authState.currentProjectId,
+    desktopAccessIsCurrent,
+    desktopAccess.status,
+  ]);
+  const isRevalidatingAccess =
+    desktopAccessIsCurrent &&
+    isBackgroundAccessRecheck(
+      lastAllowedProjectRef.current,
+      authState.currentProjectId,
+      desktopAccess.status,
+    );
+  const settledDesktopAccess = hasDesktopAccess || isRevalidatingAccess;
+  const switchError =
+    selectProjectMutation.isError || switchOrgMutation.isError
+      ? "Couldn't switch your selection. Try again."
+      : null;
   // Analytics init + dev inbox console moved to host CONTRIBUTIONs
   // (AnalyticsBootContribution / InboxDemoDevContribution), started by
   // boot at boot.
@@ -60,21 +113,25 @@ function App({ devToolbar }: AppProps) {
   // CONTRIBUTIONs (WorkspaceEventsContribution / FocusEventsContribution
   // / AgentEventsContribution), started by boot at boot.
 
-  const needsInviteCode =
-    isAuthenticated && hasCodeAccess === false && hasCompletedOnboarding;
+  const isBlockedByAccessPolicy =
+    isAuthenticated &&
+    desktopAccessIsCurrent &&
+    ["blocked", "error"].includes(desktopAccess.status);
   const authenticatedClient = useOptionalAuthenticatedClient();
-  const consent = useOrgConsent(isAuthenticated && hasCodeAccess === true);
+  const consent = useOrgConsent(isAuthenticated && settledDesktopAccess);
   const needsConsent =
     isAuthenticated &&
     hasCompletedOnboarding &&
-    hasCodeAccess === true &&
+    settledDesktopAccess &&
     consent.status === "resolved" &&
     !consent.satisfied;
   const isCheckingAccess =
     isAuthenticated &&
     hasCompletedOnboarding &&
-    (hasCodeAccess === null ||
-      (hasCodeAccess === true && consent.status === "loading"));
+    (!desktopAccessIsCurrent ||
+      (["unchecked", "checking"].includes(desktopAccess.status) &&
+        !isRevalidatingAccess) ||
+      (settledDesktopAccess && consent.status === "loading"));
   const { isAdmin: isOrgAdmin } = useIsOrgAdmin();
   const isAdmin = isOrgAdmin === true;
   useConsentAnalytics(
@@ -93,8 +150,7 @@ function App({ devToolbar }: AppProps) {
     isBootstrapped &&
     isAuthenticated &&
     hasCompletedOnboarding &&
-    !isCheckingAccess &&
-    !needsInviteCode &&
+    settledDesktopAccess &&
     consent.status === "resolved" &&
     consent.satisfied;
   const startupIdentity = getAuthIdentity(authState);
@@ -125,7 +181,7 @@ function App({ devToolbar }: AppProps) {
           spacesLayoutEnabledRef.current,
         );
         if (firstRun) {
-          showChannelList(firstRun.generalChannelId);
+          showChannelList({ keepForRoute: firstRun.generalChannelId });
           useSpaceTreeStore.getState().expandSpace(firstRun.generalChannelId);
         }
         router.history.replace(href);
@@ -160,6 +216,16 @@ function App({ devToolbar }: AppProps) {
   // Mirrors the "main" branch of renderContent() below; keep the two in sync.
   const showingMainApp = readyForMainApp && initialRouteLoaded;
   useAppVisibilityWatchdog(mainRef, showingMainApp);
+  useAppLoadingGateTelemetry(showingMainApp, {
+    isBootstrapped,
+    isCheckingAccess,
+    readyForMainApp,
+    initialRouteLoaded,
+    authStatus: authState.status,
+    desktopAccessStatus: desktopAccess.status,
+    desktopAccessIsCurrent,
+    consentStatus: consent.status,
+  });
 
   // Single gate for every state where the whole app is still loading.
   if (
@@ -170,9 +236,8 @@ function App({ devToolbar }: AppProps) {
     return <AppLoadingScreen />;
   }
 
-  // Rendering: onboarding (includes auth + invite code gate) → main app
   const renderContent = () => {
-    if (!hasCompletedOnboarding) {
+    if (!hasCompletedOnboarding && !isBlockedByAccessPolicy) {
       return (
         <motion.div
           key="onboarding"
@@ -194,14 +259,34 @@ function App({ devToolbar }: AppProps) {
       );
     }
 
-    if (needsInviteCode) {
+    if (isBlockedByAccessPolicy) {
       return (
         <motion.div
-          key="invite-code"
+          key="desktop-access"
           initial={{ opacity: 1 }}
           className="h-full"
         >
-          <InviteCodeScreen />
+          <DesktopAccessScreen
+            access={desktopAccess}
+            orgProjectsMap={authState.orgProjectsMap}
+            currentOrgId={authState.currentOrgId}
+            currentProjectId={authState.currentProjectId}
+            isSwitching={
+              selectProjectMutation.isPending || switchOrgMutation.isPending
+            }
+            isRetrying={retryDesktopAccessMutation.isPending}
+            isLoggingOut={logoutMutation.isPending}
+            switchError={switchError}
+            onSelectOrganization={(organizationId) =>
+              switchOrgMutation.mutate(organizationId)
+            }
+            onSelectProject={(projectId) =>
+              selectProjectMutation.mutate(projectId)
+            }
+            onRetry={() => retryDesktopAccessMutation.mutate()}
+            onLogout={() => logoutMutation.mutate()}
+            onOpenSupport={() => openExternalUrl(EXTERNAL_LINKS.talkToHuman)}
+          />
         </motion.div>
       );
     }

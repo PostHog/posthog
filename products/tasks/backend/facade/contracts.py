@@ -572,6 +572,7 @@ class TaskRunDetailDTO:
     created_at: datetime | None = None
     updated_at: datetime | None = None
     completed_at: datetime | None = None
+    preview_available: bool = False
 
 
 @dataclass(frozen=True)
@@ -625,6 +626,8 @@ class TaskRunSandboxConnectionDTO:
     sandbox_url: str | None
     sandbox_connect_token: str | None
     connection_token: str | None = None
+    # Query-param name the transport token travels under (provider-specific).
+    sandbox_token_param: str = "_modal_connect_token"
 
 
 @dataclass(frozen=True)
@@ -655,17 +658,26 @@ class WorkflowTaskDTO:
     created: bool
 
 
-@dataclass(frozen=True)
-class CodeInviteRedeemResult:
-    """Outcome of attempting to redeem a PostHog Desktop invite.
+@dataclass(frozen=True, kw_only=True)
+class WorkflowTaskSlackContext:
+    """The Slack thread whose message triggered the workflow run, so the task reports back there.
 
-    ``outcome`` is one of ``redeemed`` (or ``already_redeemed``), ``invalid_code``, or
-    ``not_redeemable``. The presentation layer maps it to the success/error HTTP response;
-    the ORM redemption, idempotency check, count increment, and analytics capture all
-    happen inside the facade so no model leaks across the boundary.
+    ``integration_id`` is the PostHog integration pk stamped on the trigger event;
+    ``slack_team_id`` is the Slack workspace id, kept as a fallback for re-resolving the
+    integration when the stamped pk is stale. ``slack_user_id`` is empty when a bot
+    posted the triggering message. ``message_ts`` is the triggering message itself,
+    which differs from ``thread_ts`` when a reply started the run.
+    ``is_ext_shared_channel`` comes from the Slack event envelope and decides whether the
+    channel needs an approval on file before a task may reply in it.
     """
 
-    outcome: str
+    integration_id: int
+    channel: str
+    thread_ts: str
+    message_ts: str = ""
+    slack_user_id: str = ""
+    slack_team_id: str = ""
+    is_ext_shared_channel: bool = False
 
 
 @dataclass(frozen=True)
@@ -707,6 +719,7 @@ class SandboxEnvironmentDTO:
     repositories: list[str] = Field(default_factory=list)
     effective_domains: list[str] = Field(default_factory=list)
     has_environment_variables: bool = False
+    environment_variable_keys: list[str] = Field(default_factory=list)
     created_by: TaskUserBasicInfo | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None

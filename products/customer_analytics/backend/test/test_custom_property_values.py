@@ -71,6 +71,7 @@ class TestSetCustomPropertyValue(BaseTest):
     @parameterized.expand(
         [
             ("text", DisplayType.TEXT, "enterprise", "value_str", "enterprise"),
+            ("link", DisplayType.LINK, "https://example.com/customer", "value_str", "https://example.com/customer"),
             ("number_int", DisplayType.NUMBER, 12, "value_num", 12.0),
             ("number_decimal", DisplayType.NUMBER, 9.99, "value_num", 9.99),
             ("number_string", DisplayType.NUMBER, "42", "value_num", 42.0),
@@ -123,6 +124,8 @@ class TestSetCustomPropertyValue(BaseTest):
             ("datetime_from_unparseable", DisplayType.DATETIME, "not a date"),
             ("datetime_from_number", DisplayType.DATETIME, 123),
             ("text_from_list", DisplayType.TEXT, ["nope"]),
+            ("link_with_unsafe_scheme", DisplayType.LINK, "javascript:alert(1)"),
+            ("link_without_url", DisplayType.LINK, "example.com"),
         ]
     )
     def test_rejects_values_that_do_not_match_the_type(self, _name, display_type, value):

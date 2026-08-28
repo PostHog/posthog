@@ -16,7 +16,7 @@ import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
-import { getFirstTeam, resetTestDatabase, updateOrganizationAvailableFeatures } from '~/tests/helpers/sql'
+import { createTestTeamFixture, updateOrganizationAvailableFeatures } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { GroupTypeIndex, TeamId } from '../../types'
@@ -45,7 +45,6 @@ describe('BatchExportHogFunctionService', () => {
 
     beforeAll(async () => {
         hub = await createHub({ SITE_URL: 'http://localhost:8000' })
-        team = await getFirstTeam(hub.postgres)
 
         api = new CdpApi(hub, createCdpConsumerDeps(hub), {
             hogQueue: createMockJobQueue(),
@@ -57,7 +56,7 @@ describe('BatchExportHogFunctionService', () => {
     })
 
     beforeEach(async () => {
-        await resetTestDatabase()
+        team = (await createTestTeamFixture(hub.postgres)).team
         mockFetch.mockClear()
 
         clickhouseEvent = {

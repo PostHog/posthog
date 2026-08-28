@@ -957,6 +957,37 @@ describe("buildConversationItems", () => {
         3,
       );
     });
+
+    it("still settles a tool call started before a mid-turn steer", () => {
+      const steerMsg: AcpMessage = {
+        type: "acp_message",
+        ts: 3,
+        message: {
+          jsonrpc: "2.0",
+          id: 99,
+          method: "session/prompt",
+          params: {
+            _meta: { steer: true },
+            prompt: [{ type: "text", text: "change course" }],
+          },
+        },
+      };
+      const events = [
+        userPromptMsg(1, 1, "go"),
+        toolCallMsg(2, "t1"),
+        steerMsg,
+        toolUpdateMsg(4, "t1", { status: "completed" }),
+      ];
+      const result = buildConversationItems(events, true);
+
+      expect(result.completedToolCallCount).toBe(1);
+      expect(
+        result.items.filter((item) => item.type === "session_update"),
+      ).toHaveLength(1);
+      expect(
+        result.items.filter((item) => item.type === "user_message"),
+      ).toHaveLength(2);
+    });
   });
 
   describe("lastActivityAt", () => {

@@ -59,6 +59,7 @@ rules:
                               |AccountChannelSummary
                               |AccountRelationship
                               |AccountRelationshipDefinition
+                              |AccountTrackRuleRun
                               |Action
                               |AgentApplication
                               |AgentArtifact
@@ -72,6 +73,7 @@ rules:
                               |AgentToolApprovalRequest
                               |AgentTransportBinding
                               |AgentUser
+                              |AIObservabilityChecklistItemState
                               |Alert
                               |AlertConfiguration
                               |Annotation
@@ -363,6 +365,8 @@ rules:
                               |UserRepoPreference
                               |VisionAction
                               |VisionActionRun
+                              |VisionAlertConfiguration
+                              |VisionAlertMatch
                               |WarehouseColumnAnnotation
                               |WarehouseColumnStatistics
                               |WebAnalyticsAchievementProgress
@@ -430,6 +434,7 @@ rules:
                         |AccountChannelSummary
                         |AccountRelationship
                         |AccountRelationshipDefinition
+                        |AccountTrackRuleRun
                         |Action
                         |AgentApplication
                         |AgentArtifact
@@ -443,6 +448,7 @@ rules:
                         |AgentToolApprovalRequest
                         |AgentTransportBinding
                         |AgentUser
+                        |AIObservabilityChecklistItemState
                         |Alert
                         |AlertConfiguration
                         |Annotation
@@ -727,6 +733,8 @@ rules:
                         |UserRepoPreference
                         |VisionAction
                         |VisionActionRun
+                        |VisionAlertConfiguration
+                        |VisionAlertMatch
                         |WarehouseColumnAnnotation
                         |WarehouseColumnStatistics
                         |WebAnalyticsAchievementProgress
@@ -832,6 +840,7 @@ rules:
                               |LegalDocument
                               |ManagedWarehouseSourceLifecycle
                               |OrganizationMembership
+                              |OrganizationMemberNotificationLock
                               |OrganizationDomain
                               |OrganizationIntegration
                               |OrganizationInvite
@@ -906,6 +915,7 @@ rules:
                         |LegalDocument
                         |ManagedWarehouseSourceLifecycle
                         |OrganizationMembership
+                        |OrganizationMemberNotificationLock
                         |OrganizationDomain
                         |OrganizationIntegration
                         |OrganizationInvite
@@ -1158,6 +1168,7 @@ rules:
                               |PersistedFolder
                               |Reminder
                               |SessionRecordingViewed
+                              |UserFacetSettings
                               |UserHomeSettings
                               |UserProductList
                               |UserScenePersonalisation
@@ -1231,6 +1242,7 @@ rules:
                         |PersistedFolder
                         |Reminder
                         |SessionRecordingViewed
+                        |UserFacetSettings
                         |UserHomeSettings
                         |UserProductList
                         |UserScenePersonalisation

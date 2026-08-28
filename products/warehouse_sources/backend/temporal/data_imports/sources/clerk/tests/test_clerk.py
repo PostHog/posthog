@@ -520,6 +520,12 @@ class TestClerkFeatureGatedEndpoints:
             ("commerce_plans", 403, {"errors": [{"code": "feature_not_enabled"}]}),
             # Restrictions off: the allow-list endpoint answers 404 resource_not_found, not a 4xx code.
             ("allowlist_identifiers", 404, {"errors": [{"code": "resource_not_found"}]}),
+            # OAuth applications off: the list endpoint answers the same 404 resource_not_found.
+            ("oauth_applications", 404, {"errors": [{"code": "resource_not_found"}]}),
+            # Domains feature off: the list endpoint answers the same 404 resource_not_found.
+            ("domains", 404, {"errors": [{"code": "resource_not_found"}]}),
+            # Organizations off: the invitations list answers the same 404 resource_not_found.
+            ("organization_invitations", 404, {"errors": [{"code": "resource_not_found"}]}),
         ],
     )
     def test_feature_not_enabled_syncs_no_rows_instead_of_failing(

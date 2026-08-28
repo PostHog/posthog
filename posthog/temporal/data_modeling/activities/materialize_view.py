@@ -160,6 +160,19 @@ def _resolve_write_plan(saved_query: DataWarehouseSavedQuery, team_id: int) -> W
     )
 
 
+def _is_s3_permission_denied(error: BaseException) -> bool:
+    """True for an S3 access-denied error on our own bucket, from either client this pipeline uses.
+
+    `s3fs`/aiobotocore (used by `CDPProducer._list_files_to_produce`) maps an AccessDenied response
+    onto the builtin `PermissionError`. pyarrow's `S3FileSystem` (used by `stage_chunk`'s parquet
+    write) doesn't set an errno for it, so the same AWS error surfaces as a plain `OSError` with the
+    AWS error code embedded in the message instead.
+    """
+    if isinstance(error, PermissionError):
+        return True
+    return isinstance(error, OSError) and "ACCESS_DENIED" in str(error)
+
+
 class _CDPRowSink:
     """Stages the rows a run wrote so CDP destinations and workflows subscribed to the view can act
     on them.
@@ -195,7 +208,11 @@ class _CDPRowSink:
             await self._producer.stage_chunk(self._chunk, batch)
             self._chunk += 1
         except Exception as e:
-            capture_exception(e)
+            # A missing write grant on the cdp_producer/ prefix is the same anticipated
+            # provisioning gap `_list_files_to_produce` already tolerates quietly for reads (see its
+            # `except PermissionError` branch) — not a bug worth paging on.
+            if not _is_s3_permission_denied(e):
+                capture_exception(e)
             await self._logger.awarning(f"Failed to stage rows for CDP; discarding this run's staged rows: {e}")
             self.enabled = False
             await self.discard()

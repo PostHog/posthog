@@ -395,6 +395,21 @@ export interface HeatmapPrewarmRequestApi {
     block_consent_modals?: boolean
 }
 
+export interface LlmsTxtFetchRequestApi {
+    /**
+     * Public HTTP or HTTPS URL of the llms.txt file to load.
+     * @maxLength 2048
+     */
+    url: string
+}
+
+export interface LlmsTxtFetchResponseApi {
+    /** UTF-8 contents of the fetched llms.txt file. */
+    content: string
+    /** Final public URL after redirects. */
+    url: string
+}
+
 /**
  * * `Up` - Up
  * * `Down` - Down

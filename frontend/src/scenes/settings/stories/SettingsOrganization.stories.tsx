@@ -35,6 +35,36 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                 },
                 '/api/projects/:id/integrations': { results: [] },
                 '/api/organizations/:id/integrations': { results: [] },
+                // One member with a rule already saved and one without, so the member
+                // notifications section renders both states of the control.
+                '/api/organizations/:id/notification_locks/': [
+                    {
+                        user_id: 1,
+                        uuid: '0198aaaa-0000-4000-8000-000000000001',
+                        first_name: 'Ada',
+                        last_name: 'Kowalski',
+                        email: 'ada@example.com',
+                        organization_membership_level: 1,
+                        editable: true,
+                        locks: [
+                            {
+                                setting: 'pipeline_notifications_disabled',
+                                scope_id: String(MOCK_DEFAULT_TEAM.id),
+                                locked_value: false,
+                            },
+                        ],
+                    },
+                    {
+                        user_id: 2,
+                        uuid: '0198aaaa-0000-4000-8000-000000000002',
+                        first_name: 'Grace',
+                        last_name: 'Osei',
+                        email: 'grace@example.com',
+                        organization_membership_level: 15,
+                        editable: false,
+                        locks: [],
+                    },
+                ],
                 '/api/environments/:team_id/conversations/': { results: [] },
                 '/api/user_home_settings/@me/': {},
                 '/api/organizations/:organization_id/proxy_records': {
