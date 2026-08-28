@@ -81,6 +81,7 @@ _FIRST_SESSION_AT = "first_session_at"
 # the breakdown value is read off.
 _COHORT_AT = "cohort_at"
 _ACTIVITY_INDEX = "activity_index"
+_ACTIVITY_LAST_AT = "activity_last_at"
 _COHORT_INDEX = "cohort_index"
 _COHORT_SIZE = "cohort_size"
 _INTERVALS_FROM_BASE = "intervals_from_base"
@@ -383,6 +384,13 @@ class MarketingAnalyticsRetentionQueryRunner(
                     alias=_ACTIVITY_INDEX,
                     expr=self._interval_index_expr(ast.Field(chain=["events", "timestamp"])),
                 ),
+                # The bucket index alone can't order an activity against the acquisition inside the same
+                # bucket, and the matrix has to reject a return that came first. The latest one is the
+                # one that decides it: if even that precedes acquisition, none of them followed it.
+                ast.Alias(
+                    alias=_ACTIVITY_LAST_AT,
+                    expr=ast.Call(name="max", args=[ast.Field(chain=["events", "timestamp"])]),
+                ),
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(
@@ -458,6 +466,16 @@ class MarketingAnalyticsRetentionQueryRunner(
                         constraint_type="ON",
                     ),
                 ),
+            ),
+            # Per activity row, so it can't go in the `having` below. Only period 0 can hold an activity
+            # older than the acquisition it is counted against, because any later bucket starts after the
+            # acquiring session does. Dropping those keeps period 0 meaning "came back in the period they
+            # arrived" rather than "was seen in that period at all". The acquiring pageview itself sits at
+            # `cohort_at`, so the default any-pageview column still reads 100%.
+            where=ast.CompareOperation(
+                left=ast.Field(chain=[_ACTIVITY_CTE, _ACTIVITY_LAST_AT]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Field(chain=[_ACQUISITION_CTE, _COHORT_AT]),
             ),
             group_by=[
                 ast.Field(chain=[_ACQUISITION_CTE, _BREAKDOWN_VALUE]),

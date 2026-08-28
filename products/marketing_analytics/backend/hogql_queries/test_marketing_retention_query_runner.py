@@ -437,6 +437,38 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(response.results[0].cohortSize, 1)
         self.assertEqual([cell.count for cell in response.results[0].values], [0, 0, 0, 0])
 
+    def test_a_conversion_before_acquisition_does_not_count(self):
+        # Period 0 means "converted in the period they arrived", so a conversion that predates the
+        # acquiring click must not fill it. Excluding direct traffic is what lets the two separate: the
+        # Monday session stops being a touchpoint, so acquisition moves to Wednesday's google click while
+        # Tuesday's purchase stays put, and both still land in the same week bucket.
+        self._configure_goal()
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", "2023-01-02T12:00:00Z")
+        _create_event(team=self.team, event="purchase", distinct_id="p1", timestamp="2023-01-03T12:00:00Z")
+        self._session("p1", "2023-01-04T12:00:00Z", utm_source="google")
+
+        response = self._run(return_goal_id="goal-1", exclude_direct=True)
+
+        row = next(r for r in response.results if r.breakdownValue == "google")
+        self.assertEqual(row.cohortSize, 1)
+        self.assertEqual([cell.count for cell in row.values], [0, 0, 0, 0])
+
+    def test_a_conversion_after_acquisition_still_counts_in_period_zero(self):
+        # The guard above must not cost the ordinary journey. Same shape, with the purchase moved after
+        # the acquiring click instead of before it.
+        self._configure_goal()
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", "2023-01-02T12:00:00Z")
+        self._session("p1", "2023-01-04T12:00:00Z", utm_source="google")
+        _create_event(team=self.team, event="purchase", distinct_id="p1", timestamp="2023-01-05T12:00:00Z")
+
+        response = self._run(return_goal_id="goal-1", exclude_direct=True)
+
+        row = next(r for r in response.results if r.breakdownValue == "google")
+        self.assertEqual(row.cohortSize, 1)
+        self.assertEqual([cell.count for cell in row.values], [1, 0, 0, 0])
+
     def test_an_unknown_return_goal_is_rejected(self):
         self._configure_goal()
         create_person(team=self.team, distinct_ids=["p1"])
