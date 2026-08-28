@@ -175,9 +175,10 @@ def merge_issues(
     # built from a merged-in fingerprint would retarget if that fingerprint is
     # later split back out.
     fingerprint_before_merge = issue_fingerprint_for_links(issue)
-    result = issue.merge(issue_ids=ids)
+    result, merged_issue_ids = issue.merge(issue_ids=ids)
 
     if result == ErrorTrackingIssueMergeResult.MERGED:
+        merged_id_strings = [str(merged_issue_id) for merged_issue_id in merged_issue_ids]
         log_activity(
             organization_id=issue.team.organization_id,
             team_id=team_id,
@@ -189,18 +190,18 @@ def merge_issues(
             detail=Detail(
                 name=issue.name,
                 changes=[
-                    Change(type="ErrorTrackingIssue", field="merged_issue_ids", after=ids, action="merged"),
+                    Change(
+                        type="ErrorTrackingIssue", field="merged_issue_ids", after=merged_id_strings, action="merged"
+                    ),
                 ],
             ),
         )
-        # `ids` are the requested sources; a source that vanished mid-merge may still be
-        # listed here, which is harmless for consumers reacting to merged-away issues.
         produce_issue_lifecycle_event_on_commit(
             event=ISSUE_MERGED_EVENT,
             issue=issue,
             user=user,
             fingerprint=fingerprint_before_merge,
-            extra_properties={"merged_issue_ids": ids},
+            extra_properties={"merged_issue_ids": merged_id_strings},
         )
 
     return result
