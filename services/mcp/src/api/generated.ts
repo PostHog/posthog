@@ -44691,20 +44691,54 @@ export namespace Schemas {
       results: MCPToolQualityRowItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
+      /** Number of tools matching the date, category, and search filters. */
+      totalCount: number;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
+    export type MCPToolQualitySortColumn = typeof MCPToolQualitySortColumn[keyof typeof MCPToolQualitySortColumn];
+
+
+    export const MCPToolQualitySortColumn = {
+      TotalCalls: 'total_calls',
+      ErrorRatePct: 'error_rate_pct',
+      P50DurationMs: 'p50_duration_ms',
+      P95DurationMs: 'p95_duration_ms',
+      P99DurationMs: 'p99_duration_ms',
+      Users: 'users',
+      Sessions: 'sessions',
+      LastSeen: 'last_seen',
+    } as const;
+
+    export type MCPToolQualitySortDirection = typeof MCPToolQualitySortDirection[keyof typeof MCPToolQualitySortDirection];
+
+
+    export const MCPToolQualitySortDirection = {
+      Asc: 'ASC',
+      Desc: 'DESC',
+    } as const;
+
     export interface MCPToolQualityRowsQuery {
       /** Restrict to these $mcp_tool_category values; empty or omitted means all categories. */
       categories?: string[] | null;
       dateRange?: DateRange | null;
       kind?: 'MCPToolQualityRowsQuery';
+      /** Page size. The server defaults to 50 and caps this at 100. */
+      limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Number of matching tools to skip. */
+      offset?: number | null;
       response?: MCPToolQualityRowsQueryResponse | null;
+      /** Case-insensitive substring search on the effective tool name. */
+      search?: string | null;
+      /** Aggregate column used to order tools. Defaults to total_calls. */
+      sortColumn?: MCPToolQualitySortColumn | null;
+      /** Sort direction. Defaults to DESC. */
+      sortDirection?: MCPToolQualitySortDirection | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -46619,7 +46653,7 @@ export namespace Schemas {
          */
       name: string;
       /**
-         * What this skill does and when to use it. Max 4096 characters.
+         * What this skill does and when to use it.
          * @maxLength 4096
          */
       description: string;
@@ -46701,8 +46735,8 @@ export namespace Schemas {
          */
       name: string;
       /**
-         * What this skill does and when to use it. Max 4096 characters.
-         * @maxLength 4096
+         * What this skill does and when to use it. Max 1024 characters.
+         * @maxLength 1024
          */
       description: string;
       /** Total length of the full body in characters, independent of any body_offset/body_length paging. Compare against the length of the returned body to detect a truncated response. */
@@ -46847,7 +46881,7 @@ export namespace Schemas {
          */
       name: string;
       /**
-         * What this skill does and when to use it. Max 4096 characters.
+         * What this skill does and when to use it.
          * @maxLength 4096
          */
       description: string;
@@ -58490,39 +58524,10 @@ export namespace Schemas {
       results: User[];
     }
 
-    /**
-     * * `default` - Default
-     * * `onboarding` - Onboarding
-     * * `product_intent` - Product Intent
-     * * `used_by_colleagues` - Used by Colleagues
-     * * `used_similar_products` - Used Similar Products
-     * * `used_on_separate_team` - Used on Separate Team
-     * * `new_product` - New Product
-     * * `sales_led` - Sales Led
-     * * `onboarding_delegated` - Onboarding Delegated
-     */
-    export type UserProductListReasonEnum = typeof UserProductListReasonEnum[keyof typeof UserProductListReasonEnum];
-
-
-    export const UserProductListReasonEnum = {
-      Default: 'default',
-      Onboarding: 'onboarding',
-      ProductIntent: 'product_intent',
-      UsedByColleagues: 'used_by_colleagues',
-      UsedSimilarProducts: 'used_similar_products',
-      UsedOnSeparateTeam: 'used_on_separate_team',
-      NewProduct: 'new_product',
-      SalesLed: 'sales_led',
-      OnboardingDelegated: 'onboarding_delegated',
-    } as const;
-
     export interface UserProductList {
       readonly id: string;
       readonly product_path: string;
       enabled?: boolean;
-      readonly reason: UserProductListReasonEnum | null;
-      /** @nullable */
-      readonly reason_text: string | null;
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
@@ -62893,7 +62898,7 @@ export namespace Schemas {
       edits?: LLMSkillEditOperation[];
       /**
          * Updated description for the new version.
-         * @maxLength 4096
+         * @maxLength 1024
          */
       description?: string;
       /**
@@ -67325,9 +67330,6 @@ export namespace Schemas {
       readonly id?: string;
       readonly product_path?: string;
       enabled?: boolean;
-      readonly reason?: UserProductListReasonEnum | null;
-      /** @nullable */
-      readonly reason_text?: string | null;
       readonly created_at?: string;
       /** @nullable */
       readonly updated_at?: string | null;
@@ -73029,6 +73031,8 @@ export namespace Schemas {
       results: MCPToolQualityRowItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
+      /** Number of tools matching the date, category, and search filters. */
+      totalCount: number;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
@@ -75468,7 +75472,7 @@ export namespace Schemas {
       name: string;
       /**
          * Short description of the signal or behavior this scout investigates.
-         * @maxLength 4096
+         * @maxLength 1024
          */
       description: string;
       /** Complete markdown prompt executed on every scout run. Include any project-specific signal names, thresholds, investigation steps, and report criteria here. */
@@ -76619,7 +76623,7 @@ export namespace Schemas {
       name: string;
       /**
          * Short description of the signal or behavior this scout investigates.
-         * @maxLength 4096
+         * @maxLength 1024
          */
       description: string;
       /** Complete markdown prompt executed on every scout run. Include any project-specific signal names, thresholds, investigation steps, and report criteria here. */

@@ -23,14 +23,16 @@ from django.db.models import Q
 from posthog.models.organization import Organization
 from posthog.models.product_intent.product_intent import ACTIVATION_CHECK_PRODUCT_KEYS, ProductIntent
 from posthog.models.project import Project
+from posthog.products import Products
 from posthog.schema_enums import ProductKey
 
 from products.growth.backend.models import ProductPushCampaign
 from products.growth.backend.product_push.cadence import is_retry_eligible
 
 # The order in which we push products to organizations that don't use them yet.
-# Seeded from the cross-sell BASE_PREFERENCE_WEIGHTS ranking (see
-# cross_sell_candidate_selector.py); extend as growth adds products to the program.
+# Seeded from the preference weights of the retired cross-sell suggester, whose
+# ranking came from https://us.posthog.com/project/2/notebooks/x3AWOfsm
+# Extend as growth adds products to the program.
 BLESSED_PRODUCT_ORDER: list[ProductKey] = [
     ProductKey.PRODUCT_ANALYTICS,
     ProductKey.WEB_ANALYTICS,
@@ -78,6 +80,24 @@ PUSH_PRODUCT_PATHS: dict[ProductKey, str] = {
     ProductKey.LOGS: "Logs",
     ProductKey.WORKFLOWS: "Workflows",
 }
+
+
+def resolve_product_path(product_key: str) -> str | None:
+    """Catalog path for a pushed product, or None when the key maps to no catalog item.
+
+    Curated mapping first — intent→product inference is ambiguous for several keys
+    (see PUSH_PRODUCT_PATHS). The inference fallback covers TAM-scheduled keys
+    outside the push lists.
+    """
+    try:
+        key = ProductKey(product_key)
+    except ValueError:
+        return None
+    curated_path = PUSH_PRODUCT_PATHS.get(key)
+    if curated_path is not None:
+        return curated_path
+    products = Products.get_products_by_intent(key)
+    return products[0].path if products else None
 
 
 @dataclass(frozen=True)

@@ -23,8 +23,9 @@ import yaml
 
 from .git_smart_http import FileTree
 
-# Spec caps (https://agentskills.io/specification). Description is 1024 in the spec
-# but stored at 4096 today — export validates rather than silently truncating.
+# Spec caps (https://agentskills.io/specification). New writes cap description at 1024, but the
+# DB column holds 4096, so legacy rows can still exceed the spec — export validates rather than
+# silently truncating.
 SPEC_DESCRIPTION_MAX_LENGTH = 1024
 
 # A skill bundle is unpacked into a harness's skill directory, and every skill in it costs prompt
