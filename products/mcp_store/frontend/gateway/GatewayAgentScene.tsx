@@ -19,6 +19,7 @@ import {
     AgentGrantScopeControl,
     DecisionTag,
     RemoveAllSharesButton,
+    agentShareDisabledReason,
     credentialOwnerLabel,
     sharedByOthersLabel,
 } from './gatewayUtils'
@@ -402,28 +403,6 @@ function ServerAccessRow({
             />
         </div>
     )
-}
-
-function agentShareDisabledReason(server: MCPGatewayServerApi): string | undefined {
-    if (!server.is_team_enabled) {
-        return 'Turn this server on for the team before sharing it with an agent.'
-    }
-    if (server.is_revoked_for_you) {
-        return 'Ask an admin to restore your access before sharing this server.'
-    }
-    if (!server.your_connection) {
-        return 'Connect this server before sharing it with an agent.'
-    }
-    if (server.your_connection.pending_oauth) {
-        return 'Finish connecting this server before sharing it with an agent.'
-    }
-    if (server.your_connection.needs_reauth) {
-        return 'Reconnect this server before sharing it with an agent.'
-    }
-    if (!server.your_connection.is_enabled) {
-        return 'Turn your connection on before sharing this server with an agent.'
-    }
-    return undefined
 }
 
 function agentConnectionStatus(state: ConnectionStateEnumApi): { label: string; detail: string } {

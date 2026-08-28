@@ -757,6 +757,42 @@ describe('mcpGatewayLogic', () => {
         expect(logic.values.newServiceAccountModalOpen).toBe(false)
     })
 
+    it('shares the selected connectors with a team scope when creating a service account', async () => {
+        const created: MCPServiceAccountApi = {
+            id: 'new-account-id',
+            name: 'SRE',
+            description: '',
+            handle: 'agent-sre',
+            agent_key: null,
+            kind: 'custom',
+            status: 'active',
+            server_ids: [],
+            servers: [],
+            last_active_at: null,
+            created_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-01-01T00:00:00Z',
+        }
+        mockServiceAccountsCreate.mockResolvedValue(created)
+        mockServiceAccountAccess.mockResolvedValue(serviceAccountWithShare('team'))
+        logic.actions.openNewServiceAccountModal()
+        logic.actions.setNewServiceAccountFormValue('serverIds', ['server-a', 'server-b'])
+
+        await expectLogic(logic, () => {
+            logic.actions.createServiceAccount('SRE', '')
+        }).toFinishAllListeners()
+
+        expect(mockServiceAccountAccess).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'new-account-id', {
+            gateway_server_id: 'server-a',
+            enabled: true,
+            scope: 'team',
+        })
+        expect(mockServiceAccountAccess).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'new-account-id', {
+            gateway_server_id: 'server-b',
+            enabled: true,
+            scope: 'team',
+        })
+    })
+
     it('removes a deleted service account from the list', async () => {
         mockServiceAccountsList.mockResolvedValue({ count: 1, results: [serviceAccount()] })
         logic.actions.loadServiceAccounts()

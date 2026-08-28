@@ -59,9 +59,10 @@ import {
 export interface NewServiceAccountFormValues {
     name: string
     description: string
+    serverIds: string[]
 }
 
-const NEW_SERVICE_ACCOUNT_DEFAULTS: NewServiceAccountFormValues = { name: '', description: '' }
+const NEW_SERVICE_ACCOUNT_DEFAULTS: NewServiceAccountFormValues = { name: '', description: '', serverIds: [] }
 
 export const GATEWAY_CATEGORY_LABELS: Record<string, string> = {
     business: 'Business operations',
@@ -561,11 +562,11 @@ export interface mcpGatewayLogicActions {
         membersOffset: number
     }
     setNewServiceAccountFormValue: (
-        field: 'description' | 'name',
-        value: string
+        field: keyof NewServiceAccountFormValues,
+        value: NewServiceAccountFormValues[keyof NewServiceAccountFormValues]
     ) => {
-        field: 'description' | 'name'
-        value: string
+        field: keyof NewServiceAccountFormValues
+        value: string | string[]
     }
     setSearchQuery: (query: string) => {
         query: string
@@ -640,7 +641,7 @@ export interface mcpGatewayLogicMeta {
         currentUserId: (user: UserType | null) => number | null
         addServerSubmitDisabledReason: (addServerForm: GatewayAddServerValues, addingServer: boolean) => string | null
         newServiceAccountSubmitDisabledReason: (
-            newServiceAccountForm: any,
+            newServiceAccountForm: NewServiceAccountFormValues,
             creatingServiceAccount: boolean
         ) => string | null
         isAdmin: (config: TeamMCPGatewayConfigApi | null) => boolean
@@ -715,7 +716,10 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
         submitAddServer: true,
         openNewServiceAccountModal: true,
         closeNewServiceAccountModal: true,
-        setNewServiceAccountFormValue: (field: 'name' | 'description', value: string) => ({ field, value }),
+        setNewServiceAccountFormValue: (
+            field: keyof NewServiceAccountFormValues,
+            value: NewServiceAccountFormValues[keyof NewServiceAccountFormValues]
+        ) => ({ field, value }),
         submitAddServerStarted: true,
         submitAddServerComplete: true,
         setSearchQuery: (query: string) => ({ query }),
@@ -1611,8 +1615,35 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
             try {
                 const created = await mcpGatewayServiceAccountsCreate(currentProjectId(), { name, description })
                 actions.loadServiceAccountsSuccess([...values.serviceAccounts, created])
+                const serverIds = values.newServiceAccountForm.serverIds
+                let failedCount = 0
+                if (serverIds.length > 0) {
+                    const results = await Promise.allSettled(
+                        serverIds.map((serverId) =>
+                            mcpGatewayServiceAccountsAccessCreate(currentProjectId(), created.id, {
+                                gateway_server_id: serverId,
+                                enabled: true,
+                                scope: 'team',
+                            })
+                        )
+                    )
+                    failedCount = results.filter((result) => result.status === 'rejected').length
+                    actions.loadServiceAccounts()
+                    actions.loadServers()
+                }
                 actions.createServiceAccountSuccess()
-                lemonToast.success(`${created.name} created`)
+                const sharedCount = serverIds.length - failedCount
+                if (failedCount > 0) {
+                    lemonToast.warning(
+                        `${created.name} created and shared with ${sharedCount} of ${serverIds.length} selected connectors. Share the rest from its page.`
+                    )
+                } else {
+                    lemonToast.success(
+                        sharedCount > 0
+                            ? `${created.name} created and shared with ${sharedCount} connector${sharedCount === 1 ? '' : 's'}`
+                            : `${created.name} created`
+                    )
+                }
             } catch (error: unknown) {
                 lemonToast.error(errorDetail(error) ?? 'Could not create the service account')
             } finally {

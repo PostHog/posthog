@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonInput, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { agentShareDisabledReason } from './gatewayUtils'
 import { mcpGatewayLogic } from './mcpGatewayLogic'
 
 export function NewServiceAccountModal(): JSX.Element | null {
@@ -12,9 +13,21 @@ export function NewServiceAccountModal(): JSX.Element | null {
         newServiceAccountForm,
         newServiceAccountSubmitDisabledReason,
         creatingServiceAccount,
+        servers,
+        serversLoading,
     } = useValues(mcpGatewayLogic)
     const { closeNewServiceAccountModal, setNewServiceAccountFormValue, createServiceAccount } =
         useActions(mcpGatewayLogic)
+
+    const shareableServers = servers.filter((server) => !agentShareDisabledReason(server))
+    const setServerSelected = (serverId: string, selected: boolean): void => {
+        setNewServiceAccountFormValue(
+            'serverIds',
+            selected
+                ? [...newServiceAccountForm.serverIds, serverId]
+                : newServiceAccountForm.serverIds.filter((candidate) => candidate !== serverId)
+        )
+    }
 
     if (!newServiceAccountModalOpen) {
         return null
@@ -86,6 +99,30 @@ export function NewServiceAccountModal(): JSX.Element | null {
                         placeholder="What this service account is for"
                         minRows={2}
                     />
+                </LemonField.Pure>
+
+                <LemonField.Pure
+                    label="Connectors (optional)"
+                    help="Only servers you're connected to can be shared. Share more from the account's page later."
+                >
+                    <div className="flex flex-col gap-2 rounded border p-3">
+                        {serversLoading ? (
+                            <span className="text-sm text-secondary">Loading connectors…</span>
+                        ) : shareableServers.length === 0 ? (
+                            <span className="text-sm text-secondary">
+                                Connect a server first, then come back to share it with this account.
+                            </span>
+                        ) : (
+                            shareableServers.map((server) => (
+                                <LemonCheckbox
+                                    key={server.id}
+                                    checked={newServiceAccountForm.serverIds.includes(server.id)}
+                                    onChange={(checked) => setServerSelected(server.id, checked)}
+                                    label={server.name}
+                                />
+                            ))
+                        )}
+                    </div>
                 </LemonField.Pure>
             </form>
         </LemonModal>

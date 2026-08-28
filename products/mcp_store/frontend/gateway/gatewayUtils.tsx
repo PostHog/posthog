@@ -5,8 +5,37 @@ import { LemonBadge, LemonButton, LemonDialog, LemonSegmentedButton, LemonTag } 
 
 import { fullName } from 'lib/utils/strings'
 
-import { MCPAgentGrantScopeEnumApi, MCPToolApprovalStateEnumApi, UserBasicApi } from '../generated/api.schemas'
+import {
+    MCPAgentGrantScopeEnumApi,
+    MCPGatewayServerApi,
+    MCPToolApprovalStateEnumApi,
+    UserBasicApi,
+} from '../generated/api.schemas'
 import { AgentServerShare, agentServerAccessKey, mcpGatewayLogic } from './mcpGatewayLogic'
+
+/** Whether the current user can hand their own connection to this server to an agent:
+ * the server must be on for the team, and their connection ready and turned on. */
+export function agentShareDisabledReason(server: MCPGatewayServerApi): string | undefined {
+    if (!server.is_team_enabled) {
+        return 'Turn this server on for the team before sharing it with an agent.'
+    }
+    if (server.is_revoked_for_you) {
+        return 'Ask an admin to restore your access before sharing this server.'
+    }
+    if (!server.your_connection) {
+        return 'Connect this server before sharing it with an agent.'
+    }
+    if (server.your_connection.pending_oauth) {
+        return 'Finish connecting this server before sharing it with an agent.'
+    }
+    if (server.your_connection.needs_reauth) {
+        return 'Reconnect this server before sharing it with an agent.'
+    }
+    if (!server.your_connection.is_enabled) {
+        return 'Turn your connection on before sharing this server with an agent.'
+    }
+    return undefined
+}
 
 /** ProfilePicture wants a UserBasicType-ish shape; the generated UserBasicApi's
  * `hedgehog_config` type isn't assignable, so pass the fields it actually reads. */
