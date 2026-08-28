@@ -382,6 +382,21 @@ describe("WorkspaceService", () => {
     });
   });
 
+  describe("getAllWorkspaces", () => {
+    it("returns nothing without touching the db when it is not initialized", async () => {
+      mocks.workspaceRepo.create({
+        taskId: "cloud-task",
+        repositoryId: "remote-repo",
+        mode: "cloud",
+      });
+      vi.mocked(mocks.databaseService.isInitialized).mockReturnValue(false);
+      const findAll = vi.spyOn(mocks.workspaceRepo, "findAll");
+
+      expect(await service.getAllWorkspaces()).toEqual({});
+      expect(findAll).not.toHaveBeenCalled();
+    });
+  });
+
   describe("branch watcher wiring", () => {
     it("subscribes to each upstream source exactly once", () => {
       service.initBranchWatcher();

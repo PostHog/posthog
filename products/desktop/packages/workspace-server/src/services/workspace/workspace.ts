@@ -1260,6 +1260,11 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
   }
 
   async getAllWorkspaces(): Promise<Record<string, Workspace>> {
+    // Callers reach this during the startup/teardown window when the DB is
+    // closed or not yet initialized. Return nothing instead of letting the
+    // synchronous repo read throw a raw "Database not initialized" error.
+    if (!this.databaseService.isInitialized()) return {};
+
     const associations = this.getAllTaskAssociations();
     const dbRows = this.workspaceRepo.findAll();
     const linkedBranchByTaskId = new Map(

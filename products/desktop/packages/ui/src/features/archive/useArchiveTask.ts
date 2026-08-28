@@ -99,8 +99,14 @@ function makeOrchestrationDeps(
   const hostClient = resolveService<HostTrpcClient>(HOST_TRPC_CLIENT);
   return {
     async getWorkspace(taskId) {
-      const all = await hostClient.workspace.getAll.query();
-      return all[taskId] ?? null;
+      // Best-effort: the workspace only feeds downstream cleanup, so a failed
+      // read must not block the archive. The host can be mid startup/teardown.
+      try {
+        const all = await hostClient.workspace.getAll.query();
+        return all[taskId] ?? null;
+      } catch {
+        return null;
+      }
     },
     getPinnedTaskIds: () => pinnedTasksApi.getPinnedTaskIds(),
     unpin: (taskId) => pinnedTasksApi.unpin(taskId),
