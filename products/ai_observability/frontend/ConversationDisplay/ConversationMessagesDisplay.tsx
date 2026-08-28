@@ -23,6 +23,7 @@ import { containsSearchQuery } from '../searchUtils'
 import type { GenerationSentiment } from '../sentimentResults'
 import { CompatMessage, MultiModalContentItem, VercelSDKImageMessage } from '../types'
 import {
+    describeStopReason,
     getGeminiInlineData,
     hasStringContentField,
     isAnthropicDocumentMessage,
@@ -88,34 +89,6 @@ function tokenCountOf(value: unknown): number | null {
 function billedTokenCount(value: unknown): number | null {
     const count = tokenCountOf(value)
     return count !== null && count > 0 ? count : null
-}
-
-// Stop reasons that explain an empty output. Each provider spells the same outcome its own way, and
-// the OTel middlewares pass the value through verbatim. `max_tokens`, `MAX_TOKENS`, and `length` all
-// mean the response ran out of room, so match a normalized set rather than one literal.
-const TRUNCATED_STOP_REASONS = new Set(['max_tokens', 'max_output_tokens', 'length', 'model_length'])
-const BLOCKED_STOP_REASONS = new Set([
-    'prohibited_content',
-    'content_filter',
-    'content_filtered',
-    'safety',
-    'recitation',
-    'blocklist',
-])
-
-function describeStopReason(value: unknown): string | null {
-    if (typeof value !== 'string') {
-        return null
-    }
-    // The Vercel AI SDK hyphenates its values, so `content-filter` has to reach the same entry.
-    const normalized = value.trim().toLowerCase().replace(/-/g, '_')
-    if (TRUNCATED_STOP_REASONS.has(normalized)) {
-        return 'The response hit its token limit.'
-    }
-    if (BLOCKED_STOP_REASONS.has(normalized)) {
-        return 'The provider blocked the response.'
-    }
-    return null
 }
 
 // Explains a generation that rendered no content. `$ai_stop_reason` is the provider's own account of
