@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheckCircle, IconClock, IconRefresh, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconCheckCircle, IconClock, IconWarning } from '@posthog/icons'
+import { LemonBanner, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { dataColorVars } from 'lib/colors'
 import { ExplorerHog } from 'lib/components/hedgehogs'
@@ -17,7 +17,7 @@ import { formatNumber } from '../dashboard/formatters'
 import { HarnessLogo } from '../dashboard/harness'
 import type { MCPIntentThemeApi } from '../generated/api.schemas'
 import { METRICS_UNLOCK_LIFETIME_CALLS, mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
-import { MCP_ACTIVITY_DATA_COLLECTION_ID, MCP_ACTIVITY_MAX_ROWS } from './mcpActivityQuery'
+import { MCP_ACTIVITY_DATA_COLLECTION_ID, MCP_ACTIVITY_INTENT_COLUMN, MCP_ACTIVITY_MAX_ROWS } from './mcpActivityQuery'
 import type { ChecklistItem } from './mcpEarlyDataLogic'
 import { mcpEarlyDataLogic } from './mcpEarlyDataLogic'
 
@@ -52,52 +52,37 @@ export function MCPAnalyticsActivityDashboard(): JSX.Element {
 
 function SummaryCard(): JSX.Element {
     const { signals, dashboardStage } = useValues(mcpAnalyticsOnboardingLogic)
-    const { summary, isRefreshing } = useValues(mcpEarlyDataLogic)
-    const { refreshAll } = useActions(mcpEarlyDataLogic)
+    const { summary } = useValues(mcpEarlyDataLogic)
 
     return (
-        // Same accent gradient as the first-look hero, so the product's intro
-        // surfaces share a visual identity across stages.
-        <Card className="bg-gradient-to-br from-accent/15 via-accent/5 to-surface-primary">
-            <div className="flex items-center justify-between gap-4 flex-wrap">
-                <div className="flex items-center gap-4 min-w-0">
-                    <ExplorerHog className="h-20 w-20 shrink-0 hidden sm:block" />
-                    <div className="min-w-0">
-                        <h3 className="text-xl font-semibold m-0">
-                            {summary}
-                            {/* Omitted on day one — "since today" is noise. */}
-                            {signals?.firstCallAt && !dayjs(signals.firstCallAt).isSame(dayjs(), 'day') ? (
-                                <span className="text-muted font-normal">
-                                    {' '}
-                                    since {dayjs(signals.firstCallAt).format('MMM D')}
-                                </span>
-                            ) : null}
-                        </h3>
-                        <p className="text-muted text-base m-0 mt-1">
-                            This view fills in live as agents use your server.
-                            {dashboardStage === 'activity' ? (
-                                <>
-                                    {' '}
-                                    Charts and trends live in the{' '}
-                                    <Link to={urls.mcpAnalyticsDashboard()}>Dashboard tab</Link> — they get meaningful
-                                    as usage grows (~{formatNumber(METRICS_UNLOCK_LIFETIME_CALLS)} calls).
-                                </>
-                            ) : null}
-                        </p>
-                    </div>
+        <LemonBanner type="info" dismissKey="mcp-analytics-activity-summary" hideIcon>
+            <div className="flex items-center gap-3 py-1">
+                <ExplorerHog className="h-14 w-14 shrink-0 hidden sm:block" />
+                <div className="min-w-0">
+                    <h3 className="text-lg font-semibold m-0">
+                        {summary}
+                        {/* Omitted on day one — "since today" is noise. */}
+                        {signals?.firstCallAt && !dayjs(signals.firstCallAt).isSame(dayjs(), 'day') ? (
+                            <span className="text-muted font-normal">
+                                {' '}
+                                since {dayjs(signals.firstCallAt).format('MMM D')}
+                            </span>
+                        ) : null}
+                    </h3>
+                    <p className="text-muted text-base m-0 mt-1">
+                        This view fills in live as agents use your server.
+                        {dashboardStage === 'activity' ? (
+                            <>
+                                {' '}
+                                Charts and trends live in the{' '}
+                                <Link to={urls.mcpAnalyticsDashboard()}>Dashboard tab</Link>. They become meaningful as
+                                usage grows (~{formatNumber(METRICS_UNLOCK_LIFETIME_CALLS)} calls).
+                            </>
+                        ) : null}
+                    </p>
                 </div>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconRefresh />}
-                    loading={isRefreshing}
-                    onClick={refreshAll}
-                    data-attr="mcp-analytics-activity-refresh"
-                >
-                    Refresh
-                </LemonButton>
             </div>
-        </Card>
+        </LemonBanner>
     )
 }
 
@@ -106,8 +91,8 @@ function LiveActivityCard(): JSX.Element {
     const { setActivityQuery } = useActions(mcpEarlyDataLogic)
 
     return (
-        <LemonCard hoverEffect={false} className="flex h-full flex-col overflow-hidden p-0 lg:absolute lg:inset-0">
-            <h3 className="m-0 border-b border-primary px-3 py-2 text-sm font-semibold">Live activity</h3>
+        <section className="flex h-full flex-col overflow-hidden lg:absolute lg:inset-0">
+            <h3 className="mb-2 text-sm font-semibold">Live activity</h3>
             {/* Fills the card so the feed ends where the sidebar does; the rest scrolls. Stacked
                 layouts have no sidebar to match, so they fall back to a fixed cap. */}
             <div className="flex-1 min-h-0 max-h-[36rem] lg:max-h-none overflow-y-auto">
@@ -118,6 +103,10 @@ function LiveActivityCard(): JSX.Element {
                     setQuery={setActivityQuery}
                     context={{
                         dataTableMaxPaginationLimit: MCP_ACTIVITY_MAX_ROWS,
+                        compactDataTableToolbar: true,
+                        columns: {
+                            [MCP_ACTIVITY_INTENT_COLUMN]: { width: '18rem' },
+                        },
                         emptyStateDetail: 'Adjust the date range or filters, or wait for agents to call a tool.',
                         emptyStateHeading: 'No MCP tool calls in this period',
                         extraDataTableQueryFeatures: [QueryFeature.showCount],
@@ -129,7 +118,7 @@ function LiveActivityCard(): JSX.Element {
                     }}
                 />
             </div>
-        </LemonCard>
+        </section>
     )
 }
 

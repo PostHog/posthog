@@ -985,6 +985,10 @@ export function DataTable({
             secondRowRight.push(editorButton)
         }
     }
+
+    const compactToolbarLeft = [...(showFirstRow ? firstRowLeft : []), ...(showSecondRow ? secondRowLeft : [])]
+    const compactToolbarRight = [...(showFirstRow ? firstRowRight : []), ...(showSecondRow ? secondRowRight : [])]
+
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
@@ -992,22 +996,51 @@ export function DataTable({
                     {showHogQLEditor && isHogQLQuery(query.source) && !isReadOnly ? (
                         <HogQLQueryEditor query={query.source} setQuery={setQuerySource} embedded={embedded} />
                     ) : null}
-                    {showFirstRow && (
-                        <div className="flex gap-2 items-center flex-wrap">
-                            {firstRowLeft}
-                            {firstRowLeft.length > 0 && firstRowRight.length > 0 ? <div className="flex-1" /> : null}
-                            {firstRowRight}
-                        </div>
-                    )}
-                    {showSavedFilters && uniqueKey && (
-                        <DataTableSavedFilters uniqueKey={String(uniqueKey)} query={query} setQuery={setQuery} />
-                    )}
-                    {showFirstRow && showSecondRow && <LemonDivider className="my-0" />}
-                    {showSecondRow && secondRowLeft.length > 0 && secondRowRight.length > 0 && (
-                        <div className="flex gap-2 justify-between flex-wrap DataTable__second-row empty:hidden">
-                            <div className="flex gap-2 items-center">{secondRowLeft}</div>
-                            <div className="flex gap-2 items-center">{secondRowRight}</div>
-                        </div>
+                    {context?.compactDataTableToolbar ? (
+                        <>
+                            {compactToolbarLeft.length > 0 || compactToolbarRight.length > 0 ? (
+                                <div className="flex gap-2 items-center flex-wrap">
+                                    {compactToolbarLeft}
+                                    {compactToolbarLeft.length > 0 && compactToolbarRight.length > 0 ? (
+                                        <div className="flex-1" />
+                                    ) : null}
+                                    {compactToolbarRight}
+                                </div>
+                            ) : null}
+                            {showSavedFilters && uniqueKey ? (
+                                <DataTableSavedFilters
+                                    uniqueKey={String(uniqueKey)}
+                                    query={query}
+                                    setQuery={setQuery}
+                                />
+                            ) : null}
+                        </>
+                    ) : (
+                        <>
+                            {showFirstRow && (
+                                <div className="flex gap-2 items-center flex-wrap">
+                                    {firstRowLeft}
+                                    {firstRowLeft.length > 0 && firstRowRight.length > 0 ? (
+                                        <div className="flex-1" />
+                                    ) : null}
+                                    {firstRowRight}
+                                </div>
+                            )}
+                            {showSavedFilters && uniqueKey && (
+                                <DataTableSavedFilters
+                                    uniqueKey={String(uniqueKey)}
+                                    query={query}
+                                    setQuery={setQuery}
+                                />
+                            )}
+                            {showFirstRow && showSecondRow && <LemonDivider className="my-0" />}
+                            {showSecondRow && secondRowLeft.length > 0 && secondRowRight.length > 0 && (
+                                <div className="flex gap-2 justify-between flex-wrap DataTable__second-row empty:hidden">
+                                    <div className="flex gap-2 items-center">{secondRowLeft}</div>
+                                    <div className="flex gap-2 items-center">{secondRowRight}</div>
+                                </div>
+                            )}
+                        </>
                     )}
                     {showOpenEditorButton && inlineEditorButtonOnRow === 0 && !isReadOnly ? (
                         <div className="absolute right-0 z-10 p-1">{editorButton}</div>

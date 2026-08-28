@@ -6,11 +6,12 @@ import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 export const MCP_ACTIVITY_DATA_COLLECTION_ID = 'mcp-analytics-activity'
 export const MCP_ACTIVITY_PAGE_SIZE = 100
 export const MCP_ACTIVITY_MAX_ROWS = 1000
+export const MCP_ACTIVITY_INTENT_COLUMN = 'properties.$mcp_intent -- Agent intent'
 
 export const MCP_ACTIVITY_COLUMNS = [
     '*',
     "coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) -- Tool",
-    'properties.$mcp_intent -- Agent intent',
+    MCP_ACTIVITY_INTENT_COLUMN,
     'properties.$mcp_is_error -- Error',
     'properties.$mcp_duration_ms -- Duration (ms)',
     'properties.$mcp_client_name -- Client',
