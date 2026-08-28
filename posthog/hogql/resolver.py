@@ -2161,7 +2161,7 @@ class Resolver(CloningVisitor):
         return node
 
     def visit_array_slice(self, node: ast.ArraySlice):
-        if self.dialect not in _POSTGRES_FAMILY and self.dialect != "clickhouse":
+        if self.dialect not in _POSTGRES_FAMILY and self.dialect not in {"clickhouse", "trino"}:
             raise QueryError(f"Array slices are not allowed in {self.dialect} dialect")
         node = cast(ast.ArraySlice, clone_expr(node))
         node.array = self.visit(node.array)

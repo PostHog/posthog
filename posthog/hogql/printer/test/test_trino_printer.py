@@ -525,3 +525,94 @@ def test_rejects_with_fill_before_printing_invalid_trino_sql() -> None:
         )
 
     assert error.value.feature_code == "TRINO_WITH_FILL_UNSUPPORTED"
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        ("user_id ILIKE 'person-%'", 'lower("users"."user_id") LIKE lower(%(hogql_val_0)s)'),
+        (
+            "uniq(user_id, created_at)",
+            'count(DISTINCT ROW("users"."user_id", "users"."created_at"))',
+        ),
+        ("toDateTime64(created_at, 6)", 'CAST("users"."created_at" AS TIMESTAMP(6))'),
+        (
+            "dateAdd(toDate('2026-01-01'), toIntervalMonth(1))",
+            "(CAST(%(hogql_val_0)s AS DATE) + (CAST(1 AS BIGINT) * INTERVAL '1' MONTH))",
+        ),
+        ("date_part('year', created_at)", 'EXTRACT(YEAR FROM "users"."created_at")'),
+        (
+            "JSONExtractKeysAndValues(properties, 'Float64')",
+            'map_entries(CAST(json_extract("users"."properties", %(hogql_val_0)s) AS MAP(VARCHAR, DOUBLE)))',
+        ),
+        ("['a', 'b'][2:]", "slice(ARRAY[%(hogql_val_0)s, %(hogql_val_1)s], 2, 2147483647)"),
+    ],
+)
+def test_prints_additional_semantics_safe_trino_expressions(expression: str, expected: str) -> None:
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"SELECT {expression} FROM users"),
+        _context_with_trino_table(),
+        "trino",
+    )
+
+    assert expected in sql
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        ("any(user_id) OVER ()", 'arbitrary("users"."user_id") OVER ()'),
+        ("groupArray(user_id) OVER ()", 'array_agg("users"."user_id") OVER ()'),
+        (
+            "countIf(user_id != '') OVER ()",
+            'count_if(("users"."user_id" != %(hogql_val_0)s)) OVER ()',
+        ),
+    ],
+)
+def test_prints_semantics_safe_trino_window_functions(expression: str, expected: str) -> None:
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"SELECT {expression} FROM users"),
+        _context_with_trino_table(),
+        "trino",
+    )
+
+    assert expected in sql
+
+
+@pytest.mark.parametrize(
+    ("expression", "feature_code"),
+    [
+        ("lag(user_id) OVER ()", "TRINO_WINDOW_ORDER_REQUIRED"),
+        (
+            "row_number() OVER (ORDER BY created_at ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)",
+            "TRINO_WINDOW_FRAME_UNSUPPORTED",
+        ),
+        ("lagInFrame(user_id) OVER (ORDER BY created_at)", "TRINO_LAG_IN_FRAME_UNSUPPORTED"),
+    ],
+)
+def test_rejects_unsafe_trino_window_shapes(expression: str, feature_code: str) -> None:
+    with pytest.raises(TrinoLoweringError) as error:
+        prepare_and_print_ast(
+            parse_select(f"SELECT {expression} FROM users"),
+            _context_with_trino_table(),
+            "trino",
+        )
+
+    assert error.value.feature_code == feature_code
+
+
+@pytest.mark.parametrize("modifier", ["distinct", "filter"])
+def test_rejects_aggregate_modifiers_on_scalar_trino_calls(modifier: str) -> None:
+    query = parse_select("SELECT toDecimal(user_id, 2) FROM users")
+    assert isinstance(query, ast.SelectQuery)
+    call = query.select[0]
+    assert isinstance(call, ast.Call)
+    if modifier == "distinct":
+        call.distinct = True
+    else:
+        call.filter_expr = ast.Constant(value=True)
+
+    with pytest.raises(TrinoLoweringError) as error:
+        prepare_and_print_ast(query, _context_with_trino_table(), "trino")
+
+    assert error.value.feature_code == "TRINO_SCALAR_FUNCTION_MODIFIER_UNSUPPORTED"

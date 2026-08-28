@@ -92,13 +92,16 @@ def _aggregate_if(function: str) -> Callable[[list[str]], str]:
 def _uniq(args: list[str]) -> str:
     if not args:
         raise _invalid_arguments("uniq", "uniq expects at least one argument in Trino mode.")
-    return f"count(DISTINCT {', '.join(args)})"
+    value = args[0] if len(args) == 1 else f"ROW({', '.join(args)})"
+    return f"count(DISTINCT {value})"
 
 
 def _uniq_if(args: list[str]) -> str:
     if len(args) < 2:
         raise _invalid_arguments("uniqIf", "uniqIf expects a value and condition in Trino mode.")
-    return f"count(DISTINCT {', '.join(args[:-1])}) FILTER (WHERE {args[-1]})"
+    values = args[:-1]
+    value = values[0] if len(values) == 1 else f"ROW({', '.join(values)})"
+    return f"count(DISTINCT {value}) FILTER (WHERE {args[-1]})"
 
 
 def _date_diff(args: list[str]) -> str:

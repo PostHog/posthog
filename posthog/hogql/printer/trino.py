@@ -1,12 +1,13 @@
 import re
 from collections.abc import Callable
-from typing import ClassVar, NoReturn, cast
+from typing import ClassVar, NoReturn
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
 from posthog.hogql.database.trino_locator import resolve_trino_table_locator
 from posthog.hogql.escape_sql import escape_trino_identifier
+from posthog.hogql.functions import find_hogql_aggregation
 from posthog.hogql.printer.base import resolve_field_type
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.printer.trino_functions import (
@@ -84,6 +85,8 @@ _TRINO_SET_OPERATORS = frozenset(
 )
 _TRINO_WINDOW_FUNCTIONS = frozenset(
     {
+        "arbitrary",
+        "array_agg",
         "avg",
         "count",
         "cume_dist",
@@ -93,13 +96,54 @@ _TRINO_WINDOW_FUNCTIONS = frozenset(
         "last_value",
         "lead",
         "max",
+        "max_by",
         "min",
+        "min_by",
         "nth_value",
         "ntile",
         "percent_rank",
         "rank",
         "row_number",
         "sum",
+    }
+)
+_TRINO_WINDOW_FUNCTION_RENAMES = {
+    "any": "arbitrary",
+    "anylast": "arbitrary",
+    "argmax": "max_by",
+    "argmin": "min_by",
+    "grouparray": "array_agg",
+}
+_TRINO_CONDITIONAL_WINDOW_FUNCTIONS = {
+    "anyif": "arbitrary",
+    "avgif": "avg",
+    "countif": "count",
+    "grouparrayif": "array_agg",
+    "maxif": "max",
+    "minif": "min",
+    "sumif": "sum",
+}
+_TRINO_NO_FRAME_WINDOW_FUNCTIONS = frozenset(
+    {"cume_dist", "dense_rank", "lag", "lead", "ntile", "percent_rank", "rank", "row_number"}
+)
+_TRINO_EXTRACT_FIELDS = frozenset(
+    {
+        "day",
+        "day_of_week",
+        "day_of_year",
+        "dow",
+        "doy",
+        "hour",
+        "minute",
+        "month",
+        "quarter",
+        "second",
+        "timezone_hour",
+        "timezone_minute",
+        "week",
+        "year",
+        "year_of_week",
+        "yow",
     }
 )
 
@@ -199,6 +243,14 @@ class TrinoPrinter(PostgresPrinter):
 
     def visit_call(self, node: ast.Call) -> str:
         name = node.name.lower()
+        if find_hogql_aggregation(node.name) is None and (
+            node.distinct or node.within_group is not None or node.order_by is not None or node.filter_expr is not None
+        ):
+            self._unsupported(
+                "TRINO_SCALAR_FUNCTION_MODIFIER_UNSUPPORTED",
+                f"Scalar function '{node.name}' does not accept aggregate modifiers in Trino mode.",
+                node,
+            )
         if name in {"empty", "notempty"}:
             return self._visit_empty(node, negated=name == "notempty")
         if name == "length" and node.args and isinstance(self._resolve_type(node.args[0]), ast.ArrayType):
@@ -221,6 +273,8 @@ class TrinoPrinter(PostgresPrinter):
                 and re.search(r"T.*(?:Z|[+-]\d\d:\d\d)$", value.value)
             ):
                 return f"CAST(from_iso8601_timestamp({self.visit(value)}) AS TIMESTAMP)"
+        if name == "todatetime64":
+            return self._visit_to_datetime64(node)
         if name == "concat":
             if node.distinct or node.order_by:
                 self._unsupported(
@@ -246,6 +300,8 @@ class TrinoPrinter(PostgresPrinter):
         }:
             return self._visit_json_extract(node)
         if name in {"jsonextractkeys", "jsonextractkeysandvaluesraw", "jsonhas", "jsonlength"}:
+            return self._visit_json_metadata(node)
+        if name == "jsonextractkeysandvalues":
             return self._visit_json_metadata(node)
         if name == "tojsonstring":
             return self._visit_to_json_string(node)
@@ -323,6 +379,11 @@ class TrinoPrinter(PostgresPrinter):
             return self._visit_extract(node)
         if name in {"quantile", "quantileif"}:
             return self._visit_quantile(node, filtered=name == "quantileif")
+        if name in {"dateadd", "datesub"}:
+            left, right = self._visit_binary_args(node)
+            return f"({left} {'+' if name == 'dateadd' else '-'} {right})"
+        if name == "date_part":
+            return self._visit_date_part(node)
         if name == "json_value":
             return self._visit_json_value(node)
         return super().visit_call(node)
@@ -506,8 +567,30 @@ class TrinoPrinter(PostgresPrinter):
         if not node.args:
             self._invalid_function_arguments(node, f"{node.name} expects a JSON expression in Trino mode.")
         source = self.visit(node.args[0])
+        path_args = node.args[1:]
+        target_type: str | None = None
+        if name == "jsonextractkeysandvalues":
+            if not path_args or not isinstance(path_args[-1], ast.Constant) or not isinstance(path_args[-1].value, str):
+                self._invalid_function_arguments(
+                    node, "JSONExtractKeysAndValues requires a constant target type in Trino mode."
+                )
+            target_types = {
+                "bool": "BOOLEAN",
+                "float64": "DOUBLE",
+                "int64": "BIGINT",
+                "string": "VARCHAR",
+                "uint64": "DECIMAL(20, 0)",
+            }
+            target_type = target_types.get(path_args[-1].value.lower())
+            if target_type is None:
+                self._unsupported(
+                    "TRINO_JSON_TARGET_TYPE_UNSUPPORTED",
+                    f"JSONExtractKeysAndValues target type '{path_args[-1].value}' is not supported in Trino mode.",
+                    node,
+                )
+            path_args = path_args[:-1]
         path_members: list[str | int] = []
-        for key in node.args[1:]:
+        for key in path_args:
             if not isinstance(key, ast.Constant) or not isinstance(key.value, (str, int)):
                 self._unsupported(
                     "TRINO_JSON_DYNAMIC_PATH_UNSUPPORTED",
@@ -520,7 +603,45 @@ class TrinoPrinter(PostgresPrinter):
             return f"(json_extract({source}, {path}) IS NOT NULL)"
         if name == "jsonlength":
             return f"json_size({source}, {path})"
+        if name == "jsonextractkeysandvalues":
+            return f"map_entries(CAST(json_extract({source}, {path}) AS MAP(VARCHAR, {target_type})))"
         return f"map_keys(CAST(json_extract({source}, {path}) AS MAP(VARCHAR, JSON)))"
+
+    def _visit_to_datetime64(self, node: ast.Call) -> str:
+        if len(node.args) not in {1, 2}:
+            self._invalid_function_arguments(node, "toDateTime64 expects a value and optional precision in Trino mode.")
+        precision = 3
+        if len(node.args) == 2:
+            precision_arg = node.args[1]
+            if (
+                not isinstance(precision_arg, ast.Constant)
+                or isinstance(precision_arg.value, bool)
+                or not isinstance(precision_arg.value, int)
+                or not 0 <= precision_arg.value <= 12
+            ):
+                self._unsupported(
+                    "TRINO_DATETIME_PRECISION_UNSUPPORTED",
+                    "toDateTime64 requires an integer precision from 0 to 12 in Trino mode.",
+                    node,
+                )
+            precision = precision_arg.value
+        return f"CAST({self.visit(node.args[0])} AS TIMESTAMP({precision}))"
+
+    def _visit_date_part(self, node: ast.Call) -> str:
+        if len(node.args) != 2:
+            self._invalid_function_arguments(node, "date_part expects a unit and value in Trino mode.")
+        unit = node.args[0]
+        if (
+            not isinstance(unit, ast.Constant)
+            or not isinstance(unit.value, str)
+            or unit.value.lower() not in _TRINO_EXTRACT_FIELDS
+        ):
+            self._unsupported(
+                "TRINO_DATE_PART_UNIT_UNSUPPORTED",
+                "date_part requires a supported constant unit in Trino mode.",
+                node,
+            )
+        return f"EXTRACT({unit.value.upper()} FROM {self.visit(node.args[1])})"
 
     def _visit_to_json_string(self, node: ast.Call) -> str:
         value = self._visit_unary_arg(node)
@@ -628,7 +749,9 @@ class TrinoPrinter(PostgresPrinter):
     def _visit_count_distinct(self, node: ast.Call) -> str:
         if not node.args:
             self._invalid_function_arguments(node, "countDistinct expects at least one argument in Trino mode.")
-        return f"count(DISTINCT {', '.join(self.visit(arg) for arg in node.args)})"
+        arguments = [self.visit(arg) for arg in node.args]
+        value = arguments[0] if len(arguments) == 1 else f"ROW({', '.join(arguments)})"
+        return f"count(DISTINCT {value})"
 
     def _visit_to_decimal(self, node: ast.Call) -> str:
         if len(node.args) != 2:
@@ -783,25 +906,84 @@ class TrinoPrinter(PostgresPrinter):
         name = node.name.lower()
         if name == "countdistinct":
             return self._visit_window_count_distinct(node)
-        if name not in _TRINO_WINDOW_FUNCTIONS:
+        if node.args:
             self._unsupported(
-                "TRINO_WINDOW_FUNCTION_UNSUPPORTED",
-                f"Window function '{node.name}' is not supported in Trino mode.",
+                "TRINO_WINDOW_FUNCTION_PARAMETERS_UNSUPPORTED",
+                f"Parametric window function '{node.name}' is not supported in Trino mode.",
+                node,
+            )
+        if name == "laginframe":
+            self._unsupported(
+                "TRINO_LAG_IN_FRAME_UNSUPPORTED",
+                "lagInFrame has no semantics-safe native Trino equivalent.",
                 node,
             )
         exprs = [self.visit(expr) for expr in node.exprs or []]
-        cloned_node = cast(ast.WindowFunction, clone_expr(node))
-        identifier = self._apply_window_function_rewrites(name, exprs, cloned_node)
-        args = f"({', '.join(self.visit(arg) for arg in cloned_node.args)})" if cloned_node.args else ""
-        if cloned_node.over_expr:
-            over = f"({self.visit(cloned_node.over_expr)})"
-        elif cloned_node.over_identifier:
-            over = self._print_identifier(cloned_node.over_identifier)
+        if name in _TRINO_CONDITIONAL_WINDOW_FUNCTIONS:
+            if not exprs:
+                self._unsupported(
+                    "TRINO_WINDOW_FUNCTION_ARGUMENTS_UNSUPPORTED",
+                    f"Window function '{node.name}' requires a condition in Trino mode.",
+                    node,
+                )
+            target = _TRINO_CONDITIONAL_WINDOW_FUNCTIONS[name]
+            arguments = exprs[:-1]
+            if target == "count" and not arguments:
+                call = f"count_if({exprs[-1]})"
+            else:
+                if len(arguments) != 1:
+                    self._unsupported(
+                        "TRINO_WINDOW_FUNCTION_ARGUMENTS_UNSUPPORTED",
+                        f"Window function '{node.name}' requires one value and one condition in Trino mode.",
+                        node,
+                    )
+                call = f"{target}(IF({exprs[-1]}, {arguments[0]}, NULL))"
+        else:
+            target = _TRINO_WINDOW_FUNCTION_RENAMES.get(name, name)
+            if target not in _TRINO_WINDOW_FUNCTIONS:
+                self._unsupported(
+                    "TRINO_WINDOW_FUNCTION_UNSUPPORTED",
+                    f"Window function '{node.name}' is not supported in Trino mode.",
+                    node,
+                )
+            rendered_arguments = "*" if target == "count" and not exprs else ", ".join(exprs)
+            call = f"{target}({rendered_arguments})"
+
+        window_expr = self._window_expression(node)
+        target = _TRINO_WINDOW_FUNCTION_RENAMES.get(name, name)
+        if target in _TRINO_NO_FRAME_WINDOW_FUNCTIONS and window_expr is not None and window_expr.frame_method:
+            self._unsupported(
+                "TRINO_WINDOW_FRAME_UNSUPPORTED",
+                f"Window function '{node.name}' does not allow an explicit frame in Trino mode.",
+                node,
+            )
+        if target in {"lag", "lead"} and (window_expr is None or not window_expr.order_by):
+            self._unsupported(
+                "TRINO_WINDOW_ORDER_REQUIRED",
+                f"Window function '{node.name}' requires ORDER BY in Trino mode.",
+                node,
+            )
+        if node.over_expr:
+            over = f"({self.visit(node.over_expr)})"
+        elif node.over_identifier:
+            over = self._print_identifier(node.over_identifier)
         else:
             over = "()"
-        if cloned_node.args:
-            return f"{identifier}({', '.join(exprs)}){args} OVER {over}"
-        return f"{identifier}({', '.join(exprs)}) OVER {over}"
+        windowed_call = f"{call} OVER {over}"
+        if name == "grouparrayif":
+            value = self._print_identifier("__hogql_group_array_value")
+            return f"filter({windowed_call}, {value} -> {value} IS NOT NULL)"
+        return windowed_call
+
+    def _window_expression(self, node: ast.WindowFunction) -> ast.WindowExpr | None:
+        if node.over_expr is not None:
+            return node.over_expr
+        if node.over_identifier is None:
+            return None
+        select = self._last_select()
+        if select is None or select.window_exprs is None:
+            return None
+        return select.window_exprs.get(node.over_identifier)
 
     def _visit_window_count_distinct(self, node: ast.WindowFunction) -> str:
         if node.exprs is None or len(node.exprs) != 1 or node.args:
@@ -821,6 +1003,10 @@ class TrinoPrinter(PostgresPrinter):
         return f"cardinality(array_distinct(filter({values}, {value} -> {value} IS NOT NULL)))"
 
     def _get_compare_op(self, op: ast.CompareOperationOp, left: str, right: str) -> str:
+        if op == ast.CompareOperationOp.ILike:
+            return f"(lower({left}) LIKE lower({right}))"
+        if op == ast.CompareOperationOp.NotILike:
+            return f"(lower({left}) NOT LIKE lower({right}))"
         if op == ast.CompareOperationOp.Regex:
             return f"regexp_like({left}, {right})"
         if op == ast.CompareOperationOp.IRegex:
@@ -850,15 +1036,13 @@ class TrinoPrinter(PostgresPrinter):
         )
 
     def visit_array_slice(self, node: ast.ArraySlice) -> str:
-        if node.start_expr is None or node.end_expr is None:
-            self._unsupported(
-                "TRINO_OPEN_ARRAY_SLICE_UNSUPPORTED",
-                "Open-ended array slices are not supported in Trino mode.",
-                node,
-            )
-        start = self.visit(node.start_expr)
-        end = self.visit(node.end_expr)
-        return f"slice({self.visit(node.array)}, {start}, ({end}) - ({start}) + 1)"
+        start = self.visit(node.start_expr) if node.start_expr is not None else "1"
+        if node.end_expr is None:
+            length = "2147483647"
+        else:
+            end = self.visit(node.end_expr)
+            length = f"greatest(0, ({end}) - ({start}) + 1)"
+        return f"slice({self.visit(node.array)}, {start}, {length})"
 
     def visit_type_cast(self, node: ast.TypeCast) -> str:
         return f"CAST({self.visit(node.expr)} AS {self._trino_type(node.type_name)})"
