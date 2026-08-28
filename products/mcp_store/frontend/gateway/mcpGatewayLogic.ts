@@ -437,7 +437,7 @@ export interface mcpGatewayLogicActions {
         value: GatewayAddServerValues[keyof GatewayAddServerValues]
     ) => {
         field: keyof GatewayAddServerValues
-        value: boolean | string | string[]
+        value: boolean | string
     }
     setAgentServerAccess: (
         accountId: string,
