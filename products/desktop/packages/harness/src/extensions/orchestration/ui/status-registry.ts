@@ -67,7 +67,9 @@ export function removeAgentRun(runId: string): void {
   if (!agentRuns.delete(runId)) {
     return;
   }
-  if (focusedRunId === runId) {
+  // Focus points at the aggregate "agents" row, not an individual run, so it
+  // clears when that row disappears — i.e. when the last run ends.
+  if (agentRuns.size === 0) {
     focusedRunId = null;
   }
   notify();

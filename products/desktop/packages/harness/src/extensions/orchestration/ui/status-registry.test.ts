@@ -1,10 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   __resetOrchestrationForTesting,
+  type AgentRunSnapshot,
+  focusFromEditor,
   getWorkflow,
+  isFocused,
   listWorkflows,
+  removeAgentRun,
   removeWorkflow,
   subscribeToOrchestration,
+  upsertAgentRun,
   upsertWorkflow,
 } from "./status-registry";
 
@@ -19,6 +24,23 @@ const snapshot = {
   tokensSpent: 0,
 };
 
+const agentSnapshot = (runId: string): AgentRunSnapshot => ({
+  runId,
+  agent: "scout",
+  task: "find it",
+  startedAt: 1,
+  usage: {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    cost: 0,
+    contextTokens: 0,
+    turns: 0,
+  },
+  messages: [],
+});
+
 describe("workflow status registry", () => {
   it("publishes active workflow updates and removes completed workflows", () => {
     const listener = vi.fn();
@@ -31,4 +53,23 @@ describe("workflow status registry", () => {
     expect(listener).toHaveBeenCalledTimes(2);
     unsubscribe();
   });
+});
+
+describe("agent run focus", () => {
+  it.each([
+    { runs: 1, stillFocused: false },
+    { runs: 2, stillFocused: true },
+  ])(
+    "clears footer focus only when the last focused agent run ends ($runs run(s))",
+    ({ runs, stillFocused }) => {
+      for (let i = 0; i < runs; i++) {
+        upsertAgentRun(agentSnapshot(`run-${i}`));
+      }
+      expect(focusFromEditor()).toBe(true);
+      expect(isFocused()).toBe(true);
+
+      removeAgentRun("run-0");
+      expect(isFocused()).toBe(stillFocused);
+    },
+  );
 });
