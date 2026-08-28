@@ -402,12 +402,12 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
 
     @admin.display(description="CIMD URL")
     def cimd_url(self, obj: OAuthApplication):
-        if not obj.cimd_metadata_url:
+        if not obj.is_cimd_client:
             return "–"
         return format_html(
             '<a href="{}" target="_blank" rel="noopener noreferrer">{}</a>',
-            obj.cimd_metadata_url,
-            obj.cimd_metadata_url,
+            obj.client_id,
+            obj.client_id,
         )
 
     @admin.display(description="Verified", boolean=True, ordering="is_verified")
