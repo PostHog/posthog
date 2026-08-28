@@ -375,6 +375,22 @@ mod tests {
             };
             assert_eq!(scrub(case["input"].clone()), expected, "{}", case["name"]);
         }
+
+        for type_set in contract["typeSets"].as_array().unwrap() {
+            for entity_type in type_set["types"].as_array().unwrap() {
+                let input = json!({
+                    "@context": "https://schema.org",
+                    "@type": entity_type,
+                });
+                assert_eq!(
+                    scrub(input.clone()),
+                    json!({ "tag": "$json_ld", "payload": input }),
+                    "{}: {}",
+                    type_set["name"],
+                    entity_type
+                );
+            }
+        }
     }
 
     #[test]

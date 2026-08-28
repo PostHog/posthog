@@ -39,6 +39,10 @@ interface MessageCase {
 }
 interface JsonLdContract {
     schemaVersion: 1
+    typeSets: Array<{
+        name: string
+        types: string[]
+    }>
     cases: Array<{
         name: string
         input: unknown
@@ -132,6 +136,22 @@ describeAddon('native rust addon matches the shared fixtures', () => {
             expect(result.failed).toBe(false)
             expect(parseLines(result.lines!)).toEqual(expectedLines('w', [{ type: 5, data: expectedData }]))
         })
+
+        test.each(jsonLdContract.typeSets.map((typeSet) => [typeSet.name, typeSet] as const))(
+            'JSON-LD types: %s',
+            async (_name, typeSet) => {
+                rustAddon!.initAnonymizer({ text: [], url: [] })
+                for (const type of typeSet.types) {
+                    const payload = { '@context': 'https://schema.org', '@type': type }
+                    const event = { type: 5, data: { tag: '$json_ld', payload } }
+                    const result = await rustAddon!.anonymizeKafkaPayload(payloadOf('w', [event]))
+                    expect(result.failed).toBe(false)
+                    expect(parseLines(result.lines!)).toEqual(
+                        expectedLines('w', [{ type: 5, data: { tag: '$json_ld', payload } }])
+                    )
+                }
+            }
+        )
     })
 
     test.each(messageCases.map((c) => [c.name, c] as const))('message: %s', async (_name, c) => {

@@ -5,6 +5,190 @@
         "maxSourceLength": 100000,
         "maxPayloadLength": 20000
     },
+    "typeSets": [
+        {
+            "name": "Google-listed type",
+            "types": [
+                "3DModel",
+                "Accommodation",
+                "Action",
+                "AdministrativeArea",
+                "AggregateOffer",
+                "AggregateRating",
+                "AlignmentObject",
+                "Answer",
+                "Article",
+                "BedDetails",
+                "Blog",
+                "BlogPosting",
+                "Book",
+                "BorrowAction",
+                "Brand",
+                "BreadcrumbList",
+                "BroadcastEvent",
+                "Car",
+                "Certification",
+                "Clip",
+                "Comment",
+                "ContactPoint",
+                "Country",
+                "Course",
+                "CreativeWork",
+                "CreativeWorkSeason",
+                "CreativeWorkSeries",
+                "CreditCard",
+                "DataCatalog",
+                "DataDownload",
+                "DataFeed",
+                "Dataset",
+                "DaySpa",
+                "DefinedRegion",
+                "DiscussionForumPosting",
+                "EducationalOccupationalCredential",
+                "Electrician",
+                "EmployerAggregateRating",
+                "EntryPoint",
+                "Episode",
+                "Event",
+                "Game",
+                "GeoCoordinates",
+                "GeoShape",
+                "HealthClub",
+                "Hotel",
+                "HowTo",
+                "HowToDirection",
+                "HowToSection",
+                "HowToStep",
+                "HowToTip",
+                "ImageObject",
+                "InteractionCounter",
+                "ItemList",
+                "JobPosting",
+                "LearningResource",
+                "Library",
+                "LibrarySystem",
+                "ListItem",
+                "LocalBusiness",
+                "LocationFeatureSpecification",
+                "Locksmith",
+                "LodgingBusiness",
+                "MathSolver",
+                "MediaObject",
+                "MemberProgram",
+                "MemberProgramTier",
+                "MerchantReturnPolicy",
+                "MerchantReturnPolicySeasonalOverride",
+                "Message",
+                "MobileApplication",
+                "MonetaryAmount",
+                "Movie",
+                "MusicPlaylist",
+                "MusicRecording",
+                "NewsArticle",
+                "NutritionInformation",
+                "OccupationalExperienceRequirements",
+                "Offer",
+                "OfferShippingDetails",
+                "OnlineStore",
+                "OpeningHoursSpecification",
+                "Organization",
+                "PeopleAudience",
+                "PerformingGroup",
+                "Person",
+                "Pharmacy",
+                "Place",
+                "Plumber",
+                "PostalAddress",
+                "PriceSpecification",
+                "Product",
+                "ProductGroup",
+                "ProfilePage",
+                "PropertyValue",
+                "QAPage",
+                "QuantitativeValue",
+                "Question",
+                "Quiz",
+                "Rating",
+                "ReadAction",
+                "Recipe",
+                "Restaurant",
+                "Review",
+                "SeekToAction",
+                "ServicePeriod",
+                "ShippingConditions",
+                "ShippingDeliveryTime",
+                "ShippingRateSettings",
+                "ShippingService",
+                "SocialMediaPosting",
+                "SoftwareApplication",
+                "SolveMathAction",
+                "SpeakableSpecification",
+                "State",
+                "Store",
+                "Thing",
+                "UnitPriceSpecification",
+                "VacationRental",
+                "VideoGame",
+                "VideoObject",
+                "WatchAction",
+                "WebApplication",
+                "WebPage",
+                "WebPageElement"
+            ]
+        },
+        {
+            "name": "common Schema.org type",
+            "types": [
+                "AboutPage",
+                "AudioObject",
+                "AutoDealer",
+                "Bakery",
+                "BarOrPub",
+                "BusinessEvent",
+                "CafeOrCoffeeShop",
+                "CollegeOrUniversity",
+                "CollectionPage",
+                "ContactPage",
+                "Corporation",
+                "Dentist",
+                "EducationEvent",
+                "EducationalOrganization",
+                "FAQPage",
+                "Festival",
+                "FoodEstablishment",
+                "GovernmentOrganization",
+                "IndividualProduct",
+                "LegalService",
+                "MedicalBusiness",
+                "MusicEvent",
+                "NGO",
+                "OfferCatalog",
+                "Photograph",
+                "Physician",
+                "PodcastEpisode",
+                "PodcastSeries",
+                "ProductModel",
+                "RealEstateAgent",
+                "ScholarlyArticle",
+                "School",
+                "SearchAction",
+                "SearchResultsPage",
+                "Service",
+                "SiteNavigationElement",
+                "SportsEvent",
+                "SportsOrganization",
+                "TVEpisode",
+                "TVSeries",
+                "TechArticle",
+                "TheaterEvent",
+                "WebSite"
+            ]
+        },
+        {
+            "name": "unsupported type",
+            "types": ["PrivateType", "constructor", "toString", "__proto__"]
+        }
+    ],
     "cases": [
         {
             "name": "product with nested offer and identifiers",
@@ -49,7 +233,7 @@
         },
         {
             "name": "root graph with unknown entity type",
-            "capturedDomIds": [],
+            "capturedDomIds": ["person-id"],
             "input": {
                 "@context": "https://schema.org",
                 "@graph": [
@@ -62,6 +246,16 @@
                             "actionStatus": "https://schema.org/PotentialActionStatus",
                             "target": "https://example.com/search?q=private"
                         }
+                    },
+                    {
+                        "@type": "FAQPage",
+                        "inLanguage": "en",
+                        "text": "Private question and answer"
+                    },
+                    {
+                        "@type": "Person",
+                        "@id": "person-id",
+                        "name": "Private name"
                     },
                     {
                         "@type": "PrivateType",
@@ -84,6 +278,14 @@
                             "@type": "SearchAction",
                             "actionStatus": "https://schema.org/PotentialActionStatus"
                         }
+                    },
+                    {
+                        "@type": "FAQPage",
+                        "inLanguage": "en"
+                    },
+                    {
+                        "@type": "Person",
+                        "@id": "person-id"
                     },
                     {
                         "@type": "PrivateType",
@@ -171,6 +373,284 @@
                 "name": "Camera"
             },
             "expected": null
+        },
+        {
+            "name": "BreadcrumbList with nested items",
+            "capturedDomIds": ["person-id"],
+            "input": {
+                "@context": "https://schema.org",
+                "@type": "BreadcrumbList",
+                "itemListElement": [
+                    {
+                        "@type": "ListItem",
+                        "position": 1,
+                        "name": "Private label",
+                        "item": {
+                            "@type": "Product",
+                            "name": "Camera",
+                            "email": "private@example.com"
+                        }
+                    },
+                    {
+                        "@type": "Person",
+                        "@id": "person-id",
+                        "name": "Private name"
+                    }
+                ]
+            },
+            "expected": {
+                "@context": "https://schema.org",
+                "@type": "BreadcrumbList",
+                "itemListElement": [
+                    {
+                        "@type": "ListItem",
+                        "position": 1,
+                        "item": {
+                            "@type": "Product",
+                            "name": "Camera"
+                        }
+                    },
+                    {
+                        "@type": "Person",
+                        "@id": "person-id"
+                    }
+                ]
+            }
+        },
+        {
+            "name": "ItemList with nested items",
+            "capturedDomIds": ["person-id"],
+            "input": {
+                "@context": "https://schema.org",
+                "@type": "ItemList",
+                "itemListElement": [
+                    {
+                        "@type": "ListItem",
+                        "position": 1,
+                        "name": "Private label",
+                        "item": {
+                            "@type": "Product",
+                            "name": "Camera",
+                            "email": "private@example.com"
+                        }
+                    },
+                    {
+                        "@type": "Person",
+                        "@id": "person-id",
+                        "name": "Private name"
+                    }
+                ]
+            },
+            "expected": {
+                "@context": "https://schema.org",
+                "@type": "ItemList",
+                "itemListElement": [
+                    {
+                        "@type": "ListItem",
+                        "position": 1,
+                        "item": {
+                            "@type": "Product",
+                            "name": "Camera"
+                        }
+                    },
+                    {
+                        "@type": "Person",
+                        "@id": "person-id"
+                    }
+                ]
+            }
+        },
+        {
+            "name": "offer catalog and service roots",
+            "capturedDomIds": [],
+            "input": [
+                {
+                    "@context": "https://schema.org",
+                    "@type": "OfferCatalog",
+                    "name": "Services",
+                    "itemListElement": {
+                        "@type": "Offer",
+                        "price": 100,
+                        "email": "private@example.com"
+                    }
+                },
+                {
+                    "@context": "https://schema.org",
+                    "@type": "Service",
+                    "name": "Installation",
+                    "serviceType": "Installation",
+                    "email": "private@example.com",
+                    "provider": {
+                        "@type": "EducationalOrganization",
+                        "name": "Acme",
+                        "telephone": "+44 0000 000000"
+                    }
+                }
+            ],
+            "expected": [
+                {
+                    "@context": "https://schema.org",
+                    "@type": "OfferCatalog",
+                    "name": "Services",
+                    "itemListElement": {
+                        "@type": "Offer",
+                        "price": 100
+                    }
+                },
+                {
+                    "@context": "https://schema.org",
+                    "@type": "Service",
+                    "name": "Installation",
+                    "serviceType": "Installation",
+                    "provider": {
+                        "@type": "EducationalOrganization",
+                        "name": "Acme"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "unallowlisted entity branch",
+            "capturedDomIds": ["root-id", "child-id", "product-id", "reference-id"],
+            "input": {
+                "@context": "https://schema.org",
+                "@type": "Product",
+                "@id": "root-id",
+                "name": "Camera",
+                "privateRootValue": "private",
+                "customChild": {
+                    "@type": "CustomChild",
+                    "@id": "child-id",
+                    "privateChildValue": "private",
+                    "nestedEntity": {
+                        "@type": "Product",
+                        "@id": "product-id",
+                        "name": "Private product name",
+                        "ratingValue": 4.5
+                    },
+                    "idOnlyNode": {
+                        "@id": "reference-id",
+                        "privateReferenceValue": "private"
+                    }
+                }
+            },
+            "expected": {
+                "@context": "https://schema.org",
+                "@type": "Product",
+                "@id": "root-id",
+                "name": "Camera"
+            }
+        },
+        {
+            "name": "PII-bearing entity types",
+            "capturedDomIds": ["contact-id", "person-id", "address-id"],
+            "input": [
+                {
+                    "@context": "https://schema.org",
+                    "@type": "ContactPoint",
+                    "@id": "contact-id",
+                    "name": "Private name",
+                    "email": "private@example.com",
+                    "telephone": "+44 0000 000000"
+                },
+                {
+                    "@context": "https://schema.org",
+                    "@type": "Person",
+                    "@id": "person-id",
+                    "name": "Private name",
+                    "email": "private@example.com"
+                },
+                {
+                    "@context": "https://schema.org",
+                    "@type": "PostalAddress",
+                    "@id": "address-id",
+                    "streetAddress": "Private address"
+                }
+            ],
+            "expected": [
+                {
+                    "@context": "https://schema.org",
+                    "@type": "ContactPoint",
+                    "@id": "contact-id"
+                },
+                {
+                    "@context": "https://schema.org",
+                    "@type": "Person",
+                    "@id": "person-id"
+                },
+                {
+                    "@context": "https://schema.org",
+                    "@type": "PostalAddress",
+                    "@id": "address-id"
+                }
+            ]
+        },
+        {
+            "name": "schema context without an entity",
+            "capturedDomIds": [],
+            "input": {
+                "@context": "https://schema.org",
+                "privateValue": "private"
+            },
+            "expected": null
+        }
+    ],
+    "rawSourceCases": [
+        {
+            "name": "invalid JSON syntax",
+            "source": "not json",
+            "expected": null
+        }
+    ],
+    "prototypeCases": [
+        {
+            "name": "inherited context",
+            "inheritedProperties": {
+                "@context": "https://schema.org",
+                "@type": "Product",
+                "@id": "inherited-id",
+                "name": "Private name",
+                "ratingValue": 5
+            },
+            "capturedDomIds": ["inherited-id"],
+            "input": {
+                "@type": "Product"
+            },
+            "expected": null
+        },
+        {
+            "name": "inherited type",
+            "inheritedProperties": {
+                "@context": "https://schema.org",
+                "@type": "Product",
+                "@id": "inherited-id",
+                "name": "Private name",
+                "ratingValue": 5
+            },
+            "capturedDomIds": ["inherited-id"],
+            "input": {
+                "@context": "https://schema.org"
+            },
+            "expected": null
+        },
+        {
+            "name": "inherited safe-looking leaves",
+            "inheritedProperties": {
+                "@context": "https://schema.org",
+                "@type": "Product",
+                "@id": "inherited-id",
+                "name": "Private name",
+                "ratingValue": 5
+            },
+            "capturedDomIds": ["inherited-id"],
+            "input": {
+                "@context": "https://schema.org",
+                "@type": "Product"
+            },
+            "expected": {
+                "@context": "https://schema.org",
+                "@type": "Product"
+            }
         }
     ]
 }
