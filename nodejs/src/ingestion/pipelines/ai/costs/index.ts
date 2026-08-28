@@ -16,6 +16,7 @@ import { extractModalityTokens } from './modality-tokens'
 import { calculateOutputCost } from './output-costs'
 import { ResolvedModelCost } from './providers/types'
 import { calculateRequestCost } from './request-costs'
+import { TOKEN_COUNT_PROPERTIES } from './token-properties'
 import { calculateWebSearchCost } from './web-search-costs'
 
 export interface EventWithProperties extends PluginEvent {
@@ -71,30 +72,6 @@ const trackCostOutcome = (totalCost: number): void => {
         aiCostTotalOutcomeCounter.labels({ outcome: 'positive' }).inc()
     }
 }
-
-// Every token count the cost calculators read. Presence is what matters, not
-// value: `0` is a usage report that says the model consumed nothing, while an
-// absent property means the provider never reported usage at all.
-//
-// Hand-maintained, so a calculator that starts reading a new token property has
-// to add it here too. Leave it out and an event carrying only that property
-// prices as unknown. Properties that modality extraction writes but no
-// calculator reads, such as `$ai_text_input_tokens`, do not belong here.
-const TOKEN_COUNT_PROPERTIES = [
-    '$ai_input_tokens',
-    '$ai_output_tokens',
-    '$ai_text_output_tokens',
-    '$ai_reasoning_tokens',
-    '$ai_cache_read_input_tokens',
-    '$ai_cache_creation_input_tokens',
-    '$ai_cache_creation_5m_input_tokens',
-    '$ai_cache_creation_1h_input_tokens',
-    '$ai_audio_input_tokens',
-    '$ai_audio_output_tokens',
-    '$ai_image_input_tokens',
-    '$ai_image_output_tokens',
-    '$ai_cache_read_audio_tokens',
-] as const
 
 const hasAnyTokenCount = (properties: Properties): boolean => {
     return TOKEN_COUNT_PROPERTIES.some((key) => finiteNumberOrUndefined(properties[key]) !== undefined)

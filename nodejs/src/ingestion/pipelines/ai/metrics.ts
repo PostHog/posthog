@@ -20,8 +20,9 @@ export const aiCostModalityExtractionCounter = new Counter({
 
 export const aiCostTotalOutcomeCounter = new Counter({
     name: 'llma_ai_cost_outcome_total',
-    // "unknown" means the event carried no token counts at all, so no cost was
-    // recorded — distinct from "zero", which is a real usage report of nothing.
+    // "unknown" means the event carried no token counts, so no cost was recorded.
+    // "zero" is a usage report of nothing, which is a different fact. "error"
+    // means the computed total came out NaN.
     help: 'Outcome of total cost calculation (positive, zero, negative, unknown, error)',
     labelNames: ['outcome'],
 })
