@@ -184,7 +184,7 @@ describe('SyncFrequencySelect', () => {
     })
     describe('modeDisabledReason', () => {
         it.each([
-            ['dag_schedule', "This project runs one schedule per DAG, so this view follows its DAG's frequency."],
+            ['dag_schedule', 'This view refreshes on a shared schedule. Its frequency is not set per view.'],
             ['managed_viewset', 'PostHog manages this view, including how often it refreshes.'],
             ['no_node', 'This view is not set up for scheduled refreshes yet. Save it again, then pick a cadence.'],
         ])('locks %s, where the backend refuses the write', (mode, reason) => {

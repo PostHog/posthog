@@ -171,6 +171,7 @@ export default defineConfig([
       "src/adapters/claude/session/models.ts",
       "src/adapters/codex-app-server/models.ts",
       "src/adapters/codex-app-server/local-tools-mcp-server.ts",
+      "src/adapters/codex-app-server/subscription-login.ts",
       "src/adapters/claude/mcp/tool-metadata.ts",
       "src/adapters/reasoning-effort.ts",
       "src/execution-mode.ts",
