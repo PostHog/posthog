@@ -130,6 +130,9 @@ export const ReviewToolbar = memo(function ReviewToolbar({
       collapsed,
     });
   };
+  const fileBrowserToggleLabel = fileBrowserCollapsed
+    ? "Show file browser"
+    : "Hide file browser";
 
   const handleToggleExpand = () => {
     const next: ReviewMode = reviewMode === "expanded" ? "split" : "expanded";
@@ -233,15 +236,12 @@ export const ReviewToolbar = memo(function ReviewToolbar({
         </Tooltip>
 
         {hasFileBrowserRoom && (
-          <Tooltip
-            content={
-              fileBrowserCollapsed ? "Show file browser" : "Hide file browser"
-            }
-          >
+          <Tooltip content={fileBrowserToggleLabel}>
             <Button
               size="icon-sm"
               onClick={handleToggleFileBrowser}
-              aria-selected={!fileBrowserCollapsed}
+              aria-label={fileBrowserToggleLabel}
+              aria-pressed={!fileBrowserCollapsed}
               className="rounded-xs"
             >
               {fileBrowserCollapsed ? (
