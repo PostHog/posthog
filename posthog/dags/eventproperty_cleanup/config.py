@@ -48,8 +48,8 @@ class EventPropertyCleanupConfig(dagster.Config):
         description="Team ids per discovery statement. Discovery walks team_id ranges instead of scanning whole tables.",
     )
     discovery_sleep_seconds: float = Field(default=0.2, ge=0, description="Sleep between discovery statements.")
-    batch_size: int = Field(default=30_000, gt=0, description="Rows per DELETE statement.")
-    sleep_seconds: float = Field(default=0.5, ge=0, description="Sleep between batches.")
+    batch_size: int = Field(default=10_000, gt=0, description="Rows per DELETE statement.")
+    sleep_seconds: float = Field(default=1.0, ge=0, description="Sleep between batches.")
     lock_timeout: str = Field(default="2s", description="Postgres lock_timeout per DELETE.")
     statement_timeout: str = Field(default="60s", description="Postgres statement_timeout per DELETE.")
     pause_dead_tuple_ratio: float = Field(
@@ -69,10 +69,22 @@ class EventPropertyCleanupConfig(dagster.Config):
             "(pg_read_all_stats). When false the blocked-propdefs pause signal is disabled with a warning."
         ),
     )
-    revalidate_every_batches: int = Field(
-        default=50,
+    revalidate_every_rows: int = Field(
+        default=25_000_000,
         gt=0,
-        description="Re-check a unit's eligibility every N batches and stop the unit if it no longer qualifies.",
+        description=(
+            "Re-check a unit's eligibility after this many deleted rows and stop the unit if it no longer "
+            "qualifies. The dormant re-check walks the tenant's event definitions, so keep this coarse."
+        ),
+    )
+    discovery_statement_timeout: str = Field(
+        default="120s",
+        description="Postgres statement_timeout for discovery and scoring queries.",
+    )
+    metrics_flush_batches: int = Field(
+        default=100,
+        gt=0,
+        description="Accumulate counters locally and write them to ClickHouse every N batches.",
     )
 
     # Vacuum
@@ -82,7 +94,12 @@ class EventPropertyCleanupConfig(dagster.Config):
         gt=0,
         description="Rows deleted before an explicit VACUUM. Keep under ~179M, the PG15 one-pass dead-TID limit.",
     )
-    vacuum_on_start: bool = Field(default=True, description="VACUUM once in preflight so a resumed run starts clean.")
+    vacuum_on_start: bool = Field(default=True, description="VACUUM in preflight when the table carries vacuum debt.")
+    vacuum_on_start_min_dead_tuples: int = Field(
+        default=50_000_000,
+        ge=0,
+        description="Skip the preflight VACUUM when n_dead_tup is below this. A fresh run should not pay for a full index sweep.",
+    )
     vacuum_cost_delay_ms: int = Field(default=2, ge=0, description="vacuum_cost_delay for the explicit VACUUM session.")
     vacuum_cost_limit: int = Field(default=200, gt=0, description="vacuum_cost_limit for the explicit VACUUM session.")
 

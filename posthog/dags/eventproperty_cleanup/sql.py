@@ -20,11 +20,13 @@ SELECT pg_has_role(current_user, 'pg_read_all_stats', 'member')
        OR (SELECT rolsuper FROM pg_roles WHERE rolname = current_user)
 """
 
-# Mode 2c. Cheap mid-unit re-check: has any event for the tenant been seen inside the window?
+# Mode 2c. Mid-unit re-check: has any event for the tenant been seen inside the window? EXISTS stops
+# at the first hit; for a genuinely dormant tenant it still walks the team's definitions once per
+# re-check, which is why re-checks are spaced by rows deleted, not batches.
 DORMANT_RECHECK = """
-SELECT max(last_seen_at) >= now() - make_interval(days => %(days)s)
-FROM posthog_eventdefinition
-WHERE team_id = %(team_id)s
+SELECT EXISTS (
+    SELECT 1 FROM posthog_eventdefinition
+    WHERE team_id = %(team_id)s AND last_seen_at >= now() - make_interval(days => %(days)s))
 """
 
 TEAM_ORG_STATE = """
@@ -94,14 +96,17 @@ WHERE team_id > %(lo)s AND team_id <= %(hi)s
 ORDER BY team_id
 """
 
-# Mode 2b. Event names not seen for N days. NULL last_seen_at is unknown and never eligible.
+# Mode 2b. One page of event names not seen for N days, keyset-paginated by name so a tenant with
+# millions of stale names never lands in memory at once. NULL last_seen_at is unknown and never eligible.
 RETENTION_CANDIDATE_EVENTS = """
 SELECT name
 FROM posthog_eventdefinition
 WHERE coalesce(project_id, team_id) = %(project_id)s
+  AND name > %(after)s
   AND last_seen_at IS NOT NULL
   AND last_seen_at < now() - make_interval(days => %(days)s)
 ORDER BY name
+LIMIT %(limit)s
 """
 
 RETENTION_ESTIMATE = """

@@ -160,7 +160,7 @@ class TestDeleteEngine:
 
     def test_failed_revalidation_stops_the_unit(self):
         backend = FakeBackend([100, 100, 100, 100, 7])
-        engine, _ = make_engine(backend, revalidate_every_batches=2)
+        engine, _ = make_engine(backend, revalidate_every_rows=200)
         answers = iter([True, False])
 
         result = engine.run_unit(POLLUTION_UNIT, revalidate=lambda: next(answers))
@@ -168,6 +168,18 @@ class TestDeleteEngine:
         assert result.stopped_reason == "revalidation_failed"
         assert result.batches == 4
         assert len(backend.batches) == 1
+
+    def test_metrics_are_accumulated_and_flushed_in_bulk(self):
+        backend = FakeBackend([100, 100, 100, 7])
+        metrics = MagicMock()
+        cfg = EventPropertyCleanupConfig(dry_run=False, batch_size=100, sleep_seconds=0, metrics_flush_batches=3)
+        engine = DeleteEngine(cfg, backend, metrics=metrics, metric_labels={"mode": "pollution"})
+
+        engine.run_unit(POLLUTION_UNIT)
+
+        rows_calls = [c for c in metrics.increment.call_args_list if c.args[0] == "eventproperty_cleanup_rows_deleted"]
+        assert [c.kwargs["value"] for c in rows_calls] == [300.0, 7.0]
+        assert rows_calls[0].kwargs["labels"] == {"mode": "pollution"}
 
 
 class TestTeamChunking:
@@ -359,6 +371,18 @@ class TestPredicatesAgainstPostgres:
         assert self.run_units(units) == 1
         assert self.rows() == {f"{fresh}:$browser", f"{unknown}:$browser"}
 
+    def test_retention_candidates_are_paged_by_name(self):
+        for name in ("a_event", "b_event", "c_event", "d_event", "e_event"):
+            EventDefinition.objects.create(
+                team=self.team, project_id=self.project_id, name=name, last_seen_at=NOW - timedelta(days=400)
+            )
+        config = replace_config(self.config, retention_event_batch=2)
+
+        with connection.cursor() as cursor:
+            units = list(discover_retention_units(cursor, config))
+
+        assert [u.key for u in units] == [("a_event", "b_event"), ("c_event", "d_event"), ("e_event",)]
+
     def test_never_delete_team_ids_removes_the_team_from_discovery(self):
         self.add_propdef("$initial_referrer", PropertyDefinition.Type.PERSON)
         self.add_row("$pageview", "$initial_referrer")
@@ -424,3 +448,11 @@ class TestJobWiring:
         assert EventProperty.objects.filter(team=team).count() == 0
         assert summary["rows_deleted"] == 1
         assert summary["vacuums"] == 0
+
+    def test_live_run_skips_preflight_vacuum_without_debt_and_vacuums_once_at_the_end(self):
+        team = self.seed_team()
+
+        summary = self.run_job(team_ids=[team.id], dry_run=False, vacuum=True)
+
+        assert EventProperty.objects.filter(team=team).count() == 0
+        assert summary["vacuums"] == 1

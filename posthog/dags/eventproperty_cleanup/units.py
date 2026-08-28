@@ -131,10 +131,20 @@ def discover_retention_units(
     params = {"days": config.retention_days}
     for team_ids in iter_team_chunks(cursor, config, sql.RETENTION_TEAM_UNIVERSE, params, sleep):
         for scope in eligible_team_scopes(cursor, config, team_ids):
-            cursor.execute(sql.RETENTION_CANDIDATE_EVENTS, {"project_id": scope.project_id, **params})
-            names = [row[0] for row in cursor.fetchall()]
-            for start in range(0, len(names), config.retention_event_batch):
-                batch = tuple(names[start : start + config.retention_event_batch])
+            after = ""
+            while True:
+                cursor.execute(
+                    sql.RETENTION_CANDIDATE_EVENTS,
+                    {
+                        "project_id": scope.project_id,
+                        "after": after,
+                        "limit": config.retention_event_batch,
+                        **params,
+                    },
+                )
+                batch = tuple(row[0] for row in cursor.fetchall())
+                if not batch:
+                    break
                 cursor.execute(sql.RETENTION_ESTIMATE, {"project_id": scope.project_id, "names": list(batch)})
                 est = planner_estimate(cursor.fetchone()[0])
                 yield WorkUnit(
@@ -145,3 +155,6 @@ def discover_retention_units(
                     est_rows=est,
                     reason=f"events not seen for {config.retention_days} days",
                 )
+                if len(batch) < config.retention_event_batch:
+                    break
+                after = batch[-1]

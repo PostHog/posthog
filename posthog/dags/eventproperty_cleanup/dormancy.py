@@ -191,8 +191,8 @@ def score_team(
 def still_dormant(cursor, team_id: int, days: int, clickhouse_probe: ClickHouseProbe) -> bool:
     """Mid-unit re-check on the two signals that can flip while a tenant is being deleted.
 
-    A revived tenant sends events, which land in ClickHouse and refresh `last_seen_at`. Both probes are
-    cheap; a probe that cannot answer counts as not dormant.
+    A revived tenant sends events, which land in ClickHouse and refresh `last_seen_at`. A probe that
+    cannot answer counts as not dormant.
     """
     cursor.execute(sql.DORMANT_RECHECK, {"team_id": team_id, "days": days})
     seen_recently = _scalar(cursor.fetchone())

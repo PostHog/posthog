@@ -159,12 +159,16 @@ class DeleteEngine:
         self.vacuums = 0
         self._last_probe_at: float | None = None
         self._last_probe: HealthProbe | None = None
+        # Counters accumulate locally and reach ClickHouse every `metrics_flush_batches` batches.
+        self._pending_metrics: dict[tuple[str, tuple[tuple[str, str], ...]], float] = {}
+        self._batches_since_flush = 0
 
     def run_unit(self, unit: WorkUnit, revalidate: Callable[[], bool] | None = None) -> UnitResult:
-        """Delete one unit. `revalidate` is called every `revalidate_every_batches`; False stops the unit."""
+        """Delete one unit. `revalidate` runs after every `revalidate_every_rows` deleted rows; False stops the unit."""
         started = self.clock()
         statement, params = delete_statement(unit, self.config.batch_size, self.config.retention_days)
         rows_deleted = batches = pauses = vacuums = rows_since_vacuum = 0
+        rows_since_revalidation = 0
         stopped_reason: str | None = None
         retries = 0
         force_pause = False
@@ -173,7 +177,8 @@ class DeleteEngine:
             stopped_reason = self._limit_reached()
             if stopped_reason:
                 break
-            if revalidate is not None and batches and batches % self.config.revalidate_every_batches == 0:
+            if revalidate is not None and rows_since_revalidation >= self.config.revalidate_every_rows:
+                rows_since_revalidation = 0
                 if not revalidate():
                     stopped_reason = "revalidation_failed"
                     self._count("eventproperty_cleanup_revalidation_stops")
@@ -196,10 +201,15 @@ class DeleteEngine:
             retries = 0
             batches += 1
             rows_deleted += deleted
+            rows_since_revalidation += deleted
             self.rows_deleted_total += deleted
             self.rows_since_vacuum += deleted
             rows_since_vacuum += deleted
             self._count("eventproperty_cleanup_rows_deleted", value=float(deleted))
+            self._count("eventproperty_cleanup_batches")
+            self._batches_since_flush += 1
+            if self._batches_since_flush >= self.config.metrics_flush_batches:
+                self.flush_metrics()
             if self.config.vacuum and self.rows_since_vacuum >= self.config.rows_between_vacuum:
                 self.vacuum()
                 vacuums += 1
@@ -209,6 +219,7 @@ class DeleteEngine:
             if self.config.sleep_seconds:
                 self.sleep(self.config.sleep_seconds)
 
+        self.flush_metrics()
         return UnitResult(
             mode=unit.mode,
             team_id=unit.team_id,
@@ -273,7 +284,17 @@ class DeleteEngine:
     def _count(self, name: str, labels: dict[str, str] | None = None, value: float = 1.0) -> None:
         if self.metrics is None:
             return
-        try:
-            self.metrics.increment(name, labels={**self.metric_labels, **(labels or {})}, value=value).result()
-        except Exception:
-            logger.warning("eventproperty_cleanup.metric_failed", metric=name)
+        key = (name, tuple(sorted({**self.metric_labels, **(labels or {})}.items())))
+        self._pending_metrics[key] = self._pending_metrics.get(key, 0.0) + value
+
+    def flush_metrics(self) -> None:
+        """Write accumulated counters to ClickHouse. Metrics never fail the job."""
+        self._batches_since_flush = 0
+        if self.metrics is None or not self._pending_metrics:
+            return
+        pending, self._pending_metrics = self._pending_metrics, {}
+        for (name, labels), value in pending.items():
+            try:
+                self.metrics.increment(name, labels=dict(labels), value=value).result()
+            except Exception:
+                logger.warning("eventproperty_cleanup.metric_failed", metric=name)

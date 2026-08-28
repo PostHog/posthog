@@ -1,6 +1,6 @@
 """Dagster ops and job for the posthog_eventproperty cleanup crawler.
 
-Manual-only: no schedule, no sensor, dry run by default. Five sequential ops, one pod each: nothing runs
+Manual-only: no schedule, no sensor, dry run by default. Five sequential ops in one process: nothing runs
 in parallel because the table lives on the shared cloud primary and every unit is resumable by relaunch.
 Discovery and scoring read the replica when one is configured; only deletes touch the primary.
 """
@@ -14,7 +14,6 @@ from django.db.backends.base.base import BaseDatabaseWrapper
 
 import dagster
 import psycopg2
-from dagster_k8s import k8s_job_executor
 
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.custom_metrics import MetricsClient
@@ -79,6 +78,16 @@ def discovery_connection() -> BaseDatabaseWrapper:
     return connections[REPLICA_ALIAS] if REPLICA_ALIAS in connections.databases else connection
 
 
+def discovery_cursor(config: EventPropertyCleanupConfig):
+    """A cursor on the discovery connection with the discovery statement_timeout applied.
+
+    On the primary the delete transactions override this with `SET LOCAL`, so it only bounds discovery.
+    """
+    cursor = discovery_connection().cursor()
+    cursor.execute("SET statement_timeout = %s", (config.discovery_statement_timeout,))
+    return cursor
+
+
 def _skipped(mode: str) -> ModeResult:
     return ModeResult(
         mode=mode,
@@ -134,9 +143,16 @@ def preflight_op(context: dagster.OpExecutionContext, config: EventPropertyClean
 
     vacuumed = False
     if config.vacuum_on_start and config.vacuum and not config.dry_run:
-        notices = DjangoPostgresBackend().vacuum(config.vacuum_cost_delay_ms, config.vacuum_cost_limit)
-        context.log.info("preflight vacuum: %s", notices[-12:])
-        vacuumed = True
+        with connection.cursor() as cursor:
+            cursor.execute(sql.HEALTH_TABLE_STATS)
+            row = cursor.fetchone()
+        dead_tuples = int(row[1]) if row else 0
+        if dead_tuples >= config.vacuum_on_start_min_dead_tuples:
+            notices = DjangoPostgresBackend().vacuum(config.vacuum_cost_delay_ms, config.vacuum_cost_limit)
+            context.log.info("preflight vacuum (%s dead tuples): %s", f"{dead_tuples:,}", notices[-12:])
+            vacuumed = True
+        else:
+            context.log.info("skipping preflight vacuum: %s dead tuples", f"{dead_tuples:,}")
 
     report = PreflightReport(
         database=database,
@@ -250,7 +266,7 @@ def run_pollution_op(
     if not config.pollution_enabled:
         context.log.info("pollution mode disabled")
         return _skipped("pollution")
-    with discovery_connection().cursor() as cursor:
+    with discovery_cursor(config) as cursor:
         return run_units(context, config, preflight, "pollution", discover_pollution_units(cursor, config), cluster)
 
 
@@ -265,7 +281,7 @@ def run_retention_op(
     if config.retention_days is None:
         context.log.info("retention mode disabled (retention_days is None)")
         return _skipped("retention")
-    with discovery_connection().cursor() as cursor:
+    with discovery_cursor(config) as cursor:
         return run_units(context, config, preflight, "retention", discover_retention_units(cursor, config), cluster)
 
 
@@ -306,7 +322,7 @@ def run_dormant_op(
         return
 
     clickhouse_probe = clickhouse_probe_for(cluster)
-    with discovery_connection().cursor() as cursor:
+    with discovery_cursor(config) as cursor:
         verdicts, units = score_dormant_teams(
             cursor,
             config,
@@ -331,7 +347,7 @@ def run_dormant_op(
 
     def revalidator(unit: WorkUnit) -> Callable[[], bool]:
         def check() -> bool:
-            with discovery_connection().cursor() as cursor:
+            with discovery_cursor(config) as cursor:
                 ok = still_dormant(cursor, unit.team_id, config.dormant_days, clickhouse_probe)
             if not ok:
                 context.log.warning("team %s is no longer dormant; stopping its unit", unit.team_id)
@@ -372,8 +388,9 @@ def collect_and_vacuum_op(
     return summary
 
 
-# One pod at a time: the table is on the shared cloud primary and every unit is resumable by relaunch.
-executor_def = dagster.in_process_executor if settings.DEBUG else k8s_job_executor.configured({"max_concurrent": 1})
+# One pod for the whole run: the ops are strictly sequential, the table is on the shared cloud primary,
+# and every unit is resumable by relaunch, so per-step pods would only add cost.
+executor_def = dagster.in_process_executor
 
 OP_NAMES = (
     "preflight_op",
