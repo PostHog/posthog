@@ -3374,6 +3374,7 @@ dependencies = [
  "httpmock",
  "insta",
  "metrics",
+ "metrics-util",
  "mockall",
  "moka",
  "personhog-common",

@@ -114,6 +114,9 @@ export function createRuntimeMcpServers(
         lifecycle: "lazy" as const,
         args: [],
         directTools: false,
+        // Lazy servers hold no tool metadata until first use, so this is what the
+        // model's tool search matches on until then.
+        ...(server.description ? { description: server.description } : {}),
       },
     ]),
   );

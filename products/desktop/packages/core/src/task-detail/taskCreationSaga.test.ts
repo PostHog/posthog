@@ -1436,7 +1436,7 @@ describe("TaskCreationSaga", () => {
   });
 
   it.each(["local", "worktree"] as const)(
-    "forwards context window and fast mode to the agent session for workspaceMode=%s",
+    "forwards run configuration to the agent session for workspaceMode=%s",
     async (workspaceMode) => {
       const createTaskMock = vi.fn().mockResolvedValue(createTask());
       mockHost.addFolder.mockResolvedValue({ id: "folder-1", path: "/repo" });
@@ -1448,13 +1448,20 @@ describe("TaskCreationSaga", () => {
         content: "Ship the fix",
         repoPath: "/repo",
         workspaceMode,
+        adapter: "codex",
+        codexModelAccess: "own-subscription",
         contextWindow: "1m",
         fastMode: true,
       });
 
       expect(result.success).toBe(true);
       expect(sessionService.connectToTask).toHaveBeenCalledWith(
-        expect.objectContaining({ contextWindow: "1m", fastMode: true }),
+        expect.objectContaining({
+          adapter: "codex",
+          codexModelAccess: "own-subscription",
+          contextWindow: "1m",
+          fastMode: true,
+        }),
       );
     },
   );

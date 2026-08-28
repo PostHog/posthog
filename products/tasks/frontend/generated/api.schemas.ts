@@ -1657,6 +1657,8 @@ export interface TaskRunDetailDTOApi {
     updated_at?: string | null
     /** @nullable */
     completed_at?: string | null
+    /** True when this run's sandbox serves a dev stack preview, so clients can offer the preview link. Open it through the run's `preview/` endpoint, which mints a fresh access token on every request. */
+    preview_available?: boolean
 }
 
 export interface SlackThreadReferenceDTOApi {
@@ -1721,6 +1723,11 @@ export interface TaskDetailDTOApi {
     /** @nullable */
     channel?: string | null
     readonly slack_thread_references: readonly SlackThreadReferenceDTOApi[]
+    /**
+     * Stable key of the server-side flow that created this task, e.g. `desktop_onboarding_session:<user_id>`. Null for tasks people create themselves.
+     * @nullable
+     */
+    origin_key?: string | null
 }
 
 export interface PaginatedTaskDetailDTOListApi {

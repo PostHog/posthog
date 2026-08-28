@@ -169,6 +169,7 @@ class GetSandboxForRepositoryOutput:
     clone_ms: int | None = None
     checkout_ms: int | None = None
     launch_ms: int | None = None
+    dev_stack_preview_sized: bool = False
 
 
 @activity.defn

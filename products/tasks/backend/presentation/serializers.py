@@ -438,6 +438,14 @@ class TaskRunDetailSerializer(DataclassSerializer):
         required=False,
         help_text="Configured reasoning effort for this run when the selected model supports it.",
     )
+    preview_available = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "True when this run's sandbox serves a dev stack preview, so clients can offer the "
+            "preview link. Open it through the run's `preview/` endpoint, which mints a fresh "
+            "access token on every request."
+        ),
+    )
 
     class Meta:
         dataclass = TaskRunDetailDTO
@@ -460,6 +468,7 @@ class TaskRunDetailSerializer(DataclassSerializer):
             "created_at",
             "updated_at",
             "completed_at",
+            "preview_available",
         ]
 
 
@@ -512,6 +521,14 @@ class TaskSerializer(DataclassSerializer):
         choices=tasks_facade.TaskRuntime.choices,
         help_text="Agent protocol and harness used for this task's runs.",
     )
+    origin_key = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Stable key of the server-side flow that created this task, e.g. "
+            "`desktop_onboarding_session:<user_id>`. Null for tasks people create themselves."
+        ),
+    )
 
     class Meta:
         dataclass = TaskDetailDTO
@@ -541,6 +558,7 @@ class TaskSerializer(DataclassSerializer):
             "ci_prompt",
             "channel",
             "slack_thread_references",
+            "origin_key",
         ]
 
 

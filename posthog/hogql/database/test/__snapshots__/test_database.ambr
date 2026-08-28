@@ -2837,6 +2837,81 @@
                   "schema_valid": true,
                   "table": "account_relationships",
                   "type": "lazy_table"
+              },
+              "meetings": {
+                  "chain": null,
+                  "fields": [
+                      "account_id",
+                      "count",
+                      "latest_start_time",
+                      "recent"
+                  ],
+                  "hogql_value": "meetings",
+                  "id": "meetings",
+                  "name": "meetings",
+                  "schema_valid": true,
+                  "table": "account_meetings",
+                  "type": "lazy_table"
+              },
+              "slack_summaries": {
+                  "chain": null,
+                  "fields": [
+                      "account_id",
+                      "count",
+                      "latest_generated_at",
+                      "recent"
+                  ],
+                  "hogql_value": "slack_summaries",
+                  "id": "slack_summaries",
+                  "name": "slack_summaries",
+                  "schema_valid": true,
+                  "table": "account_slack_summaries",
+                  "type": "lazy_table"
+              },
+              "feature_requests": {
+                  "chain": null,
+                  "fields": [
+                      "account_id",
+                      "count",
+                      "last_updated_at",
+                      "recent"
+                  ],
+                  "hogql_value": "feature_requests",
+                  "id": "feature_requests",
+                  "name": "feature_requests",
+                  "schema_valid": true,
+                  "table": "account_feature_requests",
+                  "type": "lazy_table"
+              },
+              "support_tickets": {
+                  "chain": null,
+                  "fields": [
+                      "account_id",
+                      "count",
+                      "last_message_at",
+                      "recent"
+                  ],
+                  "hogql_value": "support_tickets",
+                  "id": "support_tickets",
+                  "name": "support_tickets",
+                  "schema_valid": true,
+                  "table": "account_support_tickets",
+                  "type": "lazy_table"
+              },
+              "email_threads": {
+                  "chain": null,
+                  "fields": [
+                      "account_id",
+                      "count",
+                      "last_message_at",
+                      "recent"
+                  ],
+                  "hogql_value": "email_threads",
+                  "id": "email_threads",
+                  "name": "email_threads",
+                  "schema_valid": true,
+                  "table": "account_email_threads",
+                  "type": "lazy_table"
               }
           },
           "id": "system.accounts",
@@ -11026,6 +11101,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
+              },
+              "organization_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "organization_id",
+                  "id": null,
+                  "name": "organization_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               },
               "channel_source": {
                   "chain": null,
@@ -14182,6 +14267,81 @@
                   "schema_valid": true,
                   "table": "account_relationships",
                   "type": "lazy_table"
+              },
+              "meetings": {
+                  "chain": null,
+                  "fields": [
+                      "account_id",
+                      "count",
+                      "latest_start_time",
+                      "recent"
+                  ],
+                  "hogql_value": "meetings",
+                  "id": "meetings",
+                  "name": "meetings",
+                  "schema_valid": true,
+                  "table": "account_meetings",
+                  "type": "lazy_table"
+              },
+              "slack_summaries": {
+                  "chain": null,
+                  "fields": [
+                      "account_id",
+                      "count",
+                      "latest_generated_at",
+                      "recent"
+                  ],
+                  "hogql_value": "slack_summaries",
+                  "id": "slack_summaries",
+                  "name": "slack_summaries",
+                  "schema_valid": true,
+                  "table": "account_slack_summaries",
+                  "type": "lazy_table"
+              },
+              "feature_requests": {
+                  "chain": null,
+                  "fields": [
+                      "account_id",
+                      "count",
+                      "last_updated_at",
+                      "recent"
+                  ],
+                  "hogql_value": "feature_requests",
+                  "id": "feature_requests",
+                  "name": "feature_requests",
+                  "schema_valid": true,
+                  "table": "account_feature_requests",
+                  "type": "lazy_table"
+              },
+              "support_tickets": {
+                  "chain": null,
+                  "fields": [
+                      "account_id",
+                      "count",
+                      "last_message_at",
+                      "recent"
+                  ],
+                  "hogql_value": "support_tickets",
+                  "id": "support_tickets",
+                  "name": "support_tickets",
+                  "schema_valid": true,
+                  "table": "account_support_tickets",
+                  "type": "lazy_table"
+              },
+              "email_threads": {
+                  "chain": null,
+                  "fields": [
+                      "account_id",
+                      "count",
+                      "last_message_at",
+                      "recent"
+                  ],
+                  "hogql_value": "email_threads",
+                  "id": "email_threads",
+                  "name": "email_threads",
+                  "schema_valid": true,
+                  "table": "account_email_threads",
+                  "type": "lazy_table"
               }
           },
           "id": "system.accounts",
@@ -22371,6 +22531,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
+              },
+              "organization_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "organization_id",
+                  "id": null,
+                  "name": "organization_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               },
               "channel_source": {
                   "chain": null,

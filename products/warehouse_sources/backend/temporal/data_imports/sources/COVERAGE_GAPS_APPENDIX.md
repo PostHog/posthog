@@ -1784,7 +1784,7 @@ Note: docs.coinapi.io is behind a Cloudflare interstitial and returns 403 to cur
 
 ## CoinGecko — gaps
 
-Today (7): `asset_platforms`, `coins_categories`, `coins_categories_list`, `coins_list`, `coins_markets`, `exchanges`, `exchanges_list`
+Today (8): `asset_platforms`, `coins_categories`, `coins_categories_list`, `coins_list`, `coins_markets`, `exchanges`, `exchanges_list`, `insights`
 
 Diffed against: <https://docs.coingecko.com/llms.txt>
 
@@ -1800,6 +1800,7 @@ Diffed against: <https://docs.coingecko.com/llms.txt>
 - [ ] `/exchange_rates` — BTC-to-currency rates, the standard normaliser for cross-currency reporting (medium)
 - [ ] `/derivatives/exchanges and /derivatives/tickers` — derivatives venues and open interest, entirely absent from current coverage (medium)
 - [ ] `/nfts/markets` — NFT collections with floor price, market cap and volume - a whole product surface with no table today (medium)
+- [ ] `/coins/{id}/supply_breakdown` — per-coin circulating/non-circulating supply split with non-circulating wallet detail (Pro, Analyst plan and above); needs per-coin fan-out over the full coin universe, which this top-level-only source has no plumbing for (medium)
 
 Note: docs.coingecko.com/reference/\* pages are client-rendered and unparseable by curl, but llms.txt enumerates every reference page (Demo and Pro) with descriptions, and any single page can be fetched by appending .md. The onchain/GeckoTerminal family (networks, dexes, pools, token holders, pool trades) is a further ~35 endpoints with zero coverage; treated as a separate product rather than listed individually here.
 
@@ -3191,6 +3192,16 @@ Diffed against: <https://formbricks.com/docs/api-reference/openapi.json>
 - [ ] `/api/v2/roles` — lookup resolving membership role values on org users (low)
 
 Note: The v1 management API spec (openapi.json, 23 paths) is fully covered - every GET-listable v1 resource is already synced. The remaining gaps come from the v2 organizations API, enumerated from https://formbricks.com/docs/llms.txt (api-v2-reference/organizations-api--\* and api-v2-reference/roles/get-roles). Displays and storage have no list endpoint.
+
+## Fourthwall — adequate
+
+Today (9): `collections`, `donations`, `mailing_list_entries`, `members`, `membership_tiers`, `orders`, `product_templates`, `products`, `promotions`
+
+Diffed against: <https://docs.fourthwall.com/api-reference/platform>
+
+- [x] `product-templates (GET /product-templates/page/{page})` — the catalog of base product templates a shop builds products from, added as a full-refresh table
+
+Note: The product-templates list pages by a 1-based path segment and returns only `{results, total}` (no `totalPages`), so it walks the path until a page is empty; rows are keyed by `productId` and carry no timestamps, so the table is full-refresh only.
 
 ## Freshcaller — gaps
 
@@ -4605,6 +4616,16 @@ Diffed against: <https://pub.klausapp.com/public-export-api.swagger.json>
 - [ ] `/api/export/quizzes/leaderboard` — agent ranking dimension across quizzes (medium)
 
 Note: Now branded Zendesk QA. pub.klausapp.com hosts two Swagger 2.0 specs; the relevant one is public-export-api.swagger.json (18 paths) — the sibling public-import-api.swagger.json is write-only ingestion and irrelevant here. PostHog's 10 tables map 1:1 onto the workspace-scoped export endpoints; the only genuine holes are the quiz sub-resources and the POST-based conversation search (which needs a request body, so it is more work than the plain GET exports).
+
+## Klaviyo — adequate
+
+Today (33): `accounts`, `campaign_values_reports`, `catalog_categories`, `catalog_items`, `catalog_variants`, `coupon_codes`, `coupons`, `custom_metrics`, `custom_object_records`, `data_sources`, `email_campaigns`, `events`, `flow_actions`, `flow_messages`, `flow_values_reports`, `flows`, `forms`, `images`, `list_profiles`, `lists`, `metrics`, `object_types`, `profiles`, `push_tokens`, `reviews`, `segment_profiles`, `segments`, `sms_campaigns`, `tag_groups`, `tags`, `templates`, `web_feeds`, `webhooks`
+
+Diffed against: <https://developers.klaviyo.com/en/reference/custom_objects_api_overview>
+
+- [x] `custom-object-records (GET /api/object-types/{id}/object-records)` — the actual records of each custom object type, fanned out over the `object_types` we already sync; the only Custom Objects data table, GA in the 2026-07-15 revision (high)
+
+Note: The Custom Objects API is GA at revision 2026-07-15, which the source already pins. `object-records` has no timestamp filter or sort, so it is full refresh only; its parent `/object-types` exposes no page[size] param, so the fan-out pages it by cursor links alone. The remaining write/admin paths in the Custom Objects API (create object type, source mappings, bulk create/delete jobs, schema relationships) are ingestion and management, not warehouse tables.
 
 ## Knock — gaps
 

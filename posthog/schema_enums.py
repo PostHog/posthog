@@ -531,6 +531,7 @@ class Display(StrEnum):
     BOLD_NUMBER = "BoldNumber"
     METRIC = "Metric"
     ACTIONS_PIE = "ActionsPie"
+    ACTIONS_DONUT = "ActionsDonut"
     ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_TABLE = "ActionsTable"
     WORLD_MAP = "WorldMap"
@@ -667,6 +668,7 @@ class ChartDisplayType(StrEnum):
     BOLD_NUMBER = "BoldNumber"
     METRIC = "Metric"
     ACTIONS_PIE = "ActionsPie"
+    ACTIONS_DONUT = "ActionsDonut"
     ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_TABLE = "ActionsTable"
     WORLD_MAP = "WorldMap"
@@ -1162,6 +1164,11 @@ class ErrorTrackingQueryIssueSeverity(StrEnum):
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
+
+
+class ErrorTrackingReleasesOrderBy(StrEnum):
+    LATEST = "latest"
+    OCCURRENCES = "occurrences"
 
 
 class EvaluationRuntime(StrEnum):
@@ -2603,6 +2610,9 @@ class ExternalDataSourceType(StrEnum):
     TANA = "Tana"
     ZENCHEF = "Zenchef"
     LOVABLE = "Lovable"
+    ANVIL = "Anvil"
+    COOLIFY = "Coolify"
+    SOCIAL_PILOT = "SocialPilot"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -3325,6 +3335,7 @@ class NodeKind(StrEnum):
     ERROR_TRACKING_SIMILAR_ISSUES_QUERY = "ErrorTrackingSimilarIssuesQuery"
     ERROR_TRACKING_FINGERPRINT_PROJECTION_QUERY = "ErrorTrackingFingerprintProjectionQuery"
     ERROR_TRACKING_BREAKDOWNS_QUERY = "ErrorTrackingBreakdownsQuery"
+    ERROR_TRACKING_RELEASES_QUERY = "ErrorTrackingReleasesQuery"
     ERROR_TRACKING_ISSUE_CORRELATION_QUERY = "ErrorTrackingIssueCorrelationQuery"
     LOGS_QUERY = "LogsQuery"
     LOG_ATTRIBUTES_QUERY = "LogAttributesQuery"

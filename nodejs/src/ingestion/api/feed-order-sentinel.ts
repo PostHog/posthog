@@ -62,14 +62,12 @@ export class FeedOrderSentinel {
         const result: FeedOrderCheckResult = { outOfOrder: 0, replayed: 0 }
 
         for (const message of messages) {
-            const token = message.headers['token']
-            const distinctId = message.headers['distinct_id']
-            if (!token || !distinctId) {
-                // No routing key: the consumer routes these individually under a
+            if (!message.key) {
+                // Unkeyed: the consumer routes these individually under a
                 // synthetic unique key, so there is no per-key order to check.
                 continue
             }
-            const key = `${message.topic}/${message.partition}/${token}:${distinctId}`
+            const key = `${message.topic}/${message.partition}/${message.key}`
 
             const entry = this.entries.get(key)
             if (entry && entry.consumerId === consumerId) {
