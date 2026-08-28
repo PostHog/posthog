@@ -803,12 +803,17 @@ def get_sandbox_ph_mcp_configs(
     scopes: PosthogMcpScopes = "read_only",
     interaction_origin: str | None = None,
     task_id: str | None = None,
+    origin_product: str | None = None,
 ) -> list[McpServerConfig]:
     """Return PostHog MCP server configurations for sandbox agents.
 
     `task_id` is baked into an `X-PostHog-Task-Id` header so the MCP server (and through it the
     PostHog API) can deterministically attribute the agent's writes to its task — the LLM never
     handles its own task id.
+
+    `origin_product` rides along as `X-PostHog-Task-Origin`. The consumer header can't carry it
+    (scouts and Desktop tasks both send `posthog-code`), and the MCP server needs it to keep
+    `exec` from advertising gateway tools to runs that mount those servers directly.
 
     Uses SANDBOX_MCP_URL if explicitly set, otherwise derives it from SITE_URL:
     - app.posthog.com / us.posthog.com → https://mcp.posthog.com/mcp
@@ -829,6 +834,8 @@ def get_sandbox_ph_mcp_configs(
     ]
     if task_id:
         headers.append({"name": "X-PostHog-Task-Id", "value": str(task_id)})
+    if origin_product:
+        headers.append({"name": "X-PostHog-Task-Origin", "value": origin_product})
     return [
         McpServerConfig(
             type="http",
