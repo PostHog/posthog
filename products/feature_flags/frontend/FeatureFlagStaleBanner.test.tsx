@@ -134,7 +134,25 @@ describe('FeatureFlagStaleBanner', () => {
                 max_rollout_percentage: 40,
                 is_multivariate: true,
             },
-            says: /Its highest rollout is 40% inside a targeted release condition\. That is not 40% of all users\./,
+            says: /Its highest rollout across release conditions is 40%\. Some conditions target specific users, so this may not be 40% of all users\./,
+        },
+        {
+            // The shape `max_rollout_percentage_across_multiple_groups` pins in
+            // products/feature_flags/backend/test/test_flag_status.py: a 30% targeted condition next
+            // to a 75% blanket one. The maximum belongs to the blanket condition, so the banner must
+            // not place it inside the targeted one.
+            name: 'a flag whose largest rollout sits outside its targeted condition',
+            flag: buildFlag({ last_called_at: CALLED_AT }),
+            rollout: { ...NO_ROLLOUT, has_targeting_conditions: true, max_rollout_percentage: 75 },
+            says: /Its highest rollout across release conditions is 75%\. Some conditions target specific users, so this may not be 75% of all users\./,
+        },
+        {
+            // Stale from the rollout alone, so the reason already carries the coverage. Appending a
+            // percentage here reads as a contradiction next to 'will always evaluate to "true"'.
+            name: 'a targeted flag the backend calls stale from its rollout alone',
+            flag: buildFlag(),
+            rollout: { ...NO_ROLLOUT, effectively_full_rollout: true, has_targeting_conditions: true },
+            says: null,
         },
         {
             name: 'a flag that still serves part of the user base',

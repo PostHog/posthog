@@ -37,7 +37,15 @@ function rolloutSentence(
     const percentage = rollout.max_rollout_percentage
 
     if (rollout.has_targeting_conditions) {
-        return `Its highest rollout is ${percentage}% inside a targeted release condition. That is not ${percentage}% of all ${targets}.`
+        // The two fields are computed independently over the whole condition list.
+        // `has_targeting_conditions` means some condition has property filters, and
+        // `max_rollout_percentage` is the maximum across every condition. They need not describe the
+        // same condition, so the banner reports the number without saying which one produced it.
+        // Without usage data the backend reached its verdict from the rollout, so `reason` already
+        // carries the fact, as in the `effectively_full_rollout` branch below.
+        return hasUsageData
+            ? `Its highest rollout across release conditions is ${percentage}%. Some conditions target specific ${targets}, so this may not be ${percentage}% of all ${targets}.`
+            : null
     }
     if (rollout.effectively_full_rollout) {
         // Without usage data the backend reaches its stale verdict from the rollout itself, so
