@@ -14,14 +14,11 @@ def _action_sends_email(action: object) -> bool:
         return False
     if action.get("type") == "function_email":
         return True
-    # The serializer also accepts the email template on a generic function step, and the worker
-    # executes it the same way, so the detector must not key on the declared type alone.
+    # The worker executes function steps by template, not by declared type, so any step carrying
+    # the email template sends email regardless of what its type claims. Keying on the template id
+    # closes the whole class of mislabeled-step bypasses at once.
     config = action.get("config")
-    return (
-        action.get("type") == "function"
-        and isinstance(config, dict)
-        and config.get("template_id") == _EMAIL_TEMPLATE_ID
-    )
+    return isinstance(config, dict) and config.get("template_id") == _EMAIL_TEMPLATE_ID
 
 
 def hog_flow_sends_email(actions: object) -> bool:

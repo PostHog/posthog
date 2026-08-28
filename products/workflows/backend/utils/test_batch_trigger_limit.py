@@ -126,6 +126,11 @@ class TestTieredHogflowBatchTriggerLimit(BaseTest):
                 True,
             ),
             (
+                "the email template on a mislabeled sms step",
+                [{"type": "function_sms", "config": {"template_id": "template-email"}}],
+                True,
+            ),
+            (
                 "a webhook template on a generic function step",
                 [{"type": "function", "config": {"template_id": "template-webhook"}}],
                 False,
