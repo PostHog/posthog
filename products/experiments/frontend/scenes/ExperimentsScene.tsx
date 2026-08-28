@@ -32,7 +32,6 @@ import {
     confirmArchiveExperiment,
     confirmDeleteExperiment,
 } from 'scenes/experiments/experimentActions'
-import { getExperimentStatus } from 'scenes/experiments/experimentStatus'
 import MaxTool from 'scenes/max/MaxTool'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -59,6 +58,7 @@ import { DuplicateExperimentModal } from 'products/experiments/frontend/componen
 import { ExperimentVelocityStats } from 'products/experiments/frontend/components/ExperimentVelocityStats'
 import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
 import { experimentsEmptyState } from 'products/experiments/frontend/emptyState/experimentsEmptyState'
+import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
 /**
  * these scenes are handled as child components. This works fine, but breaks the expectation of scenes
  * having their own routes.
