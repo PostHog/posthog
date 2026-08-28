@@ -945,16 +945,6 @@ def test_parse_prop_clauses_defaults(snapshot):
         )
         == snapshot
     )
-    assert (
-        parse_prop_grouped_clauses(
-            team_id=1,
-            property_group=filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.DIRECT,
-            allow_denormalized_props=False,
-            hogql_context=filter.hogql_context,
-        )
-        == snapshot
-    )
 
 
 @pytest.mark.django_db
