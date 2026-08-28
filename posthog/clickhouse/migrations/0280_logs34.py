@@ -20,12 +20,12 @@ from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, 
 # they need is inlined here instead of in a shared definition module.
 
 TABLE_NAME = "logs34"
-LOG_ATTRIBUTES_TABLE_NAME = "log_attributes2"
+LOG_ATTRIBUTES2_TABLE_NAME = "log_attributes2"
 
 
 def LOG_ATTRIBUTES2_TABLE_SQL():
     return f"""
-CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{LOG_ATTRIBUTES_TABLE_NAME}
+CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{LOG_ATTRIBUTES2_TABLE_NAME}
 (
     `team_id` Int32,
     `time_bucket` DateTime64(0),
@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{LOG_ATTR
     INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
     INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
 )
-ENGINE = {AggregatingMergeTree(LOG_ATTRIBUTES_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
+ENGINE = {AggregatingMergeTree(LOG_ATTRIBUTES2_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY toDate(original_expiry_time_bucket)
 ORDER BY (team_id, attribute_type, time_bucket, resource_fingerprint, attribute_key, attribute_value)
 TTL original_expiry_time_bucket
@@ -56,17 +56,17 @@ def LOG_ATTRIBUTES2_DISTRIBUTED_TABLE_SQL():
 CREATE OR REPLACE TABLE {database}.log_attributes_distributed AS {database}.{table_name} ENGINE = {engine}
 """.format(
         engine=Distributed(
-            data_table=LOG_ATTRIBUTES_TABLE_NAME,
+            data_table=LOG_ATTRIBUTES2_TABLE_NAME,
             cluster=settings.CLICKHOUSE_LOGS_CLUSTER,
         ),
         database=settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE,
-        table_name=LOG_ATTRIBUTES_TABLE_NAME,
+        table_name=LOG_ATTRIBUTES2_TABLE_NAME,
     )
 
 
 def LOGS34_TO_LOG_ATTRIBUTES_MV():
     return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}_to_log_attributes TO {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{LOG_ATTRIBUTES_TABLE_NAME}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}_to_log_attributes TO {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{LOG_ATTRIBUTES2_TABLE_NAME}
 (
     `team_id` Int32,
     `time_bucket` DateTime64(0),
@@ -116,7 +116,7 @@ FROM
 
 def LOGS34_TO_RESOURCE_ATTRIBUTES_MV():
     return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}_to_resource_attributes TO {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{LOG_ATTRIBUTES_TABLE_NAME}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}_to_resource_attributes TO {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{LOG_ATTRIBUTES2_TABLE_NAME}
 (
     `team_id` Int32,
     `time_bucket` DateTime64(0),
