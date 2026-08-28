@@ -7355,7 +7355,7 @@ snapshots:
     scenes-app-mcp-analytics--activity--dark:
         hash: v1.k794b7964.60567d70bc304169859936a6fc44f8b8c35dcc8feba569df1d1baaf4b0b59b58.5oeRir9epVFIU2yWQztkLniZgHg4VmPQNlb1M5CxDgo
     scenes-app-mcp-analytics--activity--light:
-        hash: v1.k794b7964.473eea859bb71b592d4192301ff6b6f80d0b31bc60d992537d1f4c72ef5a54fa.TYyn1fQMICc0v0oJjArYuI8WHq9LrVDDeu8ECeEAFac
+        hash: v1.k794b7964.476e8e1b150aa3297258beafe087087a2aa1ab471ffd756609cfcad711fb9501.j0G6l-uFa6vmILs0GVlIfxgOVP3VoG5XgHB3RUn77xo
     scenes-app-mcp-analytics--dashboard--dark:
         hash: v1.k794b7964.98d14c1adf3b8713a5a04d0e6ffa8db92191ff2f8b53ed9bec741a7cba5853ba.OGLbWNab5BvMifNsvxFEeiQkKYDJC53-B9_whXUSXis
     scenes-app-mcp-analytics--dashboard--light:
@@ -7375,7 +7375,7 @@ snapshots:
     scenes-app-mcp-analytics--tool-quality--dark:
         hash: v1.k794b7964.1a048a30aaedf592d08fb4a1a84d74d722e0afcdb9c72c1a001890f28530b50b.05NkieX3K7vPDZ5lVm_K5o7azAn1_9755fgJk77I9oo
     scenes-app-mcp-analytics--tool-quality--light:
-        hash: v1.k794b7964.04a9b39c28f16ad4b5a1b2625115e68768273cc7b66548fcbc5754a8f48aaac6.varhLyKH9GufBWEUlArceEOjryAzqMHvXgGzy-6VecY
+        hash: v1.k794b7964.5f23bd5fadf5ac66381a6e4169b2d14fb29a8e83378df97a0a28d3a74957a78f.loqNVcHO963TsvL8lDkGGSu3_iE2EdAekjJEQo0GwuA
     scenes-app-mcp-analytics-dashboard-cards--daily-calls-and-errors--dark:
         hash: v1.k794b7964.7302f068e1b6a63086ac35ffb7e7e1b9d10b8608cb7c6bb7033d341638e2d695.51PNQHMCZinl1fgHrAFmryj0im81JG1jIjU-DQc0oPY
     scenes-app-mcp-analytics-dashboard-cards--daily-calls-and-errors--light:
