@@ -16,7 +16,7 @@ import {
 } from "@posthog/ui/features/task-detail/pendingPromptActions";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { motion } from "framer-motion";
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import {
   usePendingTaskPrompt,
   usePendingTaskPromptStore,
@@ -30,6 +30,11 @@ interface TaskPendingViewProps {
 
 export function TaskPendingView({ pendingTaskKey }: TaskPendingViewProps) {
   const pending = usePendingTaskPrompt(pendingTaskKey);
+  const lastPending = useRef(pending);
+  if (pending) {
+    lastPending.current = pending;
+  }
+  const displayedPending = pending ?? lastPending.current;
   // The store persists through async host storage, so the first render always
   // sees an empty map. Without gating on hydration a reload straight onto this
   // route would flash "no longer available" over a record that is still on disk.
@@ -54,18 +59,18 @@ export function TaskPendingView({ pendingTaskKey }: TaskPendingViewProps) {
       }}
       className="relative h-full w-full bg-background"
     >
-      {pending?.interruptReason ? (
+      {displayedPending?.interruptReason ? (
         <InterruptedPromptView
-          promptText={pending.promptText}
-          attachments={pending.attachments}
-          reason={pending.interruptReason}
+          promptText={displayedPending.promptText}
+          attachments={displayedPending.attachments}
+          reason={displayedPending.interruptReason}
           onRecover={handleRecover}
           onDiscard={handleDiscard}
         />
-      ) : pending ? (
+      ) : displayedPending ? (
         <PendingChatView
-          promptText={pending.promptText}
-          attachments={pending.attachments}
+          promptText={displayedPending.promptText}
+          attachments={displayedPending.attachments}
         />
       ) : !hasHydrated ? (
         <div className="absolute inset-0 flex items-center justify-center p-6">
