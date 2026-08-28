@@ -100,6 +100,27 @@ export const POSTHOG_NOTIFICATIONS = {
   MCP_RESPONSE: "_posthog/mcp_response",
 } as const;
 
+export type SteerDeclineCause =
+  | "cancelled"
+  | "compacting"
+  | "continuation_failed"
+  | "no_in_flight_turn"
+  | "no_owner_turn"
+  | "steer_in_flight"
+  | "turn_ended_first"
+  | "turn_failed"
+  | "turn_not_steerable";
+
+export function steerDeclined(cause: SteerDeclineCause): {
+  stopReason: "end_turn";
+  _meta: { steer: false; steerDeclineCause: SteerDeclineCause };
+} {
+  return {
+    stopReason: "end_turn",
+    _meta: { steer: false, steerDeclineCause: cause },
+  };
+}
+
 export type NativeGoalState = {
   objective: string;
   status:
