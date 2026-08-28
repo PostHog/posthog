@@ -1,6 +1,6 @@
 import asyncio
 import contextlib
-from collections.abc import AsyncIterator, Collection, Iterable
+from collections.abc import AsyncIterator, Callable, Collection, Iterable
 from dataclasses import replace
 from io import BytesIO
 from typing import Any, cast
@@ -18,7 +18,7 @@ import pyarrow.parquet as pq
 
 from posthog.hogql.resolver import ResolverFactory
 
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_modeling.activities import (
     CreateDataModelingJobInputs,
@@ -1647,7 +1647,14 @@ class _EmptyArrowClient:
         self.describe_query: str | None = None
         self.arrow_query: str | None = None
 
-    async def astream_query_as_arrow(self, query, *data, query_parameters=None, query_id=None, on_schema=None):
+    async def astream_query_as_arrow(
+        self,
+        query: str,
+        *data: Any,
+        query_parameters: dict[str, Any] | None = None,
+        query_id: str | None = None,
+        on_schema: Callable[[pa.Schema], None] | None = None,
+    ) -> AsyncIterator[pa.RecordBatch]:
         self.arrow_query_calls += 1
         self.arrow_query = query
         if on_schema is not None:
@@ -1656,7 +1663,14 @@ class _EmptyArrowClient:
         yield  # type: ignore[unreachable]  # makes this an async generator that yields no batches
 
     @contextlib.asynccontextmanager
-    async def apost_query(self, query, *data, query_parameters=None, query_id=None, settings=None):
+    async def apost_query(
+        self,
+        query: str,
+        *data: Any,
+        query_parameters: dict[str, Any] | None = None,
+        query_id: str | None = None,
+        settings: dict[str, str] | None = None,
+    ) -> AsyncIterator[Any]:
         if query.startswith("DESCRIBE TABLE"):
             self.describe_settings = settings
             self.describe_query = query
@@ -1699,13 +1713,13 @@ class TestHogqlTableEmptyResults:
 
 
 class TestHogqlTableDescribeSettings:
-    async def test_describe_probe_drops_global_subqueries(self, ateam):
+    async def test_describe_probe_drops_global_subqueries(self, ateam: Team) -> None:
         client = _EmptyArrowClient(pa.schema([pa.field("distinct_id", pa.string())]))
         client.describe_body = b"distinct_id\tString\n"
         query = "SELECT distinct_id FROM events WHERE distinct_id IN (SELECT distinct_id FROM events WHERE event = 'x')"
 
         @contextlib.asynccontextmanager
-        async def fake_get_client(**kwargs):
+        async def fake_get_client(**kwargs: Any) -> AsyncIterator[_EmptyArrowClient]:
             yield client
 
         with unittest.mock.patch(
@@ -1726,7 +1740,14 @@ class _SlowDescribeClient(_EmptyArrowClient):
         self.describe_seconds = describe_seconds
 
     @contextlib.asynccontextmanager
-    async def apost_query(self, query, *data, query_parameters=None, query_id=None, settings=None):
+    async def apost_query(
+        self,
+        query: str,
+        *data: Any,
+        query_parameters: dict[str, Any] | None = None,
+        query_id: str | None = None,
+        settings: dict[str, str] | None = None,
+    ) -> AsyncIterator[Any]:
         await asyncio.sleep(self.describe_seconds)
         async with super().apost_query(
             query, *data, query_parameters=query_parameters, query_id=query_id, settings=settings
