@@ -32,6 +32,7 @@ const fakeEditor = {
     off: jest.fn(),
     isDestroyed: false,
     isInitialized: true,
+    schema: { nodes: {} as Record<string, unknown> },
     editorView: {
         dom: document.createElement('div'),
     },
