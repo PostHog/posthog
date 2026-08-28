@@ -1,6 +1,6 @@
 import asyncio
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -2038,7 +2038,7 @@ class TestReconcileFailedRuns:
 
         async def raise_with_maybe_closed_conn(*args: object, **kwargs: object) -> None:
             if conn_closed:
-                consumer._recovery_conn.closed = True  # ty: ignore[invalid-assignment]
+                cast(Any, consumer._recovery_conn).closed = True
             raise psycopg.OperationalError("the connection is closed")
 
         with (
