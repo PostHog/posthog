@@ -1,7 +1,9 @@
+import type { SignalReport } from "@posthog/shared/types";
 import { describe, expect, it } from "vitest";
 import {
   buildCreatePrReportPrompt,
   buildDiscussReportPrompt,
+  canCreateImplementationPr,
 } from "./reportActions";
 
 describe("buildCreatePrReportPrompt", () => {
@@ -182,5 +184,20 @@ describe("buildDiscussReportPrompt", () => {
     });
     expect(withQuestion).toMatch(/can't fetch the report/i);
     expect(withoutQuestion).toMatch(/can't fetch the report/i);
+  });
+});
+
+describe("canCreateImplementationPr", () => {
+  it("a merged PR no longer blocks a fresh attempt, but an open one does", () => {
+    const base = {
+      id: "r",
+      status: "ready",
+      actionability: "immediately_actionable",
+      implementation_pr_url: "https://gh/pr/1",
+    } as Partial<SignalReport> as SignalReport;
+    expect(canCreateImplementationPr(base)).toBe(false);
+    expect(
+      canCreateImplementationPr({ ...base, implementation_pr_merged: true }),
+    ).toBe(true);
   });
 });

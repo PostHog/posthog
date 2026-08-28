@@ -171,7 +171,7 @@ export function ReportReviewersHeader({ report }: { report: SignalReport }) {
               placeholder="Filter users…"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              className="min-w-0 flex-1 bg-transparent text-[12px] text-gray-12 outline-none placeholder:text-(--gray-9)"
+              className="min-w-0 flex-1 bg-transparent text-[13px] text-gray-12 outline-none placeholder:text-(--gray-9)"
             />
           </div>
           <div className="max-h-[280px] overflow-y-auto">
@@ -180,7 +180,7 @@ export function ReportReviewersHeader({ report }: { report: SignalReport }) {
                 <Spinner />
               </div>
             ) : options.length === 0 ? (
-              <span className="block px-1 py-2 text-[12px] text-gray-10">
+              <span className="block px-1 py-2 text-[13px] text-gray-10">
                 No users found.
               </span>
             ) : (
@@ -194,7 +194,7 @@ export function ReportReviewersHeader({ report }: { report: SignalReport }) {
                       key={option.uuid}
                       type="button"
                       disabled={isPending}
-                      className="flex w-full items-center justify-between gap-2 rounded-(--radius-1) px-1 py-1 text-left text-[12px] text-gray-12 transition-colors hover:bg-(--gray-3) focus-visible:bg-(--gray-3) focus-visible:outline-none disabled:opacity-60"
+                      className="flex w-full items-center justify-between gap-2 rounded-(--radius-1) px-1 py-1 text-left text-[13px] text-gray-12 transition-colors hover:bg-(--gray-3) focus-visible:bg-(--gray-3) focus-visible:outline-none disabled:opacity-60"
                       onClick={() => toggleReviewer(option)}
                     >
                       <span className="flex min-w-0 items-center gap-2">
@@ -209,7 +209,7 @@ export function ReportReviewersHeader({ report }: { report: SignalReport }) {
                             {getSuggestedReviewerDisplayName(option)}
                           </span>
                           {option.email ? (
-                            <span className="truncate text-[11px] text-gray-10">
+                            <span className="truncate text-[12px] text-gray-10">
                               {option.email}
                             </span>
                           ) : null}

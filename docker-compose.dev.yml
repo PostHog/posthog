@@ -695,6 +695,22 @@ services:
             REDIS_COMPRESSION_ENABLED: 'true'
             INTERNAL_REQUEST_TOKEN: 'dev-internal-token'
 
+    usage-ingestion:
+        extends:
+            file: docker-compose.base.yml
+            service: usage-ingestion
+        ports:
+            - '7143:7143'
+            - '7144:7144'
+        depends_on:
+            db:
+                condition: service_healthy
+            kafka:
+                condition: service_healthy
+        # Keeps a bare `up` from building an image that is not published yet.
+        profiles:
+            - ingestion
+
     # Temporal containers
     elasticsearch:
         extends:

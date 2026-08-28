@@ -46,19 +46,21 @@ export function InboxDetailPageHeader({
   const hasBottomRow = !!badges || !!meta || !!actions;
 
   return (
-    <div className="flex shrink-0 flex-col gap-3 border-(--gray-5) border-b px-6 pt-5 pb-4">
-      <div className="flex items-center gap-2 text-[12.5px] text-gray-11">
+    // Sticky within the detail page's scroll: the title and action verbs stay
+    // reachable however deep the reader is in the document.
+    <div className="sticky top-0 z-20 flex shrink-0 flex-col gap-3 border-(--gray-5) border-b bg-gray-1 px-6 pt-5 pb-4">
+      <div className="flex items-center gap-2 text-[13.5px] text-gray-11">
         <DetailBackLink to={backTo} label={backLabel} />
         {breadcrumb}
       </div>
 
-      <h1 className="min-w-0 font-bold text-[24px] text-gray-12 leading-tight tracking-tight">
+      <h1 className="min-w-0 font-bold text-[25px] text-gray-12 leading-tight tracking-tight">
         {displayTitle}
       </h1>
 
       {hasBottomRow && (
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-[12px] text-gray-11">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-[13px] text-gray-11">
             {badges}
             {meta && <InboxMetaRow>{meta}</InboxMetaRow>}
           </div>

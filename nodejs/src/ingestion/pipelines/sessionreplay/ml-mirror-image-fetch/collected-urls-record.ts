@@ -14,13 +14,14 @@ export type UrlDropReason =
     | 'bad_url'
     | 'foreign_domain'
     | 'oversized_record'
-export type RepublishReason =
+export type StoredRepublishReason =
     | 'redirect'
     | 'retry'
     | 'not_ready'
     | 'pass_deadline'
     | 'origin_map_full'
     | 'registrable_domain_map_full'
+export type RepublishReason = StoredRepublishReason
 
 export interface FetchCandidate {
     originalRef: string
@@ -33,7 +34,8 @@ export interface FetchCandidate {
     firstSeenAtMs: number
     fetchCount: number
     republishCount: number
-    lastRepublishReason: RepublishReason | null
+    lastRepublishReason: StoredRepublishReason | null
+    sourcePartitions?: readonly number[]
 }
 
 export interface FrontierRecord {
@@ -71,7 +73,7 @@ function isNonNegativeSafeInteger(value: unknown): value is number {
     return Number.isSafeInteger(value) && (value as number) >= 0
 }
 
-function isRepublishReason(value: unknown): value is RepublishReason | null {
+function isStoredRepublishReason(value: unknown): value is StoredRepublishReason | null {
     return (
         value === null ||
         value === 'redirect' ||
@@ -197,6 +199,7 @@ function parseJob(
         fetchCount,
         republishCount,
         lastRepublishReason,
+        lowOriginDiversityDeferred,
     } = job
     if (
         typeof originalRef !== 'string' ||
@@ -207,7 +210,8 @@ function parseJob(
         !isNonNegativeSafeInteger(firstSeenAtMs) ||
         !isNonNegativeSafeInteger(fetchCount) ||
         !isNonNegativeSafeInteger(republishCount) ||
-        !isRepublishReason(lastRepublishReason)
+        !isStoredRepublishReason(lastRepublishReason) ||
+        (lowOriginDiversityDeferred !== undefined && typeof lowOriginDiversityDeferred !== 'boolean')
     ) {
         return { ok: false, reason: 'bad_url' }
     }

@@ -25,7 +25,7 @@ test.describe("web host happy path", () => {
       .catch(() => {});
 
     await expect(
-      page.getByText("Sign in / sign up with PostHog").first(),
+      page.getByRole("button", { name: "Sign in with PostHog" }),
     ).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole("button", { name: "Back" })).toHaveCount(0);
 

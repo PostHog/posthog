@@ -1,5 +1,5 @@
 import { Theme } from "@radix-ui/themes";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 if (typeof globalThis.ResizeObserver === "undefined") {
@@ -59,19 +59,6 @@ vi.mock("@posthog/ui/hooks/useSetHeaderContent", () => ({
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
   useFeatureFlag: () => false,
 }));
-vi.mock("@posthog/ui/features/canvas/hooks/useChannelReports", () => ({
-  EMPTY_CHANNEL_REPORTS_FILTERS: {},
-  DEFAULT_CHANNEL_REPORTS_FILTERS: {
-    search: "",
-    relevantToMeOnly: true,
-    priorities: [],
-    status: "all",
-  },
-  useChannelReports: () => ({ reports: [] }),
-}));
-vi.mock("@posthog/ui/features/inbox/hooks/useOpenInboxReport", () => ({
-  useOpenInboxReport: () => vi.fn(),
-}));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ setQueryData: vi.fn(), invalidateQueries: vi.fn() }),
@@ -81,24 +68,7 @@ vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
 // ThreadSidebar is the task dock under test; the rest of the channel chrome
 // (feed rows, composer, intro) plays no part in the feed/sidebar exclusion.
 vi.mock("@posthog/ui/features/canvas/components/ChannelFeedView", () => ({
-  ChannelFeedView: ({
-    reportFilters,
-    onReportFiltersChange,
-  }: {
-    reportFilters?: { status?: string };
-    onReportFiltersChange?: (filters: { status?: string }) => void;
-  }) => (
-    <div data-testid="feed">
-      <span data-testid="report-status">{reportFilters?.status ?? "none"}</span>
-      <button
-        type="button"
-        data-testid="set-archived"
-        onClick={() =>
-          onReportFiltersChange?.({ ...reportFilters, status: "archived" })
-        }
-      />
-    </div>
-  ),
+  ChannelFeedView: () => <div data-testid="feed" />,
 }));
 vi.mock("@posthog/ui/features/canvas/components/ChannelHomeComposer", () => ({
   ChannelHomeComposer: () => null,
@@ -124,26 +94,6 @@ describe("WebsiteChannelHome", () => {
       collapsed: false,
       width: 360,
     });
-  });
-
-  it("resets report filters when the space changes", () => {
-    const { rerender } = render(
-      <Theme>
-        <WebsiteChannelHome channelId="chan-1" />
-      </Theme>,
-    );
-    expect(screen.getByTestId("report-status").textContent).toBe("all");
-
-    fireEvent.click(screen.getByTestId("set-archived"));
-    expect(screen.getByTestId("report-status").textContent).toBe("archived");
-
-    // A different space must not inherit the previous space's narrowing.
-    rerender(
-      <Theme>
-        <WebsiteChannelHome channelId="chan-2" />
-      </Theme>,
-    );
-    expect(screen.getByTestId("report-status").textContent).toBe("all");
   });
 
   it("drops a stale open thread so the feed can't show a task sidebar", () => {

@@ -10,6 +10,10 @@ if TYPE_CHECKING:
 
 
 TaskWorkflowStartOutcome = Literal["attempted", "blocked", "failed", "started"]
+# Why a warm Run died unused. `released` is a deliberate hand-back (the composer cancels the run when
+# the draft is abandoned) and is the cheap, expected miss; `idle_timeout` means nobody released it and
+# it sat until the workflow reclaimed it, which is the wasteful one to drive down.
+PrewarmedUnusedReason = Literal["released", "idle_timeout", "other"]
 CustomImageBuildOutcome = Literal["started", "succeeded", "failed", "scan_rejected"]
 DevStackImageBakeOutcome = Literal["succeeded", "bake_failed", "failed", "dispatch_failed"]
 # Outcome of an SSE task-run stream connection when it closes.
@@ -128,6 +132,15 @@ PREWARMED_ACTIVATED_TOTAL = Counter(
     labelnames=["origin_product"],
 )
 
+PREWARMED_UNUSED_TOTAL = Counter(
+    "posthog_tasks_prewarmed_unused_total",
+    "Pre-warmed Runs that reached terminal without ever receiving a first user message — a sandbox was "
+    "booted and paid for, then thrown away. The miss counterpart to posthog_tasks_prewarmed_activated_total: "
+    "activated / (activated + unused) is the warm hit rate, and `reason` says where the misses go "
+    "(a user who abandoned the composer looks different from a warm nobody released).",
+    labelnames=["origin_product", "reason"],
+)
+
 TASK_RUN_FAILED_TOTAL = Counter(
     "posthog_tasks_task_run_failed_total",
     "TaskRun workflow failures with bounded attribution labels",
@@ -153,6 +166,22 @@ DEV_STACK_IMAGE_BAKE_TOTAL = Counter(
     "posthog_tasks_dev_stack_image_bake_total",
     "Prebaked dev-stack VM image bake lifecycle events",
     labelnames=["outcome", "region", "trigger"],
+)
+
+DEV_STACK_PREVIEW_BOOT_BUCKETS = [30.0, 60.0, 120.0, 180.0, 240.0, 300.0, 420.0, 600.0, 720.0]
+
+DEV_STACK_PREVIEW_BOOT_SECONDS = Histogram(
+    "posthog_tasks_dev_stack_preview_boot_seconds",
+    "Wall time from launching the dev stack in a run's sandbox to its preview answering health checks",
+    buckets=DEV_STACK_PREVIEW_BOOT_BUCKETS,
+)
+
+DEV_STACK_PREVIEW_TOTAL = Counter(
+    "posthog_tasks_dev_stack_preview_total",
+    "Dev stack preview lifecycle outcomes. started counts launches and attached counts re-entries that joined "
+    "a launch in progress; ready, failed, timed_out and cancelled each close one of those; launch_failed "
+    "counts start attempts that raised before launching.",
+    labelnames=["outcome"],
 )
 
 
@@ -282,6 +311,14 @@ LOOP_FIRE_TOTAL = Counter(
     labelnames=["reason"],
 )
 
+# reason is one of: created, replayed, gate_blocked, rate_capped, team_rate_capped,
+# limit_reached, owner_ineligible, a fixed, code-defined set, safe as a label.
+WORKFLOW_TASK_CREATE_TOTAL = Counter(
+    "posthog_tasks_workflow_task_create_total",
+    'Workflow "Create AI task" action outcomes',
+    labelnames=["reason"],
+)
+
 LOOP_AUTO_PAUSED_TOTAL = Counter(
     "posthog_tasks_loop_auto_paused_total",
     "Loops auto-paused after exceeding the consecutive-failure threshold",
@@ -291,8 +328,6 @@ CodeUsageGateOutcome = Literal["checked_allowed", "checked_blocked", "fail_open"
 ComputeQuotaOutcome = Literal["checked_allowed", "checked_blocked", "fail_open"]
 DesktopAccessOutcome = Literal[
     "allowed",
-    "legacy_allowed",
-    "legacy_denied",
     "startup_plan",
     "prepaid_credits",
     "override",
@@ -465,6 +500,38 @@ def observe_prewarmed_activated(task_run: "TaskRun") -> None:
     PREWARMED_ACTIVATED_TOTAL.labels(origin_product=origin_product_label(task_run)).inc()
 
 
+def observe_prewarmed_unused(task_run: "TaskRun", *, reason: PrewarmedUnusedReason) -> None:
+    """Count a warm Run that terminalized still awaiting its first message.
+
+    Callers must check `state.prewarmed` and `state.await_user_message` first — activation clears the
+    latter, so a run that still carries it never got used. Never raises: a metric must not fail a
+    terminal status transition.
+    """
+    try:
+        PREWARMED_UNUSED_TOTAL.labels(origin_product=origin_product_label(task_run), reason=reason).inc()
+    except Exception:
+        logger.exception("prewarmed_unused_metric_failed", run_id=str(task_run.id))
+
+
+def observe_prewarmed_unused_if_never_activated(task_run: "TaskRun", *, reason: PrewarmedUnusedReason) -> None:
+    """Count a terminal Run as an unused warm, if that is what it is.
+
+    Owns the "never used" test so every path that terminalizes a Run books the miss the same way —
+    the workflow's status activity and the direct status write the cancel fallback uses when the
+    workflow is already gone.
+
+    `warm_activated` is what separates a real miss from a race: activation sets that marker before it
+    signals the first message and clears `await_user_message` only after, so a Run that terminalizes
+    between the two still carries both of the older markers while already being counted as activated.
+    """
+    run_state = task_run.state if isinstance(task_run.state, dict) else {}
+    if not run_state.get("prewarmed") or not run_state.get("await_user_message"):
+        return
+    if run_state.get("warm_activated"):
+        return
+    observe_prewarmed_unused(task_run, reason=reason)
+
+
 def observe_custom_image_build(outcome: CustomImageBuildOutcome) -> None:
     try:
         CUSTOM_IMAGE_BUILD_TOTAL.labels(outcome=outcome).inc()
@@ -611,6 +678,10 @@ def observe_followup_denied_permission_stop(task_run: "TaskRun | None") -> None:
 
 def observe_loop_fire(*, reason: str) -> None:
     LOOP_FIRE_TOTAL.labels(reason=reason).inc()
+
+
+def observe_workflow_task_create(*, reason: str) -> None:
+    WORKFLOW_TASK_CREATE_TOTAL.labels(reason=reason).inc()
 
 
 def observe_loop_auto_paused() -> None:

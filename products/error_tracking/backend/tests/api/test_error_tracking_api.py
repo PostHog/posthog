@@ -24,6 +24,7 @@ from posthog.settings import (
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
 
+from products.access_control.backend.models.role import Role
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
@@ -32,8 +33,6 @@ from products.error_tracking.backend.models import (
     ErrorTrackingStackFrame,
     ErrorTrackingSymbolSet,
 )
-
-from ee.models.rbac.role import Role
 
 TEST_BUCKET = "test_storage_bucket-TestErrorTracking"
 

@@ -8,24 +8,12 @@ const httpHeaderSchema = z.object({
   value: z.string(),
 });
 
-const nullishString = z
-  .string()
-  .nullish()
-  .transform((value) => value ?? null);
-
-export const handoffLocalGitStateSchema = z.object({
-  head: nullishString,
-  branch: nullishString,
-  upstreamHead: nullishString,
-  upstreamRemote: nullishString,
-  upstreamMergeRef: nullishString,
-});
-
 const remoteMcpServerSchema: z.ZodType<McpServerConnection> = z.object({
   type: z.enum(["http", "sse"]),
   name: z.string().min(1, "MCP server name is required"),
   url: z.url({ error: "MCP server url must be a valid URL" }),
   headers: z.array(httpHeaderSchema).default([]),
+  description: z.string().optional(),
 });
 
 export const mcpServersSchema = z.array(remoteMcpServerSchema);
@@ -127,11 +115,7 @@ export const mcpResponseParamsSchema = z
     error: "Exactly one of payload or error is required",
   });
 
-export const closeParamsSchema = z
-  .object({
-    localGitState: handoffLocalGitStateSchema.optional(),
-  })
-  .optional();
+export const closeParamsSchema = z.object({}).optional();
 
 export const commandParamsSchemas = {
   user_message: userMessageParamsSchema,

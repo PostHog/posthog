@@ -40,6 +40,7 @@ import { Route as ShellSkillsRouteImport } from './routes/_shell/skills'
 import { Route as ShellNewRouteImport } from './routes/_shell/new'
 import { Route as ShellMcpServersRouteImport } from './routes/_shell/mcp-servers'
 import { Route as ShellCommandCenterRouteImport } from './routes/_shell/command-center'
+import { Route as ShellCanvasesRouteImport } from './routes/_shell/canvases'
 import { Route as ShellActivityRouteImport } from './routes/_shell/activity'
 import { Route as LoopsLoopIdIndexRouteImport } from './routes/loops/$loopId/index'
 import { Route as InboxRunsIndexRouteImport } from './routes/inbox/runs.index'
@@ -61,7 +62,6 @@ import { Route as ShellSpacesContextRouteImport } from './routes/_shell/spaces/c
 import { Route as ShellFeedsFeedIdRouteImport } from './routes/_shell/feeds/$feedId'
 import { Route as AgentsScoutsSkillNameIndexRouteImport } from './routes/agents/scouts.$skillName.index'
 import { Route as ShellSpacesChannelIdIndexRouteImport } from './routes/_shell/spaces/$channelId/index'
-import { Route as WebsiteChannelIdReportsReportIdRouteImport } from './routes/website/$channelId/reports/$reportId'
 import { Route as ShellSpacesChannelIdNewRouteImport } from './routes/_shell/spaces/$channelId/new'
 import { Route as ShellSpacesChannelIdLoopsRouteImport } from './routes/_shell/spaces/$channelId/loops'
 import { Route as ShellSpacesChannelIdHistoryRouteImport } from './routes/_shell/spaces/$channelId/history'
@@ -69,6 +69,7 @@ import { Route as ShellSpacesChannelIdContextRouteImport } from './routes/_shell
 import { Route as ShellSpacesChannelIdCanvasesRouteImport } from './routes/_shell/spaces/$channelId/canvases'
 import { Route as ShellSpacesChannelIdArtifactsRouteImport } from './routes/_shell/spaces/$channelId/artifacts'
 import { Route as ShellSpacesChannelIdTasksTaskIdRouteImport } from './routes/_shell/spaces/$channelId/tasks/$taskId'
+import { Route as ShellSpacesChannelIdReportsReportIdRouteImport } from './routes/_shell/spaces/$channelId/reports/$reportId'
 import { Route as ShellSpacesChannelIdDashboardsDashboardIdRouteImport } from './routes/_shell/spaces/$channelId/dashboards/$dashboardId'
 
 const UsageRoute = UsageRouteImport.update({
@@ -225,6 +226,11 @@ const ShellCommandCenterRoute = ShellCommandCenterRouteImport.update({
   path: '/command-center',
   getParentRoute: () => ShellRoute,
 } as any)
+const ShellCanvasesRoute = ShellCanvasesRouteImport.update({
+  id: '/canvases',
+  path: '/canvases',
+  getParentRoute: () => ShellRoute,
+} as any)
 const ShellActivityRoute = ShellActivityRouteImport.update({
   id: '/activity',
   path: '/activity',
@@ -332,12 +338,6 @@ const ShellSpacesChannelIdIndexRoute =
     path: '/spaces/$channelId/',
     getParentRoute: () => ShellRoute,
   } as any)
-const WebsiteChannelIdReportsReportIdRoute =
-  WebsiteChannelIdReportsReportIdRouteImport.update({
-    id: '/website/$channelId/reports/$reportId',
-    path: '/website/$channelId/reports/$reportId',
-    getParentRoute: () => rootRouteImport,
-  } as any)
 const ShellSpacesChannelIdNewRoute = ShellSpacesChannelIdNewRouteImport.update({
   id: '/spaces/$channelId/new',
   path: '/spaces/$channelId/new',
@@ -379,6 +379,12 @@ const ShellSpacesChannelIdTasksTaskIdRoute =
     path: '/spaces/$channelId/tasks/$taskId',
     getParentRoute: () => ShellRoute,
   } as any)
+const ShellSpacesChannelIdReportsReportIdRoute =
+  ShellSpacesChannelIdReportsReportIdRouteImport.update({
+    id: '/spaces/$channelId/reports/$reportId',
+    path: '/spaces/$channelId/reports/$reportId',
+    getParentRoute: () => ShellRoute,
+  } as any)
 const ShellSpacesChannelIdDashboardsDashboardIdRoute =
   ShellSpacesChannelIdDashboardsDashboardIdRouteImport.update({
     id: '/spaces/$channelId/dashboards/$dashboardId',
@@ -395,6 +401,7 @@ export interface FileRoutesByFullPath {
   '/pr': typeof PrRoute
   '/usage': typeof UsageRoute
   '/activity': typeof ShellActivityRoute
+  '/canvases': typeof ShellCanvasesRoute
   '/command-center': typeof ShellCommandCenterRoute
   '/mcp-servers': typeof ShellMcpServersRoute
   '/new': typeof ShellNewRoute
@@ -442,10 +449,10 @@ export interface FileRoutesByFullPath {
   '/spaces/$channelId/history': typeof ShellSpacesChannelIdHistoryRoute
   '/spaces/$channelId/loops': typeof ShellSpacesChannelIdLoopsRoute
   '/spaces/$channelId/new': typeof ShellSpacesChannelIdNewRoute
-  '/website/$channelId/reports/$reportId': typeof WebsiteChannelIdReportsReportIdRoute
   '/spaces/$channelId/': typeof ShellSpacesChannelIdIndexRoute
   '/agents/scouts/$skillName/': typeof AgentsScoutsSkillNameIndexRoute
   '/spaces/$channelId/dashboards/$dashboardId': typeof ShellSpacesChannelIdDashboardsDashboardIdRoute
+  '/spaces/$channelId/reports/$reportId': typeof ShellSpacesChannelIdReportsReportIdRoute
   '/spaces/$channelId/tasks/$taskId': typeof ShellSpacesChannelIdTasksTaskIdRoute
 }
 export interface FileRoutesByTo {
@@ -454,6 +461,7 @@ export interface FileRoutesByTo {
   '/pr': typeof PrRoute
   '/usage': typeof UsageRoute
   '/activity': typeof ShellActivityRoute
+  '/canvases': typeof ShellCanvasesRoute
   '/command-center': typeof ShellCommandCenterRoute
   '/mcp-servers': typeof ShellMcpServersRoute
   '/new': typeof ShellNewRoute
@@ -495,10 +503,10 @@ export interface FileRoutesByTo {
   '/spaces/$channelId/history': typeof ShellSpacesChannelIdHistoryRoute
   '/spaces/$channelId/loops': typeof ShellSpacesChannelIdLoopsRoute
   '/spaces/$channelId/new': typeof ShellSpacesChannelIdNewRoute
-  '/website/$channelId/reports/$reportId': typeof WebsiteChannelIdReportsReportIdRoute
   '/spaces/$channelId': typeof ShellSpacesChannelIdIndexRoute
   '/agents/scouts/$skillName': typeof AgentsScoutsSkillNameIndexRoute
   '/spaces/$channelId/dashboards/$dashboardId': typeof ShellSpacesChannelIdDashboardsDashboardIdRoute
+  '/spaces/$channelId/reports/$reportId': typeof ShellSpacesChannelIdReportsReportIdRoute
   '/spaces/$channelId/tasks/$taskId': typeof ShellSpacesChannelIdTasksTaskIdRoute
 }
 export interface FileRoutesById {
@@ -511,6 +519,7 @@ export interface FileRoutesById {
   '/pr': typeof PrRoute
   '/usage': typeof UsageRoute
   '/_shell/activity': typeof ShellActivityRoute
+  '/_shell/canvases': typeof ShellCanvasesRoute
   '/_shell/command-center': typeof ShellCommandCenterRoute
   '/_shell/mcp-servers': typeof ShellMcpServersRoute
   '/_shell/new': typeof ShellNewRoute
@@ -559,10 +568,10 @@ export interface FileRoutesById {
   '/_shell/spaces/$channelId/history': typeof ShellSpacesChannelIdHistoryRoute
   '/_shell/spaces/$channelId/loops': typeof ShellSpacesChannelIdLoopsRoute
   '/_shell/spaces/$channelId/new': typeof ShellSpacesChannelIdNewRoute
-  '/website/$channelId/reports/$reportId': typeof WebsiteChannelIdReportsReportIdRoute
   '/_shell/spaces/$channelId/': typeof ShellSpacesChannelIdIndexRoute
   '/agents/scouts/$skillName/': typeof AgentsScoutsSkillNameIndexRoute
   '/_shell/spaces/$channelId/dashboards/$dashboardId': typeof ShellSpacesChannelIdDashboardsDashboardIdRoute
+  '/_shell/spaces/$channelId/reports/$reportId': typeof ShellSpacesChannelIdReportsReportIdRoute
   '/_shell/spaces/$channelId/tasks/$taskId': typeof ShellSpacesChannelIdTasksTaskIdRoute
 }
 export interface FileRouteTypes {
@@ -576,6 +585,7 @@ export interface FileRouteTypes {
     | '/pr'
     | '/usage'
     | '/activity'
+    | '/canvases'
     | '/command-center'
     | '/mcp-servers'
     | '/new'
@@ -623,10 +633,10 @@ export interface FileRouteTypes {
     | '/spaces/$channelId/history'
     | '/spaces/$channelId/loops'
     | '/spaces/$channelId/new'
-    | '/website/$channelId/reports/$reportId'
     | '/spaces/$channelId/'
     | '/agents/scouts/$skillName/'
     | '/spaces/$channelId/dashboards/$dashboardId'
+    | '/spaces/$channelId/reports/$reportId'
     | '/spaces/$channelId/tasks/$taskId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -635,6 +645,7 @@ export interface FileRouteTypes {
     | '/pr'
     | '/usage'
     | '/activity'
+    | '/canvases'
     | '/command-center'
     | '/mcp-servers'
     | '/new'
@@ -676,10 +687,10 @@ export interface FileRouteTypes {
     | '/spaces/$channelId/history'
     | '/spaces/$channelId/loops'
     | '/spaces/$channelId/new'
-    | '/website/$channelId/reports/$reportId'
     | '/spaces/$channelId'
     | '/agents/scouts/$skillName'
     | '/spaces/$channelId/dashboards/$dashboardId'
+    | '/spaces/$channelId/reports/$reportId'
     | '/spaces/$channelId/tasks/$taskId'
   id:
     | '__root__'
@@ -691,6 +702,7 @@ export interface FileRouteTypes {
     | '/pr'
     | '/usage'
     | '/_shell/activity'
+    | '/_shell/canvases'
     | '/_shell/command-center'
     | '/_shell/mcp-servers'
     | '/_shell/new'
@@ -739,10 +751,10 @@ export interface FileRouteTypes {
     | '/_shell/spaces/$channelId/history'
     | '/_shell/spaces/$channelId/loops'
     | '/_shell/spaces/$channelId/new'
-    | '/website/$channelId/reports/$reportId'
     | '/_shell/spaces/$channelId/'
     | '/agents/scouts/$skillName/'
     | '/_shell/spaces/$channelId/dashboards/$dashboardId'
+    | '/_shell/spaces/$channelId/reports/$reportId'
     | '/_shell/spaces/$channelId/tasks/$taskId'
   fileRoutesById: FileRoutesById
 }
@@ -766,7 +778,6 @@ export interface RootRouteChildren {
   SettingsIndexRoute: typeof SettingsIndexRoute
   WebsiteIndexRoute: typeof WebsiteIndexRoute
   TasksPendingKeyRoute: typeof TasksPendingKeyRoute
-  WebsiteChannelIdReportsReportIdRoute: typeof WebsiteChannelIdReportsReportIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -988,6 +999,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellCommandCenterRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/canvases': {
+      id: '/_shell/canvases'
+      path: '/canvases'
+      fullPath: '/canvases'
+      preLoaderRoute: typeof ShellCanvasesRouteImport
+      parentRoute: typeof ShellRoute
+    }
     '/_shell/activity': {
       id: '/_shell/activity'
       path: '/activity'
@@ -1135,13 +1153,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellSpacesChannelIdIndexRouteImport
       parentRoute: typeof ShellRoute
     }
-    '/website/$channelId/reports/$reportId': {
-      id: '/website/$channelId/reports/$reportId'
-      path: '/website/$channelId/reports/$reportId'
-      fullPath: '/website/$channelId/reports/$reportId'
-      preLoaderRoute: typeof WebsiteChannelIdReportsReportIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/_shell/spaces/$channelId/new': {
       id: '/_shell/spaces/$channelId/new'
       path: '/spaces/$channelId/new'
@@ -1191,6 +1202,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellSpacesChannelIdTasksTaskIdRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/spaces/$channelId/reports/$reportId': {
+      id: '/_shell/spaces/$channelId/reports/$reportId'
+      path: '/spaces/$channelId/reports/$reportId'
+      fullPath: '/spaces/$channelId/reports/$reportId'
+      preLoaderRoute: typeof ShellSpacesChannelIdReportsReportIdRouteImport
+      parentRoute: typeof ShellRoute
+    }
     '/_shell/spaces/$channelId/dashboards/$dashboardId': {
       id: '/_shell/spaces/$channelId/dashboards/$dashboardId'
       path: '/spaces/$channelId/dashboards/$dashboardId'
@@ -1203,6 +1221,7 @@ declare module '@tanstack/react-router' {
 
 interface ShellRouteChildren {
   ShellActivityRoute: typeof ShellActivityRoute
+  ShellCanvasesRoute: typeof ShellCanvasesRoute
   ShellCommandCenterRoute: typeof ShellCommandCenterRoute
   ShellMcpServersRoute: typeof ShellMcpServersRoute
   ShellNewRoute: typeof ShellNewRoute
@@ -1219,11 +1238,13 @@ interface ShellRouteChildren {
   ShellSpacesChannelIdNewRoute: typeof ShellSpacesChannelIdNewRoute
   ShellSpacesChannelIdIndexRoute: typeof ShellSpacesChannelIdIndexRoute
   ShellSpacesChannelIdDashboardsDashboardIdRoute: typeof ShellSpacesChannelIdDashboardsDashboardIdRoute
+  ShellSpacesChannelIdReportsReportIdRoute: typeof ShellSpacesChannelIdReportsReportIdRoute
   ShellSpacesChannelIdTasksTaskIdRoute: typeof ShellSpacesChannelIdTasksTaskIdRoute
 }
 
 const ShellRouteChildren: ShellRouteChildren = {
   ShellActivityRoute: ShellActivityRoute,
+  ShellCanvasesRoute: ShellCanvasesRoute,
   ShellCommandCenterRoute: ShellCommandCenterRoute,
   ShellMcpServersRoute: ShellMcpServersRoute,
   ShellNewRoute: ShellNewRoute,
@@ -1241,6 +1262,8 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellSpacesChannelIdIndexRoute: ShellSpacesChannelIdIndexRoute,
   ShellSpacesChannelIdDashboardsDashboardIdRoute:
     ShellSpacesChannelIdDashboardsDashboardIdRoute,
+  ShellSpacesChannelIdReportsReportIdRoute:
+    ShellSpacesChannelIdReportsReportIdRoute,
   ShellSpacesChannelIdTasksTaskIdRoute: ShellSpacesChannelIdTasksTaskIdRoute,
 }
 
@@ -1400,7 +1423,6 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsIndexRoute: SettingsIndexRoute,
   WebsiteIndexRoute: WebsiteIndexRoute,
   TasksPendingKeyRoute: TasksPendingKeyRoute,
-  WebsiteChannelIdReportsReportIdRoute: WebsiteChannelIdReportsReportIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

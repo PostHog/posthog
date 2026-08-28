@@ -37,9 +37,9 @@ from posthog.helpers.trigram_search import (
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.utils_cors import cors_response
 
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 from products.feature_flags.backend.facade.api import create_flag, set_flag_active, update_flag

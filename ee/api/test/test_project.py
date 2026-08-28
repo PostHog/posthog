@@ -7,8 +7,9 @@ from posthog.models.project import Project
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
+
 from ee.api.test.test_team import team_enterprise_api_test_factory
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):  # type: ignore[misc]

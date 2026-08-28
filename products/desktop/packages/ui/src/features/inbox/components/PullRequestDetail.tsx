@@ -57,7 +57,7 @@ function PullRequestDetailContent({ report }: { report: SignalReport }) {
         prRef ? (
           <>
             <span className="text-(--gray-8)">/</span>
-            <span className="font-mono text-[12px] text-gray-11">
+            <span className="font-mono text-[13px] text-gray-11">
               {prRef.repoSlug}#{prRef.number}
             </span>
           </>
@@ -87,16 +87,14 @@ function PullRequestDetailContent({ report }: { report: SignalReport }) {
           : undefined
       }
       belowSummary={
-        <>
-          {prUrl && (
-            <>
-              <PrDecisionBlock prUrl={prUrl} />
-              <PrCommentsSection prUrl={prUrl} />
-            </>
-          )}
-          <ReportFeedbackFooter report={report} />
-        </>
+        prUrl && (
+          <>
+            <PrDecisionBlock prUrl={prUrl} />
+            <PrCommentsSection prUrl={prUrl} />
+          </>
+        )
       }
+      footer={<ReportFeedbackFooter report={report} />}
       evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}
     />
   );

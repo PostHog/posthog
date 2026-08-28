@@ -8,6 +8,17 @@ import {
   createRuntimeMcpServers,
   createRuntimeMcpStdioServers,
 } from "./rpc-client";
+import type { TaskContext } from "./task-system-prompt";
+
+function taskContext(cwd: string): TaskContext {
+  return {
+    taskId: "task-1",
+    cwd,
+    projectId: 2,
+    apiHost: "https://us.posthog.com",
+    environment: "local",
+  };
+}
 
 describe("createRuntimeMcpServers", () => {
   it("maps agent-server HTTP and SSE servers to Harness configuration", () => {
@@ -39,6 +50,39 @@ describe("createRuntimeMcpServers", () => {
     });
   });
 
+  it("carries a server description so search finds it before it connects", () => {
+    // Lazy servers hold no tool metadata until first use, so pi's `mcp` search matches
+    // them on name and description alone.
+    expect(
+      createRuntimeMcpServers([
+        {
+          name: "Linear",
+          type: "http",
+          url: "https://mcp.example/linear",
+          headers: [],
+          description: "Manage Linear issues, projects, and workflows.",
+        },
+      ]),
+    ).toMatchObject({
+      Linear: {
+        description: "Manage Linear issues, projects, and workflows.",
+      },
+    });
+  });
+
+  it("omits the description key for servers without one", () => {
+    expect(
+      createRuntimeMcpServers([
+        {
+          name: "plain",
+          type: "http",
+          url: "https://mcp.example/mcp",
+          headers: [],
+        },
+      ]).plain,
+    ).not.toHaveProperty("description");
+  });
+
   it("maps local tools to an eager direct stdio server", () => {
     expect(
       createRuntimeMcpStdioServers([
@@ -66,7 +110,7 @@ describe("createRuntimeMcpServers", () => {
 describe("createPiRpcClient", () => {
   it("does not put provider credentials in the child environment", () => {
     const client = createPiRpcClient({
-      cwd: "/workspace",
+      taskContext: taskContext("/workspace"),
       model: "claude-opus-4-8",
       providerOptions: {
         region: "us",
@@ -104,7 +148,7 @@ process.stdin.resume();
     );
     const client = createPiRpcClient({
       cliPath: hostPath,
-      cwd: directory,
+      taskContext: taskContext(directory),
       projectTrusted: true,
       extensions: ["auto-publish"],
       providerOptions: { apiKey: "proxy-key" },
@@ -129,6 +173,7 @@ process.stdin.resume();
               apiKey: "enrichment-proxy-key",
             },
             projectTrusted: true,
+            taskContext: taskContext(directory),
             extensions: ["auto-publish"],
           }),
         );
@@ -160,7 +205,7 @@ process.stdin.resume();
     );
     const client = createPiRpcClient({
       cliPath: hostPath,
-      cwd: directory,
+      taskContext: taskContext(directory),
       providerOptions: { apiKey: "proxy-key" },
       extensions: ["repository-tools"],
     });
@@ -206,7 +251,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     );
     const client = createPiRpcClient({
       cliPath: hostPath,
-      cwd: directory,
+      taskContext: taskContext(directory),
       providerOptions: { apiKey: "proxy-key" },
     });
     const request = new Promise<unknown>((resolve) => client.onEvent(resolve));
@@ -254,7 +299,7 @@ process.stdin.resume();
     );
     const client = createPiRpcClient({
       cliPath: hostPath,
-      cwd: directory,
+      taskContext: taskContext(directory),
       providerOptions: { apiKey: "proxy-key" },
       runtimeMcpServers: {
         posthog: {
@@ -311,7 +356,7 @@ process.on("message", (response) => {
     const requestMcpToolPermission = vi.fn();
     const client = createPiRpcClient({
       cliPath: hostPath,
-      cwd: directory,
+      taskContext: taskContext(directory),
       providerOptions: { apiKey: "proxy-key" },
     });
     client.onMcpToolPermissionRequest((request) => {
@@ -355,7 +400,7 @@ process.on("message", (request) => {
     );
     const client = createPiRpcClient({
       cliPath: hostPath,
-      cwd: directory,
+      taskContext: taskContext(directory),
       providerOptions: { apiKey: "proxy-key" },
     });
 

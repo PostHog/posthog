@@ -43,7 +43,6 @@ from posthog.hogql.transforms.type_aware_simplification import (
     simplify_argmax_over_non_nullable,
     simplify_redundant_type_operations,
 )
-from posthog.hogql.transforms.uuid_timestamp_bounds import apply_uuid_v7_timestamp_bounds
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql.workload import WorkloadCollector
 
@@ -66,8 +65,13 @@ def to_printed_hogql(
     modifiers: "HogQLQueryModifiers | None" = None,
     *,
     bypass_warehouse_access_control: bool = False,
+    database: Database | None = None,
 ) -> str:
-    """Prints the HogQL query without mutating the node"""
+    """Prints the HogQL query without mutating the node.
+
+    Pass `database` to reuse an already-built schema instead of building a new one — building the
+    full database is the dominant cost of printing on teams with many warehouse tables.
+    """
     return prepare_and_print_ast(
         clone_expr(query),
         dialect="hogql",
@@ -76,6 +80,7 @@ def to_printed_hogql(
             enable_select_queries=True,
             modifiers=create_default_modifiers_for_team(team, modifiers),
             bypass_warehouse_access_control=bypass_warehouse_access_control,
+            database=database,
         ),
         pretty=True,
     )[0]
@@ -158,14 +163,16 @@ def prepare_ast_for_printing(
         # load_property_metadata) — keeping it behind the call is what lets the printer package import
         # without django.setup().
         from products.access_control.backend.property_access_control import (  # noqa: PLC0415
-            get_restricted_properties_for_team,
+            get_restricted_properties_with_group_type_index_for_team,
         )
 
         with context.timings.measure("load_restricted_properties"):
             if context.team is not None and context.team.pk == context.team_id:
-                context.restricted_properties = get_restricted_properties_for_team(user=context.user, team=context.team)
+                context.restricted_properties = get_restricted_properties_with_group_type_index_for_team(
+                    user=context.user, team=context.team
+                )
             else:
-                context.restricted_properties = get_restricted_properties_for_team(
+                context.restricted_properties = get_restricted_properties_with_group_type_index_for_team(
                     user=context.user, team_id=context.team_id
                 )
 
@@ -203,12 +210,6 @@ def prepare_ast_for_printing(
     if context.enable_type_aware_cast_simplification or context.modifiers.typeAwareCastSimplification:
         with context.timings.measure("type_aware_cast_simplification"):
             node = simplify_redundant_type_operations(node, context, dialect)
-
-    # ClickHouse only: must run before predicate pushdown so the bound lands in its
-    # pre-filtering subquery, and the HogQL dialect must echo the user's query unchanged.
-    if dialect == "clickhouse":
-        with context.timings.measure("uuid_v7_timestamp_bounds"):
-            node = apply_uuid_v7_timestamp_bounds(node)
 
     # Detect workload from resolved table types and store on context
     with context.timings.measure("workload_detection"):

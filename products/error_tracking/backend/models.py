@@ -8,6 +8,7 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
+from django.utils import timezone
 
 import structlog
 from django_deprecate_fields import deprecate_field
@@ -131,6 +132,11 @@ class ErrorTrackingIssue(UUIDTModel):
                 team_id=team_id, target_issue_id=target_issue_id, source_issue_ids=existing_source_issue_ids
             )
             ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=existing_source_issue_ids).delete()
+
+            # Stamp the surviving row so deleting the latest source cannot move the cache watermark backward.
+            ErrorTrackingIssue.objects.filter(team_id=team_id, id=target_issue_id).update(
+                state_updated_at=timezone.now()
+            )
 
             _sync_error_tracking_issue_changes_on_commit(
                 team_id=team_id, issue_ids=[target_issue_id], overrides=overrides
@@ -352,6 +358,15 @@ class ErrorTrackingRelease(UUIDTModel):
         db_table = "posthog_errortrackingrelease"
 
 
+def symbol_set_cleanup_bucket_expression() -> models.Func:
+    return models.Func(
+        models.Func(models.F("id"), function="uuid_send", output_field=models.BinaryField()),
+        models.Value(15),
+        function="get_byte",
+        output_field=models.IntegerField(),
+    )
+
+
 class ErrorTrackingSymbolSet(UUIDTModel):
     # Derived from the symbol set reference
     ref = models.TextField(null=False, blank=False)
@@ -396,6 +411,13 @@ class ErrorTrackingSymbolSet(UUIDTModel):
             # (leading column) and `last_used IS NULL AND created_at < cutoff` (NULL group
             # then created_at range), so batch cleanup avoids a full PK-ordered scan.
             models.Index(fields=["last_used", "created_at"], name="et_symset_used_created_idx"),
+            models.Index(
+                symbol_set_cleanup_bucket_expression(),
+                models.F("last_used"),
+                models.F("created_at"),
+                models.F("id"),
+                name="et_symset_bucket_cleanup_idx",
+            ),
         ]
 
         constraints = [

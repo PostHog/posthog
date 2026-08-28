@@ -1008,12 +1008,22 @@ class TestPersonsDedupLogVisibility:
 
         handler = _Collector()
         original_level = parent.level
+        original_disabled = module_logger.disabled
+        original_global_disable = logging.root.manager.disable
         parent.setLevel(logging.WARNING)
+        # Unrelated suites in the same worker reconfigure logging globally (dictConfig with
+        # disable_existing_loggers, logging.disable), which suppresses every record regardless
+        # of level. Clear both so the assertion isolates the one thing this test guards: the
+        # module's own level beating the parent clamp.
+        module_logger.disabled = False
+        logging.disable(logging.NOTSET)
         module_logger.addHandler(handler)
         try:
             persons_dedup_command.logger.info("persons_dedup.log_visibility_probe", team_id=1)
         finally:
             module_logger.removeHandler(handler)
+            module_logger.disabled = original_disabled
+            logging.disable(original_global_disable)
             parent.setLevel(original_level)
 
         assert captured, "INFO records are dropped, so a production run would leave no log"

@@ -35,9 +35,10 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import SHA256_HASH_PREFIX, hash_key_value
-from posthog.rbac.user_access_control import UserAccessControl, ordered_access_levels
 from posthog.redis import get_client
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing, KeyType
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl, ordered_access_levels
 
 logger = structlog.get_logger(__name__)
 
@@ -370,18 +371,15 @@ def refresh_all_gateway_credentials() -> int:
     removal. The team resolution and the per-OAuth membership/RBAC checks are memoized by team /
     (org, user) / (team, user) so the run does O(distinct teams/users) lookups, and .iterator()
     keeps the working set flat. The secret-key scopes lookup rides the projectsecretapikey_scopes_gin
-    index; the OAuth scope regex rides the oauthaccesstoken_scope_trgm trigram GIN index.
+    index; the OAuth scope lookup rides the oauthaccesstoken_scopes_gin expression GIN index.
     """
     now = timezone.now()
     memo = _RefreshMemo()
     querysets = (
         ProjectSecretAPIKey.objects.select_related("team").filter(scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE]),
-        OAuthAccessToken.objects.select_related("user", "application").filter(
-            scope__iregex=r"(^|\s)llm_gateway:read(\s|$)",
-            user__is_active=True,
-            application_id__isnull=False,
-            expires__gt=now,
-        ),
+        OAuthAccessToken.with_scope(GATEWAY_CREDENTIAL_REQUIRED_SCOPE)
+        .select_related("user", "application")
+        .filter(user__is_active=True, expires__gt=now),
     )
 
     count = 0

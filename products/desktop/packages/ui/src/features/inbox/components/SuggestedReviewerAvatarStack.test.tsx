@@ -3,7 +3,7 @@ import type {
   SignalReportArtefactsResponse,
   SuggestedReviewer,
 } from "@posthog/shared/types";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -55,6 +55,13 @@ function reviewer(login: string, uuid: string): SuggestedReviewer {
 }
 
 const me = reviewer("alice", "user-me");
+me.relevant_commits = [
+  {
+    sha: "abc123",
+    url: "https://github.com/example/repo/commit/abc123",
+    reason: "Recently changed the affected request parser.",
+  },
+];
 const teammate = reviewer("bob", "user-bob");
 const report = {
   id: "report-1",
@@ -104,16 +111,22 @@ describe("SuggestedReviewerAvatarStack", () => {
   it.each([
     ["the current user is assigned", "user-me", true],
     ["the current user is not assigned", "user-other", false],
-  ])("is clickable when %s", (_case, currentUserUuid, isClickable) => {
+  ])("offers removal when %s", async (_case, currentUserUuid, canRemove) => {
+    const user = userEvent.setup();
     mocks.currentUserUuid = currentUserUuid;
     render(
       <SuggestedReviewerAvatarStack report={report} artefacts={artefacts} />,
     );
 
-    const button = screen.queryByRole("button", {
-      name: "remove me from reviewers",
+    await user.click(
+      screen.getByRole("button", {
+        name: "View suggested reviewer rationale",
+      }),
+    );
+    const removeButton = screen.queryByRole("button", {
+      name: "Remove me from reviewers",
     });
-    expect(!!button).toBe(isClickable);
+    expect(!!removeButton).toBe(canRemove);
     expect(screen.getByText("2 suggested reviewers")).toBeTruthy();
   });
 
@@ -125,13 +138,19 @@ describe("SuggestedReviewerAvatarStack", () => {
       <SuggestedReviewerAvatarStack report={report} artefacts={artefacts} />,
     );
 
-    const button = screen.getByRole("button", {
-      name: "remove me from reviewers",
+    await user.click(
+      screen.getByRole("button", {
+        name: "View suggested reviewer rationale",
+      }),
+    );
+    const button = await screen.findByRole("button", {
+      name: "Remove me from reviewers",
     });
-    await user.hover(button);
-    expect(await screen.findByText("remove me from reviewers")).toBeTruthy();
+    expect(
+      screen.getByText("Recently changed the affected request parser."),
+    ).toBeTruthy();
 
-    fireEvent.click(button);
+    await user.click(button);
 
     expect(onCardClick).not.toHaveBeenCalled();
     expect(mocks.mutate).toHaveBeenCalledWith({

@@ -23,7 +23,7 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.constants import DEV_STACK_IMAGE_NAME
+from products.tasks.backend.constants import DEV_STACK_IMAGE_NAME, is_same_run_resume_state
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.constants import (
@@ -1182,7 +1182,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             await self._emit_progress("clone", "completed", clone_label, "setup")
 
         state = self.context.state or {}
-        is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
+        is_resume = bool(state.get("resume_from_run_id") or is_same_run_resume_state(state))
         if will_checkout and not is_resume:
             assert checkout_repository is not None
             assert prepared.branch is not None
@@ -1308,7 +1308,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         if not self._context:
             return False
         state = self.context.state or {}
-        is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
+        is_resume = bool(state.get("resume_from_run_id") or is_same_run_resume_state(state))
         return self.context.mode != "interactive" and not is_resume
 
     async def _track_workflow_event(self, event_name: str, properties: dict, capture_analytics: bool = True) -> None:

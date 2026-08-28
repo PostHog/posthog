@@ -24,16 +24,23 @@ describe('OriginRequestScheduler', () => {
     })
 
     it('keeps concurrent request start times at least one second apart', async () => {
-        const scheduler = new OriginRequestScheduler(new HostBudget(OPTIONS), 300)
+        const budget = new HostBudget(OPTIONS)
+        budget.setCrawlDelay(ORIGIN.origin, 1_000, Date.now())
+        const scheduler = new OriginRequestScheduler(budget, 300)
         const observeSchedulerWait = jest.spyOn(ImageFetchRequestMetrics, 'observeSchedulerWait')
         const startedAtMs: number[] = []
         const deadlineMs = Date.now() + 10_000
 
         const requests = [0, 1, 2].map(() =>
-            scheduler.runImage(ORIGIN, deadlineMs, () => {
-                startedAtMs.push(Date.now())
-                return Promise.resolve()
-            })
+            scheduler.runImage(
+                ORIGIN,
+                deadlineMs,
+                () => {
+                    startedAtMs.push(Date.now())
+                    return Promise.resolve()
+                },
+                [7, 42]
+            )
         )
         await jest.runAllTimersAsync()
 
@@ -43,8 +50,33 @@ describe('OriginRequestScheduler', () => {
             { ran: true, value: undefined },
         ])
         expect(startedAtMs).toEqual([1_700_000_000_000, 1_700_000_001_000, 1_700_000_002_000])
-        expect(observeSchedulerWait).toHaveBeenCalledWith('origin_crawl_delay', 1)
-        expect(observeSchedulerWait).toHaveBeenCalledWith('request_capacity', 0)
+        expect(observeSchedulerWait).toHaveBeenCalledWith('origin_crawl_delay', 1, [7, 42])
+        expect(observeSchedulerWait).toHaveBeenCalledWith('request_capacity', 0, [7, 42])
+    })
+
+    it('allows six concurrent same-origin requests when the request rate and crawl delay are disabled', async () => {
+        const scheduler = new OriginRequestScheduler(
+            new HostBudget({ ...OPTIONS, requestsPerSecond: 0, burst: 6, maxConcurrent: 6 }),
+            300
+        )
+        const releases: Array<() => void> = []
+        const requests = Array.from({ length: 7 }, () =>
+            scheduler.runImage(
+                ORIGIN,
+                Date.now() + 10_000,
+                () =>
+                    new Promise<void>((resolve) => {
+                        releases.push(resolve)
+                    })
+            )
+        )
+
+        await expect(requests[6]).resolves.toEqual({ ran: false, reason: 'connection_limit', waitMs: 0 })
+        expect(releases).toHaveLength(6)
+        releases.forEach((release) => release())
+        await expect(Promise.all(requests.slice(0, 6))).resolves.toEqual(
+            Array.from({ length: 6 }, () => ({ ran: true, value: undefined }))
+        )
     })
 
     it('runs one half-open probe while later requests remain blocked', async () => {

@@ -11,6 +11,7 @@ import { objectsEqual } from 'lib/utils/objects'
 import { experimentsConfigLogic } from '~/scenes/settings/environment/experimentsConfigLogic'
 import { ConversionRateInputType, Experiment } from '~/types'
 
+import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 import { experimentsCalculateRunningTimeCreate } from 'products/experiments/frontend/generated/api'
 import type {
     RunningTimeCalculationInputApi,
@@ -21,7 +22,6 @@ import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { CachedNewExperimentQueryResponse, ExperimentMetricUnion } from '../../../queries/schema/schema-general'
 import { experimentLogic } from '../experimentLogic'
 import { experimentMetricsLogic } from '../experimentMetricsLogic'
-import { isLaunched } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import {
     getFlagVariants,

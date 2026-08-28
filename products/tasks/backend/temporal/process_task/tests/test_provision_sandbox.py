@@ -318,12 +318,12 @@ def test_build_environment_variables_injects_ai_gateway_pair(_api, _jwt, _git):
     "state, expected_resume_run_id, expected_idle",
     [
         ({}, None, None),
-        ({"handoff_resumed": True}, "run-456", None),
-        ({"handoff_resumed": True, "handoff_resume_idle": True}, "run-456", "1"),
-        ({"resume_from_run_id": "run-000", "handoff_resume_idle": True}, "run-000", None),
+        ({"same_run_resume": True}, "run-456", None),
+        ({"same_run_resume": True, "same_run_resume_idle": True}, "run-456", "1"),
+        ({"resume_from_run_id": "run-000", "same_run_resume_idle": True}, "run-000", None),
     ],
 )
-def test_build_environment_variables_marks_only_an_idle_handoff_as_idle(
+def test_build_environment_variables_marks_only_an_idle_same_run_resume_as_idle(
     _api, _jwt, _git, state, expected_resume_run_id, expected_idle
 ):
     env = _build_environment_variables(_context(state=state), MagicMock(), "", "access-token")
@@ -333,7 +333,7 @@ def test_build_environment_variables_marks_only_an_idle_handoff_as_idle(
 
 
 @patch(f"{_PROVISION}.emit_agent_log")
-@patch(f"{_PROVISION}.Sandbox.get_by_id")
+@patch(f"{_PROVISION}.get_sandbox_class_for_sandbox_id")
 @pytest.mark.parametrize(
     "used_snapshot, expected_checkout",
     [
@@ -342,9 +342,9 @@ def test_build_environment_variables_marks_only_an_idle_handoff_as_idle(
     ],
 )
 def test_checkout_branch_creates_missing_branch_from_current_default_branch(
-    mock_get_sandbox, _mock_emit_agent_log, used_snapshot, expected_checkout
+    mock_get_sandbox_class, _mock_emit_agent_log, used_snapshot, expected_checkout
 ):
-    sandbox = mock_get_sandbox.return_value
+    sandbox = mock_get_sandbox_class.return_value.get_by_id.return_value
 
     def execute(command, **_kwargs):
         exit_code = 2 if "git ls-remote" in command else 0
@@ -452,7 +452,10 @@ def test_build_environment_variables_omits_otel_env_when_flag_disabled(_api, _jw
     assert not any(key.startswith("POSTHOG_AGENT_OTEL_") for key in env)
 
 
-def test_build_environment_variables_forwards_run_context_to_token_minting():
+@patch(f"{_PROVISION}.get_git_identity_env_vars", return_value={})
+@patch(f"{_PROVISION}.get_sandbox_jwt_public_key", return_value="pub")
+@patch(f"{_PROVISION}.get_sandbox_api_url", return_value="https://api.example")
+def test_build_environment_variables_forwards_run_context_to_token_minting(_api, _jwt, _git):
     """The fresh-provisioning path must forward team, origin, stage, and internal
     into token minting; a dropped kwarg silently degrades every fresh run to the
     Python gateway."""

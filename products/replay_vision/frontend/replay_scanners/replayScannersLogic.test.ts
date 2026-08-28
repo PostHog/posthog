@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
 import { useMocks } from '~/mocks/jest'
 import { tagsModel } from '~/models/tagsModel'
 import { initKeaTests } from '~/test/init'
@@ -346,6 +348,51 @@ describe('replayScannersLogic', () => {
             })
         })
 
+        it('a persisted toggle completes without a success toast', async () => {
+            const successToast = jest.spyOn(lemonToast, 'success')
+            logic.actions.loadScannersSuccess(scanners, scanners.length)
+
+            await expectLogic(logic, () => logic.actions.toggleScannerEnabled('a')).toDispatchActions([
+                'toggleScannerEnabledDone',
+            ])
+
+            expect(successToast).not.toHaveBeenCalled()
+            expect(logic.values.togglingIds).toEqual([])
+        })
+
+        it('ignores a second toggle of the same scanner while one is in flight', async () => {
+            logic.actions.loadScannersSuccess(scanners, scanners.length)
+
+            await expectLogic(logic, () => {
+                logic.actions.toggleScannerEnabled('a')
+                logic.actions.toggleScannerEnabled('a')
+            })
+                .toMatchValues({
+                    scanners: expect.arrayContaining([expect.objectContaining({ id: 'a', enabled: false })]),
+                    togglingIds: ['a'],
+                })
+                .toFinishAllListeners()
+
+            expect(logic.values.scanners.find((s) => s.id === 'a')?.enabled).toBe(false)
+            expect(logic.values.togglingIds).toEqual([])
+        })
+
+        it('a failed toggle reverts the row and shows an error toast', async () => {
+            useMocks({
+                patch: { '/api/projects/:team/vision/scanners/:id/': () => [500, {}] },
+            })
+            const errorToast = jest.spyOn(lemonToast, 'error')
+            logic.actions.loadScannersSuccess(scanners, scanners.length)
+
+            await expectLogic(logic, () => logic.actions.toggleScannerEnabled('a')).toDispatchActions([
+                'revertScannerEnabled',
+            ])
+
+            expect(logic.values.scanners.find((s) => s.id === 'a')?.enabled).toBe(true)
+            expect(logic.values.togglingIds).toEqual([])
+            expect(errorToast).toHaveBeenCalledWith(expect.stringContaining('Failed to disable scanner'))
+        })
+
         it('revertScannerEnabled flips the row back and clears the in-flight id', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadScannersSuccess(scanners, scanners.length)
@@ -411,6 +458,56 @@ describe('replayScannersLogic', () => {
             expect(quotaLogic.values.quota?.projected_monthly_credits).toBe(500)
             quotaLogic.unmount()
         })
+    })
+
+    describe('duplicateScanner', () => {
+        it('calls the duplicate endpoint and routes to the configure page of the copy', async () => {
+            const duplicated: string[] = []
+            useMocks({
+                post: {
+                    '/api/projects/:team/vision/scanners/:id/duplicate/': ({ params }: { params: any }) => {
+                        duplicated.push(String(params.id))
+                        return [201, makeScanner({ id: 'new-id', name: 'Confused checkout (copy)', enabled: false })]
+                    },
+                },
+            })
+            logic.actions.loadScannersSuccess(scanners, scanners.length)
+
+            await expectLogic(logic, () => logic.actions.duplicateScanner('a')).toFinishAllListeners()
+
+            expect(duplicated).toEqual(['a'])
+            expect(router.values.location.pathname).toContain('/replay-vision/new-id/configure')
+            expect(logic.values.duplicatingIds).toEqual([])
+        })
+
+        it.each([
+            {
+                case: 'a validation failure with a detail',
+                response: [400, { type: 'validation_error', code: 'invalid', detail: 'Bad config' }],
+                expectedMessage: 'Failed to duplicate scanner: Bad config',
+            },
+            {
+                case: 'a failure with no error body',
+                response: [500, null],
+                expectedMessage: 'Failed to duplicate scanner',
+            },
+        ])(
+            'shows an error, stays put, and releases the in-flight guard on $case',
+            async ({ response, expectedMessage }) => {
+                useMocks({
+                    post: { '/api/projects/:team/vision/scanners/:id/duplicate/': () => response },
+                })
+                const errorToast = jest.spyOn(lemonToast, 'error')
+                logic.actions.loadScannersSuccess(scanners, scanners.length)
+                const pathBefore = router.values.location.pathname
+
+                await expectLogic(logic, () => logic.actions.duplicateScanner('a')).toFinishAllListeners()
+
+                expect(errorToast).toHaveBeenCalledWith(expectedMessage)
+                expect(router.values.location.pathname).toBe(pathBefore)
+                expect(logic.values.duplicatingIds).toEqual([])
+            }
+        )
     })
 
     it('setChartDateRange updates the chart date range', async () => {

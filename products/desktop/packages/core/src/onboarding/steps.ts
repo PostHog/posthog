@@ -24,6 +24,8 @@ export interface DetectedRepo {
 export function computeActiveSteps(options: {
   /** Undefined while the integrations query is loading; the step only drops on a confirmed connection. */
   hasGithubIntegration: boolean | undefined;
+  /** Undefined while the local git and gh checks are loading. */
+  cliReady: boolean | undefined;
   /** Undefined until the project list has loaded, so a slow list cannot skip a real choice. */
   projectCount: number | undefined;
   consentRequired: boolean | undefined;
@@ -31,7 +33,12 @@ export function computeActiveSteps(options: {
   return ONBOARDING_STEPS.filter((step) => {
     if (step === "project-select" && options.projectCount === 1) return false;
     if (step === "consent" && options.consentRequired === false) return false;
-    if (step === "install-cli" && options.hasGithubIntegration === true) {
+    // Two independent reasons to skip: a GitHub integration means tasks run in
+    // the cloud, and a ready local toolchain leaves the step nothing to offer.
+    if (
+      step === "install-cli" &&
+      (options.hasGithubIntegration === true || options.cliReady === true)
+    ) {
       return false;
     }
     return true;

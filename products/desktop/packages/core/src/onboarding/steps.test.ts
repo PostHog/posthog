@@ -11,8 +11,11 @@ import {
   stepDirection,
 } from "./steps";
 
-const allSteps = {
+type StepGates = Parameters<typeof computeActiveSteps>[0];
+
+const allSteps: StepGates = {
   hasGithubIntegration: undefined,
+  cliReady: undefined,
   projectCount: 2,
   consentRequired: true,
 };
@@ -37,14 +40,27 @@ describe("computeActiveSteps", () => {
     );
   });
 
-  it("drops install-cli only on a confirmed github connection", () => {
-    expect(
-      computeActiveSteps({ ...allSteps, hasGithubIntegration: true }),
-    ).not.toContain("install-cli");
-    expect(
-      computeActiveSteps({ ...allSteps, hasGithubIntegration: false }),
-    ).toContain("install-cli");
+  it.each<{ name: string; options: Partial<StepGates> }>([
+    {
+      name: "a confirmed github connection",
+      options: { hasGithubIntegration: true },
+    },
+    { name: "a ready local toolchain", options: { cliReady: true } },
+  ])("drops install-cli on $name", ({ options }) => {
+    expect(computeActiveSteps({ ...allSteps, ...options })).not.toContain(
+      "install-cli",
+    );
+  });
+
+  it("keeps install-cli until a skip reason is confirmed", () => {
     expect(computeActiveSteps(allSteps)).toContain("install-cli");
+    expect(
+      computeActiveSteps({
+        ...allSteps,
+        hasGithubIntegration: false,
+        cliReady: false,
+      }),
+    ).toContain("install-cli");
   });
 
   it("includes consent from the sampled requirement", () => {
@@ -63,6 +79,7 @@ describe("computeActiveSteps", () => {
 describe("nearestActiveStep", () => {
   const withoutConditionals = computeActiveSteps({
     hasGithubIntegration: true,
+    cliReady: undefined,
     projectCount: 2,
     consentRequired: true,
   });
@@ -97,6 +114,7 @@ describe("nearestActiveStep", () => {
 describe("step navigation", () => {
   const steps = computeActiveSteps({
     hasGithubIntegration: undefined,
+    cliReady: undefined,
     projectCount: 2,
     consentRequired: true,
   });

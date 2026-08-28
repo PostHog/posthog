@@ -1,6 +1,9 @@
-from typing import get_args
+from typing import Any, get_args
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
+from unittest.mock import patch
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
@@ -12,9 +15,25 @@ from products.product_analytics.backend.facade.models import Insight
 from products.product_analytics.backend.presentation.insight import (
     AUTO_WRAPPED_INSIGHT_QUERY_KINDS,
     BARE_RENDERED_INSIGHT_VIZ_SOURCE_KINDS,
+    MCPInsightSerializer,
 )
 
 from ee.api.test.base import LicensedTestMixin
+
+
+class TestMCPInsightSerializer(SimpleTestCase):
+    def test_preserves_explicit_box_plot_grouping_nulls(self) -> None:
+        normalized_query = MCPInsightSerializer().validate_query(
+            {
+                "kind": "DataVisualizationNode",
+                "source": {"kind": "HogQLQuery", "query": "select 1"},
+                "chartSettings": {"boxPlot": {"xAxisColumn": None, "seriesColumn": None}},
+            }
+        )
+
+        box_plot = normalized_query["chartSettings"]["boxPlot"]
+        assert box_plot["xAxisColumn"] is None
+        assert box_plot["seriesColumn"] is None
 
 
 class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatchingTest):
@@ -185,6 +204,55 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             },
             expected_status=status.HTTP_201_CREATED,
         )
+
+    @patch("products.product_analytics.backend.presentation.insight_write_validation.report_user_action")
+    def test_saves_a_query_the_rules_reject_while_enforcement_is_off(self, mock_report: Any) -> None:
+        insight_id, _ = self.dashboard_api.create_insight(
+            {"name": "Empty series", "query": {"kind": "StickinessQuery", "series": []}},
+            expected_status=status.HTTP_201_CREATED,
+        )
+
+        assert Insight.objects.filter(pk=insight_id).exists()
+        reported = [call for call in mock_report.call_args_list if call[0][1] == "insight write validation rejected"]
+        assert len(reported) == 1
+        assert reported[0][0][2]["rule_code"] == "insight_requires_at_least_one_series"
+        assert reported[0][0][2]["mode"] == "shadow"
+
+    @patch(
+        "products.product_analytics.backend.presentation.insight_write_validation.feature_enabled_or_false",
+        return_value=True,
+    )
+    def test_rejects_a_query_the_rules_reject_once_enforced(self, _flag: Any) -> None:
+        insight_count_before = Insight.objects.count()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/",
+            {"name": "Empty series", "query": {"kind": "StickinessQuery", "series": []}},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "insight_requires_at_least_one_series"
+        assert response.json()["attr"] == "query"
+        assert Insight.objects.count() == insight_count_before
+
+    @patch(
+        "products.product_analytics.backend.presentation.insight_write_validation.feature_enabled_or_false",
+        return_value=True,
+    )
+    def test_accepts_filters_the_rules_reject_when_the_stored_query_still_renders(self, _flag: Any) -> None:
+        insight_id, _ = self.dashboard_api.create_insight(
+            {
+                "name": "Insight with a query",
+                "query": {"kind": "StickinessQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            }
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
+            {"filters": {"insight": "TRENDS", "events": []}},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
 
     def test_can_list_insights_including_those_with_only_queries(self) -> None:
         self.dashboard_api.create_insight({"name": "Insight with filters"})

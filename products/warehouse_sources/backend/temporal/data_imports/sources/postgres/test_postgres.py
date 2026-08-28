@@ -714,6 +714,40 @@ class TestPostgresSourceNonRetryableErrors:
         assert friendly, "PAM authentication failure should surface an actionable message"
         assert "credentials" in friendly[0]
 
+    def test_circuit_breaker_too_many_auth_failures_is_non_retryable(self, source):
+        # Supavisor's "(ECIRCUITBREAKER)" code also covers a distinct, transient pooler-bookkeeping
+        # condition ("failed to retrieve database credentials", see postgres.py's
+        # `_CONNECTION_DROPPED_ERROR_SUBSTRINGS`) — confirm that variant does NOT trip this key, so
+        # the two "(ECIRCUITBREAKER)" wordings can't be confused for each other.
+        non_retryable = source.get_non_retryable_errors()
+        pooler_bookkeeping_msg = (
+            'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+            "FATAL:  (ECIRCUITBREAKER) failed to retrieve database credentials after multiple "
+            "attempts, new connections are temporarily blocked"
+        )
+        assert not any(pattern in pooler_bookkeeping_msg for pattern in non_retryable), (
+            "the transient pooler-bookkeeping ECIRCUITBREAKER wording must stay retryable"
+        )
+
+        auth_failure_msg = (
+            'connection failed: connection to server at "18.176.230.146", port 5432 failed: '
+            "FATAL:  (ECIRCUITBREAKER) too many authentication failures, new connections are "
+            "temporarily blocked"
+        )
+        assert "too many authentication failures" in non_retryable
+        assert any(pattern in auth_failure_msg for pattern in non_retryable)
+
+    def test_circuit_breaker_too_many_auth_failures_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = (
+            'connection failed: connection to server at "18.176.230.146", port 5432 failed: '
+            "FATAL:  (ECIRCUITBREAKER) too many authentication failures, new connections are "
+            "temporarily blocked"
+        )
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "the auth-failure circuit breaker should surface an actionable message"
+        assert "credentials" in friendly[0]
+
     def test_supavisor_enotfound_tenant_user_uses_new_key(self, source):
         # The older tenant/user patterns don't cover the newer "(ENOTFOUND) tenant/user" wording,
         # so confirm it's specifically the new key that recognises this message.
@@ -757,6 +791,22 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Supavisor nxdomain pooler DNS failure should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Supavisor reports ENETUNREACH (no route to the upstream backend's network) with its
+            # erlang-tuple wording, which never contains libpq's "Network is unreachable". Distinct
+            # from the sibling ":etimedout"/":econnrefused" tuples, which are transient and retryable.
+            'connection failed: connection to server at "203.0.113.10", port 5432 failed: FATAL:  Failed to connect to database: {:error, :enetunreach}',
+            'connection failed: connection to server at "203.0.113.20", port 6543 failed: FATAL:  Failed to connect to database: {:error, :enetunreach}',
+        ],
+    )
+    def test_supavisor_enetunreach_pooler_routing_failure_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, f"Supavisor enetunreach routing failure should surface an actionable message: {error_msg}"
+        assert "IPv4" in friendly[0]
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -1873,6 +1923,16 @@ class TestIsConnectionDroppedError:
             # permanent rejection — only the "no error details available" variant (a purely local,
             # pre-handshake failure) is transient, so the match must not broaden to the bare prefix.
             psycopg.OperationalError("connection is bad: FATAL: password authentication failed"),
+            # Supavisor reuses the "(ECIRCUITBREAKER)" code for a distinct, permanent condition: its
+            # own circuit breaker tripped by repeated authentication failures against a tenant, not
+            # the transient pooler-bookkeeping variant ("failed to retrieve database credentials")
+            # kept retryable above. Broadening the match to the bare code would wrongly retry a
+            # deterministic credential rejection — see `get_non_retryable_errors` in source.py.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "18.176.230.146", port 5432 failed: '
+                "FATAL:  (ECIRCUITBREAKER) too many authentication failures, new connections are "
+                "temporarily blocked"
+            ),
         ],
     )
     def test_unrelated_errors_are_not_detected(self, error):
@@ -2230,20 +2290,28 @@ class TestResolveHostaddrWithTimeout:
             assert _resolve_hostaddr_with_timeout(host, 5432, 15) is None
         getaddrinfo_mock.assert_not_called()
 
-    def test_resolved_hostname_returns_every_address_in_order(self):
+    @pytest.mark.parametrize(
+        "ipv6_routes,expected",
+        [
+            (True, ["2001:db8::5", "10.0.0.5"]),
+            (False, ["10.0.0.5"]),
+        ],
+    )
+    def test_resolved_hostname_returns_the_addresses_this_host_can_reach(self, ipv6_routes, expected):
         # A dual-stack host resolving to more than one address must return all of them, in order —
-        # collapsing to just the first would defeat psycopg's own per-address failover and turn an
-        # unreachable address family (e.g. no IPv6 egress) into a hard connection failure instead of
-        # falling back to the other address.
+        # collapsing to just the first would defeat psycopg's own per-address failover. An address
+        # family with no route is worse than useless though: psycopg reports only the last attempt's
+        # error, so a trailing unreachable address overwrites the real one from an address that did
+        # reach the server, and callers that read that message decide on the wrong error.
         addrinfo = [
             (socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("2001:db8::5", 5432)),
             (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("10.0.0.5", 5432)),
         ]
-        with patch(
-            "posthog.psycopg_helpers.socket.getaddrinfo",
-            return_value=addrinfo,
+        with (
+            patch("posthog.psycopg_helpers.socket.getaddrinfo", return_value=addrinfo),
+            patch("posthog.psycopg_helpers.has_ipv6_route", return_value=ipv6_routes),
         ):
-            assert _resolve_hostaddr_with_timeout("db.example.com", 5432, 15) == ["2001:db8::5", "10.0.0.5"]
+            assert _resolve_hostaddr_with_timeout("db.example.com", 5432, 15) == expected
 
     def test_resolved_hostname_dedupes_repeated_addresses(self):
         # getaddrinfo can repeat an address across otherwise-distinct tuples (e.g. differing canonical
@@ -2345,6 +2413,7 @@ class TestConnectToPostgresMultiAddressFailover:
                 "posthog.psycopg_helpers.socket.getaddrinfo",
                 return_value=addrinfo,
             ),
+            patch("posthog.psycopg_helpers.has_ipv6_route", return_value=True),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect"
             ) as connect_mock,
@@ -3697,6 +3766,19 @@ class TestValidateCredentialsErrorMapping:
                 "blocking PostHog's IP addresses. Use a host that's reachable over IPv4 (for example a "
                 "connection pooler), enable your provider's IPv4 add-on, or add PostHog's IP addresses to your "
                 "firewall allowlist, then try again.",
+            ),
+            # Supavisor trips its own circuit breaker after repeated authentication failures against
+            # a tenant. Distinct from the "(ECIRCUITBREAKER) failed to retrieve database credentials"
+            # pooler-bookkeeping wording (kept retryable elsewhere) — this one means the credentials
+            # themselves keep being rejected, so it must surface actionable credential guidance
+            # instead of falling through to the generic fallback message below.
+            (
+                'connection failed: connection to server at "18.176.230.146", port 5432 failed: '
+                "FATAL:  (ECIRCUITBREAKER) too many authentication failures, new connections are "
+                "temporarily blocked",
+                "Your database's connection pooler has temporarily blocked new connections after "
+                'repeated authentication failures ("too many authentication failures"). This usually '
+                "means the username or password is wrong. Check your credentials and try again.",
             ),
             # Unmapped errors fall back to the generic message.
             (
