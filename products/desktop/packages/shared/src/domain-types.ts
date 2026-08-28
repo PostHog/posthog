@@ -92,6 +92,8 @@ export interface Task {
   json_schema?: Record<string, unknown> | null;
   signal_report?: string | null;
   internal?: boolean;
+  /** Key of the server-side flow that created the task, e.g. `desktop_onboarding_session:<user_id>`. */
+  origin_key?: string | null;
   runtime?: AgentRuntime;
   /** Backend channel (tasks product Channel UUID) this task is owned by. */
   channel?: string | null;
