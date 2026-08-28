@@ -168,10 +168,14 @@ export const marketingRetentionLogic = kea<marketingRetentionLogicType>([
             (s) => [s.conversion_goals],
             (conversionGoals: ConversionGoalFilter[]): { value: string; label: string }[] => [
                 { value: ANY_VISIT_RETURN, label: 'Any visit' },
-                ...attributableConversionGoals(conversionGoals).map((goal) => ({
-                    value: goal.conversion_goal_id,
-                    label: goal.conversion_goal_name,
-                })),
+                ...attributableConversionGoals(conversionGoals)
+                    // The backend rejects an "All events" goal (an event goal with no event set), so
+                    // offering it here only ever paints the table as an error.
+                    .filter((goal) => goal.kind !== NodeKind.EventsNode || !!goal.event)
+                    .map((goal) => ({
+                        value: goal.conversion_goal_id,
+                        label: goal.conversion_goal_name,
+                    })),
             ],
         ],
         query: [
