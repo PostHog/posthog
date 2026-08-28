@@ -1820,5 +1820,46 @@ describe('infiniteListLogic', () => {
             expect(personItems).toHaveLength(1)
             expect((personItems[0] as any)._recentContext.sourceValue).toBe('user-distinct-id')
         })
+
+        it('resolves the recorded sourceValue when a bare recent is selected by keyboard', async () => {
+            // A recent row is stored as { name } with no id, so EventMetadata's getValue (which
+            // reads id) returns undefined. Pressing Enter must fall back to the recorded
+            // sourceValue, matching a mouse click — otherwise selectItem gets a null value, the
+            // filter is never applied, and the dropdown stays open.
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.EventMetadata,
+                groupName: 'Event metadata',
+                value: 'event',
+                item: { name: 'event' },
+            })
+
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'recents-keyboard-select-test',
+                listGroupType: TaxonomicFilterGroupType.RecentFilters,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventMetadata, TaxonomicFilterGroupType.RecentFilters],
+                showNumericalPropsOnly: false,
+            })
+            listLogic.mount()
+
+            const index = listLogic.values.results.findIndex(
+                (item) => hasRecentContext(item) && item._recentContext.sourceValue === 'event'
+            )
+            expect(index).toBeGreaterThanOrEqual(0)
+
+            await expectLogic(listLogic, () => {
+                listLogic.actions.setIndex(index)
+                listLogic.actions.selectSelected()
+            }).toDispatchActions([
+                ({ type, payload }) =>
+                    type === listLogic.actionTypes.selectItem &&
+                    payload.group.type === TaxonomicFilterGroupType.EventMetadata &&
+                    payload.value === 'event',
+            ])
+
+            listLogic.unmount()
+            recentLogic.unmount()
+        })
     })
 })

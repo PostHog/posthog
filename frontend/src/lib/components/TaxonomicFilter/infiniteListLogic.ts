@@ -2226,7 +2226,14 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 const isDisabledItem = selectedItem && itemGroup?.getIsDisabled?.(selectedItem)
 
                 if (!isDisabledItem && itemGroup) {
-                    const itemValue = selectedItem ? itemGroup.getValue?.(selectedItem) : null
+                    // Recent rows are stripped to { name, id? }, so getValue on the source group
+                    // returns undefined. Fall back to the canonical sourceValue, mirroring
+                    // InfiniteListRow, so keyboard selection resolves the same value as a click.
+                    const itemValue = selectedItem
+                        ? hasRecentContext(selectedItem)
+                            ? (selectedItem._recentContext.sourceValue ?? itemGroup.getValue?.(selectedItem))
+                            : itemGroup.getValue?.(selectedItem)
+                        : null
                     actions.selectItem(itemGroup, itemValue ?? null, selectedItem, {
                         position: values.index,
                     })
