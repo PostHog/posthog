@@ -2597,7 +2597,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_eval_source": {
             "label": "AI eval source (LLM)",
             "description": "The source that triggered this evaluation.",
-            "examples": ["signals-grouping", "sandboxed-agent"],
+            "examples": ["signals-grouping", "sandboxed-agent", "one-shot"],
         },
         "$ai_evaluation_type": {
             "label": "AI evaluation type (LLM)",

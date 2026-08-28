@@ -786,6 +786,7 @@ SPECTACULAR_SETTINGS = {
         "LoopTriggerTypeEnum": ["schedule", "github", "api"],
         "CustomPropertyDisplayTypeEnum": [
             "text",
+            "link",
             "number",
             "currency",
             "percent",

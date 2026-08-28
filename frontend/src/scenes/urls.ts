@@ -330,6 +330,7 @@ export const urls = {
             : '/health/alerts',
     webAnalyticsBotAnalytics: (): string => '/web/bots',
     webAnalyticsPagePerformance: (): string => '/web/page-performance',
+    webAnalyticsAgents: (): string => '/web/agents',
     webAnalyticsHealth: (): string => '/web/health',
     webAnalyticsRecap: (): string => '/web/recap',
     pipelineStatus: (): string => '/health/pipeline-status',
