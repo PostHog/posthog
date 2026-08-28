@@ -457,7 +457,11 @@ export function OperatorValueSelect({
             {sqlMode && editable && type && propertyKey && (
                 <div className="shrink grow-[1000] min-w-[10rem] overflow-hidden" data-attr="taxonomic-value-select">
                     <HogQLEditor
-                        value={typeof value === 'string' ? value : ''}
+                        // Always start empty. `value` here is a literal comparison value (a HogQL
+                        // filter keeps its expression in `key`, and this row never renders for one),
+                        // so seeding it would drop a bare literal like `Chrome` into the editor and
+                        // let the user commit an expression that fails to parse.
+                        value=""
                         onChange={(expression) => onHogQLExpressionChange?.(expression)}
                         metadataSource={metadataSource}
                         globals={hogQLGlobals}
